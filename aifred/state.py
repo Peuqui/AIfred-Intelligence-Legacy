@@ -1096,6 +1096,12 @@ class AIState(rx.State):
                 self.add_debug(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
                 yield
 
+                # Separator nach Haupt-LLM (matching other modes)
+                from .lib.logging_utils import console_separator
+                console_separator()
+                self.add_debug("────────────────────")
+                yield
+
                 # Format <think> tags as collapsible (if present)
                 from .lib.formatting import format_thinking_process
                 formatted_response = format_thinking_process(
@@ -1121,17 +1127,13 @@ class AIState(rx.State):
             # ============================================================
             # Kompression läuft NACH der Antwort, während User liest
             # Eingabefelder werden während Kompression disabled
-            self.add_debug(f"🔍 Checking compression: {len(self.chat_history)} messages, min required: {2}")
-            yield
 
             try:
                 from .lib.context_manager import summarize_history_if_needed
-                from .lib.config import HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION
                 from .backends import BackendFactory
 
-                # Nur prüfen wenn History signifikant ist
-                if len(self.chat_history) >= HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION:
-                    self.add_debug(f"✅ Compression check passed: {len(self.chat_history)} >= {HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION}")
+                # Immer prüfen - token-basiert (keine Message-Count-Prüfung mehr)
+                if True:  # summarize_history_if_needed macht alle Checks intern
                     yield
                     # Backend für Summarization
                     temp_backend = BackendFactory.create(
@@ -1147,7 +1149,6 @@ class AIState(rx.State):
 
                     # Setze Kompression-Flag (disabled Input-Felder)
                     self.is_compressing = True
-                    self.add_debug("🔍 Prüfe ob History-Kompression nötig ist...")
                     yield
 
                     # Summarization check (yields events wenn nötig)
@@ -1179,18 +1180,6 @@ class AIState(rx.State):
 
                     # Kompression fertig - Input-Felder wieder enablen
                     self.is_compressing = False
-                    if compressed:
-                        self.add_debug("✅ History-Kompression abgeschlossen - Eingabe wieder möglich")
-                    else:
-                        self.add_debug("ℹ️ Keine Kompression nötig")
-                    yield
-
-                    # Separator nach Compression-Check (nur wenn Check durchgeführt wurde)
-                    console_separator()  # Schreibt in Log-File
-                    self.add_debug("────────────────────")  # Zeigt in Debug-Console
-                    yield
-                else:
-                    self.add_debug(f"❌ History zu kurz: {len(self.chat_history)} < {HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION}")
                     yield
 
             except Exception as e:
@@ -1201,7 +1190,7 @@ class AIState(rx.State):
                 self.is_compressing = False
                 yield
 
-            # Separator nach Compression-Check (immer, auch wenn zu kurz)
+            # Separator nach Compression-Check (einmal am Ende)
             console_separator()  # Schreibt in Log-File
             self.add_debug("────────────────────")  # Zeigt in Debug-Console
             yield

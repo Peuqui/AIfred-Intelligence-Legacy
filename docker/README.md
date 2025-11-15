@@ -9,17 +9,17 @@ Vector Database für semantischen Cache von Web-Recherchen.
 
 **Starten:**
 ```bash
-docker-compose up -d chromadb
+docker compose up -d chromadb
 ```
 
 **Stoppen:**
 ```bash
-docker-compose stop chromadb
+docker compose stop chromadb
 ```
 
 **Status prüfen:**
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 ### 2. SearXNG (Optional)
@@ -27,7 +27,7 @@ Lokale Meta-Suchmaschine für Web-Recherchen.
 
 **Starten (mit ChromaDB):**
 ```bash
-docker-compose --profile full up -d
+docker compose --profile full up -d
 ```
 
 **Zugriff:** http://localhost:8888
@@ -37,37 +37,37 @@ docker-compose --profile full up -d
 ### Alle Services starten
 ```bash
 # Nur ChromaDB (Standard)
-docker-compose up -d chromadb
+docker compose up -d chromadb
 
 # ChromaDB + SearXNG
-docker-compose --profile full up -d
+docker compose --profile full up -d
 ```
 
 ### Alle Services stoppen
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Logs anzeigen
 ```bash
 # Alle Services
-docker-compose logs -f
+docker compose logs -f
 
 # Nur ChromaDB
-docker-compose logs -f chromadb
+docker compose logs -f chromadb
 
 # Nur SearXNG
-docker-compose logs -f searxng
+docker compose logs -f searxng
 ```
 
 ### ChromaDB Cache zurücksetzen
 ```bash
 # Option 1: Container neu starten + Daten löschen
-docker-compose stop chromadb
+docker compose stop chromadb
 cd ..
 rm -rf aifred_vector_cache/
 cd docker
-docker-compose up -d chromadb
+docker compose up -d chromadb
 
 # Option 2: Nur Collection löschen (siehe Haupt-README)
 ```

@@ -1,148 +1,148 @@
-**🌍 Languages:** [English](README.md) | [Deutsch](README.de.md)
+**🌍 Sprachen:** [English](README.md) | [Deutsch](README.de.md)
 
 ---
 
-# 🤖 AIfred Intelligence - Advanced AI Assistant
+# 🤖 AIfred Intelligence - Fortschrittlicher KI-Assistent
 
-**Production-Ready AI Assistant with Multi-LLM Support, Web Research & Voice Interface**
+**Produktionsreifer KI-Assistent mit Multi-LLM-Unterstützung, Web-Recherche & Sprachschnittstelle**
 
-AIfred Intelligence is an advanced AI assistant with automatic web research, multi-model support, and history compression for unlimited conversations.
+AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web-Recherche, Multi-Model-Support und History-Kompression für unbegrenzte Konversationen.
 
 ---
 
-## 🎉 Latest Updates (2025-11-15)
+## 🎉 Neueste Updates (2025-11-15)
 
-### 🔍 Enhanced Debug Logging & Query Visibility
-- ✅ **Consistent Debug Output** across all research modes (Own Knowledge, Automatik, Quick, Deep)
-- ✅ **Precise Preload Timing** with `✅ Main-LLM loaded (X.Xs)` in all modes
-- ✅ **Optimized Query Display** shows LLM-generated search terms: `🔎 Optimized Query: [terms]`
-- ✅ **Backend-Aware Timing**: Ollama (actual load time) vs vLLM/TabbyAPI (prep time)
-- 🔧 Comprehensive debug messages added: Token stats, Temperature, TTFT, Tokens/s
-- **Impact**: Professional debug output, easier performance optimization, better web search quality assessment
+### 🔍 Verbessertes Debug-Logging & Query-Anzeige
+- ✅ **Konsistente Debug-Ausgabe** über alle Recherche-Modi (Eigenes Wissen, Automatik, Schnell, Ausführlich)
+- ✅ **Präzises Preload-Timing** mit `✅ Haupt-LLM vorgeladen (X.Xs)` in allen Modi
+- ✅ **Optimierte Query-Anzeige** zeigt LLM-generierte Suchbegriffe: `🔎 Optimierte Query: [terms]`
+- ✅ **Backend-abhängiges Timing**: Ollama (echte Ladezeit) vs vLLM/TabbyAPI (Vorbereitungszeit)
+- 🔧 Umfassende Debug-Meldungen hinzugefügt: Token-Statistiken, Temperature, TTFT, Tokens/s
+- **Auswirkung**: Professionelle Debug-Ausgabe, einfachere Performance-Optimierung, bessere Qualitätsbewertung der Web-Recherche
 
-### 🔧 Research Mode Persistence (2025-11-14)
-- ✅ **Research mode now persists** across application restarts
-- 🔧 Fixed missing `_save_settings()` call in `set_research_mode_display()`
-- **Impact**: Your preferred research mode (Automatik/Quick/Deep/None) is remembered
+### 🔧 Persistenz des Research-Modus (2025-11-14)
+- ✅ **Research-Modus bleibt erhalten** über Anwendungsneustarts hinweg
+- 🔧 Fehlender `_save_settings()`-Aufruf in `set_research_mode_display()` behoben
+- **Auswirkung**: Dein bevorzugter Research-Modus (Automatik/Schnell/Ausführlich/Keiner) wird gespeichert
 
-### 🎯 Progress UI System Complete - MILESTONE (2025-11-14)
-- ✅ **Full Progress Feedback** across all 4 research modes (Automatik, Quick, Deep, None)
-- ✅ **Pulsing Animation** for "Generating Answer" in all modes (including "Own Knowledge")
-- ✅ **Web-Scraping Progress Bar** now visible (1/3, 2/3, 3/3) with orange fill
-- ✅ **Dynamic Status Text** reflects system activity in real-time
-- **Impact**: Professional, consistent UI feedback - users always know what the system is doing
+### 🎯 Progress-UI-System vollständig - MEILENSTEIN (2025-11-14)
+- ✅ **Vollständiges Progress-Feedback** über alle 4 Research-Modi (Automatik, Schnell, Ausführlich, Keiner)
+- ✅ **Pulsierende Animation** für "Generiere Antwort" in allen Modi (inklusive "Eigenes Wissen")
+- ✅ **Web-Scraping-Fortschrittsbalken** jetzt sichtbar (1/3, 2/3, 3/3) mit oranger Füllung
+- ✅ **Dynamischer Statustext** zeigt Systemaktivität in Echtzeit
+- **Auswirkung**: Professionelles, konsistentes UI-Feedback - Nutzer wissen immer, was das System gerade tut
 
-See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
+Siehe [CHANGELOG.md](CHANGELOG.md) für detaillierte Änderungen.
 
 ---
 
 ## ✨ Features
 
-### 🎯 Core Features
-- **Multi-Backend Support**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2)
-- **Qwen3 Thinking Mode**: Chain-of-Thought reasoning for complex tasks (Ollama + vLLM)
-- **Automatic Web Research**: AI decides autonomously when research is needed
-- **History Compression**: Intelligent compression at 70% context utilization
-- **Voice Interface**: Speech-to-Text and Text-to-Speech integration
-- **Vector Cache**: ChromaDB-based semantic cache for web research (Docker)
-- **Per-Backend Settings**: Each backend remembers its preferred models
+### 🎯 Kern-Features
+- **Multi-Backend-Unterstützung**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2)
+- **Qwen3-Denkmodus**: Chain-of-Thought-Reasoning für komplexe Aufgaben (Ollama + vLLM)
+- **Automatische Web-Recherche**: KI entscheidet selbst, wann Recherche nötig ist
+- **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung
+- **Sprachschnittstelle**: Speech-to-Text und Text-to-Speech Integration
+- **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
+- **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle
 
-### 🔧 Technical Highlights
-- **Reflex Framework**: React frontend generated from Python
-- **WebSocket Streaming**: Real-time updates without polling
-- **Adaptive Temperature**: AI selects temperature based on question type
-- **Token Management**: Dynamic context window calculation
-- **Debug Console**: Comprehensive logging and monitoring
-- **ChromaDB Server Mode**: Thread-safe vector DB via Docker (0.0 distance for exact matches)
-- **GPU Detection**: Automatic detection and warnings for incompatible backend-GPU combinations ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
+### 🔧 Technische Highlights
+- **Reflex-Framework**: React-Frontend aus Python generiert
+- **WebSocket-Streaming**: Echtzeit-Updates ohne Polling
+- **Adaptive Temperatur**: KI wählt Temperatur basierend auf Fragetyp
+- **Token-Management**: Dynamische Context-Window-Berechnung
+- **Debug-Konsole**: Umfangreiches Logging und Monitoring
+- **ChromaDB-Server-Modus**: Thread-sichere Vector-DB via Docker (0.0 Distance für exakte Matches)
+- **GPU-Erkennung**: Automatische Erkennung und Warnung bei inkompatiblen Backend-GPU-Kombinationen ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
 
 ---
 
 ## 🔄 Research Mode Workflows
 
-AIfred offers 4 different research modes, each using different strategies depending on requirements. Here's the detailed workflow for each mode:
+AIfred bietet 4 verschiedene Research-Modi, die je nach Anforderung unterschiedliche Strategien verwenden. Hier ist der detaillierte Ablauf jedes Modus:
 
-### 📊 LLM Calls Overview
+### 📊 LLM Calls Übersicht
 
-| Mode | Min LLM Calls | Max LLM Calls | Typical Duration |
-|------|---------------|---------------|------------------|
-| **Own Knowledge** | 1 | 1 | 5-30s |
+| Modus | Min LLM Calls | Max LLM Calls | Typische Dauer |
+|-------|---------------|---------------|----------------|
+| **Eigenes Wissen** | 1 | 1 | 5-30s |
 | **Automatik** (Cache Hit) | 0 | 0 | <1s |
 | **Automatik** (Direct Answer) | 2 | 3 | 5-35s |
 | **Automatik** (Web Research) | 4 | 5 | 15-60s |
-| **Quick Web Search** | 3 | 4 | 10-40s |
-| **Deep Web Search** | 3 | 4 | 15-60s |
+| **Websuche Schnell** | 3 | 4 | 10-40s |
+| **Websuche Ausführlich** | 3 | 4 | 15-60s |
 
 ---
 
-### 1️⃣ Own Knowledge Mode (Direct LLM)
+### 1️⃣ Eigenes Wissen Mode (Direct LLM)
 
-**Simplest mode**: Direct LLM call without web research or AI decision.
+**Einfachster Modus**: Direkter LLM-Aufruf ohne Web-Recherche oder KI-Entscheidung.
 
 **Workflow:**
 ```
 1. Message Building
    └─ Build from chat history
-   └─ Inject system_minimal prompt (with timestamp)
+   └─ Inject system_minimal prompt (mit Timestamp)
 
 2. Model Preloading (Ollama only)
-   └─ backend.preload_model() - measures actual load time
-   └─ vLLM/TabbyAPI: Skip (already in VRAM)
+   └─ backend.preload_model() - misst echte Ladezeit
+   └─ vLLM/TabbyAPI: Skip (bereits in VRAM)
 
 3. Token Management
    └─ estimate_tokens(messages, model_name)
    └─ calculate_dynamic_num_ctx()
 
 4. LLM Call - Main Response
-   ├─ Model: Main-LLM (e.g., Qwen2.5-32B)
-   ├─ Temperature: Manual (user setting)
-   ├─ Streaming: Yes (real-time updates)
-   └─ TTFT + Tokens/s measurement
+   ├─ Model: Haupt-LLM (z.B. Qwen2.5-32B)
+   ├─ Temperature: Manual (User-Einstellung)
+   ├─ Streaming: Ja (Echtzeit-Updates)
+   └─ TTFT + Tokens/s Messung
 
 5. Format & Save
-   └─ format_thinking_process() for <think> tags
+   └─ format_thinking_process() für <think> Tags
    └─ Update chat history
 
-6. History Compression Check (AFTER every LLM response)
-   ├─ Calculate token utilization: current_tokens / context_limit * 100
-   ├─ IF utilization > 70%:
+6. History Compression Check (NACH jeder LLM-Antwort)
+   ├─ Berechne Token-Auslastung: current_tokens / context_limit * 100
+   ├─ IF Auslastung > 70%:
    │  ├─ Debug: "🗜️ History-Kompression startet: 78% Auslastung (21,800 / 28,000 tokens)"
-   │  ├─ Select oldest 6 messages (3 Q&A pairs)
+   │  ├─ Wähle älteste 6 Messages (3 Frage-Antwort-Paare)
    │  ├─ LLM Call (Automatik-LLM):
    │  │  ├─ Prompt: history_compression
-   │  │  ├─ Input: 6 messages (User + Assistant alternating)
-   │  │  ├─ Output: 1 compact summary (~150 words)
-   │  │  └─ Compression ratio: ~6:1 (e.g. 3000 tokens → 500 tokens)
-   │  ├─ Replace 6 messages with 1 summary message
-   │  ├─ Store in summaries[] (FIFO, max 10 summaries)
-   │  └─ Debug: "📦 History compressed: 78% → 52% utilization (21,800 → 14,600 tokens, 6→1 messages, 3 summaries total)"
-   └─ ELSE: Debug: "📊 History Compression Check: 45% utilization (12,500 / 28,000 tokens) - no compression needed"
+   │  │  ├─ Input: 6 Messages (User + Assistant abwechselnd)
+   │  │  ├─ Output: 1 kompakte Zusammenfassung (~150 Wörter)
+   │  │  └─ Kompressionsrate: ~6:1 (z.B. 3000 Tokens → 500 Tokens)
+   │  ├─ Ersetze 6 Messages durch 1 Summary-Message
+   │  ├─ Speichere in summaries[] (FIFO, max 10 Summaries)
+   │  └─ Debug: "📦 History komprimiert: 78% → 52% Auslastung (21,800 → 14,600 tokens, 6→1 messages, 3 Summaries total)"
+   └─ ELSE: Debug: "📊 History Compression Check: 45% Auslastung (12,500 / 28,000 tokens) - keine Kompression nötig"
 ```
 
-**LLM Calls:** 1 Main-LLM + optional 1 Compression-LLM (if >70% context)
-**Async Tasks:** None
+**LLM Calls:** 1 Haupt-LLM + optional 1 Compression-LLM (bei >70% Context)
+**Async Tasks:** Keine
 **Code:** `aifred/state.py` Lines 974-1117
 
 ---
 
 ### 2️⃣ Automatik Mode (AI Decision System)
 
-**Most intelligent mode**: AI decides autonomously whether web research is needed.
+**Intelligentester Modus**: KI entscheidet selbst, ob Web-Recherche nötig ist.
 
 #### Phase 1: Vector Cache Check
 ```
-1. Query ChromaDB for similar questions
+1. Query ChromaDB für ähnliche Fragen
    └─ Distance < 0.5: HIGH Confidence → Cache Hit
-   └─ Distance ≥ 0.5: CACHE_MISS → Continue
+   └─ Distance ≥ 0.5: CACHE_MISS → Weiter
 
 2. IF CACHE HIT:
-   └─ Answer directly from cache
+   └─ Antwort direkt aus Cache
    └─ RETURN (0 LLM Calls!)
 ```
 
 #### Phase 2: RAG Context Check
 ```
-1. Query cache for RAG candidates (distance 0.5-1.2)
+1. Query cache für RAG candidates (distance 0.5-1.2)
 
 2. FOR EACH candidate:
    ├─ LLM Relevance Check (Automatik-LLM)
@@ -155,8 +155,8 @@ AIfred offers 4 different research modes, each using different strategies depend
 
 #### Phase 3: Keyword Override Check
 ```
-1. Check for explicit research keywords:
-   └─ "search", "google", "research on the internet", etc.
+1. Check für explicit research keywords:
+   └─ "recherchiere", "suche im internet", "google", etc.
 
 2. IF keyword found:
    └─ Trigger fresh web research (mode='deep')
@@ -166,7 +166,7 @@ AIfred offers 4 different research modes, each using different strategies depend
 #### Phase 4: Automatik Decision
 ```
 1. LLM Call - Decision Making
-   ├─ Model: Automatik-LLM (e.g., Qwen2.5-3B)
+   ├─ Model: Automatik-LLM (z.B. Qwen2.5-3B)
    ├─ Prompt: decision_making
    ├─ Messages: NO history (focused decision)
    ├─ Options:
@@ -192,20 +192,20 @@ AIfred offers 4 different research modes, each using different strategies depend
 3. Intent Detection (if auto temp mode)
    ├─ LLM Call (Automatik-LLM)
    ├─ Prompt: intent_detection
-   ├─ Response: "FACTUAL" | "CREATIVE" | "MIXED"
+   ├─ Response: "FAKTISCH" | "KREATIV" | "GEMISCHT"
    └─ Map to temperature: 0.2 | 0.8 | 0.5
 
 4. LLM Call - Main Response
-   ├─ Model: Main-LLM
+   ├─ Model: Haupt-LLM
    ├─ Temperature: From intent detection or manual
-   ├─ Streaming: Yes
-   └─ TTFT + Tokens/s measurement
+   ├─ Streaming: Ja
+   └─ TTFT + Tokens/s Messung
 
 5. Format & Update History
    └─ Metadata: "Cache+LLM (RAG)" or "LLM"
 
-6. History Compression Check (same as Own Knowledge mode)
-   └─ Automatic compression at >70% context utilization
+6. History Compression Check (wie in Eigenes Wissen Mode)
+   └─ Automatische Kompression bei >70% Context-Auslastung
 ```
 
 **LLM Calls:**
@@ -218,9 +218,9 @@ AIfred offers 4 different research modes, each using different strategies depend
 
 ---
 
-### 3️⃣ Quick Web Search Mode (Quick Research)
+### 3️⃣ Websuche Schnell Mode (Quick Research)
 
-**Fastest web research mode**: Top 3 URLs, optimized for speed.
+**Schnellster Web-Research Modus**: Top 3 URLs, optimiert für Speed.
 
 #### Phase 1: Session Cache Check
 ```
@@ -280,35 +280,35 @@ Progress Updates:
    └─ Map to temperature
 
 3. LLM Call - Final Response
-   ├─ Model: Main-LLM
+   ├─ Model: Haupt-LLM
    ├─ Context: ~3 sources, 5K-10K tokens
-   ├─ Streaming: Yes
-   └─ TTFT + Tokens/s measurement
+   ├─ Streaming: Ja
+   └─ TTFT + Tokens/s Messung
 
-4. Cache Decision (ONLY for Web Research)
-   ├─ Check for volatile keywords (e.g., "today", "current", "now")
-   │  └─ IF volatile: Skip caching (time-critical info)
+4. Cache Decision (NUR bei Web-Recherche)
+   ├─ Check for volatile keywords (z.B. "heute", "aktuell", "jetzt")
+   │  └─ IF volatile: Skip caching (zeitkritische Info)
    ├─ LLM Call (Automatik-LLM) - Cacheability Check
    │  ├─ Prompt: cache_decision
-   │  ├─ Input: User query + LLM answer
-   │  ├─ Decision based on:
-   │  │  ├─ Timeless facts? (e.g., "What is Python?") → cacheable
-   │  │  ├─ Time-bound events? (e.g., "current news") → not_cacheable
-   │  │  ├─ Personal preferences? (e.g., "best restaurant") → not_cacheable
-   │  │  └─ Volatile data? (e.g., weather, stock prices) → not_cacheable
+   │  ├─ Input: User-Query + LLM-Antwort
+   │  ├─ Entscheidung basiert auf:
+   │  │  ├─ Zeitlose Fakten? (z.B. "Was ist Python?") → cacheable
+   │  │  ├─ Zeitgebundene Events? (z.B. "aktuelle News") → not_cacheable
+   │  │  ├─ Persönliche Präferenzen? (z.B. "bestes Restaurant") → not_cacheable
+   │  │  └─ Volatile Daten? (z.B. Wetter, Aktienkurse) → not_cacheable
    │  └─ Response: 'cacheable' | 'not_cacheable'
    ├─ IF cacheable:
-   │  ├─ Semantic Duplicate Check (distance < 0.3 to existing entries)
-   │  │  └─ IF duplicate: Delete old entry (ensures latest data)
+   │  ├─ Semantic Duplicate Check (distance < 0.3 zu existierenden Einträgen)
+   │  │  └─ IF duplicate: Lösche alten Eintrag (garantiert neueste Daten)
    │  ├─ cache.add(query, answer, sources, metadata)
-   │  └─ Debug: "💾 Answer cached" or "🔄 Cache entry updated"
-   └─ ELSE: Debug: "⏭️ Answer not cached (volatile/time-bound)"
+   │  └─ Debug: "💾 Antwort gecacht" oder "🔄 Cache-Eintrag aktualisiert"
+   └─ ELSE: Debug: "⏭️ Antwort nicht gecacht (volatil/zeitgebunden)"
 
 5. Format & Update History
-   └─ Metadata: "(Agent: quick, {n} sources)"
+   └─ Metadata: "(Agent: quick, {n} Quellen)"
 
-6. History Compression Check (same as Own Knowledge mode)
-   └─ Automatic compression at >70% context utilization
+6. History Compression Check (wie in Eigenes Wissen Mode)
+   └─ Automatische Kompression bei >70% Context-Auslastung
 ```
 
 **LLM Calls:**
@@ -323,11 +323,11 @@ Progress Updates:
 
 ---
 
-### 4️⃣ Deep Web Search Mode (Deep Research)
+### 4️⃣ Websuche Ausführlich Mode (Deep Research)
 
-**Most thorough mode**: Top 7 URLs for maximum information depth.
+**Gründlichster Modus**: Top 7 URLs für maximale Informationstiefe.
 
-**Workflow:** Identical to Quick Web Search, with the following differences:
+**Workflow:** Identisch zu Websuche Schnell, mit folgenden Unterschieden:
 
 #### Scraping Strategy
 ```
@@ -347,14 +347,14 @@ Parallel Execution:
 Quick: ~5K-10K tokens context
 Deep:  ~10K-20K tokens context
 
-→ More sources = richer context
-→ Longer LLM inference (10-40s vs 5-30s)
+→ Mehr Quellen = reicherer Kontext
+→ Längere LLM Inference (10-40s vs 5-30s)
 ```
 
-**LLM Calls:** Identical to Quick (3-4 + optional 1 Compression)
-**Async Tasks:** More parallel URLs (7 vs 3)
-**Trade-off:** Higher quality vs longer duration
-**History Compression:** Like all modes - automatic at >70% context
+**LLM Calls:** Identisch zu Quick (3-4 + optional 1 Compression)
+**Async Tasks:** Mehr URLs parallel (7 vs 3)
+**Trade-off:** Höhere Qualität vs längere Dauer
+**History Compression:** Wie alle Modi - automatisch bei >70% Context
 
 ---
 
@@ -385,8 +385,8 @@ USER INPUT
      │                         │                      │
      ▼                         ▼                      ▼
 ┌──────────┐         ┌──────────────┐       ┌─────────────┐
-│ OWN      │         │ AUTOMATIK    │       │ WEB         │
-│ KNOWLEDGE│         │ (AI Decides) │       │ RESEARCH    │
+│ EIGENES  │         │ AUTOMATIK    │       │ WEB         │
+│ WISSEN   │         │ (AI Decides) │       │ RESEARCH    │
 └──────────┘         └──────────────┘       │ (quick/deep)│
      │                       │               └─────────────┘
      │                       ▼                      │
@@ -518,80 +518,80 @@ USER INPUT
 
 ## 🚀 Installation
 
-### Prerequisites
+### Voraussetzungen
 - Python 3.10+
-- **LLM Backend** (choose one):
-  - **Ollama** (easy, GGUF models) - recommended for getting started
-  - **vLLM** (fast, AWQ models) - best performance (requires Compute Capability 7.5+)
-  - **TabbyAPI** (ExLlamaV2/V3, EXL2 models) - experimental
-- 8GB+ RAM (12GB+ recommended for larger models)
-- Docker (for ChromaDB Vector Cache)
-- **GPU**: NVIDIA GPU recommended (see [GPU Compatibility Guide](docs/GPU_COMPATIBILITY.md))
+- **LLM Backend** (wähle eins):
+  - **Ollama** (einfach, GGUF-Modelle) - empfohlen für Start
+  - **vLLM** (schnell, AWQ-Modelle) - beste Performance (requires Compute Capability 7.5+)
+  - **TabbyAPI** (ExLlamaV2/V3, EXL2-Modelle) - experimentell
+- 8GB+ RAM (12GB+ empfohlen für größere Modelle)
+- Docker (für ChromaDB Vector Cache)
+- **GPU**: NVIDIA GPU empfohlen (siehe [GPU Compatibility Guide](docs/GPU_COMPATIBILITY.md))
 
 ### Setup
 
-1. **Clone repository**:
+1. **Repository klonen**:
 ```bash
 git clone https://github.com/yourusername/AIfred-Intelligence.git
 cd AIfred-Intelligence
 ```
 
-2. **Create virtual environment**:
+2. **Virtual Environment erstellen**:
 ```bash
 python3 -m venv venv
 source venv/bin/activate  # Linux/Mac
-# or
+# oder
 venv\Scripts\activate     # Windows
 ```
 
-3. **Install dependencies**:
+3. **Dependencies installieren**:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **Environment variables** (.env):
+4. **Umgebungsvariablen** (.env):
 ```env
-# API Keys for web research
+# API Keys für Web-Recherche
 BRAVE_API_KEY=your_key_here
 TAVILY_API_KEY=your_key_here
 
-# Ollama configuration
+# Ollama Konfiguration
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-5. **Install LLM Models**:
+5. **LLM Models installieren**:
 
-**Option A: All Models (Recommended)**
+**Option A: Alle Models (Empfohlen)**
 ```bash
-# Master script for both backends
+# Master-Script für beide Backends
 ./scripts/download_all_models.sh
 ```
 
-**Option B: Ollama Only (GGUF) - Easiest Installation**
+**Option B: Nur Ollama (GGUF) - Einfachste Installation**
 ```bash
 # Ollama Models (GGUF Q4/Q8)
 ./scripts/download_ollama_models.sh
 
-# Recommended core models:
-# - qwen3:30b-instruct (18GB) - Main-LLM, 256K context
+# Empfohlene Core-Modelle:
+# - qwen3:30b-instruct (18GB) - Haupt-LLM, 256K context
 # - qwen3:8b (5.2GB) - Automatik, optional thinking
-# - qwen2.5:3b (1.9GB) - Ultra-fast Automatik
+# - qwen2.5:3b (1.9GB) - Ultra-schnelle Automatik
 ```
 
-**Option C: vLLM Only (AWQ) - Best Performance**
+**Option C: Nur vLLM (AWQ) - Beste Performance**
 ```bash
-# Install vLLM (if not already done)
+# vLLM installieren (falls noch nicht geschehen)
 pip install vllm
 
 # vLLM Models (AWQ Quantization)
 ./scripts/download_vllm_models.sh
 
-# Recommended models:
-# - Qwen3-8B-AWQ (~5GB, 40K→128K with YaRN)
-# - Qwen3-14B-AWQ (~8GB, 32K→128K with YaRN)
+# Empfohlene Modelle:
+# - Qwen3-8B-AWQ (~5GB, 40K→128K mit YaRN)
+# - Qwen3-14B-AWQ (~8GB, 32K→128K mit YaRN)
 # - Qwen2.5-14B-Instruct-AWQ (~8GB, 128K native)
 
-# Start vLLM server with YaRN (64K context)
+# vLLM Server starten mit YaRN (64K context)
 ./venv/bin/vllm serve Qwen/Qwen3-14B-AWQ \
   --quantization awq_marlin \
   --port 8001 \
@@ -599,35 +599,35 @@ pip install vllm
   --max-model-len 65536 \
   --gpu-memory-utilization 0.85
 
-# Or as systemd service
+# Oder als systemd Service
 sudo cp vllm_qwen3_awq.service /etc/systemd/system/
 sudo systemctl enable vllm_qwen3_awq
 sudo systemctl start vllm_qwen3_awq
 ```
 
-**Option D: TabbyAPI (EXL2) - Experimental**
+**Option C: TabbyAPI (EXL2) - Experimentell**
 ```bash
-# Not yet fully implemented
-# See: https://github.com/theroyallab/tabbyAPI
+# Noch nicht vollständig implementiert
+# Siehe: https://github.com/theroyallab/tabbyAPI
 ```
 
-6. **Start ChromaDB Vector Cache** (Docker):
+6. **ChromaDB Vector Cache starten** (Docker):
 ```bash
 cd docker
 docker compose up -d chromadb
 cd ..
 ```
 
-**Optional: Also start SearXNG** (local search engine):
+**Optional: SearXNG auch starten** (lokale Suchmaschine):
 ```bash
 cd docker
 docker compose --profile full up -d
 cd ..
 ```
 
-**Reset ChromaDB Cache** (if needed):
+**ChromaDB Cache zurücksetzen** (bei Bedarf):
 
-*Option 1: Complete restart (deletes all data)*
+*Option 1: Kompletter Neustart (löscht alle Daten)*
 ```bash
 cd docker
 docker compose stop chromadb
@@ -638,7 +638,7 @@ docker compose up -d chromadb
 cd ..
 ```
 
-*Option 2: Delete collection only (while container is running)*
+*Option 2: Nur Collection löschen (während Container läuft)*
 ```bash
 ./venv/bin/python -c "
 import chromadb
@@ -652,50 +652,50 @@ client = chromadb.HttpClient(
 
 try:
     client.delete_collection('research_cache')
-    print('✅ Collection deleted')
+    print('✅ Collection gelöscht')
 except Exception as e:
-    print(f'⚠️ Error: {e}')
+    print(f'⚠️ Fehler: {e}')
 "
 ```
 
-7. **Start application**:
+7. **Starten**:
 ```bash
 reflex run
 ```
 
-The app will run at: http://localhost:3002
+Die App läuft dann unter: http://localhost:3002
 
 ---
 
-## ⚙️ Backend Switching & Settings
+## ⚙️ Backend-Wechsel & Settings
 
 ### Multi-Backend Support
 
-AIfred supports different LLM backends that can be switched dynamically in the UI:
+AIfred unterstützt verschiedene LLM-Backends, die in der UI dynamisch gewechselt werden können:
 
-- **Ollama**: GGUF models (Q4/Q8), easiest installation
-- **vLLM**: AWQ models (4-bit), best performance with AWQ Marlin kernel
-- **TabbyAPI**: EXL2 models (ExLlamaV2/V3), experimental
+- **Ollama**: GGUF-Modelle (Q4/Q8), einfachste Installation
+- **vLLM**: AWQ-Modelle (4-bit), beste Performance mit AWQ Marlin Kernel
+- **TabbyAPI**: EXL2-Modelle (ExLlamaV2/V3), experimentell
 
 ### GPU Compatibility Detection
 
-AIfred automatically detects your GPU at startup and warns about incompatible backend configurations:
+AIfred erkennt automatisch beim Start deine GPU und warnt vor inkompatiblen Backend-Konfigurationen:
 
-- **Tesla P40 / GTX 10 Series** (Pascal): Use Ollama (GGUF) - vLLM/AWQ not supported
-- **RTX 20+ Series** (Turing/Ampere/Ada): vLLM (AWQ) recommended for best performance
+- **Tesla P40 / GTX 10 Series** (Pascal): Nutze Ollama (GGUF) - vLLM/AWQ wird nicht unterstützt
+- **RTX 20+ Series** (Turing/Ampere/Ada): vLLM (AWQ) empfohlen für beste Performance
 
-Detailed information: [GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md)
+Detaillierte Informationen: [GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md)
 
-### Settings Persistence
+### Settings-Persistenz
 
-Settings are saved in `~/.config/aifred/settings.json`:
+Settings werden in `~/.config/aifred/settings.json` gespeichert:
 
-**Per-Backend Model Storage:**
-- Each backend remembers its last used models
-- When switching backends, the correct models are automatically restored
-- On first start, defaults from `aifred/lib/config.py` are used
+**Per-Backend Modell-Speicherung:**
+- Jedes Backend merkt sich seine zuletzt verwendeten Modelle
+- Beim Backend-Wechsel werden automatisch die richtigen Modelle wiederhergestellt
+- Beim ersten Start werden Defaults aus `aifred/lib/config.py` verwendet
 
-**Example Settings Structure:**
+**Beispiel Settings-Struktur:**
 ```json
 {
   "backend_type": "vllm",
@@ -715,34 +715,34 @@ Settings are saved in `~/.config/aifred/settings.json`:
 
 ### Qwen3 Thinking Mode
 
-**Chain-of-Thought Reasoning for Complex Tasks:**
+**Chain-of-Thought Reasoning für komplexe Aufgaben:**
 
-AIfred supports Thinking Mode for Qwen3 models in Ollama and vLLM backends:
+AIfred unterstützt Thinking Mode für Qwen3-Modelle in Ollama und vLLM Backends:
 
-- **Thinking Mode ON**: Temperature 0.6, generates `<think>...</think>` blocks with reasoning process
-- **Thinking Mode OFF**: Temperature 0.7, direct answers without CoT
-- **UI**: Toggle only appears for Qwen3/QwQ models
+- **Thinking Mode ON**: Temperature 0.6, generiert `<think>...</think>` Blocks mit Denkprozess
+- **Thinking Mode OFF**: Temperature 0.7, direkte Antworten ohne CoT
+- **UI**: Toggle erscheint nur bei Qwen3/QwQ-Modellen
 - **Backends**:
-  - **Ollama**: Uses `"think": true` API parameter, delivers separate `thinking` and `content` fields
-  - **vLLM**: Uses `chat_template_kwargs: {"enable_thinking": true/false}` in `extra_body`
-  - **TabbyAPI**: Not yet implemented
-- **Formatting**: Reasoning process as collapsible accordion with model name and inference time
-- **Automatik-LLM**: Thinking Mode DISABLED for Automatik decisions (8x faster)
+  - **Ollama**: Nutzt `"think": true` API-Parameter, liefert separate `thinking` und `content` Felder
+  - **vLLM**: Nutzt `chat_template_kwargs: {"enable_thinking": true/false}` in `extra_body`
+  - **TabbyAPI**: Noch nicht implementiert
+- **Formatierung**: Denkprozess als ausklappbares Collapsible mit Modellname und Inferenzzeit
+- **Automatik-LLM**: Thinking Mode für Automatik-Entscheidungen DEAKTIVIERT (8x schneller)
 
-**Recommended Models for Thinking Mode:**
+**Empfohlene Modelle für Thinking Mode:**
 - `qwen3:8b`, `qwen3:14b`, `qwen3:30b` (Ollama)
 - `Qwen/Qwen3-8B-AWQ`, `Qwen/Qwen3-4B-AWQ` (vLLM)
-- `qwq:32b` (dedicated reasoning model, Ollama only)
+- `qwq:32b` (dediziertes Reasoning-Modell, nur Ollama)
 
-**Technical Details:**
-- Ollama sends `thinking` + `content` in separate message fields
-- vLLM uses Qwen3's chat template with `enable_thinking` flag
-- Both backends wrap output in `<think>...</think>` tags for unified formatting
-- Formatting module (`aifred/lib/formatting.py`) renders collapsibles with compact paragraph formatting
+**Technische Details:**
+- Ollama sendet `thinking` + `content` in separaten Message-Feldern
+- vLLM nutzt Qwen3's Chat-Template mit `enable_thinking` Flag
+- Beide Backends wrappen Output in `<think>...</think>` Tags für einheitliche Formatierung
+- Formatting-Modul (`aifred/lib/formatting.py`) rendert Collapsibles mit kompakter Absatz-Formatierung
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architektur
 
 ### Directory Structure
 ```
@@ -755,10 +755,10 @@ AIfred-Intelligence/
 │   │   └── tabbyapi.py       # TabbyAPI Backend (EXL2)
 │   ├── components/        # Reflex UI Components
 │   ├── lib/              # Core Libraries
-│   │   ├── agent_core.py     # Main agent logic
-│   │   ├── context_manager.py # History compression
-│   │   ├── config.py         # Default settings
-│   │   ├── settings.py       # Settings persistence
+│   │   ├── agent_core.py     # Haupt-Agent-Logik
+│   │   ├── context_manager.py # History-Kompression
+│   │   ├── config.py         # Default Settings
+│   │   ├── settings.py       # Settings Persistence
 │   │   └── vector_cache.py   # ChromaDB Vector Cache
 │   └── state.py          # Reflex State Management
 ├── prompts/              # System Prompts
@@ -776,35 +776,35 @@ AIfred-Intelligence/
 
 ### History Compression System
 
-At 70% context utilization, older conversations are automatically compressed:
+Bei 70% Context-Auslastung werden automatisch ältere Konversationen komprimiert:
 
-- **Trigger**: 70% of context window occupied
-- **Compression**: 3 Q&A pairs → 1 summary
-- **Efficiency**: ~6:1 compression ratio
-- **FIFO**: Maximum 10 summaries (oldest are deleted)
-- **Safety**: At least 1 current conversation remains visible
+- **Trigger**: 70% des Context Windows belegt
+- **Kompression**: 3 Frage-Antwort-Paare → 1 Summary
+- **Effizienz**: ~6:1 Kompressionsrate
+- **FIFO**: Maximal 10 Summaries (älteste werden gelöscht)
+- **Safety**: Mindestens 1 aktuelle Konversation bleibt sichtbar
 
 ### Vector Cache & RAG System
 
-AIfred uses a multi-tier cache system based on **semantic similarity** (Cosine Distance). **New in v1.3.0**: Pure semantic deduplication without time dependency + intelligent cache usage for explicit research keywords.
+AIfred nutzt ein mehrstufiges Cache-System basierend auf **semantischer Ähnlichkeit** (Cosine Distance). **Neu in v1.3.0**: Pure Semantic Deduplication ohne Zeit-Abhängigkeit + intelligente Cache-Nutzung bei expliziten Recherche-Keywords.
 
-#### Cache Decision Logic
+#### Cache-Entscheidungs-Logik
 
-**Phase 0: Explicit Research Keywords** (NEW in v1.3.0)
+**Phase 0: Explizite Recherche-Keywords** (NEW in v1.3.0)
 ```
-User Query: "research Python" / "google Python" / "search internet Python"
-└─ Explicit keyword detected → Cache check FIRST
-   ├─ Distance < 0.05 (practically identical)
-   │  └─ ✅ Cache Hit (0.15s instead of 100s) - Shows age transparently
-   └─ Distance ≥ 0.05 (not identical)
-      └─ New web research (user wants fresh data)
+User Query: "recherchiere Python" / "google Python" / "suche im internet Python"
+└─ Explizites Keyword erkannt → Cache-Check ZUERST
+   ├─ Distance < 0.05 (praktisch identisch)
+   │  └─ ✅ Cache-Hit (0.15s statt 100s) - Zeigt Alter transparent an
+   └─ Distance ≥ 0.05 (nicht identisch)
+      └─ Neue Web-Recherche (User will neue Daten)
 ```
 
 **Phase 1a: Direct Cache Hit Check**
 ```
 User Query → ChromaDB Similarity Search
 ├─ Distance < 0.5 (HIGH Confidence)
-│  └─ ✅ Use Cached Answer (instant, no more time checks!)
+│  └─ ✅ Use Cached Answer (sofort, keine Zeit-Checks mehr!)
 ├─ Distance 0.5-1.2 (MEDIUM Confidence) → Continue to Phase 1b (RAG)
 └─ Distance > 1.2 (LOW Confidence) → Continue to Phase 2 (Research Decision)
 ```
@@ -827,55 +827,55 @@ Cache Miss (d ≥ 0.5) → Query for RAG Candidates (0.5 ≤ d < 1.2)
 No Direct Cache Hit & No RAG Context
 └─ Automatik-LLM decides: Web Research needed?
    ├─ YES → Web Research + Cache Result
-   └─ NO  → Pure LLM Answer (Source: "LLM-Training Data")
+   └─ NO  → Pure LLM Answer (Source: "LLM-Trainingsdaten")
 ```
 
 #### Semantic Deduplication (v1.3.0)
 
-**When Saving to Vector Cache:**
+**Beim Speichern in Vector Cache:**
 ```
 New Research Result → Check for Semantic Duplicates
-└─ Distance < 0.3 (semantically similar)
-   └─ ✅ ALWAYS Update (time-independent!)
-      - Delete old entry
-      - Save new entry
-      - Guaranteed: Latest data is used
+└─ Distance < 0.3 (semantisch ähnlich)
+   └─ ✅ IMMER Update (zeitunabhängig!)
+      - Löscht alten Eintrag
+      - Speichert neuen Eintrag
+      - Garantiert: Neueste Daten werden verwendet
 ```
 
-**Before (v1.2.0):**
-- Time-based logic: < 5min = Skip, ≥ 5min = Update
-- Led to race conditions and duplicates
+**Vorher (v1.2.0):**
+- Zeit-basierte Logik: < 5min = Skip, ≥ 5min = Update
+- Führte zu Race Conditions und Duplikaten
 
-**Now (v1.3.0):**
-- Purely semantic: Distance < 0.3 = ALWAYS Update
-- No more time checks → Consistent behavior
+**Jetzt (v1.3.0):**
+- Rein semantisch: Distance < 0.3 = IMMER Update
+- Keine Zeit-Checks mehr → Konsistentes Verhalten
 
 #### Cache Distance Thresholds
 
 | Distance | Confidence | Behavior | Example |
 |----------|-----------|----------|---------|
-| `0.0 - 0.05` | EXACT | Explicit research uses cache | Identical query |
-| `0.05 - 0.5` | HIGH | Direct cache hit | "Python tutorial" vs "Python guide" |
+| `0.0 - 0.05` | EXACT | Explizite Recherche nutzt Cache | Identische Query |
+| `0.05 - 0.5` | HIGH | Direct cache hit | "Python tutorial" vs "Python Anleitung" |
 | `0.5 - 1.2` | MEDIUM | RAG candidate (relevance check via LLM) | "Python" vs "FastAPI" |
 | `1.2+` | LOW | Cache miss → Research decision | "Python" vs "Weather" |
 
 #### ChromaDB Maintenance Tool (v1.3.0)
 
-**New maintenance tool** for Vector Cache:
+**Neues Wartungstool** für Vector Cache:
 ```bash
-# Show stats
+# Stats anzeigen
 python3 chroma_maintenance.py --stats
 
-# Find duplicates
+# Duplikate finden
 python3 chroma_maintenance.py --find-duplicates
 
-# Remove duplicates (Dry-Run)
+# Duplikate entfernen (Dry-Run)
 python3 chroma_maintenance.py --remove-duplicates
 
-# Remove duplicates (Execute)
+# Duplikate entfernen (Execute)
 python3 chroma_maintenance.py --remove-duplicates --execute
 
-# Delete old entries (> 30 days)
+# Alte Einträge löschen (> 30 Tage)
 python3 chroma_maintenance.py --remove-old 30 --execute
 ```
 
@@ -889,8 +889,8 @@ python3 chroma_maintenance.py --remove-old 30 --execute
 
 **Example Flow**:
 ```
-User: "What is Python?" → Web Research → Cache Entry 1 (d=0.0)
-User: "What is FastAPI?" → RAG finds Entry 1 (d=0.7)
+User: "Was ist Python?" → Web Research → Cache Entry 1 (d=0.0)
+User: "Was ist FastAPI?" → RAG finds Entry 1 (d=0.7)
   → LLM checks: "Python" relevant for "FastAPI"? YES (FastAPI uses Python)
   → Inject Entry 1 as context → Enhanced LLM answer
   → Source: "Cache+LLM (RAG)"
@@ -919,23 +919,23 @@ CACHE_TIME_THRESHOLD = 300       # 5 minutes (in seconds)
 
 ---
 
-## 🔧 Configuration
+## 🔧 Konfiguration
 
-All important parameters in `aifred/lib/config.py`:
+Alle wichtigen Parameter in `aifred/lib/config.py`:
 
 ```python
 # Deployment Mode (Production vs Development)
-USE_SYSTEMD_RESTART = True  # True for Production, False for Development
+USE_SYSTEMD_RESTART = True  # True für Production, False für Development
 
 # History Compression
 HISTORY_COMPRESSION_THRESHOLD = 0.7  # 70% Context
-HISTORY_MESSAGES_TO_COMPRESS = 6     # 3 Q&A pairs
+HISTORY_MESSAGES_TO_COMPRESS = 6     # 3 Q&A Paare
 HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION = 10
 
 # LLM Settings (Default Models)
 DEFAULT_SETTINGS = {
-    "model": "qwen3:30b-instruct",      # Main-LLM (Tesla P40 optimized)
-    "automatik_model": "qwen3:8b",      # Automatik decisions
+    "model": "qwen3:30b-instruct",      # Haupt-LLM (Tesla P40 optimiert)
+    "automatik_model": "qwen3:8b",      # Automatik-Entscheidungen
 }
 
 # Temperature Presets
@@ -946,26 +946,26 @@ TEMPERATURE_PRESETS = {
 }
 ```
 
-### HTTP Timeout Configuration
+### HTTP Timeout Konfiguration
 
 In `aifred/backends/ollama.py`:
-- **HTTP Client Timeout**: 300 seconds (5 minutes)
-- Increased from 60s for large research requests with 30KB+ context
-- Prevents timeout errors during first token generation
+- **HTTP Client Timeout**: 300 Sekunden (5 Minuten)
+- Erhöht von 60s für große Research-Anfragen mit 30KB+ Context
+- Verhindert Timeout-Fehler bei erster Token-Generation
 
-### Restart Button Behavior
+### Restart-Button Verhalten
 
-The AIfred restart button can work in two modes:
+Der AIfred Restart-Button kann in zwei Modi arbeiten:
 
 - **Production Mode** (`USE_SYSTEMD_RESTART = True`):
-  - Restarts the complete systemd service
-  - Requires Polkit rule for sudo-less execution
-  - For production systems with systemd
+  - Startet den kompletten systemd-Service neu
+  - Benötigt Polkit-Regel für sudo-lose Ausführung
+  - Für produktive Systeme mit systemd
 
 - **Development Mode** (`USE_SYSTEMD_RESTART = False`):
-  - Soft-restart: Only clears caches and history
-  - Keeps running instance for hot-reload
-  - For local development without service
+  - Soft-Restart: Löscht nur Caches und History
+  - Behält laufende Instanz für Hot-Reload
+  - Für lokale Entwicklung ohne Service
 
 ---
 
@@ -973,30 +973,30 @@ The AIfred restart button can work in two modes:
 
 ### Systemd Service
 
-For production operation as a service, pre-configured service files are available in the `systemd/` directory.
+Für produktiven Betrieb als Service sind vorkonfigurierte Service-Dateien im `systemd/` Verzeichnis verfügbar.
 
-**⚠️ IMPORTANT**: The environment variable `AIFRED_ENV=prod` **MUST** be set for AIfred to run on the MiniPC and not redirect to the development machine!
+**⚠️ WICHTIG**: Die Umgebungsvariable `AIFRED_ENV=prod` **MUSS** gesetzt sein, damit AIfred auf dem MiniPC läuft und nicht auf den Entwicklungsrechner weiterleitet!
 
-#### Quick Installation
+#### Schnellinstallation
 
 ```bash
-# 1. Copy service files
+# 1. Service-Dateien kopieren
 sudo cp systemd/aifred-chromadb.service /etc/systemd/system/
 sudo cp systemd/aifred-intelligence.service /etc/systemd/system/
 
-# 2. Enable and start services
+# 2. Services aktivieren und starten
 sudo systemctl daemon-reload
 sudo systemctl enable aifred-chromadb.service aifred-intelligence.service
 sudo systemctl start aifred-chromadb.service aifred-intelligence.service
 
-# 3. Check status
+# 3. Status prüfen
 systemctl status aifred-chromadb.service
 systemctl status aifred-intelligence.service
 ```
 
-See [systemd/README.md](systemd/README.md) for details, troubleshooting, and monitoring.
+Siehe [systemd/README.md](systemd/README.md) für Details, Troubleshooting und Monitoring.
 
-#### Service Files (Reference)
+#### Service-Dateien (Referenz)
 
 **1. ChromaDB Service** (`systemd/aifred-chromadb.service`):
 ```ini
@@ -1038,15 +1038,22 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-**Environment Variable `AIFRED_ENV` Explained**:
-- `AIFRED_ENV=dev` (default): API-URL = `http://172.30.8.72:8002` (main machine/WSL with RTX 3060)
-- `AIFRED_ENV=prod`: API-URL = `https://narnia.spdns.de:8443` (MiniPC with Tesla P40)
+**Umgebungsvariable `AIFRED_ENV` erklärt**:
+- `AIFRED_ENV=dev` (Standard): API-URL = `http://172.30.8.72:8002` (Hauptrechner/WSL mit RTX 3060)
+- `AIFRED_ENV=prod`: API-URL = `https://narnia.spdns.de:8443` (MiniPC mit Tesla P40)
 
-Without `AIFRED_ENV=prod`, all API requests are forwarded to the development machine, even if Nginx is correctly configured!
+Ohne `AIFRED_ENV=prod` werden alle API-Requests an den Entwicklungsrechner weitergeleitet, auch wenn Nginx korrekt konfiguriert ist!
 
-**Optional: Polkit Rule for Restart Without sudo**
+2. Service aktivieren:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable aifred-intelligence
+sudo systemctl start aifred-intelligence
+```
 
-For the restart button in the web UI without password prompt:
+3. **Optional: Polkit-Regel für Restart ohne sudo**
+
+Für den Restart-Button in der Web-UI ohne Passwort-Abfrage:
 
 `/etc/polkit-1/rules.d/50-aifred-restart.rules`:
 ```javascript
@@ -1070,39 +1077,39 @@ polkit.addRule(function(action, subject) {
 tail -f logs/aifred_debug.log
 ```
 
-### Run Tests
+### Tests ausführen
 ```bash
 pytest tests/
 ```
 
 ## 🔨 Troubleshooting
 
-### Common Issues
+### Häufige Probleme
 
-#### HTTP ReadTimeout on Research Requests
-**Problem**: `httpx.ReadTimeout` after 60 seconds on large research requests
-**Solution**: Timeout is already increased to 300s in `aifred/backends/ollama.py`
-**If problems persist**: Restart Ollama service with `systemctl restart ollama`
+#### HTTP ReadTimeout bei Research-Anfragen
+**Problem**: `httpx.ReadTimeout` nach 60 Sekunden bei großen Recherchen
+**Lösung**: Timeout ist bereits auf 300s erhöht in `aifred/backends/ollama.py`
+**Falls weiterhin Probleme**: Ollama Service neustarten mit `systemctl restart ollama`
 
-#### Service Won't Start
-**Problem**: AIfred service doesn't start or stops immediately
-**Solution**:
+#### Service startet nicht
+**Problem**: AIfred Service startet nicht oder stoppt sofort
+**Lösung**:
 ```bash
-# Check logs
+# Logs prüfen
 journalctl -u aifred-intelligence -n 50
-# Check Ollama status
+# Ollama Status prüfen
 systemctl status ollama
 ```
 
-#### Restart Button Not Working
-**Problem**: Restart button in web UI has no effect
-**Solution**: Check Polkit rule in `/etc/polkit-1/rules.d/50-aifred-restart.rules`
+#### Restart-Button funktioniert nicht
+**Problem**: Restart-Button in Web-UI ohne Funktion
+**Lösung**: Polkit-Regel prüfen in `/etc/polkit-1/rules.d/50-aifred-restart.rules`
 
 ---
 
-## 📚 Documentation
+## 📚 Dokumentation
 
-More documentation in the `docs/` directory:
+Weitere Dokumentation im `docs/` Verzeichnis:
 - [Architecture Overview](docs/architecture/)
 - [API Documentation](docs/api/)
 - [Migration Guide](docs/infrastructure/MIGRATION.md)
@@ -1111,33 +1118,33 @@ More documentation in the `docs/` directory:
 
 ## 🤝 Contributing
 
-Pull requests are welcome! For major changes, please open an issue first.
+Pull Requests sind willkommen! Für größere Änderungen bitte erst ein Issue öffnen.
 
 ---
 
-## 📝 Session Notes - November 3, 2025
+## 📝 Session Notes - 03. November 2025
 
-### Internationalization (i18n) Implementation
-- Complete translation table for UI strings
-- Automatic language detection for prompts (de/en based on user input)
-- Manual UI language switcher added to settings
-- English prompt files completed (were incomplete)
+### Internationalisierung (i18n) Implementierung
+- Vollständige Übersetzungstabelle für UI-Strings
+- Automatische Spracherkennung für Prompts (de/en basierend auf Nutzereingabe)
+- Manueller UI-Sprachumschalter in den Einstellungen hinzugefügt
+- Englische Prompt-Dateien vervollständigt (waren unvollständig)
 
-### Network and Configuration Adjustments
-- Fixed `api_url` in `rxconfig.py` to local IP for development environment
-- Environment-dependent configuration: `AIFRED_ENV=dev` vs `AIFRED_ENV=prod`
-- Fixed issue: Requests were forwarded to Mini-PC instead of processed locally
-- Development: `http://172.30.8.72:3002` (with RTX 3060), Production: `https://narnia.spdns.de:8443`
+### Netzwerk- und Konfigurationsanpassungen
+- `api_url` in `rxconfig.py` auf lokale IP für Entwicklungsumgebung korrigiert
+- Umgebungsabhängige Konfiguration: `AIFRED_ENV=dev` vs `AIFRED_ENV=prod`
+- Problem behoben: Anfragen wurden zu Mini-PC weitergeleitet statt lokal verarbeitet
+- Entwicklung: `http://172.30.8.72:3002` (mit RTX 3060), Produktion: `https://narnia.spdns.de:8443`
 
 ### Bugfixes
-- Fixed parameter error: `cache_metadata` → `cache_info` in `get_decision_making_prompt()` calls
-- Now works correctly with the defined function signature
+- Parameterfehler behoben: `cache_metadata` → `cache_info` in `get_decision_making_prompt()` Aufrufen
+- Funktioniert jetzt korrekt mit der definierten Funktionssignatur
 
 ---
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) file
+MIT License - siehe [LICENSE](LICENSE) file
 
 ---
 
