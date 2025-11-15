@@ -19,7 +19,6 @@ from .config import (
     HISTORY_MAX_SUMMARIES,
     HISTORY_SUMMARY_TARGET_TOKENS,
     HISTORY_SUMMARY_TARGET_WORDS,
-    HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION,
     HISTORY_SUMMARY_TEMPERATURE,
     HISTORY_SUMMARY_CONTEXT_LIMIT
 )
@@ -229,33 +228,27 @@ async def summarize_history_if_needed(
     if max_summaries is None:
         max_summaries = HISTORY_MAX_SUMMARIES
 
-    # 1. Trigger-Check: Nur wenn History > konfiguriertes Minimum
-    if len(history) < HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION:
-        yield {"type": "debug", "message": f"❌ History zu kurz: {len(history)} < {HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION} (Minimum)"}
-        return
+    # Token-Estimation & Utilization Check (IMMER zuerst, für Debug-Message)
+    estimated_tokens = estimate_tokens_from_history(history)
+    utilization = (estimated_tokens / context_limit) * 100
+    threshold = int(context_limit * HISTORY_COMPRESSION_THRESHOLD)
 
-    # 1b. Safety-Check: Immer mindestens 1 Message nach Kompression übrig lassen!
+    # Safety-Check: Immer mindestens 1 Message nach Kompression übrig lassen!
     # KRITISCH: Verhindert dass alle Messages komprimiert werden und Chat leer wird
     if len(history) <= HISTORY_MESSAGES_TO_COMPRESS:
-        yield {"type": "debug", "message": f"❌ Zu wenig Messages: {len(history)} <= {HISTORY_MESSAGES_TO_COMPRESS} (würde alle Messages komprimieren)"}
+        yield {"type": "debug", "message": f"📊 History Compression Check: {utilization:.0f}% Auslastung ({estimated_tokens:,} / {context_limit:,} tokens) - keine Kompression nötig"}
         log_message(f"⚠️ Compression aborted: {len(history)} Messages würden ALLE komprimiert → Chat leer!")
         return
 
-    # 2. Token-Estimation
-    estimated_tokens = estimate_tokens_from_history(history)
-    yield {"type": "debug", "message": f"📊 Token-Schätzung: {estimated_tokens} Tokens bei {len(history)} Messages"}
-
-    # 3. Nur summarizen wenn > konfigurierten Threshold vom Context-Limit
-    threshold = int(context_limit * HISTORY_COMPRESSION_THRESHOLD)
     if estimated_tokens < threshold:
-        yield {"type": "debug", "message": f"📊 History OK: {estimated_tokens} Tokens < {threshold} Threshold ({int(HISTORY_COMPRESSION_THRESHOLD*100)}% von {context_limit})"}
+        yield {"type": "debug", "message": f"📊 History Compression Check: {utilization:.0f}% Auslastung ({estimated_tokens:,} / {context_limit:,} tokens) - keine Kompression nötig"}
         return
 
-    log_message(f"⚠️ History zu lang: {estimated_tokens} Tokens > {threshold} Threshold → Starte Kompression")
+    log_message(f"⚠️ History zu lang: {utilization:.0f}% Auslastung ({estimated_tokens:,} tokens) > {threshold:,} Threshold → Starte Kompression")
 
     # Progress-Indicator: Komprimiere Kontext
     yield {"type": "progress", "phase": "compress"}
-    yield {"type": "debug", "message": f"🗜️ STARTE History-Kompression: {len(history)} Messages, {estimated_tokens} Tokens > {threshold} Threshold"}
+    yield {"type": "debug", "message": f"🗜️ History-Kompression startet: {utilization:.0f}% Auslastung ({estimated_tokens:,} / {context_limit:,} tokens)"}
 
     # 4. Zähle bestehende Summaries
     summary_count = sum(1 for user_msg, ai_msg in history if user_msg == "" and ai_msg.startswith("[📊 Komprimiert"))
@@ -396,7 +389,13 @@ async def summarize_history_if_needed(
     log_message(f"   └─ Tokens: {estimated_tokens} → {new_tokens} ({compression_ratio:.1f}:1 Ratio)")
     log_message(f"   └─ Platz gespart: {estimated_tokens - new_tokens} Tokens")
 
+    # Calculate new utilization after compression
+    new_utilization = (new_tokens / context_limit) * 100
+
+    # Count summaries in new history
+    summaries_count = sum(1 for user_msg, ai_msg in new_history if user_msg == "" and ai_msg.startswith("[📊 Komprimiert"))
+
     # 12. Yield Update an State
     yield {"type": "history_update", "data": new_history}
-    yield {"type": "debug", "message": f"✅ Kompression erfolgreich: {len(messages_to_summarize)} alte Messages → 1 Summary (noch {len(remaining_messages)} aktuelle Messages sichtbar)"}
+    yield {"type": "debug", "message": f"📦 History komprimiert: {utilization:.0f}% → {new_utilization:.0f}% Auslastung ({estimated_tokens:,} → {new_tokens:,} tokens, {len(messages_to_summarize)}→1 messages, {summaries_count} Summaries total)"}
 

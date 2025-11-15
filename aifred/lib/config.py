@@ -154,11 +154,6 @@ HISTORY_SUMMARY_TARGET_TOKENS = 1000
 # Target-Größe für eine Summary in Wörtern (für Prompt)
 HISTORY_SUMMARY_TARGET_WORDS = 750
 
-# Minimale Anzahl von Messages bevor Compression überhaupt startet
-# (verhindert Compression bei kurzen Gesprächen)
-# WICHTIG: Muss GRÖSSER sein als HISTORY_MESSAGES_TO_COMPRESS um mindestens 1 Message sichtbar zu lassen!
-HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION = 10  # Mindestens 5 Frage-Antwort-Paare vor Kompression
-
 # Temperature für Summary-Generierung (niedriger = faktischer)
 HISTORY_SUMMARY_TEMPERATURE = 0.3
 
@@ -214,13 +209,4 @@ CACHE_EXCLUDE_VOLATILE = _load_volatile_keywords()
 # ============================================================
 # CONFIG VALIDATION (Safety Checks)
 # ============================================================
-# Validate History Compression Config zur Laufzeit
-if HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION <= HISTORY_MESSAGES_TO_COMPRESS:
-    import warnings
-    warnings.warn(
-        f"⚠️ CONFIG ERROR: HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION ({HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION}) "
-        f"must be GREATER than HISTORY_MESSAGES_TO_COMPRESS ({HISTORY_MESSAGES_TO_COMPRESS})! "
-        f"Otherwise all messages would be compressed and chat history would become empty. "
-        f"Recommended: HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION = HISTORY_MESSAGES_TO_COMPRESS + 1",
-        UserWarning
-    )
+# No validation needed - token-based compression handles all edge cases
