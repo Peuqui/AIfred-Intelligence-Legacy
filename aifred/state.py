@@ -1097,7 +1097,6 @@ class AIState(rx.State):
                 yield
 
                 # Separator nach Haupt-LLM (matching other modes)
-                from .lib.logging_utils import console_separator
                 console_separator()
                 self.add_debug("────────────────────")
                 yield
