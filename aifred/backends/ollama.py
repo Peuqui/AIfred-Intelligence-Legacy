@@ -380,11 +380,12 @@ class OllamaBackend(LLMBackend):
 
                 logger.info(f"Unloading model: {model_name}")
 
-                # Send empty generate request with keep_alive=0 to unload
+                # Send minimal generate request with keep_alive=0 to unload
                 unload_response = await self.client.post(
                     f"{self.base_url}/api/generate",
                     json={
                         "model": model_name,
+                        "prompt": "",  # Required field for /api/generate
                         "keep_alive": 0  # Immediately unload after request
                     }
                 )
