@@ -10,6 +10,7 @@ Handles:
 """
 
 import time
+import re
 from typing import Dict, List, Optional, AsyncIterator
 
 from ..agent_tools import build_context
@@ -19,7 +20,7 @@ from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens
 from ..message_builder import build_messages_from_history
 from ..formatting import format_thinking_process, build_debug_accordion, format_metadata
 from ..logging_utils import log_message
-from ..config import CHARS_PER_TOKEN
+from ..config import CHARS_PER_TOKEN, TTL_HOURS
 from ..intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
 
 
@@ -218,6 +219,26 @@ async def build_and_generate_response(
     tokens_per_sec = metrics.get("tokens_per_second", 0)
     yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)"}
 
+    # Extract volatility tag from LLM response
+    volatility = "PERMANENT"  # Default fallback
+    volatility_match = re.search(r'<volatility>(.*?)</volatility>', ai_text, re.IGNORECASE | re.DOTALL)
+
+    if volatility_match:
+        extracted = volatility_match.group(1).strip().upper()
+        if extracted in TTL_HOURS:
+            volatility = extracted
+            log_message(f"✅ Haupt-LLM Volatility: {volatility}")
+            yield {"type": "debug", "message": f"✅ Volatility: {volatility}"}
+        else:
+            log_message(f"⚠️ Unbekannte Volatility '{extracted}', fallback zu PERMANENT")
+            yield {"type": "debug", "message": f"⚠️ Unbekannte Volatility, fallback zu PERMANENT"}
+    else:
+        log_message(f"⚠️ Kein Volatility-Tag gefunden, fallback zu PERMANENT")
+        yield {"type": "debug", "message": f"⚠️ Kein Volatility-Tag, fallback zu PERMANENT"}
+
+    # Remove volatility tag from answer before displaying to user
+    ai_text = re.sub(r'<volatility>.*?</volatility>', '', ai_text, flags=re.IGNORECASE | re.DOTALL).strip()
+
     # Separator nach LLM-Antwort-Block (Ende der Einheit)
     from ..logging_utils import console_separator, CONSOLE_SEPARATOR
     console_separator()
@@ -252,104 +273,38 @@ async def build_and_generate_response(
     log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
 
     # ============================================================
-    # Vector DB Auto-Learning: Save successful research to cache
+    # Vector DB Auto-Learning: Save successful research to cache with TTL
     # ============================================================
     try:
         from ..vector_cache import get_cache
-        from ..config import CACHE_EXCLUDE_VOLATILE
 
-        # Step 1: Check for volatile keywords
-        user_text_lower = user_text.lower()
-        has_volatile_keyword = any(keyword in user_text_lower for keyword in CACHE_EXCLUDE_VOLATILE)
+        # Main LLM already determined volatility via <volatility> tag
+        # Save to cache with TTL-based expiry
+        cache = get_cache()
+        result = await cache.add(
+            query=user_text,
+            answer=ai_text,
+            sources=scraped_only,
+            metadata={
+                'mode': mode,
+                'volatility': volatility  # Haupt-LLM decision
+            }
+        )
 
-        should_cache = True  # Default: cache everything
-
-        if has_volatile_keyword:
-            # Volatile keyword found → Ask LLM for override decision
-            log_message("⚠️ Volatile keyword detected in query, asking LLM for cache decision...")
-            yield {"type": "debug", "message": "🤔 Volatile keyword → Checking if cacheable..."}
-
-            # Spracherkennung für User-Text
-            from ..prompt_loader import detect_language
-            detected_user_language = detect_language(user_text)
-
-            # Load cache decision prompt with current date
-            answer_preview = ai_text[:300] + "..." if len(ai_text) > 300 else ai_text
-            current_date = time.strftime("%d.%m.%Y")
-            cache_prompt = load_prompt("cache_decision", lang=detected_user_language, query=user_text, answer_preview=answer_preview, current_date=current_date)
-
-            # Ask Automatik-LLM for decision (use existing client to avoid deadlock)
-            try:
-                response = await automatik_llm_client.chat(
-                    model=automatik_model,
-                    messages=[{'role': 'user', 'content': cache_prompt}],
-                    options={'temperature': 0.1, 'num_ctx': 2048, 'enable_thinking': False}  # Very deterministic, no reasoning
-                )
-                decision = response.text.strip().lower()
-
-                if 'cacheable' in decision and 'not_cacheable' not in decision:
-                    should_cache = True
-                    log_message("✅ LLM Override: Cacheable (concept question with volatile keyword)")
-                    yield {"type": "debug", "message": "✅ LLM: Cacheable (override)"}
-                else:
-                    should_cache = False
-                    log_message("❌ LLM Decision: Not cacheable (volatile data)")
-                    yield {"type": "debug", "message": "❌ LLM: Not cacheable (volatile)"}
-            except Exception as e:
-                log_message(f"⚠️ LLM cache decision failed: {e}, defaulting to NOT cache")
-                should_cache = False
-        else:
-            # No volatile keyword → Ask LLM for normal decision
-            log_message("🤔 No volatile keyword, asking LLM for cache decision...")
-            yield {"type": "debug", "message": "🤔 Checking if cacheable..."}
-
-            answer_preview = ai_text[:300] + "..." if len(ai_text) > 300 else ai_text
-            current_date = time.strftime("%d.%m.%Y")
-            cache_prompt = load_prompt("cache_decision", query=user_text, answer_preview=answer_preview, current_date=current_date)
-
-            # Use existing client to avoid deadlock
-            try:
-                response = await automatik_llm_client.chat(
-                    model=automatik_model,
-                    messages=[{'role': 'user', 'content': cache_prompt}],
-                    options={'temperature': 0.1, 'num_ctx': 2048, 'enable_thinking': False}  # Fast decision, no reasoning
-                )
-                decision = response.text.strip().lower()
-
-                if 'cacheable' in decision and 'not_cacheable' not in decision:
-                    should_cache = True
-                    log_message("✅ LLM Decision: Cacheable")
-                    yield {"type": "debug", "message": "✅ LLM: Cacheable"}
-                else:
-                    should_cache = False
-                    log_message("❌ LLM Decision: Not cacheable")
-                    yield {"type": "debug", "message": "❌ LLM: Not cacheable"}
-            except Exception as e:
-                log_message(f"⚠️ LLM cache decision failed: {e}, defaulting to cache")
-                should_cache = True  # Bei Fehler: cachen (safe default)
-
-        # Step 2: Save to cache if decision is positive
-        if should_cache:
-            cache = get_cache()
-            result = await cache.add(
-                query=user_text,
-                answer=ai_text,
-                sources=scraped_only,
-                metadata={'mode': mode}
-            )
-
-            if result.get('success'):
-                if result.get('duplicate'):
-                    log_message("⚠️ Vector Cache: Duplicate detected, skipped")
-                    yield {"type": "debug", "message": "⚠️ Cache duplicate - not saved"}
-                else:
-                    log_message(f"💾 Vector Cache: Auto-learned from web research ({result.get('total_entries')} entries)")
-                    yield {"type": "debug", "message": "💾 Saved to Vector Cache"}
+        if result.get('success'):
+            if result.get('duplicate'):
+                log_message("⚠️ Vector Cache: Duplicate detected, skipped")
+                yield {"type": "debug", "message": "⚠️ Cache duplicate - not saved"}
             else:
-                log_message(f"⚠️ Vector Cache add failed: {result.get('error')}")
+                ttl_hours = TTL_HOURS.get(volatility)
+                if ttl_hours:
+                    log_message(f"💾 Vector Cache: Saved with {volatility} TTL ({ttl_hours}h, {result.get('total_entries')} entries)")
+                    yield {"type": "debug", "message": f"💾 Saved to Cache (TTL: {ttl_hours}h)"}
+                else:
+                    log_message(f"💾 Vector Cache: Saved as PERMANENT ({result.get('total_entries')} entries)")
+                    yield {"type": "debug", "message": "💾 Saved to Cache (PERMANENT)"}
         else:
-            log_message("🚫 Vector Cache: Skipped (LLM decision: not cacheable)")
-            yield {"type": "debug", "message": "🚫 Not cached (volatile data)"}
+            log_message(f"⚠️ Vector Cache add failed: {result.get('error')}")
 
     except Exception as e:
         log_message(f"⚠️ Vector Cache auto-learning failed: {e}")

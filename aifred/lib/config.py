@@ -187,6 +187,23 @@ VRAM_CONTEXT_RATIO = 0.097  # ~97KB per token (optimized for 30B MoE models)
 
 # Normale Cache-Abfrage (ohne explizite Keywords wie "recherchiere")
 CACHE_DISTANCE_HIGH = 0.5      # < 0.5 = HIGH confidence Cache-Hit (direct answer)
+
+# ============================================================
+# TTL-BASED CACHE SYSTEM (Volatility Levels)
+# ============================================================
+# Time-To-Live values for different volatility categories
+# Main LLM determines volatility via <volatility> tag in response
+TTL_HOURS = {
+    'DAILY': 24,        # News, current events, "latest developments"
+    'WEEKLY': 168,      # Political updates (7 days)
+    'MONTHLY': 720,     # Semi-current topics (30 days)
+    'PERMANENT': None   # Timeless facts, no expiry
+}
+
+# Cache cleanup configuration
+CACHE_CLEANUP_INTERVAL_HOURS = 12  # Background task runs every 12 hours
+CACHE_STARTUP_CLEANUP = True        # Delete expired entries on server startup
+
 CACHE_DISTANCE_MEDIUM = 0.5    # >= 0.5 = Trigger RAG check (not direct cache hit)
 
 # Explizite Recherche-Keywords ("recherchiere", "google", etc.)
