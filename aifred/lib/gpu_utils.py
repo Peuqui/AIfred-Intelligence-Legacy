@@ -15,6 +15,7 @@ from .config import (
     ENABLE_VRAM_CONTEXT_CALCULATION
 )
 from .logging_utils import log_message
+from .formatting import format_number
 
 logger = logging.getLogger(__name__)
 
@@ -197,8 +198,8 @@ def calculate_vram_based_context(
         # Model already in VRAM - free_vram_mb already accounts for it
         vram_for_context = usable_vram
         msg = (
-            f"💾 Model loaded → {vram_for_context:.0f} MB for context "
-            f"({free_vram_mb} MB free - {safety_margin_mb} MB margin)"
+            f"💾 Model loaded → {format_number(vram_for_context, 0)} MB for context "
+            f"({format_number(free_vram_mb)} MB free - {format_number(safety_margin_mb)} MB margin)"
         )
         log_message(msg)
         debug_msgs.append(msg)
@@ -206,14 +207,14 @@ def calculate_vram_based_context(
         # Model NOT loaded - must subtract its size from available VRAM
         vram_for_context = int(usable_vram - model_size_mb)
         msg = (
-            f"💾 Model NOT loaded → {vram_for_context:.0f} MB for context "
-            f"({free_vram_mb} MB - {model_size_mb:.0f} MB model - {safety_margin_mb} MB margin)"
+            f"💾 Model NOT loaded → {format_number(vram_for_context, 0)} MB for context "
+            f"({format_number(free_vram_mb)} MB - {format_number(model_size_mb, 0)} MB model - {format_number(safety_margin_mb)} MB margin)"
         )
         log_message(msg)
         debug_msgs.append(msg)
 
     if vram_for_context < 100:
-        msg = f"❌ Insufficient VRAM for context: {vram_for_context:.0f} MB (< 100 MB minimum) → Fallback 2048"
+        msg = f"❌ Insufficient VRAM for context: {format_number(vram_for_context, 0)} MB (< 100 MB minimum) → Fallback 2.048"
         log_message(msg)
         debug_msgs.append(msg)
         return 2048, debug_msgs  # Minimal fallback
@@ -226,12 +227,17 @@ def calculate_vram_based_context(
 
     # Log detailed VRAM calculation to debug console
     # Format with German thousands separator (dot instead of comma)
-    formatted_ctx = f"{final_num_ctx:,}".replace(",", ".")
-    formatted_max = f"{max_practical_tokens:,}".replace(",", ".")
-    msg = (
-        f"🎯 VRAM Limit: {formatted_ctx} T "
-        f"({vram_for_context:.0f} MB @ {vram_context_ratio} MB/T, max: {formatted_max} T)"
-    )
+    formatted_ctx = format_number(final_num_ctx)
+    formatted_vram_max = format_number(max_practical_tokens)
+    formatted_model_max = format_number(model_context_limit)
+
+    # Determine limiting factor and create compact message
+    if max_practical_tokens <= model_context_limit:
+        # VRAM is the bottleneck
+        msg = f"🎯 VRAM-Limit: {formatted_ctx} tok (Model Max: {formatted_model_max} tok)"
+    else:
+        # Model is the bottleneck
+        msg = f"🎯 Model-Limit: {formatted_ctx} tok (VRAM Max: {formatted_vram_max} tok)"
     log_message(msg)
     debug_msgs.append(msg)
 

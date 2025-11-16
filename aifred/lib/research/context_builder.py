@@ -18,7 +18,7 @@ from ..agent_tools import build_context
 from ..prompt_loader import load_prompt
 from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens
 from ..message_builder import build_messages_from_history
-from ..formatting import format_thinking_process, build_debug_accordion, format_metadata
+from ..formatting import format_thinking_process, build_debug_accordion, format_metadata, format_number
 from ..logging_utils import log_message
 from ..config import CHARS_PER_TOKEN, TTL_HOURS
 from ..intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
@@ -91,7 +91,7 @@ async def build_and_generate_response(
 
     # Estimate tokens
     est_tokens = len(context) // CHARS_PER_TOKEN
-    log_message(f"📊 Context: ~{est_tokens} Tokens")
+    log_message(f"📊 Context: ~{format_number(est_tokens)} tok")
 
     # Show context preview
     if len(context) > 800:
@@ -134,8 +134,8 @@ async def build_and_generate_response(
             llm_options = {}
         llm_options['num_ctx'] = num_ctx_manual
         final_num_ctx = num_ctx_manual
-        log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
-        yield {"type": "debug", "message": f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)"}
+        log_message(f"🔧 Manual num_ctx: {format_number(num_ctx_manual)} (VRAM calculation skipped)")
+        yield {"type": "debug", "message": f"🔧 Manual num_ctx: {format_number(num_ctx_manual)} (VRAM calculation skipped)"}
     else:
         # Auto mode: Determine VRAM limiting
         enable_vram_limit = (num_ctx_mode == "auto_vram")
@@ -151,7 +151,7 @@ async def build_and_generate_response(
     model_limit, _ = await llm_client.get_model_context_limit(model_choice)
 
     # Show compact context info (like Automatik-LLM)
-    yield {"type": "debug", "message": f"📊 Haupt-LLM: {input_tokens} / {final_num_ctx} Tokens (max: {model_limit})"}
+    yield {"type": "debug", "message": f"📊 Haupt-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
 
     # Temperature
     if temperature_mode == 'manual':
@@ -198,8 +198,8 @@ async def build_and_generate_response(
             if not first_token_received:
                 ttft = time.time() - inference_start
                 first_token_received = True
-                log_message(f"⚡ TTFT: {ttft:.2f}s")
-                yield {"type": "debug", "message": f"⚡ TTFT: {ttft:.2f}s"}
+                log_message(f"⚡ TTFT: {format_number(ttft, 2)}s")
+                yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
 
             ai_text += chunk["text"]
             yield {"type": "content", "text": chunk["text"]}
@@ -217,7 +217,7 @@ async def build_and_generate_response(
     # Log completion
     tokens_generated = metrics.get("tokens_generated", 0)
     tokens_per_sec = metrics.get("tokens_per_second", 0)
-    yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)"}
+    yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s)"}
 
     # Extract volatility tag from LLM response
     volatility = "PERMANENT"  # Default fallback
@@ -231,10 +231,10 @@ async def build_and_generate_response(
             yield {"type": "debug", "message": f"✅ Volatility: {volatility}"}
         else:
             log_message(f"⚠️ Unbekannte Volatility '{extracted}', fallback zu PERMANENT")
-            yield {"type": "debug", "message": f"⚠️ Unbekannte Volatility, fallback zu PERMANENT"}
+            yield {"type": "debug", "message": "⚠️ Unbekannte Volatility, fallback zu PERMANENT"}
     else:
-        log_message(f"⚠️ Kein Volatility-Tag gefunden, fallback zu PERMANENT")
-        yield {"type": "debug", "message": f"⚠️ Kein Volatility-Tag, fallback zu PERMANENT"}
+        log_message("⚠️ Kein Volatility-Tag gefunden, fallback zu PERMANENT")
+        yield {"type": "debug", "message": "⚠️ Kein Volatility-Tag, fallback zu PERMANENT"}
 
     # Remove volatility tag from answer before displaying to user
     ai_text = re.sub(r'<volatility>.*?</volatility>', '', ai_text, flags=re.IGNORECASE | re.DOTALL).strip()
@@ -259,10 +259,10 @@ async def build_and_generate_response(
 
     # Update history
     total_time = time.time() - agent_start
-    metadata = format_metadata(f"(Inferenz: {inference_time:.1f}s, {tokens_per_sec:.1f} tok/s, Quelle: Web-Recherche)")
+    metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, {format_number(tokens_per_sec, 1)} tok/s, Quelle: Web-Recherche)")
 
     if stt_time > 0:
-        user_metadata = format_metadata(f"(STT: {stt_time:.1f}s, Agent: {mode}, {len(scraped_only)} Quellen)")
+        user_metadata = format_metadata(f"(STT: {format_number(stt_time, 1)}s, Agent: {mode}, {len(scraped_only)} Quellen)")
         user_with_time = f"{user_text} {user_metadata}"
     else:
         user_metadata = format_metadata(f"(Agent: {mode}, {len(scraped_only)} Quellen)")
@@ -270,7 +270,7 @@ async def build_and_generate_response(
 
     history.append((user_with_time, thinking_html + " " + metadata))
 
-    log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
+    log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {format_number(inference_time, 1)}s)")
 
     # ============================================================
     # Vector DB Auto-Learning: Save successful research to cache with TTL
@@ -298,8 +298,8 @@ async def build_and_generate_response(
             else:
                 ttl_hours = TTL_HOURS.get(volatility)
                 if ttl_hours:
-                    log_message(f"💾 Vector Cache: Saved with {volatility} TTL ({ttl_hours}h, {result.get('total_entries')} entries)")
-                    yield {"type": "debug", "message": f"💾 Saved to Cache (TTL: {ttl_hours}h)"}
+                    log_message(f"💾 Vector Cache: Saved with {volatility} TTL ({format_number(ttl_hours)}h, {result.get('total_entries')} entries)")
+                    yield {"type": "debug", "message": f"💾 Saved to Cache (TTL: {format_number(ttl_hours)}h)"}
                 else:
                     log_message(f"💾 Vector Cache: Saved as PERMANENT ({result.get('total_entries')} entries)")
                     yield {"type": "debug", "message": "💾 Saved to Cache (PERMANENT)"}
@@ -314,7 +314,7 @@ async def build_and_generate_response(
     console_separator()
     yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
-    log_message(f"✅ Agent fertig: {total_time:.1f}s gesamt, {len(ai_text)} Zeichen")
+    log_message(f"✅ Agent fertig: {format_number(total_time, 1)}s gesamt, {len(ai_text)} Zeichen")
     log_message("=" * 60)
 
     # Clear progress

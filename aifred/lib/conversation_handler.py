@@ -18,7 +18,7 @@ from .llm_client import LLMClient
 from .logging_utils import log_message, CONSOLE_SEPARATOR
 from .prompt_loader import get_decision_making_prompt
 from .message_builder import build_messages_from_history
-from .formatting import format_thinking_process, format_metadata
+from .formatting import format_thinking_process, format_metadata, format_number
 # Cache system removed - will be replaced with Vector DB
 from .context_manager import estimate_tokens, calculate_dynamic_num_ctx
 from .intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
@@ -140,12 +140,12 @@ async def chat_interactive_mode(
                     age_seconds = (datetime.now() - cache_time).total_seconds()
                     age_formatted = format_age(age_seconds)
 
-                    log_message(f"✅ Exact duplicate in cache ({age_formatted} old, distance={distance:.4f}), using cache")
-                    yield {"type": "debug", "message": f"✅ Exact match in cache ({age_formatted} ago, d={distance:.4f}) → Using cached result"}
+                    log_message(f"✅ Exact duplicate in cache ({age_formatted} old, distance={format_number(distance, 4)}), using cache")
+                    yield {"type": "debug", "message": f"✅ Exact match in cache ({age_formatted} ago, d={format_number(distance, 4)}) → Using cached result"}
 
                     answer = cache_result['answer']
                     cache_time_ms = cache_result.get('query_time_ms', 0) / 1000
-                    timing_suffix = f" (Cache-Hit: {cache_time_ms:.2f}s, Age: {age_formatted}, Quelle: Vector Cache)"
+                    timing_suffix = f" (Cache-Hit: {format_number(cache_time_ms, 2)}s, Age: {age_formatted}, Quelle: Vector Cache)"
 
                     # Create user_with_time for history
                     user_with_time = f"[{datetime.now().strftime('%H:%M')}] {user_text}"
@@ -161,8 +161,8 @@ async def chat_interactive_mode(
                     return  # Done!
                 else:
                     # No exact duplicate - proceed with fresh research
-                    log_message(f"❌ No exact duplicate (distance={distance:.4f} >= 0.05), performing fresh search")
-                    yield {"type": "debug", "message": f"❌ No exact match (d={distance:.4f}) → Fresh web research"}
+                    log_message(f"❌ No exact duplicate (distance={format_number(distance, 4)} >= 0.05), performing fresh search")
+                    yield {"type": "debug", "message": f"❌ No exact match (d={format_number(distance, 4)}) → Fresh web research"}
 
             except Exception as e:
                 log_message(f"⚠️ Cache check failed: {e}")
@@ -192,12 +192,12 @@ async def chat_interactive_mode(
                 distance = cache_result['distance']
                 answer = cache_result['answer']
 
-                log_message(f"✅ Vector Cache HIT! Confidence: {confidence.upper()}, Distance: {distance:.3f}")
-                yield {"type": "debug", "message": f"✅ Cache HIT ({confidence}, d={distance:.3f})"}
+                log_message(f"✅ Vector Cache HIT! Confidence: {confidence.upper()}, Distance: {format_number(distance, 3)}")
+                yield {"type": "debug", "message": f"✅ Cache HIT ({confidence}, d={format_number(distance, 3)})"}
 
                 # Return cached answer with timing info
                 cache_time = cache_result.get('query_time_ms', 0) / 1000  # Convert to seconds
-                timing_suffix = f" (Cache-Hit: {cache_time:.2f}s, Quelle: Vector Cache)"
+                timing_suffix = f" (Cache-Hit: {format_number(cache_time, 2)}s, Quelle: Vector Cache)"
 
                 # Add to history
                 from datetime import datetime
@@ -210,14 +210,14 @@ async def chat_interactive_mode(
                     "data": (answer + timing_suffix, history, cache_time)
                 }
 
-                log_message(f"✅ Cache answer returned ({len(answer)} chars, {cache_time:.2f}s)")
+                log_message(f"✅ Cache answer returned ({len(answer)} chars, {format_number(cache_time, 2)}s)")
                 return  # Done!
             else:
                 # Cache MISS - check for RAG context (distance 0.5-1.2)
                 distance = cache_result.get('distance', 1.0)
                 confidence = cache_result.get('confidence', 'low')
-                log_message(f"❌ Vector Cache MISS (distance={distance:.3f}, confidence={confidence})")
-                yield {"type": "debug", "message": f"❌ Cache miss (d={distance:.3f}, {confidence}) → Checking RAG context..."}
+                log_message(f"❌ Vector Cache MISS (distance={format_number(distance, 3)}, confidence={confidence})")
+                yield {"type": "debug", "message": f"❌ Cache miss (d={format_number(distance, 3)}, {confidence}) → Checking RAG context..."}
 
         except Exception as e:
             log_message(f"⚠️ Vector Cache error (continuing without cache): {e}")
@@ -254,7 +254,7 @@ async def chat_interactive_mode(
                 # Log which cache entries were used as context
                 for i, source in enumerate(sources, 1):
                     cached_query_preview = source['query'][:60] + "..." if len(source['query']) > 60 else source['query']
-                    log_message(f"  📌 RAG Source {i}: \"{cached_query_preview}\" (d={source['distance']:.3f})")
+                    log_message(f"  📌 RAG Source {i}: \"{cached_query_preview}\" (d={format_number(source['distance'], 3)})")
             else:
                 log_message("❌ No relevant RAG context found")
                 yield {"type": "debug", "message": "❌ No RAG context available"}
@@ -262,6 +262,227 @@ async def chat_interactive_mode(
         except Exception as e:
             log_message(f"⚠️ RAG context building failed: {e}")
             # Continue without RAG context
+
+        # ============================================================
+        # RAG BYPASS: Skip Automatik-LLM if RAG context found
+        # ============================================================
+        if rag_context:
+            log_message(f"✅ RAG Context verfügbar ({num_sources} relevante Einträge) → Bypass Automatik-LLM, direkt zu Haupt-LLM")
+            yield {"type": "debug", "message": f"⚡ RAG Bypass: {num_sources}/{num_checked} relevante Einträge → Skip Automatik-LLM"}
+
+            # Spracherkennung für Nutzereingabe
+            from .prompt_loader import detect_language
+            detected_user_language = detect_language(user_text)
+            log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
+
+            # Clear progress - keine Web-Recherche nötig, zeige LLM-Phase
+            yield {"type": "progress", "phase": "llm"}
+
+            # Start timing for preload phase
+            preload_start = time.time()
+
+            # Jetzt normale Inferenz MIT Zeitmessung
+            # Build messages from history (all turns)
+            messages = build_messages_from_history(history, user_text)
+
+            # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
+            from .prompt_loader import load_prompt
+            system_prompt_minimal = load_prompt('system_minimal', lang=detected_user_language)
+            messages.insert(0, {"role": "system", "content": system_prompt_minimal})
+
+            # Inject RAG context as additional system message
+            rag_system_message = {
+                'role': 'system',
+                'content': f"""
+ZUSÄTZLICHER KONTEXT AUS VORHERIGEN RECHERCHEN:
+
+{rag_context}
+
+Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für die aktuelle Frage relevant sind.
+"""
+            }
+            # Insert before user message (after history)
+            messages.insert(-1, rag_system_message)
+            log_message(f"💡 RAG context injected into system prompt ({len(rag_context)} chars)")
+
+            # Log RAG context content (preview)
+            rag_preview = rag_context[:500] + "..." if len(rag_context) > 500 else rag_context
+            log_message(f"📄 RAG Context Preview:\n{rag_preview}")
+
+            # Count actual input tokens (using real tokenizer)
+            input_tokens = estimate_tokens(messages, model_name=model_choice)
+
+            # Determine enable_vram_limit based on num_ctx_mode
+            if num_ctx_mode == "manual":
+                # Manual mode: Use user-specified value directly in llm_options
+                if llm_options is None:
+                    llm_options = {}
+                llm_options['num_ctx'] = num_ctx_manual
+                final_num_ctx = num_ctx_manual
+                log_message(f"🔧 Manual num_ctx: {format_number(num_ctx_manual)} (VRAM calculation skipped)")
+            else:
+                # Auto mode: Determine VRAM limiting
+                enable_vram_limit = (num_ctx_mode == "auto_vram")
+
+                # Dynamische num_ctx Berechnung für RAG Bypass (Haupt-LLM)
+                final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
+                    llm_client, model_choice, messages, llm_options,
+                    enable_vram_limit=enable_vram_limit
+                )
+                # Yield VRAM debug messages to UI console
+                for msg in vram_debug_msgs:
+                    yield {"type": "debug", "message": msg}
+
+            # Get model max context for compact display
+            model_limit, _ = await llm_client.get_model_context_limit(model_choice)
+
+            # Actual model preloading (only for Ollama - vLLM/TabbyAPI keep models in VRAM)
+            if backend_type == "ollama":
+                # STEP 1: Unload all models (e.g., Automatik-LLM from RAG distance calculation)
+                backend = llm_client._get_backend()
+                unload_success, unloaded_models = await backend.unload_all_models()
+                if unloaded_models:
+                    models_str = ", ".join(unloaded_models)
+                    yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
+                    log_message(f"🗑️ Entladene Modelle: {models_str}")
+
+                # STEP 2: Load Haupt-LLM
+                yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
+                success, load_time = await backend.preload_model(model_choice)
+
+                if success:
+                    yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)"}
+                    log_message(f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)")
+                else:
+                    yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)"}
+                    log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)")
+            else:
+                # vLLM/TabbyAPI: Model bereits in VRAM, zeige nur Vorbereitungszeit
+                prep_time = time.time() - preload_start
+                yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
+                yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({format_number(prep_time, 1)}s)"}
+                log_message(f"✅ Haupt-LLM vorgeladen ({format_number(prep_time, 1)}s - vorbereitung)")
+
+            yield {"type": "debug", "message": "✅ System-Prompt erstellt"}
+
+            # Show compact context info (like Automatik-LLM and Web-Recherche)
+            yield {"type": "debug", "message": f"📊 Haupt-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
+            log_message(f"📊 Haupt-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
+
+            # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
+            if temperature_mode == 'manual':
+                final_temperature = temperature
+                log_message(f"🌡️ RAG Bypass Temperature: {final_temperature} (MANUAL OVERRIDE)")
+                yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
+            else:
+                # Auto: Intent-Detection für RAG Bypass
+                intent_start = time.time()
+                log_message("🎯 Starting Intent-Detection...")
+                yield {"type": "debug", "message": "🎯 Intent-Detection läuft..."}
+
+                rag_intent = await detect_query_intent(
+                    user_query=user_text,
+                    automatik_model=automatik_model,
+                    llm_client=automatik_llm_client
+                )
+                intent_time = time.time() - intent_start
+
+                final_temperature = get_temperature_for_intent(rag_intent)
+                temp_label = get_temperature_label(rag_intent)
+                log_message(f"🌡️ RAG Bypass Temperature: {final_temperature} (Intent: {rag_intent}, {format_number(intent_time, 1)}s)")
+                yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)"}
+
+            # Console: LLM starts
+            yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
+
+            # Build main LLM options (include enable_thinking from user settings)
+            main_llm_options = {
+                'temperature': final_temperature,  # Adaptive oder Manual Temperature!
+                'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
+            }
+
+            # Add enable_thinking if provided in llm_options (user toggle)
+            if llm_options and 'enable_thinking' in llm_options:
+                main_llm_options['enable_thinking'] = llm_options['enable_thinking']
+
+            # Zeit messen für finale Inferenz - STREAM response
+            inference_start = time.time()
+            ai_text = ""
+            metrics = {}
+            ttft = None
+            first_token_received = False
+
+            async for chunk in llm_client.chat_stream(
+                model=model_choice,
+                messages=messages,
+                options=main_llm_options
+            ):
+                if chunk["type"] == "content":
+                    # Measure TTFT
+                    if not first_token_received:
+                        ttft = time.time() - inference_start
+                        first_token_received = True
+                        log_message(f"⚡ TTFT (Time-to-First-Token): {format_number(ttft, 2)}s")
+                        yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
+
+                    ai_text += chunk["text"]
+                    yield {"type": "content", "text": chunk["text"]}
+                elif chunk["type"] == "debug":
+                    # Forward debug messages from backend (e.g., thinking mode retry warning)
+                    yield chunk
+                elif chunk["type"] == "thinking_warning":
+                    # Forward thinking mode warning (model doesn't support reasoning)
+                    yield chunk
+                elif chunk["type"] == "done":
+                    metrics = chunk["metrics"]
+
+            inference_time = time.time() - inference_start
+
+            # Console: LLM finished
+            tokens_generated = metrics.get("tokens_generated", 0)
+            tokens_per_sec = metrics.get("tokens_per_second", 0)
+            yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s)"}
+
+            # Separator als letztes Element in der Debug Console
+
+            # Formatiere <think> Tags als Collapsible für Chat History (sichtbar als Collapsible!)
+            thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
+
+            # User-Text mit Timing (RAG Bypass - keine Entscheidungszeit)
+            if stt_time > 0:
+                user_metadata = format_metadata(f"(STT: {format_number(stt_time, 1)}s)")
+                user_with_time = f"{user_text} {user_metadata}"
+            else:
+                user_with_time = user_text
+
+            # AI-Antwort mit Timing + Quelle (RAG)
+            source_label = "Cache+LLM (RAG)"
+            metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, Quelle: {source_label})")
+            ai_with_source = f"{thinking_html} {metadata}"
+
+            # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
+            history.append((user_with_time, ai_with_source))
+
+            # Separator nach LLM-Antwort-Block (Ende der Einheit)
+            from .logging_utils import console_separator, CONSOLE_SEPARATOR
+            console_separator()
+            yield {"type": "debug", "message": CONSOLE_SEPARATOR}
+
+            # Clear progress before final result
+            yield {"type": "progress", "clear": True}
+
+            # Return chat history with timing metadata
+            yield {
+                "type": "result",
+                "data": (ai_text, history, inference_time)
+            }
+
+            log_message(f"✅ RAG Bypass answer returned ({len(ai_text)} chars, {format_number(inference_time, 2)}s)")
+            return  # Early return - skip Automatik-LLM decision
+
+        # ============================================================
+        # No RAG context - proceed with normal Automatik-LLM decision
+        # ============================================================
 
         # Spracherkennung für Nutzereingabe
         from .prompt_loader import detect_language
@@ -302,8 +523,8 @@ async def chat_interactive_mode(
             input_tokens = estimate_tokens(messages, model_name=automatik_model)
 
             # Show compact context info
-            yield {"type": "debug", "message": f"📊 Automatik-LLM: {input_tokens} / {decision_num_ctx} Tokens (max: {automatik_limit})"}
-            log_message(f"📊 Automatik-LLM ({automatik_model}): Input ~{input_tokens} Tokens, num_ctx: {decision_num_ctx}, max: {automatik_limit}")
+            yield {"type": "debug", "message": f"📊 Automatik-LLM: {format_number(input_tokens)} / {format_number(decision_num_ctx)} tok (Model Max: {format_number(automatik_limit)} tok)"}
+            log_message(f"📊 Automatik-LLM ({automatik_model}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(decision_num_ctx)}, max: {format_number(automatik_limit)}")
 
             decision_start = time.time()
             try:
@@ -326,8 +547,8 @@ async def chat_interactive_mode(
                 # Parse decision result for user-friendly display
                 decision_label = "Web-Recherche JA" if ('<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision)) else "Web-Recherche NEIN"
 
-                yield {"type": "debug", "message": f"🤖 Decision: {decision_label} ({decision_time:.1f}s)"}
-                log_message(f"🤖 KI-Entscheidung: {decision_label} ({decision_time:.1f}s, raw: {decision[:50]}...)")
+                yield {"type": "debug", "message": f"🤖 Decision: {decision_label} ({format_number(decision_time, 1)}s)"}
+                log_message(f"🤖 KI-Entscheidung: {decision_label} ({format_number(decision_time, 1)}s, raw: {decision[:50]}...)")
             except Exception as e:
                 decision_time = time.time() - decision_start
                 log_message(f"⚠️ Automatik-Entscheidung fehlgeschlagen: {e}")
@@ -399,7 +620,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                         llm_options = {}
                     llm_options['num_ctx'] = num_ctx_manual
                     final_num_ctx = num_ctx_manual
-                    log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
+                    log_message(f"🔧 Manual num_ctx: {format_number(num_ctx_manual)} (VRAM calculation skipped)")
                 else:
                     # Auto mode: Determine VRAM limiting
                     enable_vram_limit = (num_ctx_mode == "auto_vram")
@@ -418,35 +639,36 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
                 # Actual model preloading (only for Ollama - vLLM/TabbyAPI keep models in VRAM)
                 if backend_type == "ollama":
-                    yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
+                    # STEP 1: Unload all models (e.g., Automatik-LLM from decision)
+                    backend = llm_client._get_backend()
+                    unload_success, unloaded_models = await backend.unload_all_models()
+                    if unloaded_models:
+                        models_str = ", ".join(unloaded_models)
+                        yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
+                        log_message(f"🗑️ Entladene Modelle: {models_str}")
 
-                    # Preload via backend (measures actual model loading time)
-                    # Also returns list of unloaded models
-                    success, load_time, unloaded_models = await llm_client._get_backend().preload_model(model_choice)
+                    # STEP 2: Load Haupt-LLM
+                    yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
+                    success, load_time = await backend.preload_model(model_choice)
 
                     if success:
-                        if unloaded_models:
-                            # Show which models were unloaded
-                            models_str = ", ".join(unloaded_models)
-                            yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
-                            log_message(f"🗑️ Entladene Modelle: {models_str}")
-                        yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)"}
-                        log_message(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
+                        yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)"}
+                        log_message(f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)")
                     else:
-                        yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)"}
-                        log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)")
+                        yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)"}
+                        log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)")
                 else:
                     # vLLM/TabbyAPI: Model bereits in VRAM, zeige nur Vorbereitungszeit
                     prep_time = time.time() - preload_start
                     yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
-                    yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({prep_time:.1f}s)"}
-                    log_message(f"✅ Haupt-LLM vorgeladen ({prep_time:.1f}s - vorbereitung)")
+                    yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({format_number(prep_time, 1)}s)"}
+                    log_message(f"✅ Haupt-LLM vorgeladen ({format_number(prep_time, 1)}s - vorbereitung)")
 
                 yield {"type": "debug", "message": "✅ System-Prompt erstellt"}
 
                 # Show compact context info (like Automatik-LLM and Web-Recherche)
-                yield {"type": "debug", "message": f"📊 Haupt-LLM: {input_tokens} / {final_num_ctx} Tokens (max: {model_limit})"}
-                log_message(f"📊 Haupt-LLM ({model_choice}): Input ~{input_tokens} Tokens, num_ctx: {final_num_ctx}, max: {model_limit}")
+                yield {"type": "debug", "message": f"📊 Haupt-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
+                log_message(f"📊 Haupt-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
 
                 # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
                 if temperature_mode == 'manual':
@@ -468,8 +690,8 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
                     final_temperature = get_temperature_for_intent(own_knowledge_intent)
                     temp_label = get_temperature_label(own_knowledge_intent)
-                    log_message(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (Intent: {own_knowledge_intent}, {intent_time:.1f}s)")
-                    yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {intent_time:.1f}s)"}
+                    log_message(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (Intent: {own_knowledge_intent}, {format_number(intent_time, 1)}s)")
+                    yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)"}
 
                 # Console: LLM starts
                 yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
@@ -501,8 +723,8 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                         if not first_token_received:
                             ttft = time.time() - inference_start
                             first_token_received = True
-                            log_message(f"⚡ TTFT (Time-to-First-Token): {ttft:.2f}s")
-                            yield {"type": "debug", "message": f"⚡ TTFT: {ttft:.2f}s"}
+                            log_message(f"⚡ TTFT (Time-to-First-Token): {format_number(ttft, 2)}s")
+                            yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
 
                         ai_text += chunk["text"]
                         yield {"type": "content", "text": chunk["text"]}
@@ -520,7 +742,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 # Console: LLM finished
                 tokens_generated = metrics.get("tokens_generated", 0)
                 tokens_per_sec = metrics.get("tokens_per_second", 0)
-                yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)"}
+                yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s)"}
 
                 # Separator als letztes Element in der Debug Console
 
@@ -529,10 +751,10 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
                 # User-Text mit Timing (Entscheidungszeit + Inferenzzeit)
                 if stt_time > 0:
-                    user_metadata = format_metadata(f"(STT: {stt_time:.1f}s, Entscheidung: {decision_time:.1f}s)")
+                    user_metadata = format_metadata(f"(STT: {format_number(stt_time, 1)}s, Entscheidung: {format_number(decision_time, 1)}s)")
                     user_with_time = f"{user_text} {user_metadata}"
                 else:
-                    user_metadata = format_metadata(f"(Entscheidung: {decision_time:.1f}s)")
+                    user_metadata = format_metadata(f"(Entscheidung: {format_number(decision_time, 1)}s)")
                     user_with_time = f"{user_text} {user_metadata}"
 
                 # AI-Antwort mit Timing + Quelle (dynamisch basierend auf RAG/History)
@@ -543,13 +765,13 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 else:
                     source_label = "LLM"
 
-                metadata = format_metadata(f"(Inferenz: {inference_time:.1f}s, Quelle: {source_label})")
+                metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, Quelle: {source_label})")
                 ai_with_source = f"{thinking_html} {metadata}"
 
                 # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
                 history.append((user_with_time, ai_with_source))
 
-                log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
+                log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {format_number(inference_time, 1)}s)")
 
                 # Clear progress before final result
                 yield {"type": "progress", "clear": True}

@@ -13,6 +13,7 @@ from typing import Dict, List, AsyncIterator
 from ..query_optimizer import optimize_search_query
 from ..agent_tools import search_web
 from ..logging_utils import log_message
+from ..formatting import format_number
 
 
 async def process_query_and_search(
@@ -57,7 +58,7 @@ async def process_query_and_search(
     query_opt_time = time.time() - query_opt_start
 
     # Show query optimization completion AND optimized query
-    yield {"type": "debug", "message": f"✅ Query-Optimierung fertig ({query_opt_time:.1f}s)"}
+    yield {"type": "debug", "message": f"✅ Query-Optimierung fertig ({format_number(query_opt_time, 1)}s)"}
     yield {"type": "debug", "message": f"🔎 Optimierte Query: {optimized_query}"}
 
     # 2. Web-Suche

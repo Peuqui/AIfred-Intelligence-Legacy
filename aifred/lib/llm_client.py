@@ -180,18 +180,19 @@ class LLMClient:
         backend = self._get_backend()
         return await backend.get_model_context_limit(model)
 
-    async def preload_model(self, model: str) -> tuple[bool, float, list[str]]:
+    async def preload_model(self, model: str) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal request.
         This warms up the model so future requests are faster.
 
-        For Ollama backend: Also unloads all other models to ensure maximum VRAM.
+        NOTE: Caller should explicitly call backend.unload_all_models() BEFORE this
+        to ensure proper model loading order.
 
         Args:
             model: Model name to preload (e.g., 'qwen3:8b')
 
         Returns:
-            Tuple of (success: bool, load_time: float in seconds, unloaded_models: list[str])
+            Tuple of (success: bool, load_time: float in seconds)
         """
         backend = self._get_backend()
         # NOTE: Backend is cached in self._backend to prevent GC during async operations

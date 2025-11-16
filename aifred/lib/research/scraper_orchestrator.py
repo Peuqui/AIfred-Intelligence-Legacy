@@ -69,10 +69,21 @@ async def orchestrate_scraping(
     # vLLM and TabbyAPI keep models loaded in VRAM, so preloading is unnecessary
     needs_preload = llm_client.backend_type not in ["vllm", "tabbyapi"]
     preload_task = None
+    unload_task = None
     preload_message_sent = False
+    unloaded_models = []
 
     if needs_preload:
-        preload_task = asyncio.create_task(llm_client.preload_model(model_choice))
+        # STEP 1: Unload all models (e.g., Automatik-LLM from decision) - parallel with scraping
+        backend = llm_client._get_backend()
+
+        async def unload_and_preload():
+            """Unload all models, then preload Haupt-LLM"""
+            unload_success, models = await backend.unload_all_models()
+            success, load_time = await backend.preload_model(model_choice)
+            return (success, load_time, models)
+
+        preload_task = asyncio.create_task(unload_and_preload())
         log_message(f"🚀 Haupt-LLM ({model_choice}) wird parallel vorgeladen...")
         yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
     else:
@@ -114,7 +125,15 @@ async def orchestrate_scraping(
             # Check if preload finished and send message immediately
             if not preload_message_sent and preload_task and preload_task.done():
                 try:
-                    success, load_time = preload_task.result()
+                    success, load_time, unloaded_models = preload_task.result()
+
+                    # Show unloaded models first
+                    if unloaded_models:
+                        models_str = ", ".join(unloaded_models)
+                        yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
+                        log_message(f"🗑️ Entladene Modelle: {models_str}")
+
+                    # Then show preload result
                     if success:
                         log_message(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
                         yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)"}

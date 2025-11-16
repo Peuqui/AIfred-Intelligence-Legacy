@@ -1470,6 +1470,8 @@ def settings_accordion() -> rx.Component:
 def index() -> rx.Component:
     """Main page with single column layout for mobile optimization"""
     return rx.box(
+        # Load custom JavaScript for link behavior
+        rx.script(src="/custom.js"),
         rx.vstack(
             # Header
             rx.heading(t("aifred_intelligence"), size="6", margin_bottom="2"),
@@ -1531,5 +1533,7 @@ def index() -> rx.Component:
 
 # Create app
 app = rx.App(
-    stylesheets=["/custom.css"],  # Load custom CSS
+    stylesheets=[
+        "/custom.css",  # Custom CSS for dark theme
+    ],
 )

@@ -13,6 +13,7 @@ import asyncio
 from typing import Dict, List, Optional, AsyncIterator
 from .logging_utils import log_message, console_separator
 from .prompt_loader import load_prompt
+from .formatting import format_number
 from .config import (
     HISTORY_COMPRESSION_THRESHOLD,
     HISTORY_MESSAGES_TO_COMPRESS,
@@ -212,19 +213,19 @@ async def calculate_dynamic_num_ctx(
     # Warne wenn Context überschritten
     if calculated_ctx > max_practical_ctx:
         log_message(
-            f"⚠️ Gewünschter Context {calculated_ctx:,} > Praktisches Limit {max_practical_ctx:,} "
-            f"(VRAM-begrenzt), clippe auf {final_num_ctx:,}"
+            f"⚠️ Gewünschter Context {format_number(calculated_ctx)} > Praktisches Limit {format_number(max_practical_ctx)} "
+            f"(VRAM-begrenzt), clippe auf {format_number(final_num_ctx)}"
         )
     elif calculated_ctx > model_limit:
         log_message(
-            f"⚠️ Gewünschter Context {calculated_ctx:,} > Modell-Limit {model_limit:,}, "
-            f"clippe auf {final_num_ctx:,}"
+            f"⚠️ Gewünschter Context {format_number(calculated_ctx)} > Modell-Limit {format_number(model_limit)}, "
+            f"clippe auf {format_number(final_num_ctx)}"
         )
 
     log_message(
-        f"🎯 Context Window: {final_num_ctx:,} Tokens "
-        f"(berechnet: {calculated_ctx:,}, praktisch: {max_practical_ctx:,}, "
-        f"modell-max: {model_limit:,}, ~{estimated_tokens:,} benötigt)"
+        f"🎯 Context Window: {format_number(final_num_ctx)} tok "
+        f"(berechnet: {format_number(calculated_ctx)}, praktisch: {format_number(max_practical_ctx)}, "
+        f"modell-max: {format_number(model_limit)}, ~{format_number(estimated_tokens)} benötigt)"
     )
 
     return final_num_ctx, vram_debug_msgs
@@ -267,19 +268,19 @@ async def summarize_history_if_needed(
     # Safety-Check: Immer mindestens 1 Message nach Kompression übrig lassen!
     # KRITISCH: Verhindert dass alle Messages komprimiert werden und Chat leer wird
     if len(history) <= HISTORY_MESSAGES_TO_COMPRESS:
-        yield {"type": "debug", "message": f"📊 History Compression Check: {utilization:.0f}% Auslastung ({estimated_tokens:,} / {context_limit:,} tokens)"}
+        yield {"type": "debug", "message": f"📊 History Compression: {int(utilization)}% ({format_number(estimated_tokens)} / {format_number(context_limit)} tok)"}
         log_message(f"⚠️ Compression aborted: {len(history)} Messages würden ALLE komprimiert → Chat leer!")
         return
 
     if estimated_tokens < threshold:
-        yield {"type": "debug", "message": f"📊 History Compression Check: {utilization:.0f}% Auslastung ({estimated_tokens:,} / {context_limit:,} tokens)"}
+        yield {"type": "debug", "message": f"📊 History Compression: {int(utilization)}% ({format_number(estimated_tokens)} / {format_number(context_limit)} tok)"}
         return
 
-    log_message(f"⚠️ History zu lang: {utilization:.0f}% Auslastung ({estimated_tokens:,} tokens) > {threshold:,} Threshold → Starte Kompression")
+    log_message(f"⚠️ History zu lang: {int(utilization)}% Auslastung ({format_number(estimated_tokens)} tok) > {format_number(threshold)} Threshold → Starte Kompression")
 
     # Progress-Indicator: Komprimiere Kontext
     yield {"type": "progress", "phase": "compress"}
-    yield {"type": "debug", "message": f"🗜️ History-Kompression startet: {utilization:.0f}% Auslastung ({estimated_tokens:,} / {context_limit:,} tokens)"}
+    yield {"type": "debug", "message": f"🗜️ History-Kompression startet: {int(utilization)}% Auslastung ({format_number(estimated_tokens)} / {format_number(context_limit)} tok)"}
 
     # 4. Zähle bestehende Summaries
     summary_count = sum(1 for user_msg, ai_msg in history if user_msg == "" and ai_msg.startswith("[📊 Komprimiert"))
@@ -380,11 +381,11 @@ async def summarize_history_if_needed(
         # Detaillierte Debug-Ausgabe
         log_message(f"✅ [END {end_timestamp}] Summary generiert:")
         log_message(f"   └─ Zeichen generiert: {len(summary_text)}")
-        log_message(f"   └─ Tokens geschätzt: {tokens_generated}")
-        log_message(f"   └─ Zeit: {summary_time:.2f}s")
-        log_message(f"   └─ Geschwindigkeit: {tokens_per_second:.1f} tok/s")
+        log_message(f"   └─ Tokens geschätzt: {format_number(tokens_generated)}")
+        log_message(f"   └─ Zeit: {format_number(summary_time, 2)}s")
+        log_message(f"   └─ Geschwindigkeit: {format_number(tokens_per_second, 1)} tok/s")
         if tokens_before > 0 and tokens_generated > 0:
-            log_message(f"   └─ Kompression: {tokens_before} → {tokens_generated} Tokens ({tokens_before/tokens_generated:.1f}:1 Ratio)")
+            log_message(f"   └─ Kompression: {format_number(tokens_before)} → {format_number(tokens_generated)} tok ({format_number(tokens_before/tokens_generated, 1)}:1 Ratio)")
         console_separator()
 
     except asyncio.TimeoutError:
@@ -417,8 +418,8 @@ async def summarize_history_if_needed(
 
     log_message("✅ History erfolgreich komprimiert:")
     log_message(f"   └─ Messages: {len(history)} → {len(new_history)} (davon {len(remaining_messages)} sichtbar)")
-    log_message(f"   └─ Tokens: {estimated_tokens} → {new_tokens} ({compression_ratio:.1f}:1 Ratio)")
-    log_message(f"   └─ Platz gespart: {estimated_tokens - new_tokens} Tokens")
+    log_message(f"   └─ Tokens: {format_number(estimated_tokens)} → {format_number(new_tokens)} ({format_number(compression_ratio, 1)}:1 Ratio)")
+    log_message(f"   └─ Platz gespart: {format_number(estimated_tokens - new_tokens)} tok")
 
     # Calculate new utilization after compression
     new_utilization = (new_tokens / context_limit) * 100
@@ -428,5 +429,5 @@ async def summarize_history_if_needed(
 
     # 12. Yield Update an State
     yield {"type": "history_update", "data": new_history}
-    yield {"type": "debug", "message": f"📦 History komprimiert: {utilization:.0f}% → {new_utilization:.0f}% Auslastung ({estimated_tokens:,} → {new_tokens:,} tokens, {len(messages_to_summarize)}→1 messages, {summaries_count} Summaries total)"}
+    yield {"type": "debug", "message": f"📦 History komprimiert: {int(utilization)}% → {int(new_utilization)}% ({format_number(estimated_tokens)} → {format_number(new_tokens)} tok, {len(messages_to_summarize)}→1 messages, {summaries_count} Summaries total)"}
 

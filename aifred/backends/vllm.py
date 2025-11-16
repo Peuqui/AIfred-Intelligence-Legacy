@@ -218,7 +218,7 @@ class vLLMBackend(LLMBackend):
             else:
                 raise BackendInferenceError(f"vLLM streaming failed: {e}")
 
-    async def preload_model(self, model: str) -> tuple[bool, float, list[str]]:
+    async def preload_model(self, model: str) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal chat request.
 
@@ -230,13 +230,12 @@ class vLLMBackend(LLMBackend):
             model: Model name to preload (e.g., 'qwen3:8b')
 
         Returns:
-            Tuple of (success: bool, load_time: float in seconds, unloaded_models: list[str])
-            - unloaded_models is always empty for vLLM (models stay loaded)
+            Tuple of (success: bool, load_time: float in seconds)
         """
         # vLLM keeps models loaded in VRAM at all times
         # No preloading needed - return immediately
         logger.debug(f"vLLM: Skipping preload for {model} (already loaded)")
-        return (True, 0.0, [])
+        return (True, 0.0)
 
     async def health_check(self) -> bool:
         """Check if vLLM is reachable"""

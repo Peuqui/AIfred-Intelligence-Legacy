@@ -209,7 +209,7 @@ class TabbyAPIBackend(LLMBackend):
             else:
                 raise BackendInferenceError(f"TabbyAPI streaming failed: {e}")
 
-    async def preload_model(self, model: str) -> tuple[bool, float, list[str]]:
+    async def preload_model(self, model: str) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal chat request.
 
@@ -221,13 +221,12 @@ class TabbyAPIBackend(LLMBackend):
             model: Model name to preload
 
         Returns:
-            Tuple of (success: bool, load_time: float in seconds, unloaded_models: list[str])
-            - unloaded_models is always empty for TabbyAPI (models stay loaded)
+            Tuple of (success: bool, load_time: float in seconds)
         """
         # TabbyAPI keeps models loaded in VRAM at all times
         # No preloading needed - return immediately
         logger.debug(f"TabbyAPI: Skipping preload for {model} (already loaded)")
-        return (True, 0.0, [])
+        return (True, 0.0)
 
     async def health_check(self) -> bool:
         """Check if TabbyAPI is reachable"""
