@@ -132,21 +132,23 @@ class LLMBackend(ABC):
         pass
 
     @abstractmethod
-    async def get_model_context_limit(self, model: str) -> int:
+    async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """
-        Get the context window size (in tokens) for a specific model.
+        Get the context window size and model size for a specific model.
 
         This method queries the backend for model metadata and extracts
-        the maximum context length. Implementation is backend-specific:
-        - Ollama: Use /api/show endpoint
-        - vLLM: Use /v1/models endpoint
-        - llama.cpp: Parse model metadata
+        the maximum context length and VRAM size. Implementation is backend-specific:
+        - Ollama: Use /api/show + /api/ps endpoints
+        - vLLM: Use /v1/models endpoint (size estimation)
+        - TabbyAPI: Use /v1/models endpoint (size unavailable)
 
         Args:
             model: Model name/ID
 
         Returns:
-            int: Context limit in tokens (e.g., 4096, 8192, 40960)
+            tuple[int, int]: (context_limit, model_size_bytes)
+                - context_limit: Context limit in tokens (e.g., 4096, 8192, 40960)
+                - model_size_bytes: Model size in VRAM (0 if unavailable)
 
         Raises:
             RuntimeError: If model not found or context limit cannot be determined
@@ -154,16 +156,19 @@ class LLMBackend(ABC):
         pass
 
     @abstractmethod
-    async def preload_model(self, model: str) -> tuple[bool, float]:
+    async def preload_model(self, model: str) -> tuple[bool, float, list[str]]:
         """
         Preload a model into VRAM by sending a minimal request.
         This warms up the model so future requests are faster.
+
+        For Ollama backend: Also unloads all other models to ensure maximum VRAM.
 
         Args:
             model: Model name to preload
 
         Returns:
-            Tuple of (success: bool, load_time: float in seconds)
+            Tuple of (success: bool, load_time: float in seconds, unloaded_models: list[str])
+            - unloaded_models is empty for vLLM/TabbyAPI (models are always loaded)
         """
         pass
 

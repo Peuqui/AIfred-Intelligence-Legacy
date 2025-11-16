@@ -1014,23 +1014,22 @@ class AIState(rx.State):
                 from .lib.context_manager import estimate_tokens
                 input_tokens = estimate_tokens(messages, model_name=self.selected_model)
 
-                # Dynamic num_ctx calculation
-                from .lib.context_manager import calculate_dynamic_num_ctx
-                final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(backend, self.selected_model, messages, None)
-                # Show VRAM debug messages in console
-                for msg in vram_debug_msgs:
-                    self.add_debug(msg)
-                    yield
-
-                # Actual model preloading (only for Ollama - vLLM/TabbyAPI keep models in VRAM)
+                # IMPORTANT: Preload model BEFORE VRAM calculation!
+                # This also unloads all other models to ensure maximum VRAM availability
                 if self.backend_type == "ollama":
                     self.add_debug(f"🚀 Haupt-LLM ({self.selected_model}) wird vorgeladen...")
                     yield
 
                     # Preload via backend (measures actual model loading time)
-                    success, load_time = await backend.preload_model(self.selected_model)
+                    # Also returns list of unloaded models
+                    success, load_time, unloaded_models = await backend.preload_model(self.selected_model)
 
                     if success:
+                        if unloaded_models:
+                            # Show which models were unloaded
+                            models_str = ", ".join(unloaded_models)
+                            self.add_debug(f"🗑️ Entladene Modelle: {models_str}")
+                            yield
                         self.add_debug(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
                     else:
                         self.add_debug(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)")
@@ -1040,6 +1039,29 @@ class AIState(rx.State):
                     self.add_debug(f"🚀 Haupt-LLM ({self.selected_model}) wird vorgeladen...")
                     yield
                     self.add_debug(f"✅ Haupt-LLM vorgeladen ({prep_time:.1f}s)")
+
+                # Determine enable_vram_limit based on num_ctx_mode (same logic as Automatik)
+                if self.num_ctx_mode == "manual":
+                    # Manual mode: Use user-specified value directly (skip VRAM calculation)
+                    final_num_ctx = self.num_ctx_manual
+                    from .lib.logging_utils import log_message
+                    log_message(f"🔧 Manual num_ctx: {self.num_ctx_manual:,} (VRAM calculation skipped)")
+                    vram_debug_msgs = []
+                else:
+                    # Auto mode: Determine VRAM limiting
+                    enable_vram_limit = (self.num_ctx_mode == "auto_vram")
+
+                    # Dynamic num_ctx calculation (AFTER preload to get accurate VRAM state)
+                    from .lib.context_manager import calculate_dynamic_num_ctx
+                    final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
+                        backend, self.selected_model, messages, None,
+                        enable_vram_limit=enable_vram_limit
+                    )
+
+                # Show VRAM debug messages in console
+                for msg in vram_debug_msgs:
+                    self.add_debug(msg)
+                    yield
 
                 self.add_debug("✅ System-Prompt erstellt")
                 yield
@@ -1055,6 +1077,7 @@ class AIState(rx.State):
                 # Build LLM options
                 llm_options = LLMOptions(
                     temperature=self.temperature,
+                    num_ctx=final_num_ctx,  # Use dynamically calculated context (or manual override)
                     enable_thinking=self.enable_thinking
                 )
 

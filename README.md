@@ -16,8 +16,11 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 - ✅ **Automatic Context Calculation** based on available GPU memory
 - ✅ **Two-Scenario Detection**: Model loaded vs not loaded (prevents double-subtraction)
 - ✅ **Model Size from Filesystem**: Reads actual blob file size (no hardcoded values)
+- ✅ **Automatic Model Unloading**: Unloads all other models before preload (ensures maximum VRAM)
+- ✅ **VRAM Stabilization**: Waits for VRAM to stabilize after model load (accurate measurements)
 - ✅ **UI Integration**: Manual override option + real-time VRAM debug messages
 - ✅ **Production-Ready**: 512 MB safety margin, 0.097 MB/token ratio (empirically tested)
+- ✅ **Improved Readability**: Spaces between numbers and units in debug output
 - 🎯 **Result**: qwen3:30b-a3b-instruct-2507 achieves **35,010 tokens** context (RTX 3090 Ti, 24GB)
 - **Impact**: Prevents CPU offloading, maximizes usable context, automatic adaptation to VRAM conditions
 

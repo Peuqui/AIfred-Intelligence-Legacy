@@ -218,7 +218,7 @@ class vLLMBackend(LLMBackend):
             else:
                 raise BackendInferenceError(f"vLLM streaming failed: {e}")
 
-    async def preload_model(self, model: str) -> tuple[bool, float]:
+    async def preload_model(self, model: str) -> tuple[bool, float, list[str]]:
         """
         Preload a model into VRAM by sending a minimal chat request.
 
@@ -230,12 +230,13 @@ class vLLMBackend(LLMBackend):
             model: Model name to preload (e.g., 'qwen3:8b')
 
         Returns:
-            Tuple of (success: bool, load_time: float in seconds)
+            Tuple of (success: bool, load_time: float in seconds, unloaded_models: list[str])
+            - unloaded_models is always empty for vLLM (models stay loaded)
         """
         # vLLM keeps models loaded in VRAM at all times
         # No preloading needed - return immediately
         logger.debug(f"vLLM: Skipping preload for {model} (already loaded)")
-        return (True, 0.0)
+        return (True, 0.0, [])
 
     async def health_check(self) -> bool:
         """Check if vLLM is reachable"""
@@ -271,9 +272,9 @@ class vLLMBackend(LLMBackend):
                 "error": str(e)
             }
 
-    async def get_model_context_limit(self, model: str) -> int:
+    async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """
-        Get context limit for a vLLM model.
+        Get context limit and estimated model size for a vLLM model.
 
         vLLM doesn't support /v1/models/{id} endpoint (returns 404).
         Instead, we query /v1/models (list) and find the model's max_model_len.
@@ -282,10 +283,16 @@ class vLLMBackend(LLMBackend):
             model: Model name/ID
 
         Returns:
-            int: Context limit in tokens
+            tuple[int, int]: (context_limit, model_size_bytes)
+                - context_limit: Maximum context window in tokens
+                - model_size_bytes: Estimated model size (0 if unavailable)
 
         Raises:
             RuntimeError: If query fails or model not found
+
+        Note:
+            vLLM doesn't expose VRAM usage directly. Model size is estimated
+            from parameter count if available, otherwise returns 0.
         """
         try:
             # Query /v1/models endpoint (list all models)
@@ -295,26 +302,36 @@ class vLLMBackend(LLMBackend):
             for model_obj in models_response.data:
                 if model_obj.id == model:
                     # Extract max_model_len from model object
+                    context_limit = None
                     if hasattr(model_obj, 'max_model_len'):
-                        return int(model_obj.max_model_len)
+                        context_limit = int(model_obj.max_model_len)
+                    else:
+                        # Try as dict if object doesn't have attribute
+                        model_dict = model_obj.model_dump() if hasattr(model_obj, 'model_dump') else dict(model_obj)
 
-                    # Try as dict if object doesn't have attribute
-                    model_dict = model_obj.model_dump() if hasattr(model_obj, 'model_dump') else dict(model_obj)
+                        if "max_model_len" in model_dict:
+                            context_limit = int(model_dict["max_model_len"])
+                        else:
+                            raise RuntimeError(
+                                f"Context limit field 'max_model_len' not found for vLLM model '{model}'. "
+                                f"Available keys: {list(model_dict.keys())}"
+                            )
 
-                    if "max_model_len" in model_dict:
-                        return int(model_dict["max_model_len"])
-
-                    raise RuntimeError(
-                        f"Context limit field 'max_model_len' not found for vLLM model '{model}'. "
-                        f"Available keys: {list(model_dict.keys())}"
+                    # vLLM doesn't expose VRAM usage - return 0 (will use free VRAM estimation)
+                    model_size_bytes = 0
+                    logger.debug(
+                        "vLLM doesn't expose model VRAM size, returning 0 "
+                        "(VRAM calculation will use free memory estimation)"
                     )
+
+                    return (context_limit, model_size_bytes)
 
             # Model not found in list - return reasonable default
             logger.warning(
                 f"⚠️ Model '{model}' not found in vLLM models list. "
                 f"Using default context limit: 16384 tokens"
             )
-            return 16384  # Reasonable default for Qwen3 models
+            return (16384, 0)  # Reasonable default for Qwen3 models
 
         except Exception as e:
             # Other errors are unexpected
