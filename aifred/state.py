@@ -13,8 +13,6 @@ from .lib import (
     initialize_debug_log,
     log_message,
     console_separator,
-    clear_console,
-    # set_research_cache removed - cache system deprecated
     perform_agent_research,
     set_language
 )
@@ -97,6 +95,10 @@ class AIState(rx.State):
     # LLM Options
     temperature: float = 0.2
     num_ctx: int = 32768
+
+    # Context Window Control (NICHT in settings.json gespeichert - Reset bei jedem Start)
+    num_ctx_mode: str = "auto_vram"  # "auto_vram" | "auto_max" | "manual"
+    num_ctx_manual: int = 16384  # Manueller Wert (nur wenn mode="manual")
 
     # Cached Model Metadata (to avoid repeated API calls)
     _automatik_model_context_limit: int = 0  # Cached context limit for automatik model
@@ -682,12 +684,12 @@ class AIState(rx.State):
                 if values_changed:
                     self._save_settings()
 
-                self.add_debug(f"📊 Context Info:")
+                self.add_debug("📊 Context Info:")
                 self.add_debug(f"  • Native: {context_info['native_context']:,} tokens (config.json)")
                 self.add_debug(f"  • Hardware Limit: {context_info['hardware_limit']:,} tokens (VRAM)")
                 self.add_debug(f"  • Used: {context_info['used_context']:,} tokens")
                 if values_changed:
-                    self.add_debug(f"💾 Werte in Settings gespeichert (kein erneuter Crash-Detection-Zyklus beim nächsten Start)")
+                    self.add_debug("💾 Werte in Settings gespeichert (kein erneuter Crash-Detection-Zyklus beim nächsten Start)")
 
                 # Store in global state so it persists across page reloads
                 _global_backend_state["vllm_manager"] = self._vllm_manager
@@ -837,7 +839,9 @@ class AIState(rx.State):
                     temperature=self.temperature,
                     llm_options=llm_options,
                     backend_type=self.backend_type,
-                    backend_url=self.backend_url
+                    backend_url=self.backend_url,
+                    num_ctx_mode=self.num_ctx_mode,
+                    num_ctx_manual=self.num_ctx_manual
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
@@ -973,7 +977,7 @@ class AIState(rx.State):
 
             elif self.research_mode == "none":
                 # No research mode: Direct LLM inference without web search
-                self.add_debug(f"🧠 Eigenes Wissen (keine Websuche)")
+                self.add_debug("🧠 Eigenes Wissen (keine Websuche)")
 
                 # Initialize temporary history entry for real-time display
                 temp_history_index = len(self.chat_history)
@@ -1004,7 +1008,7 @@ class AIState(rx.State):
                 )
 
                 # Get model context limit
-                model_limit = await backend.get_model_context_limit(self.selected_model)
+                model_limit, _ = await backend.get_model_context_limit(self.selected_model)
 
                 # Count actual input tokens (using real tokenizer)
                 from .lib.context_manager import estimate_tokens
@@ -1012,7 +1016,11 @@ class AIState(rx.State):
 
                 # Dynamic num_ctx calculation
                 from .lib.context_manager import calculate_dynamic_num_ctx
-                final_num_ctx = await calculate_dynamic_num_ctx(backend, self.selected_model, messages, None)
+                final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(backend, self.selected_model, messages, None)
+                # Show VRAM debug messages in console
+                for msg in vram_debug_msgs:
+                    self.add_debug(msg)
+                    yield
 
                 # Actual model preloading (only for Ollama - vLLM/TabbyAPI keep models in VRAM)
                 if self.backend_type == "ollama":
@@ -1033,7 +1041,7 @@ class AIState(rx.State):
                     yield
                     self.add_debug(f"✅ Haupt-LLM vorgeladen ({prep_time:.1f}s)")
 
-                self.add_debug(f"✅ System-Prompt erstellt")
+                self.add_debug("✅ System-Prompt erstellt")
                 yield
 
                 # Show compact context info (matching Automatik mode style)
@@ -1142,7 +1150,7 @@ class AIState(rx.State):
 
                     # Context-Limit des aktuellen Models
                     try:
-                        context_limit = await temp_backend.get_model_context_limit(self.selected_model)
+                        context_limit, model_size = await temp_backend.get_model_context_limit(self.selected_model)
                     except Exception:
                         context_limit = 8192  # Fallback
 
@@ -1156,7 +1164,7 @@ class AIState(rx.State):
                         history=self.chat_history,
                         llm_client=temp_backend,
                         model_name=self.automatik_model,  # Schnelles Model
-                        context_limit=context_limit
+                        context_limit=context_limit  # Uses only context_limit, not model_size
                     ):
                         compressed = True
                         if event["type"] == "history_update":
@@ -1500,6 +1508,44 @@ class AIState(rx.State):
         """Set temperature (from slider which returns list[float])"""
         self.temperature = temp[0] if isinstance(temp, list) else temp
         self._save_settings()
+
+    def set_num_ctx_mode(self, mode: str):
+        """
+        Set num_ctx mode (NICHT in settings.json gespeichert - Reset bei jedem Start)
+
+        Modes:
+        - auto_vram: VRAM-optimiert (Standard, verhindert CPU-Offload)
+        - auto_max: Modell-Maximum (riskant, kann CPU-Offload auslösen)
+        - manual: Manueller Wert aus num_ctx_manual
+        """
+        self.num_ctx_mode = mode
+        self.add_debug(f"🎯 Context Mode: {mode}")
+        # WICHTIG: Nicht in settings.json speichern!
+
+    def set_num_ctx_mode_from_display(self, display_value: str):
+        """Set num_ctx mode from UI display value (German text)"""
+        # Map German display text to mode
+        if "VRAM" in display_value:
+            mode = "auto_vram"
+        elif "Maximum" in display_value:
+            mode = "auto_max"
+        else:  # "Manuell"
+            mode = "manual"
+        self.set_num_ctx_mode(mode)
+
+    def set_num_ctx_manual(self, value: str):
+        """Set manual num_ctx value (only used when mode=manual)"""
+        try:
+            num_value = int(value)
+            if num_value < 2048:
+                num_value = 2048
+            if num_value > 1048576:  # 1M tokens max
+                num_value = 1048576
+            self.num_ctx_manual = num_value
+            self.add_debug(f"🔧 Manual num_ctx: {num_value:,}")
+            # WICHTIG: Nicht in settings.json speichern!
+        except ValueError:
+            self.add_debug(f"❌ Ungültiger num_ctx Wert: {value}")
 
     def set_research_mode(self, mode: str):
         """Set research mode"""

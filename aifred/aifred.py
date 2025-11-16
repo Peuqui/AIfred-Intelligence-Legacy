@@ -324,12 +324,13 @@ def llm_parameters_accordion() -> rx.Component:
                             "0.0 = deterministic, 0.2 = factual, 0.8 = balanced, 1.5+ = creative"
                         ),
                         font_size="11px",
-                        color=COLORS["text_muted"],
+                        color=COLORS["warning_text"],
+                        font_style="italic",
                     ),
                     width="100%",
                 ),
 
-                # Context Window
+                # Context Window Control
                 rx.vstack(
                     rx.text(
                         rx.cond(
@@ -340,25 +341,63 @@ def llm_parameters_accordion() -> rx.Component:
                         font_weight="bold",
                         font_size="12px"
                     ),
-                    rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            f"Aktuell: {AIState.num_ctx} tokens",
-                            f"Current: {AIState.num_ctx} tokens"
-                        ),
-                        font_size="12px",
-                        color=COLORS["text_secondary"],
+
+                    # Radio Buttons für Mode Selection (nur Deutsch für Konsistenz)
+                    rx.radio(
+                        ["🛡️ Auto (VRAM-optimiert) - Empfohlen", "⚠️ Auto (Modell-Maximum) - Risiko CPU-Offload", "🔧 Manuell"],
+                        default_value="🛡️ Auto (VRAM-optimiert) - Empfohlen",
+                        on_change=AIState.set_num_ctx_mode_from_display,
+                        direction="column",
+                        spacing="2",
+                        size="2",
                     ),
+
+                    # Manual Input (immer sichtbar, aber disabled wenn nicht manual)
+                    rx.vstack(
+                        rx.input(
+                            placeholder=rx.cond(
+                                AIState.ui_language == "de",
+                                "z.B. 16384",
+                                "e.g. 16384"
+                            ),
+                            value=AIState.num_ctx_manual,
+                            on_change=AIState.set_num_ctx_manual,
+                            type="number",
+                            width="100%",
+                            disabled=AIState.num_ctx_mode != "manual",
+                            opacity=rx.cond(
+                                AIState.num_ctx_mode == "manual",
+                                "1.0",
+                                "0.5"
+                            ),
+                        ),
+                        rx.text(
+                            rx.cond(
+                                AIState.ui_language == "de",
+                                f"Wert: {AIState.num_ctx_manual:,} tokens",
+                                f"Value: {AIState.num_ctx_manual:,} tokens"
+                            ),
+                            font_size="11px",
+                            color=COLORS["text_secondary"],
+                        ),
+                        spacing="1",
+                        width="100%",
+                    ),
+
+                    # Info Text
                     rx.text(
                         rx.cond(
                             AIState.ui_language == "de",
-                            "Auto-berechnet basierend auf Message-Größe",
-                            "Auto-calculated based on message size"
+                            "Einstellung wird bei Neustart zurückgesetzt (nicht gespeichert)",
+                            "Setting resets on restart (not saved)"
                         ),
                         font_size="11px",
-                        color=COLORS["text_muted"],
+                        color=COLORS["warning_text"],
+                        font_style="italic",
                     ),
+
                     width="100%",
+                    spacing="2",
                 ),
 
                 spacing="4",
@@ -1129,7 +1168,7 @@ def settings_accordion() -> rx.Component:
                             color="#b71c1c",  # Dark red (dezent)
                         ),
                         rx.text(
-                            f"vLLM & TabbyAPI benötigen Compute Capability 7.0+ und schnelles FP16.",
+                            "vLLM & TabbyAPI benötigen Compute Capability 7.0+ und schnelles FP16.",
                             font_size="10px",
                             color="#666",
                             margin_top="2px",
@@ -1244,7 +1283,7 @@ def settings_accordion() -> rx.Component:
                         padding="6px 10px",
                         border_radius="4px",
                         background_color="rgba(255, 152, 0, 0.15)",
-                        border=f"2px solid rgba(255, 152, 0, 0.5)",
+                        border="2px solid rgba(255, 152, 0, 0.5)",
                         class_name="thinking-warning-pulse",
                         margin_top="3px",
                         margin_bottom="-12px",

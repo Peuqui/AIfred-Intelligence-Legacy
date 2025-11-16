@@ -10,20 +10,29 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ---
 
-## 🎉 Latest Updates (2025-11-15)
+## 🎉 Latest Updates (2025-11-16)
 
-### 🔍 Enhanced Debug Logging & Query Visibility
+### 🧠 VRAM-Based Dynamic Context Window (RTX 3090 Ti Optimization)
+- ✅ **Automatic Context Calculation** based on available GPU memory
+- ✅ **Two-Scenario Detection**: Model loaded vs not loaded (prevents double-subtraction)
+- ✅ **Model Size from Filesystem**: Reads actual blob file size (no hardcoded values)
+- ✅ **UI Integration**: Manual override option + real-time VRAM debug messages
+- ✅ **Production-Ready**: 512 MB safety margin, 0.097 MB/token ratio (empirically tested)
+- 🎯 **Result**: qwen3:30b-a3b-instruct-2507 achieves **35,010 tokens** context (RTX 3090 Ti, 24GB)
+- **Impact**: Prevents CPU offloading, maximizes usable context, automatic adaptation to VRAM conditions
+
+### ✂️ Token Optimization in Prompts
+- ✅ **Redundant Date Line Removed**: `- Jahr: 2025` removed from all prompts
+- 🔧 **Reasoning**: Full date already shows year (`16.11.2025`), separate year line wasted tokens
+- **Impact**: Saves ~15 tokens per prompt across all modes without information loss
+
+### 🔍 Enhanced Debug Logging & Query Visibility (2025-11-15)
 - ✅ **Consistent Debug Output** across all research modes (Own Knowledge, Automatik, Quick, Deep)
 - ✅ **Precise Preload Timing** with `✅ Main-LLM loaded (X.Xs)` in all modes
 - ✅ **Optimized Query Display** shows LLM-generated search terms: `🔎 Optimized Query: [terms]`
 - ✅ **Backend-Aware Timing**: Ollama (actual load time) vs vLLM/TabbyAPI (prep time)
 - 🔧 Comprehensive debug messages added: Token stats, Temperature, TTFT, Tokens/s
 - **Impact**: Professional debug output, easier performance optimization, better web search quality assessment
-
-### 🔧 Research Mode Persistence (2025-11-14)
-- ✅ **Research mode now persists** across application restarts
-- 🔧 Fixed missing `_save_settings()` call in `set_research_mode_display()`
-- **Impact**: Your preferred research mode (Automatik/Quick/Deep/None) is remembered
 
 ### 🎯 Progress UI System Complete - MILESTONE (2025-11-14)
 - ✅ **Full Progress Feedback** across all 4 research modes (Automatik, Quick, Deep, None)
