@@ -10,6 +10,38 @@ from .logging_utils import log_message
 from datetime import datetime
 
 
+def format_number(n: int | float, decimals: int = 0) -> str:
+    """
+    Format number with German locale (dot for thousands, comma for decimals).
+
+    Args:
+        n: Number to format (int or float)
+        decimals: Number of decimal places (default: 0 for integer formatting)
+
+    Returns:
+        Formatted string with German number formatting
+
+    Examples:
+        >>> format_number(40960)
+        '40.960'
+        >>> format_number(10.84, 2)
+        '10,84'
+        >>> format_number(1234567)
+        '1.234.567'
+        >>> format_number(46.7, 1)
+        '46,7'
+    """
+    if decimals == 0:
+        # Integer formatting with thousands separator
+        return f"{int(n):,}".replace(",", ".")
+    else:
+        # Float formatting: swap separators
+        # Python uses comma for thousands, dot for decimals
+        # We want: dot for thousands, comma for decimals (German)
+        formatted = f"{n:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return formatted
+
+
 def format_metadata(metadata_text: str) -> str:
     """
     Formatiert Metadaten (Inferenzzeiten, Quellen, etc.) mit kleinerem Font und grauer Farbe.

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-11-16
 
+### Fixed
+- **Model Preload Order** ([aifred/backends/ollama.py](aifred/backends/ollama.py), [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py), [aifred/lib/research/scraper_orchestrator.py](aifred/lib/research/scraper_orchestrator.py)):
+  - Fixed unnecessary model unload/reload during preload phase
+  - **Problem**: `preload_model()` internally called `unload_all_models()`, which unloaded ALL models including the target model if already loaded
+  - **Symptom**: Debug showed `🗑️ Entladene Modelle: qwen3:4b, qwen3:14b` (14B shouldn't be there!)
+  - **Root Cause**: Sequence was Automatik-LLM decision → preload → unload ALL → reload target
+  - **Solution**: Removed `unload_all_models()` from `preload_model()` internals, added explicit calls before preload in callers
+  - **Impact**: Eliminates unnecessary model reload, clearer debug output, proper VRAM management
+  - Changed return signature: `tuple[bool, float, list[str]]` → `tuple[bool, float]`
+  - Correct order now: Automatik decision → explicit unload → load Haupt-LLM
+
+---
+
 ### 🧠 VRAM-Based Dynamic Context Window Calculation
 
 #### Added

@@ -12,7 +12,7 @@ from ..agent_tools import build_context
 from ..prompt_loader import load_prompt
 from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx
 from ..intent_detector import detect_cache_followup_intent, get_temperature_for_intent, get_temperature_label
-from ..formatting import format_thinking_process
+from ..formatting import format_thinking_process, format_number
 from ..logging_utils import log_message, console_separator, CONSOLE_SEPARATOR
 
 
@@ -109,8 +109,8 @@ async def handle_cache_hit(
     # Query Haupt-Model Context Limit (falls nicht manuell gesetzt)
     if not (llm_options and llm_options.get('num_ctx')):
         model_limit, _ = await llm_client.get_model_context_limit(model_choice)
-        log_message(f"📊 Haupt-LLM ({model_choice}): Max. Context = {model_limit} Tokens (Modell-Parameter von Ollama)")
-        yield {"type": "debug", "message": f"📊 Haupt-LLM ({model_choice}): Max. Context = {model_limit} Tokens"}
+        log_message(f"📊 Haupt-LLM ({model_choice}): Max. Context = {format_number(model_limit)} tok (Modell-Parameter von Ollama)")
+        yield {"type": "debug", "message": f"📊 Haupt-LLM ({model_choice}): Max. Context = {format_number(model_limit)} tok"}
 
     # Count actual input tokens (using real tokenizer)
     input_tokens = estimate_tokens(messages, model_name=model_choice)
@@ -122,7 +122,7 @@ async def handle_cache_hit(
             llm_options = {}
         llm_options['num_ctx'] = num_ctx_manual
         final_num_ctx = num_ctx_manual
-        log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
+        log_message(f"🔧 Manual num_ctx: {format_number(num_ctx_manual)} (VRAM calculation skipped)")
     else:
         # Auto mode: Determine VRAM limiting
         enable_vram_limit = (num_ctx_mode == "auto_vram")
@@ -135,13 +135,13 @@ async def handle_cache_hit(
             yield {"type": "debug", "message": msg}
 
     # Show both: actual input and context limit
-    yield {"type": "debug", "message": f"📊 Input Context: ~{input_tokens} Tokens"}
+    yield {"type": "debug", "message": f"📊 Input Context: ~{format_number(input_tokens)} tok"}
     if llm_options and llm_options.get('num_ctx'):
-        log_message(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (manuell)")
-        yield {"type": "debug", "message": f"🪟 num_ctx (Limit): {final_num_ctx} Tokens (manual)"}
+        log_message(f"🎯 Cache-Hit Context Window: {format_number(final_num_ctx)} tok (manuell)")
+        yield {"type": "debug", "message": f"🪟 num_ctx (Limit): {format_number(final_num_ctx)} tok (manual)"}
     else:
-        log_message(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (dynamisch, ~{input_tokens} Tokens benötigt)")
-        yield {"type": "debug", "message": f"🪟 num_ctx (Limit): {final_num_ctx} Tokens"}
+        log_message(f"🎯 Cache-Hit Context Window: {format_number(final_num_ctx)} tok (dynamisch, ~{format_number(input_tokens)} tok benötigt)")
+        yield {"type": "debug", "message": f"🪟 num_ctx (Limit): {format_number(final_num_ctx)} tok"}
 
     # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
     if temperature_mode == 'manual':
@@ -194,8 +194,8 @@ async def handle_cache_hit(
             if not first_token_received:
                 ttft = time.time() - llm_start
                 first_token_received = True
-                log_message(f"⚡ TTFT (Time-to-First-Token): {ttft:.2f}s")
-                yield {"type": "debug", "message": f"⚡ TTFT: {ttft:.2f}s"}
+                log_message(f"⚡ TTFT (Time-to-First-Token): {format_number(ttft, 2)}s")
+                yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
 
             final_answer += chunk["text"]
             yield {"type": "content", "text": chunk["text"]}
@@ -214,13 +214,13 @@ async def handle_cache_hit(
     # Console: LLM finished
     tokens_generated = metrics.get("tokens_generated", 0)
     tokens_per_sec = metrics.get("tokens_per_second", 0)
-    yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({llm_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s, Cache-Total: {total_time:.1f}s)"}
+    yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({format_number(llm_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s, Cache-Total: {format_number(total_time, 1)}s)"}
 
     # Formatiere <think> Tags als Collapsible (falls vorhanden)
     final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time)
 
     # Zeitmessung-Text
-    timing_text = f" (Cache-Hit: {total_time:.1f}s = LLM {llm_time:.1f}s, {tokens_per_sec:.1f} tok/s, Quelle: Session Cache)"
+    timing_text = f" (Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s, {format_number(tokens_per_sec, 1)} tok/s, Quelle: Session Cache)"
     ai_text_with_timing = final_answer_formatted + timing_text
 
     # Update History
@@ -228,7 +228,7 @@ async def handle_cache_hit(
     ai_display = ai_text_with_timing
     history.append((user_display, ai_display))
 
-    log_message(f"✅ Cache-basierte Antwort fertig in {total_time:.1f}s")
+    log_message(f"✅ Cache-basierte Antwort fertig in {format_number(total_time, 1)}s")
 
     # Clear progress before final result
     yield {"type": "progress", "clear": True}

@@ -156,19 +156,19 @@ class LLMBackend(ABC):
         pass
 
     @abstractmethod
-    async def preload_model(self, model: str) -> tuple[bool, float, list[str]]:
+    async def preload_model(self, model: str) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal request.
         This warms up the model so future requests are faster.
 
-        For Ollama backend: Also unloads all other models to ensure maximum VRAM.
+        NOTE: Caller should explicitly call unload_all_models() BEFORE this
+        to ensure proper model loading order.
 
         Args:
             model: Model name to preload
 
         Returns:
-            Tuple of (success: bool, load_time: float in seconds, unloaded_models: list[str])
-            - unloaded_models is empty for vLLM/TabbyAPI (models are always loaded)
+            Tuple of (success: bool, load_time: float in seconds)
         """
         pass
 

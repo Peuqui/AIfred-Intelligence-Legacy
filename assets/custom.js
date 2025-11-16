@@ -3,6 +3,17 @@
 
 console.log('🔧 custom.js loaded');
 
+// Make all external links open in new tab
+function makeLinksOpenInNewTab() {
+    const links = document.querySelectorAll('a[href^="http"]');
+    links.forEach(link => {
+        if (!link.hasAttribute('target')) {
+            link.setAttribute('target', '_blank');
+            link.setAttribute('rel', 'noopener noreferrer');
+        }
+    });
+}
+
 function isAutoScrollEnabled() {
     // Find the auto-scroll switch by looking for the switch near the "Auto-Scroll" text
     // The switch has data-state="checked" or "unchecked"
@@ -31,6 +42,9 @@ const observerConfig = { childList: true, subtree: true };
 const callback = function(mutationsList, observer) {
     const enabled = isAutoScrollEnabled();
     console.log('🔍 MutationObserver triggered, auto-scroll enabled:', enabled);
+
+    // Make all links open in new tab (always, regardless of auto-scroll)
+    makeLinksOpenInNewTab();
 
     // Only scroll if auto-scroll is enabled
     if (!enabled) {
@@ -75,11 +89,21 @@ function setupObservers() {
 // Try multiple times to setup observers (Reflex might render async)
 document.addEventListener('DOMContentLoaded', function() {
     console.log('📄 DOMContentLoaded event fired');
+
+    // Make existing links open in new tab
+    makeLinksOpenInNewTab();
+
     setupObservers();
 
     // Retry after 500ms in case elements render later
-    setTimeout(setupObservers, 500);
+    setTimeout(() => {
+        setupObservers();
+        makeLinksOpenInNewTab();
+    }, 500);
 
     // Retry after 1000ms
-    setTimeout(setupObservers, 1000);
+    setTimeout(() => {
+        setupObservers();
+        makeLinksOpenInNewTab();
+    }, 1000);
 });
