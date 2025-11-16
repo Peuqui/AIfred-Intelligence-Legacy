@@ -209,7 +209,7 @@ class TabbyAPIBackend(LLMBackend):
             else:
                 raise BackendInferenceError(f"TabbyAPI streaming failed: {e}")
 
-    async def preload_model(self, model: str) -> tuple[bool, float]:
+    async def preload_model(self, model: str) -> tuple[bool, float, list[str]]:
         """
         Preload a model into VRAM by sending a minimal chat request.
 
@@ -221,12 +221,13 @@ class TabbyAPIBackend(LLMBackend):
             model: Model name to preload
 
         Returns:
-            Tuple of (success: bool, load_time: float in seconds)
+            Tuple of (success: bool, load_time: float in seconds, unloaded_models: list[str])
+            - unloaded_models is always empty for TabbyAPI (models stay loaded)
         """
         # TabbyAPI keeps models loaded in VRAM at all times
         # No preloading needed - return immediately
         logger.debug(f"TabbyAPI: Skipping preload for {model} (already loaded)")
-        return (True, 0.0)
+        return (True, 0.0, [])
 
     async def health_check(self) -> bool:
         """Check if TabbyAPI is reachable"""
@@ -263,9 +264,9 @@ class TabbyAPIBackend(LLMBackend):
                 "error": str(e)
             }
 
-    async def get_model_context_limit(self, model: str) -> int:
+    async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """
-        Get context limit for a TabbyAPI model.
+        Get context limit and model size for a TabbyAPI model.
 
         Queries /v1/models endpoint (OpenAI-compatible) and extracts max_model_len.
 
@@ -273,10 +274,15 @@ class TabbyAPIBackend(LLMBackend):
             model: Model name/ID
 
         Returns:
-            int: Context limit in tokens
+            tuple[int, int]: (context_limit, model_size_bytes)
+                - context_limit: Maximum context window in tokens
+                - model_size_bytes: Model size (0 if unavailable)
 
         Raises:
             RuntimeError: If model not found or context limit not available
+
+        Note:
+            TabbyAPI doesn't expose VRAM usage, returns 0 for model_size.
         """
         try:
             # TabbyAPI follows OpenAI-compatible /v1/models/{model} endpoint
@@ -286,25 +292,37 @@ class TabbyAPIBackend(LLMBackend):
                 response.raise_for_status()
                 data = response.json()
 
+                context_limit = None
+
                 # Check for max_model_len (common in ExLlama-based APIs)
                 if "max_model_len" in data:
-                    return int(data["max_model_len"])
+                    context_limit = int(data["max_model_len"])
 
                 # Fallback: check in nested metadata
-                if "metadata" in data:
+                elif "metadata" in data:
                     if "max_model_len" in data["metadata"]:
-                        return int(data["metadata"]["max_model_len"])
-                    if "max_position_embeddings" in data["metadata"]:
-                        return int(data["metadata"]["max_position_embeddings"])
+                        context_limit = int(data["metadata"]["max_model_len"])
+                    elif "max_position_embeddings" in data["metadata"]:
+                        context_limit = int(data["metadata"]["max_position_embeddings"])
 
                 # Fallback: check for max_position_embeddings
-                if "max_position_embeddings" in data:
-                    return int(data["max_position_embeddings"])
+                elif "max_position_embeddings" in data:
+                    context_limit = int(data["max_position_embeddings"])
 
-                raise RuntimeError(
-                    f"Context limit not found for TabbyAPI model '{model}'. "
-                    f"Available keys: {list(data.keys())}"
+                if context_limit is None:
+                    raise RuntimeError(
+                        f"Context limit not found for TabbyAPI model '{model}'. "
+                        f"Available keys: {list(data.keys())}"
+                    )
+
+                # TabbyAPI doesn't expose VRAM usage - return 0
+                model_size_bytes = 0
+                logger.debug(
+                    "TabbyAPI doesn't expose model VRAM size, returning 0 "
+                    "(VRAM calculation will use free memory estimation)"
                 )
+
+                return (context_limit, model_size_bytes)
 
         except Exception as e:
             raise RuntimeError(f"Failed to query TabbyAPI for model '{model}': {e}") from e

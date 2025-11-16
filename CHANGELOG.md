@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Reads model size from blob filesystem (no hardcoded values)
   - Safety margin: 512 MB (optimized from initial 1024 MB)
   - KV-cache ratio: 0.097 MB/token (empirically measured for Qwen3 MoE models)
+  - **VRAM Stabilization Polling** ([aifred/lib/gpu_utils.py:138-169](aifred/lib/gpu_utils.py#L138-L169)):
+    - Waits for VRAM to stabilize after model preload (prevents premature measurement)
+    - Polls every 200ms, requires 2 consecutive stable readings (< 50 MB difference)
+    - Maximum wait time: 3 seconds
+    - Ensures accurate context calculation after Ollama finishes loading model into VRAM
 
 - **Model Load Detection** ([aifred/lib/gpu_utils.py:22-56](aifred/lib/gpu_utils.py#L22-L56)):
   - `is_model_loaded()` checks Ollama `/api/ps` endpoint
@@ -30,17 +35,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Reads actual file size from filesystem (e.g., 17.28 GB for qwen3:30b)
   - Falls back gracefully if blob not found (no VRAM calculation)
 
+- **Automatic Model Unloading** ([aifred/backends/ollama.py:349-454](aifred/backends/ollama.py#L349-L454)):
+  - **Problem**: Multiple models loaded simultaneously (e.g., Automatik 3B + Main 30B) consumed VRAM
+  - **Solution**: `preload_model()` now unloads ALL other models before loading requested model
+  - Uses `/api/ps` to detect loaded models, then sends `keep_alive=0` to unload each
+  - Returns list of unloaded models for debug output
+  - **Impact**: Ensures maximum VRAM available for context calculation (23GB → 35K tokens instead of 730MB → 7K tokens)
+  - **UI Feedback**: Shows `🗑️ Entladene Modelle: qwen2.5:3b` in debug console
+
 - **UI Integration** ([aifred/aifred.py:1151-1188](aifred/aifred.py#L1151-L1188)):
   - Manual context override option (numeric input field)
   - Checkbox: "Setze Context-Fenster auf Basis von VRAM"
   - Warning message when manual override active
   - Real-time VRAM debug messages in UI console
 
-- **Debug Logging** ([aifred/lib/gpu_utils.py:127-164](aifred/lib/gpu_utils.py#L127-L164)):
+- **Debug Logging** ([aifred/lib/gpu_utils.py:196-236](aifred/lib/gpu_utils.py#L196-L236)):
   - Detailed VRAM calculation messages collected as list
   - Yielded to UI console for real-time visibility
   - Shows: Free VRAM, model size, safety margin, calculated context, architectural limit
-  - German number formatting (35.010T instead of 35,010T)
+  - German number formatting (35.010 T instead of 35,010T)
+  - **Improved Readability**: Spaces between numbers and units (e.g., `3853 MB` instead of `3853MB`, `0.097 MB/T` instead of `0.097MB/T`)
 
 #### Configuration
 - **Optimized Constants** ([aifred/lib/config.py](aifred/lib/config.py)):
@@ -76,11 +90,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Validation**: Minimum 100 MB VRAM required, otherwise fallback to 2048 tokens
 
 #### Files Modified
-- [aifred/lib/gpu_utils.py](aifred/lib/gpu_utils.py): Lines 22-166 (VRAM calculation + model load detection)
-- [aifred/backends/ollama.py](aifred/backends/ollama.py): Lines 430-520 (model size extraction)
+- [aifred/lib/gpu_utils.py](aifred/lib/gpu_utils.py): Lines 22-238 (VRAM calculation, stabilization polling, model load detection, improved debug formatting)
+- [aifred/backends/ollama.py](aifred/backends/ollama.py): Lines 349-520 (automatic model unloading, model size extraction)
+- [aifred/backends/base.py](aifred/backends/base.py): Lines 159-173 (preload_model signature updated)
+- [aifred/backends/vllm.py](aifred/backends/vllm.py): Lines 221-239 (preload_model signature updated)
+- [aifred/backends/tabbyapi.py](aifred/backends/tabbyapi.py): Lines 212-230 (preload_model signature updated)
+- [aifred/lib/llm_client.py](aifred/lib/llm_client.py): Lines 183-198 (preload_model signature updated)
+- [aifred/state.py](aifred/state.py): Lines 92, 556-603, 1017-1035, 1348-1372 (state management, preload with unload feedback, settings persistence)
+- [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py): Lines 419-437 (Automatik mode with unload feedback)
 - [aifred/lib/config.py](aifred/lib/config.py): Lines 168-171 (VRAM constants)
 - [aifred/aifred.py](aifred/aifred.py): Lines 1151-1188 (UI integration)
-- [aifred/state.py](aifred/state.py): Lines 92, 556-603, 1348-1372 (state management + settings persistence)
 
 ---
 

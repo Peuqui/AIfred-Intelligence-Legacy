@@ -69,7 +69,9 @@ async def chat_interactive_mode(
     temperature: float = 0.2,
     llm_options: Optional[Dict] = None,
     backend_type: str = "ollama",
-    backend_url: Optional[str] = None
+    backend_url: Optional[str] = None,
+    num_ctx_mode: str = "auto_vram",
+    num_ctx_manual: int = 16384
 ) -> AsyncIterator[Dict]:
     """
     Automatik-Modus: KI entscheidet selbst, ob Web-Recherche nötig ist
@@ -86,6 +88,8 @@ async def chat_interactive_mode(
         llm_options: Dict mit Ollama-Optionen (num_ctx, etc.) - Optional
         backend_type: LLM Backend ("ollama", "vllm", "tabbyapi")
         backend_url: Backend URL (optional, uses default if not provided)
+        num_ctx_mode: Context mode ("auto_vram", "auto_max", "manual")
+        num_ctx_manual: Manual num_ctx value (only used if mode="manual")
 
     Yields:
         Dict with: {"type": "debug"|"content"|"metrics"|"separator"|"result", ...}
@@ -166,7 +170,7 @@ async def chat_interactive_mode(
 
             # Proceed with fresh web research (no exact match or error)
             yield {"type": "debug", "message": "🌐 Starting fresh web research..."}
-            async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options, backend_type, backend_url):
+            async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options, backend_type, backend_url, num_ctx_mode, num_ctx_manual):
                 yield item
             return  # Generator ends after forwarding all items
 
@@ -291,7 +295,7 @@ async def chat_interactive_mode(
             # Get model context limit (use cached value if available, otherwise query)
             # NOTE: Cache is populated when user changes Automatik-LLM in settings
             # TODO: Pass state._automatik_model_context_limit from caller to avoid re-querying
-            automatik_limit = await automatik_llm_client.get_model_context_limit(automatik_model)
+            automatik_limit, _ = await automatik_llm_client.get_model_context_limit(automatik_model)
             decision_num_ctx = min(2048, automatik_limit // 2)  # Max 2048 oder 50% des Limits
 
             # Count input tokens (using real tokenizer)
@@ -340,7 +344,7 @@ async def chat_interactive_mode(
                 # Debug message already yielded above (line 153)
 
                 # Start web research - Forward all yields
-                async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options, backend_type, backend_url):
+                async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options, backend_type, backend_url, num_ctx_mode, num_ctx_manual):
                     yield item
                 return
 
@@ -388,20 +392,44 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 # Count actual input tokens (using real tokenizer)
                 input_tokens = estimate_tokens(messages, model_name=model_choice)
 
-                # Dynamische num_ctx Berechnung für Eigenes Wissen (Haupt-LLM)
-                final_num_ctx = await calculate_dynamic_num_ctx(llm_client, model_choice, messages, llm_options)
+                # Determine enable_vram_limit based on num_ctx_mode
+                if num_ctx_mode == "manual":
+                    # Manual mode: Use user-specified value directly in llm_options
+                    if llm_options is None:
+                        llm_options = {}
+                    llm_options['num_ctx'] = num_ctx_manual
+                    final_num_ctx = num_ctx_manual
+                    log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
+                else:
+                    # Auto mode: Determine VRAM limiting
+                    enable_vram_limit = (num_ctx_mode == "auto_vram")
+
+                    # Dynamische num_ctx Berechnung für Eigenes Wissen (Haupt-LLM)
+                    final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
+                        llm_client, model_choice, messages, llm_options,
+                        enable_vram_limit=enable_vram_limit
+                    )
+                    # Yield VRAM debug messages to UI console
+                    for msg in vram_debug_msgs:
+                        yield {"type": "debug", "message": msg}
 
                 # Get model max context for compact display
-                model_limit = await llm_client.get_model_context_limit(model_choice)
+                model_limit, _ = await llm_client.get_model_context_limit(model_choice)
 
                 # Actual model preloading (only for Ollama - vLLM/TabbyAPI keep models in VRAM)
                 if backend_type == "ollama":
                     yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
 
                     # Preload via backend (measures actual model loading time)
-                    success, load_time = await llm_client._get_backend().preload_model(model_choice)
+                    # Also returns list of unloaded models
+                    success, load_time, unloaded_models = await llm_client._get_backend().preload_model(model_choice)
 
                     if success:
+                        if unloaded_models:
+                            # Show which models were unloaded
+                            models_str = ", ".join(unloaded_models)
+                            yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
+                            log_message(f"🗑️ Entladene Modelle: {models_str}")
                         yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)"}
                         log_message(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
                     else:

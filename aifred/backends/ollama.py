@@ -346,23 +346,88 @@ class OllamaBackend(LLMBackend):
                         raise BackendInferenceError(f"Ollama streaming error: {e}")
                 # else: continue to retry
 
-    async def preload_model(self, model: str) -> tuple[bool, float]:
+    async def unload_all_models(self) -> tuple[bool, list[str]]:
+        """
+        Unload ALL currently loaded models from VRAM.
+
+        This ensures maximum VRAM is available for the next model to be loaded.
+        Uses /api/ps to get loaded models, then unloads each via keep_alive=0.
+
+        Returns:
+            tuple[bool, list[str]]: (success, list of unloaded model names)
+        """
+        try:
+            # Get list of currently loaded models
+            response = await self.client.get(f"{self.base_url}/api/ps")
+            if response.status_code != 200:
+                logger.warning("Failed to get loaded models list")
+                return (False, [])
+
+            data = response.json()
+            loaded_models = data.get("models", [])
+
+            if not loaded_models:
+                logger.info("No models currently loaded")
+                return (True, [])
+
+            unloaded_models = []
+
+            # Unload each model
+            for model_info in loaded_models:
+                model_name = model_info.get("name", "")
+                if not model_name:
+                    continue
+
+                logger.info(f"Unloading model: {model_name}")
+
+                # Send empty generate request with keep_alive=0 to unload
+                unload_response = await self.client.post(
+                    f"{self.base_url}/api/generate",
+                    json={
+                        "model": model_name,
+                        "keep_alive": 0  # Immediately unload after request
+                    }
+                )
+
+                if unload_response.status_code != 200:
+                    logger.warning(f"Failed to unload {model_name}")
+                    return (False, unloaded_models)
+
+                unloaded_models.append(model_name)
+
+            logger.info(f"Successfully unloaded {len(unloaded_models)} model(s)")
+            return (True, unloaded_models)
+
+        except Exception as e:
+            logger.warning(f"Failed to unload models: {e}")
+            return (False, [])
+
+    async def preload_model(self, model: str) -> tuple[bool, float, list[str]]:
         """
         Preload a model into VRAM by sending a minimal chat request.
         This warms up the model so future requests are faster.
+
+        IMPORTANT: This function first unloads ALL other models to ensure
+        maximum VRAM is available for accurate context window calculation.
 
         Args:
             model: Model name to preload (e.g., 'qwen3:8b')
 
         Returns:
-            Tuple of (success: bool, load_time: float in seconds)
+            Tuple of (success: bool, load_time: float in seconds, unloaded_models: list[str])
         """
         try:
             start_time = time.time()
 
+            # STEP 1: Unload all other models first
+            # This ensures maximum VRAM for the new model and accurate VRAM calculation
+            logger.info("Unloading all currently loaded models...")
+            unload_success, unloaded_models = await self.unload_all_models()
+            if not unload_success:
+                logger.warning("Failed to unload all models, continuing anyway...")
+
+            # STEP 2: Load the requested model
             # Send minimal request to trigger model loading
-            # Note: No keep_alive set - let Ollama manage memory automatically
-            # Ollama will unload models when needed (LRU strategy)
             payload = {
                 "model": model,
                 "messages": [{"role": "user", "content": "hi"}],
@@ -381,11 +446,12 @@ class OllamaBackend(LLMBackend):
 
             load_time = time.time() - start_time
             success = response.status_code == 200
-            return (success, load_time)
+            # Note: VRAM stabilization is handled in calculate_vram_based_context()
+            return (success, load_time, unloaded_models)
         except Exception as e:
             load_time = time.time() - start_time
             logger.warning(f"Preload failed for {model}: {e}")
-            return (False, load_time)
+            return (False, load_time, [])
 
     async def health_check(self) -> bool:
         """Check if Ollama is reachable"""

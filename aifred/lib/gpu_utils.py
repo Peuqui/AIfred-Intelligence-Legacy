@@ -135,7 +135,40 @@ def calculate_vram_based_context(
         logger.debug("VRAM context calculation disabled in config")
         return model_context_limit, []
 
-    # Query free VRAM
+    # Wait for VRAM to stabilize (model fully loaded)
+    # This ensures accurate measurements after model preload
+    import asyncio
+
+    max_wait_time = 3.0  # Maximum 3 seconds
+    poll_interval = 0.2  # Check every 200ms
+    stability_checks = 2  # Need 2 consecutive stable readings
+    waited = 0.0
+
+    prev_vram = None
+    stable_count = 0
+
+    while waited < max_wait_time:
+        current_vram = get_free_vram_mb()
+
+        if current_vram is not None and prev_vram is not None:
+            # VRAM stable if difference < 50 MB (tolerance for measurement noise)
+            vram_diff = abs(current_vram - prev_vram)
+            if vram_diff < 50:
+                stable_count += 1
+                if stable_count >= stability_checks:
+                    break  # VRAM is stable, model fully loaded
+            else:
+                stable_count = 0  # Reset if VRAM still changing
+
+        prev_vram = current_vram
+        import time
+        time.sleep(poll_interval)
+        waited += poll_interval
+
+    if waited >= max_wait_time:
+        logger.warning(f"VRAM stabilization timed out after {max_wait_time}s")
+
+    # Query free VRAM (after stabilization)
     free_vram_mb = get_free_vram_mb()
 
     if free_vram_mb is None:
@@ -164,8 +197,8 @@ def calculate_vram_based_context(
         # Model already in VRAM - free_vram_mb already accounts for it
         vram_for_context = usable_vram
         msg = (
-            f"💾 Model loaded → {vram_for_context:.0f}MB for context "
-            f"({free_vram_mb}MB free - {safety_margin_mb}MB margin)"
+            f"💾 Model loaded → {vram_for_context:.0f} MB for context "
+            f"({free_vram_mb} MB free - {safety_margin_mb} MB margin)"
         )
         log_message(msg)
         debug_msgs.append(msg)
@@ -173,14 +206,14 @@ def calculate_vram_based_context(
         # Model NOT loaded - must subtract its size from available VRAM
         vram_for_context = int(usable_vram - model_size_mb)
         msg = (
-            f"💾 Model NOT loaded → {vram_for_context:.0f}MB for context "
-            f"({free_vram_mb}MB - {model_size_mb:.0f}MB model - {safety_margin_mb}MB margin)"
+            f"💾 Model NOT loaded → {vram_for_context:.0f} MB for context "
+            f"({free_vram_mb} MB - {model_size_mb:.0f} MB model - {safety_margin_mb} MB margin)"
         )
         log_message(msg)
         debug_msgs.append(msg)
 
     if vram_for_context < 100:
-        msg = f"❌ Insufficient VRAM for context: {vram_for_context:.0f}MB (< 100MB minimum) → Fallback 2048"
+        msg = f"❌ Insufficient VRAM for context: {vram_for_context:.0f} MB (< 100 MB minimum) → Fallback 2048"
         log_message(msg)
         debug_msgs.append(msg)
         return 2048, debug_msgs  # Minimal fallback
@@ -196,8 +229,8 @@ def calculate_vram_based_context(
     formatted_ctx = f"{final_num_ctx:,}".replace(",", ".")
     formatted_max = f"{max_practical_tokens:,}".replace(",", ".")
     msg = (
-        f"🎯 VRAM Limit: {formatted_ctx}T "
-        f"({vram_for_context:.0f}MB @ {vram_context_ratio}MB/T, max: {formatted_max}T)"
+        f"🎯 VRAM Limit: {formatted_ctx} T "
+        f"({vram_for_context:.0f} MB @ {vram_context_ratio} MB/T, max: {formatted_max} T)"
     )
     log_message(msg)
     debug_msgs.append(msg)

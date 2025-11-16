@@ -159,18 +159,20 @@ class LLMClient:
         async for chunk in backend.chat_stream(model, converted_messages, llm_options):
             yield chunk
 
-    async def get_model_context_limit(self, model: str) -> int:
+    async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """
-        Get context window size for a model.
+        Get context window size and model size for a model.
 
-        Queries the backend for model metadata and extracts the context limit.
-        Very fast (~30ms for Ollama) and does NOT load the model into memory.
+        Queries the backend for model metadata and extracts the context limit
+        and VRAM size. Very fast (~30ms for Ollama) and does NOT load the model.
 
         Args:
             model: Model name (e.g., "qwen3:8b", "phi3:mini")
 
         Returns:
-            int: Context limit in tokens
+            tuple[int, int]: (context_limit, model_size_bytes)
+                - context_limit: Context limit in tokens
+                - model_size_bytes: Model size in VRAM (0 if unavailable)
 
         Raises:
             RuntimeError: If model not found or context limit not available
@@ -178,16 +180,18 @@ class LLMClient:
         backend = self._get_backend()
         return await backend.get_model_context_limit(model)
 
-    async def preload_model(self, model: str) -> tuple[bool, float]:
+    async def preload_model(self, model: str) -> tuple[bool, float, list[str]]:
         """
         Preload a model into VRAM by sending a minimal request.
         This warms up the model so future requests are faster.
+
+        For Ollama backend: Also unloads all other models to ensure maximum VRAM.
 
         Args:
             model: Model name to preload (e.g., 'qwen3:8b')
 
         Returns:
-            Tuple of (success: bool, load_time: float in seconds)
+            Tuple of (success: bool, load_time: float in seconds, unloaded_models: list[str])
         """
         backend = self._get_backend()
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
