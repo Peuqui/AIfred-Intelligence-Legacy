@@ -109,10 +109,11 @@ async def calculate_dynamic_num_ctx(
     llm_client,
     model_name: str,
     messages: List[Dict],
-    llm_options: Optional[Dict] = None
-) -> int:
+    llm_options: Optional[Dict] = None,
+    enable_vram_limit: bool = True
+) -> tuple[int, list[str]]:
     """
-    Berechnet optimales num_ctx basierend auf Message-Größe und Model-Limit.
+    Berechnet optimales num_ctx basierend auf Message-Größe, Model-Limit UND VRAM.
 
     Diese Funktion ist ZENTRAL für alle Context-Berechnungen!
     Sie fragt das Modell-Limit direkt ab (~30ms) und berechnet optimales num_ctx.
@@ -120,16 +121,20 @@ async def calculate_dynamic_num_ctx(
     Die Berechnung berücksichtigt:
     1. Message-Größe × 2 (50/50 Regel: 50% Input, 50% Output)
     2. Model-Maximum (via Backend-Abfrage)
-    3. User-Override (falls in llm_options gesetzt)
+    3. VRAM-basiertes praktisches Limit (NEU! verhindert CPU-Offload)
+    4. User-Override (falls in llm_options gesetzt)
 
     Args:
         llm_client: LLMClient instance (beliebiger Backend-Typ)
         model_name: Name des Modells (z.B. "qwen3:8b", "phi3:mini")
         messages: Liste von Message-Dicts mit 'content' Key
         llm_options: Dict mit optionalem 'num_ctx' Override
+        enable_vram_limit: Ob VRAM-basierte Begrenzung angewandt wird (Standard: True)
 
     Returns:
-        int: Optimales num_ctx (gerundet auf Standard-Größen, geclippt auf Model-Limit)
+        tuple[int, list[str]]: (num_ctx, debug_messages)
+            - num_ctx: Optimales num_ctx (gerundet auf Standard-Größen, geclippt auf praktisches Limit)
+            - debug_messages: VRAM debug messages for UI console (to be yielded by caller)
 
     Raises:
         RuntimeError: Wenn Model-Info nicht abfragbar
@@ -138,7 +143,7 @@ async def calculate_dynamic_num_ctx(
     user_num_ctx = llm_options.get('num_ctx') if llm_options else None
     if user_num_ctx:
         log_message(f"🎯 Context Window: {user_num_ctx} Tokens (manuell gesetzt)")
-        return user_num_ctx
+        return user_num_ctx, []  # No VRAM messages for manual override
 
     # Berechne Tokens aus Message-Größe
     estimated_tokens = estimate_tokens(messages)  # 1 Token ≈ 3.5 Zeichen
@@ -184,19 +189,45 @@ async def calculate_dynamic_num_ctx(
     else:
         calculated_ctx = 65536  # 64K (Maximum)
 
-    # Query Model-Limit direkt vom Backend (~30ms, lädt Modell NICHT!)
-    model_limit = await llm_client.get_model_context_limit(model_name)
+    # Query Model-Limit UND Model-Size vom Backend (~40ms, lädt Modell NICHT!)
+    model_limit, model_size_bytes = await llm_client.get_model_context_limit(model_name)
 
-    # Clippe auf Model-Limit
-    final_num_ctx = min(calculated_ctx, model_limit)
+    # NEU: VRAM-basiertes praktisches Limit berechnen
+    vram_debug_msgs = []
+    if enable_vram_limit:
+        from .gpu_utils import calculate_vram_based_context
+        max_practical_ctx, vram_debug_msgs = calculate_vram_based_context(
+            model_name=model_name,
+            model_size_bytes=model_size_bytes,
+            model_context_limit=model_limit
+        )
+    else:
+        # VRAM-Limit deaktiviert - nutze volles Model-Limit
+        max_practical_ctx = model_limit
+        log_message(f"⚠️ VRAM-Limit deaktiviert - nutze volles Modell-Limit {model_limit:,} (Risiko: CPU-Offload)")
+
+    # Clippe auf kleineren Wert: calculated vs. practical limit
+    final_num_ctx = min(calculated_ctx, max_practical_ctx)
 
     # Warne wenn Context überschritten
-    if calculated_ctx > model_limit:
-        log_message(f"⚠️ Context {calculated_ctx} > Modell-Limit {model_limit}, clippe auf {final_num_ctx}")
+    if calculated_ctx > max_practical_ctx:
+        log_message(
+            f"⚠️ Gewünschter Context {calculated_ctx:,} > Praktisches Limit {max_practical_ctx:,} "
+            f"(VRAM-begrenzt), clippe auf {final_num_ctx:,}"
+        )
+    elif calculated_ctx > model_limit:
+        log_message(
+            f"⚠️ Gewünschter Context {calculated_ctx:,} > Modell-Limit {model_limit:,}, "
+            f"clippe auf {final_num_ctx:,}"
+        )
 
-    log_message(f"🎯 Context Window: {final_num_ctx} Tokens (dynamisch berechnet, ~{estimated_tokens} Tokens benötigt)")
+    log_message(
+        f"🎯 Context Window: {final_num_ctx:,} Tokens "
+        f"(berechnet: {calculated_ctx:,}, praktisch: {max_practical_ctx:,}, "
+        f"modell-max: {model_limit:,}, ~{estimated_tokens:,} benötigt)"
+    )
 
-    return final_num_ctx
+    return final_num_ctx, vram_debug_msgs
 
 
 async def summarize_history_if_needed(
@@ -236,12 +267,12 @@ async def summarize_history_if_needed(
     # Safety-Check: Immer mindestens 1 Message nach Kompression übrig lassen!
     # KRITISCH: Verhindert dass alle Messages komprimiert werden und Chat leer wird
     if len(history) <= HISTORY_MESSAGES_TO_COMPRESS:
-        yield {"type": "debug", "message": f"📊 History Compression Check: {utilization:.0f}% Auslastung ({estimated_tokens:,} / {context_limit:,} tokens) - keine Kompression nötig"}
+        yield {"type": "debug", "message": f"📊 History Compression Check: {utilization:.0f}% Auslastung ({estimated_tokens:,} / {context_limit:,} tokens)"}
         log_message(f"⚠️ Compression aborted: {len(history)} Messages würden ALLE komprimiert → Chat leer!")
         return
 
     if estimated_tokens < threshold:
-        yield {"type": "debug", "message": f"📊 History Compression Check: {utilization:.0f}% Auslastung ({estimated_tokens:,} / {context_limit:,} tokens) - keine Kompression nötig"}
+        yield {"type": "debug", "message": f"📊 History Compression Check: {utilization:.0f}% Auslastung ({estimated_tokens:,} / {context_limit:,} tokens)"}
         return
 
     log_message(f"⚠️ History zu lang: {utilization:.0f}% Auslastung ({estimated_tokens:,} tokens) > {threshold:,} Threshold → Starte Kompression")

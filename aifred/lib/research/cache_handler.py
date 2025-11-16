@@ -27,7 +27,9 @@ async def handle_cache_hit(
     llm_options: Optional[Dict],
     temperature_mode: str,
     temperature: float,
-    agent_start: float
+    agent_start: float,
+    num_ctx_mode: str = "auto_vram",
+    num_ctx_manual: int = 16384
 ) -> AsyncIterator[Dict]:
     """
     Handles cache hit - uses cached research data to answer follow-up question
@@ -106,15 +108,31 @@ async def handle_cache_hit(
 
     # Query Haupt-Model Context Limit (falls nicht manuell gesetzt)
     if not (llm_options and llm_options.get('num_ctx')):
-        model_limit = await llm_client.get_model_context_limit(model_choice)
+        model_limit, _ = await llm_client.get_model_context_limit(model_choice)
         log_message(f"📊 Haupt-LLM ({model_choice}): Max. Context = {model_limit} Tokens (Modell-Parameter von Ollama)")
         yield {"type": "debug", "message": f"📊 Haupt-LLM ({model_choice}): Max. Context = {model_limit} Tokens"}
 
     # Count actual input tokens (using real tokenizer)
     input_tokens = estimate_tokens(messages, model_name=model_choice)
 
-    # Dynamische num_ctx Berechnung für Cache-Hit (Haupt-LLM)
-    final_num_ctx = await calculate_dynamic_num_ctx(llm_client, model_choice, messages, llm_options)
+    # Dynamic num_ctx calculation with mode handling
+    if num_ctx_mode == "manual":
+        # Manual mode: Use user-specified value
+        if llm_options is None:
+            llm_options = {}
+        llm_options['num_ctx'] = num_ctx_manual
+        final_num_ctx = num_ctx_manual
+        log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
+    else:
+        # Auto mode: Determine VRAM limiting
+        enable_vram_limit = (num_ctx_mode == "auto_vram")
+        final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
+            llm_client, model_choice, messages, llm_options,
+            enable_vram_limit=enable_vram_limit
+        )
+        # Yield VRAM debug messages to UI console
+        for msg in vram_debug_msgs:
+            yield {"type": "debug", "message": msg}
 
     # Show both: actual input and context limit
     yield {"type": "debug", "message": f"📊 Input Context: ~{input_tokens} Tokens"}

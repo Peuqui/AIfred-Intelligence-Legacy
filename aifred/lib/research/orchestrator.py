@@ -27,7 +27,9 @@ async def perform_agent_research(
     temperature: float = 0.2,
     llm_options: Optional[Dict] = None,
     backend_type: str = "ollama",
-    backend_url: Optional[str] = None
+    backend_url: Optional[str] = None,
+    num_ctx_mode: str = "auto_vram",
+    num_ctx_manual: int = 16384
 ) -> AsyncIterator[Dict]:
     """
     Agent-Recherche mit Query-Optimierung und parallelemWeb-Scraping
@@ -78,7 +80,9 @@ async def perform_agent_research(
         llm_options=llm_options,
         temperature_mode=temperature_mode,
         temperature=temperature,
-        agent_start=agent_start
+        agent_start=agent_start,
+        num_ctx_mode=num_ctx_mode,
+        num_ctx_manual=num_ctx_manual
     ):
         if item["type"] == "result":
             cache_handled = True
@@ -147,7 +151,9 @@ async def perform_agent_research(
         temperature_mode=temperature_mode,
         temperature=temperature,
         agent_start=agent_start,
-        stt_time=stt_time
+        stt_time=stt_time,
+        num_ctx_mode=num_ctx_mode,
+        num_ctx_manual=num_ctx_manual
     ):
         yield item
 
