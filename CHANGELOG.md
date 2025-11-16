@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Returns list of unloaded models for debug output
   - **Impact**: Ensures maximum VRAM available for context calculation (23GB → 35K tokens instead of 730MB → 7K tokens)
   - **UI Feedback**: Shows `🗑️ Entladene Modelle: qwen2.5:3b` in debug console
+  - **Bug Fix**: Added required `prompt` field to `/api/generate` unload request (prevents preload failure with 0.0s time)
 
 - **UI Integration** ([aifred/aifred.py:1151-1188](aifred/aifred.py#L1151-L1188)):
   - Manual context override option (numeric input field)
