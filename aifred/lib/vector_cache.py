@@ -33,7 +33,6 @@ from typing import Dict, List, Optional
 from .logging_utils import log_message
 from .config import (
     CACHE_DISTANCE_HIGH,
-    CACHE_DISTANCE_MEDIUM,
     CACHE_DISTANCE_DUPLICATE,
     CACHE_DISTANCE_RAG
 )
@@ -351,7 +350,7 @@ class VectorCache:
                 )
             else:
                 # No ID found, fallback to save as new entry
-                log_message(f"⚠️ No ID in old entry, saving as new entry")
+                log_message("⚠️ No ID in old entry, saving as new entry")
                 # Fall through to normal save below
 
         # No duplicate, proceed with save

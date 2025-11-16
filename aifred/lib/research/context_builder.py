@@ -40,7 +40,9 @@ async def build_and_generate_response(
     temperature_mode: str,
     temperature: float,
     agent_start: float,
-    stt_time: float
+    stt_time: float,
+    num_ctx_mode: str = "auto_vram",
+    num_ctx_manual: int = 16384
 ) -> AsyncIterator[Dict]:
     """
     Build context and generate LLM response
@@ -124,11 +126,28 @@ async def build_and_generate_response(
     # Count actual input tokens (using real tokenizer)
     input_tokens = estimate_tokens(messages, model_name=model_choice)
 
-    # Dynamic num_ctx calculation
-    final_num_ctx = await calculate_dynamic_num_ctx(llm_client, model_choice, messages, llm_options)
+    # Dynamic num_ctx calculation with mode handling
+    if num_ctx_mode == "manual":
+        # Manual mode: Use user-specified value
+        if llm_options is None:
+            llm_options = {}
+        llm_options['num_ctx'] = num_ctx_manual
+        final_num_ctx = num_ctx_manual
+        log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
+        yield {"type": "debug", "message": f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)"}
+    else:
+        # Auto mode: Determine VRAM limiting
+        enable_vram_limit = (num_ctx_mode == "auto_vram")
+        final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
+            llm_client, model_choice, messages, llm_options,
+            enable_vram_limit=enable_vram_limit
+        )
+        # Yield VRAM debug messages to UI console
+        for msg in vram_debug_msgs:
+            yield {"type": "debug", "message": msg}
 
     # Get model max context for compact display
-    model_limit = await llm_client.get_model_context_limit(model_choice)
+    model_limit, _ = await llm_client.get_model_context_limit(model_choice)
 
     # Show compact context info (like Automatik-LLM)
     yield {"type": "debug", "message": f"📊 Haupt-LLM: {input_tokens} / {final_num_ctx} Tokens (max: {model_limit})"}

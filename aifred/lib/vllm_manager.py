@@ -31,7 +31,6 @@ def get_model_native_context(model_name: str) -> int:
     Raises:
         FileNotFoundError: If config.json not found
     """
-    import os
     from pathlib import Path
 
     # Convert "Qwen/Qwen3-8B-AWQ" → "models--Qwen--Qwen3-8B-AWQ"
@@ -439,7 +438,7 @@ class vLLMProcessManager:
                 })
         except RuntimeError as e:
             error_msg = str(e)
-            log_feedback(f"⚠️ Native context too large, detecting hardware limit...")
+            log_feedback("⚠️ Native context too large, detecting hardware limit...")
 
             # Parse error message for maximum
             # Patterns:
@@ -449,7 +448,7 @@ class vLLMProcessManager:
             if match:
                 hardware_limit = int(match.group(1))
                 log_feedback(f"📊 Hardware Limit detected: {hardware_limit:,} tokens (VRAM-constrained)")
-                log_feedback(f"🔄 Restarting with hardware limit...")
+                log_feedback("🔄 Restarting with hardware limit...")
 
                 # Stop crashed process first
                 await self.stop()
