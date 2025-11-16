@@ -33,6 +33,25 @@ RULES (NO EXCEPTIONS!):
 - ❌ NO quotes or direct speech (unless explicitly quoted!)
 - ⚠️ WHEN UNCERTAIN: "According to the sources, [detail] is not specified"
 
+# TEMPORAL SENSITIVITY OF RESEARCH DATA
+
+Evaluate the volatility of the research data based on its content and publication date:
+
+**VOLATILITY LEVELS:**
+- **DAILY**: News from today/yesterday, current events, "latest developments"
+- **WEEKLY**: Political updates from the last week, "this week", recent events
+- **MONTHLY**: Semi-current topics, trends from recent weeks
+- **PERMANENT**: Timeless facts, history, science, definitions, how-tos
+
+**IMPORTANT:** Add the volatility tag at the end of your answer:
+<volatility>DAILY|WEEKLY|MONTHLY|PERMANENT</volatility>
+
+**Evaluation guidelines:**
+- Check publication dates in the sources below
+- "Today" in an article corresponds to the article date, not the current date (see above)
+- When uncertain: Choose shorter TTL (e.g. DAILY instead of WEEKLY)
+- Mix of different sources: Choose the most volatile category
+
 # CURRENT RESEARCH RESULTS:
 
 {context}

@@ -34,9 +34,10 @@ from .logging_utils import log_message
 from .config import (
     CACHE_DISTANCE_HIGH,
     CACHE_DISTANCE_DUPLICATE,
-    CACHE_DISTANCE_RAG
+    CACHE_DISTANCE_RAG,
+    TTL_HOURS
 )
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 
@@ -158,6 +159,27 @@ class VectorCache:
         distance = results['distances'][0][0]
         document = results['documents'][0][0]
         metadata = results['metadatas'][0][0]
+
+        # Check if entry has expired (TTL-based expiry check)
+        expires_at_str = metadata.get('expires_at')
+        if expires_at_str and expires_at_str != 'None':
+            try:
+                expiry_time = datetime.fromisoformat(expires_at_str)
+                if datetime.now() > expiry_time:
+                    # EXPIRED! Delete entry and return cache miss
+                    entry_id = metadata.get('id')
+                    if entry_id:
+                        self.collection.delete(ids=[entry_id])
+                        volatility = metadata.get('volatility', 'UNKNOWN')
+                        log_message(f"🗑️ Cache expired ({volatility} TTL), deleted: {entry_id}")
+
+                    return {
+                        'source': 'CACHE_MISS',
+                        'confidence': 'low',
+                        'distance': 1.0
+                    }
+            except (ValueError, TypeError) as e:
+                log_message(f"⚠️ Invalid expires_at format: {expires_at_str}, error: {e}")
 
         # Determine confidence based on distance thresholds (from config)
         if distance < CACHE_DISTANCE_HIGH:
@@ -376,13 +398,24 @@ class VectorCache:
         # Generate unique ID
         entry_id = str(uuid.uuid4())
 
+        # Calculate TTL expiry timestamp
+        volatility = (metadata or {}).get('volatility', 'PERMANENT')
+        ttl_hours = TTL_HOURS.get(volatility)
+
+        if ttl_hours is not None:
+            expires_at = (datetime.now() + timedelta(hours=ttl_hours)).isoformat()
+        else:
+            expires_at = None  # PERMANENT = no expiry
+
         cache_metadata = {
             'id': entry_id,  # Store ID in metadata for later updates
             'timestamp': datetime.now().isoformat(),
+            'volatility': volatility,  # DAILY/WEEKLY/MONTHLY/PERMANENT
+            'expires_at': expires_at or 'None',  # ISO timestamp or 'None'
             'num_sources': len(sources),
             'source_urls': ', '.join(source_urls),
             'answer': answer,  # Store full answer in metadata
-            **(metadata or {})
+            'mode': (metadata or {}).get('mode', 'unknown')
         }
 
         # Store ONLY the query as document (for embedding/similarity search)
@@ -562,6 +595,58 @@ class VectorCache:
             log_message(f"❌ No RAG candidates in range {CACHE_DISTANCE_HIGH}-{CACHE_DISTANCE_RAG}")
 
         return rag_candidates
+
+    async def delete_expired_entries(self) -> int:
+        """
+        Delete all expired cache entries.
+        Returns number of deleted entries.
+
+        This method is called by:
+        - Background cleanup task (every 12 hours)
+        - Startup cleanup (on server initialization)
+        """
+        return await asyncio.to_thread(self._delete_expired_sync)
+
+    def _delete_expired_sync(self) -> int:
+        """Synchronous implementation of delete_expired_entries"""
+        try:
+            # Get all entries with metadata
+            all_results = self.collection.get(
+                include=['metadatas']
+            )
+
+            if not all_results or not all_results['ids']:
+                return 0
+
+            # Find expired entries
+            now = datetime.now()
+            expired_ids = []
+
+            for entry_id, metadata in zip(all_results['ids'], all_results['metadatas']):
+                expires_at_str = metadata.get('expires_at')
+
+                # Skip entries with no expiry (PERMANENT) or invalid format
+                if not expires_at_str or expires_at_str == 'None':
+                    continue
+
+                try:
+                    expiry_time = datetime.fromisoformat(expires_at_str)
+                    if now > expiry_time:
+                        expired_ids.append(entry_id)
+                except (ValueError, TypeError):
+                    # Invalid format, skip
+                    continue
+
+            # Delete expired entries
+            if expired_ids:
+                self.collection.delete(ids=expired_ids)
+                log_message(f"🗑️ Deleted {len(expired_ids)} expired cache entries")
+
+            return len(expired_ids)
+
+        except Exception as e:
+            log_message(f"⚠️ Error deleting expired entries: {e}")
+            return 0
 
 
 # Global cache instance (singleton)
