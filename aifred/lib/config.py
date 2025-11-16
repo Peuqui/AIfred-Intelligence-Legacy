@@ -161,6 +161,25 @@ HISTORY_SUMMARY_TEMPERATURE = 0.3
 HISTORY_SUMMARY_CONTEXT_LIMIT = 4096
 
 # ============================================================
+# VRAM MANAGEMENT (Dynamic Context Calculation)
+# ============================================================
+# Enable VRAM-based context calculation to prevent CPU offloading
+# When disabled, uses model's architectural limit only
+ENABLE_VRAM_CONTEXT_CALCULATION = True
+
+# Safety margin reserved for OS and other GPU processes (MB)
+# Realistic overhead: Xorg (~300MB) + Whisper STT (~1-2GB if active) + Buffer (~200MB)
+# Optimized: 512MB for desktop + overhead (not wasteful)
+VRAM_SAFETY_MARGIN = 512  # MB
+
+# Empirical ratio: MB of VRAM per context token
+# Based on KV cache measurements:
+# - Qwen3-8B Q4_K_M: ~0.015 MB/token
+# - Qwen3-30B Q4_K_M: ~0.097 MB/token (measured: 16K-4K = 1163MB / 12K tokens)
+# Using exact measured value to maximize context window
+VRAM_CONTEXT_RATIO = 0.097  # ~97KB per token (optimized for 30B MoE models)
+
+# ============================================================
 # VECTOR CACHE CONFIGURATION (ChromaDB Similarity Thresholds)
 # ============================================================
 # Distance-Thresholds für semantische Ähnlichkeit (Cosine Distance)

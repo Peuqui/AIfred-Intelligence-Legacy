@@ -5,6 +5,104 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2025-11-16
+
+### 🧠 VRAM-Based Dynamic Context Window Calculation
+
+#### Added
+- **Automatic VRAM-Based Context Calculation** ([aifred/lib/gpu_utils.py](aifred/lib/gpu_utils.py)):
+  - Dynamically calculates maximum practical `num_ctx` based on available GPU memory
+  - Prevents CPU offloading by staying within VRAM limits
+  - Two-scenario detection: Model loaded vs not loaded (via `/api/ps` endpoint)
+  - Reads model size from blob filesystem (no hardcoded values)
+  - Safety margin: 512 MB (optimized from initial 1024 MB)
+  - KV-cache ratio: 0.097 MB/token (empirically measured for Qwen3 MoE models)
+
+- **Model Load Detection** ([aifred/lib/gpu_utils.py:22-56](aifred/lib/gpu_utils.py#L22-L56)):
+  - `is_model_loaded()` checks Ollama `/api/ps` endpoint
+  - Prevents double-subtraction of model size from free VRAM
+  - Scenario 1 (model NOT loaded): `vram_for_context = free_vram - model_size - margin`
+  - Scenario 2 (model IS loaded): `vram_for_context = free_vram - margin`
+
+- **Model Size Extraction** ([aifred/backends/ollama.py:430-520](aifred/backends/ollama.py#L430-L520)):
+  - Enhanced `get_model_context_limit()` to return `(context_limit, model_size_bytes)`
+  - Extracts blob path from modelfile (`FROM /path/to/blobs/sha256-...`)
+  - Reads actual file size from filesystem (e.g., 17.28 GB for qwen3:30b)
+  - Falls back gracefully if blob not found (no VRAM calculation)
+
+- **UI Integration** ([aifred/aifred.py:1151-1188](aifred/aifred.py#L1151-L1188)):
+  - Manual context override option (numeric input field)
+  - Checkbox: "Setze Context-Fenster auf Basis von VRAM"
+  - Warning message when manual override active
+  - Real-time VRAM debug messages in UI console
+
+- **Debug Logging** ([aifred/lib/gpu_utils.py:127-164](aifred/lib/gpu_utils.py#L127-L164)):
+  - Detailed VRAM calculation messages collected as list
+  - Yielded to UI console for real-time visibility
+  - Shows: Free VRAM, model size, safety margin, calculated context, architectural limit
+  - German number formatting (35.010T instead of 35,010T)
+
+#### Configuration
+- **Optimized Constants** ([aifred/lib/config.py](aifred/lib/config.py)):
+  - `VRAM_SAFETY_MARGIN = 512` (MB) - reduced from 1024 MB
+  - `VRAM_CONTEXT_RATIO = 0.097` (MB/token) - empirically measured
+  - `ENABLE_VRAM_CONTEXT_CALCULATION = True` - feature flag
+
+#### Performance Results (RTX 3090 Ti, 24GB VRAM)
+- **qwen3:30b-a3b-instruct-2507-q4_K_M** (17.28 GB):
+  - Free VRAM: 3908 MB
+  - Context for KV-cache: 3396 MB (after 512 MB safety margin)
+  - **Calculated Context**: 35,010 tokens (3396 MB / 0.097 MB/T)
+  - Model architectural limit: 262,144 tokens
+  - **Practical limit**: 35,010 tokens (VRAM-constrained, prevents CPU offloading)
+
+- **qwen3:32b-q4_K_M** (18.81 GB, older generation):
+  - Free VRAM: 1780 MB (with Whisper loaded)
+  - Context for KV-cache: 1268 MB
+  - **Calculated Context**: 13,072 tokens
+  - Model architectural limit: 40,960 tokens (only!)
+  - **Problem**: Input 16K tokens → exceeds 13K limit → CPU offloading (17.6 t/s instead of 80+ t/s)
+  - **Recommendation**: Use qwen3:30b-a3b instead (newer, larger context, smaller size)
+
+#### Impact
+- **Before**: Hardcoded context windows → frequent CPU offloading on large inputs
+- **After**: Automatic adaptation to available VRAM → maximizes usable context
+- **User Benefit**: No more manual tuning, system automatically prevents CPU offloading
+
+#### Technical Details
+- **VRAM Query**: Uses `nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits`
+- **Model Load Detection**: HTTP GET to `http://localhost:11434/api/ps`
+- **Fallback**: If VRAM calculation fails → use model's architectural limit
+- **Validation**: Minimum 100 MB VRAM required, otherwise fallback to 2048 tokens
+
+#### Files Modified
+- [aifred/lib/gpu_utils.py](aifred/lib/gpu_utils.py): Lines 22-166 (VRAM calculation + model load detection)
+- [aifred/backends/ollama.py](aifred/backends/ollama.py): Lines 430-520 (model size extraction)
+- [aifred/lib/config.py](aifred/lib/config.py): Lines 168-171 (VRAM constants)
+- [aifred/aifred.py](aifred/aifred.py): Lines 1151-1188 (UI integration)
+- [aifred/state.py](aifred/state.py): Lines 92, 556-603, 1348-1372 (state management + settings persistence)
+
+---
+
+### ✂️ Token Optimization: Redundant Date Line Removed
+
+#### Changed
+- **Prompt Timestamp Format** ([aifred/lib/prompt_loader.py:137-147](aifred/lib/prompt_loader.py#L137-L147)):
+  - Removed redundant `- Jahr: {now.year}` line from German timestamp
+  - Removed redundant `- Year: {now.year}` line from English timestamp
+  - Date already contains full year (`16.11.2025` or `2025-11-16`)
+  - Separate year line was wasting tokens without adding information
+
+#### Impact
+- **Token Savings**: ~15 tokens saved per prompt (affects ALL prompts across all modes)
+- **Information Loss**: None - full date already shows year
+- **User Experience**: Cleaner prompt headers, more efficient token usage
+
+#### Files Modified
+- [aifred/lib/prompt_loader.py](aifred/lib/prompt_loader.py): Lines 137-147 (timestamp generation)
+
+---
+
 ## [Unreleased] - 2025-11-15
 
 ### 🔍 Enhanced Debug Logging & Query Visibility

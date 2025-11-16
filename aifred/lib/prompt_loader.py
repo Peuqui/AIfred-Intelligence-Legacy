@@ -137,14 +137,12 @@ def load_prompt(prompt_name: str, lang: Optional[str] = None, user_text: str = N
         timestamp_prefix = f"""AKTUELLES DATUM UND UHRZEIT:
 - Datum: {weekday_de}, {now.strftime('%d.%m.%Y')}
 - Uhrzeit: {now.strftime('%H:%M:%S')} Uhr
-- Jahr: {now.year}
 
 """
     else:  # English
         timestamp_prefix = f"""CURRENT DATE AND TIME:
 - Date: {now.strftime('%A')}, {now.strftime('%Y-%m-%d')}
 - Time: {now.strftime('%H:%M:%S')}
-- Year: {now.year}
 
 """
 

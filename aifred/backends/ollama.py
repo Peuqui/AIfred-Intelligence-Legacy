@@ -427,23 +427,27 @@ class OllamaBackend(LLMBackend):
                 "error": str(e)
             }
 
-    async def get_model_context_limit(self, model: str) -> int:
+    async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """
-        Get context limit for an Ollama model.
+        Get context limit and model size for an Ollama model.
 
-        Queries /api/show endpoint and extracts context_length from modelinfo.
-        Very fast (~30ms) and does NOT load the model into memory.
+        Queries /api/show endpoint and extracts context_length from modelinfo
+        and model file size. Works even if model is not loaded.
+        Very fast (~30ms).
 
         Args:
             model: Model name (e.g., "qwen3:8b", "phi3:mini")
 
         Returns:
-            int: Context limit in tokens
+            tuple[int, int]: (context_limit, model_size_bytes)
+                - context_limit: Maximum context window in tokens
+                - model_size_bytes: Model file size in bytes (0 if unavailable)
 
         Raises:
             RuntimeError: If model not found or context limit not extractable
         """
         try:
+            # 1. Get context limit from /api/show
             response = await self.client.post(
                 f"{self.base_url}/api/show",
                 json={"name": model}
@@ -454,24 +458,62 @@ class OllamaBackend(LLMBackend):
             # HTTP API uses 'model_info' (underscore), Python SDK uses 'modelinfo' (no underscore)
             model_details = data.get('model_info') or data.get('modelinfo', {})
 
+            context_limit = None
+
             # PRIORITÄT 1: Suche nach original_context_length (für RoPE-Scaling Modelle)
             for key, value in model_details.items():
                 if 'original_context' in key.lower():
-                    limit = int(value)
-                    return limit
+                    context_limit = int(value)
+                    break
 
             # PRIORITÄT 2: Suche nach .context_length (Standard)
-            for key, value in model_details.items():
-                if key.endswith('.context_length'):
-                    limit = int(value)
-                    return limit
+            if context_limit is None:
+                for key, value in model_details.items():
+                    if key.endswith('.context_length'):
+                        context_limit = int(value)
+                        break
 
             # Kein Context-Limit gefunden
-            available_keys = list(model_details.keys())[:10]
-            raise RuntimeError(
-                f"Context limit not found for model '{model}'. "
-                f"Available keys: {available_keys}"
+            if context_limit is None:
+                available_keys = list(model_details.keys())[:10]
+                raise RuntimeError(
+                    f"Context limit not found for model '{model}'. "
+                    f"Available keys: {available_keys}"
+                )
+
+            # 2. Get model file size from blob path in modelfile
+            model_size_bytes = 0
+            modelfile = data.get('modelfile', '')
+
+            # Extract blob hash from FROM line (e.g., "FROM /path/to/blobs/sha256-...")
+            import re
+            blob_match = re.search(
+                r'FROM\s+(/[^\s]+/blobs/(sha256-[a-f0-9]+))',
+                modelfile
             )
+
+            if blob_match:
+                blob_path = blob_match.group(1)
+                try:
+                    # Get file size from filesystem
+                    import os
+                    if os.path.exists(blob_path):
+                        model_size_bytes = os.path.getsize(blob_path)
+                        log_message(
+                            f"📦 Model '{model}' size: {model_size_bytes / (1024**3):.2f}GB "
+                            f"(context limit: {context_limit:,} tokens)"
+                        )
+                    else:
+                        logger.warning(f"Blob path not found: {blob_path}")
+                except Exception as e:
+                    logger.warning(f"Could not get blob size: {e}")
+            else:
+                logger.warning(
+                    f"Could not extract blob path from modelfile for '{model}' "
+                    f"- VRAM calculation will use model_limit fallback"
+                )
+
+            return (context_limit, model_size_bytes)
 
         except httpx.HTTPError as e:
             raise RuntimeError(f"Failed to query Ollama for model '{model}': {e}") from e
