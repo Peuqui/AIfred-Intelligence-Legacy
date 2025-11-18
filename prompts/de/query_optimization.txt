@@ -13,6 +13,7 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
 - Bei Wetter-Fragen: Füge "Wetter" + Ort + Zeitpunkt hinzu
 - Sortiere: Wichtigste Begriffe zuerst
 - **KRITISCH: Nutze die GLEICHE SPRACHE wie die Frage! Deutsch → deutsche Keywords, Englisch → englische Keywords**
+- **URLs NIEMALS ZERLEGEN: Wenn eine URL oder Webadresse in der Frage steht (z.B. https://..., www...., domain.com, github.com/...), gib sie VOLLSTÄNDIG und UNGEFILTERT zurück!**
 
 **Beispiele:**
 - "Präsident Trump hat mit Hamas ein Friedensabkommen geschlossen, das Biden vorbereitet hat. Recherchiere die Dokumente."
@@ -32,6 +33,18 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
 
 - "Latest news about Trump and Netanyahu?"
   → "Trump Netanyahu latest news 2025"
+
+- "Analysiere diese Webseite: https://example.com/artikel/ki-entwicklung"
+  → "https://example.com/artikel/ki-entwicklung"
+
+- "Was steht auf www.bundesregierung.de über Klimaschutz?"
+  → "www.bundesregierung.de Klimaschutz"
+
+- "Schau dir github.com/user/repo an und erkläre den Code"
+  → "github.com/user/repo Code erklären"
+
+- "Was steht in example.com/blog/artikel-2025?"
+  → "example.com/blog/artikel-2025"
 
 **WICHTIG:**
 - Antworte NUR mit den Keywords (keine Erklärung!)
