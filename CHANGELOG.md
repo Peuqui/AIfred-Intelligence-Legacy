@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Benefit**: After reading conversation, text input is directly accessible without scrolling
   - Debug console moved to bottom for quick access when needed
 
+- **Query Optimization: URL Handling** ([prompts/de/query_optimization.txt](prompts/de/query_optimization.txt), [prompts/en/query_optimization.txt](prompts/en/query_optimization.txt)):
+  - Enhanced query optimization to preserve URLs completely
+  - **New rule**: URLs and web addresses (https://, www., domain.com, github.com/...) are returned UNFILTERED
+  - **Examples added**: github.com/user/repo, example.com/blog/article
+  - **Benefit**: Web search modes (quick/detailed) can now handle URL-based queries correctly without breaking them into keywords
+
 ### Fixed
 - **Model Preload Order** ([aifred/backends/ollama.py](aifred/backends/ollama.py), [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py), [aifred/lib/research/scraper_orchestrator.py](aifred/lib/research/scraper_orchestrator.py), [aifred/state.py:1066-1086](aifred/state.py#L1066-L1086)):
   - Fixed unnecessary model unload/reload during preload phase

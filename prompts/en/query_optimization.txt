@@ -13,6 +13,7 @@ Create an optimized search engine query with 3-8 keywords.
 - For weather questions: Add "weather" + location + time
 - Sort: Most important terms first
 - **CRITICAL: Use the SAME LANGUAGE as the question! English → English keywords, German → German keywords**
+- **NEVER BREAK URLS: If a URL or web address appears in the question (e.g. https://..., www...., domain.com, github.com/...), return it COMPLETE and UNFILTERED!**
 
 **Examples:**
 - "President Trump has concluded a peace agreement with Hamas that Biden prepared. Research the documents."
@@ -32,6 +33,18 @@ Create an optimized search engine query with 3-8 keywords.
 
 - "Latest news about Trump and Netanyahu?"
   → "Trump Netanyahu latest news 2025"
+
+- "Analyze this website: https://example.com/article/ai-development"
+  → "https://example.com/article/ai-development"
+
+- "What's on www.government.gov about climate?"
+  → "www.government.gov climate"
+
+- "Check out github.com/user/repo and explain the code"
+  → "github.com/user/repo code explain"
+
+- "What's in example.com/blog/article-2025?"
+  → "example.com/blog/article-2025"
 
 **IMPORTANT:**
 - Answer ONLY with the keywords (no explanation!)
