@@ -5,10 +5,17 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2025-11-16
+## [Unreleased] - 2025-11-18
+
+### Changed
+- **UI Layout Optimization** ([aifred/aifred.py:1486-1506](aifred/aifred.py#L1486-L1506)):
+  - Improved usability by reordering main UI components
+  - **New order**: Chat History → Input Controls → Debug Console & Settings
+  - **Benefit**: After reading conversation, text input is directly accessible without scrolling
+  - Debug console moved to bottom for quick access when needed
 
 ### Fixed
-- **Model Preload Order** ([aifred/backends/ollama.py](aifred/backends/ollama.py), [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py), [aifred/lib/research/scraper_orchestrator.py](aifred/lib/research/scraper_orchestrator.py)):
+- **Model Preload Order** ([aifred/backends/ollama.py](aifred/backends/ollama.py), [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py), [aifred/lib/research/scraper_orchestrator.py](aifred/lib/research/scraper_orchestrator.py), [aifred/state.py:1066-1086](aifred/state.py#L1066-L1086)):
   - Fixed unnecessary model unload/reload during preload phase
   - **Problem**: `preload_model()` internally called `unload_all_models()`, which unloaded ALL models including the target model if already loaded
   - **Symptom**: Debug showed `🗑️ Entladene Modelle: qwen3:4b, qwen3:14b` (14B shouldn't be there!)

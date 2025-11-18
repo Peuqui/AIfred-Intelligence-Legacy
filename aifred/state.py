@@ -779,7 +779,8 @@ class AIState(rx.State):
                 backend = llm_client._get_backend()
 
                 if hasattr(backend, 'unload_all_models'):
-                    count = await backend.unload_all_models()
+                    success, unloaded_models = await backend.unload_all_models()
+                    count = len(unloaded_models)
                     if count > 0:
                         self.add_debug(f"✅ Unloaded {count} Ollama model(s)")
                     else:
@@ -1063,21 +1064,23 @@ class AIState(rx.State):
                 input_tokens = estimate_tokens(messages, model_name=self.selected_model)
 
                 # IMPORTANT: Preload model BEFORE VRAM calculation!
-                # This also unloads all other models to ensure maximum VRAM availability
+                # Unload all models first, then load Haupt-LLM
                 if self.backend_type == "ollama":
+                    # STEP 1: Unload all models (e.g., Automatik-LLM from startup preload)
+                    unload_success, unloaded_models = await backend.unload_all_models()
+                    if unloaded_models:
+                        models_str = ", ".join(unloaded_models)
+                        self.add_debug(f"🗑️ Entladene Modelle: {models_str}")
+                        yield
+
+                    # STEP 2: Load Haupt-LLM
                     self.add_debug(f"🚀 Haupt-LLM ({self.selected_model}) wird vorgeladen...")
                     yield
 
                     # Preload via backend (measures actual model loading time)
-                    # Also returns list of unloaded models
-                    success, load_time, unloaded_models = await backend.preload_model(self.selected_model)
+                    success, load_time = await backend.preload_model(self.selected_model)
 
                     if success:
-                        if unloaded_models:
-                            # Show which models were unloaded
-                            models_str = ", ".join(unloaded_models)
-                            self.add_debug(f"🗑️ Entladene Modelle: {models_str}")
-                            yield
                         self.add_debug(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
                     else:
                         self.add_debug(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)")
