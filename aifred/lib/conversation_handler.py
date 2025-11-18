@@ -104,9 +104,14 @@ async def chat_interactive_mode(
         yield {"type": "debug", "message": "📨 User Request empfangen"}
 
         # ============================================================
-        # CODE-OVERRIDE: Explizite Recherche-Aufforderung (Trigger-Wörter)
+        # CODE-OVERRIDE: Explizite Recherche-Aufforderung (Trigger-Wörter + URLs)
         # ============================================================
-        # Diese Keywords triggern SOFORT neue Recherche ohne KI-Entscheidung!
+        # Diese Keywords/URLs triggern SOFORT neue Recherche ohne KI-Entscheidung!
+
+        # URL Detection (skip Decision-Making for URL requests)
+        from .research.query_processor import detect_urls_in_text
+        detected_urls = detect_urls_in_text(user_text, max_urls=7)
+
         explicit_keywords = [
             'recherchiere', 'recherchier',  # "recherchiere!", "recherchier mal"
             'suche im internet', 'such im internet',
@@ -117,9 +122,15 @@ async def chat_interactive_mode(
         ]
 
         user_lower = user_text.lower()
-        if any(keyword in user_lower for keyword in explicit_keywords):
-            log_message("⚡ CODE-OVERRIDE: Explizite Recherche-Aufforderung erkannt")
-            yield {"type": "debug", "message": "⚡ Explizite Recherche erkannt"}
+
+        # Check for explicit keywords OR URLs
+        if detected_urls or any(keyword in user_lower for keyword in explicit_keywords):
+            if detected_urls:
+                log_message(f"⚡ CODE-OVERRIDE: {len(detected_urls)} URL(s) erkannt → Skip Decision")
+                yield {"type": "debug", "message": f"⚡ {len(detected_urls)} URL(s) erkannt → Direct Research"}
+            else:
+                log_message("⚡ CODE-OVERRIDE: Explizite Recherche-Aufforderung erkannt")
+                yield {"type": "debug", "message": "⚡ Explizite Recherche erkannt"}
 
             # Check cache first for exact duplicates (semantic distance < 0.05)
             # This avoids redundant web research for identical queries
@@ -180,8 +191,8 @@ async def chat_interactive_mode(
         try:
             from .vector_cache import get_cache
 
-            log_message("🔍 Checking Vector Cache...")
-            yield {"type": "debug", "message": "🔍 Checking Vector Cache..."}
+            log_message("🔍 Checking Vector DB...")
+            yield {"type": "debug", "message": "🔍 Checking Vector DB..."}
 
             cache = get_cache()
             cache_result = await cache.query(user_text, n_results=1)
@@ -192,12 +203,12 @@ async def chat_interactive_mode(
                 distance = cache_result['distance']
                 answer = cache_result['answer']
 
-                log_message(f"✅ Vector Cache HIT! Confidence: {confidence.upper()}, Distance: {format_number(distance, 3)}")
+                log_message(f"✅ Vector DB HIT! Confidence: {confidence.upper()}, Distance: {format_number(distance, 3)}")
                 yield {"type": "debug", "message": f"✅ Cache HIT ({confidence}, d={format_number(distance, 3)})"}
 
                 # Return cached answer with timing info
                 cache_time = cache_result.get('query_time_ms', 0) / 1000  # Convert to seconds
-                timing_suffix = f" (Cache-Hit: {format_number(cache_time, 2)}s, Quelle: Vector Cache)"
+                timing_suffix = f" (Cache-Hit: {format_number(cache_time, 2)}s, Quelle: Vector DB)"
 
                 # Add to history
                 from datetime import datetime
@@ -464,7 +475,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
             history.append((user_with_time, ai_with_source))
 
             # Separator nach LLM-Antwort-Block (Ende der Einheit)
-            from .logging_utils import console_separator, CONSOLE_SEPARATOR
+            from .logging_utils import console_separator
             console_separator()
             yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 

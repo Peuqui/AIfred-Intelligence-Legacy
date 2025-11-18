@@ -46,11 +46,18 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
 - "Was steht in example.com/blog/artikel-2025?"
   → "example.com/blog/artikel-2025"
 
+- "Analysiere https://github.com/user/repo und finde ähnliche Projekte"
+  → "https://github.com/user/repo ähnliche Projekte alternative"
+
+- "Was steht auf example.com/artikel und gibt es neuere Studien dazu?"
+  → "example.com/artikel neuere Studien 2025"
+
 **WICHTIG:**
 - Antworte NUR mit den Keywords (keine Erklärung!)
 - Nutze Leerzeichen zwischen Keywords
 - Keine Sonderzeichen, keine Anführungszeichen
 - Maximal 8 Keywords
 - **SPRACHE BEIBEHALTEN: Deutsch in → Deutsch raus, Englisch in → Englisch raus**
+- **URLs KOMPLETT ÜBERNEHMEN: Webadresse erkannt? → Vollständig zurückgeben, nicht zerlegen!**
 
 **Deine optimierte Query:**

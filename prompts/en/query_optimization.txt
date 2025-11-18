@@ -46,11 +46,18 @@ Create an optimized search engine query with 3-8 keywords.
 - "What's in example.com/blog/article-2025?"
   → "example.com/blog/article-2025"
 
+- "Analyze https://github.com/user/repo and find similar projects"
+  → "https://github.com/user/repo similar projects alternative"
+
+- "What's on example.com/article and are there newer studies?"
+  → "example.com/article newer studies 2025"
+
 **IMPORTANT:**
 - Answer ONLY with the keywords (no explanation!)
 - Use spaces between keywords
 - No special characters, no quotes
 - Maximum 8 keywords
 - **MAINTAIN LANGUAGE: English in → English out, German in → German out**
+- **PRESERVE URLS COMPLETELY: Web address detected? → Return it fully, don't break it down!**
 
 **Your optimized query:**
