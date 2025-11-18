@@ -132,6 +132,58 @@ async def perform_agent_research(
             yield item
 
     # ==============================================================
+    # PHASE 3.5: Fallback to Web-Search if Scraping Failed (0 Sources)
+    # ==============================================================
+    from ..agent_tools import search_web
+    from ..logging_utils import log_message
+
+    if len(scraped_results) == 0 and related_urls:
+        # All scraping attempts failed (Cloudflare, 404, Timeout, etc.)
+        # Fallback: Use optimized query for web search
+        yield {"type": "debug", "message": "⚠️ Scraping fehlgeschlagen (0 Quellen) → Fallback zu Web-Search"}
+        log_message("=" * 60)
+        log_message("⚠️ FALLBACK: Scraping failed (0 sources) → Web-Search")
+        log_message("=" * 60)
+
+        # Show optimized query being used for fallback
+        yield {"type": "debug", "message": f"🔎 Fallback-Query: {optimized_query}"}
+        log_message(f"🔎 Fallback-Query: {optimized_query}")
+
+        # Use optimized query for fallback search
+        fallback_search = search_web(optimized_query)
+        tool_results.append(fallback_search)
+
+        # Get new URLs from fallback search
+        fallback_urls = fallback_search.get('related_urls', [])
+
+        if fallback_urls:
+            yield {"type": "debug", "message": f"🔄 {len(fallback_urls)} URLs von Fallback-Suche gefunden"}
+            log_message(f"🔄 Fallback-Suche: {len(fallback_urls)} URLs gefunden")
+
+            # Retry scraping with new URLs
+            async for item in orchestrate_scraping(
+                related_urls=fallback_urls,
+                mode=mode,
+                llm_client=llm_client,
+                model_choice=model_choice
+            ):
+                if item["type"] == "scraping_result":
+                    scraped_results, scraping_tool_results = item["data"]
+                    tool_results.extend(scraping_tool_results)
+                else:
+                    yield item
+
+            if scraped_results:
+                yield {"type": "debug", "message": f"✅ Fallback erfolgreich: {len(scraped_results)} Quellen"}
+                log_message(f"✅ Fallback erfolgreich: {len(scraped_results)} Quellen gescraped")
+            else:
+                yield {"type": "debug", "message": "⚠️ Fallback fehlgeschlagen: Keine Quellen"}
+                log_message("⚠️ Fallback auch fehlgeschlagen")
+        else:
+            yield {"type": "debug", "message": "⚠️ Fallback-Suche: Keine URLs gefunden"}
+            log_message("⚠️ Fallback-Suche: Keine URLs gefunden")
+
+    # ==============================================================
     # PHASE 4: Context Building + LLM Response Generation
     # ==============================================================
     async for item in build_and_generate_response(

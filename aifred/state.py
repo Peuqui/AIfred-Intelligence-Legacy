@@ -141,7 +141,8 @@ class AIState(rx.State):
     automatik_model: str = ""  # Initialized in on_load() from settings.json or config.py
 
     # LLM Options
-    temperature: float = 0.2
+    temperature: float = 0.7
+    temperature_mode: str = "auto"  # "auto" (Intent-Detection) | "manual" (user slider)
     num_ctx: int = 32768
 
     # Context Window Control (NICHT in settings.json gespeichert - Reset bei jedem Start)
@@ -273,6 +274,7 @@ class AIState(rx.State):
                 self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode)
 
                 self.temperature = saved_settings.get("temperature", self.temperature)
+                self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)
                 self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
 
                 # Load vLLM YaRN & Context Settings
@@ -537,6 +539,7 @@ class AIState(rx.State):
             "backend_type": self.backend_type,
             "research_mode": self.research_mode,
             "temperature": self.temperature,
+            "temperature_mode": self.temperature_mode,
             "enable_thinking": self.enable_thinking,
             "backend_models": backend_models,  # Merged: preserves all backends
             # vLLM YaRN & Context Settings
@@ -884,7 +887,7 @@ class AIState(rx.State):
                     automatik_model=self.automatik_model,
                     history=self.chat_history[:-1],  # Exclude current temporary entry
                     session_id=self.session_id,
-                    temperature_mode='auto',
+                    temperature_mode=self.temperature_mode,
                     temperature=self.temperature,
                     llm_options=llm_options,
                     backend_type=self.backend_type,
@@ -965,7 +968,7 @@ class AIState(rx.State):
                     automatik_model=self.automatik_model,
                     history=self.chat_history[:-1],  # Exclude current temporary entry
                     session_id=self.session_id,
-                    temperature_mode='auto',
+                    temperature_mode=self.temperature_mode,
                     temperature=self.temperature,
                     llm_options=llm_options,
                     backend_type=self.backend_type,
@@ -1306,6 +1309,19 @@ class AIState(rx.State):
         self.debug_messages = []  # Debug Console auch leeren!
         self.add_debug("🗑️ Chat cleared")
 
+    async def load_default_settings(self):
+        """Load default settings from config.py and trigger page reload"""
+        from .lib.settings import reset_to_defaults
+
+        self.add_debug("💾 Loading default settings from config.py...")
+
+        if reset_to_defaults():
+            self.add_debug("✅ Default settings loaded successfully")
+            self.add_debug("🔄 Reloading page to apply settings...")
+            # Trigger page reload to reinitialize state with new settings
+            yield rx.redirect("/", external=False)
+        else:
+            self.add_debug("❌ Failed to load default settings")
 
     def toggle_auto_refresh(self):
         """Toggle auto-scroll for all areas (Debug Console, Chat History, AI Response)"""
@@ -1533,6 +1549,34 @@ class AIState(rx.State):
         except Exception as e:
             self.add_debug(f"❌ AIfred service restart failed: {e}")
 
+    async def clear_vector_cache(self):
+        """Clear Vector DB by deleting all documents (keeps collection intact)"""
+        try:
+            self.add_debug("🗑️ Clearing Vector DB...")
+
+            import chromadb
+            client = chromadb.HttpClient(host='localhost', port=8000)
+
+            # Get collection
+            collection = client.get_collection('research_cache')
+
+            # Get all document IDs
+            all_ids = collection.get(include=[])["ids"]
+
+            if all_ids:
+                count = len(all_ids)
+                self.add_debug(f"   📊 Deleting {count} entries...")
+
+                # Delete all documents (keeps collection structure intact)
+                collection.delete(ids=all_ids)
+
+                self.add_debug(f"✅ Vector DB cleared successfully ({count} entries deleted)")
+            else:
+                self.add_debug("✅ Vector DB is already empty")
+
+        except Exception as e:
+            self.add_debug(f"❌ Vector DB clear failed: {e}")
+
 
     def set_selected_model(self, model: str):
         """Set selected model"""
@@ -1582,6 +1626,18 @@ class AIState(rx.State):
         """Set temperature (from slider which returns list[float])"""
         self.temperature = temp[0] if isinstance(temp, list) else temp
         self._save_settings()
+
+    def set_temperature_mode(self, checked: bool):
+        """
+        Set temperature mode from toggle switch
+
+        Args:
+            checked: True = manual mode (user slider), False = auto mode (Intent-Detection)
+        """
+        self.temperature_mode = "manual" if checked else "auto"
+        self._save_settings()
+        mode_label = "Manual" if checked else "Auto"
+        self.add_debug(f"🌡️ Temperature Mode: {mode_label}")
 
     def set_num_ctx_mode(self, mode: str):
         """

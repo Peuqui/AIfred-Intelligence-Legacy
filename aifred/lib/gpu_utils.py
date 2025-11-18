@@ -138,7 +138,6 @@ def calculate_vram_based_context(
 
     # Wait for VRAM to stabilize (model fully loaded)
     # This ensures accurate measurements after model preload
-    import asyncio
 
     max_wait_time = 3.0  # Maximum 3 seconds
     poll_interval = 0.2  # Check every 200ms

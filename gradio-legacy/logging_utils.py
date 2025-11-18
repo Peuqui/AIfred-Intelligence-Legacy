@@ -78,7 +78,7 @@ def debug_print(message, **kwargs):
 
                 # Neue Session: Datei überschreiben oder neu erstellen
                 with open(DEBUG_LOG_FILE, 'w', encoding='utf-8') as f:
-                    f.write(f"=== AIfred Intelligence Debug Log ===\n")
+                    f.write("=== AIfred Intelligence Debug Log ===\n")
                     f.write(f"=== Service gestartet: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n\n")
                 _debug_log_initialized = True
 

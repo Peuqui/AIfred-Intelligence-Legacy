@@ -28,7 +28,7 @@ from ..tools.url_utils import deduplicate_urls
 URL_PATTERN = re.compile(
     r'https?://[^\s]+|'  # https://... or http://...
     r'www\.[^\s]+|'  # www....
-    r'\b[a-zA-Z0-9][-a-zA-Z0-9]*\.(?:com|de|org|net|io|co|gov|ai|tech|dev|app|info|me)(?:/[^\s]*)?',  # domain.tld/path
+    r'\b[a-zA-Z][-a-zA-Z0-9]*\.(?:com|de|org|net|io|co|gov|ai|tech|dev|app|info|me)(?:/[^\s]*)?',  # domain.tld/path (starts with letter, not digit)
     re.IGNORECASE
 )
 

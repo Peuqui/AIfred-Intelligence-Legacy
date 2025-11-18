@@ -268,12 +268,12 @@ async def summarize_history_if_needed(
     # Safety-Check: Immer mindestens 1 Message nach Kompression übrig lassen!
     # KRITISCH: Verhindert dass alle Messages komprimiert werden und Chat leer wird
     if len(history) <= HISTORY_MESSAGES_TO_COMPRESS:
-        yield {"type": "debug", "message": f"📊 History Compression: {int(utilization)}% ({format_number(estimated_tokens)} / {format_number(context_limit)} tok)"}
+        yield {"type": "debug", "message": f"📊 History: {format_number(estimated_tokens)} tok ({int(utilization)}%)"}
         log_message(f"⚠️ Compression aborted: {len(history)} Messages würden ALLE komprimiert → Chat leer!")
         return
 
     if estimated_tokens < threshold:
-        yield {"type": "debug", "message": f"📊 History Compression: {int(utilization)}% ({format_number(estimated_tokens)} / {format_number(context_limit)} tok)"}
+        yield {"type": "debug", "message": f"📊 History: {format_number(estimated_tokens)} tok ({int(utilization)}%)"}
         return
 
     log_message(f"⚠️ History zu lang: {int(utilization)}% Auslastung ({format_number(estimated_tokens)} tok) > {format_number(threshold)} Threshold → Starte Kompression")

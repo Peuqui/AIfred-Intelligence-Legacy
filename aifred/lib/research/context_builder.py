@@ -220,7 +220,7 @@ async def build_and_generate_response(
     yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s)"}
 
     # Extract volatility tag from LLM response
-    volatility = "PERMANENT"  # Default fallback
+    volatility = "DAILY"  # Default fallback (safer than PERMANENT to avoid cache bloat)
     volatility_match = re.search(r'<volatility>(.*?)</volatility>', ai_text, re.IGNORECASE | re.DOTALL)
 
     if volatility_match:
@@ -230,11 +230,11 @@ async def build_and_generate_response(
             log_message(f"✅ Haupt-LLM Volatility: {volatility}")
             yield {"type": "debug", "message": f"✅ Volatility: {volatility}"}
         else:
-            log_message(f"⚠️ Unbekannte Volatility '{extracted}', fallback zu PERMANENT")
-            yield {"type": "debug", "message": "⚠️ Unbekannte Volatility, fallback zu PERMANENT"}
+            log_message(f"⚠️ Unbekannte Volatility '{extracted}', fallback zu DAILY")
+            yield {"type": "debug", "message": "⚠️ Unbekannte Volatility, fallback zu DAILY"}
     else:
-        log_message("⚠️ Kein Volatility-Tag gefunden, fallback zu PERMANENT")
-        yield {"type": "debug", "message": "⚠️ Kein Volatility-Tag, fallback zu PERMANENT"}
+        log_message("⚠️ Kein Volatility-Tag gefunden, fallback zu DAILY")
+        yield {"type": "debug", "message": "⚠️ Kein Volatility-Tag, fallback zu DAILY"}
 
     # Remove volatility tag from answer before displaying to user
     ai_text = re.sub(r'<volatility>.*?</volatility>', '', ai_text, flags=re.IGNORECASE | re.DOTALL).strip()

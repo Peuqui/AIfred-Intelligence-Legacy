@@ -60,22 +60,32 @@ def save_settings(settings: Dict[str, Any]) -> bool:
 
 def get_default_settings() -> Dict[str, Any]:
     """
-    Get default settings from config.py with per-backend model defaults
+    Get default settings from config.py DEFAULT_SETTINGS
 
     Returns:
-        Dict with default settings
+        Dict with default settings from config.py
     """
-    from ..lib.config import BACKEND_DEFAULT_MODELS
+    from .config import DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS
 
-    return {
-        "backend_type": "ollama",
-        "research_mode": "automatik",
-        "temperature": 0.2,
-        "enable_thinking": True,
-        "backend_models": BACKEND_DEFAULT_MODELS,  # Backend-spezifische Modelle
-        # vLLM YaRN & Context Settings (0 = auto-detect on first run)
-        "enable_yarn": False,
-        "yarn_factor": 1.0,
-        "vllm_max_tokens": 0,
-        "vllm_native_context": 0,
-    }
+    # Merge DEFAULT_SETTINGS with backend-specific models
+    defaults = DEFAULT_SETTINGS.copy()
+    defaults["backend_models"] = BACKEND_DEFAULT_MODELS
+    defaults["backend_type"] = "ollama"
+    # vLLM YaRN & Context Settings (0 = auto-detect on first run)
+    defaults["enable_yarn"] = False
+    defaults["yarn_factor"] = 1.0
+    defaults["vllm_max_tokens"] = 0
+    defaults["vllm_native_context"] = 0
+
+    return defaults
+
+
+def reset_to_defaults() -> bool:
+    """
+    Reset all settings to defaults from config.py
+
+    Returns:
+        True if successful, False otherwise
+    """
+    defaults = get_default_settings()
+    return save_settings(defaults)

@@ -2,7 +2,6 @@
 
 import reflex as rx
 import os
-import asyncio
 
 # Entwicklung: Hauptrechner (WSL) - Zugriff nur lokal via localhost
 # Produktion: Mini PC (natives Ubuntu) - Zugriff im Netzwerk via 192.168.0.252

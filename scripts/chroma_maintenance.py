@@ -28,7 +28,7 @@ def show_stats():
     count = collection.count()
 
     print(f"\n{'='*60}")
-    print(f"📊 ChromaDB Stats")
+    print("📊 ChromaDB Stats")
     print(f"{'='*60}")
     print(f"Total Einträge: {count}")
 
@@ -51,7 +51,7 @@ def show_stats():
 
         # Query-Längen
         query_lengths = [len(doc) for doc in results['documents']]
-        print(f"\nQuery-Längen:")
+        print("\nQuery-Längen:")
         print(f"  Min: {min(query_lengths)} Zeichen")
         print(f"  Max: {max(query_lengths)} Zeichen")
         print(f"  Durchschnitt: {sum(query_lengths) // len(query_lengths)} Zeichen")

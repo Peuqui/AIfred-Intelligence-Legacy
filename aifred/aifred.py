@@ -217,6 +217,67 @@ def text_input_section() -> rx.Component:
             width="100%",
         ),
 
+        # Temperature Control Section (visible, compact - 60% width)
+        rx.hstack(
+            rx.hstack(
+                # Slider
+                rx.vstack(
+                    rx.hstack(
+                        rx.text("🌡️ Temperature:", font_weight="bold", font_size="12px"),
+                        rx.text(
+                            f"{AIState.temperature:.1f}",
+                            font_size="11px",
+                            color=COLORS["text_secondary"],
+                        ),
+                        spacing="2",
+                    ),
+                    rx.slider(
+                        default_value=AIState.temperature,
+                        min=0.0,
+                        max=2.0,
+                        step=0.1,
+                        on_change=AIState.set_temperature,
+                        width="100%",
+                    ),
+                    flex="1",
+                    spacing="1",
+                ),
+                # Toggle Button (rechts neben Slider)
+                rx.vstack(
+                    rx.text(
+                        rx.cond(
+                            AIState.temperature_mode == "manual",
+                            "✋ Manual",
+                            "🤖 Auto"
+                        ),
+                        font_weight="bold",
+                        font_size="11px",
+                    ),
+                    rx.switch(
+                        checked=AIState.temperature_mode == "manual",
+                        on_change=AIState.set_temperature_mode,
+                    ),
+                    spacing="1",
+                    align_items="center",
+                ),
+                spacing="3",
+                width="60%",  # Nur 60% statt 100%
+                align_items="flex-end",
+            ),
+            width="100%",
+        ),
+        # Info Text
+        rx.text(
+            rx.cond(
+                AIState.temperature_mode == "manual",
+                rx.cond(AIState.ui_language == "de", "Slider-Wert wird verwendet", "Slider value is used"),
+                rx.cond(AIState.ui_language == "de", "Intent-Detection wählt optimale Temperature", "Intent-Detection chooses optimal temperature"),
+            ),
+            font_size="11px",
+            color=COLORS["text_secondary"],
+            font_style="italic",
+        ),
+
         # Processing Progress Banner (above the send button - always visible)
         processing_progress_banner(),
 
@@ -289,47 +350,6 @@ def llm_parameters_accordion() -> rx.Component:
                 padding_y="2",  # Weniger Padding oben/unten
             ),
             content=rx.vstack(
-                # Temperature
-                rx.vstack(
-                    rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "🌡️ Temperature",
-                            "🌡️ Temperature"
-                        ),
-                        font_weight="bold",
-                        font_size="12px"
-                    ),
-                    rx.slider(
-                        default_value=AIState.temperature,
-                        min=0.0,
-                        max=2.0,
-                        step=0.1,
-                        on_change=AIState.set_temperature,
-                        width="100%",
-                    ),
-                    rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            f"Aktuell: {AIState.temperature}",
-                            f"Current: {AIState.temperature}"
-                        ),
-                        font_size="11px",
-                        color=COLORS["text_secondary"],
-                    ),
-                    rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "0.0 = deterministisch, 0.2 = fakten, 0.8 = ausgewogen, 1.5+ = kreativ",
-                            "0.0 = deterministic, 0.2 = factual, 0.8 = balanced, 1.5+ = creative"
-                        ),
-                        font_size="11px",
-                        color=COLORS["warning_text"],
-                        font_style="italic",
-                    ),
-                    width="100%",
-                ),
-
                 # Context Window Control
                 rx.vstack(
                     rx.text(
@@ -1390,32 +1410,87 @@ def settings_accordion() -> rx.Component:
                 # Restart Buttons
                 rx.divider(),
                 rx.text(t("system_control"), font_weight="bold", font_size="12px"),
-                rx.hstack(
-                    rx.button(
-                        rx.cond(
-                            AIState.backend_type == "ollama",
-                            t("restart_ollama"),
+                rx.vstack(
+                    # Row 1: Backend and AIfred restart buttons (side by side, each 50%)
+                    rx.hstack(
+                        rx.button(
                             rx.cond(
-                                AIState.backend_type == "vllm",
-                                t("restart_vllm"),
-                                rx.text(f"🔄 {AIState.backend_type.upper()} Neustart")
-                            )
+                                AIState.backend_type == "ollama",
+                                t("restart_ollama"),
+                                rx.cond(
+                                    AIState.backend_type == "vllm",
+                                    t("restart_vllm"),
+                                    rx.text(f"🔄 {AIState.backend_type.upper()} Neustart")
+                                )
+                            ),
+                            on_click=AIState.restart_backend,
+                            size="2",
+                            variant="soft",
+                            color_scheme="blue",
+                            disabled=AIState.backend_switching,
+                            flex="1",
                         ),
-                        on_click=AIState.restart_backend,
-                        size="2",
-                        variant="soft",
-                        color_scheme="blue",
-                        disabled=AIState.backend_switching,  # Disable during backend switch only
+                        rx.button(
+                            t("restart_aifred"),
+                            on_click=AIState.restart_aifred,
+                            size="2",
+                            variant="soft",
+                            color_scheme="orange",
+                            disabled=AIState.backend_switching,
+                            flex="1",
+                        ),
+                        spacing="3",
+                        width="100%",
                     ),
+                    # Row 2: Vector DB clear button (full width, same style as chat clear)
                     rx.button(
-                        t("restart_aifred"),
-                        on_click=AIState.restart_aifred,
+                        "🗑️ Vector-DB leeren",
+                        on_click=AIState.clear_vector_cache,
                         size="2",
-                        variant="soft",
+                        variant="outline",
                         color_scheme="orange",
-                        disabled=AIState.backend_switching,  # Disable during backend switch only
+                        disabled=AIState.backend_switching,
+                        width="100%",
+                        style={
+                            "background": "rgba(100, 10, 0, 0.4)",  # Same as chat clear button
+                        },
                     ),
-                    spacing="3",
+                    # Row 3: Load Default Settings button
+                    rx.button(
+                        "💾 Grundeinstellungen laden",
+                        on_click=AIState.load_default_settings,
+                        size="2",
+                        variant="solid",
+                        color_scheme="blue",
+                        disabled=AIState.backend_switching,
+                        width="100%",
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+                # Info Text for Settings Reset
+                rx.vstack(
+                    rx.text(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "ℹ️ F5 / Browser neu laden: Lädt gespeicherte Einstellungen",
+                            "ℹ️ F5 / Reload browser: Loads saved settings"
+                        ),
+                        font_size="10px",
+                        color=COLORS["text_secondary"],
+                        font_style="italic",
+                    ),
+                    rx.text(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "ℹ️ Button: Lädt Standard-Grundeinstellungen (config.py)",
+                            "ℹ️ Button: Loads default settings (config.py)"
+                        ),
+                        font_size="10px",
+                        color=COLORS["text_secondary"],
+                        font_style="italic",
+                    ),
+                    spacing="1",
                     width="100%",
                 ),
                 rx.vstack(

@@ -44,7 +44,7 @@ def load_settings():
     except Exception as e:
         debug_print(f"⚠️ Fehler beim Laden der Settings: {e}")
 
-    debug_print(f"📝 Verwende Default-Settings")
+    debug_print("📝 Verwende Default-Settings")
     return DEFAULT_SETTINGS.copy()
 
 
@@ -93,7 +93,7 @@ def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engi
                     previous_gpu = previous_settings.get('enable_gpu', True)
                     if previous_gpu != enable_gpu:
                         debug_print(f"⚡ GPU-Toggle geändert: {previous_gpu} → {enable_gpu}")
-                        debug_print(f"   Modell bleibt im RAM, num_gpu Parameter wird beim nächsten API-Call angepasst")
+                        debug_print("   Modell bleibt im RAM, num_gpu Parameter wird beim nächsten API-Call angepasst")
             except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
                 debug_print(f"⚠️ Fehler beim Lesen der vorherigen Settings: {e}")
 
@@ -110,7 +110,7 @@ def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engi
         debug_print(f"   Research Mode: {research_mode}")
         debug_print(f"   Show Transcription: {show_transcription}")
         debug_print(f"   GPU Enabled: {enable_gpu}")
-        debug_print(f"   ⚠️ Temperature NICHT gespeichert (Session-only, immer 0.2 für Web-Recherche)")
+        debug_print("   ⚠️ Temperature NICHT gespeichert (Session-only, immer 0.2 für Web-Recherche)")
 
     except Exception as e:
         debug_print(f"❌ Fehler beim Speichern der Settings: {e}")

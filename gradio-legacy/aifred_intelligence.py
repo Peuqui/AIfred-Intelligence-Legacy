@@ -12,8 +12,7 @@ load_dotenv()
 
 # Lib Modules
 from lib.config import (
-    WHISPER_MODELS, DEFAULT_SETTINGS, VOICES, RESEARCH_MODES, TTS_ENGINES,
-    SETTINGS_FILE, SSL_KEYFILE, SSL_CERTFILE, PROJECT_ROOT
+    WHISPER_MODELS, VOICES, SSL_KEYFILE, SSL_CERTFILE, PROJECT_ROOT
 )
 from lib.logging_utils import debug_print, console_print, get_console_output, console_separator, clear_console
 from lib.formatting import format_thinking_process
@@ -199,7 +198,7 @@ def regenerate_tts(ai_text, voice_choice, speed_choice, enable_tts, tts_engine):
     # TTS generieren
     audio_file = generate_tts(clean_text, voice_choice, speed_choice, tts_engine)
 
-    debug_print(f"🔄 TTS regeneriert")
+    debug_print("🔄 TTS regeneriert")
 
     return audio_file, gr.update(interactive=True)
 
@@ -267,22 +266,22 @@ def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice,
     # Parse research_mode und route entsprechend
     if "Eigenes Wissen" in research_mode:
         # Standard-Pipeline ohne Agent
-        debug_print(f"🧠 Modus: Eigenes Wissen (kein Agent)")
+        debug_print("🧠 Modus: Eigenes Wissen (kein Agent)")
         return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history)
 
     elif "Schnell" in research_mode:
         # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
-        debug_print(f"⚡ Modus: Web-Suche Schnell (Agent)")
+        debug_print("⚡ Modus: Web-Suche Schnell (Agent)")
         return perform_agent_research(user_text, stt_time, "quick", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
     elif "Ausführlich" in research_mode:
         # Web-Suche Ausführlich: Multi-API (Brave → Tavily → SearXNG) + beste 5 URLs
-        debug_print(f"🔍 Modus: Web-Suche Ausführlich (Agent)")
+        debug_print("🔍 Modus: Web-Suche Ausführlich (Agent)")
         return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
     elif "Automatik" in research_mode:
         # Automatik-Modus: KI entscheidet selbst, ob Recherche nötig
-        debug_print(f"🤖 Modus: Automatik (KI entscheidet)")
+        debug_print("🤖 Modus: Automatik (KI entscheidet)")
         try:
             return chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id, temperature_mode, temperature, llm_options)
         except Exception as e:
@@ -314,22 +313,22 @@ def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik
     # Parse research_mode und route entsprechend
     if "Eigenes Wissen" in research_mode:
         # Standard-Pipeline ohne Agent
-        debug_print(f"🧠 Modus: Eigenes Wissen (kein Agent)")
+        debug_print("🧠 Modus: Eigenes Wissen (kein Agent)")
         return chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history)
 
     elif "Schnell" in research_mode:
         # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
-        debug_print(f"⚡ Modus: Web-Suche Schnell (Agent)")
+        debug_print("⚡ Modus: Web-Suche Schnell (Agent)")
         return perform_agent_research(text_input, 0.0, "quick", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
     elif "Ausführlich" in research_mode:
         # Web-Suche Ausführlich: Multi-API (Brave → Tavily → SearXNG) + beste 5 URLs
-        debug_print(f"🔍 Modus: Web-Suche Ausführlich (Agent)")
+        debug_print("🔍 Modus: Web-Suche Ausführlich (Agent)")
         return perform_agent_research(text_input, 0.0, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
     elif "Automatik" in research_mode:
         # Automatik-Modus: KI entscheidet selbst, ob Recherche nötig
-        debug_print(f"🤖 Modus: Automatik (KI entscheidet)")
+        debug_print("🤖 Modus: Automatik (KI entscheidet)")
         try:
             return chat_interactive_mode(text_input, 0.0, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id, temperature_mode, temperature, llm_options)
         except Exception as e:
@@ -359,7 +358,7 @@ debug_print("=" * 60)
 debug_print("🚀 AI Voice Assistant startet...")
 debug_print("=" * 60)
 saved_settings = load_settings()
-debug_print(f"📋 Geladene Settings:")
+debug_print("📋 Geladene Settings:")
 debug_print(f"   AI Model: {saved_settings['model']}")
 debug_print(f"   Whisper Model: {saved_settings.get('whisper_model', 'base (142MB, schnell, multilingual)')}")
 debug_print(f"   TTS Engine: {saved_settings['tts_engine']}")
@@ -1122,7 +1121,7 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         clear_console()
 
         current_settings = load_settings()
-        debug_print(f"🔄 Page Load - Settings neu geladen:")
+        debug_print("🔄 Page Load - Settings neu geladen:")
         debug_print(f"   Haupt-LLM: {current_settings['model']}")
         debug_print(f"   Automatik-LLM: {current_settings.get('automatik_model', 'qwen3:1.7b')}")
         debug_print(f"   TTS Engine: {current_settings['tts_engine']}")
@@ -1180,11 +1179,11 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
 
         if show_trans:
             # Checkbox AN: Text ins Textfeld, kein AI-Call
-            debug_print(f"✏️ Transcription-Modus: Text wird ins Textfeld geschrieben")
+            debug_print("✏️ Transcription-Modus: Text wird ins Textfeld geschrieben")
         else:
             # Checkbox AUS: Normaler Flow, return nur user_text und stt_time
             # Der Rest passiert in .then() calls
-            debug_print(f"🚀 Direkt-Modus: Audio wird direkt zur AI geschickt")
+            debug_print("🚀 Direkt-Modus: Audio wird direkt zur AI geschickt")
 
         return (user_text, stt_time)
 
@@ -1340,13 +1339,13 @@ ssl_available = SSL_KEYFILE.exists() and SSL_CERTFILE.exists()
 
 if ssl_available:
     debug_print(f"✅ SSL-Zertifikate gefunden: {SSL_KEYFILE}, {SSL_CERTFILE}")
-    debug_print(f"🔒 Server läuft mit HTTPS auf Port 8443")
+    debug_print("🔒 Server läuft mit HTTPS auf Port 8443")
 else:
-    debug_print(f"⚠️ SSL-Zertifikate nicht gefunden (optional)")
-    debug_print(f"   Erwartete Pfade:")
+    debug_print("⚠️ SSL-Zertifikate nicht gefunden (optional)")
+    debug_print("   Erwartete Pfade:")
     debug_print(f"   - {SSL_KEYFILE}")
     debug_print(f"   - {SSL_CERTFILE}")
-    debug_print(f"🌐 Server läuft ohne HTTPS auf Port 8443")
+    debug_print("🌐 Server läuft ohne HTTPS auf Port 8443")
 
 # Startup-Messages in Console
 console_print(f"🤖 Haupt-LLM: {saved_settings['model']}")
