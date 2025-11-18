@@ -1483,7 +1483,10 @@ def index() -> rx.Component:
                 margin_bottom="4",
             ),
 
-            # Single Column Layout - Input controls only
+            # Chat History (top - read conversation first)
+            chat_history_display(),
+
+            # Input controls (below chat history for easy access after reading)
             rx.box(
                 left_column(),
                 padding="4",
@@ -1493,10 +1496,7 @@ def index() -> rx.Component:
                 width="100%",
             ),
 
-            # Chat History (full width below input)
-            chat_history_display(),
-
-            # Debug Console & Settings side-by-side
+            # Debug Console & Settings side-by-side (bottom)
             rx.grid(
                 debug_console(),
                 settings_accordion(),
