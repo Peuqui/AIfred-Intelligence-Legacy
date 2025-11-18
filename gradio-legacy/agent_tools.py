@@ -668,7 +668,7 @@ class WebScraperTool(BaseTool):
 
         if not result['success']:
             # Download failed → Site blockiert/down → Playwright bringt nichts!
-            debug_print(f"⚠️ trafilatura Download failed → SKIP Playwright (Site blockiert/down)")
+            debug_print("⚠️ trafilatura Download failed → SKIP Playwright (Site blockiert/down)")
             return result
 
         # Trafilatura erfolgreich, aber zu wenig Content? → JS-heavy Site!
@@ -696,13 +696,13 @@ class WebScraperTool(BaseTool):
         """
         try:
             logger.info(f"🌐 Web Scraping: {url}")
-            logger.debug(f"   Methode: trafilatura (Content-Extraktion)")
+            logger.debug("   Methode: trafilatura (Content-Extraktion)")
 
             # Download HTML mit 15s Timeout (via config)
             downloaded = trafilatura.fetch_url(url, config=self.trafilatura_config)
 
             if not downloaded:
-                logger.error(f"❌ trafilatura: Download fehlgeschlagen")
+                logger.error("❌ trafilatura: Download fehlgeschlagen")
                 return {
                     'success': False,
                     'method': 'trafilatura',
@@ -721,7 +721,7 @@ class WebScraperTool(BaseTool):
             )
 
             if not text:
-                logger.warning(f"⚠️ trafilatura: Kein Content extrahiert")
+                logger.warning("⚠️ trafilatura: Kein Content extrahiert")
                 return {
                     'success': False,
                     'method': 'trafilatura',
@@ -765,7 +765,7 @@ class WebScraperTool(BaseTool):
             from playwright.sync_api import sync_playwright
 
             logger.info(f"🌐 Web Scraping: {url}")
-            logger.debug(f"   Methode: Playwright (JavaScript-Rendering)")
+            logger.debug("   Methode: Playwright (JavaScript-Rendering)")
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
@@ -956,7 +956,7 @@ if __name__ == "__main__":
     print(f"🔗 URLs: {len(result.get('related_urls', []))}")
 
     if result.get('related_urls'):
-        print(f"\nErste 3 URLs:")
+        print("\nErste 3 URLs:")
         for i, url in enumerate(result['related_urls'][:3], 1):
             print(f"  {i}. {url}")
 

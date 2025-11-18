@@ -13,7 +13,7 @@ import re
 import threading
 import ollama
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
@@ -192,7 +192,7 @@ Antworte NUR mit der Zusammenfassung (max 150 Zeichen), nichts anderes!"""
 
     except Exception as e:
         debug_print(f"⚠️ Fehler bei Metadata-Generierung: {e}")
-        console_print(f"⚠️ Metadata-Generierung fehlgeschlagen")
+        console_print("⚠️ Metadata-Generierung fehlgeschlagen")
         console_separator()
 
 
@@ -418,7 +418,7 @@ def calculate_dynamic_num_ctx(messages, llm_options=None, is_automatik_llm=False
         # Zusätzliche Warnung NUR wenn Messages TATSÄCHLICH größer als Model-Limit
         if estimated_tokens > model_limit:  # Kontext ÜBERSCHRITTEN
             console_print(f"⚠️ WARNUNG: Kontext überschritten! ({estimated_tokens} Tokens > {model_limit} Tokens Limit)")
-            console_print(f"⚠️ Ältere Messages werden abgeschnitten!")
+            console_print("⚠️ Ältere Messages werden abgeschnitten!")
 
         return model_limit
 
@@ -639,7 +639,7 @@ def optimize_search_query(user_text, automatik_model, history=None):
             optimized_query += f" {current_year}"
             debug_print(f"   ⚖️ Vergleichs-Kontext ergänzt: {current_year}")
 
-        debug_print(f"🔍 Query-Optimierung:")
+        debug_print("🔍 Query-Optimierung:")
         debug_print(f"   Original: {user_text[:80]}{'...' if len(user_text) > 80 else ''}")
         debug_print(f"   Optimiert: {optimized_query}")
 
@@ -648,7 +648,7 @@ def optimize_search_query(user_text, automatik_model, history=None):
 
     except Exception as e:
         debug_print(f"⚠️ Fehler bei Query-Optimierung: {e}")
-        debug_print(f"   Fallback zu Original-Query")
+        debug_print("   Fallback zu Original-Query")
         return (user_text, None)
 
 
@@ -741,7 +741,7 @@ def ai_rate_urls(urls, titles, query, automatik_model):
             except Exception as e:
                 debug_print(f"⚠️ Parse-Fehler für URL {i+1}: {e}")
                 debug_print(f"   Problematische Zeile: '{line.strip()}'")
-                debug_print(f"   Erwartet: '[NUM]. Score: [0-10] - Reasoning: [TEXT]'")
+                debug_print("   Erwartet: '[NUM]. Score: [0-10] - Reasoning: [TEXT]'")
                 # Fallback
                 rated_urls.append({
                     'url': urls[i],
@@ -795,7 +795,7 @@ def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_mo
 
     # Debug: Zeige Context Window Modus
     if user_num_ctx is None:
-        debug_print(f"📊 Context Window: Haupt-LLM=Auto (dynamisch, Ollama begrenzt auf Model-Max)")
+        debug_print("📊 Context Window: Haupt-LLM=Auto (dynamisch, Ollama begrenzt auf Model-Max)")
     else:
         debug_print(f"📊 Context Window: Haupt-LLM={user_num_ctx} Tokens (manuell gesetzt)")
 
@@ -954,7 +954,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
     # 2. Web-Suche (Brave → Tavily → SearXNG Fallback) mit optimierter Query
     debug_print("=" * 60)
-    debug_print(f"🔍 Web-Suche mit optimierter Query")
+    debug_print("🔍 Web-Suche mit optimierter Query")
     debug_print("=" * 60)
 
     search_result = search_web(optimized_query)
@@ -1016,7 +1016,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
         if mode == "quick":
             target_sources = 3
             initial_scrape_count = 3  # Quick-Modus: Kein Fallback nötig
-            debug_print(f"⚡ Schnell-Modus: Scrape beste 3 URLs")
+            debug_print("⚡ Schnell-Modus: Scrape beste 3 URLs")
         elif mode == "deep":
             target_sources = 5  # Ziel: 5 erfolgreiche Quellen
             initial_scrape_count = 7  # Starte mit 7 URLs (Fallback für Fehler)
@@ -1334,8 +1334,8 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
 
     user_lower = user_text.lower()
     if any(keyword in user_lower for keyword in explicit_keywords):
-        debug_print(f"⚡ CODE-OVERRIDE: Explizite Recherche-Aufforderung erkannt → Skip KI-Entscheidung!")
-        console_print(f"⚡ Explizite Recherche erkannt → Web-Suche startet")
+        debug_print("⚡ CODE-OVERRIDE: Explizite Recherche-Aufforderung erkannt → Skip KI-Entscheidung!")
+        console_print("⚡ Explizite Recherche erkannt → Web-Suche startet")
         # Direkt zur Recherche, KEIN Cache-Check!
         return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 

@@ -63,9 +63,9 @@ DEFAULT_SETTINGS = {
     "whisper_model": "small (466MB, bessere Qualität, multilingual)",
     "research_mode": "🤖 Automatik (variabel, KI entscheidet)",
     "show_transcription": False,
-    "enable_gpu": True
-    # Temperature wird NICHT gespeichert - immer 0.2 für Web-Recherche (sicher)
-    # User kann pro Session im UI ändern, aber es bleibt nicht persistent
+    "enable_gpu": True,
+    "temperature": 0.7,
+    "temperature_mode": "auto"  # "auto" (Intent-Detection) or "manual" (user slider)
 }
 
 # ============================================================

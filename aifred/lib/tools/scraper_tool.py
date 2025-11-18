@@ -6,6 +6,7 @@ Extracted from agent_tools.py for better modularity.
 
 import logging
 import re
+import time
 import trafilatura
 from trafilatura.settings import DEFAULT_CONFIG
 from copy import deepcopy
@@ -31,6 +32,8 @@ class WebScraperTool(BaseTool):
 
     # Konstanten
     PLAYWRIGHT_FALLBACK_THRESHOLD = 800  # Wörter - unter diesem Wert wird Playwright versucht
+    MAX_RETRY_ATTEMPTS = 2  # Maximum retry attempts for Cloudflare/rate-limit blocks
+    RETRY_DELAY = 3.0  # Seconds to wait before retry
 
     def __init__(self):
         super().__init__()
@@ -85,7 +88,7 @@ class WebScraperTool(BaseTool):
 
         return result
 
-    def _scrape_with_trafilatura(self, url: str) -> Dict:
+    def _scrape_with_trafilatura(self, url: str, retry_attempt: int = 1) -> Dict:
         """
         Scraped mit trafilatura (sauberster Content)
 
@@ -97,21 +100,37 @@ class WebScraperTool(BaseTool):
         - Social Media Widgets
 
         Perfekt für News-Artikel, Blog-Posts, Wetter-Seiten!
+
+        Args:
+            url: URL to scrape
+            retry_attempt: Current retry attempt (1 = first try, 2 = retry)
         """
         try:
-            logger.info(f"🌐 Web Scraping: {url}")
-            logger.debug("   Methode: trafilatura (Content-Extraktion)")
+            if retry_attempt == 1:
+                logger.info(f"🌐 Web Scraping: {url}")
+                logger.debug("   Methode: trafilatura (Content-Extraktion)")
+            else:
+                logger.info(f"🔄 Retry {retry_attempt}/{self.MAX_RETRY_ATTEMPTS}: {url}")
 
-            # Download HTML mit 15s Timeout (via config)
+            # Download HTML mit 10s Timeout (via config)
             downloaded = trafilatura.fetch_url(url, config=self.trafilatura_config)
 
             if not downloaded:
-                logger.error("❌ trafilatura: Download fehlgeschlagen")
+                error_msg = self._classify_error("Download failed")
+                logger.error(f"❌ trafilatura: {error_msg}")
+
+                # Retry Logic: If Cloudflare/Timeout and first attempt, retry after delay
+                if retry_attempt < self.MAX_RETRY_ATTEMPTS:
+                    logger.info(f"⏳ Waiting {self.RETRY_DELAY}s before retry...")
+                    time.sleep(self.RETRY_DELAY)
+                    return self._scrape_with_trafilatura(url, retry_attempt=retry_attempt + 1)
+
                 return {
                     'success': False,
                     'method': 'trafilatura',
                     'source': url,
-                    'error': 'Download failed'
+                    'error': error_msg,
+                    'retry_attempts': retry_attempt
                 }
 
             # Extract sauberen Content
@@ -155,12 +174,21 @@ class WebScraperTool(BaseTool):
             }
 
         except Exception as e:
-            logger.error(f"❌ trafilatura Fehler bei {url}: {e}")
+            error_msg = self._classify_error(str(e))
+            logger.error(f"❌ trafilatura Fehler bei {url}: {error_msg}")
+
+            # Retry Logic for transient errors (timeout, connection)
+            if retry_attempt < self.MAX_RETRY_ATTEMPTS and any(keyword in str(e).lower() for keyword in ['timeout', 'connection', 'refused']):
+                logger.info(f"⏳ Waiting {self.RETRY_DELAY}s before retry...")
+                time.sleep(self.RETRY_DELAY)
+                return self._scrape_with_trafilatura(url, retry_attempt=retry_attempt + 1)
+
             return {
                 'success': False,
                 'method': 'trafilatura',
                 'source': url,
-                'error': str(e)
+                'error': error_msg,
+                'retry_attempts': retry_attempt
             }
 
     def _scrape_with_playwright(self, url: str) -> Dict:
@@ -204,13 +232,14 @@ class WebScraperTool(BaseTool):
                 }
 
         except Exception as e:
-            logger.error(f"❌ Playwright Fehler bei {url}: {e}")
+            error_msg = self._classify_error(str(e))
+            logger.error(f"❌ Playwright Fehler bei {url}: {error_msg}")
             return {
                 'success': False,
                 'method': 'playwright',
                 'source': url,
                 'url': url,
-                'error': str(e)
+                'error': error_msg
             }
 
     def _clean_text(self, text: str) -> str:
@@ -218,4 +247,44 @@ class WebScraperTool(BaseTool):
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'\n+', '\n', text)
         return text.strip()
+
+    def _classify_error(self, error_msg: str, downloaded_content: str = None) -> str:
+        """
+        Klassifiziert Fehler und gibt aussagekräftige Nachricht zurück
+
+        Args:
+            error_msg: Original error message
+            downloaded_content: Downloaded HTML content (if any)
+
+        Returns:
+            Human-readable error classification
+        """
+        error_lower = error_msg.lower() if error_msg else ""
+
+        # Cloudflare Detection
+        if downloaded_content and ('cloudflare' in downloaded_content.lower() or
+                                   'challenge' in downloaded_content.lower() or
+                                   'just a moment' in downloaded_content.lower()):
+            return "Cloudflare Challenge (Bot-Protection)"
+
+        # HTTP Status Codes
+        if '404' in error_msg or 'not found' in error_lower:
+            return "404 Not Found"
+        if '403' in error_msg or 'forbidden' in error_lower:
+            return "403 Forbidden (Access Denied)"
+        if '500' in error_msg or 'internal server error' in error_lower:
+            return "500 Server Error"
+        if '503' in error_msg or 'service unavailable' in error_lower:
+            return "503 Service Unavailable"
+
+        # Timeout
+        if 'timeout' in error_lower or 'timed out' in error_lower:
+            return "Timeout (Server zu langsam)"
+
+        # Connection Issues
+        if 'connection' in error_lower or 'refused' in error_lower:
+            return "Connection Failed"
+
+        # Generic Fallback
+        return f"Download Failed ({error_msg[:50]})"
 
