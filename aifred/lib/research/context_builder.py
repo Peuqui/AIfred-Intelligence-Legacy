@@ -153,6 +153,47 @@ async def build_and_generate_response(
     # Show compact context info (like Automatik-LLM)
     yield {"type": "debug", "message": f"📊 Haupt-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
 
+    # VRAM Warning: Check if VRAM change detected AND content doesn't fit
+    vram_warning = llm_options.get('_vram_warning') if llm_options else None
+    if vram_warning and input_tokens > final_num_ctx:
+        # Content doesn't fit AND more VRAM available → Show orange blocking warning
+        vram_diff = vram_warning["vram_diff"]
+        potential_tokens = vram_warning.get("potential_tokens")
+
+        warning_msg = (
+            f"⚠️ VRAM-Änderung erkannt: {vram_diff:+.0f}MB zusätzlicher Speicher verfügbar!\n\n"
+            f"💡 **Empfehlung:** Gehe zu **Systemsteuerung → vLLM Neustart**, um das "
+            f"erweiterte Context-Fenster zu nutzen"
+        )
+
+        if potential_tokens:
+            warning_msg += (
+                f" ({format_number(vram_warning['current_tokens'])} → "
+                f"~{format_number(potential_tokens)} Tokens)."
+            )
+        else:
+            warning_msg += "."
+
+        log_message(warning_msg)
+        yield {"type": "debug", "message": warning_msg}
+
+    # SAFEGUARD: Check if input already exceeds context limit
+    if input_tokens > final_num_ctx:
+        error_msg = (
+            f"❌ Eingabe zu groß: {format_number(input_tokens)} Tokens > "
+            f"Context-Limit {format_number(final_num_ctx)} Tokens\n"
+            f"   Bitte kürze deine Anfrage oder aktiviere 'Manual Context' mit höherem Wert."
+        )
+        log_message(error_msg)
+        yield {"type": "debug", "message": error_msg}
+
+        # Reset UI progress state before returning error
+        yield {"type": "progress", "phase": "idle"}
+        yield {"type": "progress", "step": "ready"}
+
+        yield {"type": "error", "message": error_msg}
+        return
+
     # Temperature
     if temperature_mode == 'manual':
         final_temperature = temperature
@@ -308,6 +349,26 @@ async def build_and_generate_response(
 
     except Exception as e:
         log_message(f"⚠️ Vector Cache auto-learning failed: {e}")
+
+    # Dezente VRAM-Info (nur wenn Content gepasst hat)
+    if vram_warning and input_tokens <= final_num_ctx:
+        vram_diff = vram_warning["vram_diff"]
+        potential_tokens = vram_warning.get("potential_tokens")
+
+        info_msg = f"ℹ️ VRAM-Info: {vram_diff:+.0f}MB zusätzlicher Speicher erkannt"
+
+        if potential_tokens:
+            info_msg += (
+                f" (Context-Potential: {format_number(vram_warning['current_tokens'])} → "
+                f"~{format_number(potential_tokens)} Tokens). "
+            )
+        else:
+            info_msg += ". "
+
+        info_msg += "Für erweiterte Kapazität: Systemsteuerung → vLLM Neustart"
+
+        log_message(info_msg)
+        yield {"type": "debug", "message": info_msg}
 
     # Separator nach Cache-Decision-Block (Ende der Einheit)
     from ..logging_utils import console_separator, CONSOLE_SEPARATOR
