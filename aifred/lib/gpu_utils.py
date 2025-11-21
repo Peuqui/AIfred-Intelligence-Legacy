@@ -5,7 +5,6 @@ Provides functions to query free VRAM and calculate practical context limits
 based on available GPU memory.
 """
 
-import subprocess
 import logging
 import httpx
 from typing import Optional
@@ -20,79 +19,79 @@ from .formatting import format_number
 logger = logging.getLogger(__name__)
 
 
-def is_model_loaded(model_name: str, ollama_base_url: str = "http://localhost:11434") -> bool:
-    """
-    Check if a model is currently loaded in Ollama via /api/ps
-
-    Args:
-        model_name: Name of the model to check (e.g., "qwen2.5:32b")
-        ollama_base_url: Ollama API base URL
-
-    Returns:
-        bool: True if model is loaded, False otherwise
-    """
-    try:
-        response = httpx.get(f"{ollama_base_url}/api/ps", timeout=2.0)
-        if response.status_code != 200:
-            logger.debug(f"/api/ps returned status {response.status_code}")
-            return False
-
-        data = response.json()
-        loaded_models = data.get("models", [])
-
-        # Check if our model is in the loaded models list
-        for model in loaded_models:
-            if model.get("name") == model_name or model.get("model") == model_name:
-                log_message(f"✅ Model '{model_name}' is already loaded in VRAM")
-                return True
-
-        log_message(f"ℹ️ Model '{model_name}' is NOT loaded yet")
-        return False
-
-    except httpx.TimeoutException:
-        logger.warning("/api/ps query timed out after 2s")
-        return False
-    except Exception as e:
-        logger.warning(f"Failed to check model load status: {e}")
-        return False
+# NOTE: is_model_loaded() wurde nach backends/base.py verschoben als abstractmethod
+# Jedes Backend implementiert seine eigene Logik:
+# - Ollama: Query /api/ps endpoint
+# - vLLM: Always True (model fixed at server start)
+# - TabbyAPI: Always True (model fixed at server start)
 
 
 def get_free_vram_mb() -> Optional[int]:
     """
-    Query free VRAM using nvidia-smi
+    Query free VRAM using pynvml (NVIDIA Management Library)
+
+    This is the modern, fast way to query GPU memory.
+    Replaces old nvidia-smi subprocess approach for better performance.
 
     Returns:
-        int: Free VRAM in MB, or None if nvidia-smi unavailable
+        int: Free VRAM in MB, or None if GPU unavailable
     """
     try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=memory.free",
-             "--format=csv,noheader,nounits"],
-            capture_output=True,
-            text=True,
-            timeout=2  # Fast timeout - don't block inference
-        )
+        import pynvml
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # GPU 0
+        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        free_mb = mem_info.free / (1024 * 1024)
+        pynvml.nvmlShutdown()
+        return int(free_mb)
 
-        if result.returncode != 0:
-            logger.debug(f"nvidia-smi returned non-zero: {result.returncode}")
-            return None
-
-        # Parse output: "18432" (MB)
-        free_mb = int(result.stdout.strip())
-        return free_mb
-
-    except subprocess.TimeoutExpired:
-        logger.warning("nvidia-smi query timed out after 2s")
-        return None
-    except FileNotFoundError:
-        logger.debug("nvidia-smi not found (CPU-only system or not in PATH)")
-        return None
-    except ValueError as e:
-        logger.warning(f"Failed to parse nvidia-smi output: {e}")
+    except ImportError:
+        logger.warning("pynvml not installed - install via: pip install pynvml")
         return None
     except Exception as e:
-        logger.warning(f"Unexpected error querying VRAM: {e}")
+        logger.debug(f"Could not query GPU via pynvml: {e}")
         return None
+
+
+def get_model_size_from_cache(model_name: str) -> int:
+    """
+    Get model size in bytes from HuggingFace cache
+
+    Args:
+        model_name: Model name (e.g., "cpatonn/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit")
+
+    Returns:
+        int: Model size in bytes, or 0 if not found
+    """
+    from pathlib import Path
+    import os
+
+    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+
+    # Convert model name to cache folder format
+    cache_folder_name = f"models--{model_name.replace('/', '--')}"
+
+    try:
+        for model_dir in cache_dir.glob(cache_folder_name):
+            # Find all model files (safetensors, bin, gguf, etc.)
+            total_size = 0
+
+            # Search for model weight files
+            for pattern in ["**/*.safetensors", "**/*.bin", "**/*.gguf", "**/*.pth"]:
+                for file_path in model_dir.glob(pattern):
+                    if file_path.is_file():
+                        total_size += file_path.stat().st_size
+
+            if total_size > 0:
+                logger.debug(f"Model size for {model_name}: {total_size / (1024**3):.2f} GB")
+                return total_size
+
+        logger.warning(f"Could not determine size for model: {model_name}")
+        return 0
+
+    except Exception as e:
+        logger.warning(f"Error getting model size: {e}")
+        return 0
 
 
 def calculate_vram_based_context(
@@ -101,33 +100,38 @@ def calculate_vram_based_context(
     model_context_limit: int,
     vram_context_ratio: float = VRAM_CONTEXT_RATIO,
     safety_margin_mb: int = VRAM_SAFETY_MARGIN,
-    ollama_base_url: str = "http://localhost:11434"
+    model_is_loaded: bool = False
 ) -> tuple[int, list[str]]:
     """
     Calculate maximum practical context window based on available VRAM
 
+    UNIVERSAL FUNCTION FOR ALL BACKENDS (Ollama, vLLM, TabbyAPI)
+
     Args:
-        model_name: Name of the model (for load detection via /api/ps)
-        model_size_bytes: Model size in bytes (from blob filesystem lookup)
-        model_context_limit: Model's architectural context limit
-        vram_context_ratio: MB of VRAM per context token (default: from config)
-        safety_margin_mb: MB to reserve for system (default: from config)
-        ollama_base_url: Ollama API base URL
+        model_name: Name of the model (for logging only)
+        model_size_bytes: Model size in bytes (from HF cache or Ollama blobs)
+        model_context_limit: Model's architectural context limit (from config.json)
+        vram_context_ratio: MB of VRAM per context token (default: 0.097 from config)
+        safety_margin_mb: MB to reserve for system (default: 512 MB from config)
+        model_is_loaded: Whether model is already loaded in VRAM (affects calculation)
 
     Returns:
         tuple[int, list[str]]: (num_ctx, debug_messages)
             - num_ctx: Maximum practical context based on VRAM constraints
             - debug_messages: List of debug messages for UI console (via yield)
 
-    Note:
-        Falls back to model_context_limit if:
-        - VRAM calculation disabled in config
-        - nvidia-smi unavailable
-        - Insufficient VRAM detected
+    Process:
+        1. Query free VRAM from nvidia-smi
+        2. Subtract safety margin (OS, Xorg, Whisper)
+        3. If model NOT loaded: Subtract model size from free VRAM
+        4. If model IS loaded: Free VRAM already accounts for it
+        5. Calculate: max_tokens = vram_for_context / vram_context_ratio
+        6. Clip to model's architectural limit
 
-    Two-Scenario Handling:
-        - Model NOT loaded: Subtract model_size_bytes from free VRAM
-        - Model IS loaded: Free VRAM already reflects loaded model, don't subtract again
+    Fallbacks:
+        - VRAM calculation disabled: Use model_context_limit
+        - nvidia-smi unavailable: Use model_context_limit
+        - Insufficient VRAM (<100 MB): Return 2048 tokens (minimal)
     """
     debug_msgs = []  # Collect messages for UI yield
 
@@ -181,9 +185,6 @@ def calculate_vram_based_context(
         debug_msgs.append(msg)
         return model_context_limit, debug_msgs
 
-    # Check if model is already loaded in VRAM
-    model_is_loaded = is_model_loaded(model_name, ollama_base_url)
-
     # Calculate usable VRAM (after safety margin)
     usable_vram = free_vram_mb - safety_margin_mb
 
@@ -193,6 +194,7 @@ def calculate_vram_based_context(
     # TWO-SCENARIO LOGIC:
     # Scenario 1: Model NOT loaded → Must subtract model size from free VRAM
     # Scenario 2: Model IS loaded → Free VRAM already reflects loaded model
+    # (Caller determines this based on backend-specific logic)
     if model_is_loaded:
         # Model already in VRAM - free_vram_mb already accounts for it
         vram_for_context = usable_vram

@@ -67,15 +67,27 @@ def get_default_settings() -> Dict[str, Any]:
     """
     from .config import DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS
 
-    # Merge DEFAULT_SETTINGS with backend-specific models
+    # Start with DEFAULT_SETTINGS (includes backend_type from config.py)
     defaults = DEFAULT_SETTINGS.copy()
+
+    # Extract model names from BACKEND_DEFAULT_MODELS for current backend
+    backend_models = BACKEND_DEFAULT_MODELS.get(defaults["backend_type"], {})
+    defaults["model"] = backend_models.get("selected_model", "qwen3:8b")
+    defaults["automatik_model"] = backend_models.get("automatik_model", "qwen2.5:3b")
+
+    # Store full backend models dict for backend switching
     defaults["backend_models"] = BACKEND_DEFAULT_MODELS
-    defaults["backend_type"] = "ollama"
-    # vLLM YaRN & Context Settings (0 = auto-detect on first run)
+
+    # Qwen3 Thinking Mode (already in DEFAULT_SETTINGS, but ensure it's present)
+    # This is here for clarity and to match the state definition
+    if "enable_thinking" not in defaults:
+        defaults["enable_thinking"] = True
+
+    # vLLM YaRN Settings
     defaults["enable_yarn"] = False
     defaults["yarn_factor"] = 1.0
-    defaults["vllm_max_tokens"] = 0
-    defaults["vllm_native_context"] = 0
+    # NOTE: vllm_max_tokens and vllm_native_context are NEVER in defaults!
+    # They are calculated dynamically on every vLLM startup based on VRAM
 
     return defaults
 
