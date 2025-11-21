@@ -231,7 +231,7 @@ async def process_query_and_search(
             llm_client=automatik_llm_client,
             automatik_llm_context_limit=automatik_limit
         )
-        query_opt_time = time.time() - query_opt_start
+        query_opt_time = max(0, time.time() - query_opt_start)
 
         yield {"type": "debug", "message": f"✅ Query-Optimierung fertig ({format_number(query_opt_time, 1)}s)"}
         yield {"type": "debug", "message": f"🔎 Optimierte Query: {optimized_query}"}
@@ -292,7 +292,7 @@ async def process_query_and_search(
             llm_client=automatik_llm_client,
             automatik_llm_context_limit=automatik_limit
         )
-        query_opt_time = time.time() - query_opt_start
+        query_opt_time = max(0, time.time() - query_opt_start)
 
         # Show query optimization completion AND optimized query
         yield {"type": "debug", "message": f"✅ Query-Optimierung fertig ({format_number(query_opt_time, 1)}s)"}

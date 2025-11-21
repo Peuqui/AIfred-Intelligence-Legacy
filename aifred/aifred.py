@@ -864,15 +864,24 @@ def chat_history_display() -> rx.Component:
                 color=COLORS["text_secondary"],
                 margin_top="3",
             ),
-            rx.text(
-                "Backend wird gewechselt...",
-                font_size="14px",
-                color=COLORS["text_secondary"],
-                margin_top="3",
+            rx.cond(
+                AIState.vllm_restarting,
+                rx.text(
+                    "vLLM wird neu gestartet...",
+                    font_size="14px",
+                    color=COLORS["text_secondary"],
+                    margin_top="3",
+                ),
+                rx.text(
+                    "Backend wird gewechselt...",
+                    font_size="14px",
+                    color=COLORS["text_secondary"],
+                    margin_top="3",
+                ),
             ),
         ),
         rx.text(
-            "Bitte warten, Backend startet (~40-70 Sekunden bei erster Nutzung)",
+            "Bitte warten, Backend startet (~40-70 Sekunden)",
             font_size="11px",
             color=COLORS["text_muted"],
             font_style="italic",
@@ -889,8 +898,8 @@ def chat_history_display() -> rx.Component:
     )
 
     chat_content = rx.cond(
-        AIState.backend_initializing | AIState.backend_switching,
-        loading_spinner,  # Show spinner during initialization or backend switch
+        AIState.backend_initializing | AIState.backend_switching | AIState.vllm_restarting,
+        loading_spinner,  # Show spinner during initialization, backend switch, or vLLM restart
         rx.cond(
             AIState.auto_refresh_enabled,
             # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
@@ -1012,7 +1021,7 @@ def debug_console() -> rx.Component:
         ),
         id="debug-console-box",
         width="100%",
-        height="500px",
+        height="500px",  # Initial height, will be synced via JavaScript
         overflow_y="auto",
         padding="3",
         background_color=COLORS["debug_bg"],
@@ -1353,12 +1362,12 @@ def settings_accordion() -> rx.Component:
                                 rx.hstack(
                                     rx.text("Faktor:", font_size="11px", font_weight="500"),
                                     rx.input(
-                                        value=AIState.yarn_factor,
-                                        on_change=AIState.set_yarn_factor,
+                                        value=AIState.yarn_factor_input,
+                                        on_change=AIState.set_yarn_factor_input,
                                         type="number",
-                                        step="0.5",
+                                        step="0.1",
                                         min="1.0",
-                                        max="8.0",
+                                        max="8.0",  # No hard limit - let user experiment
                                         size="1",
                                         width="80px",
                                     ),
@@ -1371,25 +1380,35 @@ def settings_accordion() -> rx.Component:
                                         font_size="10px",
                                         color="#999",
                                     ),
+                                    rx.button(
+                                        "Apply YaRN",
+                                        on_click=AIState.apply_yarn_factor,
+                                        size="1",
+                                        variant="soft",
+                                        color_scheme="blue",
+                                    ),
                                     spacing="2",
                                     align="center",
                                 ),
-                                # Warning for high YaRN factors (>2.0x)
+                                # Show maximum YaRN factor info (dynamic based on testing)
                                 rx.cond(
-                                    AIState.yarn_factor > 2.0,
-                                    rx.box(
-                                        rx.text(
-                                            f"⚠️ Hoher Faktor ({AIState.yarn_factor}x) kann VRAM überschreiten → Crash-Risiko!",
-                                            font_size="10px",
-                                            color="#ff6b6b",
-                                            line_height="1.3",
-                                        ),
-                                        background="rgba(255, 107, 107, 0.1)",
-                                        border_radius="4px",
-                                        padding="6px 8px",
-                                        margin_top="4px",
+                                    AIState.yarn_max_tested,
+                                    # Maximum was tested (from VRAM crash)
+                                    rx.text(
+                                        f"📏 Maximum: ~{AIState.yarn_max_factor:.1f}x (aus Test ermittelt)",
+                                        font_size="10px",
+                                        color="#ff9800",  # Orange for better visibility
+                                        font_weight="500",
+                                        margin_top="2px",
                                     ),
-                                    rx.box(),
+                                    # Maximum unknown (not tested yet)
+                                    rx.text(
+                                        "📏 Maximum: Unbekannt (wird beim Start getestet)",
+                                        font_size="10px",
+                                        color="#999",  # Gray for unknown
+                                        font_weight="400",
+                                        margin_top="2px",
+                                    ),
                                 ),
                                 spacing="2",
                             ),
@@ -1658,6 +1677,38 @@ const callback = function(mutationsList, observer) {
     }
 };
 
+function syncDebugConsoleHeight() {
+    // Find Settings Accordion (try multiple selectors)
+    let settingsElement = null;
+
+    // Try finding by accordion region role
+    const accordionRegions = document.querySelectorAll('[role="region"]');
+    for (let region of accordionRegions) {
+        const header = region.previousElementSibling;
+        if (header && header.textContent.includes('Einstellungen')) {
+            settingsElement = region;
+            break;
+        }
+    }
+
+    const debugBox = document.getElementById('debug-console-box');
+
+    if (settingsElement && debugBox) {
+        // Measure Settings Accordion content height (use scrollHeight for full content)
+        const settingsHeight = settingsElement.scrollHeight;
+
+        // Set Debug Console to match (minimum 500px)
+        const targetHeight = Math.max(500, settingsHeight);
+        debugBox.style.height = targetHeight + 'px';
+
+        console.log('📏 Synced heights - Settings:', settingsHeight, 'Target:', targetHeight);
+    } else {
+        console.warn('⚠️ Could not find settings element or debug box');
+        if (!settingsElement) console.warn('  - Settings element not found');
+        if (!debugBox) console.warn('  - Debug box not found');
+    }
+}
+
 function setupObservers() {
     console.log('🚀 Setting up observers...');
 
@@ -1678,6 +1729,23 @@ function setupObservers() {
     } else {
         console.warn('❌ chat-history-box not found');
     }
+
+    // Sync heights on accordion open/close
+    const accordionRegions = document.querySelectorAll('[role="region"]');
+    for (let region of accordionRegions) {
+        const header = region.previousElementSibling;
+        if (header && header.textContent.includes('Einstellungen')) {
+            const resizeObserver = new ResizeObserver(() => {
+                syncDebugConsoleHeight();
+            });
+            resizeObserver.observe(region);
+            console.log('✅ Height sync observer attached to settings accordion');
+            break;
+        }
+    }
+
+    // Also observe on window resize
+    window.addEventListener('resize', syncDebugConsoleHeight);
 }
 
 // Initialize immediately or wait for DOMContentLoaded
@@ -1689,16 +1757,21 @@ function initialize() {
 
     setupObservers();
 
+    // Initial height sync
+    syncDebugConsoleHeight();
+
     // Retry after 500ms in case elements render later
     setTimeout(() => {
         setupObservers();
         makeLinksOpenInNewTab();
+        syncDebugConsoleHeight();
     }, 500);
 
     // Retry after 1000ms
     setTimeout(() => {
         setupObservers();
         makeLinksOpenInNewTab();
+        syncDebugConsoleHeight();
     }, 1000);
 }
 

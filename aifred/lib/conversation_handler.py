@@ -99,6 +99,29 @@ async def chat_interactive_mode(
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
     automatik_llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
 
+    # VRAM Change Detection (nur für vLLM Backend)
+    vram_warning = None
+    if backend_type == "vllm":
+        from .vllm_utils import check_vram_change_for_vllm
+        vram_info = check_vram_change_for_vllm(model_choice)
+        if vram_info:
+            vram_diff, current_vram, cached_vram, potential_tokens, current_tokens = vram_info
+            # Store for later conditional warning
+            vram_warning = {
+                "vram_diff": vram_diff,
+                "current_vram": current_vram,
+                "cached_vram": cached_vram,
+                "potential_tokens": potential_tokens,
+                "current_tokens": current_tokens
+            }
+            log_message(f"📊 VRAM-Änderung erkannt: {vram_diff:+.0f}MB ({cached_vram:.0f}MB → {current_vram:.0f}MB)")
+
+    # Pass vram_warning through llm_options (create dict if None)
+    if llm_options is None:
+        llm_options = {}
+    if vram_warning:
+        llm_options['_vram_warning'] = vram_warning
+
     try:
         log_message("🤖 Automatik-Modus: KI prüft, ob Recherche nötig...")
         yield {"type": "debug", "message": "📨 User Request empfangen"}
