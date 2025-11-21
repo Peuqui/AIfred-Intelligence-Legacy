@@ -164,51 +164,27 @@ async def calculate_dynamic_num_ctx(
 
     needed_tokens = estimated_tokens + reserve
 
-    # Runde auf Standard-Größe
-    if needed_tokens <= 2048:
-        calculated_ctx = 2048
-    elif needed_tokens <= 4096:
-        calculated_ctx = 4096
-    elif needed_tokens <= 8192:
-        calculated_ctx = 8192
-    elif needed_tokens <= 10240:
-        calculated_ctx = 10240
-    elif needed_tokens <= 12288:
-        calculated_ctx = 12288
-    elif needed_tokens <= 16384:
-        calculated_ctx = 16384
-    elif needed_tokens <= 20480:
-        calculated_ctx = 20480  # 20K
-    elif needed_tokens <= 24576:
-        calculated_ctx = 24576  # 24K
-    elif needed_tokens <= 28672:
-        calculated_ctx = 28672  # 28K
-    elif needed_tokens <= 32768:
-        calculated_ctx = 32768  # 32K
-    elif needed_tokens <= 40960:
-        calculated_ctx = 40960  # 40K
-    else:
-        calculated_ctx = 65536  # 64K (Maximum)
+    # Query Model-Limit vom Backend (~40ms, lädt Modell NICHT!)
+    model_limit, _ = await llm_client.get_model_context_limit(model_name)
 
-    # Query Model-Limit UND Model-Size vom Backend (~40ms, lädt Modell NICHT!)
-    model_limit, model_size_bytes = await llm_client.get_model_context_limit(model_name)
-
-    # NEU: VRAM-basiertes praktisches Limit berechnen
+    # NEU: Backend-spezifisches praktisches Limit berechnen
+    # - Ollama: Dynamische VRAM-Berechnung (basierend auf aktuellem freien VRAM)
+    # - vLLM: Gecachter Startup-Wert (FIXED, kann nicht zur Laufzeit geändert werden)
+    # - TabbyAPI: Gecachter Startup-Wert oder API-Query
     vram_debug_msgs = []
     if enable_vram_limit:
-        from .gpu_utils import calculate_vram_based_context
-        max_practical_ctx, vram_debug_msgs = calculate_vram_based_context(
-            model_name=model_name,
-            model_size_bytes=model_size_bytes,
-            model_context_limit=model_limit
-        )
+        # Use backend-specific context calculation
+        backend = llm_client._get_backend()
+        max_practical_ctx, vram_debug_msgs = await backend.calculate_practical_context(model_name)
     else:
         # VRAM-Limit deaktiviert - nutze volles Model-Limit
         max_practical_ctx = model_limit
         log_message(f"⚠️ VRAM-Limit deaktiviert - nutze volles Modell-Limit {model_limit:,} (Risiko: CPU-Offload)")
 
-    # Clippe auf kleineren Wert: calculated vs. practical limit
-    final_num_ctx = min(calculated_ctx, max_practical_ctx)
+    # KEINE Rundung - nutze exakte berechnete Zahl!
+    # Clippe nur auf das kleinste Limit (VRAM, Model-Maximum)
+    calculated_ctx = needed_tokens
+    final_num_ctx = min(calculated_ctx, max_practical_ctx, model_limit)
 
     # Warne wenn Context überschritten
     if calculated_ctx > max_practical_ctx:
@@ -268,12 +244,12 @@ async def summarize_history_if_needed(
     # Safety-Check: Immer mindestens 1 Message nach Kompression übrig lassen!
     # KRITISCH: Verhindert dass alle Messages komprimiert werden und Chat leer wird
     if len(history) <= HISTORY_MESSAGES_TO_COMPRESS:
-        yield {"type": "debug", "message": f"📊 History: {format_number(estimated_tokens)} tok ({int(utilization)}%)"}
+        yield {"type": "debug", "message": f"📊 History: {format_number(estimated_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%)"}
         log_message(f"⚠️ Compression aborted: {len(history)} Messages würden ALLE komprimiert → Chat leer!")
         return
 
     if estimated_tokens < threshold:
-        yield {"type": "debug", "message": f"📊 History: {format_number(estimated_tokens)} tok ({int(utilization)}%)"}
+        yield {"type": "debug", "message": f"📊 History: {format_number(estimated_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%)"}
         return
 
     log_message(f"⚠️ History zu lang: {int(utilization)}% Auslastung ({format_number(estimated_tokens)} tok) > {format_number(threshold)} Threshold → Starte Kompression")

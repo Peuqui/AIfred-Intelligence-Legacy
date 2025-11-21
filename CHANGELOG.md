@@ -5,6 +5,50 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2025-11-22
+
+### Added
+- **Dynamic Context Window Optimization** ([aifred/lib/context_manager.py:184-187](aifred/lib/context_manager.py#L184-L187)):
+  - Removed fixed context size rounding (2K, 4K, 8K, etc.)
+  - Now uses exact calculated `num_ctx` values for maximum efficiency
+  - Automatically utilizes full VRAM-based limit for large contexts
+  - **Example**: 42K needed → Uses 42K directly (instead of rounding to 64K or capping at 40K)
+  - **Benefit**: ~7-10% more context available for long conversations without wasting RAM
+
+- **Ollama: Loaded Model Context Detection** ([aifred/backends/ollama.py:610-640](aifred/backends/ollama.py#L610-L640)):
+  - New `get_loaded_model_context()` method queries `/api/ps` for actual context length
+  - Returns the exact `num_ctx` value a loaded model is using
+  - Used for accurate history compression limits
+
+### Changed
+- **History Compression Context Limit** ([aifred/state.py:1404-1444](aifred/state.py#L1404-L1444)):
+  - **Ollama**: Now uses `/api/ps` to get actual loaded model context (e.g., 40960 or 44051)
+  - **vLLM/TabbyAPI**: Uses `calculate_dynamic_num_ctx()` for consistent limit calculation
+  - **Result**: History percentage now shows accurate utilization
+  - **Before**: "2,169 / 7,505 tok (28%)" ❌ (wrong VRAM calculation)
+  - **After**: "2,169 / 40,960 tok (5%)" ✅ (actual model context)
+
+### Fixed
+- **vLLM Context Calibration Safety Buffer** ([aifred/lib/vllm_manager.py:537-544, 666-673](aifred/lib/vllm_manager.py#L537-L544)):
+  - Changed from fixed 150 token buffer to 2% percentage-based safety margin
+  - Applied iteratively at each calibration attempt
+  - **Before**: 3 attempts needed, 150 tokens wasted regardless of context size
+  - **After**: 2 attempts, scales with context (e.g., 440 tokens at 22K context)
+  - **Result**: More efficient calibration with better success rate
+
+- **vLLM: Automatik-LLM Synchronization** ([aifred/state.py:460-466, 566-571, 1786-1822](aifred/state.py#L1786-L1822)):
+  - vLLM can only load ONE model at a time (unlike Ollama)
+  - Now automatically syncs Automatik-LLM to match Main-LLM for vLLM backend
+  - Applied at three points: model change, backend init (slow path), backend init (fast path)
+  - **Before**: 404 errors when Automatik-LLM differed from Main-LLM
+  - **After**: Automatic sync with debug message explaining why
+
+- **YaRN Factor Reset on Model Change** ([aifred/state.py:1786-1822](aifred/state.py#L1786-L1822)):
+  - YaRN factor now automatically resets to 1.0 when changing models
+  - Prevents crashes from trying to load new model with old YaRN extension
+  - Resets all YaRN state: factor, input, max_factor, max_tested
+  - Shows loading spinner during model change (40-70 seconds for vLLM)
+
 ## [Unreleased] - 2025-11-18
 
 ### Changed
