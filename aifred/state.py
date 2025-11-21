@@ -5,7 +5,7 @@ Main state for chat, settings, and backend management
 """
 
 import reflex as rx
-from typing import List, Tuple, Optional, Any
+from typing import List, Tuple, Any
 import uuid
 import os
 from pydantic import BaseModel
@@ -94,6 +94,73 @@ def initialize_vector_cache():
         return None
 
 
+def is_backend_compatible(model_dir, backend: str) -> bool:
+    """
+    Check if model is compatible with backend by reading config.json
+
+    vLLM supports:
+    - AWQ (quantization_config.quant_method = "awq")
+    - GPTQ (quantization_config.quant_method = "gptq")
+    - compressed-tensors (quantization_config.quant_method = "compressed-tensors")
+    - FP16/BF16 (no quantization_config)
+
+    TabbyAPI supports:
+    - EXL2 (quantization_config.quant_method = "exl2")
+    - EXL3 (quantization_config.quant_method = "exl3" or model name contains "exl3")
+
+    Both do NOT support:
+    - GGUF (Ollama-only)
+    - Non-LLM models (Whisper, Vision, etc.)
+    """
+    import json
+
+    model_name = model_dir.name.replace("models--", "").replace("--", "/", 1)
+
+    # Exclude non-LLM models by name pattern
+    exclude_patterns = ['whisper', 'faster-whisper', 'table-transformer', 'resnet', 'gguf']
+    if any(pattern in model_name.lower() for pattern in exclude_patterns):
+        return False
+
+    # Try to find config.json in model directory
+    config_paths = list(model_dir.glob("**/config.json"))
+
+    if not config_paths:
+        # No config.json found - skip this model
+        return False
+
+    try:
+        with open(config_paths[0], 'r') as f:
+            config_data = json.load(f)
+
+        # Check if it's a valid LLM config (has model_type)
+        if "model_type" not in config_data:
+            return False
+
+        # Check quantization format
+        if "quantization_config" in config_data:
+            quant_method = config_data["quantization_config"].get("quant_method", "")
+
+            if backend == "vllm":
+                # vLLM supports: awq, gptq, compressed-tensors
+                return quant_method in ["awq", "gptq", "compressed-tensors"]
+            elif backend == "tabbyapi":
+                # TabbyAPI supports: exl2, exl3
+                # Also check model name for "exl2" or "exl3" (some repos don't have quant_method in config)
+                return quant_method in ["exl2", "exl3"] or any(fmt in model_name.lower() for fmt in ["exl2", "exl3"])
+        else:
+            # No quantization config
+            if backend == "vllm":
+                # FP16/BF16 (supported by vLLM)
+                return True
+            elif backend == "tabbyapi":
+                # TabbyAPI needs quantization - check model name for EXL format
+                return any(fmt in model_name.lower() for fmt in ["exl2", "exl3"])
+
+    except Exception:
+        # Failed to read config.json
+        return False
+
+
 # ============================================================
 # Module-Level Backend State (Global across all sessions)
 # ============================================================
@@ -163,8 +230,11 @@ class AIState(rx.State):
     # vLLM YaRN Settings (RoPE Scaling for Context Extension)
     enable_yarn: bool = False  # Enable YaRN context extension
     yarn_factor: float = 1.0  # Scaling factor (1.0 = disabled, 2.0 = 2x context, 4.0 = 4x context)
-    vllm_max_tokens: int = 0  # vLLM max_model_len (0 = auto-detect on first run, then saved)
-    vllm_native_context: int = 0  # Native model context (0 = auto-detect from config.json)
+
+    # vLLM Context Info (Runtime Only - NEVER saved to settings.json!)
+    # Calculated dynamically on every vLLM startup based on available VRAM & model size
+    vllm_max_tokens: int = 0  # Hardware-limited context (VRAM-based calculation)
+    vllm_native_context: int = 0  # Native model context (from config.json)
 
     # TTS Settings
     enable_tts: bool = False
@@ -196,8 +266,8 @@ class AIState(rx.State):
     _backend_initialized: bool = False
     _model_preloaded: bool = False
 
-    # vLLM Process Manager (non-serializable, managed separately)
-    _vllm_manager: Optional[vLLMProcessManager] = None
+    # NOTE: vLLM Process Manager is stored in _global_backend_state["vllm_manager"]
+    # NOT as a state variable to avoid serialization errors
 
     # GPU Detection (for backend compatibility warnings)
     gpu_detected: bool = False
@@ -271,17 +341,17 @@ class AIState(rx.State):
 
                 # Update research_mode_display to match loaded research_mode
                 from .lib import TranslationManager
-                self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode)
+                self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode, self.ui_language)
 
                 self.temperature = saved_settings.get("temperature", self.temperature)
                 self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)
                 self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
 
-                # Load vLLM YaRN & Context Settings
+                # Load vLLM YaRN Settings (only enable/factor, NOT context limits!)
                 self.enable_yarn = saved_settings.get("enable_yarn", self.enable_yarn)
                 self.yarn_factor = saved_settings.get("yarn_factor", self.yarn_factor)
-                self.vllm_max_tokens = saved_settings.get("vllm_max_tokens", self.vllm_max_tokens)
-                self.vllm_native_context = saved_settings.get("vllm_native_context", self.vllm_native_context)
+                # NOTE: vllm_max_tokens and vllm_native_context are NEVER loaded from settings!
+                # They are calculated dynamically on every vLLM startup based on VRAM availability
 
                 # Load per-backend models (if available)
                 backend_models = saved_settings.get("backend_models", {})
@@ -311,6 +381,13 @@ class AIState(rx.State):
                     self.add_debug(f"⚙️ Using default automatik_model from config.py: {self.automatik_model}")
                 else:
                     self.add_debug("⚠️ No automatik_model configured")
+
+            # vLLM and TabbyAPI can only load ONE model at a time
+            # Ensure automatik_model = selected_model for these backends
+            if self.backend_type in ["vllm", "tabbyapi"]:
+                if self.automatik_model != self.selected_model:
+                    self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.selected_model} for both Main and Automatik")
+                    self.automatik_model = self.selected_model
 
             # Generate session ID
             if not self.session_id:
@@ -374,10 +451,10 @@ class AIState(rx.State):
             self.selected_model = _global_backend_state["selected_model"]
             self.automatik_model = _global_backend_state["automatik_model"]
 
-            # Restore vLLM manager if exists
+            # Check vLLM manager status if exists
             if self.backend_type == "vllm":
-                self._vllm_manager = _global_backend_state["vllm_manager"]
-                if self._vllm_manager and self._vllm_manager.is_running():
+                vllm_manager = _global_backend_state.get("vllm_manager")
+                if vllm_manager and vllm_manager.is_running():
                     self.add_debug("✅ vLLM server already running (restored from global state)")
                 else:
                     self.add_debug("⚠️ vLLM manager exists but server not running")
@@ -429,12 +506,15 @@ class AIState(rx.State):
                     if hf_cache.exists():
                         # Find all model directories (format: models--Org--ModelName)
                         model_dirs = [d for d in hf_cache.iterdir() if d.is_dir() and d.name.startswith("models--")]
-                        # Convert directory names to model IDs (e.g., models--Qwen--Qwen3-8B-AWQ -> Qwen/Qwen3-8B-AWQ)
-                        self.available_models = [
-                            d.name.replace("models--", "").replace("--", "/", 1)
-                            for d in model_dirs
-                        ]
-                        self.add_debug(f"📂 Found {len(self.available_models)} models in HuggingFace cache")
+
+                        # Filter models by reading config.json
+                        self.available_models = []
+                        for model_dir in model_dirs:
+                            if is_backend_compatible(model_dir, self.backend_type):
+                                model_id = model_dir.name.replace("models--", "").replace("--", "/", 1)
+                                self.available_models.append(model_id)
+
+                        self.add_debug(f"📂 Found {len(self.available_models)} {self.backend_type}-compatible models ({len(model_dirs)} total in cache)")
                     else:
                         self.available_models = []
                         self.add_debug("⚠️ HuggingFace cache not found")
@@ -508,7 +588,7 @@ class AIState(rx.State):
             _global_backend_state["selected_model"] = self.selected_model
             _global_backend_state["automatik_model"] = self.automatik_model
             _global_backend_state["available_models"] = self.available_models
-            _global_backend_state["vllm_manager"] = self._vllm_manager
+            # vllm_manager is already stored in _global_backend_state by _start_vllm_server()
 
             print(f"✅ Backend '{self.backend_type}' fully initialized and stored in global state")
 
@@ -542,11 +622,11 @@ class AIState(rx.State):
             "temperature_mode": self.temperature_mode,
             "enable_thinking": self.enable_thinking,
             "backend_models": backend_models,  # Merged: preserves all backends
-            # vLLM YaRN & Context Settings
+            # vLLM YaRN Settings (only enable/factor, NOT context limits!)
             "enable_yarn": self.enable_yarn,
             "yarn_factor": self.yarn_factor,
-            "vllm_max_tokens": self.vllm_max_tokens,
-            "vllm_native_context": self.vllm_native_context,
+            # NOTE: vllm_max_tokens and vllm_native_context are NEVER saved!
+            # They are calculated dynamically on every vLLM startup based on VRAM
         }
         save_settings(settings)
 
@@ -599,14 +679,16 @@ class AIState(rx.State):
             if target_auto_model:
                 self.automatik_model = target_auto_model
 
+            # vLLM and TabbyAPI can only load ONE model at a time
+            # Set automatik_model = selected_model BEFORE initialize_backend() to prevent wrong model loading
+            if new_backend in ["vllm", "tabbyapi"]:
+                if self.automatik_model != self.selected_model:
+                    self.add_debug(f"⚠️ {new_backend} can only load one model - using {self.selected_model} for both Main and Automatik")
+                self.automatik_model = self.selected_model
+
             # Switch backend and load models
             self.backend_type = new_backend
             await self.initialize_backend()
-
-            # vLLM and TabbyAPI can only load ONE model at a time
-            if new_backend in ["vllm", "tabbyapi"] and self.automatik_model != self.selected_model:
-                self.add_debug(f"⚠️ {new_backend} can only load one model - using {self.selected_model} for both Main and Automatik")
-                self.automatik_model = self.selected_model
 
             # Save settings for new backend
             self._save_settings()
@@ -677,11 +759,14 @@ class AIState(rx.State):
             existing_manager = _global_backend_state.get("vllm_manager")
             if existing_manager and existing_manager.is_running():
                 self.add_debug("✅ vLLM server already running (using existing process)")
-                self._vllm_manager = existing_manager
-                _global_backend_state["vllm_manager"] = existing_manager
                 return
 
-            self.add_debug(f"🚀 Starting vLLM server with {self.selected_model}...")
+            # IMPORTANT: vLLM cannot switch models like Ollama (requires full restart)
+            # Therefore, start directly with the Main-Model (30B) to avoid slow restarts
+            # Both Automatik and Main requests will use the same 30B model
+            startup_model = self.selected_model
+            self.add_debug(f"🚀 Starting vLLM server with {startup_model}...")
+            self.add_debug("   (vLLM uses Main-Model for all requests - model switching requires slow restart)")
 
             # Auto-detect context from model config.json (no hardcoded values!)
             # Build YaRN config if enabled
@@ -694,56 +779,56 @@ class AIState(rx.State):
                 self.add_debug(f"🔧 YaRN: {self.yarn_factor}x scaling ({self.vllm_native_context:,} → {int(self.vllm_native_context * self.yarn_factor):,} tokens)")
 
             # Initialize vLLM Process Manager
-            # Use saved vllm_max_tokens if available (from previous auto-detection)
-            # Otherwise use None to trigger auto-detection
-            max_len = self.vllm_max_tokens if self.vllm_max_tokens > 0 else None
-            if max_len:
-                self.add_debug(f"📋 Using saved context limit: {max_len:,} tokens (aus Settings)")
-
-            self._vllm_manager = vLLMProcessManager(
+            # ALWAYS calculate dynamically based on current VRAM (never use cached values!)
+            vllm_manager = vLLMProcessManager(
                 port=8001,
-                max_model_len=max_len,  # Use saved value or None for auto-detect
+                max_model_len=None,  # ALWAYS auto-detect based on current VRAM
                 gpu_memory_utilization=0.90,  # 90% safe on modern GPUs
                 yarn_config=yarn_config  # YaRN context extension (if enabled)
             )
 
-            # Start server with automatic context detection (only if max_len=None)
-            # If saved value exists: Direct start with known limit (no crash)
-            # If no saved value: Auto-detection cycle:
-            #   1. Try native context (40K)
-            #   2. If fail → extract hardware limit from error
-            #   3. Restart with hardware limit + save to settings
+            # Start server with VRAM-based context calculation
+            # Process:
+            #   1. Query free VRAM from nvidia-smi
+            #   2. Get model size from HF cache
+            #   3. Calculate: usable_vram = free_vram - model_size - safety_margin(512MB)
+            #   4. Convert to tokens: max_tokens = usable_vram / VRAM_CONTEXT_RATIO(0.097)
 
-            success, context_info = await self._vllm_manager.start_with_auto_detection(
-                model=self.selected_model,
+            success, context_info = await vllm_manager.start_with_auto_detection(
+                model=startup_model,
                 timeout=120,
                 feedback_callback=self.add_debug
             )
 
             if success and context_info:
-                # Check if values changed (i.e., new detection occurred)
-                values_changed = (
-                    self.vllm_native_context != context_info["native_context"] or
-                    self.vllm_max_tokens != context_info["hardware_limit"]
-                )
-
-                # Update state with detected values
+                # Update state with calculated values (runtime only, not persisted!)
                 self.vllm_native_context = context_info["native_context"]
                 self.vllm_max_tokens = context_info["hardware_limit"]
-
-                # Persist detected values to settings file (only if changed)
-                if values_changed:
-                    self._save_settings()
 
                 self.add_debug("📊 Context Info:")
                 self.add_debug(f"  • Native: {context_info['native_context']:,} tokens (config.json)")
                 self.add_debug(f"  • Hardware Limit: {context_info['hardware_limit']:,} tokens (VRAM)")
                 self.add_debug(f"  • Used: {context_info['used_context']:,} tokens")
-                if values_changed:
-                    self.add_debug("💾 Werte in Settings gespeichert (kein erneuter Crash-Detection-Zyklus beim nächsten Start)")
+
+                # Cache startup context in vLLM backend (for calculate_practical_context)
+                from .backends import BackendFactory
+                vllm_backend = BackendFactory.create("vllm", base_url=self.backend_url)
+
+                # Build debug messages for backend cache (matching the UI messages above)
+                debug_messages = [
+                    f"📊 Pre-calculated Context Limit: {context_info['hardware_limit']:,} tokens",
+                    f"   Native: {context_info['native_context']:,} tokens (config.json)",
+                    f"   Hardware Limit: {context_info['hardware_limit']:,} tokens (VRAM)",
+                    f"   Used: {context_info['used_context']:,} tokens"
+                ]
+
+                vllm_backend.set_startup_context(
+                    context=context_info["hardware_limit"],
+                    debug_messages=debug_messages
+                )
 
                 # Store in global state so it persists across page reloads
-                _global_backend_state["vllm_manager"] = self._vllm_manager
+                _global_backend_state["vllm_manager"] = vllm_manager
 
                 self.add_debug("✅ vLLM server ready on port 8001")
             else:
@@ -751,17 +836,16 @@ class AIState(rx.State):
 
         except Exception as e:
             self.add_debug(f"❌ Failed to start vLLM: {e}")
-            self._vllm_manager = None
             _global_backend_state["vllm_manager"] = None
 
     async def _stop_vllm_server(self):
         """Stop vLLM server process gracefully"""
         global _global_backend_state
 
-        if self._vllm_manager and self._vllm_manager.is_running():
+        vllm_manager = _global_backend_state.get("vllm_manager")
+        if vllm_manager and vllm_manager.is_running():
             self.add_debug("🛑 Stopping vLLM server...")
-            await self._vllm_manager.stop()
-            self._vllm_manager = None
+            await vllm_manager.stop()
             _global_backend_state["vllm_manager"] = None  # Clear from global state
             self.add_debug("✅ vLLM server stopped")
 
@@ -805,9 +889,7 @@ class AIState(rx.State):
                     self.add_debug("✅ vLLM server stopped")
 
                     # Clean up manager reference
-                    if self._vllm_manager:
-                        self._vllm_manager = None
-                        _global_backend_state["vllm_manager"] = None
+                    _global_backend_state["vllm_manager"] = None
                 else:
                     self.add_debug("ℹ️ vLLM server was not running")
 
@@ -938,6 +1020,15 @@ class AIState(rx.State):
                     elif item["type"] == "thinking_warning":
                         # Show thinking mode warning (model doesn't support reasoning)
                         self.thinking_mode_warning = item["model"]
+                    elif item["type"] == "error":
+                        # Handle error (e.g., context overflow, backend error)
+                        error_msg = item.get("message", "Unknown error")
+                        self.add_debug(f"❌ Error: {error_msg}")
+                        # Reset UI state
+                        self.is_generating = False
+                        self.clear_progress()
+                        self.current_user_message = ""
+                        self.current_ai_response = ""
 
                     yield  # Update UI after each item
 
@@ -1019,6 +1110,15 @@ class AIState(rx.State):
                     elif item["type"] == "thinking_warning":
                         # Show thinking mode warning (model doesn't support reasoning)
                         self.thinking_mode_warning = item["model"]
+                    elif item["type"] == "error":
+                        # Handle error (e.g., context overflow, backend error)
+                        error_msg = item.get("message", "Unknown error")
+                        self.add_debug(f"❌ Error: {error_msg}")
+                        # Reset UI state
+                        self.is_generating = False
+                        self.clear_progress()
+                        self.current_user_message = ""
+                        self.current_ai_response = ""
 
                     yield  # Update UI after each item
 
@@ -1225,9 +1325,13 @@ class AIState(rx.State):
                         base_url=self.backend_url
                     )
 
-                    # Context-Limit des aktuellen Models
+                    # Context-Limit des aktuellen Models (PRAKTISCH, VRAM-basiert!)
+                    # WICHTIG: Muss calculate_practical_context() nutzen, nicht get_model_context_limit()!
+                    # → get_model_context_limit() gibt natives Limit (z.B. 32K)
+                    # → calculate_practical_context() gibt VRAM-Limit (z.B. 17K)
+                    # → Prozentanzeige MUSS gegen VRAM-Limit rechnen, sonst zu niedrig!
                     try:
-                        context_limit, model_size = await temp_backend.get_model_context_limit(self.selected_model)
+                        context_limit, _ = await temp_backend.calculate_practical_context(self.selected_model)
                     except Exception:
                         context_limit = 8192  # Fallback
 
@@ -1236,14 +1340,12 @@ class AIState(rx.State):
                     yield
 
                     # Summarization check (yields events wenn nötig)
-                    compressed = False
                     async for event in summarize_history_if_needed(
                         history=self.chat_history,
                         llm_client=temp_backend,
                         model_name=self.automatik_model,  # Schnelles Model
                         context_limit=context_limit  # Uses only context_limit, not model_size
                     ):
-                        compressed = True
                         if event["type"] == "history_update":
                             self.chat_history = event["data"]
                             self.add_debug(f"✅ History komprimiert: {len(self.chat_history)} Messages")
@@ -1310,18 +1412,55 @@ class AIState(rx.State):
         self.add_debug("🗑️ Chat cleared")
 
     async def load_default_settings(self):
-        """Load default settings from config.py and trigger page reload"""
-        from .lib.settings import reset_to_defaults
+        """Load default settings from config.py and apply them to state"""
+        from .lib.settings import reset_to_defaults, load_settings
+        from .lib import TranslationManager
 
         self.add_debug("💾 Loading default settings from config.py...")
+        yield  # Update UI immediately
 
         if reset_to_defaults():
-            self.add_debug("✅ Default settings loaded successfully")
-            self.add_debug("🔄 Reloading page to apply settings...")
-            # Trigger page reload to reinitialize state with new settings
-            yield rx.redirect("/", external=False)
+            self.add_debug("✅ Default settings saved to file")
+            yield
+
+            # Reload settings from file (all values MUST be present after reset_to_defaults())
+            saved_settings = load_settings()
+            if saved_settings:
+                # Update state with loaded settings (only attributes that exist in state)
+                # No fallbacks needed - reset_to_defaults() ensures all values are present
+                self.backend_type = saved_settings["backend_type"]
+                self.research_mode = saved_settings["research_mode"]
+
+                # Update research_mode_display to match loaded research_mode
+                self.research_mode_display = TranslationManager.get_research_mode_display(
+                    self.research_mode, self.ui_language
+                )
+
+                self.temperature = saved_settings["temperature"]
+                self.temperature_mode = saved_settings["temperature_mode"]
+                self.enable_thinking = saved_settings["enable_thinking"]
+                self.enable_tts = saved_settings["enable_tts"]
+                self.enable_yarn = saved_settings["enable_yarn"]
+                self.yarn_factor = saved_settings["yarn_factor"]
+
+                # IMPORTANT: Set model names from defaults (prevents fallback to available_models[0])
+                # The "model" and "automatik_model" keys come from get_default_settings()
+                self.selected_model = saved_settings.get("model", self.selected_model)
+                self.automatik_model = saved_settings.get("automatik_model", self.automatik_model)
+
+                self.add_debug("🔄 Settings reloaded from file")
+                yield
+
+                # Reinitialize backend with new settings
+                await self.initialize_backend()
+                self.add_debug("✅ All settings applied successfully")
+                yield
+            else:
+                self.add_debug("⚠️ Failed to reload settings from file")
+                yield
         else:
             self.add_debug("❌ Failed to load default settings")
+            yield  # Update UI even on error
 
     def toggle_auto_refresh(self):
         """Toggle auto-scroll for all areas (Debug Console, Chat History, AI Response)"""
@@ -1553,6 +1692,7 @@ class AIState(rx.State):
         """Clear Vector DB by deleting all documents (keeps collection intact)"""
         try:
             self.add_debug("🗑️ Clearing Vector DB...")
+            yield  # Update UI immediately
 
             import chromadb
             client = chromadb.HttpClient(host='localhost', port=8000)
@@ -1566,24 +1706,36 @@ class AIState(rx.State):
             if all_ids:
                 count = len(all_ids)
                 self.add_debug(f"   📊 Deleting {count} entries...")
+                yield  # Update UI
 
                 # Delete all documents (keeps collection structure intact)
                 collection.delete(ids=all_ids)
 
                 self.add_debug(f"✅ Vector DB cleared successfully ({count} entries deleted)")
+                yield  # Update UI
             else:
                 self.add_debug("✅ Vector DB is already empty")
+                yield  # Update UI
 
         except Exception as e:
             self.add_debug(f"❌ Vector DB clear failed: {e}")
+            yield  # Update UI even on error
 
 
-    def set_selected_model(self, model: str):
-        """Set selected model"""
+    async def set_selected_model(self, model: str):
+        """Set selected model and restart backend if needed"""
+        old_model = self.selected_model
         self.selected_model = model
         # Clear thinking mode warning when model changes
         self.thinking_mode_warning = ""
-        self.add_debug(f"📝 Model changed to: {model}")
+        self.add_debug(f"📝 Model changed: {old_model} → {model}")
+
+        # vLLM/TabbyAPI: Auto-restart backend for model change
+        if self.backend_type in ["vllm", "tabbyapi"] and old_model != model:
+            self.add_debug("🔄 Backend-Neustart für Modell-Wechsel...")
+            await self.initialize_backend()
+            self.add_debug("✅ Neues Modell geladen")
+
         self._save_settings()
 
     def toggle_thinking_mode(self):
@@ -1692,21 +1844,28 @@ class AIState(rx.State):
         self.add_debug(f"🔍 Research mode: {self.research_mode}")
         self._save_settings()  # Persist research mode to settings.json
 
-    def set_automatik_model(self, model: str):
+    async def set_automatik_model(self, model: str):
         """Set automatik model for decision and query optimization"""
+        old_model = self.automatik_model
         self.automatik_model = model
-        self.add_debug(f"⚡ Automatik model: {model}")
+        self.add_debug(f"⚡ Automatik model changed: {old_model} → {model}")
         self._save_settings()
 
-        # Preload new model in background (via curl)
-        import subprocess
-        preload_cmd = f'curl -s http://localhost:11434/api/chat -d \'{{"model":"{model}","messages":[{{"role":"user","content":"hi"}}],"stream":false,"options":{{"num_predict":1}}}}\' > /dev/null 2>&1 &'
-        try:
-            subprocess.Popen(preload_cmd, shell=True)
-            log_message(f"🚀 Preloading new Automatik-LLM: {model}")
-            self.add_debug(f"🚀 Preloading {model}...")
-        except Exception as e:
-            log_message(f"⚠️ Preload failed: {e}")
+        # vLLM/TabbyAPI: Auto-restart backend for model change
+        if self.backend_type in ["vllm", "tabbyapi"] and old_model != model:
+            self.add_debug("🔄 Backend-Neustart für Automatik-Modell-Wechsel...")
+            await self.initialize_backend()
+            self.add_debug("✅ Neues Automatik-Modell geladen")
+        # Ollama: Preload new model in background (via curl)
+        elif self.backend_type == "ollama":
+            import subprocess
+            preload_cmd = f'curl -s http://localhost:11434/api/chat -d \'{{"model":"{model}","messages":[{{"role":"user","content":"hi"}}],"stream":false,"options":{{"num_predict":1}}}}\' > /dev/null 2>&1 &'
+            try:
+                subprocess.Popen(preload_cmd, shell=True)
+                log_message(f"🚀 Preloading new Automatik-LLM: {model}")
+                self.add_debug(f"🚀 Preloading {model}...")
+            except Exception as e:
+                log_message(f"⚠️ Preload failed: {e}")
 
         # Note: Context limit will be queried on first use (fast ~30ms) and cached by httpx
 
@@ -1719,6 +1878,9 @@ class AIState(rx.State):
         """Set UI language"""
         if lang in ["de", "en"]:
             self.ui_language = lang
+            # Update research_mode_display to match new language
+            from .lib import TranslationManager
+            self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode, lang)
             self.add_debug(f"🌐 UI Language changed to: {lang}")
         else:
             self.add_debug(f"❌ Invalid language: {lang}. Use 'de' or 'en'")
