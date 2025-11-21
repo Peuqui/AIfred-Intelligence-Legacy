@@ -54,36 +54,40 @@ DEFAULT_LANGUAGE = "auto"
 # DEFAULT SETTINGS
 # ============================================================
 DEFAULT_SETTINGS = {
-    "model": "qwen3:8b",
-    "automatik_model": "qwen2.5:3b",
+    # NOTE: Model names are defined in BACKEND_DEFAULT_MODELS below (backend-specific)
+    # They will be merged in settings.py get_default_settings()
+    "backend_type": "ollama",  # Default backend: "ollama", "vllm", "tabbyapi"
     "voice": "Deutsch (Katja)",
     "tts_speed": 1.25,
     "enable_tts": False,
     "tts_engine": "Edge TTS (Cloud, beste Qualität)",
     "whisper_model": "small (466MB, bessere Qualität, multilingual)",
-    "research_mode": "🤖 Automatik (variabel, KI entscheidet)",
+    "research_mode": "automatik",  # Internal value: "automatik", "quick", "deep", "none"
     "show_transcription": False,
     "enable_gpu": True,
     "temperature": 0.7,
-    "temperature_mode": "auto"  # "auto" (Intent-Detection) or "manual" (user slider)
+    "temperature_mode": "auto",  # "auto" (Intent-Detection) or "manual" (user slider)
+    "enable_thinking": True  # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
 }
 
 # ============================================================
 # BACKEND-SPECIFIC DEFAULT MODELS
 # ============================================================
-# Jedes Backend hat andere Modellnamen und nicht alle Modelle sind überall verfügbar
+# Für Performance-Vergleiche: Alle Backends nutzen die gleichen Modell-Größen
+# - Main LLM: Qwen3-30B-A3B-Instruct-2507 (~18GB, MoE mit 3B aktiv)
+# - Automatik: Qwen3-4B-Instruct-2507 (~2.6GB)
 BACKEND_DEFAULT_MODELS = {
     "ollama": {
-        "selected_model": "qwen3:8b",           # GGUF Q4/Q8, ~5.2GB
-        "automatik_model": "qwen2.5:3b",        # GGUF Q4/Q8, ~1.9GB
+        "selected_model": "qwen3:30b-a3b-instruct-2507-q4_K_M",           # GGUF Q4_K_M, ~17.3GB
+        "automatik_model": "qwen3:4b-instruct-2507-q4_K_M",               # GGUF Q4_K_M, ~2.6GB
     },
     "vllm": {
-        "selected_model": "Qwen/Qwen3-8B-AWQ",  # AWQ 4-bit, ~5GB (Main LLM)
-        "automatik_model": "Qwen/Qwen3-8B-AWQ", # Same as main (vLLM loads only ONE model at a time)
+        "selected_model": "cpatonn/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit", # AWQ 4-bit, ~18GB (CONFIRMED)
+        "automatik_model": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",     # AWQ 4-bit, ~2.8GB (CONFIRMED)
     },
     "tabbyapi": {
-        "selected_model": "turboderp/Qwen3-8B-4.0bpw-exl2",   # EXL2 4bpw
-        "automatik_model": "turboderp/Qwen3-8B-4.0bpw-exl2",  # Same as main (TabbyAPI loads only ONE model)
+        "selected_model": "turboderp/Qwen3-30B-A3B-exl3",                 # EXL3, ~18GB (CONFIRMED)
+        "automatik_model": "ArtusDev/Qwen_Qwen3-4B-Instruct-2507-EXL3",   # EXL3, ~2.8GB (CONFIRMED)
     },
 }
 
@@ -178,6 +182,16 @@ VRAM_SAFETY_MARGIN = 512  # MB
 # - Qwen3-30B Q4_K_M: ~0.097 MB/token (measured: 16K-4K = 1163MB / 12K tokens)
 # Using exact measured value to maximize context window
 VRAM_CONTEXT_RATIO = 0.097  # ~97KB per token (optimized for 30B MoE models)
+
+# vLLM Context Calibration Safety Buffer (Tokens)
+# Fixed token buffer applied when parsing vLLM error messages
+# Compensates for constant VRAM overhead (~100 tokens) between startup attempts:
+# - CUDA context switches (~50MB)
+# - GPU memory fragmentation (~30MB)
+# - PyTorch cache residue (~20MB)
+# - vLLM's VRAM estimates have ~2-3% variance between startup attempts
+# Using percentage-based buffer to scale with context size (2% of vLLM's reported max)
+VLLM_CONTEXT_SAFETY_PERCENT = 0.02  # 2% safety buffer (iteratively applied to each vLLM-reported max)
 
 # ============================================================
 # VECTOR CACHE CONFIGURATION (ChromaDB Similarity Thresholds)
