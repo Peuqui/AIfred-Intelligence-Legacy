@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 class vLLMBackend(LLMBackend):
     """vLLM backend implementation (OpenAI-compatible)"""
 
+    # Class-level cache for startup context (shared across ALL instances)
+    # This ensures the cached value persists even when backend instances are recreated
+    _global_startup_context: Optional[int] = None
+    _global_startup_context_debug: List[str] = []
+
     def __init__(self, base_url: str = "http://localhost:8000/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
         self.client = AsyncOpenAI(
@@ -336,6 +341,81 @@ class vLLMBackend(LLMBackend):
             # Other errors are unexpected
             logger.error(f"❌ Failed to query vLLM for model '{model}': {e}")
             raise RuntimeError(f"Failed to query vLLM for model '{model}': {e}") from e
+
+    async def is_model_loaded(self, model: str) -> bool:
+        """
+        Check if model is loaded in vLLM.
+
+        For vLLM, the model is ALWAYS loaded since the server is started
+        with a specific model and cannot switch models without restart.
+
+        Args:
+            model: Model name (ignored, always returns True)
+
+        Returns:
+            bool: Always True for vLLM
+        """
+        return True  # vLLM server always has its model loaded
+
+    def get_capabilities(self) -> Dict[str, bool]:
+        """
+        Return vLLM backend capabilities
+
+        vLLM characteristics:
+        - Fixed model at server startup (no runtime loading/unloading)
+        - Fixed context window set at startup (cannot be changed without restart)
+        - Supports streaming responses
+        - Model is preloaded by server startup
+        """
+        return {
+            "dynamic_models": False,     # Cannot load/unload models (fixed at startup)
+            "dynamic_context": False,    # Context is FIXED at startup, cannot recalculate
+            "supports_streaming": True,  # Supports streaming responses
+            "requires_preload": False    # Model always loaded at server startup
+        }
+
+    async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]:
+        """
+        Return cached startup context for vLLM (FIXED, cannot recalculate)
+
+        vLLM's context is set at server startup via --max-model-len and cannot
+        be changed without restarting the server. This method returns the cached
+        value that was set when the vLLM server started.
+
+        Args:
+            model: Model name (ignored, vLLM only serves one model)
+
+        Returns:
+            tuple[int, list[str]]: (context_limit, debug_messages)
+
+        Raises:
+            RuntimeError: If startup context not set (server not started properly)
+        """
+        if vLLMBackend._global_startup_context is None:
+            # This should never happen if vLLM Manager set the value correctly
+            raise RuntimeError(
+                "vLLM startup context not set. "
+                "This indicates the vLLM server was not started via vLLM Manager."
+            )
+
+        # Return cached startup value (FIXED, cannot recalculate)
+        return vLLMBackend._global_startup_context, vLLMBackend._global_startup_context_debug
+
+    def set_startup_context(self, context: int, debug_messages: List[str]) -> None:
+        """
+        Set the startup context value (called by vLLM Manager after server start)
+
+        This method is called by vLLM Manager after successfully starting the
+        vLLM server to cache the context limit that was calculated and used
+        for the --max-model-len parameter.
+
+        Args:
+            context: Context limit in tokens (from vLLM Manager)
+            debug_messages: Debug messages from context calculation
+        """
+        vLLMBackend._global_startup_context = context
+        vLLMBackend._global_startup_context_debug = debug_messages
+        logger.info(f"✅ vLLM startup context cached: {context:,} tokens")
 
     async def close(self):
         """Close HTTP client"""

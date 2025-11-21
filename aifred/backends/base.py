@@ -156,6 +156,27 @@ class LLMBackend(ABC):
         pass
 
     @abstractmethod
+    async def is_model_loaded(self, model: str) -> bool:
+        """
+        Check if a model is currently loaded in VRAM.
+
+        Used for VRAM-based context calculation to determine if model size
+        should be subtracted from free VRAM or not.
+
+        Implementation is backend-specific:
+        - Ollama: Query /api/ps endpoint for loaded models
+        - vLLM: Model is always loaded (server started with specific model)
+        - TabbyAPI: Model is always loaded (server started with specific model)
+
+        Args:
+            model: Model name/ID
+
+        Returns:
+            bool: True if model is currently loaded in VRAM, False otherwise
+        """
+        pass
+
+    @abstractmethod
     async def preload_model(self, model: str) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal request.
@@ -169,6 +190,61 @@ class LLMBackend(ABC):
 
         Returns:
             Tuple of (success: bool, load_time: float in seconds)
+        """
+        pass
+
+    @abstractmethod
+    def get_capabilities(self) -> Dict[str, bool]:
+        """
+        Return backend capabilities and behavior flags.
+
+        This method defines backend-specific behavior to eliminate
+        scattered 'if backend_type ==' conditionals throughout the codebase.
+
+        Returns:
+            Dict with capability flags:
+                - "dynamic_models": Can load/unload models at runtime
+                - "dynamic_context": Context can be recalculated at runtime
+                - "supports_streaming": Supports streaming responses
+                - "requires_preload": Needs model preloading before use
+
+        Examples:
+            Ollama:   {"dynamic_models": True, "dynamic_context": True, ...}
+            vLLM:     {"dynamic_models": False, "dynamic_context": False, ...}
+            TabbyAPI: {"dynamic_models": False, "dynamic_context": False, ...}
+        """
+        pass
+
+    @abstractmethod
+    async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]:
+        """
+        Calculate maximum practical context window for a model.
+
+        This method MUST be backend-specific because different backends handle
+        context calculation differently:
+
+        - **Ollama**: Dynamic calculation based on current VRAM availability
+                     (can change based on loaded models)
+        - **vLLM**: FIXED at server startup, cannot be recalculated
+                    (returns cached value from startup)
+        - **TabbyAPI**: FIXED at server startup, cannot be recalculated
+                       (returns cached value from startup)
+
+        Args:
+            model: Model name/ID
+
+        Returns:
+            tuple[int, list[str]]: (context_limit, debug_messages)
+                - context_limit: Maximum practical context in tokens
+                - debug_messages: List of debug messages for UI console (via yield)
+
+        Raises:
+            RuntimeError: If context calculation fails
+
+        Examples:
+            Ollama:   Queries current VRAM, calculates fresh value
+            vLLM:     Returns self._startup_context (set in start_with_model)
+            TabbyAPI: Returns self._startup_context (set at server start)
         """
         pass
 
