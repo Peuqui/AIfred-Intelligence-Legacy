@@ -32,6 +32,9 @@ class TabbyAPIBackend(LLMBackend):
             api_key=api_key,  # TabbyAPI doesn't need real API key by default
             timeout=120.0  # TabbyAPI may need more time for model loading (ExLlama quantization)
         )
+        # Cache for startup context (set at server start)
+        self._startup_context: Optional[int] = None
+        self._startup_context_debug: List[str] = []
 
     async def list_models(self) -> List[str]:
         """Get list of available models from TabbyAPI"""
@@ -325,6 +328,80 @@ class TabbyAPIBackend(LLMBackend):
 
         except Exception as e:
             raise RuntimeError(f"Failed to query TabbyAPI for model '{model}': {e}") from e
+
+    async def is_model_loaded(self, model: str) -> bool:
+        """
+        Check if model is loaded in TabbyAPI.
+
+        For TabbyAPI, the model is ALWAYS loaded since the server is started
+        with a specific model and cannot switch models without restart.
+
+        Args:
+            model: Model name (ignored, always returns True)
+
+        Returns:
+            bool: Always True for TabbyAPI
+        """
+        return True  # TabbyAPI server always has its model loaded
+
+    def get_capabilities(self) -> Dict[str, bool]:
+        """
+        Return TabbyAPI backend capabilities
+
+        TabbyAPI characteristics:
+        - Fixed model at server startup (no runtime loading/unloading)
+        - Fixed context window set at startup (cannot be changed without restart)
+        - Supports streaming responses
+        - Model is preloaded by server startup
+        """
+        return {
+            "dynamic_models": False,     # Cannot load/unload models (fixed at startup)
+            "dynamic_context": False,    # Context is FIXED at startup, cannot recalculate
+            "supports_streaming": True,  # Supports streaming responses
+            "requires_preload": False    # Model always loaded at server startup
+        }
+
+    async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]:
+        """
+        Return cached startup context for TabbyAPI (FIXED, cannot recalculate)
+
+        TabbyAPI's context is set at server startup and cannot be changed without
+        restarting the server. This method returns the cached value that was set
+        when the TabbyAPI server started.
+
+        Args:
+            model: Model name (ignored, TabbyAPI only serves one model)
+
+        Returns:
+            tuple[int, list[str]]: (context_limit, debug_messages)
+
+        Raises:
+            RuntimeError: If startup context not set (server not started properly)
+        """
+        if self._startup_context is None:
+            # For TabbyAPI, we can fall back to querying the API
+            # (unlike vLLM which requires Manager setup)
+            model_limit, _ = await self.get_model_context_limit(model)
+            logger.info(f"📊 TabbyAPI context from API: {model_limit:,} tokens")
+            return model_limit, [f"📊 TabbyAPI context: {model_limit:,} tokens (from API)"]
+
+        # Return cached startup value (FIXED, cannot recalculate)
+        return self._startup_context, self._startup_context_debug
+
+    def set_startup_context(self, context: int, debug_messages: List[str]) -> None:
+        """
+        Set the startup context value (called after TabbyAPI server start)
+
+        This method can be called after starting TabbyAPI to cache the context
+        limit for faster subsequent queries.
+
+        Args:
+            context: Context limit in tokens
+            debug_messages: Debug messages from context calculation
+        """
+        self._startup_context = context
+        self._startup_context_debug = debug_messages
+        logger.info(f"✅ TabbyAPI startup context cached: {context:,} tokens")
 
     async def close(self):
         """Close HTTP client"""
