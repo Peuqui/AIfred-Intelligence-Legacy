@@ -578,6 +578,119 @@ class OllamaBackend(LLMBackend):
         except httpx.HTTPError as e:
             raise RuntimeError(f"Failed to query Ollama for model '{model}': {e}") from e
 
+    async def is_model_loaded(self, model: str) -> bool:
+        """
+        Check if model is currently loaded in Ollama's VRAM.
+
+        Queries /api/ps endpoint to get list of loaded models.
+
+        Args:
+            model: Model name (e.g., "qwen3:8b")
+
+        Returns:
+            bool: True if model is loaded, False otherwise
+        """
+        try:
+            response = await self.client.get(f"{self.base_url}/api/ps")
+            response.raise_for_status()
+            data = response.json()
+
+            # Check if model exists in 'models' array
+            loaded_models = data.get('models', [])
+            for loaded_model in loaded_models:
+                if loaded_model.get('name') == model:
+                    return True
+
+            return False
+
+        except httpx.HTTPError as e:
+            logger.warning(f"Failed to query Ollama /api/ps: {e}")
+            return False  # Assume not loaded on error
+
+    async def get_loaded_model_context(self, model: str) -> Optional[int]:
+        """
+        Get the context length that a loaded model is currently using.
+
+        This queries /api/ps to get the ACTUAL context_length value that Ollama
+        is using for this model (which may be lower than the architectural maximum
+        due to VRAM constraints or manual num_ctx settings).
+
+        Args:
+            model: Model name (e.g., "qwen3:8b")
+
+        Returns:
+            int: Context length the model is loaded with, or None if not loaded
+        """
+        try:
+            response = await self.client.get(f"{self.base_url}/api/ps")
+            response.raise_for_status()
+            data = response.json()
+
+            # Find model in 'models' array
+            loaded_models = data.get('models', [])
+            for loaded_model in loaded_models:
+                if loaded_model.get('name') == model:
+                    # Return the context_length Ollama is using for this model
+                    return loaded_model.get('context_length')
+
+            return None  # Model not loaded
+
+        except httpx.HTTPError as e:
+            logger.warning(f"Failed to query Ollama /api/ps: {e}")
+            return None
+
+    def get_capabilities(self) -> Dict[str, bool]:
+        """
+        Return Ollama backend capabilities
+
+        Ollama supports:
+        - Dynamic model loading/unloading (via /api/ps)
+        - Dynamic context calculation (based on current VRAM)
+        - Streaming responses
+        - Model preloading
+        """
+        return {
+            "dynamic_models": True,      # Can load/unload models at runtime
+            "dynamic_context": True,     # Context can be recalculated based on VRAM
+            "supports_streaming": True,  # Supports streaming responses
+            "requires_preload": False    # Optional preloading (for performance only)
+        }
+
+    async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]:
+        """
+        Calculate practical context for Ollama (dynamic VRAM-based calculation)
+
+        Ollama models can be loaded/unloaded dynamically, so context is calculated
+        fresh each time based on current VRAM availability.
+
+        Args:
+            model: Model name
+
+        Returns:
+            tuple[int, list[str]]: (context_limit, debug_messages)
+        """
+        from ..lib.gpu_utils import calculate_vram_based_context, get_model_size_from_cache
+
+        # Get model metadata
+        model_limit, model_size_bytes = await self.get_model_context_limit(model)
+
+        # If model size not available from API, try cache
+        if model_size_bytes == 0:
+            model_size_bytes = get_model_size_from_cache(model)
+
+        # Check if model is loaded (affects VRAM calculation)
+        model_is_loaded = await self.is_model_loaded(model)
+
+        # Calculate practical context based on current VRAM
+        num_ctx, debug_msgs = calculate_vram_based_context(
+            model_name=model,
+            model_size_bytes=model_size_bytes,
+            model_context_limit=model_limit,
+            model_is_loaded=model_is_loaded
+        )
+
+        return num_ctx, debug_msgs
+
     async def close(self):
         """Close HTTP client"""
         await self.client.aclose()

@@ -229,7 +229,10 @@ class AIState(rx.State):
 
     # vLLM YaRN Settings (RoPE Scaling for Context Extension)
     enable_yarn: bool = False  # Enable YaRN context extension
-    yarn_factor: float = 1.0  # Scaling factor (1.0 = disabled, 2.0 = 2x context, 4.0 = 4x context)
+    yarn_factor: float = 1.0  # Currently active YaRN factor (applied to vLLM)
+    yarn_factor_input: str = "1.0"  # Temporary input field value (user typing, not applied yet)
+    yarn_max_factor: float = 0.0  # Maximum YaRN factor (0 = unknown, >0 = tested/known)
+    yarn_max_tested: bool = False  # True if max was determined by actual VRAM test
 
     # vLLM Context Info (Runtime Only - NEVER saved to settings.json!)
     # Calculated dynamically on every vLLM startup based on available VRAM & model size
@@ -247,6 +250,7 @@ class AIState(rx.State):
     backend_info: str = ""
     backend_switching: bool = False  # True während Backend-Wechsel (UI wird disabled)
     backend_initializing: bool = True  # True während erster Initialisierung (zeigt Loading Spinner)
+    vllm_restarting: bool = False  # True während vLLM-Neustart (Modellwechsel/YaRN)
 
     # Debug Console
     debug_messages: List[str] = []
@@ -347,9 +351,11 @@ class AIState(rx.State):
                 self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)
                 self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
 
-                # Load vLLM YaRN Settings (only enable/factor, NOT context limits!)
+                # Load vLLM YaRN Settings (only enable/disable, factor always starts at 1.0)
                 self.enable_yarn = saved_settings.get("enable_yarn", self.enable_yarn)
-                self.yarn_factor = saved_settings.get("yarn_factor", self.yarn_factor)
+                # yarn_factor is NOT loaded - always starts at 1.0, system calibrates maximum
+                self.yarn_factor = 1.0
+                self.yarn_factor_input = "1.0"
                 # NOTE: vllm_max_tokens and vllm_native_context are NEVER loaded from settings!
                 # They are calculated dynamically on every vLLM startup based on VRAM availability
 
@@ -450,6 +456,14 @@ class AIState(rx.State):
             self.available_models = _global_backend_state["available_models"]
             self.selected_model = _global_backend_state["selected_model"]
             self.automatik_model = _global_backend_state["automatik_model"]
+
+            # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
+            if self.backend_type == "vllm" and self.automatik_model != self.selected_model:
+                old_automatik = self.automatik_model
+                self.automatik_model = self.selected_model
+                self.add_debug(f"🔄 Automatik-LLM angepasst: {old_automatik} → {self.selected_model} (vLLM: nur 1 Modell möglich)")
+                _global_backend_state["automatik_model"] = self.selected_model  # Update global state
+                self._save_settings()  # Persist the correction
 
             # Check vLLM manager status if exists
             if self.backend_type == "vllm":
@@ -557,6 +571,13 @@ class AIState(rx.State):
                 self.add_debug(f"❌ Model loading failed: {e}")
                 log_message(f"❌ Model loading failed: {e}")
 
+            # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
+            if self.backend_type == "vllm" and self.automatik_model != self.selected_model:
+                old_automatik = self.automatik_model
+                self.automatik_model = self.selected_model
+                self.add_debug(f"🔄 Automatik-LLM angepasst: {old_automatik} → {self.selected_model} (vLLM: nur 1 Modell möglich)")
+                self._save_settings()  # Persist the correction
+
             # Start vLLM process if backend is vLLM
             if self.backend_type == "vllm":
                 await self._start_vllm_server()
@@ -622,9 +643,9 @@ class AIState(rx.State):
             "temperature_mode": self.temperature_mode,
             "enable_thinking": self.enable_thinking,
             "backend_models": backend_models,  # Merged: preserves all backends
-            # vLLM YaRN Settings (only enable/factor, NOT context limits!)
+            # vLLM YaRN Settings (only enable/disable, factor is calculated dynamically)
             "enable_yarn": self.enable_yarn,
-            "yarn_factor": self.yarn_factor,
+            # NOTE: yarn_factor is NOT saved - always starts at 1.0, system calibrates maximum
             # NOTE: vllm_max_tokens and vllm_native_context are NEVER saved!
             # They are calculated dynamically on every vLLM startup based on VRAM
         }
@@ -805,6 +826,31 @@ class AIState(rx.State):
                 self.vllm_native_context = context_info["native_context"]
                 self.vllm_max_tokens = context_info["hardware_limit"]
 
+                # Check if YaRN factor was reduced due to VRAM test (crash + auto-correction)
+                native = context_info['native_context']
+                hw_limit = context_info['hardware_limit']
+
+                if "reduced_yarn_factor" in context_info:
+                    # Maximum was determined by actual VRAM test (crash + parse)
+                    reduced_factor = context_info["reduced_yarn_factor"]
+                    self.yarn_factor = reduced_factor
+                    self.yarn_factor_input = f"{reduced_factor:.2f}"
+                    self._save_settings()
+
+                    # Calculate and store the tested maximum
+                    if native > 0:
+                        self.yarn_max_factor = reduced_factor
+                        self.yarn_max_tested = True
+                        self.add_debug(f"✅ YaRN factor automatically reduced to {reduced_factor:.2f}x (VRAM limit)")
+                        self.add_debug(f"📏 Maximum YaRN factor: ~{self.yarn_max_factor:.1f}x (ermittelt durch Test)")
+                else:
+                    # Successful start - we don't know the maximum yet
+                    self.yarn_max_factor = 0.0  # Unknown
+                    self.yarn_max_tested = False
+
+                    # Sync input field with active factor after successful start
+                    self.yarn_factor_input = f"{self.yarn_factor:.2f}"
+
                 self.add_debug("📊 Context Info:")
                 self.add_debug(f"  • Native: {context_info['native_context']:,} tokens (config.json)")
                 self.add_debug(f"  • Hardware Limit: {context_info['hardware_limit']:,} tokens (VRAM)")
@@ -848,6 +894,36 @@ class AIState(rx.State):
             await vllm_manager.stop()
             _global_backend_state["vllm_manager"] = None  # Clear from global state
             self.add_debug("✅ vLLM server stopped")
+
+    async def _restart_vllm_with_new_config(self):
+        """
+        Force restart vLLM server with new configuration (model or YaRN changes)
+
+        This explicitly stops the server, clears global state, and starts fresh.
+        Used by set_selected_model() and apply_yarn_factor() to ensure actual restart.
+
+        Note: This is called from async event handlers (apply_yarn_factor, set_selected_model)
+        but cannot yield since it's a helper function. The caller should yield after calling.
+        """
+        global _global_backend_state
+
+        try:
+            # Step 1: Stop existing vLLM server
+            await self._stop_vllm_server()
+
+            # Step 2: Clear global state to force re-initialization
+            _global_backend_state["vllm_manager"] = None
+
+            # Step 3: Start vLLM with new configuration
+            await self._start_vllm_server()
+
+            # Step 4: Update global state with new configuration
+            _global_backend_state["selected_model"] = self.selected_model
+            _global_backend_state["automatik_model"] = self.automatik_model
+
+        except Exception as e:
+            self.add_debug(f"❌ vLLM restart failed: {e}")
+            raise
 
     async def _cleanup_old_backend(self, old_backend: str):
         """
@@ -1325,14 +1401,46 @@ class AIState(rx.State):
                         base_url=self.backend_url
                     )
 
-                    # Context-Limit des aktuellen Models (PRAKTISCH, VRAM-basiert!)
-                    # WICHTIG: Muss calculate_practical_context() nutzen, nicht get_model_context_limit()!
-                    # → get_model_context_limit() gibt natives Limit (z.B. 32K)
-                    # → calculate_practical_context() gibt VRAM-Limit (z.B. 17K)
-                    # → Prozentanzeige MUSS gegen VRAM-Limit rechnen, sonst zu niedrig!
+                    # Context-Limit für History-Kompression: EXAKT DER GLEICHE WERT WIE BEI INFERENZ!
+                    # → Ollama: Frage /api/ps nach dem aktuell geladenen context_length
+                    # → vLLM/TabbyAPI: Verwende calculate_dynamic_num_ctx()
                     try:
-                        context_limit, _ = await temp_backend.calculate_practical_context(self.selected_model)
-                    except Exception:
+                        if self.backend_type == "ollama":
+                            # Ollama: Prüfe ob Modell geladen ist und hole dessen context_length
+                            loaded_ctx = await temp_backend.get_loaded_model_context(self.selected_model)
+                            if loaded_ctx:
+                                # Modell ist geladen → Nutze den Wert, mit dem es geladen ist
+                                context_limit = loaded_ctx
+                            else:
+                                # Modell nicht geladen → Berechne wie bei Inferenz
+                                from aifred.lib.context_manager import calculate_dynamic_num_ctx
+                                if self.num_ctx_mode == "manual":
+                                    context_limit = self.num_ctx_manual
+                                else:
+                                    enable_vram_limit = (self.num_ctx_mode == "auto_vram")
+                                    context_limit, _ = await calculate_dynamic_num_ctx(
+                                        temp_backend,
+                                        self.selected_model,
+                                        [],  # dummy messages
+                                        None,
+                                        enable_vram_limit=enable_vram_limit
+                                    )
+                        else:
+                            # vLLM/TabbyAPI: Berechne wie bei Inferenz
+                            from aifred.lib.context_manager import calculate_dynamic_num_ctx
+                            if self.num_ctx_mode == "manual":
+                                context_limit = self.num_ctx_manual
+                            else:
+                                enable_vram_limit = (self.num_ctx_mode == "auto_vram")
+                                context_limit, _ = await calculate_dynamic_num_ctx(
+                                    temp_backend,
+                                    self.selected_model,
+                                    [],  # dummy messages
+                                    None,
+                                    enable_vram_limit=enable_vram_limit
+                                )
+                    except Exception as e:
+                        self.add_debug(f"⚠️ Context-Limit Berechnung fehlgeschlagen: {e}")
                         context_limit = 8192  # Fallback
 
                     # Setze Kompression-Flag (disabled Input-Felder)
@@ -1730,11 +1838,39 @@ class AIState(rx.State):
         self.thinking_mode_warning = ""
         self.add_debug(f"📝 Model changed: {old_model} → {model}")
 
-        # vLLM/TabbyAPI: Auto-restart backend for model change
+        # vLLM/TabbyAPI: Force restart backend for model change
         if self.backend_type in ["vllm", "tabbyapi"] and old_model != model:
+            # vLLM can only load ONE model - set Automatik-LLM to same as Main-LLM
+            if self.backend_type == "vllm" and self.automatik_model != model:
+                old_automatik = self.automatik_model
+                self.automatik_model = model
+                self.add_debug(f"🔄 Automatik-LLM angepasst: {old_automatik} → {model} (vLLM: nur 1 Modell möglich)")
+
+            # Reset YaRN to 1.0 on model change (new model needs recalibration)
+            old_yarn_factor = self.yarn_factor
+            if old_yarn_factor != 1.0:
+                self.yarn_factor = 1.0
+                self.yarn_factor_input = "1.0"
+                self.yarn_max_factor = 0.0  # Unknown for new model
+                self.yarn_max_tested = False
+                self.add_debug(f"🔄 YaRN factor reset: {old_yarn_factor:.1f}x → 1.0x (new model needs recalibration)")
+
             self.add_debug("🔄 Backend-Neustart für Modell-Wechsel...")
-            await self.initialize_backend()
-            self.add_debug("✅ Neues Modell geladen")
+
+            # Show loading spinner
+            self.vllm_restarting = True
+            yield  # Update UI to show spinner
+
+            try:
+                if self.backend_type == "vllm":
+                    await self._restart_vllm_with_new_config()
+                else:  # tabbyapi
+                    await self.initialize_backend()  # TabbyAPI might not need full restart
+                self.add_debug(f"✅ Neues Modell geladen: {model}")
+            finally:
+                # Hide loading spinner
+                self.vllm_restarting = False
+                yield  # Update UI to hide spinner
 
         self._save_settings()
 
@@ -1752,27 +1888,73 @@ class AIState(rx.State):
         status = "aktiviert" if self.enable_yarn else "deaktiviert"
         self.add_debug(f"📏 YaRN Context Extension {status} (Faktor: {self.yarn_factor}x)")
         if self.enable_yarn:
-            self.add_debug("⚠️ Backend-Neustart erforderlich für YaRN-Aktivierung!")
+            self.add_debug("⚠️ Klicke 'Apply YaRN' um Backend mit neuem Faktor zu starten!")
         self._save_settings()
 
-    def set_yarn_factor(self, factor: str):
-        """Set YaRN scaling factor"""
+    def set_yarn_factor_input(self, factor: str):
+        """Update YaRN factor input field (temporary, not applied yet)"""
+        self.yarn_factor_input = factor
+        # Calculate estimated context for preview
         try:
-            factor_float = float(factor)
-            if 1.0 <= factor_float <= 8.0:
-                self.yarn_factor = factor_float
-                # Use actual vLLM max_model_len (26608), not native model context (40960)
+            # Normalize comma to point for German locale
+            factor_normalized = factor.replace(',', '.')
+            factor_float = float(factor_normalized)
+            if 1.0 <= factor_float <= 8.0 and self.vllm_max_tokens > 0:
                 estimated_context = int(self.vllm_max_tokens * factor_float)
                 self.add_debug(f"📏 YaRN Faktor: {factor_float}x (~{estimated_context} tokens)")
-
-                # Warn if factor is high (potential VRAM overflow)
-                if factor_float > 2.0:
-                    self.add_debug(f"⚠️ Hoher YaRN-Faktor ({factor_float}x) kann VRAM überschreiten → möglicher Crash!")
-                    self.add_debug("💡 Tipp: Bei VRAM-Problemen Faktor reduzieren oder mehr GPU-RAM nutzen")
-
-                self._save_settings()
         except ValueError:
-            self.add_debug(f"❌ Ungültiger YaRN-Faktor: {factor}")
+            pass  # Ignore invalid input during typing
+
+    async def apply_yarn_factor(self):
+        """Apply YaRN factor and restart backend"""
+        try:
+            # Normalize comma to point for German locale
+            factor_normalized = self.yarn_factor_input.replace(',', '.')
+            factor_float = float(factor_normalized)
+            if not (1.0 <= factor_float <= 8.0):
+                self.add_debug(f"❌ YaRN-Faktor muss zwischen 1.0 und 8.0 liegen (eingegeben: {factor_float})")
+                return
+
+            old_factor = self.yarn_factor
+            self.yarn_factor = factor_float
+            self._save_settings()
+
+            estimated_context = int(self.vllm_max_tokens * factor_float)
+            self.add_debug(f"✅ YaRN-Faktor gesetzt: {old_factor}x → {factor_float}x (~{estimated_context} tokens)")
+
+            # Warn if factor is high (potential VRAM overflow)
+            if factor_float > 2.0:
+                self.add_debug(f"⚠️ Hoher YaRN-Faktor ({factor_float}x) kann VRAM überschreiten → möglicher Crash!")
+                self.add_debug("💡 Tipp: Bei VRAM-Problemen Faktor reduzieren oder mehr GPU-RAM nutzen")
+
+            # Force restart backend for YaRN change (vLLM/TabbyAPI)
+            if self.backend_type in ["vllm", "tabbyapi"]:
+                self.add_debug("🔄 Backend-Neustart für YaRN-Änderung...")
+
+                # Show loading spinner
+                self.vllm_restarting = True
+                yield  # Update UI to show spinner
+
+                try:
+                    if self.backend_type == "vllm":
+                        await self._restart_vllm_with_new_config()
+                    else:  # tabbyapi
+                        await self.initialize_backend()  # TabbyAPI might not need full restart
+
+                    # Show actual factor after restart (might have been reduced by auto-calibration)
+                    actual_factor = self.yarn_factor
+                    if actual_factor != factor_float:
+                        self.add_debug(f"✅ Backend neu gestartet (YaRN: {factor_float}x → {actual_factor}x nach Auto-Kalibrierung)")
+                    else:
+                        self.add_debug(f"✅ Backend neu gestartet mit YaRN {actual_factor}x")
+
+                finally:
+                    # Hide loading spinner
+                    self.vllm_restarting = False
+                    yield  # Update UI to hide spinner
+
+        except ValueError:
+            self.add_debug(f"❌ Ungültiger YaRN-Faktor: {self.yarn_factor_input}")
 
     def set_temperature(self, temp: list[float]):
         """Set temperature (from slider which returns list[float])"""
