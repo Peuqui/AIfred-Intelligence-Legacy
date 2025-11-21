@@ -60,7 +60,7 @@ def t(key: str) -> rx.Var:
         "system_control": "🔄 System-Steuerung",
         "restart_ollama": "🔄 Ollama Neustart",
         "restart_vllm": "🔄 vLLM Neustart",
-        "restart_aifred": "🔄 AIfred neu starten",
+        "restart_aifred": "🔄 AIfred Neustart",
         "ollama_restart_info": "ℹ️ Neustart: Stoppt laufende Generierungen, lädt Models neu",
         "vllm_restart_info": "ℹ️ Neustart: Stoppt vLLM Server, startet neu mit gewähltem Modell",
         "backend_restart_info": "ℹ️ Neustart: Startet Backend neu",
@@ -252,6 +252,8 @@ def text_input_section() -> rx.Component:
                         ),
                         font_weight="bold",
                         font_size="11px",
+                        width="70px",  # Feste Breite verhindert Springen
+                        text_align="center",
                     ),
                     rx.switch(
                         checked=AIState.temperature_mode == "manual",
@@ -318,6 +320,15 @@ def text_input_section() -> rx.Component:
                 style={
                     "min_width": "140px",  # Schmaler als Text senden
                     "background": "rgba(100, 10, 0, 0.4)",  # Dezenter transparenter roter Hintergrund
+                    "&:hover:not([disabled])": {
+                        "background": "rgba(150, 15, 0, 0.6) !important",
+                        "border_color": "#ff6600 !important",
+                        "transform": "scale(1.02)",
+                    },
+                    "&:active:not([disabled])": {
+                        "background": "rgba(80, 5, 0, 0.7) !important",
+                        "transform": "scale(0.98)",
+                    },
                 },
             ),
             spacing="2",
@@ -985,55 +996,31 @@ def right_column() -> rx.Component:
 def debug_console() -> rx.Component:
     """Debug console with logs (25 lines like Gradio) - Matrix Terminal Style"""
     
-    debug_content = rx.cond(
-        AIState.auto_refresh_enabled,
-        # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
-        rx.auto_scroll(
-            rx.foreach(
-                AIState.debug_messages,
-                lambda msg: rx.text(
-                    msg,
-                    font_family="monospace",
-                    font_size="11px",
-                    color=COLORS["debug_text"],  # Matrix Grün
-                    white_space="pre",
-                ),
+    # JavaScript-based autoscroll (custom.js) instead of rx.auto_scroll()
+    # rx.auto_scroll() breaks during fast State updates (Intent Detection, LLM generation)
+    # Using single rx.box ensures scroll position is preserved when toggle is disabled
+    debug_content = rx.box(
+        rx.foreach(
+            AIState.debug_messages,
+            lambda msg: rx.text(
+                msg,
+                font_family="monospace",
+                font_size="11px",
+                color=COLORS["debug_text"],  # Matrix Grün
+                white_space="pre",
             ),
-            id="debug-console-box",
-            width="100%",
-            height="500px",
-            padding="3",
-            background_color=COLORS["debug_bg"],
-            border_radius="8px",
-            border=f"2px solid {COLORS['debug_border']}",
-            style={
-                "scroll-behavior": "smooth",
-            },
         ),
-        # Auto-Scroll disabled: normale rx.box (kein Scroll)
-        rx.box(
-            rx.foreach(
-                AIState.debug_messages,
-                lambda msg: rx.text(
-                    msg,
-                    font_family="monospace",
-                    font_size="11px",
-                    color=COLORS["debug_text"],  # Matrix Grün
-                    white_space="pre",
-                ),
-            ),
-            id="debug-console-box",
-            width="100%",
-            height="500px",
-            overflow_y="auto",
-            padding="3",
-            background_color=COLORS["debug_bg"],
-            border_radius="8px",
-            border=f"2px solid {COLORS['debug_border']}",
-            style={
-                "scroll-behavior": "smooth",
-            },
-        ),
+        id="debug-console-box",
+        width="100%",
+        height="500px",
+        overflow_y="auto",
+        padding="3",
+        background_color=COLORS["debug_bg"],
+        border_radius="8px",
+        border=f"2px solid {COLORS['debug_border']}",
+        style={
+            "scroll-behavior": "smooth",
+        },
     )
     
     return rx.accordion.root(
@@ -1242,14 +1229,36 @@ def settings_accordion() -> rx.Component:
                 ),
 
                 rx.hstack(
-                    rx.text(t("automatic_llm"), font_weight="bold", font_size="12px"),
+                    rx.text(
+                        t("automatic_llm"),
+                        font_weight="bold",
+                        font_size="12px",
+                        # Gray out label when vLLM is active
+                        opacity=rx.cond(
+                            AIState.backend_type == "vllm",
+                            "0.5",
+                            "1.0"
+                        ),
+                    ),
                     rx.select(
                         AIState.available_models,
                         value=AIState.automatik_model,
                         on_change=AIState.set_automatik_model,
                         size="2",
                         position="popper",  # Better mobile positioning (adapts to viewport)
-                        disabled=AIState.backend_switching,  # Disable during backend switch
+                        # Disable for vLLM (can't switch models) or during backend switch
+                        disabled=(AIState.backend_type == "vllm") | AIState.backend_switching,
+                        # Visual styling: Gray out when disabled
+                        opacity=rx.cond(
+                            AIState.backend_type == "vllm",
+                            "0.4",
+                            "1.0"
+                        ),
+                        cursor=rx.cond(
+                            AIState.backend_type == "vllm",
+                            "not-allowed",
+                            "pointer"
+                        ),
                     ),
                     spacing="3",
                     align="center",
@@ -1429,6 +1438,16 @@ def settings_accordion() -> rx.Component:
                             color_scheme="blue",
                             disabled=AIState.backend_switching,
                             flex="1",
+                            style={
+                                "&:hover:not([disabled])": {
+                                    "background": "var(--blue-a6) !important",
+                                    "transform": "scale(1.02)",
+                                },
+                                "&:active:not([disabled])": {
+                                    "background": "var(--blue-a8) !important",
+                                    "transform": "scale(0.98)",
+                                },
+                            },
                         ),
                         rx.button(
                             t("restart_aifred"),
@@ -1438,6 +1457,16 @@ def settings_accordion() -> rx.Component:
                             color_scheme="orange",
                             disabled=AIState.backend_switching,
                             flex="1",
+                            style={
+                                "&:hover:not([disabled])": {
+                                    "background": "var(--orange-a6) !important",
+                                    "transform": "scale(1.02)",
+                                },
+                                "&:active:not([disabled])": {
+                                    "background": "var(--orange-a8) !important",
+                                    "transform": "scale(0.98)",
+                                },
+                            },
                         ),
                         spacing="3",
                         width="100%",
@@ -1453,6 +1482,15 @@ def settings_accordion() -> rx.Component:
                         width="100%",
                         style={
                             "background": "rgba(100, 10, 0, 0.4)",  # Same as chat clear button
+                            "&:hover:not([disabled])": {
+                                "background": "rgba(150, 15, 0, 0.6) !important",
+                                "border_color": "#ff6600 !important",
+                                "transform": "scale(1.02)",
+                            },
+                            "&:active:not([disabled])": {
+                                "background": "rgba(80, 5, 0, 0.7) !important",
+                                "transform": "scale(0.98)",
+                            },
                         },
                     ),
                     # Row 3: Load Default Settings button
@@ -1464,6 +1502,16 @@ def settings_accordion() -> rx.Component:
                         color_scheme="blue",
                         disabled=AIState.backend_switching,
                         width="100%",
+                        style={
+                            "&:hover:not([disabled])": {
+                                "background": "var(--blue-a9) !important",
+                                "transform": "scale(1.02)",
+                            },
+                            "&:active:not([disabled])": {
+                                "background": "var(--blue-a11) !important",
+                                "transform": "scale(0.98)",
+                            },
+                        },
                     ),
                     spacing="2",
                     width="100%",
@@ -1544,9 +1592,129 @@ def settings_accordion() -> rx.Component:
 @rx.page(route="/", on_load=AIState.on_load, title="AIfred Intelligence")
 def index() -> rx.Component:
     """Main page with single column layout for mobile optimization"""
+
+    # Inline JavaScript for auto-scroll (must be inline to ensure execution)
+    autoscroll_js = """
+console.log('🔧 Autoscroll script loaded');
+
+// Make all external links open in new tab
+function makeLinksOpenInNewTab() {
+    const links = document.querySelectorAll('a[href^="http"]');
+    links.forEach(link => {
+        if (!link.hasAttribute('target')) {
+            link.setAttribute('target', '_blank');
+            link.setAttribute('rel', 'noopener noreferrer');
+        }
+    });
+}
+
+function isAutoScrollEnabled() {
+    // Find the auto-scroll switch by looking for the switch near the "Auto-Scroll" text
+    // The switch has data-state="checked" or "unchecked"
+    const switches = document.querySelectorAll('[role="switch"]');
+    for (let sw of switches) {
+        // Check if this switch is the auto-scroll switch (near "Auto-Scroll" text)
+        const parent = sw.closest('.rx-Flex');
+        if (parent && parent.textContent.includes('Auto-Scroll')) {
+            const isEnabled = sw.getAttribute('data-state') === 'checked';
+            return isEnabled;
+        }
+    }
+    return true; // Default to enabled if switch not found
+}
+
+function autoScrollElement(element) {
+    if (element) {
+        console.log('📜 Scrolling element:', element.id, 'scrollTop:', element.scrollTop, 'scrollHeight:', element.scrollHeight);
+        element.scrollTop = element.scrollHeight;
+    }
+}
+
+// Observer für Debug-Console und Chat-History Updates
+const observerConfig = { childList: true, subtree: true };
+
+const callback = function(mutationsList, observer) {
+    const enabled = isAutoScrollEnabled();
+    console.log('🔍 MutationObserver triggered, auto-scroll enabled:', enabled);
+
+    // Make all links open in new tab (always, regardless of auto-scroll)
+    makeLinksOpenInNewTab();
+
+    // Only scroll if auto-scroll is enabled
+    if (!enabled) {
+        return;
+    }
+
+    // Auto-scroll Debug Console
+    const debugBox = document.getElementById('debug-console-box');
+    if (debugBox) {
+        autoScrollElement(debugBox);
+    }
+
+    // Auto-scroll Chat History
+    const chatBox = document.getElementById('chat-history-box');
+    if (chatBox) {
+        autoScrollElement(chatBox);
+    }
+};
+
+function setupObservers() {
+    console.log('🚀 Setting up observers...');
+
+    const debugBox = document.getElementById('debug-console-box');
+    if (debugBox) {
+        console.log('✅ Found debug-console-box');
+        const observer = new MutationObserver(callback);
+        observer.observe(debugBox, observerConfig);
+    } else {
+        console.warn('❌ debug-console-box not found');
+    }
+
+    const chatBox = document.getElementById('chat-history-box');
+    if (chatBox) {
+        console.log('✅ Found chat-history-box');
+        const observer = new MutationObserver(callback);
+        observer.observe(chatBox, observerConfig);
+    } else {
+        console.warn('❌ chat-history-box not found');
+    }
+}
+
+// Initialize immediately or wait for DOMContentLoaded
+function initialize() {
+    console.log('📄 Initializing autoscroll...');
+
+    // Make existing links open in new tab
+    makeLinksOpenInNewTab();
+
+    setupObservers();
+
+    // Retry after 500ms in case elements render later
+    setTimeout(() => {
+        setupObservers();
+        makeLinksOpenInNewTab();
+    }, 500);
+
+    // Retry after 1000ms
+    setTimeout(() => {
+        setupObservers();
+        makeLinksOpenInNewTab();
+    }, 1000);
+}
+
+// Check if DOM is already loaded (script loaded late)
+if (document.readyState === 'loading') {
+    // DOM not yet loaded, wait for it
+    document.addEventListener('DOMContentLoaded', initialize);
+} else {
+    // DOM already loaded, run immediately
+    initialize();
+}
+"""
+
     return rx.box(
-        # Load custom JavaScript for link behavior
-        rx.script(src="/custom.js"),
+        # Inline JavaScript (guaranteed to execute)
+        rx.script(autoscroll_js),
         rx.vstack(
             # Header
             rx.heading(t("aifred_intelligence"), size="6", margin_bottom="2"),
