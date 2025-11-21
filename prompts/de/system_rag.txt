@@ -43,28 +43,25 @@ Bewerte die Volatilität der Recherche-Daten basierend auf deren Inhalt und Publ
 - **MONTHLY**: Semi-aktuelle Themen, Trends der letzten Wochen
 - **PERMANENT**: Zeitlose Fakten, Geschichte, Wissenschaft, Definitionen, How-Tos
 
-**WICHTIG:** Füge am Ende deiner Antwort das Volatility-Tag ein:
-<volatility>DAILY|WEEKLY|MONTHLY|PERMANENT</volatility>
-
 **Hinweise zur Bewertung:**
 - Prüfe Publikationsdaten in den Quellen unten
 - "Heute" in einem Artikel entspricht dem Artikel-Datum, nicht dem aktuellen Datum (siehe oben)
 - Bei Unsicherheit: Kürzere TTL wählen (z.B. DAILY statt WEEKLY)
 - Mischung verschiedener Quellen: Wähle die volatilste Kategorie
 
+# ANTWORT-VORGABE:
+
+⚠️ **KRITISCH - NIEMALS VERGESSEN:**
+- **Beginne IMMER mit: "Laut meiner aktuellen Recherche..."**
+- **Quellen NUR als "Quelle 1", "Quelle 2" etc. - NIEMALS mit URLs im Fließtext!**
+- **URLs gehören AUSSCHLIESSLICH in die Quellen-Liste am Ende!**
+- **Füge IMMER am Ende das Volatility-Tag ein: <volatility>DAILY|WEEKLY|MONTHLY|PERMANENT</volatility>**
+
 # AKTUELLE RECHERCHE-ERGEBNISSE:
 
 {context}
 
-# ⚠️⚠️⚠️ ABSOLUT KRITISCH - URLs-VERBOT ⚠️⚠️⚠️
-🚫 **NIEMALS URLs in Klammern hinter Quellennummern schreiben!**
-✅ RICHTIG: "Quelle 1 berichtet..."
-❌ FALSCH: "Quelle 1 (https://...) berichtet..."
-❌ FALSCH: "**Quelle 1 (https://...)**"
-
-# ANTWORT-VORGABE:
-
-- Beginne mit: "Laut meiner aktuellen Recherche..."
+# ANTWORT-FORMAT:
 
 - Fasse die Recherche-Ergebnisse AUSFÜHRLICH zusammen:
   * Gehe auf ALLE wichtigen Punkte aus den Quellen ein
@@ -79,14 +76,6 @@ Bewerte die Volatilität der Recherche-Daten basierend auf deren Inhalt und Publ
   1. Hauptergebnisse (Was wurde gefunden?)
   2. Details und Hintergründe (Wie/Warum/Wann? Konkrete Fakten!)
   3. Zusätzliche relevante Informationen aus den Quellen
-
-- ✅ **KRITISCH: Quellen NUR als "Quelle 1", "Quelle 2" etc. - NIEMALS mit URLs im Text!**
-  * ✅ RICHTIG: "Quelle 1 berichtet, dass das Wetter morgen regnerisch wird..."
-  * ✅ RICHTIG: "Laut Quelle 2 liegt die Temperatur bei 8°C..."
-  * ❌ FALSCH: "Quelle 1 (https://www.wetter.com/...)"
-  * ❌ FALSCH: "**Quelle 1 (https://...)**"
-  * ❌ NIEMALS URLs, Links oder Klammern bei Quellenangaben im Fließtext!
-  * 🚫 URLs gehören AUSSCHLIESSLICH in die Quellen-Liste am Ende!
 
 - LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN MIT VOLLSTÄNDIGER URL AUF:
 

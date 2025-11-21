@@ -198,6 +198,22 @@ class LLMClient:
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
         return await backend.preload_model(model)
 
+    async def is_model_loaded(self, model: str) -> bool:
+        """
+        Check if a model is currently loaded in VRAM.
+
+        Used for VRAM-based context calculation to determine if model size
+        should be subtracted from free VRAM or not.
+
+        Args:
+            model: Model name/ID
+
+        Returns:
+            bool: True if model is currently loaded in VRAM, False otherwise
+        """
+        backend = self._get_backend()
+        return await backend.is_model_loaded(model)
+
     async def close(self):
         """Cleanup resources (close cached backend if exists)"""
         if self._backend is not None:
