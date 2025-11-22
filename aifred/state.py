@@ -239,6 +239,11 @@ class AIState(rx.State):
     vllm_max_tokens: int = 0  # Hardware-limited context (VRAM-based calculation)
     vllm_native_context: int = 0  # Native model context (from config.json)
 
+    # VRAM-based Context Limit (Runtime Only - ALL backends)
+    # Das berechnete VRAM-Limit vom letzten calculate_dynamic_num_ctx() Aufruf
+    # Wird für History-Kompression genutzt (verhindert erneute Berechnung)
+    last_vram_limit: int = 0  # min(VRAM-Limit, Model-Limit) - praktisches Maximum
+
     # TTS Settings
     enable_tts: bool = False
 
@@ -1401,47 +1406,19 @@ class AIState(rx.State):
                         base_url=self.backend_url
                     )
 
-                    # Context-Limit für History-Kompression: EXAKT DER GLEICHE WERT WIE BEI INFERENZ!
-                    # → Ollama: Frage /api/ps nach dem aktuell geladenen context_length
-                    # → vLLM/TabbyAPI: Verwende calculate_dynamic_num_ctx()
-                    try:
-                        if self.backend_type == "ollama":
-                            # Ollama: Prüfe ob Modell geladen ist und hole dessen context_length
-                            loaded_ctx = await temp_backend.get_loaded_model_context(self.selected_model)
-                            if loaded_ctx:
-                                # Modell ist geladen → Nutze den Wert, mit dem es geladen ist
-                                context_limit = loaded_ctx
-                            else:
-                                # Modell nicht geladen → Berechne wie bei Inferenz
-                                from aifred.lib.context_manager import calculate_dynamic_num_ctx
-                                if self.num_ctx_mode == "manual":
-                                    context_limit = self.num_ctx_manual
-                                else:
-                                    enable_vram_limit = (self.num_ctx_mode == "auto_vram")
-                                    context_limit, _ = await calculate_dynamic_num_ctx(
-                                        temp_backend,
-                                        self.selected_model,
-                                        [],  # dummy messages
-                                        None,
-                                        enable_vram_limit=enable_vram_limit
-                                    )
-                        else:
-                            # vLLM/TabbyAPI: Berechne wie bei Inferenz
-                            from aifred.lib.context_manager import calculate_dynamic_num_ctx
-                            if self.num_ctx_mode == "manual":
-                                context_limit = self.num_ctx_manual
-                            else:
-                                enable_vram_limit = (self.num_ctx_mode == "auto_vram")
-                                context_limit, _ = await calculate_dynamic_num_ctx(
-                                    temp_backend,
-                                    self.selected_model,
-                                    [],  # dummy messages
-                                    None,
-                                    enable_vram_limit=enable_vram_limit
-                                )
-                    except Exception as e:
-                        self.add_debug(f"⚠️ Context-Limit Berechnung fehlgeschlagen: {e}")
-                        context_limit = 8192  # Fallback
+                    # Context-Limit für History-Kompression:
+                    # Nutze gespeichertes VRAM-Limit aus letzter Inferenz (verhindert Neuberechnung!)
+                    from aifred.lib.context_manager import _last_vram_limit_cache
+
+                    if self.num_ctx_mode == "manual":
+                        context_limit = self.num_ctx_manual
+                    elif _last_vram_limit_cache["limit"] > 0:
+                        # Nutze gespeichertes VRAM-Limit (aus calculate_dynamic_num_ctx)
+                        context_limit = _last_vram_limit_cache["limit"]
+                    else:
+                        # Fallback: 8K (nur beim allerersten Aufruf vor erster Inferenz)
+                        context_limit = 8192
+                        self.add_debug("⚠️ Kein VRAM-Limit gespeichert, nutze Fallback 8K")
 
                     # Setze Kompression-Flag (disabled Input-Felder)
                     self.is_compressing = True

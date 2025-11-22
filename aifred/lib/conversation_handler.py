@@ -347,30 +347,9 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
             input_tokens = estimate_tokens(messages, model_name=model_choice)
 
             # Determine enable_vram_limit based on num_ctx_mode
-            if num_ctx_mode == "manual":
-                # Manual mode: Use user-specified value directly in llm_options
-                if llm_options is None:
-                    llm_options = {}
-                llm_options['num_ctx'] = num_ctx_manual
-                final_num_ctx = num_ctx_manual
-                log_message(f"🔧 Manual num_ctx: {format_number(num_ctx_manual)} (VRAM calculation skipped)")
-            else:
-                # Auto mode: Determine VRAM limiting
-                enable_vram_limit = (num_ctx_mode == "auto_vram")
-
-                # Dynamische num_ctx Berechnung für RAG Bypass (Haupt-LLM)
-                final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
-                    llm_client, model_choice, messages, llm_options,
-                    enable_vram_limit=enable_vram_limit
-                )
-                # Yield VRAM debug messages to UI console
-                for msg in vram_debug_msgs:
-                    yield {"type": "debug", "message": msg}
-
-            # Get model max context for compact display
-            model_limit, _ = await llm_client.get_model_context_limit(model_choice)
-
             # Actual model preloading (only for Ollama - vLLM/TabbyAPI keep models in VRAM)
+            # WICHTIG: Preload ZUERST, dann VRAM-Berechnung (sonst model_is_loaded=False!)
+            # Get model max context for compact display (needed for preload log)
             if backend_type == "ollama":
                 # STEP 1: Unload all models (e.g., Automatik-LLM from RAG distance calculation)
                 backend = llm_client._get_backend()
@@ -396,6 +375,31 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
                 yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({format_number(prep_time, 1)}s)"}
                 log_message(f"✅ Haupt-LLM vorgeladen ({format_number(prep_time, 1)}s - vorbereitung)")
+
+            # JETZT VRAM berechnen (NACH Preload, damit model_is_loaded=True!)
+            if num_ctx_mode == "manual":
+                # Manual mode: Use user-specified value directly in llm_options
+                if llm_options is None:
+                    llm_options = {}
+                llm_options['num_ctx'] = num_ctx_manual
+                final_num_ctx = num_ctx_manual
+                log_message(f"🔧 Manual num_ctx: {format_number(num_ctx_manual)} (VRAM calculation skipped)")
+            else:
+                # Auto mode: Determine VRAM limiting
+                enable_vram_limit = (num_ctx_mode == "auto_vram")
+
+                # Dynamische num_ctx Berechnung für RAG Bypass (Haupt-LLM)
+                # WICHTIG: Model ist jetzt geladen → model_is_loaded=True!
+                final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
+                    llm_client, model_choice, messages, llm_options,
+                    enable_vram_limit=enable_vram_limit
+                )
+                # Yield VRAM debug messages to UI console
+                for msg in vram_debug_msgs:
+                    yield {"type": "debug", "message": msg}
+
+            # Get model max context for compact display
+            model_limit, _ = await llm_client.get_model_context_limit(model_choice)
 
             yield {"type": "debug", "message": "✅ System-Prompt erstellt"}
 
@@ -439,12 +443,17 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
             if llm_options and 'enable_thinking' in llm_options:
                 main_llm_options['enable_thinking'] = llm_options['enable_thinking']
 
+            # VRAM Monitoring: Measure before inference (baseline)
+            from aifred.lib.gpu_utils import get_free_vram_mb, measure_vram_during_inference
+            vram_before_inference = get_free_vram_mb()
+
             # Zeit messen für finale Inferenz - STREAM response
             inference_start = time.time()
             ai_text = ""
             metrics = {}
             ttft = None
             first_token_received = False
+            vram_measurement = None
 
             async for chunk in llm_client.chat_stream(
                 model=model_choice,
@@ -458,6 +467,13 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                         first_token_received = True
                         log_message(f"⚡ TTFT (Time-to-First-Token): {format_number(ttft, 2)}s")
                         yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
+
+                        # VRAM Monitoring: Measure after first token (KV cache allocated)
+                        if vram_before_inference is not None and final_num_ctx > 0:
+                            vram_measurement = measure_vram_during_inference(
+                                context_tokens=final_num_ctx,
+                                vram_before_mb=vram_before_inference
+                            )
 
                     ai_text += chunk["text"]
                     yield {"type": "content", "text": chunk["text"]}
@@ -476,6 +492,36 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
             tokens_generated = metrics.get("tokens_generated", 0)
             tokens_per_sec = metrics.get("tokens_per_second", 0)
             yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s)"}
+
+            # VRAM Monitoring: Log and save measurement
+            if vram_measurement is not None:
+                from aifred.lib.model_vram_cache import add_vram_measurement
+                from aifred.lib.gpu_utils import is_moe_model
+
+                # Determine architecture for cache
+                is_moe = await is_moe_model(model_choice) if backend_type == "ollama" else False
+                architecture = "moe" if is_moe else "dense"
+
+                # Save measurement to unified cache
+                add_vram_measurement(
+                    model_name=model_choice,
+                    context_tokens=final_num_ctx,
+                    vram_before_mb=vram_before_inference,
+                    vram_during_mb=vram_measurement["vram_during_mb"],
+                    architecture=architecture,
+                    backend=backend_type
+                )
+
+                # Log measurement details
+                measured_ratio = vram_measurement["measured_mb_per_token"]
+                vram_used = vram_measurement["vram_used_by_context"]
+                vram_during = vram_measurement["vram_during_mb"]
+
+                log_message(
+                    f"📊 VRAM Measurement: {format_number(vram_used)} MB used for {format_number(final_num_ctx)} tokens "
+                    f"({measured_ratio:.4f} MB/token) | Free during inference: {format_number(vram_during)} MB"
+                )
+                yield {"type": "debug", "message": f"📊 VRAM: {measured_ratio:.4f} MB/tok (Free: {format_number(vram_during)} MB)"}
 
             # Separator als letztes Element in der Debug Console
 

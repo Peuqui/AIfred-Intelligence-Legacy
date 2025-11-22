@@ -177,11 +177,15 @@ ENABLE_VRAM_CONTEXT_CALCULATION = True
 VRAM_SAFETY_MARGIN = 512  # MB
 
 # Empirical ratio: MB of VRAM per context token
-# Based on KV cache measurements:
-# - Qwen3-8B Q4_K_M: ~0.015 MB/token
-# - Qwen3-30B Q4_K_M: ~0.097 MB/token (measured: 16K-4K = 1163MB / 12K tokens)
-# Using exact measured value to maximize context window
-VRAM_CONTEXT_RATIO = 0.097  # ~97KB per token (optimized for 30B MoE models)
+# Based on KV cache measurements and research:
+# - LLaMA-2 7B: ~0.5 MB/token (research baseline)
+# - Qwen3-4B Q4_K_M: ~0.15 MB/token (empirically tested, 120k tokens @ 21GB VRAM)
+# - Qwen3-30B-A3B MoE Q4_K_M: ~0.10 MB/token (empirically tested, 26.2k tokens @ 22GB VRAM)
+# Different ratios for Dense vs MoE models:
+# - Dense models: Use all parameters → higher KV cache overhead → 0.15 MB/token
+# - MoE models: Only activate subset of experts → lower KV cache overhead → 0.10 MB/token
+VRAM_CONTEXT_RATIO_DENSE = 0.15  # ~150KB per token (Dense models)
+VRAM_CONTEXT_RATIO_MOE = 0.10    # ~100KB per token (MoE models, 48% more context!)
 
 # vLLM Context Calibration Safety Buffer (Tokens)
 # Fixed token buffer applied when parsing vLLM error messages

@@ -681,12 +681,13 @@ class OllamaBackend(LLMBackend):
         # Check if model is loaded (affects VRAM calculation)
         model_is_loaded = await self.is_model_loaded(model)
 
-        # Calculate practical context based on current VRAM
-        num_ctx, debug_msgs = calculate_vram_based_context(
+        # Calculate practical context based on current VRAM (with auto-MoE detection)
+        num_ctx, debug_msgs = await calculate_vram_based_context(
             model_name=model,
             model_size_bytes=model_size_bytes,
             model_context_limit=model_limit,
-            model_is_loaded=model_is_loaded
+            model_is_loaded=model_is_loaded,
+            backend_type="ollama"
         )
 
         return num_ctx, debug_msgs

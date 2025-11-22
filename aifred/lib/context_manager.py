@@ -106,12 +106,17 @@ def estimate_tokens_from_history(history: List[tuple]) -> int:
     return int(total_size / 3.5)
 
 
+# Global cache für VRAM-Limit (verhindert Neuberechnung bei History-Kompression)
+_last_vram_limit_cache = {"limit": 0}
+
+
 async def calculate_dynamic_num_ctx(
     llm_client,
     model_name: str,
     messages: List[Dict],
     llm_options: Optional[Dict] = None,
-    enable_vram_limit: bool = True
+    enable_vram_limit: bool = True,
+    state = None  # Optional: AIState instance zum Speichern des VRAM-Limits
 ) -> tuple[int, list[str]]:
     """
     Berechnet optimales num_ctx basierend auf Message-Größe, Model-Limit UND VRAM.
@@ -185,6 +190,14 @@ async def calculate_dynamic_num_ctx(
     # Clippe nur auf das kleinste Limit (VRAM, Model-Maximum)
     calculated_ctx = needed_tokens
     final_num_ctx = min(calculated_ctx, max_practical_ctx, model_limit)
+
+    # Speichere VRAM-Limit in globalem Cache für History-Kompression
+    # (verhindert dass History das Limit neu berechnen muss)
+    _last_vram_limit_cache["limit"] = min(max_practical_ctx, model_limit)
+
+    # Optional: Auch in State speichern falls übergeben
+    if state is not None:
+        state.last_vram_limit = min(max_practical_ctx, model_limit)
 
     # Warne wenn Context überschritten
     if calculated_ctx > max_practical_ctx:

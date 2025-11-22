@@ -10,7 +10,16 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ---
 
-## 🎉 Latest Updates (2025-11-16)
+## 🎉 Latest Updates (2025-11-22)
+
+### 🎯 Unified VRAM Cache System (v2.1.0)
+- ✅ **Backend-Aware Cache**: Single `model_vram_cache.json` for all backends (Ollama/vLLM/TabbyAPI)
+- ✅ **Universal VRAM Tracking**: Measures MB/token for all backends with architecture detection (MoE vs Dense)
+- ✅ **Automatic Migration**: Old vLLM cache auto-migrated on first load
+- ✅ **vLLM Calibrations**: Linear interpolation for context limits at different VRAM levels
+- ✅ **Critical Bug Fix**: Fixed web research crash (ValueError in scraper orchestrator)
+- 🎯 **Result**: 420-line unified module replacing 2 separate cache systems
+- **Impact**: More accurate VRAM predictions, cleaner codebase, extensible for future backends
 
 ### 🧠 VRAM-Based Dynamic Context Window (RTX 3090 Ti Optimization)
 - ✅ **Automatic Context Calculation** based on available GPU memory
@@ -1153,5 +1162,5 @@ MIT License - see [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.0.0 (November 2025)
+**Version**: 2.1.0 (November 2025)
 **Status**: Production-Ready 🚀

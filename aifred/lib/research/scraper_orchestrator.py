@@ -155,7 +155,12 @@ async def orchestrate_scraping(
     # Wait for preload task to complete if not done yet
     if not preload_message_sent and preload_task:
         try:
-            success, load_time = await preload_task
+            success, load_time, unloaded_models = await preload_task
+            if unloaded_models:
+                models_str = ", ".join(unloaded_models)
+                log_message(f"🗑️ Entladene Modelle: {models_str}")
+                yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
+
             if success:
                 log_message(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
                 yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)"}
