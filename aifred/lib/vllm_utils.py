@@ -45,7 +45,7 @@ def check_vram_change_for_vllm(model_id: str) -> Optional[Tuple[int, int, int, O
         return None
 
     # Get cached calibration points for this model
-    from .vllm_context_cache import get_calibrations
+    from .model_vram_cache import get_vllm_calibrations as get_calibrations
 
     calibrations = get_calibrations(model_id)
     if not calibrations:
@@ -72,7 +72,7 @@ def check_vram_change_for_vllm(model_id: str) -> Optional[Tuple[int, int, int, O
 
     # Estimate potential tokens with new VRAM
     # Try interpolation first, then fallback to None
-    from .vllm_context_cache import interpolate_context
+    from .model_vram_cache import interpolate_vllm_context as interpolate_context
 
     potential_tokens = interpolate_context(model_id, int(current_vram_mb))
 

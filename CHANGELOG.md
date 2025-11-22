@@ -5,9 +5,56 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2025-11-22
+## [2.1.0] - 2025-11-22
+
+### 🚀 Major Features
+
+#### Unified VRAM Cache System
+- **Created**: `aifred/lib/model_vram_cache.py` - Unified cache combining vLLM calibrations and VRAM ratio measurements
+- **Backend-Aware Structure**: Single cache file with per-backend model tracking (Ollama/vLLM/TabbyAPI)
+- **Automatic Migration**: Old `vllm_context_cache.json` automatically migrated to new unified format on first load
+- **Universal VRAM Ratio Tracking**: Measures MB/token for ALL backends (Ollama active, vLLM/TabbyAPI for validation)
+- **Architecture Detection**: Separate ratios for MoE vs Dense models (0.10 vs 0.15 MB/token)
 
 ### Added
+
+#### Model VRAM Cache Functions
+- **`load_cache()`**: Loads unified cache with automatic migration from old vLLM cache
+- **`add_vram_measurement()`**: Records VRAM ratio measurements for any backend (with backend parameter)
+- **`get_calibrated_ratio()`**: Returns measured MB/token ratio or default fallback
+- **`add_vllm_calibration()`**: Stores vLLM-specific context calibration points
+- **`interpolate_vllm_context()`**: Linear interpolation for vLLM context limits at different VRAM levels
+- **`get_measurement_count()`**: Returns number of VRAM measurements for a model
+
+#### Cache File Structure
+```json
+{
+  "model_name": {
+    "backend": "ollama|vllm|tabbyapi",
+    "architecture": "moe|dense",
+    "native_context": 262144,
+    "gpu_model": "NVIDIA GeForce RTX 3090 Ti",
+    "vram_ratio": {
+      "measurements": [
+        {
+          "context_tokens": 20720,
+          "measured_mb_per_token": 0.0872,
+          "measured_at": "2025-11-22T02:30:00"
+        }
+      ],
+      "avg_mb_per_token": 0.0872
+    },
+    "vllm_calibrations": [
+      {
+        "free_vram_mb": 22968,
+        "max_context": 21608,
+        "measured_at": "2025-11-21T23:31:17"
+      }
+    ]
+  }
+}
+```
+
 - **Dynamic Context Window Optimization** ([aifred/lib/context_manager.py:184-187](aifred/lib/context_manager.py#L184-L187)):
   - Removed fixed context size rounding (2K, 4K, 8K, etc.)
   - Now uses exact calculated `num_ctx` values for maximum efficiency
@@ -21,6 +68,120 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Used for accurate history compression limits
 
 ### Changed
+
+#### Updated All VRAM Cache Imports (6 Files Modified)
+- **`aifred/lib/gpu_utils.py`** (Line 243):
+  - Changed: `from .vram_ratio_cache import ...` → `from .model_vram_cache import ...`
+  - Functions: `get_calibrated_ratio`, `get_measurement_count`
+
+- **`aifred/lib/conversation_handler.py`** (Lines 498-513):
+  - Changed: `from aifred.lib.vram_ratio_cache import add_measurement` → `from aifred.lib.model_vram_cache import add_vram_measurement`
+  - **NEW Parameter**: Added `backend=backend_type` to measurement calls
+  - Impact: VRAM measurements now backend-aware for Ollama/vLLM/TabbyAPI
+
+- **`aifred/lib/vllm_manager.py`** (5 locations - lines 503, 557, 603, 780, 831):
+  - Changed: `from aifred.lib.vllm_context_cache import ...` → `from aifred.lib.model_vram_cache import ...`
+  - Function renames:
+    - `interpolate_context` → `interpolate_vllm_context as interpolate_context`
+    - `add_calibration_point` → `add_vllm_calibration as add_calibration_point`
+
+- **`aifred/lib/vllm_utils.py`** (Lines 48, 75):
+  - Changed: `from .vllm_context_cache import ...` → `from .model_vram_cache import ...`
+  - Function renames:
+    - `get_calibrations` → `get_vllm_calibrations as get_calibrations`
+    - `interpolate_context` → `interpolate_vllm_context as interpolate_context`
+
+### Removed
+
+- **Deleted Old Cache Modules** (No backward compatibility per user requirement):
+  - `aifred/lib/vram_ratio_cache.py` - Replaced by unified cache
+  - `aifred/lib/vllm_context_cache.py` - Replaced by unified cache
+  - `~/.config/aifred/vllm_context_cache.json` - Automatically migrated to `model_vram_cache.json`
+
+### Fixed
+
+#### Critical Web Research Crash - ValueError in Scraper Orchestrator
+- **Problem**: `ValueError: too many values to unpack (expected 2)` during web research
+- **Location**: [aifred/lib/research/scraper_orchestrator.py:158](aifred/lib/research/scraper_orchestrator.py#L158)
+- **Root Cause**:
+  - Line 84 `unload_and_preload()` returns 3 values: `(success, load_time, models)`
+  - Line 128 correctly unpacks 3 values in the first code path
+  - Line 158 **incorrectly** only unpacked 2 values: `success, load_time = await preload_task`
+- **Impact**: Web research would crash when Main-LLM preload finished after scraping completed
+- **Fix Applied**:
+  ```python
+  # Before (Line 158)
+  success, load_time = await preload_task
+
+  # After (Line 158-162)
+  success, load_time, unloaded_models = await preload_task
+  if unloaded_models:
+      models_str = ", ".join(unloaded_models)
+      log_message(f"🗑️ Entladene Modelle: {models_str}")
+      yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
+  ```
+- **Additional Enhancement**: Now properly logs unloaded models in both code paths (lines 126-135, 158-169)
+- **Testing**: Syntax validated with `python3 -m py_compile`
+
+### Technical Details
+
+#### Files Modified (7 total)
+1. **Created**: [aifred/lib/model_vram_cache.py](aifred/lib/model_vram_cache.py) (420 lines)
+   - Unified cache management with automatic migration
+   - VRAM ratio tracking for all backends
+   - vLLM calibration with linear interpolation
+
+2. **Modified**: [aifred/lib/gpu_utils.py](aifred/lib/gpu_utils.py) (Line 243)
+   - Updated imports from old `vram_ratio_cache` to `model_vram_cache`
+
+3. **Modified**: [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py) (Lines 498-513)
+   - Added `backend` parameter to VRAM measurement calls
+   - Backend-aware measurement storage
+
+4. **Modified**: [aifred/lib/vllm_manager.py](aifred/lib/vllm_manager.py) (5 locations)
+   - Updated all vLLM cache function imports
+   - Function alias mapping for compatibility
+
+5. **Modified**: [aifred/lib/vllm_utils.py](aifred/lib/vllm_utils.py) (2 locations)
+   - Updated vLLM utility imports
+
+6. **Modified**: [aifred/lib/research/scraper_orchestrator.py](aifred/lib/research/scraper_orchestrator.py) (Lines 158-169)
+   - **CRITICAL FIX**: Corrected async task unpacking
+   - Added unloaded models logging
+
+7. **Deleted**: `aifred/lib/vram_ratio_cache.py` - Functionality moved to unified cache
+8. **Deleted**: `aifred/lib/vllm_context_cache.py` - Functionality moved to unified cache
+9. **Deleted**: `~/.config/aifred/vllm_context_cache.json` - Auto-migrated to `model_vram_cache.json`
+
+#### Cache Migration Details
+- **Automatic**: No user intervention required
+- **One-Time**: Migration runs on first `load_cache()` call
+- **Data Preservation**: All vLLM calibrations preserved
+- **Format**: 5 models migrated (Qwen3-8B-AWQ, Qwen3-4B, Qwen2.5-3B, Qwen3-4B-AWQ, Qwen3-30B-A3B-AWQ)
+- **Location**: `~/.config/aifred/model_vram_cache.json`
+
+#### Performance Impact
+- **VRAM Optimization**: More accurate context limits with calibrated ratios
+- **Bug Fix Impact**: Web research stability improved (no more mid-research crashes)
+- **Cache Efficiency**: Single cache file instead of two separate files
+- **Future-Ready**: Extensible for new backends (e.g., LM Studio, LocalAI)
+
+#### GPU Performance Observations
+- **MoE Models** (Qwen3-30B-A3B): 17-21% → 59-60% GPU utilization (prefill → generation)
+  - Speed: 61.4 tok/s
+  - Power: 117-221W
+  - VRAM: 22.8 GB
+  - **Reason**: Sparse activation (10-20% active parameters), memory-bound operation
+
+- **Dense Models** (Qwen3-32B): 14-37% → 83-95% GPU utilization (prefill → generation)
+  - Speed: 31.9 tok/s (50% slower)
+  - Power: 118-446W (2x power consumption)
+  - VRAM: 23.9 GB
+  - **Reason**: All parameters active, compute-bound operation
+
+- **Conclusion**: MoE ~60% GPU utilization at double the speed is expected and optimal behavior
+
+### Changed (History Compression)
 - **History Compression Context Limit** ([aifred/state.py:1404-1444](aifred/state.py#L1404-L1444)):
   - **Ollama**: Now uses `/api/ps` to get actual loaded model context (e.g., 40960 or 44051)
   - **vLLM/TabbyAPI**: Uses `calculate_dynamic_num_ctx()` for consistent limit calculation

@@ -500,7 +500,7 @@ class vLLMProcessManager:
             free_vram_mb = 0
 
         # Try interpolation from cached calibration points
-        from aifred.lib.vllm_context_cache import interpolate_context
+        from aifred.lib.model_vram_cache import interpolate_vllm_context as interpolate_context
         interpolated_context = interpolate_context(model, int(free_vram_mb))
 
         # Check if YaRN is enabled - if so, calculate target context
@@ -554,7 +554,7 @@ class vLLMProcessManager:
 
                     if success:
                         # Update cache with new calibration
-                        from aifred.lib.vllm_context_cache import add_calibration_point
+                        from aifred.lib.model_vram_cache import add_vllm_calibration as add_calibration_point
                         add_calibration_point(
                             model_id=model,
                             free_vram_mb=int(free_vram_mb),
@@ -600,7 +600,7 @@ class vLLMProcessManager:
 
                 # Only cache if NOT using YaRN (cache is for native context only)
                 if not self.yarn_config or self.yarn_config.get("factor", 1.0) == 1.0:
-                    from aifred.lib.vllm_context_cache import add_calibration_point
+                    from aifred.lib.model_vram_cache import add_vllm_calibration as add_calibration_point
                     add_calibration_point(
                         model_id=model,
                         free_vram_mb=int(free_vram_mb),
@@ -777,7 +777,7 @@ class vLLMProcessManager:
 
                     # Only cache if NOT using YaRN (cache is for native context only)
                     if not self.yarn_config or self.yarn_config.get("factor", 1.0) == 1.0:
-                        from aifred.lib.vllm_context_cache import add_calibration_point
+                        from aifred.lib.model_vram_cache import add_vllm_calibration as add_calibration_point
                         add_calibration_point(
                             model_id=model,
                             free_vram_mb=int(free_vram_mb),
@@ -828,7 +828,7 @@ class vLLMProcessManager:
 
                         if success:
                             # Save refined calibration
-                            from aifred.lib.vllm_context_cache import add_calibration_point
+                            from aifred.lib.model_vram_cache import add_vllm_calibration as add_calibration_point
                             add_calibration_point(
                                 model_id=model,
                                 free_vram_mb=int(free_vram_mb),

@@ -7,10 +7,11 @@ based on available GPU memory.
 
 import logging
 import httpx
-from typing import Optional
+from typing import Optional, Dict
 from .config import (
     VRAM_SAFETY_MARGIN,
-    VRAM_CONTEXT_RATIO,
+    VRAM_CONTEXT_RATIO_DENSE,
+    VRAM_CONTEXT_RATIO_MOE,
     ENABLE_VRAM_CONTEXT_CALCULATION
 )
 from .logging_utils import log_message
@@ -51,6 +52,99 @@ def get_free_vram_mb() -> Optional[int]:
     except Exception as e:
         logger.debug(f"Could not query GPU via pynvml: {e}")
         return None
+
+
+async def is_moe_model(model_name: str, ollama_url: str = "http://localhost:11434") -> bool:
+    """
+    Detect if model is MoE (Mixture of Experts) architecture
+
+    Queries Ollama's /api/show endpoint to read model architecture from config.
+    MoE models have lower VRAM per token (0.10) vs Dense models (0.15).
+
+    Args:
+        model_name: Model name in Ollama (e.g., "qwen3:30b-a3b-instruct-2507-q4_K_M")
+        ollama_url: Ollama API base URL
+
+    Returns:
+        bool: True if MoE model, False if Dense or unknown
+
+    Examples:
+        - MoE: "qwen3moe" family → 0.10 MB/token (48% more context)
+        - Dense: "qwen3", "llama" family → 0.15 MB/token (safe for all)
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                f"{ollama_url}/api/show",
+                json={"name": model_name}
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+
+                # Check "family" field in details
+                family = data.get("details", {}).get("family", "")
+
+                # MoE indicators: "qwen3moe", "mixtral", "deepseek-moe", etc.
+                moe_families = ["moe", "mixtral", "qwen3moe", "deepseek-moe"]
+
+                is_moe = any(indicator in family.lower() for indicator in moe_families)
+
+                if is_moe:
+                    logger.debug(f"✅ MoE detected: {model_name} (family: {family})")
+                else:
+                    logger.debug(f"📊 Dense model: {model_name} (family: {family})")
+
+                return is_moe
+            else:
+                logger.warning(f"Could not query model info for {model_name}: {response.status_code}")
+                return False
+
+    except Exception as e:
+        logger.debug(f"MoE detection failed for {model_name}: {e}")
+        return False  # Default to Dense (safer)
+
+
+def measure_vram_during_inference(
+    context_tokens: int,
+    vram_before_mb: int
+) -> Optional[Dict]:
+    """
+    Measure VRAM usage during inference to calibrate MB/token ratio
+
+    Args:
+        context_tokens: Number of context tokens used in this inference
+        vram_before_mb: Free VRAM before inference started (baseline)
+
+    Returns:
+        Dict with measurement data:
+        {
+            "vram_during_mb": int,           # Free VRAM during inference
+            "vram_used_by_context": int,     # VRAM consumed by KV cache
+            "measured_mb_per_token": float   # Calculated MB/token ratio
+        }
+        or None if measurement failed
+    """
+    vram_during_mb = get_free_vram_mb()
+
+    if vram_during_mb is None or vram_before_mb is None:
+        return None
+
+    # Calculate VRAM used by context (KV cache)
+    vram_used_by_context = vram_before_mb - vram_during_mb
+
+    # Ignore invalid measurements (negative = measurement error or noise)
+    if vram_used_by_context <= 0 or context_tokens <= 0:
+        return None
+
+    # Calculate MB/token from this measurement
+    measured_mb_per_token = vram_used_by_context / context_tokens
+
+    return {
+        "vram_during_mb": vram_during_mb,
+        "vram_used_by_context": vram_used_by_context,
+        "measured_mb_per_token": round(measured_mb_per_token, 4)
+    }
 
 
 def get_model_size_from_cache(model_name: str) -> int:
@@ -94,13 +188,14 @@ def get_model_size_from_cache(model_name: str) -> int:
         return 0
 
 
-def calculate_vram_based_context(
+async def calculate_vram_based_context(
     model_name: str,
     model_size_bytes: int,
     model_context_limit: int,
-    vram_context_ratio: float = VRAM_CONTEXT_RATIO,
+    vram_context_ratio: float | None = None,
     safety_margin_mb: int = VRAM_SAFETY_MARGIN,
-    model_is_loaded: bool = False
+    model_is_loaded: bool = False,
+    backend_type: str = "ollama"
 ) -> tuple[int, list[str]]:
     """
     Calculate maximum practical context window based on available VRAM
@@ -108,12 +203,13 @@ def calculate_vram_based_context(
     UNIVERSAL FUNCTION FOR ALL BACKENDS (Ollama, vLLM, TabbyAPI)
 
     Args:
-        model_name: Name of the model (for logging only)
+        model_name: Name of the model (for MoE detection and logging)
         model_size_bytes: Model size in bytes (from HF cache or Ollama blobs)
         model_context_limit: Model's architectural context limit (from config.json)
-        vram_context_ratio: MB of VRAM per context token (default: 0.097 from config)
+        vram_context_ratio: MB of VRAM per context token (default: auto-detect via MoE)
         safety_margin_mb: MB to reserve for system (default: 512 MB from config)
         model_is_loaded: Whether model is already loaded in VRAM (affects calculation)
+        backend_type: Backend type ("ollama", "vllm", "tabbyapi") for MoE detection
 
     Returns:
         tuple[int, list[str]]: (num_ctx, debug_messages)
@@ -134,6 +230,30 @@ def calculate_vram_based_context(
         - Insufficient VRAM (<100 MB): Return 2048 tokens (minimal)
     """
     debug_msgs = []  # Collect messages for UI yield
+
+    # Auto-detect VRAM context ratio if not provided
+    if vram_context_ratio is None:
+        # Only detect MoE for Ollama (vLLM/TabbyAPI use manual override)
+        if backend_type == "ollama":
+            is_moe = await is_moe_model(model_name)
+            architecture = "moe" if is_moe else "dense"
+            default_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe else VRAM_CONTEXT_RATIO_DENSE
+
+            # Try to get calibrated ratio from unified cache
+            from .model_vram_cache import get_calibrated_ratio, get_measurement_count
+            vram_context_ratio = get_calibrated_ratio(model_name, architecture, default_ratio)
+
+            # Show whether using calibrated or default ratio
+            measurement_count = get_measurement_count(model_name)
+            if measurement_count > 0:
+                model_type = "MoE (calibrated)" if is_moe else "Dense (calibrated)"
+                debug_msgs.append(f"🔍 {model_type} → {vram_context_ratio:.4f} MB/token ({measurement_count} measurements)")
+            else:
+                model_type = "MoE" if is_moe else "Dense"
+                debug_msgs.append(f"🔍 {model_type} detected → {vram_context_ratio:.2f} MB/token")
+        else:
+            # For vLLM/TabbyAPI: Default to Dense (safer)
+            vram_context_ratio = VRAM_CONTEXT_RATIO_DENSE
 
     # Check if VRAM calculation is enabled
     if not ENABLE_VRAM_CONTEXT_CALCULATION:
