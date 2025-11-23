@@ -31,20 +31,38 @@ def get_free_vram_mb() -> Optional[int]:
     """
     Query free VRAM using pynvml (NVIDIA Management Library)
 
-    This is the modern, fast way to query GPU memory.
-    Replaces old nvidia-smi subprocess approach for better performance.
+    For multi-GPU systems, returns the SUM of free VRAM across ALL GPUs.
+    This matches KoboldCPP's behavior which can utilize multiple GPUs.
 
     Returns:
-        int: Free VRAM in MB, or None if GPU unavailable
+        int: Total free VRAM in MB (summed across all GPUs), or None if GPU unavailable
     """
     try:
         import pynvml
         pynvml.nvmlInit()
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # GPU 0
-        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        free_mb = mem_info.free / (1024 * 1024)
+
+        # Get number of GPUs
+        device_count = pynvml.nvmlDeviceGetCount()
+
+        # Sum free VRAM across all GPUs
+        total_free_mb = 0
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            free_mb = mem_info.free / (1024 * 1024)
+            total_free_mb += free_mb
+
+            # Log per-GPU VRAM for debugging
+            if device_count > 1:
+                gpu_name = pynvml.nvmlDeviceGetName(handle)
+                logger.debug(f"   GPU {i} ({gpu_name}): {int(free_mb)} MB free")
+
         pynvml.nvmlShutdown()
-        return int(free_mb)
+
+        if device_count > 1:
+            logger.debug(f"   Total free VRAM (sum of {device_count} GPUs): {int(total_free_mb)} MB")
+
+        return int(total_free_mb)
 
     except ImportError:
         logger.warning("pynvml not installed - install via: pip install pynvml")
@@ -52,6 +70,30 @@ def get_free_vram_mb() -> Optional[int]:
     except Exception as e:
         logger.debug(f"Could not query GPU via pynvml: {e}")
         return None
+
+
+def detect_gpu_vendor() -> str:
+    """
+    Detect GPU vendor (NVIDIA, AMD, or unknown)
+
+    Returns:
+        "nvidia", "amd", or "unknown"
+    """
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        # If we can init NVML, it's NVIDIA
+        pynvml.nvmlShutdown()
+        return "nvidia"
+    except:
+        pass
+
+    # Check for AMD via rocm-smi
+    import shutil
+    if shutil.which("rocm-smi"):
+        return "amd"
+
+    return "unknown"
 
 
 async def is_moe_model(model_name: str, ollama_url: str = "http://localhost:11434") -> bool:
