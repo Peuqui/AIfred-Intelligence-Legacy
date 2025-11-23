@@ -1127,16 +1127,58 @@ def settings_accordion() -> rx.Component:
                     align="center",
                 ),
 
-                # Backend Selection
+                # Backend Selection with grouped headers
                 rx.hstack(
                     rx.text(t("backend"), font_weight="bold", font_size="12px"),
-                    rx.select(
-                        AIState.available_backends,  # Dynamically filtered by GPU compatibility
+                    rx.select.root(
+                        rx.select.trigger(),
+                        rx.select.content(
+                            # Universal Compatibility Header
+                            rx.select.item(
+                                "─── Universelle Kompatibilität (GGUF) ───",
+                                value="header_universal",
+                                disabled=True,
+                                font_weight="bold",
+                                color="blue",
+                            ),
+                            # P40-compatible backends
+                            rx.cond(
+                                AIState.available_backends.contains("ollama"),
+                                rx.select.item("Ollama", value="ollama"),
+                            ),
+                            rx.cond(
+                                AIState.available_backends.contains("koboldcpp"),
+                                rx.select.item("KoboldCPP", value="koboldcpp"),
+                            ),
+                            # Separator
+                            rx.select.item(
+                                "─────────────────────────────────",
+                                value="separator",
+                                disabled=True,
+                                color="gray",
+                            ),
+                            # Modern GPUs Header
+                            rx.select.item(
+                                "─── Moderne GPUs (FP16) ───",
+                                value="header_modern",
+                                disabled=True,
+                                font_weight="bold",
+                                color="blue",
+                            ),
+                            # Modern backends
+                            rx.cond(
+                                AIState.available_backends.contains("tabbyapi"),
+                                rx.select.item("TabbyAPI", value="tabbyapi"),
+                            ),
+                            rx.cond(
+                                AIState.available_backends.contains("vllm"),
+                                rx.select.item("vLLM", value="vllm"),
+                            ),
+                        ),
                         value=AIState.backend_type,
                         on_change=AIState.switch_backend,
                         size="2",
-                        position="popper",  # Better mobile positioning (adapts to viewport)
-                        disabled=AIState.backend_switching,  # Disable during backend switch
+                        disabled=AIState.backend_switching,
                     ),
                     rx.cond(
                         AIState.backend_switching,
@@ -1210,11 +1252,15 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
-                # vLLM Single Model Warning
+                # Single Model Warning (for backends that can't switch models)
                 rx.cond(
-                    AIState.backend_type == "vllm",
+                    ~AIState.backend_supports_dynamic_models,
                     rx.text(
-                        "ℹ️ vLLM kann nur EIN Modell gleichzeitig laden (Haupt- und Automatik-LLM nutzen dasselbe Modell)",
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            f"ℹ️ {AIState.backend_type.upper()} kann nur EIN Modell gleichzeitig laden (Haupt- und Automatik-LLM nutzen dasselbe Modell)",
+                            f"ℹ️ {AIState.backend_type.upper()} can only load ONE model at a time (Main and Automatik LLM use the same model)"
+                        ),
                         font_size="11px",
                         color="#d4913d",  # Dunkles Orange - gut lesbar
                         line_height="1.5",
@@ -1242,11 +1288,11 @@ def settings_accordion() -> rx.Component:
                         t("automatic_llm"),
                         font_weight="bold",
                         font_size="12px",
-                        # Gray out label when vLLM is active
+                        # Gray out label when backend doesn't support dynamic models
                         opacity=rx.cond(
-                            AIState.backend_type == "vllm",
-                            "0.5",
-                            "1.0"
+                            AIState.backend_supports_dynamic_models,
+                            "1.0",
+                            "0.5"
                         ),
                     ),
                     rx.select(
@@ -1255,18 +1301,18 @@ def settings_accordion() -> rx.Component:
                         on_change=AIState.set_automatik_model,
                         size="2",
                         position="popper",  # Better mobile positioning (adapts to viewport)
-                        # Disable for vLLM (can't switch models) or during backend switch
-                        disabled=(AIState.backend_type == "vllm") | AIState.backend_switching,
+                        # Disable if backend can't switch models or during backend switch
+                        disabled=(~AIState.backend_supports_dynamic_models) | AIState.backend_switching,
                         # Visual styling: Gray out when disabled
                         opacity=rx.cond(
-                            AIState.backend_type == "vllm",
-                            "0.4",
-                            "1.0"
+                            AIState.backend_supports_dynamic_models,
+                            "1.0",
+                            "0.4"
                         ),
                         cursor=rx.cond(
-                            AIState.backend_type == "vllm",
-                            "not-allowed",
-                            "pointer"
+                            AIState.backend_supports_dynamic_models,
+                            "pointer",
+                            "not-allowed"
                         ),
                     ),
                     spacing="3",

@@ -405,3 +405,255 @@ async def calculate_vram_based_context(
     debug_msgs.append(msg)
 
     return final_num_ctx, debug_msgs
+
+
+# ===================================================================
+# KoboldCPP GPU Configuration Detection
+# ===================================================================
+
+def detect_gpu_vendor() -> str:
+    """
+    Detect GPU vendor (NVIDIA, AMD, or CPU-only)
+
+    Returns:
+        "nvidia", "amd", or "cpu"
+    """
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        pynvml.nvmlShutdown()
+        return "nvidia"
+    except:
+        pass
+
+    # Try AMD ROCm detection
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["rocm-smi", "--showproductname"],
+            capture_output=True,
+            text=True,
+            timeout=2.0
+        )
+        if result.returncode == 0:
+            return "amd"
+    except:
+        pass
+
+    return "cpu"
+
+
+def get_gpu_count() -> int:
+    """
+    Get number of available GPUs
+
+    Returns:
+        Number of GPUs (0 if CPU-only)
+    """
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        count = pynvml.nvmlDeviceGetCount()
+        pynvml.nvmlShutdown()
+        return count
+    except:
+        return 0
+
+
+def get_gpu_names() -> list[str]:
+    """
+    Get list of GPU names
+
+    Returns:
+        List of GPU names (e.g., ["NVIDIA GeForce RTX 3090 Ti", "NVIDIA GeForce RTX 3090 Ti"])
+    """
+    names = []
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        count = pynvml.nvmlDeviceGetCount()
+        for i in range(count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            name = pynvml.nvmlDeviceGetName(handle)
+            if isinstance(name, bytes):
+                name = name.decode('utf-8')
+            names.append(name)
+        pynvml.nvmlShutdown()
+    except:
+        pass
+
+    return names
+
+
+def get_gpu_vram_per_gpu() -> list[int]:
+    """
+    Get VRAM size for each GPU in MB
+
+    Returns:
+        List of VRAM sizes in MB (e.g., [24564, 24564] for dual P40)
+    """
+    vram_sizes = []
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        count = pynvml.nvmlDeviceGetCount()
+        for i in range(count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            vram_mb = mem_info.total / (1024 * 1024)
+            vram_sizes.append(int(vram_mb))
+        pynvml.nvmlShutdown()
+    except:
+        pass
+
+    return vram_sizes
+
+
+def detect_koboldcpp_gpu_config() -> Dict:
+    """
+    Detect GPU configuration and return KoboldCPP config template
+
+    Returns:
+        Dict with KoboldCPP configuration:
+        {
+            "type": "rtx" | "dual_p40" | "amd_rocm" | "cpu",
+            "description": "RTX 3090 Ti (Single GPU)" | "2x Tesla P40 (Context-Offload)" | etc.,
+            "gpu_count": 1 | 2,
+            "gpu_names": ["NVIDIA GeForce RTX 3090 Ti"],
+            "gpu_vram_mb": [24564],
+            "total_vram_mb": 24564,
+            "config": {
+                "gpu_layers": -1 | 40,
+                "context_offload": True | False,
+                "tensor_split": "1,0" | None,
+                "flash_attention": True | False,
+                "quantized_kv": True | False,
+                "use_cublas": True | False,
+                "cublas_args": None | "mmq"
+            }
+        }
+    """
+    vendor = detect_gpu_vendor()
+
+    if vendor == "cpu":
+        return {
+            "type": "cpu",
+            "description": "CPU-only (No GPU acceleration)",
+            "gpu_count": 0,
+            "gpu_names": [],
+            "gpu_vram_mb": [],
+            "total_vram_mb": 0,
+            "config": {
+                "gpu_layers": 0,
+                "context_offload": False,
+                "tensor_split": None,
+                "flash_attention": False,
+                "quantized_kv": False,
+                "use_cublas": False,
+                "cublas_args": None
+            }
+        }
+
+    if vendor == "amd":
+        gpu_count = 1  # Simplified: assume 1 AMD GPU
+        return {
+            "type": "amd_rocm",
+            "description": "AMD GPU (ROCm)",
+            "gpu_count": gpu_count,
+            "gpu_names": ["AMD GPU (ROCm)"],
+            "gpu_vram_mb": [0],  # Unknown without rocm-smi parsing
+            "total_vram_mb": 0,
+            "config": {
+                "gpu_layers": -1,  # All layers
+                "context_offload": False,
+                "tensor_split": None,
+                "flash_attention": True,
+                "quantized_kv": True,
+                "use_cublas": True,
+                "cublas_args": "mmq"  # AMD-specific optimized kernels
+            }
+        }
+
+    # NVIDIA GPUs
+    gpu_count = get_gpu_count()
+    gpu_names = get_gpu_names()
+    gpu_vram = get_gpu_vram_per_gpu()
+    total_vram = sum(gpu_vram) if gpu_vram else 0
+
+    # Dual GPU detection
+    if gpu_count == 2:
+        # Check if both GPUs are Tesla P40
+        is_dual_p40 = all("P40" in name for name in gpu_names)
+
+        if is_dual_p40:
+            return {
+                "type": "dual_p40",
+                "description": "2x Tesla P40 (Context-Offloading)",
+                "gpu_count": 2,
+                "gpu_names": gpu_names,
+                "gpu_vram_mb": gpu_vram,
+                "total_vram_mb": total_vram,
+                "config": {
+                    "gpu_layers": -1,  # All layers on GPU (auto-detect)
+                    "context_offload": True,  # Context on GPU1
+                    "tensor_split": "1,0",  # 100% model on GPU0, 0% on GPU1
+                    "flash_attention": True,
+                    "quantized_kv": True,
+                    "use_cublas": True,
+                    "cublas_args": None
+                }
+            }
+
+    # Single GPU or generic dual GPU (RTX config)
+    return {
+        "type": "rtx",
+        "description": f"{gpu_names[0] if gpu_names else 'NVIDIA GPU'} (Single GPU)" if gpu_count == 1 else f"{gpu_count}x {gpu_names[0]} (Generic)",
+        "gpu_count": gpu_count,
+        "gpu_names": gpu_names,
+        "gpu_vram_mb": gpu_vram,
+        "total_vram_mb": total_vram,
+        "config": {
+            "gpu_layers": -1,  # All layers
+            "context_offload": False,
+            "tensor_split": None,
+            "flash_attention": True,
+            "quantized_kv": True,
+            "use_cublas": True,
+            "cublas_args": None
+        }
+    }
+
+
+def calculate_gpu_layers(model_size_gb: float, vram_mb: int) -> int:
+    """
+    Calculate optimal number of GPU layers based on model size and VRAM
+
+    Args:
+        model_size_gb: Model size in GB
+        vram_mb: Available VRAM in MB
+
+    Returns:
+        Number of GPU layers to offload
+    """
+    # Safety margin
+    safety_margin_mb = 2048  # 2GB safety margin
+
+    usable_vram_mb = vram_mb - safety_margin_mb
+
+    if usable_vram_mb < 0:
+        return 0  # Not enough VRAM
+
+    # Estimate layers based on VRAM
+    # Rough approximation: 40 layers for 30B model = ~17GB
+    # So 1 layer ≈ 425MB for 30B model
+
+    model_size_mb = model_size_gb * 1024
+
+    if model_size_mb <= usable_vram_mb:
+        return -1  # All layers fit
+
+    # Calculate partial layers
+    # Assuming linear relationship (simplification)
+    estimated_layers = int((usable_vram_mb / model_size_mb) * 40)
+
+    return max(0, estimated_layers)

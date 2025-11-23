@@ -89,6 +89,10 @@ BACKEND_DEFAULT_MODELS = {
         "selected_model": "turboderp/Qwen3-30B-A3B-exl3",                 # EXL3, ~18GB (CONFIRMED)
         "automatik_model": "ArtusDev/Qwen_Qwen3-4B-Instruct-2507-EXL3",   # EXL3, ~2.8GB (CONFIRMED)
     },
+    "koboldcpp": {
+        "selected_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",          # GGUF Q4_K_M, ~17.3GB (from ~/models/)
+        "automatik_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",         # KoboldCPP: only 1 model (same as selected)
+    },
 }
 
 # ============================================================

@@ -161,6 +161,29 @@ def is_backend_compatible(model_dir, backend: str) -> bool:
         return False
 
 
+def backend_supports_dynamic_models(backend) -> bool:
+    """
+    Check if backend supports dynamic model loading using capabilities API.
+
+    Returns:
+        True if backend can load different models on-demand (like Ollama, TabbyAPI)
+        False if backend requires server restart for model changes (like vLLM, KoboldCPP)
+
+    Usage:
+        backend = BackendFactory.create("vllm")
+        if backend_supports_dynamic_models(backend):
+            # Can switch models without restart
+        else:
+            # Needs restart - disable Automatik-LLM if different from Main
+    """
+    try:
+        caps = backend.get_capabilities()
+        return caps.get("dynamic_models", True)  # Default True for backwards compat
+    except Exception:
+        # Fallback to True (assume dynamic if capabilities not available)
+        return True
+
+
 # ============================================================
 # Module-Level Backend State (Global across all sessions)
 # ============================================================
@@ -283,7 +306,76 @@ class AIState(rx.State):
     gpu_name: str = ""
     gpu_compute_cap: float = 0.0
     gpu_warnings: List[str] = []
-    available_backends: List[str] = ["ollama", "vllm", "tabbyapi"]  # Filtered by GPU compatibility
+    available_backends: List[str] = ["ollama", "koboldcpp", "tabbyapi", "vllm"]  # Filtered by GPU compatibility (P40-compatible first)
+
+    @rx.var
+    def grouped_backends_display(self) -> List[str]:
+        """
+        Return backend list with headers and separators for dropdown display.
+
+        Structure:
+        - Header: "🔧 Universelle Kompatibilität (GGUF)"
+        - ollama
+        - koboldcpp
+        - Separator: "─────────────"
+        - Header: "🚀 Moderne GPUs (FP16)"
+        - tabbyapi
+        - vllm
+        """
+        grouped = []
+
+        # P40-compatible backends
+        grouped.append("header_universal")  # Will be styled as header
+        if "ollama" in self.available_backends:
+            grouped.append("ollama")
+        if "koboldcpp" in self.available_backends:
+            grouped.append("koboldcpp")
+
+        # Separator
+        grouped.append("separator")
+
+        # Modern GPU backends
+        grouped.append("header_modern")
+        if "tabbyapi" in self.available_backends:
+            grouped.append("tabbyapi")
+        if "vllm" in self.available_backends:
+            grouped.append("vllm")
+
+        return grouped
+
+    def get_backend_display_label(self, backend_id: str) -> str:
+        """
+        Get display label for backend dropdown items.
+
+        Maps special IDs (headers, separator) to display text.
+        """
+        labels = {
+            "header_universal": "─── Universelle Kompatibilität (GGUF) ───",
+            "separator": "─────────────────────────────────",
+            "header_modern": "─── Moderne GPUs (FP16) ───",
+            "ollama": "Ollama",
+            "koboldcpp": "KoboldCPP",
+            "tabbyapi": "TabbyAPI",
+            "vllm": "vLLM",
+        }
+        return labels.get(backend_id, backend_id)
+
+    def is_backend_item_selectable(self, backend_id: str) -> bool:
+        """Check if backend item is selectable (not header/separator)"""
+        return backend_id not in ["header_universal", "separator", "header_modern"]
+
+    @rx.var
+    def backend_supports_dynamic_models(self) -> bool:
+        """
+        Check if current backend supports dynamic model switching.
+        Used to disable Automatik-LLM dropdown for vLLM/KoboldCPP.
+        """
+        # Default to True if no backend initialized yet
+        if self.backend_type not in ["vllm", "koboldcpp", "tabbyapi"]:
+            return True
+
+        # vLLM and KoboldCPP can't switch models
+        return self.backend_type not in ["vllm", "koboldcpp"]
 
     async def on_load(self):
         """
@@ -499,6 +591,8 @@ class AIState(rx.State):
                 self.backend_url = "http://localhost:8001/v1"
             elif self.backend_type == "tabbyapi":
                 self.backend_url = "http://localhost:5000/v1"
+            elif self.backend_type == "koboldcpp":
+                self.backend_url = "http://localhost:5001/v1"
 
             # add_debug() already logs to file, so we only need one call
             self.add_debug(f"🔧 Creating backend: {self.backend_type}")
@@ -538,6 +632,41 @@ class AIState(rx.State):
                         self.available_models = []
                         self.add_debug("⚠️ HuggingFace cache not found")
 
+                elif self.backend_type == "koboldcpp":
+                    # KoboldCPP: Discover GGUF models from filesystem
+                    from aifred.lib.gguf_utils import find_all_gguf_models
+
+                    self.add_debug("🔍 Searching for GGUF models on filesystem...")
+
+                    try:
+                        gguf_models = find_all_gguf_models()
+
+                        if gguf_models:
+                            # Store model names in available_models
+                            self.available_models = [m.name for m in gguf_models]
+
+                            # Store full model info in global state for later use
+                            _global_backend_state["gguf_models"] = {m.name: m for m in gguf_models}
+
+                            # Select first model by default
+                            if not self.selected_model or self.selected_model not in self.available_models:
+                                self.selected_model = gguf_models[0].name
+
+                            # KoboldCPP can only load ONE model - Automatik uses same model
+                            self.automatik_model = self.selected_model
+                        else:
+                            self.available_models = []
+                            self.add_debug("⚠️ No GGUF models found")
+                            self.add_debug("💡 Download GGUF models:")
+                            self.add_debug("   huggingface-cli download bartowski/Qwen3-30B-Instruct-2507-GGUF \\")
+                            self.add_debug("       Qwen3-30B-Instruct-2507-Q4_K_M.gguf --local-dir ~/models/")
+
+                    except Exception as e:
+                        self.available_models = []
+                        self.add_debug(f"❌ GGUF discovery failed: {e}")
+                        import traceback
+                        self.add_debug(f"   {traceback.format_exc()}")
+
                 else:
                     # Ollama: Query server API
                     endpoint = f'{self.backend_url}/api/tags'
@@ -576,20 +705,29 @@ class AIState(rx.State):
                 self.add_debug(f"❌ Model loading failed: {e}")
                 log_message(f"❌ Model loading failed: {e}")
 
-            # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
-            if self.backend_type == "vllm" and self.automatik_model != self.selected_model:
+            # Backends that can't switch models: ensure Automatik-LLM matches Main-LLM
+            # Check via capabilities instead of hardcoding backend names
+            from aifred.backends import BackendFactory
+            temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
+            caps = temp_backend.get_capabilities()
+
+            if not caps.get("dynamic_models", True) and self.automatik_model != self.selected_model:
                 old_automatik = self.automatik_model
                 self.automatik_model = self.selected_model
-                self.add_debug(f"🔄 Automatik-LLM angepasst: {old_automatik} → {self.selected_model} (vLLM: nur 1 Modell möglich)")
+                self.add_debug(f"🔄 Automatik-LLM angepasst: {old_automatik} → {self.selected_model} ({self.backend_type}: kann Modelle nicht wechseln)")
                 self._save_settings()  # Persist the correction
 
             # Start vLLM process if backend is vLLM
             if self.backend_type == "vllm":
                 await self._start_vllm_server()
 
+            # Start KoboldCPP process if backend is koboldcpp
+            if self.backend_type == "koboldcpp":
+                await self._start_koboldcpp_server()
+
             # Preload Automatik-LLM via curl in background (simple & non-blocking!)
-            # Note: For vLLM, skip preload curl since server was just started with the model
-            if self.automatik_model and self.backend_type != "vllm":
+            # Note: For vLLM/KoboldCPP, skip preload curl since server was just started with the model
+            if self.automatik_model and self.backend_type not in ["vllm", "koboldcpp"]:
                 import subprocess
                 try:
                     if self.backend_type == "ollama":
@@ -658,6 +796,10 @@ class AIState(rx.State):
 
     async def switch_backend(self, new_backend: str):
         """Switch to different backend and restore last used models"""
+        # Ignore header and separator clicks
+        if new_backend in ["header_universal", "separator", "header_modern"]:
+            return
+
         # Prevent concurrent backend switches
         if self.backend_switching:
             self.add_debug("⚠️ Backend switch already in progress, please wait...")
@@ -930,6 +1072,121 @@ class AIState(rx.State):
             self.add_debug(f"❌ vLLM restart failed: {e}")
             raise
 
+    async def _start_koboldcpp_server(self):
+        """Start KoboldCPP server process with selected GGUF model"""
+        global _global_backend_state
+
+        try:
+            # Check if KoboldCPP is already running from global state
+            existing_manager = _global_backend_state.get("koboldcpp_manager")
+            if existing_manager and existing_manager.is_running():
+                self.add_debug("✅ KoboldCPP server already running (using existing process)")
+                return
+
+            # Get GGUF model info from global state
+            gguf_models = _global_backend_state.get("gguf_models", {})
+            if not gguf_models or self.selected_model not in gguf_models:
+                raise RuntimeError(f"GGUF model '{self.selected_model}' not found")
+
+            model_info = gguf_models[self.selected_model]
+            model_path = str(model_info.path)
+
+            # Initialize KoboldCPP Process Manager
+            from aifred.lib.koboldcpp_manager import KoboldCPPProcessManager
+
+            koboldcpp_manager = KoboldCPPProcessManager(port=5001)
+
+            # Start server with automatic context detection (vLLM-style)
+            # Uses cache interpolation and crash recovery
+            def debug_callback(msg: str):
+                self.add_debug(msg)
+
+            success, config_info = await koboldcpp_manager.start_with_auto_detection(
+                model_path=model_path,
+                model_name=self.selected_model,  # For cache lookup
+                timeout=90,
+                feedback_callback=debug_callback
+            )
+
+            if success and config_info:
+                # Show cache status
+                if config_info.get('cached'):
+                    self.add_debug("  • 📈 Context from cache (interpolated)")
+                elif config_info.get('recalibrated'):
+                    self.add_debug("  • 🔄 Context recalibrated (cache updated)")
+                elif config_info.get('calibrated'):
+                    self.add_debug("  • 🔬 Context calibrated (new cache entry)")
+
+                # Cache startup context in backend (like vLLM does)
+                from .backends import BackendFactory
+                koboldcpp_backend = BackendFactory.create("koboldcpp", base_url=self.backend_url)
+                debug_messages = [
+                    f"   Model: {model_info.name}",
+                    f"   GPU Config: {config_info['gpu_config']}"
+                ]
+                koboldcpp_backend.set_startup_context(
+                    context=config_info['context_size'],
+                    debug_messages=debug_messages
+                )
+
+                # Store in global state so it persists across page reloads
+                _global_backend_state["koboldcpp_manager"] = koboldcpp_manager
+                _global_backend_state["koboldcpp_context"] = config_info['context_size']
+
+                # Store context size in global cache for History compression
+                # (same as vLLM does in context_manager.py)
+                from aifred.lib.context_manager import _last_vram_limit_cache
+                _last_vram_limit_cache["limit"] = config_info['context_size']
+
+                self.add_debug("✅ KoboldCPP server ready on port 5001")
+            else:
+                raise RuntimeError("KoboldCPP failed to start with auto-config")
+
+        except Exception as e:
+            self.add_debug(f"❌ Failed to start KoboldCPP: {e}")
+            import traceback
+            self.add_debug(f"   {traceback.format_exc()}")
+            _global_backend_state["koboldcpp_manager"] = None
+
+    async def _stop_koboldcpp_server(self):
+        """Stop KoboldCPP server process gracefully"""
+        global _global_backend_state
+
+        koboldcpp_manager = _global_backend_state.get("koboldcpp_manager")
+        if koboldcpp_manager and koboldcpp_manager.is_running():
+            self.add_debug("🛑 Stopping KoboldCPP server...")
+            await koboldcpp_manager.stop()
+            _global_backend_state["koboldcpp_manager"] = None  # Clear from global state
+            _global_backend_state["koboldcpp_context"] = None
+            self.add_debug("✅ KoboldCPP server stopped")
+
+    async def _restart_koboldcpp_with_new_model(self):
+        """
+        Force restart KoboldCPP server with new model
+
+        This explicitly stops the server, clears global state, and starts fresh.
+        Used by set_selected_model() when switching GGUF models.
+        """
+        global _global_backend_state
+
+        try:
+            # Step 1: Stop existing KoboldCPP server
+            await self._stop_koboldcpp_server()
+
+            # Step 2: Clear global state to force re-initialization
+            _global_backend_state["koboldcpp_manager"] = None
+
+            # Step 3: Start KoboldCPP with new model
+            await self._start_koboldcpp_server()
+
+            # Step 4: Update global state with new configuration
+            _global_backend_state["selected_model"] = self.selected_model
+            _global_backend_state["automatik_model"] = self.automatik_model
+
+        except Exception as e:
+            self.add_debug(f"❌ KoboldCPP restart failed: {e}")
+            raise
+
     async def _cleanup_old_backend(self, old_backend: str):
         """
         Clean up resources from previous backend before switching
@@ -994,6 +1251,28 @@ class AIState(rx.State):
 
             except Exception as e:
                 self.add_debug(f"❌ Failed to stop TabbyAPI: {e}")
+
+        elif old_backend == "koboldcpp":
+            # Stop KoboldCPP server to free VRAM
+            self.add_debug("🛑 Stopping KoboldCPP server...")
+            try:
+                import subprocess
+
+                # Check if KoboldCPP is running
+                result = subprocess.run(["pgrep", "-f", "koboldcpp"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    # Kill KoboldCPP process
+                    subprocess.run(["pkill", "-f", "koboldcpp"])
+                    self.add_debug("✅ KoboldCPP server stopped")
+
+                    # Clean up manager reference
+                    _global_backend_state["koboldcpp_manager"] = None
+                    _global_backend_state["koboldcpp_context"] = None
+                else:
+                    self.add_debug("ℹ️ KoboldCPP server was not running")
+
+            except Exception as e:
+                self.add_debug(f"❌ Failed to stop KoboldCPP: {e}")
 
     async def send_message(self):
         """
@@ -1815,22 +2094,25 @@ class AIState(rx.State):
         self.thinking_mode_warning = ""
         self.add_debug(f"📝 Model changed: {old_model} → {model}")
 
-        # vLLM/TabbyAPI: Force restart backend for model change
-        if self.backend_type in ["vllm", "tabbyapi"] and old_model != model:
-            # vLLM can only load ONE model - set Automatik-LLM to same as Main-LLM
-            if self.backend_type == "vllm" and self.automatik_model != model:
+        # vLLM/TabbyAPI/KoboldCPP: Force restart backend for model change
+        if self.backend_type in ["vllm", "tabbyapi", "koboldcpp"] and old_model != model:
+            # vLLM/KoboldCPP can only load ONE model - set Automatik-LLM to same as Main-LLM
+            if self.backend_type in ["vllm", "koboldcpp"] and self.automatik_model != model:
                 old_automatik = self.automatik_model
                 self.automatik_model = model
-                self.add_debug(f"🔄 Automatik-LLM angepasst: {old_automatik} → {model} (vLLM: nur 1 Modell möglich)")
+                backend_name = "vLLM" if self.backend_type == "vllm" else "KoboldCPP"
+                self.add_debug(f"🔄 Automatik-LLM angepasst: {old_automatik} → {model} ({backend_name}: nur 1 Modell möglich)")
 
             # Reset YaRN to 1.0 on model change (new model needs recalibration)
-            old_yarn_factor = self.yarn_factor
-            if old_yarn_factor != 1.0:
-                self.yarn_factor = 1.0
-                self.yarn_factor_input = "1.0"
-                self.yarn_max_factor = 0.0  # Unknown for new model
-                self.yarn_max_tested = False
-                self.add_debug(f"🔄 YaRN factor reset: {old_yarn_factor:.1f}x → 1.0x (new model needs recalibration)")
+            # Only for vLLM (KoboldCPP doesn't use YaRN)
+            if self.backend_type == "vllm":
+                old_yarn_factor = self.yarn_factor
+                if old_yarn_factor != 1.0:
+                    self.yarn_factor = 1.0
+                    self.yarn_factor_input = "1.0"
+                    self.yarn_max_factor = 0.0  # Unknown for new model
+                    self.yarn_max_tested = False
+                    self.add_debug(f"🔄 YaRN factor reset: {old_yarn_factor:.1f}x → 1.0x (new model needs recalibration)")
 
             self.add_debug("🔄 Backend-Neustart für Modell-Wechsel...")
 
@@ -1841,6 +2123,8 @@ class AIState(rx.State):
             try:
                 if self.backend_type == "vllm":
                     await self._restart_vllm_with_new_config()
+                elif self.backend_type == "koboldcpp":
+                    await self._restart_koboldcpp_with_new_model()
                 else:  # tabbyapi
                     await self.initialize_backend()  # TabbyAPI might not need full restart
                 self.add_debug(f"✅ Neues Modell geladen: {model}")
