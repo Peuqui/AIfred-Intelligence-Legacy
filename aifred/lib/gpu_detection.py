@@ -100,11 +100,14 @@ class GPUDetector:
         """
         Detect GPU and return GPUInfo
 
+        For multi-GPU systems, detects the GPU with the LOWEST compute capability
+        to ensure backend compatibility across all GPUs.
+
         Returns:
             GPUInfo if GPU detected, None otherwise
         """
         try:
-            # Try nvidia-smi first
+            # Try nvidia-smi first - query ALL GPUs
             result = subprocess.run(
                 ["nvidia-smi", "--query-gpu=name,memory.total,compute_cap",
                  "--format=csv,noheader,nounits"],
@@ -116,18 +119,43 @@ class GPUDetector:
             if result.returncode != 0:
                 return None
 
-            # Parse output: "NVIDIA Tesla P40, 22919, 6.1"
-            line = result.stdout.strip()
-            if not line:
+            # Parse output - can be multiple lines for multi-GPU
+            lines = result.stdout.strip().split('\n')
+            if not lines or not lines[0]:
                 return None
 
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) < 3:
+            # For multi-GPU: Find GPU with LOWEST compute capability
+            # This ensures backend compatibility across all GPUs
+            gpu_list = []
+            for line in lines:
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 3:
+                    try:
+                        gpu_list.append({
+                            "name": parts[0],
+                            "vram_mb": int(parts[1]),
+                            "compute_cap": float(parts[2])
+                        })
+                    except ValueError:
+                        continue
+
+            if not gpu_list:
                 return None
 
-            gpu_name = parts[0]
-            vram_mb = int(parts[1])
-            compute_cap = float(parts[2])
+            # Sort by compute capability and take the lowest
+            # (ensures backends work on ALL GPUs, not just the best one)
+            gpu_list.sort(key=lambda x: x["compute_cap"])
+            selected_gpu = gpu_list[0]
+
+            gpu_name = selected_gpu["name"]
+            vram_mb = selected_gpu["vram_mb"]
+            compute_cap = selected_gpu["compute_cap"]
+
+            # Log multi-GPU detection
+            if len(gpu_list) > 1:
+                gpu_names = [f"{g['name']} ({g['compute_cap']})" for g in gpu_list]
+                print(f"🎮 Multi-GPU detected: {', '.join(gpu_names)}")
+                print(f"🎯 Using lowest compute capability: {gpu_name} ({compute_cap}) for compatibility check")
 
             # Determine capabilities
             has_tensor_cores = compute_cap >= 7.0
