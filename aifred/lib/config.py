@@ -197,6 +197,31 @@ VRAM_CONTEXT_RATIO_MOE = 0.10    # ~100KB per token (MoE models, 48% more contex
 # Using percentage-based buffer to scale with context size (2% of vLLM's reported max)
 VLLM_CONTEXT_SAFETY_PERCENT = 0.02  # 2% safety buffer (iteratively applied to each vLLM-reported max)
 
+# KoboldCPP Context Calibration Safety Buffer (Fixed Tokens)
+# Fixed token reduction for KoboldCPP when VRAM-calculated context fails
+# Unlike vLLM (which uses percentage), llama.cpp benefits from fixed reduction:
+# - GGUF models have fixed memory footprint (no dynamic allocation)
+# - llama.cpp OOM errors don't provide exact limits (only "out of memory")
+# - With Q4 KV cache: 1500 tokens ≈ 75MB safety buffer (realistic for Q4 quantized KV)
+KOBOLDCPP_CONTEXT_SAFETY_TOKENS = 1500  # 1.5K token reduction for final attempt (Q4 KV)
+
+# ============================================================
+# KOBOLDCPP ROPE SCALING CONFIGURATION
+# ============================================================
+# Linear RoPE Scaling factor for context extension beyond native limit
+#
+# Quality Impact (Perplexity increase):
+# - 1.0x: No scaling (native context only, best quality)
+# - 1.5x: ~5% perplexity increase (barely noticeable)
+# - 2.0x: ~10% perplexity increase (noticeable in long texts)
+# - 3.0x+: 40-60% perplexity increase (significant quality loss)
+#
+# Example: Native 32K context → 1.5x = 48K, 2.0x = 64K
+#
+# NOTE: vLLM/TabbyAPI use superior YaRN scaling (better quality at same factor)
+# KoboldCPP only supports Linear RoPE (llama.cpp limitation)
+KOBOLDCPP_ROPE_SCALING_FACTOR = 1.5  # Conservative 1.5x for good quality/capacity balance
+
 # ============================================================
 # VECTOR CACHE CONFIGURATION (ChromaDB Similarity Thresholds)
 # ============================================================
