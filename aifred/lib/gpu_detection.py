@@ -60,6 +60,12 @@ class GPUDetector:
             "requires_fast_fp16": False,
             "description": "GGUF models (INT8/Q4/Q8), universal compatibility"
         },
+        "koboldcpp": {
+            "min_compute_capability": 3.5,
+            "requires_tensor_cores": False,
+            "requires_fast_fp16": False,
+            "description": "llama.cpp-based (GGUF), universal compatibility"
+        },
         "vllm": {
             "min_compute_capability": 7.0,
             "requires_tensor_cores": False,
@@ -79,12 +85,12 @@ class GPUDetector:
         "Tesla P40": {
             "fp16_ratio": "1:64",
             "issue": "Extremely slow FP16 performance",
-            "recommendation": "Use Ollama (GGUF) only"
+            "recommendation": "Use Ollama or KoboldCpp (GGUF) only"
         },
         "Tesla P100": {
             "fp16_ratio": "1:2",
             "issue": "Moderate FP16 performance",
-            "recommendation": "Ollama recommended, vLLM possible but slower"
+            "recommendation": "Ollama/KoboldCpp recommended, vLLM possible but slower"
         },
         "Tesla K80": {
             "compute_capability": 3.7,
