@@ -397,6 +397,207 @@ def add_vllm_calibration(
     return save_cache(cache)
 
 
+def add_koboldcpp_calibration(
+    model_id: str,
+    free_vram_mb: int,
+    max_context: int,
+    quantization: str,
+    gpu_model: str,
+    model_size_gb: float
+) -> bool:
+    """
+    Add a new KoboldCPP calibration point for a GGUF model
+
+    Args:
+        model_id: The model identifier (e.g., "bartowski/Qwen3-30B-Instruct-2507-GGUF (Q4_K_M)")
+        free_vram_mb: Free VRAM in MB when this context was measured
+        max_context: Maximum context tokens at this VRAM level
+        quantization: Quantization level (Q4_K_M, Q5_K_S, Q8_0, etc.)
+        gpu_model: GPU model name (e.g., "NVIDIA GeForce RTX 3090 Ti")
+        model_size_gb: GGUF file size in GB
+
+    Returns:
+        True if successfully added, False otherwise
+    """
+    cache = load_cache()
+
+    # Initialize model entry if not exists
+    if model_id not in cache:
+        cache[model_id] = {
+            "backend": "koboldcpp",
+            "quantization": quantization,
+            "model_size_gb": model_size_gb,
+            "gpu_model": gpu_model,
+            "koboldcpp_calibrations": []
+        }
+
+    # Ensure koboldcpp_calibrations exists
+    if "koboldcpp_calibrations" not in cache[model_id]:
+        cache[model_id]["koboldcpp_calibrations"] = []
+
+    # Update metadata
+    cache[model_id]["quantization"] = quantization
+    cache[model_id]["model_size_gb"] = model_size_gb
+    cache[model_id]["gpu_model"] = gpu_model
+
+    # Add calibration point
+    calibration = {
+        "free_vram_mb": free_vram_mb,
+        "max_context": max_context,
+        "measured_at": datetime.now().isoformat()
+    }
+
+    cache[model_id]["koboldcpp_calibrations"].append(calibration)
+
+    # Save and return result
+    return save_cache(cache)
+
+
+def get_koboldcpp_calibrations(model_id: str) -> List[Dict[str, Any]]:
+    """
+    Get all KoboldCPP calibration points for a model
+
+    Args:
+        model_id: The model identifier
+
+    Returns:
+        List of calibration dicts, sorted by free_vram_mb (descending)
+    """
+    cache = load_cache()
+
+    if model_id not in cache:
+        return []
+
+    calibrations = cache[model_id].get("koboldcpp_calibrations", [])
+
+    # Sort by free_vram_mb (most VRAM first)
+    return sorted(calibrations, key=lambda c: c["free_vram_mb"], reverse=True)
+
+
+def interpolate_koboldcpp_context(
+    model_id: str,
+    current_free_vram_mb: int
+) -> Optional[int]:
+    """
+    Interpolate maximum context size based on calibration points
+
+    Similar to vLLM interpolation, but for KoboldCPP GGUF models.
+
+    IMPORTANT: Calibrated contexts already have RoPE scaling applied during calibration.
+    No need to apply RoPE factor again during interpolation.
+
+    Args:
+        model_id: The model identifier
+        current_free_vram_mb: Current free VRAM in MB
+
+    Returns:
+        Estimated max context tokens, or None if no calibration data
+    """
+    calibrations = get_koboldcpp_calibrations(model_id)
+
+    if not calibrations:
+        return None
+
+    # If we have exact match (within 100MB), use it
+    for cal in calibrations:
+        if abs(cal["free_vram_mb"] - current_free_vram_mb) < 100:
+            logger.info(
+                f"📊 Exact cache match for {model_id}: "
+                f"{cal['max_context']:,} tokens @ {cal['free_vram_mb']:,}MB VRAM"
+            )
+            return cal["max_context"]
+
+    # Find bracketing points for interpolation
+    lower_cal = None  # Less VRAM, smaller context
+    upper_cal = None  # More VRAM, larger context
+
+    for cal in calibrations:
+        if cal["free_vram_mb"] <= current_free_vram_mb:
+            if lower_cal is None or cal["free_vram_mb"] > lower_cal["free_vram_mb"]:
+                lower_cal = cal
+        if cal["free_vram_mb"] >= current_free_vram_mb:
+            if upper_cal is None or cal["free_vram_mb"] < upper_cal["free_vram_mb"]:
+                upper_cal = cal
+
+    # Case 1: We have bracketing points - interpolate
+    if lower_cal and upper_cal and lower_cal != upper_cal:
+        vram_range = upper_cal["free_vram_mb"] - lower_cal["free_vram_mb"]
+        context_range = upper_cal["max_context"] - lower_cal["max_context"]
+        vram_offset = current_free_vram_mb - lower_cal["free_vram_mb"]
+
+        interpolated_context = lower_cal["max_context"] + int(
+            (vram_offset / vram_range) * context_range
+        )
+
+        logger.info(
+            f"📊 Interpolated context for {model_id}: {interpolated_context:,} tokens\n"
+            f"   Lower: {lower_cal['max_context']:,} @ {lower_cal['free_vram_mb']:,}MB\n"
+            f"   Upper: {upper_cal['max_context']:,} @ {upper_cal['free_vram_mb']:,}MB\n"
+            f"   Current: {current_free_vram_mb:,}MB VRAM"
+        )
+
+        return interpolated_context
+
+    # Case 2: Extrapolate down (less VRAM than any calibration)
+    if upper_cal and not lower_cal:
+        # Conservative: Scale down proportionally
+        vram_ratio = current_free_vram_mb / upper_cal["free_vram_mb"]
+        extrapolated = int(upper_cal["max_context"] * vram_ratio * 0.9)  # 10% safety margin
+
+        logger.info(
+            f"📊 Extrapolated DOWN for {model_id}: {extrapolated:,} tokens\n"
+            f"   Reference: {upper_cal['max_context']:,} @ {upper_cal['free_vram_mb']:,}MB\n"
+            f"   Current: {current_free_vram_mb:,}MB VRAM (less than calibrated)"
+        )
+
+        return extrapolated
+
+    # Case 3: Extrapolate up (more VRAM than any calibration)
+    if lower_cal and not upper_cal:
+        # Conservative: Use calibration point + small increase
+        vram_increase = current_free_vram_mb - lower_cal["free_vram_mb"]
+
+        # Estimate MB/token from calibration (rough approximation)
+        cache = load_cache()
+        quantization = cache.get(model_id, {}).get("quantization", "Q4")
+
+        mb_per_token = {
+            "Q4": 0.15,
+            "Q5": 0.18,
+            "Q8": 0.30,
+            "IQ4": 0.15,
+            "IQ3": 0.12,
+        }
+
+        quant_level = "Q4"  # Default
+        for key in mb_per_token.keys():
+            if key in quantization:
+                quant_level = key
+                break
+
+        additional_tokens = int(vram_increase / mb_per_token[quant_level])
+        extrapolated = lower_cal["max_context"] + additional_tokens
+
+        logger.info(
+            f"📊 Extrapolated UP for {model_id}: {extrapolated:,} tokens\n"
+            f"   Reference: {lower_cal['max_context']:,} @ {lower_cal['free_vram_mb']:,}MB\n"
+            f"   Current: {current_free_vram_mb:,}MB VRAM (+{vram_increase:,}MB)\n"
+            f"   Added: {additional_tokens:,} tokens ({quant_level} @ {mb_per_token[quant_level]} MB/tok)"
+        )
+
+        return extrapolated
+
+    # Case 4: Single calibration point - use it
+    if lower_cal:
+        logger.info(
+            f"📊 Using single calibration point for {model_id}: "
+            f"{lower_cal['max_context']:,} tokens"
+        )
+        return lower_cal["max_context"]
+
+    return None
+
+
 def delete_cached_model(model_id: str) -> bool:
     """Delete all cache data for a specific model"""
     cache = load_cache()

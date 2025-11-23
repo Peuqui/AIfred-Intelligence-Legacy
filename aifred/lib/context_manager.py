@@ -176,20 +176,34 @@ async def calculate_dynamic_num_ctx(
     # - Ollama: Dynamische VRAM-Berechnung (basierend auf aktuellem freien VRAM)
     # - vLLM: Gecachter Startup-Wert (FIXED, kann nicht zur Laufzeit geändert werden)
     # - TabbyAPI: Gecachter Startup-Wert oder API-Query
+    # - KoboldCPP: Gecachter Startup-Wert (FIXED, num_ctx nicht zur Laufzeit änderbar)
     vram_debug_msgs = []
+    backend = llm_client._get_backend()
+    backend_type = type(backend).__name__
+
     if enable_vram_limit:
         # Use backend-specific context calculation
-        backend = llm_client._get_backend()
         max_practical_ctx, vram_debug_msgs = await backend.calculate_practical_context(model_name)
     else:
         # VRAM-Limit deaktiviert - nutze volles Model-Limit
         max_practical_ctx = model_limit
         log_message(f"⚠️ VRAM-Limit deaktiviert - nutze volles Modell-Limit {model_limit:,} (Risiko: CPU-Offload)")
 
-    # KEINE Rundung - nutze exakte berechnete Zahl!
-    # Clippe nur auf das kleinste Limit (VRAM, Model-Maximum)
+    # Backend-spezifische Context-Berechnung
     calculated_ctx = needed_tokens
-    final_num_ctx = min(calculated_ctx, max_practical_ctx, model_limit)
+
+    if backend_type == "KoboldCPPBackend":
+        # KoboldCPP: num_ctx ist FIXED beim Server-Start, kann nicht zur Laufzeit geändert werden
+        # Wir MÜSSEN immer den vollen Context verwenden (max_practical_ctx = Startup-Wert)
+        final_num_ctx = max_practical_ctx
+        log_message(
+            f"🎯 KoboldCPP: Using fixed startup context: {format_number(final_num_ctx)} tok "
+            f"(~{format_number(estimated_tokens)} benötigt, {format_number(calculated_ctx)} berechnet)"
+        )
+    else:
+        # Ollama/vLLM/TabbyAPI: Dynamische num_ctx Berechnung möglich
+        # Clippe auf das kleinste Limit (VRAM, Model-Maximum)
+        final_num_ctx = min(calculated_ctx, max_practical_ctx, model_limit)
 
     # Speichere VRAM-Limit in globalem Cache für History-Kompression
     # (verhindert dass History das Limit neu berechnen muss)
@@ -199,23 +213,24 @@ async def calculate_dynamic_num_ctx(
     if state is not None:
         state.last_vram_limit = min(max_practical_ctx, model_limit)
 
-    # Warne wenn Context überschritten
-    if calculated_ctx > max_practical_ctx:
-        log_message(
-            f"⚠️ Gewünschter Context {format_number(calculated_ctx)} > Praktisches Limit {format_number(max_practical_ctx)} "
-            f"(VRAM-begrenzt), clippe auf {format_number(final_num_ctx)}"
-        )
-    elif calculated_ctx > model_limit:
-        log_message(
-            f"⚠️ Gewünschter Context {format_number(calculated_ctx)} > Modell-Limit {format_number(model_limit)}, "
-            f"clippe auf {format_number(final_num_ctx)}"
-        )
+    # Warne wenn Context überschritten (nur für Ollama/vLLM/TabbyAPI)
+    if backend_type != "KoboldCPPBackend":
+        if calculated_ctx > max_practical_ctx:
+            log_message(
+                f"⚠️ Gewünschter Context {format_number(calculated_ctx)} > Praktisches Limit {format_number(max_practical_ctx)} "
+                f"(VRAM-begrenzt), clippe auf {format_number(final_num_ctx)}"
+            )
+        elif calculated_ctx > model_limit:
+            log_message(
+                f"⚠️ Gewünschter Context {format_number(calculated_ctx)} > Modell-Limit {format_number(model_limit)}, "
+                f"clippe auf {format_number(final_num_ctx)}"
+            )
 
-    log_message(
-        f"🎯 Context Window: {format_number(final_num_ctx)} tok "
-        f"(berechnet: {format_number(calculated_ctx)}, praktisch: {format_number(max_practical_ctx)}, "
-        f"modell-max: {format_number(model_limit)}, ~{format_number(estimated_tokens)} benötigt)"
-    )
+        log_message(
+            f"🎯 Context Window: {format_number(final_num_ctx)} tok "
+            f"(berechnet: {format_number(calculated_ctx)}, praktisch: {format_number(max_practical_ctx)}, "
+            f"modell-max: {format_number(model_limit)}, ~{format_number(estimated_tokens)} benötigt)"
+        )
 
     return final_num_ctx, vram_debug_msgs
 
