@@ -1114,7 +1114,7 @@ class AIState(rx.State):
             success, config_info = await koboldcpp_manager.start_with_auto_detection(
                 model_path=model_path,
                 model_name=self.selected_model,  # For cache lookup
-                timeout=90,
+                timeout=240,  # 4 minutes for large models (30B needs ~2-3 min to load)
                 feedback_callback=debug_callback
             )
 
