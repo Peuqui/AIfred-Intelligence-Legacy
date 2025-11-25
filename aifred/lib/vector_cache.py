@@ -681,3 +681,23 @@ def reset_cache_instance():
     """
     global _cache_instance
     _cache_instance = None
+
+
+def format_ttl_hours(hours: float) -> str:
+    """
+    Format TTL hours into a human-readable string
+
+    Args:
+        hours: Number of hours
+
+    Returns:
+        Formatted string (e.g., "24h", "7d", "30d")
+    """
+    if hours < 24:
+        return f"{int(hours)}h"
+    elif hours < 24 * 7:
+        days = hours / 24
+        return f"{days:.0f}d" if days == int(days) else f"{days:.1f}d"
+    else:
+        days = hours / 24
+        return f"{int(days)}d"

@@ -212,10 +212,11 @@ class KoboldCPPProcessManager:
         vendor = detect_gpu_vendor()
 
         # Build command
+        # Note: KoboldCpp accepts port as positional parameter: koboldcpp model.gguf [port]
         cmd = [
             str(self.koboldcpp_bin),
             str(model_path),
-            "--port", str(self.port),
+            str(self.port),  # Port as positional parameter
             "--host", self.host,
             "--contextsize", str(context_size),
             "--gpulayers", str(actual_gpu_layers),
@@ -226,8 +227,10 @@ class KoboldCPPProcessManager:
             cmd.extend(["--usecublas", "mmq"])  # AMD ROCm with optimized kernels
             logger.info("   🎮 GPU: AMD ROCm (mmq kernels)")
         elif vendor == "nvidia":
-            cmd.append("--usecuda")  # NVIDIA CUDA (correct flag for KoboldCPP 1.101.1+)
-            logger.info("   🎮 GPU: NVIDIA CUDA")
+            # KoboldCPP: --usecuda without parameters uses ALL GPUs
+            # To use specific GPU: --usecuda 0
+            cmd.append("--usecuda")  # Use all available NVIDIA GPUs
+            logger.info("   🎮 GPU: NVIDIA CUDA (all GPUs)")
         else:
             logger.info("   💻 CPU-only mode")
 
