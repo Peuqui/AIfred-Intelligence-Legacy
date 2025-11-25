@@ -1548,11 +1548,9 @@ class AIState(rx.State):
                     else:
                         self.add_debug(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)")
                 else:
-                    # vLLM/TabbyAPI: Model bereits in VRAM, zeige nur Vorbereitungszeit
-                    prep_time = time.time() - preload_start
-                    self.add_debug(f"🚀 Haupt-LLM ({self.selected_model}) wird vorgeladen...")
-                    yield
-                    self.add_debug(f"✅ Haupt-LLM vorgeladen ({prep_time:.1f}s)")
+                    # vLLM/TabbyAPI/KoboldCPP: Model bereits in VRAM beim Systemstart
+                    # Kein Preload nötig - Backend lädt Modelle bei Server-Start
+                    pass
 
                 # Determine enable_vram_limit based on num_ctx_mode (same logic as Automatik)
                 if self.num_ctx_mode == "manual":

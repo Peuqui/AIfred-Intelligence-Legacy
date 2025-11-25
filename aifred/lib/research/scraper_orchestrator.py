@@ -66,8 +66,8 @@ async def orchestrate_scraping(
     yield {"type": "debug", "message": "🌐 Web-Scraping startet (parallel)"}
 
     # PERFORMANCE: Preload Main LLM during scraping (only for backends that need it)
-    # vLLM and TabbyAPI keep models loaded in VRAM, so preloading is unnecessary
-    needs_preload = llm_client.backend_type not in ["vllm", "tabbyapi"]
+    # vLLM, TabbyAPI and KoboldCPP keep models loaded in VRAM, so preloading is unnecessary
+    needs_preload = llm_client.backend_type not in ["vllm", "tabbyapi", "koboldcpp"]
     preload_task = None
     unload_task = None
     preload_message_sent = False

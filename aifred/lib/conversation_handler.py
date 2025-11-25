@@ -370,11 +370,9 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                     yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)"}
                     log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)")
             else:
-                # vLLM/TabbyAPI: Model bereits in VRAM, zeige nur Vorbereitungszeit
-                prep_time = time.time() - preload_start
-                yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
-                yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({format_number(prep_time, 1)}s)"}
-                log_message(f"✅ Haupt-LLM vorgeladen ({format_number(prep_time, 1)}s - vorbereitung)")
+                # vLLM/TabbyAPI/KoboldCPP: Model bereits in VRAM beim Systemstart
+                # Kein Preload nötig - Backend lädt Modelle bei Server-Start
+                pass
 
             # JETZT VRAM berechnen (NACH Preload, damit model_is_loaded=True!)
             if num_ctx_mode == "manual":
@@ -738,11 +736,9 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                         yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)"}
                         log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)")
                 else:
-                    # vLLM/TabbyAPI: Model bereits in VRAM, zeige nur Vorbereitungszeit
-                    prep_time = time.time() - preload_start
-                    yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
-                    yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({format_number(prep_time, 1)}s)"}
-                    log_message(f"✅ Haupt-LLM vorgeladen ({format_number(prep_time, 1)}s - vorbereitung)")
+                    # vLLM/TabbyAPI/KoboldCPP: Model bereits in VRAM beim Systemstart
+                    # Kein Preload nötig - Backend lädt Modelle bei Server-Start
+                    pass
 
                 yield {"type": "debug", "message": "✅ System-Prompt erstellt"}
 
