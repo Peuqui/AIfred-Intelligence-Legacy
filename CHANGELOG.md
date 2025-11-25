@@ -5,6 +5,104 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2025-11-25
+
+### 🎯 KoboldCPP Dynamic RoPE Scaling & VRAM Optimization
+
+#### Added
+- **KoboldCPP Backend Support** ([aifred/backends/koboldcpp.py](aifred/backends/koboldcpp.py)):
+  - Full KoboldCPP integration as fourth backend (alongside Ollama, vLLM, TabbyAPI)
+  - Auto-start functionality with intelligent VRAM-based context calculation
+  - Dynamic RoPE (Rotary Position Embedding) scaling for context extension
+  - Single-pass optimization: calculates optimal context + RoPE factor before first start
+  - OOM retry strategy with automatic MB/token adjustment
+
+- **Intelligent Context + RoPE Calculation** ([aifred/lib/koboldcpp_manager.py:443-534](aifred/lib/koboldcpp_manager.py#L443-L534)):
+  - New `calculate_optimal_context_and_rope()` method for VRAM-based optimization
+  - Automatically determines if RoPE scaling is beneficial or if context is VRAM-limited
+  - **Logic**:
+    - If `max_tokens > native_context`: Apply RoPE scaling (extend context beyond native)
+    - If `max_tokens ≤ native_context`: Use available VRAM without RoPE (VRAM-limited)
+  - Caps RoPE factor at configurable maximum (default: 2.0x)
+  - Caps context at KoboldCPP hard limit (262,144 tokens)
+
+- **GGUF Metadata Utilities** ([aifred/lib/gguf_utils.py](aifred/lib/gguf_utils.py), [aifred/lib/gguf_utils_vision.py](aifred/lib/gguf_utils_vision.py)):
+  - Extract native context from GGUF files (avoids hardcoded values)
+  - Detect architecture (Qwen2, Llama, etc.) for accurate KV cache calculation
+  - Extract quantization level from filename (Q4_K_M, Q8_0, etc.)
+  - Calculate MB/token for KV cache based on architecture + quantization
+  - Vision model support: VL models use same KV cache as text models (no multiplier)
+
+- **Configuration Options** ([aifred/lib/config.py:228-259](aifred/lib/config.py#L228-L259)):
+  ```python
+  KOBOLDCPP_TARGET_FREE_VRAM_MB = 600        # Target free VRAM after start
+  KOBOLDCPP_SAFETY_MARGIN_MB = 150           # CUDA scratch buffer (fixed)
+  KOBOLDCPP_MAX_ROPE_FACTOR = 2.0            # Maximum RoPE scaling factor
+  KOBOLDCPP_OOM_RETRY_MB_PER_TOKEN_ADJUSTMENT = 0.10  # 10% more conservative per retry
+  KOBOLDCPP_MAX_OOM_RETRIES = 3              # Maximum retry attempts
+  ```
+
+#### Changed
+- **Removed vLLM/TabbyAPI/KoboldCPP Automatik-LLM Messages** ([aifred/state.py:561,730,2130](aifred/state.py)):
+  - Removed verbose "🔄 Automatik-LLM angepasst..." debug messages
+  - These backends can only load one model - adjustment happens silently
+  - Reduces console clutter and prevents horizontal scrolling
+
+#### Fixed
+- **KoboldCPP RoPE Calculation Bugs** (3 critical fixes):
+  - **Bug #1**: Added KoboldCPP maximum context cap (262,144 tokens) - prevented exceeding hard limit
+  - **Bug #2**: Removed incorrect `--overridenativecontext` parameter - was using wrong value
+  - **Bug #3**: Fixed scope error with `log_feedback()` - replaced with `logger.info()` in calculation method
+
+#### Technical Details
+
+**RoPE Scaling Strategy:**
+- **Small Models** (32k native context): Benefit from RoPE extension
+  - Example: Qwen3-14B (32k native) → 65k with RoPE 2.0x @ RTX 3090 Ti
+- **Large Models** (262k native context): Already at maximum
+  - Example: Qwen3-VL-8B (262k native) → No RoPE needed, at KoboldCPP limit
+
+**VRAM Calculation:**
+```python
+usable_vram = total_vram - model_size - safety_margin - target_free_vram
+max_tokens = usable_vram / mb_per_token
+
+if max_tokens > native_context:
+    rope_factor = max_tokens / native_context  # Extend beyond native
+    context = min(max_tokens, 262144)          # Cap at KoboldCPP max
+else:
+    rope_factor = 1.0                          # No RoPE, VRAM-limited
+    context = max_tokens
+```
+
+**OOM Retry Strategy:**
+If initial calculation is too optimistic:
+1. Attempt 1: Optimal calculation with measured MB/token
+2. Attempt 2: +10% more conservative MB/token → recalculate
+3. Attempt 3: +10% again → recalculate
+4. Fail after 3 attempts
+
+**KV Cache Optimization:**
+- Q4 quantization: 0.05 MB/token (75% savings vs FP16)
+- Vision models: Same KV cache as text (vision encoder separate)
+- Architecture-aware: Dense vs MoE models handled correctly
+
+#### Files Modified
+- [aifred/backends/koboldcpp.py](aifred/backends/koboldcpp.py): Complete backend implementation
+- [aifred/lib/koboldcpp_manager.py](aifred/lib/koboldcpp_manager.py): Process management + optimization
+- [aifred/lib/gguf_utils.py](aifred/lib/gguf_utils.py): GGUF metadata extraction
+- [aifred/lib/gguf_utils_vision.py](aifred/lib/gguf_utils_vision.py): Architecture detection + KV cache calculation
+- [aifred/lib/config.py](aifred/lib/config.py): KoboldCPP configuration constants
+- [aifred/state.py](aifred/state.py): Removed verbose Automatik-LLM sync messages (3 locations)
+
+#### Performance Results
+**RTX 3090 Ti (24GB VRAM):**
+- Qwen3-VL-8B (8.5 GB): 262,144 tokens (maximum, no RoPE needed)
+- Qwen3-14B (8 GB): 65,536 tokens (32k native × 2.0 RoPE)
+- Target free VRAM: ~600 MB (optimal for stability)
+
+---
+
 ## [2.1.0] - 2025-11-22
 
 ### 🚀 Major Features

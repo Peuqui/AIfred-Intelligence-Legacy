@@ -76,6 +76,7 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
 - **Debug Console**: Comprehensive logging and monitoring
 - **ChromaDB Server Mode**: Thread-safe vector DB via Docker (0.0 distance for exact matches)
 - **GPU Detection**: Automatic detection and warnings for incompatible backend-GPU combinations ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
+- **KoboldCPP Dynamic RoPE**: Intelligent VRAM-based context optimization with automatic RoPE scaling
 
 ---
 
@@ -633,10 +634,26 @@ sudo systemctl start vllm_qwen3_awq
 ```
 
 6. **Start ChromaDB Vector Cache** (Docker):
+
+**Prerequisites:** Docker Compose v2 recommended
+```bash
+# Install Docker Compose v2 (if not already installed)
+sudo apt-get install docker-compose-plugin
+docker compose version  # should show v2.x.x
+```
+
+**Start ChromaDB:**
 ```bash
 cd docker
 docker compose up -d chromadb
 cd ..
+
+# Verify it's healthy
+docker ps | grep chroma
+# Should show: (healthy) in status
+
+# Test API v2
+curl http://localhost:8000/api/v2/heartbeat
 ```
 
 **Optional: Also start SearXNG** (local search engine):
@@ -697,6 +714,7 @@ AIfred supports different LLM backends that can be switched dynamically in the U
 - **Ollama**: GGUF models (Q4/Q8), easiest installation
 - **vLLM**: AWQ models (4-bit), best performance with AWQ Marlin kernel
 - **TabbyAPI**: EXL2 models (ExLlamaV2/V3), experimental
+- **KoboldCPP**: GGUF models with dynamic RoPE scaling and VRAM optimization
 
 ### GPU Compatibility Detection
 
