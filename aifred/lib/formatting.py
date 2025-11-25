@@ -93,7 +93,7 @@ def format_debug_message(message: str) -> str:
     return f"{timestamp} | {message}"
 
 
-def format_thinking_process(ai_response, model_name=None, inference_time=None):
+def format_thinking_process(ai_response, model_name=None, inference_time=None, tokens_per_sec=None):
     """
     Formatiert <think> Tags als Collapsible Accordion für den Chat.
 
@@ -101,6 +101,7 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None):
         ai_response: Die AI-Antwort mit optionalen <think> Tags
         model_name: Name des verwendeten Modells (z.B. "qwen3:1.7b")
         inference_time: Inferenz-Zeit in Sekunden
+        tokens_per_sec: Tokens pro Sekunde (optional)
 
     Returns:
         Formatted string mit Collapsible für Denkprozess (inkl. Modell-Name)
