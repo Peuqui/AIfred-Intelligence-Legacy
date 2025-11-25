@@ -22,13 +22,14 @@ echo
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+SYSTEMD_DIR="$PROJECT_DIR/systemd"
 
 echo "📂 Projekt-Verzeichnis: $PROJECT_DIR"
 echo
 
 # Check if service files exist
-if [ ! -f "$SCRIPT_DIR/aifred-chromadb.service" ] || [ ! -f "$SCRIPT_DIR/aifred-intelligence.service" ]; then
-    echo "❌ Service-Dateien nicht gefunden in: $SCRIPT_DIR"
+if [ ! -f "$SYSTEMD_DIR/aifred-chromadb.service" ] || [ ! -f "$SYSTEMD_DIR/aifred-intelligence.service" ]; then
+    echo "❌ Service-Dateien nicht gefunden in: $SYSTEMD_DIR"
     exit 1
 fi
 
@@ -36,11 +37,11 @@ echo "1️⃣  Erstelle Service-Dateien (mit aktuellen Pfaden)..."
 # Replace placeholders in service files
 sed -e "s|__USER__|$ACTUAL_USER|g" \
     -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
-    "$SCRIPT_DIR/aifred-chromadb.service" > /etc/systemd/system/aifred-chromadb.service
+    "$SYSTEMD_DIR/aifred-chromadb.service" > /etc/systemd/system/aifred-chromadb.service
 
 sed -e "s|__USER__|$ACTUAL_USER|g" \
     -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
-    "$SCRIPT_DIR/aifred-intelligence.service" > /etc/systemd/system/aifred-intelligence.service
+    "$SYSTEMD_DIR/aifred-intelligence.service" > /etc/systemd/system/aifred-intelligence.service
 
 echo "   ✅ Service-Dateien erstellt mit:"
 echo "      User: $ACTUAL_USER"

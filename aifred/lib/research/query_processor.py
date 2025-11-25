@@ -128,7 +128,8 @@ async def process_query_and_search(
     user_text: str,
     history: List[tuple],
     automatik_model: str,
-    automatik_llm_client
+    automatik_llm_client,
+    llm_options: Dict = None
 ) -> AsyncIterator[Dict]:
     """
     Process query optimization and perform web search
@@ -138,6 +139,7 @@ async def process_query_and_search(
         history: Chat history for context
         automatik_model: Automatik LLM model name
         automatik_llm_client: Automatik LLM client
+        llm_options: Optional Dict mit enable_thinking toggle
 
     Yields:
         Dict: Debug messages and search results
@@ -229,7 +231,8 @@ async def process_query_and_search(
             automatik_model=automatik_model,
             history=history,
             llm_client=automatik_llm_client,
-            automatik_llm_context_limit=automatik_limit
+            automatik_llm_context_limit=automatik_limit,
+            llm_options=llm_options
         )
         query_opt_time = max(0, time.time() - query_opt_start)
 
@@ -290,7 +293,8 @@ async def process_query_and_search(
             automatik_model=automatik_model,
             history=history,
             llm_client=automatik_llm_client,
-            automatik_llm_context_limit=automatik_limit
+            automatik_llm_context_limit=automatik_limit,
+            llm_options=llm_options
         )
         query_opt_time = max(0, time.time() - query_opt_start)
 

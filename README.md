@@ -78,6 +78,16 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
 - **GPU Detection**: Automatic detection and warnings for incompatible backend-GPU combinations ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
 - **KoboldCPP Dynamic RoPE**: Intelligent VRAM-based context optimization with automatic RoPE scaling
 
+### ⚠️ Model Recommendations
+- **Automatik-LLM (Decision/Intent/Query-Opt)**: Use **Instruct models** only
+  - Thinking Models (QwQ-32B, DeepSeek-R1, etc.) are incompatible with Automatik tasks
+  - These models ignore `enable_thinking` flags and produce verbose reasoning
+  - This causes empty query optimization and failed decision-making
+  - **Fallbacks are in place**, but performance is suboptimal
+- **Main LLM**: Both Instruct and Thinking models work perfectly
+  - Thinking models excel at complex reasoning and multi-step tasks
+  - Enable "Thinking Mode" toggle for chain-of-thought reasoning
+
 ---
 
 ## 🔄 Research Mode Workflows

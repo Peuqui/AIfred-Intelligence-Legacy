@@ -63,7 +63,13 @@ async def perform_agent_research(
 
     # Initialize LLM clients with correct backend
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
-    automatik_llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
+
+    # Only Ollama supports model switching - other backends reuse same client
+    if backend_type == 'ollama':
+        automatik_llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
+    else:
+        # KoboldCPP, vLLM, TabbyAPI: Same model, same client (no model switching)
+        automatik_llm_client = llm_client
 
     # ==============================================================
     # PHASE 1: Cache-Hit Check
@@ -91,7 +97,9 @@ async def perform_agent_research(
     if cache_handled:
         # Cache hit handled everything - we're done
         await llm_client.close()
-        await automatik_llm_client.close()
+        # Only close automatik_llm_client if it's a separate instance (Ollama)
+        if backend_type == 'ollama':
+            await automatik_llm_client.close()
         return
 
     # ==============================================================
@@ -107,7 +115,8 @@ async def perform_agent_research(
         user_text=user_text,
         history=history,
         automatik_model=automatik_model,
-        automatik_llm_client=automatik_llm_client
+        automatik_llm_client=automatik_llm_client,
+        llm_options=llm_options
     ):
         if item["type"] == "query_result":
             optimized_query, query_reasoning, query_opt_time, related_urls, tool_results = item["data"]
@@ -211,4 +220,6 @@ async def perform_agent_research(
 
     # Cleanup
     await llm_client.close()
-    await automatik_llm_client.close()
+    # Only close automatik_llm_client if it's a separate instance (Ollama)
+    if backend_type == 'ollama':
+        await automatik_llm_client.close()

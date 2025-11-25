@@ -21,6 +21,7 @@ from ..message_builder import build_messages_from_history
 from ..formatting import format_thinking_process, build_debug_accordion, format_metadata, format_number
 from ..logging_utils import log_message
 from ..config import CHARS_PER_TOKEN, TTL_HOURS
+from ..vector_cache import format_ttl_hours
 from ..intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
 
 
@@ -184,7 +185,7 @@ async def build_and_generate_response(
             f"Context-Limit {format_number(final_num_ctx)} Tokens\n"
             f"   Bitte kürze deine Anfrage oder aktiviere 'Manual Context' mit höherem Wert."
         )
-        log_message(error_msg)
+        # Only yield - UI will handle logging via add_debug() which calls log_message()
         yield {"type": "debug", "message": error_msg}
 
         # Reset UI progress state before returning error
@@ -203,7 +204,8 @@ async def build_and_generate_response(
         rag_intent = await detect_query_intent(
             user_query=user_text,
             automatik_model=automatik_model,
-            llm_client=automatik_llm_client
+            llm_client=automatik_llm_client,
+            llm_options=llm_options
         )
         final_temperature = get_temperature_for_intent(rag_intent)
         temp_label = get_temperature_label(rag_intent)
@@ -214,10 +216,18 @@ async def build_and_generate_response(
     yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
     yield {"type": "progress", "phase": "llm"}
 
+    # Calculate dynamic num_predict: Available output space after input tokens
+    # Safety margin: 2048 tokens (for tokenizer inaccuracies and buffer)
+    safety_margin = 2048
+    available_output = max(512, final_num_ctx - input_tokens - safety_margin)
+
+    log_message(f"🧮 Dynamic num_predict: {format_number(available_output)} tokens (num_ctx: {format_number(final_num_ctx)}, input: {format_number(input_tokens)}, margin: {safety_margin})")
+
     # Build LLM options (include enable_thinking from user settings)
     research_llm_options = {
         'temperature': final_temperature,
-        'num_ctx': final_num_ctx
+        'num_ctx': final_num_ctx,
+        'num_predict': available_output  # Dynamic: Full available output space
     }
 
     # Add enable_thinking if provided in llm_options (user toggle)
@@ -286,7 +296,7 @@ async def build_and_generate_response(
     yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
     # Format thinking process
-    thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
+    thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time, tokens_per_sec=tokens_per_sec)
 
     # Build debug accordion with query reasoning
     ai_response_complete = build_debug_accordion(
@@ -339,8 +349,9 @@ async def build_and_generate_response(
             else:
                 ttl_hours = TTL_HOURS.get(volatility)
                 if ttl_hours:
-                    log_message(f"💾 Vector Cache: Saved with {volatility} TTL ({format_number(ttl_hours)}h, {result.get('total_entries')} entries)")
-                    yield {"type": "debug", "message": f"💾 Saved to Cache (TTL: {format_number(ttl_hours)}h)"}
+                    ttl_formatted = format_ttl_hours(ttl_hours)
+                    log_message(f"💾 Vector Cache: Saved with {volatility} TTL ({ttl_formatted}, {result.get('total_entries')} entries)")
+                    yield {"type": "debug", "message": f"💾 Saved to Cache (TTL: {ttl_formatted})"}
                 else:
                     log_message(f"💾 Vector Cache: Saved as PERMANENT ({result.get('total_entries')} entries)")
                     yield {"type": "debug", "message": "💾 Saved to Cache (PERMANENT)"}

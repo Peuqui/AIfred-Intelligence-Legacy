@@ -31,11 +31,6 @@ logger = logging.getLogger(__name__)
 class KoboldCPPBackend(LLMBackend):
     """KoboldCPP backend implementation (OpenAI-compatible)"""
 
-    # Class-level cache for startup context (shared across ALL instances)
-    # This ensures the cached value persists even when backend instances are recreated
-    _global_startup_context: Optional[int] = None
-    _global_startup_context_debug: List[str] = []
-
     def __init__(self, base_url: str = "http://localhost:5001/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
         self.client = AsyncOpenAI(
@@ -288,10 +283,21 @@ class KoboldCPPBackend(LLMBackend):
                     # Try to get it from global state (set during server startup)
                     try:
                         from aifred.state import _global_backend_state
-                        cached_context = _global_backend_state.get("koboldcpp_context", 0)
 
+                        # IMPORTANT: Return NATIVE context (model's true max) not VRAM-optimized context
+                        # This ensures "Model Max" shows 262k instead of 105k
+                        native_context = _global_backend_state.get("koboldcpp_native_context")
+
+                        if native_context and native_context > 0:
+                            logger.info(f"Using native KoboldCPP context: {native_context:,} tokens (from GGUF metadata)")
+                            return (native_context, 0)
+
+                        # Fallback: Use VRAM-optimized context if native not available
+                        cached_context = _global_backend_state.get("koboldcpp_context", 0)
                         if cached_context > 0:
-                            logger.info(f"Using cached KoboldCPP context: {cached_context:,} tokens")
+                            logger.warning(
+                                f"Native context not available, using VRAM-optimized context: {cached_context:,} tokens"
+                            )
                             return (cached_context, 0)
                         else:
                             logger.warning(
@@ -360,7 +366,7 @@ class KoboldCPPBackend(LLMBackend):
         Calculate practical context for KoboldCPP (FIXED at server startup)
 
         KoboldCPP models are started with a fixed context limit that cannot
-        be changed at runtime. Return the cached startup context.
+        be changed at runtime. Return the cached startup context from global state.
 
         Args:
             model: Model name
@@ -370,17 +376,14 @@ class KoboldCPPBackend(LLMBackend):
         """
         debug_msgs = []
 
-        # Check if we have a cached startup context
-        if self._global_startup_context is not None:
-            debug_msgs.append(
-                f"💾 KoboldCPP Context: {self._global_startup_context:,} tokens "
-                f"(cached from server startup)"
-            )
-            debug_msgs.extend(self._global_startup_context_debug)
-            return (self._global_startup_context, debug_msgs)
+        # Read context from global state (single source of truth)
+        from aifred.state import _global_backend_state
+        cached_context = _global_backend_state.get("koboldcpp_context")
 
-        # No cached context - this should not happen if server was started correctly
-        # Fall back to a conservative default
+        if cached_context:
+            return (cached_context, debug_msgs)
+
+        # No cached context - server not started yet or startup failed
         logger.warning(
             f"No cached startup context for KoboldCPP model '{model}'. "
             f"Using default 4096 tokens. This may be incorrect."
@@ -397,14 +400,15 @@ class KoboldCPPBackend(LLMBackend):
 
         This method is called by KoboldCPP Manager after successfully starting the
         KoboldCPP server to cache the context limit that was calculated and used
-        for the --contextsize parameter.
+        for the --contextsize parameter. Stores value in global backend state.
 
         Args:
             context: Context limit in tokens (from KoboldCPP Manager)
             debug_messages: Debug messages from context calculation
         """
-        KoboldCPPBackend._global_startup_context = context
-        KoboldCPPBackend._global_startup_context_debug = debug_messages
+        # Store in global backend state (single source of truth)
+        from aifred.state import _global_backend_state
+        _global_backend_state["koboldcpp_context"] = context
         logger.info(f"✅ KoboldCPP startup context cached: {context:,} tokens")
 
     async def close(self):

@@ -7,6 +7,7 @@ Classifies user queries for adaptive temperature selection:
 - GEMISCHT: Mixed queries (medium temperature)
 """
 
+from typing import Optional, Dict
 from .logging_utils import log_message
 from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prompt
 
@@ -41,7 +42,8 @@ def parse_intent_from_response(intent_raw: str, context: str = "general") -> str
 async def detect_query_intent(
     user_query: str,
     automatik_model: str,
-    llm_client
+    llm_client,
+    llm_options: Optional[Dict] = None
 ) -> str:
     """
     Erkennt die Intent einer User-Anfrage für adaptive Temperature-Wahl
@@ -50,6 +52,7 @@ async def detect_query_intent(
         user_query: User-Frage
         automatik_model: LLM für Intent-Detection
         llm_client: LLMClient instance
+        llm_options: Optional Dict mit enable_thinking toggle
 
     Returns:
         str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
@@ -64,14 +67,25 @@ async def detect_query_intent(
     try:
         log_message(f"🎯 Intent-Detection für Query: {user_query[:60]}...")
 
+        # Build options
+        intent_options = {
+            'temperature': 0.2,  # Niedrig für konsistente Intent-Detection
+            'num_ctx': 4096,  # Standard Context für Intent-Detection
+            'num_predict': 32,  # Short: "FAKTISCH" / "KREATIV" = ~10 tokens (3x buffer)
+            'enable_thinking': False  # Default: Fast intent detection without reasoning
+        }
+
+        # Use user's enable_thinking toggle if explicitly set
+        if llm_options and 'enable_thinking' in llm_options:
+            intent_options['enable_thinking'] = llm_options['enable_thinking']
+            log_message(f"🧠 Intent enable_thinking: {llm_options['enable_thinking']} (from user toggle)")
+        else:
+            log_message(f"🧠 Intent enable_thinking: False (default - fast intent mode)")
+
         response = await llm_client.chat(
             model=automatik_model,
             messages=[{'role': 'user', 'content': prompt}],
-            options={
-                'temperature': 0.2,  # Niedrig für konsistente Intent-Detection
-                'num_ctx': 4096,  # Standard Context für Intent-Detection
-                'enable_thinking': False  # Fast decisions, no reasoning needed
-            }
+            options=intent_options
         )
         intent_raw = response.text
 
@@ -88,7 +102,8 @@ async def detect_cache_followup_intent(
     original_query: str,
     followup_query: str,
     automatik_model: str,
-    llm_client
+    llm_client,
+    llm_options: Optional[Dict] = None
 ) -> str:
     """
     Erkennt die Intent einer Nachfrage zu einer gecachten Recherche
@@ -98,6 +113,7 @@ async def detect_cache_followup_intent(
         followup_query: Nachfrage des Users
         automatik_model: LLM für Intent-Detection
         llm_client: LLMClient instance
+        llm_options: Optional Dict mit enable_thinking toggle
 
     Returns:
         str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
@@ -116,14 +132,25 @@ async def detect_cache_followup_intent(
     try:
         log_message(f"🎯 Cache-Followup Intent-Detection mit {automatik_model}: {followup_query[:60]}...")
 
+        # Build options
+        followup_intent_options = {
+            'temperature': 0.2,
+            'num_ctx': 4096,
+            'num_predict': 32,  # Short: "FAKTISCH" / "KREATIV" = ~10 tokens (3x buffer)
+            'enable_thinking': False  # Default: Fast intent detection without reasoning
+        }
+
+        # Use user's enable_thinking toggle if explicitly set
+        if llm_options and 'enable_thinking' in llm_options:
+            followup_intent_options['enable_thinking'] = llm_options['enable_thinking']
+            log_message(f"🧠 Followup Intent enable_thinking: {llm_options['enable_thinking']} (from user toggle)")
+        else:
+            log_message(f"🧠 Followup Intent enable_thinking: False (default - fast intent mode)")
+
         response = await llm_client.chat(
             model=automatik_model,
             messages=[{'role': 'user', 'content': prompt}],
-            options={
-                'temperature': 0.2,
-                'num_ctx': 4096,
-                'enable_thinking': False  # Fast decisions, no reasoning needed
-            }
+            options=followup_intent_options
         )
         intent_raw = response.text
 

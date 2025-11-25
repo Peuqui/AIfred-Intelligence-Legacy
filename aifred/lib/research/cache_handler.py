@@ -154,7 +154,8 @@ async def handle_cache_hit(
             original_query=cache_entry.get('user_text', ''),
             followup_query=user_text,
             automatik_model=automatik_model,
-            llm_client=automatik_llm_client
+            llm_client=automatik_llm_client,
+            llm_options=llm_options
         )
         final_temperature = get_temperature_for_intent(followup_intent)
         temp_label = get_temperature_label(followup_intent)
@@ -173,10 +174,18 @@ async def handle_cache_hit(
     ttft = None
     first_token_received = False
 
+    # Calculate dynamic num_predict: Available output space after input tokens
+    # Safety margin: 2048 tokens (for tokenizer inaccuracies and buffer)
+    safety_margin = 2048
+    available_output = max(512, final_num_ctx - input_tokens - safety_margin)
+
+    log_message(f"🧮 Dynamic num_predict: {format_number(available_output)} tokens (num_ctx: {format_number(final_num_ctx)}, input: {format_number(input_tokens)}, margin: {safety_margin})")
+
     # Build LLM options (include enable_thinking from user settings)
     cache_llm_options = {
         'temperature': final_temperature,  # Adaptive oder Manual Temperature!
-        'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
+        'num_ctx': final_num_ctx,  # Dynamisch berechnet oder User-Vorgabe
+        'num_predict': available_output  # Dynamic: Full available output space
     }
 
     # Add enable_thinking if provided in llm_options (user toggle)
@@ -217,7 +226,7 @@ async def handle_cache_hit(
     yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({format_number(llm_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s, Cache-Total: {format_number(total_time, 1)}s)"}
 
     # Formatiere <think> Tags als Collapsible (falls vorhanden)
-    final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time)
+    final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time, tokens_per_sec=tokens_per_sec)
 
     # Zeitmessung-Text
     timing_text = f" (Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s, {format_number(tokens_per_sec, 1)} tok/s, Quelle: Session Cache)"

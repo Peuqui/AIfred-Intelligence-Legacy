@@ -24,11 +24,6 @@ logger = logging.getLogger(__name__)
 class vLLMBackend(LLMBackend):
     """vLLM backend implementation (OpenAI-compatible)"""
 
-    # Class-level cache for startup context (shared across ALL instances)
-    # This ensures the cached value persists even when backend instances are recreated
-    _global_startup_context: Optional[int] = None
-    _global_startup_context_debug: List[str] = []
-
     def __init__(self, base_url: str = "http://localhost:8000/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
         self.client = AsyncOpenAI(
@@ -380,7 +375,7 @@ class vLLMBackend(LLMBackend):
 
         vLLM's context is set at server startup via --max-model-len and cannot
         be changed without restarting the server. This method returns the cached
-        value that was set when the vLLM server started.
+        value from global state.
 
         Args:
             model: Model name (ignored, vLLM only serves one model)
@@ -391,7 +386,11 @@ class vLLMBackend(LLMBackend):
         Raises:
             RuntimeError: If startup context not set (server not started properly)
         """
-        if vLLMBackend._global_startup_context is None:
+        # Read context from global state (single source of truth)
+        from aifred.state import _global_backend_state
+        cached_context = _global_backend_state.get("vllm_context")
+
+        if cached_context is None:
             # This should never happen if vLLM Manager set the value correctly
             raise RuntimeError(
                 "vLLM startup context not set. "
@@ -399,7 +398,8 @@ class vLLMBackend(LLMBackend):
             )
 
         # Return cached startup value (FIXED, cannot recalculate)
-        return vLLMBackend._global_startup_context, vLLMBackend._global_startup_context_debug
+        debug_msgs = [f"💾 vLLM Context: {cached_context:,} tokens (from global state)"]
+        return (cached_context, debug_msgs)
 
     def set_startup_context(self, context: int, debug_messages: List[str]) -> None:
         """
@@ -407,14 +407,15 @@ class vLLMBackend(LLMBackend):
 
         This method is called by vLLM Manager after successfully starting the
         vLLM server to cache the context limit that was calculated and used
-        for the --max-model-len parameter.
+        for the --max-model-len parameter. Stores value in global backend state.
 
         Args:
             context: Context limit in tokens (from vLLM Manager)
             debug_messages: Debug messages from context calculation
         """
-        vLLMBackend._global_startup_context = context
-        vLLMBackend._global_startup_context_debug = debug_messages
+        # Store in global backend state (single source of truth)
+        from aifred.state import _global_backend_state
+        _global_backend_state["vllm_context"] = context
         logger.info(f"✅ vLLM startup context cached: {context:,} tokens")
 
     async def close(self):
