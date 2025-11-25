@@ -556,9 +556,7 @@ class AIState(rx.State):
 
             # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
             if self.backend_type == "vllm" and self.automatik_model != self.selected_model:
-                old_automatik = self.automatik_model
                 self.automatik_model = self.selected_model
-                self.add_debug(f"🔄 Automatik-LLM angepasst: {old_automatik} → {self.selected_model} (vLLM: nur 1 Modell möglich)")
                 _global_backend_state["automatik_model"] = self.selected_model  # Update global state
                 self._save_settings()  # Persist the correction
 
@@ -569,6 +567,14 @@ class AIState(rx.State):
                     self.add_debug("✅ vLLM server already running (restored from global state)")
                 else:
                     self.add_debug("⚠️ vLLM manager exists but server not running")
+
+            # Check KoboldCPP manager status if exists
+            if self.backend_type == "koboldcpp":
+                koboldcpp_manager = _global_backend_state.get("koboldcpp_manager")
+                if koboldcpp_manager and koboldcpp_manager.is_running():
+                    self.add_debug("✅ KoboldCPP server already running (restored from global state)")
+                else:
+                    self.add_debug("⚠️ KoboldCPP manager exists but server not running")
 
             self.backend_healthy = True
             self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
@@ -697,7 +703,12 @@ class AIState(rx.State):
 
                 self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
                 self.backend_healthy = True
-                self.add_debug(f"✅ {len(self.available_models)} Models vorhanden (Main: {self.selected_model}, Automatik: {self.automatik_model})")
+
+                # For backends without model switching (vLLM, KoboldCPP, TabbyAPI), show only Main model
+                if self.backend_type.lower() in ["vllm", "koboldcpp", "tabbyapi"]:
+                    self.add_debug(f"✅ {len(self.available_models)} Models vorhanden (Main: {self.selected_model})")
+                else:
+                    self.add_debug(f"✅ {len(self.available_models)} Models vorhanden (Main: {self.selected_model}, Automatik: {self.automatik_model})")
 
             except Exception as e:
                 self.backend_healthy = False
@@ -712,10 +723,15 @@ class AIState(rx.State):
             caps = temp_backend.get_capabilities()
 
             if not caps.get("dynamic_models", True) and self.automatik_model != self.selected_model:
-                old_automatik = self.automatik_model
                 self.automatik_model = self.selected_model
-                self.add_debug(f"🔄 Automatik-LLM angepasst: {old_automatik} → {self.selected_model} ({self.backend_type}: kann Modelle nicht wechseln)")
                 self._save_settings()  # Persist the correction
+
+            # Store in global state BEFORE starting servers (so fast path works on reload)
+            _global_backend_state["backend_type"] = self.backend_type
+            _global_backend_state["backend_url"] = self.backend_url
+            _global_backend_state["selected_model"] = self.selected_model
+            _global_backend_state["automatik_model"] = self.automatik_model
+            _global_backend_state["available_models"] = self.available_models
 
             # Start vLLM process if backend is vLLM
             if self.backend_type == "vllm":
@@ -747,13 +763,7 @@ class AIState(rx.State):
                     # Not critical, continue anyway
 
             # Store in global state for future page reloads
-            _global_backend_state["backend_type"] = self.backend_type
-            _global_backend_state["backend_url"] = self.backend_url
-            _global_backend_state["selected_model"] = self.selected_model
-            _global_backend_state["automatik_model"] = self.automatik_model
-            _global_backend_state["available_models"] = self.available_models
-            # vllm_manager is already stored in _global_backend_state by _start_vllm_server()
-
+            # vllm_manager and koboldcpp_manager are already stored in _global_backend_state by their start functions
             print(f"✅ Backend '{self.backend_type}' fully initialized and stored in global state")
 
             # Mark initialization as complete (hide loading spinner)
@@ -1132,6 +1142,7 @@ class AIState(rx.State):
                 # Store in global state so it persists across page reloads
                 _global_backend_state["koboldcpp_manager"] = koboldcpp_manager
                 _global_backend_state["koboldcpp_context"] = config_info['context_size']
+                _global_backend_state["koboldcpp_native_context"] = config_info.get('native_context')
 
                 # Store context size in global cache for History compression
                 # (same as vLLM does in context_manager.py)
@@ -1347,6 +1358,7 @@ class AIState(rx.State):
                         # Update the temporary entry in chat history with the new content
                         if temp_history_index < len(self.chat_history):
                             self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
+                        yield  # CRITICAL: Update UI to prevent backpressure during fast streaming
                     elif item["type"] == "result":
                         result_data = item["data"]
                         # Extract and update history IMMEDIATELY
@@ -1512,15 +1524,23 @@ class AIState(rx.State):
                 system_prompt_minimal = load_prompt('system_minimal', lang=detected_language)
                 messages.insert(0, {"role": "system", "content": system_prompt_minimal})
 
-                # Create backend instance
+                # Create backend and LLM client instances
                 from .backends import BackendFactory, LLMOptions, LLMMessage
+                from .lib.llm_client import LLMClient
+
                 backend = BackendFactory.create(
                     self.backend_type,
                     base_url=self.backend_url
                 )
 
+                # Wrap backend in LLMClient for context calculation
+                llm_client = LLMClient(
+                    backend_type=self.backend_type,
+                    base_url=self.backend_url
+                )
+
                 # Get model context limit
-                model_limit, _ = await backend.get_model_context_limit(self.selected_model)
+                model_limit, _ = await llm_client.get_model_context_limit(self.selected_model)
 
                 # Count actual input tokens (using real tokenizer)
                 from .lib.context_manager import estimate_tokens
@@ -1566,7 +1586,7 @@ class AIState(rx.State):
                     # Dynamic num_ctx calculation (AFTER preload to get accurate VRAM state)
                     from .lib.context_manager import calculate_dynamic_num_ctx
                     final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
-                        backend, self.selected_model, messages, None,
+                        llm_client, self.selected_model, messages, None,
                         enable_vram_limit=enable_vram_limit
                     )
 
@@ -1593,9 +1613,6 @@ class AIState(rx.State):
                     enable_thinking=self.enable_thinking
                 )
 
-                # Convert to LLMMessage format
-                llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
-
                 # Console: LLM starts (matching Automatik mode)
                 self.add_debug(f"🤖 Haupt-LLM startet: {self.selected_model}")
                 yield
@@ -1608,9 +1625,9 @@ class AIState(rx.State):
                 first_token_received = False
                 tokens_generated = 0
 
-                async for chunk in backend.chat_stream(
+                async for chunk in llm_client.chat_stream(
                     model=self.selected_model,
-                    messages=llm_messages,
+                    messages=messages,
                     options=llm_options
                 ):
                     if chunk["type"] == "content":
@@ -1645,14 +1662,21 @@ class AIState(rx.State):
                 yield
 
                 # Format <think> tags as collapsible (if present)
-                from .lib.formatting import format_thinking_process
-                formatted_response = format_thinking_process(
+                from .lib.formatting import format_thinking_process, format_metadata, format_number
+                thinking_html = format_thinking_process(
                     full_response,
                     model_name=self.selected_model,
-                    inference_time=inference_time
+                    inference_time=inference_time,
+                    tokens_per_sec=tokens_per_sec
                 )
 
-                # Update chat history with formatted response (thinking already includes timing)
+                # Add metadata footer (Inferenz + Tok/s + Quelle) like other modes
+                metadata = format_metadata(
+                    f"(Inferenz: {format_number(inference_time, 1)}s ({format_number(tokens_per_sec, 1)} tok/s), Quelle: Trainingsdaten)"
+                )
+                formatted_response = f"{thinking_html} {metadata}"
+
+                # Update chat history with formatted response + metadata
                 self.chat_history[temp_history_index] = (user_msg, formatted_response)
                 yield  # Update UI
 
@@ -1662,7 +1686,7 @@ class AIState(rx.State):
                 self.is_generating = False
                 yield  # Force UI update
 
-                await backend.close()
+                await llm_client.close()
 
             # ============================================================
             # POST-RESPONSE: History Summarization Check (im Hintergrund)
@@ -2096,10 +2120,7 @@ class AIState(rx.State):
         if self.backend_type in ["vllm", "tabbyapi", "koboldcpp"] and old_model != model:
             # vLLM/KoboldCPP can only load ONE model - set Automatik-LLM to same as Main-LLM
             if self.backend_type in ["vllm", "koboldcpp"] and self.automatik_model != model:
-                old_automatik = self.automatik_model
                 self.automatik_model = model
-                backend_name = "vLLM" if self.backend_type == "vllm" else "KoboldCPP"
-                self.add_debug(f"🔄 Automatik-LLM angepasst: {old_automatik} → {model} ({backend_name}: nur 1 Modell möglich)")
 
             # Reset YaRN to 1.0 on model change (new model needs recalibration)
             # Only for vLLM (KoboldCPP doesn't use YaRN)
@@ -2137,8 +2158,7 @@ class AIState(rx.State):
         """Toggle Qwen3 Thinking Mode"""
         self.enable_thinking = not self.enable_thinking
         mode_name = "Thinking Mode" if self.enable_thinking else "Non-Thinking Mode"
-        temp = "0.6" if self.enable_thinking else "0.7"
-        self.add_debug(f"🧠 {mode_name} aktiviert (temp={temp})")
+        self.add_debug(f"🧠 {mode_name} aktiviert")
         self._save_settings()
 
     def toggle_yarn(self):
