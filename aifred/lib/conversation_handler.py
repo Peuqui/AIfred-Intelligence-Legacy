@@ -97,7 +97,13 @@ async def chat_interactive_mode(
 
     # Initialize LLM clients with correct backend
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
-    automatik_llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
+
+    # Only Ollama supports model switching - other backends reuse same client
+    if backend_type == 'ollama':
+        automatik_llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
+    else:
+        # KoboldCPP, vLLM, TabbyAPI: Same model, same client (no model switching)
+        automatik_llm_client = llm_client
 
     # VRAM Change Detection (nur für vLLM Backend)
     vram_warning = None
@@ -312,9 +318,6 @@ async def chat_interactive_mode(
             # Clear progress - keine Web-Recherche nötig, zeige LLM-Phase
             yield {"type": "progress", "phase": "llm"}
 
-            # Start timing for preload phase
-            preload_start = time.time()
-
             # Jetzt normale Inferenz MIT Zeitmessung
             # Build messages from history (all turns)
             messages = build_messages_from_history(history, user_text)
@@ -419,7 +422,8 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 rag_intent = await detect_query_intent(
                     user_query=user_text,
                     automatik_model=automatik_model,
-                    llm_client=automatik_llm_client
+                    llm_client=automatik_llm_client,
+                    llm_options=llm_options
                 )
                 intent_time = time.time() - intent_start
 
@@ -442,7 +446,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 main_llm_options['enable_thinking'] = llm_options['enable_thinking']
 
             # VRAM Monitoring: Measure before inference (baseline)
-            from aifred.lib.gpu_utils import get_free_vram_mb, measure_vram_during_inference
+            from aifred.lib.gpu_utils import get_free_vram_mb
             vram_before_inference = get_free_vram_mb()
 
             # Zeit messen für finale Inferenz - STREAM response
@@ -467,8 +471,10 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                         yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
 
                         # VRAM Monitoring: Measure after first token (KV cache allocated)
+                        # CRITICAL: Use async version to avoid blocking event loop during streaming
                         if vram_before_inference is not None and final_num_ctx > 0:
-                            vram_measurement = measure_vram_during_inference(
+                            from aifred.lib.gpu_utils import measure_vram_during_inference_async
+                            vram_measurement = await measure_vram_during_inference_async(
                                 context_tokens=final_num_ctx,
                                 vram_before_mb=vram_before_inference
                             )
@@ -524,7 +530,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
             # Separator als letztes Element in der Debug Console
 
             # Formatiere <think> Tags als Collapsible für Chat History (sichtbar als Collapsible!)
-            thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
+            thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time, tokens_per_sec=tokens_per_sec)
 
             # User-Text mit Timing (RAG Bypass - keine Entscheidungszeit)
             if stt_time > 0:
@@ -591,10 +597,18 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
             # ⚠️ WICHTIG: KEINE History für Decision-Making!
             messages = [{'role': 'user', 'content': decision_prompt}]
 
-            # Get model context limit (use cached value if available, otherwise query)
-            # NOTE: Cache is populated when user changes Automatik-LLM in settings
-            # TODO: Pass state._automatik_model_context_limit from caller to avoid re-querying
-            automatik_limit, _ = await automatik_llm_client.get_model_context_limit(automatik_model)
+            # Get model context limit (use RoPE-scaled value from KoboldCPP if available)
+            # For KoboldCPP: Use the actual context from global state (includes RoPE scaling)
+            # For other backends: Query the model
+            from ..state import _global_backend_state
+
+            if backend_type == 'koboldcpp' and 'context_limit' in _global_backend_state:
+                # Use RoPE-scaled context from KoboldCPP startup
+                automatik_limit = _global_backend_state['context_limit']
+            else:
+                # Fallback: Query model (returns native limit without RoPE)
+                automatik_limit, _ = await automatik_llm_client.get_model_context_limit(automatik_model)
+
             decision_num_ctx = min(2048, automatik_limit // 2)  # Max 2048 oder 50% des Limits
 
             # Count input tokens (using real tokenizer)
@@ -606,12 +620,20 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
             decision_start = time.time()
             try:
-                # Build automatik options (ALWAYS disable thinking for fast decisions!)
+                # Build automatik options
                 automatik_options = {
                     'temperature': 0.2,  # Niedrig für konsistente yes/no Entscheidungen
                     'num_ctx': decision_num_ctx,  # Dynamisch basierend auf Model
-                    'enable_thinking': False  # IMMER aus für schnelle Entscheidungen!
+                    'num_predict': 64,  # Short: "<search>yes</search>" = ~20 tokens (3x buffer)
+                    'enable_thinking': False  # Default: Fast decisions without reasoning
                 }
+
+                # Use user's enable_thinking toggle if explicitly set
+                if llm_options and 'enable_thinking' in llm_options:
+                    automatik_options['enable_thinking'] = llm_options['enable_thinking']
+                    log_message(f"🧠 Decision enable_thinking: {llm_options['enable_thinking']} (from user toggle)")
+                else:
+                    log_message(f"🧠 Decision enable_thinking: False (default - fast decision mode)")
 
                 response = await automatik_llm_client.chat(
                     model=automatik_model,
@@ -655,9 +677,6 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
                 # Clear progress - keine Web-Recherche nötig, zeige LLM-Phase
                 yield {"type": "progress", "phase": "llm"}
-
-                # Start timing for preload phase
-                preload_start = time.time()
 
                 # Jetzt normale Inferenz MIT Zeitmessung
                 # Build messages from history (all turns)
@@ -760,7 +779,8 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                     own_knowledge_intent = await detect_query_intent(
                         user_query=user_text,
                         automatik_model=automatik_model,
-                        llm_client=automatik_llm_client
+                        llm_client=automatik_llm_client,
+                        llm_options=llm_options
                     )
                     intent_time = time.time() - intent_start
 
@@ -772,10 +792,18 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 # Console: LLM starts
                 yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
 
+                # Calculate dynamic num_predict: Available output space after input tokens
+                # Safety margin: 2048 tokens (for tokenizer inaccuracies and buffer)
+                safety_margin = 2048
+                available_output = max(512, final_num_ctx - input_tokens - safety_margin)
+
+                log_message(f"🧮 Dynamic num_predict: {format_number(available_output)} tokens (num_ctx: {format_number(final_num_ctx)}, input: {format_number(input_tokens)}, margin: {safety_margin})")
+
                 # Build main LLM options (include enable_thinking from user settings)
                 main_llm_options = {
                     'temperature': final_temperature,  # Adaptive oder Manual Temperature!
-                    'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
+                    'num_ctx': final_num_ctx,  # Dynamisch berechnet oder User-Vorgabe
+                    'num_predict': available_output  # Dynamic: Full available output space
                 }
 
                 # Add enable_thinking if provided in llm_options (user toggle)
@@ -823,7 +851,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 # Separator als letztes Element in der Debug Console
 
                 # Formatiere <think> Tags als Collapsible für Chat History (sichtbar als Collapsible!)
-                thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
+                thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time, tokens_per_sec=tokens_per_sec)
 
                 # User-Text mit Timing (Entscheidungszeit + Inferenzzeit)
                 if stt_time > 0:
@@ -872,4 +900,6 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
     finally:
         # Cleanup: Close LLM clients to free resources
         await llm_client.close()
-        await automatik_llm_client.close()
+        # Only close automatik_llm_client if it's a separate instance (Ollama)
+        if backend_type == 'ollama':
+            await automatik_llm_client.close()

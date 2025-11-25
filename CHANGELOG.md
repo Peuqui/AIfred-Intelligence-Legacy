@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-11-25
 
+### 🧠 Automatik-LLM: Thinking Model Compatibility & Robust Fallbacks
+
+#### Added
+- **Query Optimization Fallback** ([aifred/lib/query_optimizer.py:118-124](aifred/lib/query_optimizer.py#L118-L124)):
+  - Empty query detection when Thinking Models fail to produce keywords
+  - Falls back to original user query instead of empty search
+  - Preserves full question with temporal context (e.g., "Wie wird das Wetter morgen?" → adds "2025")
+  - Ensures web search always works, even with suboptimal models
+
+- **`enable_thinking` Toggle Propagation** ([aifred/lib/conversation_handler.py:631-636](aifred/lib/conversation_handler.py#L631-L636), [aifred/lib/intent_detector.py:77-82](aifred/lib/intent_detector.py#L77-L82), [aifred/lib/query_optimizer.py:81-86](aifred/lib/query_optimizer.py#L81-L86)):
+  - User's thinking toggle now propagates to all Automatik-LLM tasks
+  - Explicit logging shows when toggle is active vs. default
+  - Default: `enable_thinking: False` (fast mode without reasoning)
+  - Allows debugging Thinking Model behavior when needed
+
+#### Changed
+- **Optimized `num_predict` Values** for Automatik-LLM tasks:
+  - Decision-Making: 256 → **64 tokens** (`<search>yes</search>` = ~20 tokens, 3x buffer)
+  - Intent Detection: 256 → **32 tokens** (`FAKTISCH`/`KREATIV` = ~10 tokens, 3x buffer)
+  - Query Optimization: 512 → **128 tokens** (keywords = ~30 tokens, 4x buffer)
+  - Minimizes generation time while maintaining sufficient headroom
+  - Reduces VRAM waste for short, structured outputs
+
+- **Removed Redundant Log** ([aifred/backends/koboldcpp.py:383-384](aifred/backends/koboldcpp.py#L383-L384)):
+  - Removed "💾 KoboldCPP Context: X tokens (from global state)" message
+  - Context is already logged during server startup
+  - Reduces console clutter on every request
+
+#### Known Issues
+- **Thinking Models Incompatible with Automatik-LLM**:
+  - Thinking Models (e.g., QwQ-32B, DeepSeek-R1) ignore `enable_thinking: False`
+  - Always output `<think>` tags and verbose reasoning
+  - Exceed `num_predict` limits before reaching expected output
+  - **Impact**: Query-Opt produces empty string (fallback works), Decision-Making may fail
+  - **Recommendation**: Use Instruct models for Automatik-LLM, Thinking models for main LLM only
+  - **Technical Details**:
+    - With `num_predict: 64`, Decision-Making works if `enable_thinking: True` (compact reasoning)
+    - With `num_predict: 128`, Query-Opt always fails (reasoning too verbose)
+    - Models trained to reason cannot be suppressed by flags or prompts
+
 ### 🎯 KoboldCPP Dynamic RoPE Scaling & VRAM Optimization
 
 #### Added

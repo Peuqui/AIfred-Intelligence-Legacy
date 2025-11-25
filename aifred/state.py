@@ -1229,6 +1229,7 @@ class AIState(rx.State):
             self.add_debug("🛑 Stopping vLLM server...")
             try:
                 import subprocess
+                import asyncio
 
                 # Check if vLLM is running
                 result = subprocess.run(["pgrep", "-f", "vllm serve"], capture_output=True, text=True)
@@ -1236,6 +1237,10 @@ class AIState(rx.State):
                     # Kill vLLM process
                     subprocess.run(["pkill", "-f", "vllm serve"])
                     self.add_debug("✅ vLLM server stopped")
+
+                    # Wait for VRAM to be freed (GPU driver needs time to release memory)
+                    await asyncio.sleep(2)
+                    self.add_debug("⏳ Waited for VRAM to be released")
 
                     # Clean up manager reference
                     _global_backend_state["vllm_manager"] = None
@@ -1250,6 +1255,7 @@ class AIState(rx.State):
             self.add_debug("🛑 Stopping TabbyAPI server...")
             try:
                 import subprocess
+                import asyncio
 
                 # Check if TabbyAPI is running (main.py or start.sh)
                 result = subprocess.run(["pgrep", "-f", "tabbyapi"], capture_output=True, text=True)
@@ -1257,6 +1263,10 @@ class AIState(rx.State):
                     # Kill TabbyAPI process
                     subprocess.run(["pkill", "-f", "tabbyapi"])
                     self.add_debug("✅ TabbyAPI server stopped")
+
+                    # Wait for VRAM to be freed (GPU driver needs time to release memory)
+                    await asyncio.sleep(2)
+                    self.add_debug("⏳ Waited for VRAM to be released")
                 else:
                     self.add_debug("ℹ️ TabbyAPI server was not running")
 
@@ -1268,6 +1278,7 @@ class AIState(rx.State):
             self.add_debug("🛑 Stopping KoboldCPP server...")
             try:
                 import subprocess
+                import asyncio
 
                 # Check if KoboldCPP is running
                 result = subprocess.run(["pgrep", "-f", "koboldcpp"], capture_output=True, text=True)
@@ -1275,6 +1286,10 @@ class AIState(rx.State):
                     # Kill KoboldCPP process
                     subprocess.run(["pkill", "-f", "koboldcpp"])
                     self.add_debug("✅ KoboldCPP server stopped")
+
+                    # Wait for VRAM to be freed (GPU driver needs time to release memory)
+                    await asyncio.sleep(2)
+                    self.add_debug("⏳ Waited for VRAM to be released")
 
                     # Clean up manager reference
                     _global_backend_state["koboldcpp_manager"] = None

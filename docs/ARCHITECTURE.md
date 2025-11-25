@@ -191,37 +191,39 @@ async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]
 
 **Besonderheiten:**
 - **Fixed Context**: Context wird beim Server-Start gesetzt via `--max-model-len`
-- **Class-Level Caching**: Startup-Context wird in `_global_startup_context` gecached
+- **Global State Storage**: Startup-Context wird in `_global_backend_state["vllm_context"]` gespeichert
 - **Kein Recalculation**: Context KANN NICHT zur Laufzeit geändert werden
 
 ```python
 class vLLMBackend(LLMBackend):
-    # Class-level cache (shared across ALL instances)
-    _global_startup_context: Optional[int] = None
-    _global_startup_context_debug: List[str] = []
-
     async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]:
         """
         vLLM: Return cached startup context (FIXED)
 
+        Reads from global backend state (single source of truth)
         Raises RuntimeError if not set (server not started properly)
         """
-        if vLLMBackend._global_startup_context is None:
+        from aifred.state import _global_backend_state
+        cached_context = _global_backend_state.get("vllm_context")
+
+        if cached_context is None:
             raise RuntimeError("vLLM startup context not set")
 
-        return vLLMBackend._global_startup_context, vLLMBackend._global_startup_context_debug
+        debug_msgs = [f"💾 vLLM Context: {cached_context:,} tokens (from global state)"]
+        return (cached_context, debug_msgs)
 
     def set_startup_context(self, context: int, debug_messages: List[str]) -> None:
         """Called by vLLM Manager after server start"""
-        vLLMBackend._global_startup_context = context
-        vLLMBackend._global_startup_context_debug = debug_messages
+        from aifred.state import _global_backend_state
+        _global_backend_state["vllm_context"] = context
 ```
 
-**Warum Class Variables?**
-- Backend-Instanzen werden oft temporär erstellt (z.B. in `state.py`)
+**Warum Global Backend State?**
+- Backend-Instanzen werden oft temporär erstellt (z.B. via `BackendFactory.create()`)
 - Instance Variables würden verloren gehen bei Garbage Collection
-- Class Variables persistieren über alle Instanzen hinweg
-- Einmal gesetzt → für alle zukünftigen Instanzen verfügbar
+- `_global_backend_state` dict persistiert über alle Instanzen hinweg
+- Single source of truth - vermeidet Race Conditions
+- Einmal gesetzt → für alle zukünftigen Backend-Instanzen verfügbar
 
 #### 3. TabbyAPI Backend
 
