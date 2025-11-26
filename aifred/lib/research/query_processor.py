@@ -258,8 +258,8 @@ async def process_query_and_search(
             duplicates = stats.get('duplicates_removed', 0)
 
             yield {"type": "debug", "message": f"🌐 Web-Suche: {', '.join(apis_used)} ({len(apis_used)} APIs)"}
-            if duplicates > 0:
-                yield {"type": "debug", "message": f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)"}
+            # Always show deduplication stats (even if 0 duplicates)
+            yield {"type": "debug", "message": f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)"}
         else:
             yield {"type": "debug", "message": f"🌐 Web-Suche mit: {api_source}"}
 

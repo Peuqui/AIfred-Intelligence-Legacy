@@ -520,14 +520,19 @@ class AIState(rx.State):
 
             # Initialize backend (or restore from global state)
             self.add_debug("🔧 Initializing backend...")
+            backend_init_success = False
             try:
                 await self.initialize_backend()
-                self.add_debug("✅ Backend ready")
+                backend_init_success = True
             except Exception as e:
                 self.add_debug(f"❌ Backend init failed: {e}")
                 log_message(f"❌ Backend init failed: {e}")
                 import traceback
                 log_message(traceback.format_exc())
+
+            # Only show "Backend ready" if initialization succeeded
+            if backend_init_success:
+                self.add_debug("✅ Backend ready")
 
             self._backend_initialized = True
             print("✅ Session initialization complete")
@@ -2048,6 +2053,46 @@ class AIState(rx.State):
                     self.add_debug(f"⚠️ TabbyAPI restart failed: {e}")
 
                 yield  # Update UI
+
+            elif self.backend_type == "koboldcpp":
+                # KoboldCPP: Stop existing process, rescan models, restart with current model
+                self.add_debug("⏹️ Stopping KoboldCPP server...")
+                yield  # Update UI
+
+                # Stop existing KoboldCPP process
+                existing_manager = _global_backend_state.get("koboldcpp_manager")
+                if existing_manager and existing_manager.is_running():
+                    existing_manager.stop()
+                    self.add_debug("✅ KoboldCPP process stopped")
+                    yield
+
+                # Rescan GGUF models to pick up newly downloaded files
+                self.add_debug("🔍 Rescanning GGUF models...")
+                yield
+
+                from aifred.lib.gguf_utils import find_all_gguf_models
+
+                gguf_models_list = find_all_gguf_models()
+                gguf_models = {model.name: model for model in gguf_models_list}
+                _global_backend_state["gguf_models"] = gguf_models
+
+                # Update available models list
+                self.available_models = list(gguf_models.keys())
+                _global_backend_state["available_models"] = self.available_models
+
+                self.add_debug(f"✅ Found {len(gguf_models)} GGUF models")
+                yield
+
+                # Restart KoboldCPP with current model
+                if self.selected_model in gguf_models:
+                    self.add_debug(f"🚀 Restarting KoboldCPP with {self.selected_model}...")
+                    yield
+
+                    # Trigger backend initialization (will start KoboldCPP)
+                    await self._start_koboldcpp_server()
+                else:
+                    self.add_debug(f"⚠️ Model '{self.selected_model}' not found after rescan")
+                    yield
 
         except Exception as e:
             self.add_debug(f"❌ {backend_name} restart failed: {e}")
