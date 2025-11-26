@@ -480,17 +480,31 @@ class KoboldCPPProcessManager:
         log_feedback(f"🎮 GPU Config: {gpu_config['description']}")
         config = gpu_config["config"]
 
-        # Get free VRAM
+        # Get free VRAM (sum across all GPUs for dual-GPU setups)
         try:
             import pynvml
             pynvml.nvmlInit()
-            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            free_vram_mb = int(mem_info.free / (1024 * 1024))
-            total_vram_mb = int(mem_info.total / (1024 * 1024))
-            gpu_model = pynvml.nvmlDeviceGetName(handle)
+            gpu_count = pynvml.nvmlDeviceGetCount()
+
+            # Sum VRAM across all GPUs (KoboldCPP distributes automatically)
+            total_vram_mb = 0
+            free_vram_mb = 0
+            gpu_models = []
+
+            for i in range(gpu_count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                total_vram_mb += int(mem_info.total / (1024 * 1024))
+                free_vram_mb += int(mem_info.free / (1024 * 1024))
+                gpu_models.append(pynvml.nvmlDeviceGetName(handle))
+
             pynvml.nvmlShutdown()
-            log_feedback(f"📊 VRAM: {total_vram_mb:,}MB total, {free_vram_mb:,}MB free")
+
+            gpu_model = gpu_models[0] if gpu_models else "Unknown"
+            if gpu_count > 1:
+                log_feedback(f"📊 VRAM: {total_vram_mb:,}MB total ({gpu_count}x GPUs), {free_vram_mb:,}MB free")
+            else:
+                log_feedback(f"📊 VRAM: {total_vram_mb:,}MB total, {free_vram_mb:,}MB free")
         except Exception as e:
             log_feedback(f"⚠️ Could not query GPU: {e}")
             gpu_model = "Unknown"
