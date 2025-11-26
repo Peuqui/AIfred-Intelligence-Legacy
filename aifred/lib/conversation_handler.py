@@ -541,7 +541,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
             # AI-Antwort mit Timing + Quelle (RAG)
             source_label = "Cache+LLM (RAG)"
-            metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, Quelle: {source_label})")
+            metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, {format_number(tokens_per_sec, 1)} tok/s, Quelle: {source_label})")
             ai_with_source = f"{thinking_html} {metadata}"
 
             # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
@@ -869,7 +869,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 else:
                     source_label = "LLM"
 
-                metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, Quelle: {source_label})")
+                metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, {format_number(tokens_per_sec, 1)} tok/s, Quelle: {source_label})")
                 ai_with_source = f"{thinking_html} {metadata}"
 
                 # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
