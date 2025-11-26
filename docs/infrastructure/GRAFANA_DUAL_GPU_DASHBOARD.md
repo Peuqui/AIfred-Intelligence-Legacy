@@ -461,6 +461,11 @@ gpu2_target = {
 
 ## Changelog
 
+### 2025-11-26 - CPU/APU Gauge Restoration
+- **Bugfix**: CPU Temp, GPU Temp (APU), APU Power zurück zu runden Gauges
+- Nur Tesla P40 Panels bleiben Bar Gauges
+- AMD APU Panels wieder im klassischen Doughnut-Style
+
 ### 2025-11-26 - UI/UX Optimierung & Dashboard-Struktur
 - **Labels oben statt links**: Bar Gauges zeigen Labels über den Balken
 - **Werte in Balken**: Metriken direkt in den Balken angezeigt
