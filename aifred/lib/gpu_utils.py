@@ -597,8 +597,8 @@ def detect_koboldcpp_gpu_config() -> Dict:
                     "gpu_layers": -1,           # All layers on GPU (distributed automatically)
                     "context_offload": False,   # Not supported by KoboldCPP (uses auto-distribution)
                     "tensor_split": None,       # Let KoboldCPP auto-distribute (50/50)
-                    "flash_attention": False,   # P40 has no Flash Attention
-                    "quantized_kv": False,      # Keep full precision KV cache (46GB VRAM available)
+                    "flash_attention": True,    # P40 supports Flash Attention (Compute Capability 6.1)
+                    "quantized_kv": True,       # Q4 KV cache saves ~75% VRAM for large contexts
                     "use_cublas": True,
                     "cublas_args": None
                 }

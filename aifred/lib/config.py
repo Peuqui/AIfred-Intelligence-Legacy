@@ -226,6 +226,11 @@ KOBOLDCPP_CONTEXT_SAFETY_TOKENS = 1500  # 1.5K token reduction for final attempt
 # KoboldCPP only supports Linear RoPE (llama.cpp limitation)
 KOBOLDCPP_ROPE_SCALING_FACTOR = 1.5  # Conservative 1.5x for good quality/capacity balance
 
+# Maximum context size supported by KoboldCPP (llama.cpp argparse limit)
+# This is a hard limit in KoboldCPP's --contextsize parameter
+# If this changes in future versions, update this constant
+KOBOLDCPP_MAX_CONTEXT = 262144  # 256K tokens (KoboldCPP v1.101.1)
+
 # ============================================================
 # VECTOR CACHE CONFIGURATION (ChromaDB Similarity Thresholds)
 # ============================================================

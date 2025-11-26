@@ -60,4 +60,15 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
 - **SPRACHE BEIBEHALTEN: Deutsch in → Deutsch raus, Englisch in → Englisch raus**
 - **URLs KOMPLETT ÜBERNEHMEN: Webadresse erkannt? → Vollständig zurückgeben, nicht zerlegen!**
 
+**ABSOLUT VERBOTEN:**
+- ❌ KEINE Erklärungen wie "Erklärung der Auswahl:"
+- ❌ KEINE Begründungen wie "(Ich habe ... entfernt)"
+- ❌ KEINE Klammern () mit Erklärungen
+- ❌ KEINE zusätzlichen Texte vor oder nach den Keywords
+- ❌ KEINE Formatierungen wie ** oder ###
+- ✅ NUR die Keywords, getrennt durch Leerzeichen
+
+**ANTWORTE NUR MIT KEYWORDS IN EINER EINZIGEN ZEILE!**
+**KEINE ERKLÄRUNGEN! KEINE KLAMMERN! NUR KEYWORDS!**
+
 **Deine optimierte Query:**

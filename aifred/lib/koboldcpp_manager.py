@@ -607,8 +607,15 @@ class KoboldCPPProcessManager:
         attempt_to_try = None  # Will be "rope", "native", or "vram_calc"
 
         if native_context:
-            from aifred.lib.config import KOBOLDCPP_ROPE_SCALING_FACTOR
+            from aifred.lib.config import KOBOLDCPP_ROPE_SCALING_FACTOR, KOBOLDCPP_MAX_CONTEXT
+
             rope_extended_context = int(native_context * KOBOLDCPP_ROPE_SCALING_FACTOR)
+
+            # Cap at KoboldCPP's maximum context size
+            if rope_extended_context > KOBOLDCPP_MAX_CONTEXT:
+                log_feedback(f"⚠️ RoPE-extended context ({rope_extended_context:,}) exceeds KoboldCPP limit ({KOBOLDCPP_MAX_CONTEXT:,})")
+                log_feedback(f"   Capping at native context: {native_context:,} tokens")
+                rope_extended_context = native_context  # Fall back to native (no RoPE extension)
 
             # Calculate available VRAM for context
             # free_vram_mb is measured BEFORE loading model, so we must subtract:
@@ -638,8 +645,13 @@ class KoboldCPPProcessManager:
 
         # ATTEMPT 1: Try RoPE (if pre-check passed)
         if attempt_to_try == "rope":
-            log_feedback(f"🚀 Attempt 1: Starting with RoPE-extended context")
-            log_feedback(f"   Native: {native_context:,} tokens × {KOBOLDCPP_ROPE_SCALING_FACTOR} = {rope_extended_context:,} tokens")
+            # Check if RoPE was actually applied or capped
+            if rope_extended_context == native_context:
+                log_feedback(f"🚀 Attempt 1: Starting with native context (RoPE capped at KoboldCPP limit)")
+                log_feedback(f"   Using: {native_context:,} tokens (maximum supported)")
+            else:
+                log_feedback(f"🚀 Attempt 1: Starting with RoPE-extended context")
+                log_feedback(f"   Native: {native_context:,} tokens × {KOBOLDCPP_ROPE_SCALING_FACTOR} = {rope_extended_context:,} tokens")
 
             try:
                 success = await self.start(
@@ -759,11 +771,19 @@ class KoboldCPPProcessManager:
         # ATTEMPT 3: Calculate context from available VRAM (pre-check failed or no native context)
         log_feedback("🚀 Attempt 3: Calculating context from available VRAM...")
 
+        from aifred.lib.config import KOBOLDCPP_MAX_CONTEXT
+
         # free_vram_mb is measured BEFORE model load
         # So subtract model weights + safety margin to get available VRAM for context
         available_context_vram_mb = free_vram_mb - model_size_mb - safety_margin_mb
         vram_calculated_context = int(available_context_vram_mb / mb_per_token)
         vram_calculated_context = max(1024, vram_calculated_context)  # Minimum 1K
+
+        # Cap at KoboldCPP's maximum context size
+        if vram_calculated_context > KOBOLDCPP_MAX_CONTEXT:
+            log_feedback(f"   ⚠️ Calculated context ({vram_calculated_context:,}) exceeds KoboldCPP limit")
+            log_feedback(f"   Capping at maximum: {KOBOLDCPP_MAX_CONTEXT:,} tokens")
+            vram_calculated_context = KOBOLDCPP_MAX_CONTEXT
 
         log_feedback(f"   Calculated context: {vram_calculated_context:,} tokens")
         log_feedback(f"   ({available_context_vram_mb:.0f}MB available / {mb_per_token} MB/token)")
