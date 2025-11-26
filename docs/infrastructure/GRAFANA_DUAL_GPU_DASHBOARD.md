@@ -360,19 +360,62 @@ GPU %:
 
 ---
 
-## Bekannte Probleme
+## UI/UX Optimierungen
+
+### Bar Gauge Layout (2025-11-26 Update)
+
+**Problem:** Ursprüngliches Layout zeigte nur "GP..." statt vollständige Labels.
+
+**Lösung:**
+- Labels von links nach **oben** verschoben (`namePlacement: 'top'`)
+- Werte **in die Balken** integriert (`valueMode: 'text'`)
+- VRAM Panel verbreitert (w=6) für bessere Lesbarkeit
+- Reihenfolge optimiert: VRAM → GPU % → Power → Temp → GPU Clock → Mem Clock → P-State
+
+**Panel-Breiten:**
+- VRAM: **6** (wichtigste Metrik, am größten)
+- GPU %: 3 (zweitwichtigste, direkt nach VRAM)
+- Power: 3
+- Temp: 3
+- GPU Clock: 3
+- Mem Clock: 3
+- P-State: 3
+
+### Dashboard-Struktur Bereinigung
+
+**Änderung:** Row "⚡ GPU Details" wurde entfernt
+
+**Grund:**
+- P40 Over Time Panels gehören direkt in "🎮 NVIDIA Tesla P40" Section
+- Separate Row war redundant und unübersichtlich
+
+**Neue Struktur:**
+```
+🎮 NVIDIA Tesla P40
+├─ Bar Gauges (VRAM, GPU%, Power, Temp, Clock, MemClock, P-State)
+└─ Over Time Graphs (Power, Temp, GPU%, VRAM)
+
+💾 VRAM & GPU Memory
+├─ GPU Frequency Over Time (AMD APU)
+├─ GPU Voltage Over Time (AMD APU)
+├─ VRAM Dedicated (AMD APU)
+├─ GTT Dynamic (AMD APU)
+├─ Total GPU Mem (AMD APU)
+└─ AMD GPU Memory Timeline
+```
 
 ### APU vs NVIDIA Trennung
 
-**Aktuell:**
-- GPU Frequency und GPU Voltage zeigen AMD APU (integrierte Grafik)
-- VRAM Dedicated / GTT Dynamic zeigen AMD APU
+**Status:** ✅ **GELÖST**
+
+**Vorher:**
+- GPU Frequency und GPU Voltage waren in separater "GPU Details" Row
 - Vermischt mit NVIDIA Panels
 
-**TODO:**
-- [ ] APU Panels in separaten Collapsible Bereich verschieben
-- [ ] Klare Überschrift: "AMD APU Graphics (Integrated)"
-- [ ] Von NVIDIA Tesla P40 Section trennen
+**Nachher:**
+- GPU Frequency und GPU Voltage verschoben zu "💾 VRAM & GPU Memory"
+- Klare Trennung: Tesla P40 (NVIDIA) vs APU (AMD integrierte Grafik)
+- APU Panels alle in einer Section gruppiert
 
 ---
 
@@ -418,6 +461,15 @@ gpu2_target = {
 
 ## Changelog
 
+### 2025-11-26 - UI/UX Optimierung & Dashboard-Struktur
+- **Labels oben statt links**: Bar Gauges zeigen Labels über den Balken
+- **Werte in Balken**: Metriken direkt in den Balken angezeigt
+- **VRAM vergrößert**: Breite von 3 → 6 für bessere Lesbarkeit
+- **Reihenfolge optimiert**: VRAM → GPU% (wichtigste Metriken zuerst)
+- **Row-Struktur bereinigt**: "GPU Details" Row entfernt
+- **P40 Over Time konsolidiert**: Alle P40 Panels in einer Section
+- **APU Trennung**: AMD APU Panels zu "VRAM & GPU Memory" verschoben
+
 ### 2025-11-26 - Initial Dual-GPU Update
 - Converted 7 gauge panels to bar gauges
 - Added GPU 1 to 4 time-series panels
@@ -434,6 +486,20 @@ gpu2_target = {
 
 ---
 
-**Document Version**: 1.0
+**Document Version**: 1.1
 **Last Updated**: 2025-11-26
 **Author**: System Monitoring Dashboard Update for Dual Tesla P40 Setup
+
+---
+
+## Remote Monitoring
+
+Das optimierte Dashboard ermöglicht vollständiges GPU-Monitoring remote über Grafana Web-Interface:
+
+- Kein SSH-Login mehr nötig
+- Kein `nvidia-smi` Aufruf erforderlich
+- Beide Tesla P40 GPUs auf einen Blick
+- Echtzeit-Metriken mit 5s Refresh
+- Historical Data für Performance-Analyse
+
+**Remote-Zugriff:** `http://192.168.0.252:3000/d/node-exporter/system-monitoring`
