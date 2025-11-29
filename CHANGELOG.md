@@ -5,6 +5,46 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2025-11-29
+
+### 🔔 KoboldCPP Auto-Shutdown: Debug Console Messages
+
+#### Added
+- **Debug Console Integration for Inactivity Monitor** ([aifred/lib/inactivity_monitor.py:65-79, 247-269](aifred/lib/inactivity_monitor.py#L65-L79)):
+  - Shutdown messages now appear in UI Debug Console (not just log file)
+  - New `debug_callback` parameter accepts `self.add_debug` function from State
+  - Messages sent to BOTH destinations:
+    - `log_message()` → `/logs/aifred_debug.log` (file logging)
+    - `debug_callback()` → Debug Console UI (real-time visibility)
+  - Shows shutdown countdown, GPU statistics, and completion status
+  - **Example Messages**:
+    - `🛑 KoboldCPP wird wegen Inaktivität heruntergefahren (GPUs waren 30s idle, Timeout: 30s)`
+    - `   GPU-Statistik: 0 aktiv / 3 idle Checks`
+    - `✅ KoboldCPP erfolgreich heruntergefahren`
+
+#### Changed
+- **Shutdown Message Format** ([aifred/lib/inactivity_monitor.py:248](aifred/lib/inactivity_monitor.py#L248)):
+  - Removed "Stromersparnis: ~100W" from shutdown message
+  - Added dynamic timeout display showing config value (e.g., "Timeout: 30s")
+  - **Before**: `KoboldCPP wird heruntergefahren (Stromersparnis: ~100W)`
+  - **After**: `KoboldCPP wird wegen Inaktivität heruntergefahren (GPUs waren 30s idle, Timeout: 30s)`
+
+- **Callback Pattern Implementation** ([aifred/state.py:1178](aifred/state.py#L1178)):
+  - InactivityMonitor now receives `debug_callback=self.add_debug` parameter
+  - Enables decoupled communication between monitor and UI layer
+  - No circular dependencies - clean separation of concerns
+
+#### Impact
+- **Before**: Shutdown messages only visible in log file (`aifred_debug.log`)
+- **After**: Real-time shutdown notifications in Debug Console UI
+- **User Experience**: Users now see auto-shutdown progress in UI without tailing log files
+
+#### Files Modified
+- [aifred/lib/inactivity_monitor.py](aifred/lib/inactivity_monitor.py): Lines 31, 65-79, 247-269
+- [aifred/state.py](aifred/state.py): Line 1178
+
+---
+
 ## [Unreleased] - 2025-11-25
 
 ### 🧠 Automatik-LLM: Thinking Model Compatibility & Robust Fallbacks
