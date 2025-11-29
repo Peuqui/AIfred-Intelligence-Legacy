@@ -71,7 +71,7 @@ GPU1:
 - Kein CPU RAM Overflow
 - Beide GPUs arbeiten parallel
 - Erwartete Performance: **40-50 tok/s**
-- Max Context möglich: **336K tokens** (statt 260K)
+- Max Context: **262K tokens** (KoboldCPP hardcoded limit)
 
 ## Key Learnings
 
@@ -174,7 +174,7 @@ Die komplexe tensor_split Berechnungslogik wurde entfernt:
 ### For Dual P40 Setups
 
 1. **IMMER `tensor_split: None` verwenden** (= 50/50 auto)
-2. **Context maximieren:** Bis zu 336K tokens möglich
+2. **Context maximieren:** Bis zu 262K tokens (KoboldCPP hardcoded limit)
 3. **NICHT optimieren:** KoboldCPP's Default ist optimal
 
 ### For Future Experiments

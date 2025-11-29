@@ -622,7 +622,7 @@ class KoboldCPPProcessManager:
             # Cap at KoboldCPP hard limit
             if rope_extended_context > KOBOLDCPP_MAX_CONTEXT:
                 log_feedback(f"⚠️ RoPE context ({rope_extended_context:,}) exceeds KoboldCPP limit ({KOBOLDCPP_MAX_CONTEXT:,})")
-                log_feedback(f"   Capping at 262K limit")
+                log_feedback(f"   Capping at maximum: {KOBOLDCPP_MAX_CONTEXT:,} tokens")
                 rope_extended_context = KOBOLDCPP_MAX_CONTEXT
 
             # Log RoPE configuration
