@@ -4,11 +4,11 @@ KoboldCPP Process Manager
 Manages KoboldCPP server process lifecycle for AIfred Intelligence.
 Handles starting, stopping, and health checking of KoboldCPP server.
 
-Special Features for 2x Tesla P40 Setup:
-- Context-Offloading: Model layers on GPU0, Context window on GPU1
-- Fine-grained GPU layer control via --gpulayers
-- Optimized for Oculink (8GB/s) + USB4 (5GB/s) dual e-GPU setup
-- Minimizes inter-card communication bottleneck
+Features:
+- Automatic context size detection and calibration
+- GPU layer control via --gpulayers
+- Flash Attention and Quantized KV Cache support
+- Multi-GPU support (lets KoboldCPP auto-distribute with optimal 50/50 split)
 """
 
 import asyncio
@@ -523,67 +523,6 @@ class KoboldCPPProcessManager:
         else:
             log_feedback("⚠️ Could not read native context from GGUF - will use VRAM calculation")
 
-        # ============================================================
-        # DUAL P40 TENSOR SPLIT CONFIGURATION (runs BEFORE cache check)
-        # ============================================================
-        # CRITICAL: This must run BEFORE cache interpolation to ensure
-        # tensor_split is configured even when using cached context values
-
-        tensor_split_override = None
-
-        if gpu_config["type"] == "dual_p40" and native_context:
-            from aifred.lib.config import KOBOLDCPP_ROPE_SCALING_FACTOR, KOBOLDCPP_MAX_CONTEXT
-
-            # Calculate RoPE-extended context
-            rope_factor = KOBOLDCPP_ROPE_SCALING_FACTOR
-            rope_extended_context = int(native_context * rope_factor)
-
-            if rope_extended_context > KOBOLDCPP_MAX_CONTEXT:
-                rope_extended_context = KOBOLDCPP_MAX_CONTEXT
-
-            log_feedback(f"🎮 Dual P40: Calculating optimal tensor split for {rope_extended_context:,} tokens")
-
-            # VRAM calculation for tensor split (using Q4 KV cache)
-            mb_per_token = 0.05  # Q4 KV cache quantization
-            model_size_mb = model_size_gb * 1024 * 0.91  # Empirical multiplier
-            context_vram_mb = rope_extended_context * mb_per_token
-            safety_margin_calc = 2048  # 2GB safety
-            total_needed_mb = model_size_mb + context_vram_mb + safety_margin_calc
-
-            # Single P40 capacity
-            gpu0_capacity_mb = 24576 - safety_margin_calc  # 22.5GB usable
-
-            # Calculate optimal ratio to maximize GPU0
-            ratio_gpu0 = gpu0_capacity_mb / total_needed_mb
-
-            log_feedback(f"   📊 Model: {model_size_mb:.0f}MB, Context: {context_vram_mb:.0f}MB, Total: {total_needed_mb:.0f}MB")
-
-            if ratio_gpu0 >= 1.0:
-                # Fits entirely on GPU0 - avoid PCIe pingpong!
-                tensor_split_override = "100 0"
-                log_feedback(f"   ✅ Fits on single GPU - using 100% GPU0 (avoids PCIe pingpong)")
-                log_feedback(f"   ⚖️ Tensor Split: 100% GPU0, 0% GPU1")
-            else:
-                # Needs both GPUs - calculate optimal asymmetric split
-                gpu0_pct = int(ratio_gpu0 * 100)
-                gpu1_pct = 100 - gpu0_pct
-
-                # Clamp to reasonable range (at least 10% per GPU)
-                if gpu0_pct < 10:
-                    gpu0_pct = 10
-                    gpu1_pct = 90
-                elif gpu1_pct < 10:
-                    gpu0_pct = 90
-                    gpu1_pct = 10
-
-                tensor_split_override = f"{gpu0_pct} {gpu1_pct}"
-                log_feedback(f"   ⚖️ Optimal split: {gpu0_pct}% GPU0, {gpu1_pct}% GPU1")
-                log_feedback(f"      → Maximizes GPU0 usage, minimizes PCIe overhead")
-
-            # Override tensor_split in config
-            config["tensor_split"] = tensor_split_override
-            log_feedback(f"   🔧 Tensor split configured: {tensor_split_override}")
-
         # STRATEGY 1: Try interpolation from cache
         interpolated_context = interpolate_koboldcpp_context(model_name, free_vram_mb)
 
@@ -676,17 +615,8 @@ class KoboldCPPProcessManager:
         if native_context:
             from aifred.lib.config import KOBOLDCPP_ROPE_SCALING_FACTOR, KOBOLDCPP_MAX_CONTEXT
 
-            # ============================================================
-            # DYNAMIC ROPE + OPTIMAL TENSOR SPLIT CALCULATION
-            # ============================================================
-            # Strategy:
-            # 1. Calculate target context with RoPE factor from config.py
-            # 2. For Dual P40: Calculate optimal tensor_split to maximize GPU0
-            # 3. Check VRAM feasibility and adjust if needed
-
-            # Step 1: Calculate target context with RoPE from config.py
-            # User controls RoPE by changing KOBOLDCPP_ROPE_SCALING_FACTOR in config.py
-            rope_factor = KOBOLDCPP_ROPE_SCALING_FACTOR  # Default 1.5x, user can change to 2.0x
+            # Calculate RoPE-extended context
+            rope_factor = KOBOLDCPP_ROPE_SCALING_FACTOR
             rope_extended_context = int(native_context * rope_factor)
 
             # Cap at KoboldCPP hard limit
@@ -695,78 +625,13 @@ class KoboldCPPProcessManager:
                 log_feedback(f"   Capping at 262K limit")
                 rope_extended_context = KOBOLDCPP_MAX_CONTEXT
 
-            # Step 2: For Dual P40 - Calculate optimal tensor split
-            tensor_split_override = None
-            rope_factor_used = rope_factor  # Track actual RoPE factor used
-
-            if gpu_config["type"] == "dual_p40":
-                log_feedback(f"🎮 Dual P40 detected - optimizing tensor split for {rope_extended_context:,} tokens")
-
-                # Calculate total VRAM needed
-                model_vram_mb = model_size_mb
-                context_vram_mb = rope_extended_context * mb_per_token
-                safety_margin_calc = 2048  # 2GB safety for tensor split calculation
-                total_needed_mb = model_vram_mb + context_vram_mb + safety_margin_calc
-
-                # GPU0 capacity (single P40)
-                gpu0_capacity_mb = 24576 - safety_margin_calc  # 22.5GB usable
-
-                # Calculate optimal ratio to maximize GPU0 usage
-                ratio_gpu0 = gpu0_capacity_mb / total_needed_mb
-
-                log_feedback(f"   📊 Model: {model_vram_mb:.0f}MB, Context: {context_vram_mb:.0f}MB, Total: {total_needed_mb:.0f}MB")
-                log_feedback(f"   💾 GPU0 capacity: {gpu0_capacity_mb:.0f}MB (single P40)")
-
-                if ratio_gpu0 >= 1.0:
-                    # Fits entirely on GPU0 - use single GPU mode
-                    tensor_split_override = "100 0"
-                    log_feedback(f"   ✅ Fits on single GPU - using 100% GPU0 (avoids PCIe pingpong)")
-                    log_feedback(f"   ⚖️ Tensor Split: 100% GPU0, 0% GPU1")
-                else:
-                    # Needs both GPUs - calculate optimal split
-                    # Convert to integer ratio (base 100 for precision)
-                    gpu0_pct = int(ratio_gpu0 * 100)
-                    gpu1_pct = 100 - gpu0_pct
-
-                    # Clamp to reasonable range (at least 10% per GPU)
-                    if gpu0_pct < 10:
-                        gpu0_pct = 10
-                        gpu1_pct = 90
-                    elif gpu1_pct < 10:
-                        gpu0_pct = 90
-                        gpu1_pct = 10
-
-                    tensor_split_override = f"{gpu0_pct} {gpu1_pct}"
-                    log_feedback(f"   ⚖️ Optimal split: {gpu0_pct}% GPU0, {gpu1_pct}% GPU1")
-                    log_feedback(f"      → GPU0: {total_needed_mb * ratio_gpu0:.0f}MB, GPU1: {total_needed_mb * (1-ratio_gpu0):.0f}MB")
-
-                # Check if we need to reduce RoPE factor to fit
-                max_total_vram = (gpu0_capacity_mb + gpu0_capacity_mb)  # ~45GB
-                if total_needed_mb > max_total_vram:  # Exceeds both GPUs combined
-                    # Reduce RoPE factor to fit within dual GPU capacity
-                    max_context_vram = max_total_vram - model_vram_mb - safety_margin_calc
-                    max_context_tokens = int(max_context_vram / mb_per_token)
-
-                    # Calculate actual RoPE factor that fits
-                    rope_factor_used = max_context_tokens / native_context
-                    rope_factor_used = min(rope_factor_used, rope_factor)  # Don't exceed config.py setting
-                    rope_extended_context = int(native_context * rope_factor_used)
-
-                    log_feedback(f"   ⚠️ Reducing RoPE factor to {rope_factor_used:.2f}x to fit dual GPU VRAM")
-                    log_feedback(f"      → Adjusted context: {rope_extended_context:,} tokens")
-
-                # Override tensor_split in config
-                config["tensor_split"] = tensor_split_override
-
-            # Log final RoPE configuration
+            # Log RoPE configuration
             log_feedback(f"📐 RoPE Configuration:")
             log_feedback(f"   Native context: {native_context:,} tokens")
-            log_feedback(f"   RoPE factor: {rope_factor_used:.2f}x")
+            log_feedback(f"   RoPE factor: {rope_factor:.2f}x")
             log_feedback(f"   Target context: {rope_extended_context:,} tokens")
-            if tensor_split_override:
-                log_feedback(f"   Tensor split: {tensor_split_override}")
 
-            # Step 3: VRAM Pre-check (existing logic)
+            # VRAM Pre-check
             # Calculate available VRAM for context
             # free_vram_mb is measured BEFORE loading model, so we must subtract:
             # 1. Model weights (model_size_mb)
@@ -849,62 +714,7 @@ class KoboldCPPProcessManager:
 
                 if is_koboldcpp_oom_error(error_msg + "\n" + stderr_output):
                     log_feedback(f"⚠️ RoPE-extended context ({rope_extended_context:,} tokens) caused OOM despite pre-check")
-
-                    # If we used an optimistic tensor_split, try fallback with default split + native context
-                    if tensor_split_override and gpu_config["type"] == "dual_p40":
-                        log_feedback("   Trying fallback: Reset tensor_split to 50/50 + native context (no RoPE)")
-
-                        # Cleanup from failed attempt
-                        await self.stop()
-                        await asyncio.sleep(2)
-
-                        # Reset tensor_split to default
-                        original_tensor_split = tensor_split_override
-                        config["tensor_split"] = None  # Reset to default 50/50
-
-                        # Try native context without RoPE (safest fallback)
-                        try:
-                            success = await self.start(
-                                model_path=model_path,
-                                context_size=native_context,  # Native, no RoPE
-                                gpu_layers=config["gpu_layers"],
-                                context_offload=config["context_offload"],
-                                tensor_split=config["tensor_split"],  # None = default 50/50
-                                flash_attention=config["flash_attention"],
-                                quantized_kv=config["quantized_kv"],
-                                timeout=timeout
-                            )
-
-                            if success:
-                                log_feedback(f"✅ Fallback succeeded with native context + default tensor split!")
-                                log_feedback(f"   Context: {native_context:,} tokens (no RoPE), Tensor split: 50/50")
-
-                                # Cache this conservative success
-                                add_koboldcpp_calibration(
-                                    model_id=model_name,
-                                    free_vram_mb=free_vram_mb,
-                                    max_context=native_context,
-                                    quantization=quantization,
-                                    gpu_model=gpu_model,
-                                    model_size_gb=model_size_gb
-                                )
-
-                                return (True, {
-                                    "model_size_gb": model_size_gb,
-                                    "context_size": native_context,
-                                    "gpu_config": gpu_config["description"],
-                                    "quantization": quantization,
-                                    "native_context": native_context,
-                                    "calibrated": True,
-                                    "fallback_used": True
-                                })
-                        except Exception as fallback_error:
-                            log_feedback(f"⚠️ Fallback also failed: {str(fallback_error)[:100]}")
-                            log_feedback("   Proceeding to VRAM-calculated context...")
-                            await self.stop()
-                            await asyncio.sleep(2)
-                    else:
-                        log_feedback("   Pre-check estimation was incorrect - falling back to VRAM calculation...")
+                    log_feedback("   Pre-check estimation was incorrect - falling back to VRAM calculation...")
                 else:
                     log_feedback(f"⚠️ Attempt 1 failed (non-OOM): {str(e)[:100]}")
 
@@ -993,51 +803,6 @@ class KoboldCPPProcessManager:
         log_feedback(f"   Calculated context: {vram_calculated_context:,} tokens")
         log_feedback(f"   ({available_context_vram_mb:.0f}MB available / {mb_per_token} MB/token)")
         log_feedback(f"   (Free: {free_vram_mb:,}MB - Model: {model_size_mb:.0f}MB - Safety: {safety_margin_mb}MB)")
-
-        # DUAL P40: Calculate optimal tensor split (for Attempt 3 path)
-        if gpu_config["type"] == "dual_p40":
-            log_feedback(f"🎮 Dual P40: Calculating optimal tensor split for {vram_calculated_context:,} tokens")
-
-            # Calculate total VRAM needed
-            model_vram_mb = model_size_mb
-            context_vram_mb = vram_calculated_context * mb_per_token
-            safety_margin_calc = 2048  # 2GB safety for tensor split calculation
-            total_needed_mb = model_vram_mb + context_vram_mb + safety_margin_calc
-
-            # GPU0 capacity (single P40)
-            gpu0_capacity_mb = 24576 - safety_margin_calc  # 22.5GB usable
-
-            # Calculate optimal ratio to maximize GPU0 usage
-            ratio_gpu0 = gpu0_capacity_mb / total_needed_mb
-
-            log_feedback(f"   📊 Model: {model_vram_mb:.0f}MB, Context: {context_vram_mb:.0f}MB, Total: {total_needed_mb:.0f}MB")
-            log_feedback(f"   💾 GPU0 capacity: {gpu0_capacity_mb:.0f}MB (single P40)")
-
-            if ratio_gpu0 >= 1.0:
-                # Fits entirely on GPU0 - use single GPU mode
-                tensor_split_override = "100 0"
-                log_feedback(f"   ✅ Fits on single GPU - using 100% GPU0 (avoids PCIe pingpong)")
-                log_feedback(f"   ⚖️ Tensor Split: 100% GPU0, 0% GPU1")
-            else:
-                # Needs both GPUs - calculate optimal split
-                gpu0_pct = int(ratio_gpu0 * 100)
-                gpu1_pct = 100 - gpu0_pct
-
-                # Clamp to reasonable range (at least 10% per GPU)
-                if gpu0_pct < 10:
-                    gpu0_pct = 10
-                    gpu1_pct = 90
-                elif gpu1_pct < 10:
-                    gpu0_pct = 90
-                    gpu1_pct = 10
-
-                tensor_split_override = f"{gpu0_pct} {gpu1_pct}"
-                log_feedback(f"   ⚖️ Optimal split: {gpu0_pct}% GPU0, {gpu1_pct}% GPU1")
-                log_feedback(f"      → GPU0: {total_needed_mb * ratio_gpu0:.0f}MB, GPU1: {total_needed_mb * (1-ratio_gpu0):.0f}MB")
-
-            # Override tensor_split in config
-            config["tensor_split"] = tensor_split_override
-            log_feedback(f"   🔧 Tensor split configured: {tensor_split_override}")
 
         try:
             success = await self.start(
