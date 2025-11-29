@@ -279,6 +279,7 @@ class AIState(rx.State):
     backend_switching: bool = False  # True während Backend-Wechsel (UI wird disabled)
     backend_initializing: bool = True  # True während erster Initialisierung (zeigt Loading Spinner)
     vllm_restarting: bool = False  # True während vLLM-Neustart (Modellwechsel/YaRN)
+    koboldcpp_auto_restarting: bool = False  # True während KoboldCPP Auto-Restart nach Inaktivität
 
     # Debug Console
     debug_messages: List[str] = []
@@ -363,6 +364,16 @@ class AIState(rx.State):
     def is_backend_item_selectable(self, backend_id: str) -> bool:
         """Check if backend item is selectable (not header/separator)"""
         return backend_id not in ["header_universal", "separator", "header_modern"]
+
+    @rx.var
+    def is_koboldcpp_auto_restarting(self) -> bool:
+        """
+        Check if KoboldCPP is currently auto-restarting after inactivity shutdown.
+
+        This flag is set in backends/koboldcpp.py during _ensure_server_running()
+        and displays a spinner in the chat UI.
+        """
+        return _global_backend_state.get("koboldcpp_auto_restarting", False)
 
     @rx.var
     def backend_supports_dynamic_models(self) -> bool:
@@ -1148,12 +1159,30 @@ class AIState(rx.State):
                 _global_backend_state["koboldcpp_manager"] = koboldcpp_manager
                 _global_backend_state["koboldcpp_context"] = config_info['context_size']
                 _global_backend_state["koboldcpp_native_context"] = config_info.get('native_context')
+                _global_backend_state["koboldcpp_selected_model"] = self.selected_model  # For auto-restart
 
                 # Store context size in global cache for History compression
                 # (same as vLLM does in context_manager.py)
                 from aifred.lib.context_manager import _last_vram_limit_cache
                 _last_vram_limit_cache["limit"] = config_info['context_size']
 
+                # Initialize Inactivity Monitor for auto-shutdown (Phase 2)
+                # Automatically shuts down KoboldCPP after inactivity to save power (~100W idle)
+                from aifred.lib.inactivity_monitor import InactivityMonitor
+                from aifred.lib.config import KOBOLDCPP_INACTIVITY_TIMEOUT, KOBOLDCPP_INACTIVITY_CHECK_INTERVAL
+
+                monitor = InactivityMonitor(
+                    manager=koboldcpp_manager,
+                    timeout_seconds=KOBOLDCPP_INACTIVITY_TIMEOUT,
+                    check_interval=KOBOLDCPP_INACTIVITY_CHECK_INTERVAL,
+                    debug_callback=self.add_debug  # Send messages to debug console UI
+                )
+                await monitor.start_monitoring()
+
+                # Store monitor in global state so backend can record activity
+                _global_backend_state["inactivity_monitor"] = monitor
+
+                self.add_debug(f"🔍 Inactivity monitor started (timeout: {KOBOLDCPP_INACTIVITY_TIMEOUT}s)")
                 self.add_debug("✅ KoboldCPP server ready on port 5001")
             else:
                 raise RuntimeError("KoboldCPP failed to start with auto-config")
@@ -1176,11 +1205,26 @@ class AIState(rx.State):
 
         # KoboldCPP is not running - start it
         self.add_debug("⚠️ KoboldCPP not running - starting automatically...")
+
+        # Set UI flag for auto-restart spinner (will be cleared by _start_koboldcpp_server)
+        _global_backend_state["koboldcpp_auto_restarting"] = True
+        yield  # Force immediate UI update to show spinner
+
         await self._start_koboldcpp_server()
+
+        # Clear UI flag after successful start
+        _global_backend_state["koboldcpp_auto_restarting"] = False
+        yield  # Force immediate UI update to hide spinner
 
     async def _stop_koboldcpp_server(self):
         """Stop KoboldCPP server process gracefully"""
         global _global_backend_state
+
+        # Stop inactivity monitor if running
+        monitor = _global_backend_state.get("inactivity_monitor")
+        if monitor:
+            await monitor.stop_monitoring()
+            _global_backend_state["inactivity_monitor"] = None
 
         koboldcpp_manager = _global_backend_state.get("koboldcpp_manager")
         if koboldcpp_manager and koboldcpp_manager.is_running():
@@ -1356,7 +1400,8 @@ class AIState(rx.State):
 
                 # CRITICAL: Ensure KoboldCPP is running before LLM call
                 if self.backend_type == "koboldcpp":
-                    await self._ensure_koboldcpp_running()
+                    async for _ in self._ensure_koboldcpp_running():
+                        yield  # Forward yields from _ensure_koboldcpp_running() to UI
 
                 # Import chat_interactive_mode
                 from .lib.conversation_handler import chat_interactive_mode
@@ -1453,7 +1498,8 @@ class AIState(rx.State):
 
                 # CRITICAL: Ensure KoboldCPP is running before LLM call
                 if self.backend_type == "koboldcpp":
-                    await self._ensure_koboldcpp_running()
+                    async for _ in self._ensure_koboldcpp_running():
+                        yield  # Forward yields from _ensure_koboldcpp_running() to UI
 
                 # Initialize temporary history entry for real-time display
                 temp_history_index = len(self.chat_history)
