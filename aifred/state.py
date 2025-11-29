@@ -1174,8 +1174,7 @@ class AIState(rx.State):
                 monitor = InactivityMonitor(
                     manager=koboldcpp_manager,
                     timeout_seconds=KOBOLDCPP_INACTIVITY_TIMEOUT,
-                    check_interval=KOBOLDCPP_INACTIVITY_CHECK_INTERVAL,
-                    debug_callback=self.add_debug  # Send messages to debug console UI
+                    check_interval=KOBOLDCPP_INACTIVITY_CHECK_INTERVAL
                 )
                 await monitor.start_monitoring()
 

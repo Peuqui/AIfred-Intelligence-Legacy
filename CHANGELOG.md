@@ -7,41 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-11-29
 
-### 🔔 KoboldCPP Auto-Shutdown: Debug Console Messages
-
-#### Added
-- **Debug Console Integration for Inactivity Monitor** ([aifred/lib/inactivity_monitor.py:65-79, 247-269](aifred/lib/inactivity_monitor.py#L65-L79)):
-  - Shutdown messages now appear in UI Debug Console (not just log file)
-  - New `debug_callback` parameter accepts `self.add_debug` function from State
-  - Messages sent to BOTH destinations:
-    - `log_message()` → `/logs/aifred_debug.log` (file logging)
-    - `debug_callback()` → Debug Console UI (real-time visibility)
-  - Shows shutdown countdown, GPU statistics, and completion status
-  - **Example Messages**:
-    - `🛑 KoboldCPP wird wegen Inaktivität heruntergefahren (GPUs waren 30s idle, Timeout: 30s)`
-    - `   GPU-Statistik: 0 aktiv / 3 idle Checks`
-    - `✅ KoboldCPP erfolgreich heruntergefahren`
+### 🔔 KoboldCPP Auto-Shutdown: Debug Console Messages (Fixed)
 
 #### Changed
-- **Shutdown Message Format** ([aifred/lib/inactivity_monitor.py:248](aifred/lib/inactivity_monitor.py#L248)):
-  - Removed "Stromersparnis: ~100W" from shutdown message
-  - Added dynamic timeout display showing config value (e.g., "Timeout: 30s")
-  - **Before**: `KoboldCPP wird heruntergefahren (Stromersparnis: ~100W)`
-  - **After**: `KoboldCPP wird wegen Inaktivität heruntergefahren (GPUs waren 30s idle, Timeout: 30s)`
+- **Unified Logging System for Auto-Shutdown** ([aifred/lib/inactivity_monitor.py:31-32, 60-76, 240-252](aifred/lib/inactivity_monitor.py#L60-L76)):
+  - **Fixed**: Shutdown messages now correctly appear in Debug Console UI
+  - **Removed**: Custom `debug_callback` parameter (was bypassing queue system)
+  - **Solution**: Direct use of `log_message()` from `logging_utils`
+  - `log_message()` automatically writes to BOTH:
+    - `/logs/aifred_debug.log` (file logging)
+    - `_message_queue` (UI Debug Console via queue polling)
+  - **Removed**: GPU statistics message (user request)
+  - **Example Messages** (now visible in Debug Console):
+    - `🛑 KoboldCPP wird wegen Inaktivität heruntergefahren (GPUs waren 30s idle, Timeout: 30s)`
+    - `✅ KoboldCPP erfolgreich heruntergefahren`
 
-- **Callback Pattern Implementation** ([aifred/state.py:1178](aifred/state.py#L1178)):
-  - InactivityMonitor now receives `debug_callback=self.add_debug` parameter
-  - Enables decoupled communication between monitor and UI layer
-  - No circular dependencies - clean separation of concerns
+#### Technical Details
+- **Root Cause**: Custom callback was bypassing the `_message_queue` used by UI polling
+- **Fix**: Use existing `log_message()` function that writes to queue when `CONSOLE_DEBUG_ENABLED=True`
+- **Pattern**: Follows same approach as all other logging throughout the codebase
+- **Removed Code**:
+  - `Callable` import (no longer needed)
+  - `debug_callback` parameter from `__init__`
+  - Conditional callback logic in shutdown messages
+  - GPU statistics line: `GPU-Statistik: X aktiv / Y idle Checks`
 
 #### Impact
-- **Before**: Shutdown messages only visible in log file (`aifred_debug.log`)
-- **After**: Real-time shutdown notifications in Debug Console UI
-- **User Experience**: Users now see auto-shutdown progress in UI without tailing log files
+- **Before**: Messages appeared in log file but NOT in Debug Console UI
+- **After**: Real-time shutdown notifications in BOTH log file AND Debug Console UI
+- **Simpler**: No custom callbacks - uses unified logging system
+- **Cleaner**: Removed unnecessary GPU statistics message
 
 #### Files Modified
-- [aifred/lib/inactivity_monitor.py](aifred/lib/inactivity_monitor.py): Lines 31, 65-79, 247-269
-- [aifred/state.py](aifred/state.py): Line 1178
+- [aifred/lib/inactivity_monitor.py](aifred/lib/inactivity_monitor.py): Lines 31-32, 60-76, 240-252
+- [aifred/state.py](aifred/state.py): Line 1174-1178 (removed `debug_callback` parameter)
 
 ---
 

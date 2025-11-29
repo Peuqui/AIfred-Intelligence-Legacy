@@ -28,7 +28,7 @@ Usage:
 
 import asyncio
 import subprocess
-from typing import Optional, TYPE_CHECKING, List, Callable
+from typing import Optional, TYPE_CHECKING, List
 from aifred.lib.logging_utils import log_message
 
 # Avoid circular imports
@@ -61,8 +61,7 @@ class InactivityMonitor:
         self,
         manager: "KoboldCPPProcessManager",
         timeout_seconds: int = 30,    # 30 seconds for testing (1800 for production)
-        check_interval: int = 10,      # Check every 10 seconds
-        debug_callback: Optional[Callable[[str], None]] = None  # Optional callback for debug console
+        check_interval: int = 10      # Check every 10 seconds
     ):
         """
         Initialize GPU-based Inactivity Monitor
@@ -71,12 +70,10 @@ class InactivityMonitor:
             manager: KoboldCPPProcessManager instance to monitor
             timeout_seconds: Seconds of GPU idle (0% util) before auto-shutdown
             check_interval: Seconds between GPU utilization checks
-            debug_callback: Optional callback function to send messages to debug console
         """
         self._manager = manager
         self._timeout = timeout_seconds
         self._check_interval = check_interval
-        self._debug_callback = debug_callback
 
         # GPU idle tracking
         self._idle_checks_needed = max(1, timeout_seconds // check_interval)
@@ -244,29 +241,15 @@ class InactivityMonitor:
                     if self._consecutive_idle_checks >= self._idle_checks_needed:
                         idle_duration = self._consecutive_idle_checks * self._check_interval
 
-                        # Send shutdown messages to both log and debug console
-                        shutdown_msg = f"🛑 KoboldCPP wird wegen Inaktivität heruntergefahren (GPUs waren {idle_duration}s idle, Timeout: {self._timeout}s)"
-                        stats_msg = f"   GPU-Statistik: {self._total_active_checks} aktiv / {self._total_idle_checks} idle Checks"
-
-                        log_message(shutdown_msg)
-                        log_message(stats_msg)
-
-                        if self._debug_callback:
-                            self._debug_callback(shutdown_msg)
-                            self._debug_callback(stats_msg)
+                        # Send shutdown message to both log file and debug console
+                        log_message(f"🛑 KoboldCPP wird wegen Inaktivität heruntergefahren (GPUs waren {idle_duration}s idle, Timeout: {self._timeout}s)")
 
                         # Graceful shutdown using Manager API
                         try:
                             await self._manager.stop()
-                            success_msg = "✅ KoboldCPP erfolgreich heruntergefahren"
-                            log_message(success_msg)
-                            if self._debug_callback:
-                                self._debug_callback(success_msg)
+                            log_message("✅ KoboldCPP erfolgreich heruntergefahren")
                         except Exception as e:
-                            error_msg = f"❌ Auto-Shutdown fehlgeschlagen: {e}"
-                            log_message(error_msg)
-                            if self._debug_callback:
-                                self._debug_callback(error_msg)
+                            log_message(f"❌ Auto-Shutdown fehlgeschlagen: {e}")
 
                         # Stop monitoring after shutdown (will restart when server restarts)
                         self._enabled = False
