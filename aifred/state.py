@@ -1164,6 +1164,20 @@ class AIState(rx.State):
             self.add_debug(f"   {traceback.format_exc()}")
             _global_backend_state["koboldcpp_manager"] = None
 
+    async def _ensure_koboldcpp_running(self):
+        """Ensure KoboldCPP is running, start if stopped (e.g., by auto-unload monitor)"""
+        global _global_backend_state
+
+        existing_manager = _global_backend_state.get("koboldcpp_manager")
+
+        # Check if already running
+        if existing_manager and existing_manager.is_running():
+            return  # Already running, nothing to do
+
+        # KoboldCPP is not running - start it
+        self.add_debug("⚠️ KoboldCPP not running - starting automatically...")
+        await self._start_koboldcpp_server()
+
     async def _stop_koboldcpp_server(self):
         """Stop KoboldCPP server process gracefully"""
         global _global_backend_state
@@ -1340,6 +1354,10 @@ class AIState(rx.State):
                 # Automatik mode: AI decides if research is needed
                 # Debug message is already logged in conversation_handler.py
 
+                # CRITICAL: Ensure KoboldCPP is running before LLM call
+                if self.backend_type == "koboldcpp":
+                    await self._ensure_koboldcpp_running()
+
                 # Import chat_interactive_mode
                 from .lib.conversation_handler import chat_interactive_mode
 
@@ -1432,6 +1450,10 @@ class AIState(rx.State):
             elif self.research_mode in ["quick", "deep"]:
                 # Direct research mode (quick/deep)
                 self.add_debug(f"🔍 Research Mode: {self.research_mode}")
+
+                # CRITICAL: Ensure KoboldCPP is running before LLM call
+                if self.backend_type == "koboldcpp":
+                    await self._ensure_koboldcpp_running()
 
                 # Initialize temporary history entry for real-time display
                 temp_history_index = len(self.chat_history)
