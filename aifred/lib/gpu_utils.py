@@ -586,6 +586,7 @@ def detect_koboldcpp_gpu_config() -> Dict:
         is_dual_p40 = all("P40" in name for name in gpu_names)
 
         if is_dual_p40:
+            # Default config for dual P40 (can be overridden dynamically by single-GPU check)
             return {
                 "type": "dual_p40",
                 "description": "2x Tesla P40 (Automatic Distribution)",
@@ -593,10 +594,11 @@ def detect_koboldcpp_gpu_config() -> Dict:
                 "gpu_names": gpu_names,
                 "gpu_vram_mb": gpu_vram,
                 "total_vram_mb": total_vram,
+                "single_gpu_vram_mb": gpu_vram[0] if gpu_vram else 0,  # For single-GPU decision
                 "config": {
                     "gpu_layers": -1,           # All layers on GPU (distributed automatically)
                     "context_offload": False,   # Not supported by KoboldCPP (uses auto-distribution)
-                    "tensor_split": None,       # Let KoboldCPP auto-distribute (50/50)
+                    "tensor_split": None,       # Let KoboldCPP auto-distribute (50/50) - overridable
                     "flash_attention": True,    # P40 supports Flash Attention (Compute Capability 6.1)
                     "quantized_kv": True,       # Q4 KV cache saves ~75% VRAM for large contexts
                     "use_cublas": True,

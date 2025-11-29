@@ -150,34 +150,33 @@ def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
                 # Load GGUF metadata
                 reader = gguf.GGUFReader(f)
 
-                # Try common architecture-specific keys
-                context_keys = [
-                    'llama.context_length',      # Llama, Qwen, Yi
-                    'mistral.context_length',    # Mistral
-                    'gpt2.context_length',       # GPT2
-                    'phi.context_length',        # Phi
-                    'gemma.context_length',      # Gemma
-                    'qwen2.context_length',      # Qwen2
-                    'qwen3moe.context_length',   # Qwen3 MoE (Coder-30B, VL-30B)
-                    'context_length',            # Generic fallback
-                ]
-
-                # Try to find context length in metadata
+                # Search for ANY key that ends with 'context_length' or contains 'max_position_embeddings'
+                # This is more robust than hardcoding all possible architecture names
                 for field in reader.fields.values():
-                    for key in context_keys:
-                        if field.name == key:
+                    field_name = field.name.lower()
+
+                    # Match patterns: *.context_length or *max_position_embeddings
+                    if field_name.endswith('.context_length') or field_name == 'context_length' or \
+                       'max_position_embeddings' in field_name:
+                        try:
                             # Extract value from memmap array
                             # field.parts is a list where parts[-1] is a memmap with the actual value
                             # For uint32 values: parts[-1] is memmap([value], dtype=uint32)
                             value_array = field.parts[-1]
                             context = int(value_array[0]) if len(value_array) > 0 else None
-                            if context:
-                                logger.info(f"✅ Native Context aus GGUF Metadata ({key}): {context:,} tokens")
+                            if context and context > 0:
+                                logger.info(f"✅ Native Context aus GGUF Metadata ({field.name}): {context:,} tokens")
                                 return context
+                        except (IndexError, ValueError, TypeError) as e:
+                            logger.debug(f"Failed to parse {field.name}: {e}")
+                            continue
 
                 # Log available keys for debugging
+                all_keys = [f.name for f in reader.fields.values()]
+                context_related_keys = [k for k in all_keys if 'context' in k.lower() or 'length' in k.lower()]
                 logger.warning("Kein context_length key in GGUF Metadata gefunden")
-                logger.debug(f"Verfügbare Metadaten-Keys: {[f.name for f in list(reader.fields.values())[:20]]}")
+                logger.warning(f"Verfügbare context-bezogene Keys: {context_related_keys}")
+                logger.debug(f"Alle Metadaten-Keys (first 30): {all_keys[:30]}")
                 return None
 
             except Exception as e:

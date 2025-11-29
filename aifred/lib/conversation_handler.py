@@ -471,10 +471,9 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                         yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
 
                         # VRAM Monitoring: Measure after first token (KV cache allocated)
-                        # CRITICAL: Use async version to avoid blocking event loop during streaming
                         if vram_before_inference is not None and final_num_ctx > 0:
-                            from aifred.lib.gpu_utils import measure_vram_during_inference_async
-                            vram_measurement = await measure_vram_during_inference_async(
+                            from aifred.lib.gpu_utils import measure_vram_during_inference
+                            vram_measurement = measure_vram_during_inference(
                                 context_tokens=final_num_ctx,
                                 vram_before_mb=vram_before_inference
                             )
