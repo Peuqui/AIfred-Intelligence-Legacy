@@ -872,11 +872,20 @@ def chat_history_display() -> rx.Component:
                     color=COLORS["text_secondary"],
                     margin_top="3",
                 ),
-                rx.text(
-                    "Backend wird gewechselt...",
-                    font_size="14px",
-                    color=COLORS["text_secondary"],
-                    margin_top="3",
+                rx.cond(
+                    AIState.is_koboldcpp_auto_restarting,
+                    rx.text(
+                        "KoboldCPP startet neu (nach Inaktivität)...",
+                        font_size="14px",
+                        color=COLORS["text_secondary"],
+                        margin_top="3",
+                    ),
+                    rx.text(
+                        "Backend wird gewechselt...",
+                        font_size="14px",
+                        color=COLORS["text_secondary"],
+                        margin_top="3",
+                    ),
                 ),
             ),
         ),
@@ -898,8 +907,8 @@ def chat_history_display() -> rx.Component:
     )
 
     chat_content = rx.cond(
-        AIState.backend_initializing | AIState.backend_switching | AIState.vllm_restarting,
-        loading_spinner,  # Show spinner during initialization, backend switch, or vLLM restart
+        AIState.backend_initializing | AIState.backend_switching | AIState.vllm_restarting | AIState.is_koboldcpp_auto_restarting,
+        loading_spinner,  # Show spinner during initialization, backend switch, vLLM restart, or KoboldCPP auto-restart
         rx.cond(
             AIState.auto_refresh_enabled,
             # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch

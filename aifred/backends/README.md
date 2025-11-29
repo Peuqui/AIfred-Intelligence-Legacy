@@ -11,9 +11,10 @@ AIfred unterstützt jetzt mehrere LLM-Backends für maximale Flexibilität und P
 - **Nachteile**: Etwas langsamer als native Inference-Engines
 
 ### 2. vLLM
-- **URL**: `http://localhost:8000/v1`
+- **URL**: `http://localhost:8001/v1`
 - **Installation**: `pip install vllm`
-- **Start**: `vllm serve <model-name> --port 8000`
+- **Start**: `vllm serve <model-name> --port 8001`
+- **Hinweis**: Port 8001 wird verwendet (Port 8000 ist für ChromaDB reserviert)
 - **Vorteile**: Sehr schnell, Page Attention, gute Batching
 - **Nachteile**: Höherer RAM-Verbrauch
 
@@ -41,7 +42,7 @@ from aifred.lib.llm_client import LLMClient
 client = LLMClient(backend_type="ollama")
 
 # vLLM
-client = LLMClient(backend_type="vllm", base_url="http://localhost:8000/v1")
+client = LLMClient(backend_type="vllm", base_url="http://localhost:8001/v1")
 
 # TabbyAPI (ExLlamaV2/V3)
 client = LLMClient(backend_type="tabbyapi", base_url="http://localhost:5000/v1")
@@ -57,7 +58,7 @@ client = LLMClient(backend_type="llamacpp", base_url="http://localhost:8080/v1")
 DEFAULT_BACKEND = "ollama"  # oder "vllm", "tabbyapi", "llamacpp"
 BACKEND_URLS = {
     "ollama": "http://localhost:11434",
-    "vllm": "http://localhost:8000/v1",
+    "vllm": "http://localhost:8001/v1",
     "tabbyapi": "http://localhost:5000/v1",
     "llamacpp": "http://localhost:8080/v1",
 }

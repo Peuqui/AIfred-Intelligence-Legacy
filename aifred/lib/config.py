@@ -232,6 +232,17 @@ KOBOLDCPP_ROPE_SCALING_FACTOR = 1.5  # Conservative 1.5x for good quality/capaci
 KOBOLDCPP_MAX_CONTEXT = 262144  # 256K tokens (KoboldCPP v1.101.1)
 
 # ============================================================
+# KOBOLDCPP INACTIVITY AUTO-SHUTDOWN
+# ============================================================
+# Automatically shutdown KoboldCPP after inactivity period to save power (~100W idle)
+# Server restarts automatically on next request (Phase 1: Backend Auto-Restart)
+#
+# Testing: Set KOBOLDCPP_INACTIVITY_TIMEOUT = 30 for 30-second tests
+# Production: Set KOBOLDCPP_INACTIVITY_TIMEOUT = 1800 for 30-minute timeout
+KOBOLDCPP_INACTIVITY_TIMEOUT = 30  # Seconds of inactivity before auto-shutdown (30s for testing)
+KOBOLDCPP_INACTIVITY_CHECK_INTERVAL = 10  # Check inactivity every 10 seconds
+
+# ============================================================
 # VECTOR CACHE CONFIGURATION (ChromaDB Similarity Thresholds)
 # ============================================================
 # Distance-Thresholds für semantische Ähnlichkeit (Cosine Distance)

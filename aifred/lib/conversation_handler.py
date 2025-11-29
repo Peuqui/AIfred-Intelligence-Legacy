@@ -796,13 +796,22 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 safety_margin = 2048
                 available_output = max(512, final_num_ctx - input_tokens - safety_margin)
 
+                # HARD LIMIT: Max 4096 tokens (prevents KV-Cache overflow to CPU RAM)
+                # Problem: Large num_predict causes KoboldCPP to pre-allocate huge KV-Cache
+                # Example: 259K num_predict → 19.7 GB CPU RAM, 88°C CPU temp, performance degradation
+                # Solution: Cap num_predict at realistic output length (4096 = ~10-20 pages of text)
+                MAX_NUM_PREDICT = 4096
+                if available_output > MAX_NUM_PREDICT:
+                    log_message(f"⚠️ num_predict capped: {format_number(available_output)} → {format_number(MAX_NUM_PREDICT)} tokens (KV-Cache protection)")
+                    available_output = MAX_NUM_PREDICT
+
                 log_message(f"🧮 Dynamic num_predict: {format_number(available_output)} tokens (num_ctx: {format_number(final_num_ctx)}, input: {format_number(input_tokens)}, margin: {safety_margin})")
 
                 # Build main LLM options (include enable_thinking from user settings)
                 main_llm_options = {
                     'temperature': final_temperature,  # Adaptive oder Manual Temperature!
                     'num_ctx': final_num_ctx,  # Dynamisch berechnet oder User-Vorgabe
-                    'num_predict': available_output  # Dynamic: Full available output space
+                    'num_predict': available_output  # Dynamic: Full available output space (capped at 4096)
                 }
 
                 # Add enable_thinking if provided in llm_options (user toggle)

@@ -36,8 +36,10 @@ class KoboldCPPBackend(LLMBackend):
         self.client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,  # KoboldCPP doesn't need real API key
-            timeout=300.0  # 300s (5min) Timeout - für lange Generierungen
+            timeout=300.0  # 300s (5min) Timeout - absolutes Maximum für normale Nutzung
         )
+        # Track if we're in the middle of restarting (prevent recursive restart attempts)
+        self._restarting = False
 
     async def list_models(self) -> List[str]:
         """Get list of available models from KoboldCPP"""
@@ -47,6 +49,107 @@ class KoboldCPPBackend(LLMBackend):
             return self._available_models
         except Exception as e:
             raise BackendConnectionError(f"Failed to list KoboldCPP models: {e}")
+
+    async def _ensure_server_running(self) -> None:
+        """
+        Ensure KoboldCPP server is running, auto-restart if stopped.
+
+        This method checks if the KoboldCPP server process is running and
+        automatically restarts it if needed. Uses the manager from global
+        state to leverage existing startup configuration.
+
+        Raises:
+            BackendConnectionError: If server cannot be started
+        """
+        # Prevent recursive restart attempts
+        if self._restarting:
+            logger.debug("Already restarting, skipping duplicate attempt")
+            return
+
+        try:
+            from aifred.state import _global_backend_state
+
+            # Get manager from global state
+            manager = _global_backend_state.get("koboldcpp_manager")
+
+            # Check if server is already running
+            if manager and manager.is_running():
+                return  # Server running, nothing to do
+
+            # Server NOT running - need to restart
+            logger.info("🔄 KoboldCPP server not running - auto-restarting...")
+            self._restarting = True
+
+            # NOTE: UI flag is now set by state.py's _ensure_koboldcpp_running() method
+            # This allows Reflex to use `yield` for immediate UI updates
+
+            # Check if manager exists
+            if not manager:
+                # No manager - cannot auto-restart
+                # This should never happen in production (State initializes manager)
+                raise BackendConnectionError(
+                    "KoboldCPP manager not initialized. "
+                    "Please start server via UI first (Settings → Backend → Start KoboldCPP)."
+                )
+
+            # Get model info from global state (needed for restart)
+            gguf_models = _global_backend_state.get("gguf_models", {})
+            selected_model = _global_backend_state.get("koboldcpp_selected_model")
+
+            if not selected_model or selected_model not in gguf_models:
+                raise BackendConnectionError(
+                    "Cannot auto-restart: Model configuration not cached. "
+                    "Please start server via UI first."
+                )
+
+            model_info = gguf_models[selected_model]
+            model_path = str(model_info.path)
+
+            # Restart server with auto-detection (same logic as state.py)
+            logger.info(f"   Model: {selected_model}")
+            logger.info(f"   Path: {model_path}")
+
+            success, config_info = await manager.start_with_auto_detection(
+                model_path=model_path,
+                model_name=selected_model,
+                timeout=240  # 4min timeout for large models
+            )
+
+            if not success:
+                raise BackendConnectionError(
+                    f"Failed to auto-restart KoboldCPP server. "
+                    f"Please check logs and restart manually via UI."
+                )
+
+            # Update global state with new config
+            _global_backend_state["koboldcpp_context"] = config_info['context_size']
+            _global_backend_state["koboldcpp_native_context"] = config_info.get('native_context')
+
+            # Update context cache (same as state.py does)
+            from aifred.lib.context_manager import _last_vram_limit_cache
+            _last_vram_limit_cache["limit"] = config_info['context_size']
+
+            logger.info(f"✅ KoboldCPP auto-restarted: {config_info['context_size']:,} tokens context")
+
+            # Restart InactivityMonitor (Phase 2 - Auto-Shutdown)
+            monitor = _global_backend_state.get("inactivity_monitor")
+            if monitor and not monitor.is_monitoring():
+                await monitor.start_monitoring()
+                logger.info("🔍 Inactivity monitor restarted (timeout: 30s)")
+
+            # NOTE: UI flag is cleared by state.py's _ensure_koboldcpp_running() method
+
+        except BackendConnectionError:
+            raise  # Re-raise our own exceptions
+        except Exception as e:
+            logger.error(f"❌ Auto-restart failed: {e}")
+            raise BackendConnectionError(f"Auto-restart failed: {e}") from e
+        finally:
+            self._restarting = False
+
+    # NOTE: _record_activity() removed - new GPU-based monitor tracks activity automatically
+    # Old timestamp-based approach had race conditions and killed active requests
+    # New approach uses nvidia-smi to check GPU utilization directly
 
     async def chat(
         self,
@@ -67,6 +170,9 @@ class KoboldCPPBackend(LLMBackend):
         Returns:
             LLMResponse
         """
+        # CRITICAL: Ensure server is running BEFORE API call (auto-restart if needed)
+        await self._ensure_server_running()
+
         if options is None:
             options = LLMOptions()
 
@@ -110,6 +216,8 @@ class KoboldCPPBackend(LLMBackend):
 
             tokens_per_second = (tokens_generated / inference_time) if inference_time > 0 else 0
 
+            # NOTE: No manual activity recording needed - GPU monitor tracks automatically
+
             return LLMResponse(
                 text=text,
                 tokens_prompt=tokens_prompt,
@@ -145,6 +253,9 @@ class KoboldCPPBackend(LLMBackend):
             - {"type": "content", "text": str} for content chunks
             - {"type": "done", "metrics": {...}} for final metrics
         """
+        # CRITICAL: Ensure server is running BEFORE API call (auto-restart if needed)
+        await self._ensure_server_running()
+
         if options is None:
             options = LLMOptions()
 
@@ -196,6 +307,8 @@ class KoboldCPPBackend(LLMBackend):
             # Final metrics
             inference_time = time.time() - start_time
             tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
+
+            # NOTE: No manual activity recording needed - GPU monitor tracks automatically
 
             yield {
                 "type": "done",

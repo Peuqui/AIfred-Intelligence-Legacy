@@ -198,6 +198,15 @@ class VectorCache:
         if source == 'CACHE' and metadata:
             answer = metadata.get('answer')
 
+            # Validate answer is not empty - treat empty answers as cache miss
+            if not answer or (isinstance(answer, str) and not answer.strip()):
+                log_message(f"⚠️ Vector Cache HIT but answer is empty (distance={distance:.3f}) → Treating as miss")
+                return {
+                    'source': 'CACHE_MISS',
+                    'confidence': 'low',
+                    'distance': distance
+                }
+
         return {
             'source': source,
             'confidence': confidence,
@@ -310,6 +319,15 @@ class VectorCache:
 
             # Extract answer from metadata
             answer = metadata.get('answer') if source == 'CACHE' else None
+
+            # Validate answer is not empty - treat empty answers as cache miss
+            if source == 'CACHE' and (not answer or (isinstance(answer, str) and not answer.strip())):
+                log_message(f"⚠️ Vector Cache HIT (newest) but answer is empty (distance={distance:.3f}) → Treating as miss")
+                return {
+                    'source': 'CACHE_MISS',
+                    'confidence': 'low',
+                    'distance': distance
+                }
 
             return {
                 'source': source,
