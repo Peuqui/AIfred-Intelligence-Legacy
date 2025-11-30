@@ -231,6 +231,10 @@ KOBOLDCPP_ROPE_SCALING_FACTOR = 1.5  # Conservative 1.5x for good quality/capaci
 # If this changes in future versions, update this constant
 KOBOLDCPP_MAX_CONTEXT = 262144  # 256K tokens (KoboldCPP v1.101.1)
 
+# KOBOLDCPP INACTIVITY AUTO-SHUTDOWN CONFIGURATION
+KOBOLDCPP_INACTIVITY_TIMEOUT = 30  # Seconds of GPU idle before auto-shutdown (30 for testing, 1800 for production)
+KOBOLDCPP_INACTIVITY_CHECK_INTERVAL = 10  # Check GPU utilization every 10 seconds
+
 # ============================================================
 # KOBOLDCPP INACTIVITY AUTO-SHUTDOWN
 # ============================================================
