@@ -1382,8 +1382,8 @@ class AIState(rx.State):
                 self.gpu_total_active_checks = 0
 
                 # Start background task via Reflex Event system
-                # Note: This returns a Task that Reflex manages automatically
-                yield self.start_inactivity_monitoring()
+                # Background event with @rx.event(background=True) handles State locking internally
+                asyncio.create_task(self.start_inactivity_monitoring())
 
                 self.add_debug("✅ KoboldCPP server ready on port 5001")
             else:
