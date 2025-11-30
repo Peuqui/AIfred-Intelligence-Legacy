@@ -281,6 +281,15 @@ class AIState(rx.State):
     vllm_restarting: bool = False  # True während vLLM-Neustart (Modellwechsel/YaRN)
     koboldcpp_auto_restarting: bool = False  # True während KoboldCPP Auto-Restart nach Inaktivität
 
+    # GPU Inactivity Monitoring
+    gpu_monitoring_active: bool = False
+    gpu_consecutive_idle_checks: int = 0
+    gpu_total_checks: int = 0
+    gpu_total_idle_checks: int = 0
+    gpu_total_active_checks: int = 0
+    gpu_last_check_time: str = ""
+    gpu_current_utilization: List[int] = []
+
     # Debug Console
     debug_messages: List[str] = []
     auto_refresh_enabled: bool = True  # Für Debug Console + Chat History + AI Response Area
@@ -544,6 +553,11 @@ class AIState(rx.State):
             # Only show "Backend ready" if initialization succeeded
             if backend_init_success:
                 self.add_debug("✅ Backend ready")
+
+                # Add separator after backend ready
+                from aifred.lib.logging_utils import console_separator
+                console_separator()  # File log
+                self.debug_messages.append("────────────────────")  # UI
 
             self._backend_initialized = True
             print("✅ Session initialization complete")
@@ -891,6 +905,12 @@ class AIState(rx.State):
             # Re-enable UI controls
             self.backend_switching = False
             self.add_debug("✅ Backend switch complete")
+
+            # Add separator after backend switch
+            from aifred.lib.logging_utils import console_separator
+            console_separator()  # File log
+            self.debug_messages.append("────────────────────")  # UI (20 chars, matching pattern)
+
             yield  # Force UI update to re-enable controls and refresh model dropdowns
 
     def set_progress(self, phase: str, current: int = 0, total: int = 0, failed: int = 0):
@@ -928,6 +948,142 @@ class AIState(rx.State):
     def set_user_input(self, text: str):
         """Update user input"""
         self.current_user_input = text
+
+    def refresh_debug_console(self):
+        """
+        Refresh debug console to propagate background task updates
+
+        Background tasks (like InactivityMonitor) can modify self.debug_messages
+        but without yield, changes don't propagate to UI. This event handler
+        forces a UI refresh by yielding.
+
+        Called periodically from UI via rx.moment() interval.
+        """
+        # Just yield to propagate any state changes to UI
+        # No need to modify anything - self.debug_messages already has the data
+        yield
+
+    async def start_inactivity_monitoring(self):
+        """
+        Background Task: GPU Inactivity Monitoring (Rolling Window)
+
+        Monitors GPU utilization and auto-shutdowns KoboldCPP after idle period.
+        Uses Rolling Window approach: Continuous checks every 60s, shutdown when
+        N consecutive checks were idle.
+
+        User Use Case:
+            - User finishes inference → has "Bedenkzeit" (thinking time)
+            - If new inference starts within timeout → timer resets automatically
+            - Only shutdowns if GPUs idle for full timeout duration
+
+        Example (600s timeout):
+            - Check every 60s
+            - Need 10 consecutive idle checks (10*60s = 600s)
+            - Any GPU activity → reset counter to 0
+            - Counter reaches 10 → shutdown
+
+        Lifecycle:
+            - Started when KoboldCPP starts (self.gpu_monitoring_active = True)
+            - Stopped when KoboldCPP stops (self.gpu_monitoring_active = False)
+            - Auto-stops after shutdown threshold reached
+
+        Config:
+            - KOBOLDCPP_INACTIVITY_TIMEOUT: Seconds of GPU idle before shutdown
+            - KOBOLDCPP_INACTIVITY_CHECK_INTERVAL: Seconds between checks (60s recommended)
+        """
+        from aifred.lib.gpu_utils import get_gpu_utilization, are_all_gpus_idle
+        from aifred.lib.config import (
+            KOBOLDCPP_INACTIVITY_TIMEOUT,
+            KOBOLDCPP_INACTIVITY_CHECK_INTERVAL
+        )
+        from aifred.lib.logging_utils import console_separator
+        import asyncio
+        import datetime
+
+        # Get KoboldCPP manager from global state
+        koboldcpp_manager = _global_backend_state.get("koboldcpp_manager")
+        if not koboldcpp_manager:
+            self.add_debug("⚠️ No KoboldCPP manager found, monitor exiting")
+            return
+
+        # Calculate how many consecutive idle checks needed
+        idle_checks_needed = max(1, KOBOLDCPP_INACTIVITY_TIMEOUT // KOBOLDCPP_INACTIVITY_CHECK_INTERVAL)
+
+        # Log startup
+        self.add_debug(
+            f"🎯 GPU Inactivity Monitor started "
+            f"(Rolling Window: {idle_checks_needed} consecutive checks à {KOBOLDCPP_INACTIVITY_CHECK_INTERVAL}s = {KOBOLDCPP_INACTIVITY_TIMEOUT}s timeout)"
+        )
+
+        try:
+            # Rolling Window Loop - Continuous checking
+            while True:
+                # Check if monitoring should stop
+                if not self.gpu_monitoring_active:
+                    return
+
+                # Sleep before check (allows quick exit)
+                await asyncio.sleep(KOBOLDCPP_INACTIVITY_CHECK_INTERVAL)
+
+                # Check if still active (might have been stopped during sleep)
+                if not self.gpu_monitoring_active:
+                    return
+
+                # Check GPUs and update State
+                utilization = get_gpu_utilization()
+                self.gpu_current_utilization = utilization or []
+                self.gpu_total_checks += 1
+
+                # Update timestamp
+                self.gpu_last_check_time = datetime.datetime.now().strftime("%H:%M:%S")
+
+                # Check if all GPUs idle
+                if are_all_gpus_idle(utilization):
+                    self.gpu_consecutive_idle_checks += 1
+                    self.gpu_total_idle_checks += 1
+                else:
+                    # GPU activity detected - reset timer
+                    if self.gpu_consecutive_idle_checks > 0:
+                        self.add_debug(
+                            f"🔄 GPU activity detected - idle timer reset "
+                            f"(was at {self.gpu_consecutive_idle_checks}/{idle_checks_needed} checks)"
+                        )
+                    self.gpu_consecutive_idle_checks = 0
+                    self.gpu_total_active_checks += 1
+
+                # Check shutdown threshold
+                if self.gpu_consecutive_idle_checks >= idle_checks_needed:
+                    idle_duration = self.gpu_consecutive_idle_checks * KOBOLDCPP_INACTIVITY_CHECK_INTERVAL
+
+                    # Log shutdown messages (via add_debug for UI propagation)
+                    self.add_debug(
+                        f"🛑 KoboldCPP wird wegen Inaktivität heruntergefahren "
+                        f"(GPUs waren {idle_duration}s idle, Timeout: {KOBOLDCPP_INACTIVITY_TIMEOUT}s)"
+                    )
+                    self.add_debug(
+                        f"   GPU-Statistik: {self.gpu_total_active_checks} aktiv / "
+                        f"{self.gpu_total_idle_checks} idle Checks"
+                    )
+
+                    # Graceful shutdown
+                    try:
+                        await koboldcpp_manager.stop()
+                        self.add_debug("✅ KoboldCPP erfolgreich heruntergefahren")
+
+                        # Add separator
+                        console_separator()  # File log
+                        self.add_debug("────────────────────")  # UI (via add_debug for timestamp)
+
+                    except Exception as e:
+                        self.add_debug(f"❌ Auto-Shutdown fehlgeschlagen: {e}")
+
+                    # Stop monitoring
+                    self.gpu_monitoring_active = False
+                    return
+
+        except Exception as e:
+            self.add_debug(f"❌ GPU monitoring error: {e}")
+            self.gpu_monitoring_active = False
 
     async def _ensure_backend_initialized(self):
         """
@@ -1166,22 +1322,18 @@ class AIState(rx.State):
                 from aifred.lib.context_manager import _last_vram_limit_cache
                 _last_vram_limit_cache["limit"] = config_info['context_size']
 
-                # Initialize Inactivity Monitor for auto-shutdown (Phase 2)
+                # Start GPU Inactivity Monitoring (Reflex Background Task)
                 # Automatically shuts down KoboldCPP after inactivity to save power (~100W idle)
-                from aifred.lib.inactivity_monitor import InactivityMonitor
-                from aifred.lib.config import KOBOLDCPP_INACTIVITY_TIMEOUT, KOBOLDCPP_INACTIVITY_CHECK_INTERVAL
+                self.gpu_monitoring_active = True
+                self.gpu_consecutive_idle_checks = 0
+                self.gpu_total_checks = 0
+                self.gpu_total_idle_checks = 0
+                self.gpu_total_active_checks = 0
 
-                monitor = InactivityMonitor(
-                    manager=koboldcpp_manager,
-                    timeout_seconds=KOBOLDCPP_INACTIVITY_TIMEOUT,
-                    check_interval=KOBOLDCPP_INACTIVITY_CHECK_INTERVAL
-                )
-                await monitor.start_monitoring()
+                # Start background task - must use create_task since we're not in an event handler
+                import asyncio
+                asyncio.create_task(self.start_inactivity_monitoring())
 
-                # Store monitor in global state so backend can record activity
-                _global_backend_state["inactivity_monitor"] = monitor
-
-                self.add_debug(f"🔍 Inactivity monitor started (timeout: {KOBOLDCPP_INACTIVITY_TIMEOUT}s)")
                 self.add_debug("✅ KoboldCPP server ready on port 5001")
             else:
                 raise RuntimeError("KoboldCPP failed to start with auto-config")
@@ -1219,11 +1371,8 @@ class AIState(rx.State):
         """Stop KoboldCPP server process gracefully"""
         global _global_backend_state
 
-        # Stop inactivity monitor if running
-        monitor = _global_backend_state.get("inactivity_monitor")
-        if monitor:
-            await monitor.stop_monitoring()
-            _global_backend_state["inactivity_monitor"] = None
+        # Stop GPU monitoring (background task will exit automatically)
+        self.gpu_monitoring_active = False
 
         koboldcpp_manager = _global_backend_state.get("koboldcpp_manager")
         if koboldcpp_manager and koboldcpp_manager.is_running():

@@ -231,20 +231,21 @@ KOBOLDCPP_ROPE_SCALING_FACTOR = 1.5  # Conservative 1.5x for good quality/capaci
 # If this changes in future versions, update this constant
 KOBOLDCPP_MAX_CONTEXT = 262144  # 256K tokens (KoboldCPP v1.101.1)
 
-# KOBOLDCPP INACTIVITY AUTO-SHUTDOWN CONFIGURATION
-KOBOLDCPP_INACTIVITY_TIMEOUT = 30  # Seconds of GPU idle before auto-shutdown (30 for testing, 1800 for production)
-KOBOLDCPP_INACTIVITY_CHECK_INTERVAL = 10  # Check GPU utilization every 10 seconds
-
 # ============================================================
-# KOBOLDCPP INACTIVITY AUTO-SHUTDOWN
+# KOBOLDCPP INACTIVITY AUTO-SHUTDOWN (Rolling Window)
 # ============================================================
 # Automatically shutdown KoboldCPP after inactivity period to save power (~100W idle)
 # Server restarts automatically on next request (Phase 1: Backend Auto-Restart)
 #
+# Rolling Window Approach:
+# - Continuous GPU checks every KOBOLDCPP_INACTIVITY_CHECK_INTERVAL seconds
+# - Shutdown when N consecutive checks were idle (N = TIMEOUT / INTERVAL)
+# - Any GPU activity resets counter to 0
+#
 # Testing: Set KOBOLDCPP_INACTIVITY_TIMEOUT = 30 for 30-second tests
 # Production: Set KOBOLDCPP_INACTIVITY_TIMEOUT = 1800 for 30-minute timeout
-KOBOLDCPP_INACTIVITY_TIMEOUT = 30  # Seconds of inactivity before auto-shutdown (30s for testing)
-KOBOLDCPP_INACTIVITY_CHECK_INTERVAL = 10  # Check inactivity every 10 seconds
+KOBOLDCPP_INACTIVITY_TIMEOUT = 300  # Seconds of inactivity before auto-shutdown (300s = 5 minutes for testing)
+KOBOLDCPP_INACTIVITY_CHECK_INTERVAL = 60  # Check GPU utilization every 60 seconds (1 minute)
 
 # ============================================================
 # VECTOR CACHE CONFIGURATION (ChromaDB Similarity Thresholds)
