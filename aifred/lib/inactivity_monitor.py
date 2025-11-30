@@ -70,6 +70,10 @@ class InactivityMonitor:
             manager: KoboldCPPProcessManager instance to monitor
             timeout_seconds: Seconds of GPU idle (0% util) before auto-shutdown
             check_interval: Seconds between GPU utilization checks
+
+        Note:
+            Debug messages are automatically sent to UI via log_message() callback system.
+            No manual callback needed - log_message() integrates with AIState._ui_debug_callback.
         """
         self._manager = manager
         self._timeout = timeout_seconds
@@ -241,8 +245,14 @@ class InactivityMonitor:
                     if self._consecutive_idle_checks >= self._idle_checks_needed:
                         idle_duration = self._consecutive_idle_checks * self._check_interval
 
+<<<<<<< HEAD
                         # Send shutdown message to both log file and debug console
                         log_message(f"🛑 KoboldCPP wird wegen Inaktivität heruntergefahren (GPUs waren {idle_duration}s idle, Timeout: {self._timeout}s)")
+=======
+                        # Log shutdown messages (log_message handles both file and console)
+                        log_message(f"🛑 KoboldCPP wird wegen Inaktivität heruntergefahren (GPUs waren {idle_duration}s idle, Timeout: {self._timeout}s)")
+                        log_message(f"   GPU-Statistik: {self._total_active_checks} aktiv / {self._total_idle_checks} idle Checks")
+>>>>>>> 88d704e (refactor: Clean up InactivityMonitor logging and add config constants)
 
                         # Graceful shutdown using Manager API
                         try:
