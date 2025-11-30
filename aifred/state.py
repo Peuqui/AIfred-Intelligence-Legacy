@@ -1821,16 +1821,16 @@ class AIState(rx.State):
                 input_tokens = estimate_tokens(messages, model_name=self.selected_model)
 
                 # IMPORTANT: Preload model BEFORE VRAM calculation!
-                # Unload all models first, then load Haupt-LLM
+                # Unload disabled - let Ollama manage VRAM automatically
                 if self.backend_type == "ollama":
-                    # STEP 1: Unload all models (e.g., Automatik-LLM from startup preload)
-                    unload_success, unloaded_models = await backend.unload_all_models()
-                    if unloaded_models:
-                        models_str = ", ".join(unloaded_models)
-                        self.add_debug(f"🗑️ Entladene Modelle: {models_str}")
-                        yield
+                    # STEP 1: Unload all models (DISABLED - Ollama LRU handles this)
+                    # unload_success, unloaded_models = await backend.unload_all_models()
+                    # if unloaded_models:
+                    #     models_str = ", ".join(unloaded_models)
+                    #     self.add_debug(f"🗑️ Entladene Modelle: {models_str}")
+                    #     yield
 
-                    # STEP 2: Load Haupt-LLM
+                    # STEP 2: Load Haupt-LLM (Ollama loads on-demand if not in VRAM)
                     self.add_debug(f"🚀 Haupt-LLM ({self.selected_model}) wird vorgeladen...")
                     yield
 

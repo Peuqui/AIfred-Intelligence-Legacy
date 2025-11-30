@@ -78,10 +78,10 @@ async def orchestrate_scraping(
         backend = llm_client._get_backend()
 
         async def unload_and_preload():
-            """Unload all models, then preload Haupt-LLM"""
-            unload_success, models = await backend.unload_all_models()
+            """Preload Haupt-LLM (unload disabled - Ollama manages VRAM automatically)"""
+            # unload_success, models = await backend.unload_all_models()  # DISABLED
             success, load_time = await backend.preload_model(model_choice)
-            return (success, load_time, models)
+            return (success, load_time, [])
 
         preload_task = asyncio.create_task(unload_and_preload())
         log_message(f"🚀 Haupt-LLM ({model_choice}) wird parallel vorgeladen...")
