@@ -244,7 +244,7 @@ KOBOLDCPP_MAX_CONTEXT = 262144  # 256K tokens (KoboldCPP v1.101.1)
 #
 # Testing: Set KOBOLDCPP_INACTIVITY_TIMEOUT = 30 for 30-second tests
 # Production: Set KOBOLDCPP_INACTIVITY_TIMEOUT = 1800 for 30-minute timeout
-KOBOLDCPP_INACTIVITY_TIMEOUT = 300  # Seconds of inactivity before auto-shutdown (300s = 5 minutes for testing)
+KOBOLDCPP_INACTIVITY_TIMEOUT = 120  # Seconds of inactivity before auto-shutdown (120s = 2 minutes for testing)
 KOBOLDCPP_INACTIVITY_CHECK_INTERVAL = 60  # Check GPU utilization every 60 seconds (1 minute)
 
 # ============================================================
