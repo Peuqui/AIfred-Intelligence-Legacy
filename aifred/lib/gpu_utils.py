@@ -302,39 +302,8 @@ async def calculate_vram_based_context(
         logger.debug("VRAM context calculation disabled in config")
         return model_context_limit, []
 
-    # Wait for VRAM to stabilize (model fully loaded)
-    # This ensures accurate measurements after model preload
-
-    max_wait_time = 3.0  # Maximum 3 seconds
-    poll_interval = 0.2  # Check every 200ms
-    stability_checks = 2  # Need 2 consecutive stable readings
-    waited = 0.0
-
-    prev_vram = None
-    stable_count = 0
-
-    while waited < max_wait_time:
-        current_vram = get_free_vram_mb()
-
-        if current_vram is not None and prev_vram is not None:
-            # VRAM stable if difference < 50 MB (tolerance for measurement noise)
-            vram_diff = abs(current_vram - prev_vram)
-            if vram_diff < 50:
-                stable_count += 1
-                if stable_count >= stability_checks:
-                    break  # VRAM is stable, model fully loaded
-            else:
-                stable_count = 0  # Reset if VRAM still changing
-
-        prev_vram = current_vram
-        import time
-        time.sleep(poll_interval)
-        waited += poll_interval
-
-    if waited >= max_wait_time:
-        logger.warning(f"VRAM stabilization timed out after {max_wait_time}s")
-
-    # Query free VRAM (after stabilization)
+    # Query free VRAM immediately (no stabilization wait)
+    # REMOVED: 3-second VRAM stabilization loop - unnecessary overhead
     free_vram_mb = get_free_vram_mb()
 
     if free_vram_mb is None:

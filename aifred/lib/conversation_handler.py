@@ -354,18 +354,20 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
             # WICHTIG: Preload ZUERST, dann VRAM-Berechnung (sonst model_is_loaded=False!)
             # Get model max context for compact display (needed for preload log)
             if backend_type == "ollama":
-                # STEP 1: Unload all models (e.g., Automatik-LLM from RAG distance calculation)
                 backend = llm_client._get_backend()
-                unload_success, unloaded_models = await backend.unload_all_models()
-                if unloaded_models:
-                    models_str = ", ".join(unloaded_models)
-                    yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
-                    log_message(f"🗑️ Entladene Modelle: {models_str}")
 
-                # STEP 2: Load Haupt-LLM
+                # STEP 1: Unload all models (DISABLED - let Ollama manage VRAM automatically)
+                # Ollama's LRU strategy handles multi-model loading efficiently with 48GB VRAM
+                # unload_success, unloaded_models = await backend.unload_all_models()
+                # if unloaded_models:
+                #     models_str = ", ".join(unloaded_models)
+                #     yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
+                #     log_message(f"🗑️ Entladene Modelle: {models_str}")
+
+                # STEP 2: Load Haupt-LLM (Ollama loads on-demand if not already in VRAM)
+                # Runs parallel to web scraping - model ready when scraping finishes
                 yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
                 success, load_time = await backend.preload_model(model_choice)
-
                 if success:
                     yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)"}
                     log_message(f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)")
@@ -733,20 +735,21 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 # Get model max context for compact display
                 model_limit, _ = await llm_client.get_model_context_limit(model_choice)
 
-                # Actual model preloading (only for Ollama - vLLM/TabbyAPI keep models in VRAM)
+                # DISABLED: Manual model management - let Ollama handle everything
                 if backend_type == "ollama":
-                    # STEP 1: Unload all models (e.g., Automatik-LLM from decision)
                     backend = llm_client._get_backend()
-                    unload_success, unloaded_models = await backend.unload_all_models()
-                    if unloaded_models:
-                        models_str = ", ".join(unloaded_models)
-                        yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
-                        log_message(f"🗑️ Entladene Modelle: {models_str}")
 
-                    # STEP 2: Load Haupt-LLM
+                    # STEP 1: Unload all models (DISABLED - let Ollama manage VRAM automatically)
+                    # Ollama's LRU strategy handles multi-model loading efficiently with 48GB VRAM
+                    # unload_success, unloaded_models = await backend.unload_all_models()
+                    # if unloaded_models:
+                    #     models_str = ", ".join(unloaded_models)
+                    #     yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
+                    #     log_message(f"🗑️ Entladene Modelle: {models_str}")
+
+                    # STEP 2: Load Haupt-LLM (Ollama loads on-demand if not already in VRAM)
                     yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
                     success, load_time = await backend.preload_model(model_choice)
-
                     if success:
                         yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)"}
                         log_message(f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)")
