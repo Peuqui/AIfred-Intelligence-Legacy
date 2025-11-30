@@ -1,6 +1,6 @@
 # AIfred Intelligence - Dokumentations-Index
 
-**Letzte Aktualisierung:** 2025-11-01
+**Letzte Aktualisierung:** 2025-11-30
 
 ---
 
@@ -62,6 +62,7 @@ docs/
 
 | Dokument | Beschreibung | Status |
 |----------|--------------|--------|
+| [llm/OLLAMA_VRAM_OPTIMIZATION.md](llm/OLLAMA_VRAM_OPTIMIZATION.md) | Ollama VRAM-Optimierung für 48GB Setup (55% schneller) | ✅ Aktiv |
 | [llm/LLM_PARAMETERS.md](llm/LLM_PARAMETERS.md) | Parameter-Tuning (temperature, top_p, etc.) | ✅ Aktiv |
 | [llm/MEMORY_MANAGEMENT.md](llm/MEMORY_MANAGEMENT.md) | Memory-Management für Ollama | ✅ Aktiv |
 | [llm/LLM_COMPARISON.md](llm/LLM_COMPARISON.md) | Vergleich verschiedener LLMs | ✅ Referenz |
@@ -130,6 +131,13 @@ docs/
 ---
 
 ## 📝 Changelog
+
+### 2025-11-30
+- ✅ Ollama VRAM-Optimierung für 48GB Setup (2x Tesla P40)
+- ✅ Manuelle Unload/Reload-Zyklen entfernt (Ollama LRU aktiv)
+- ✅ VRAM-Stabilisierung entfernt (3s Overhead gespart)
+- ✅ Performance: Eigenes Wissen 55% schneller (3.9s vs 8.7s)
+- ✅ [OLLAMA_VRAM_OPTIMIZATION.md](llm/OLLAMA_VRAM_OPTIMIZATION.md) erstellt
 
 ### 2025-11-01
 - ✅ Intelligentes Cache-System implementiert (Metadata-basiert, ~60% Token-Einsparung)
