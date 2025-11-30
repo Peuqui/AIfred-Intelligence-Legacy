@@ -1040,7 +1040,15 @@ def debug_console() -> rx.Component:
             "scroll-behavior": "smooth",
         },
     )
-    
+
+    # Periodic refresh timer for background task state propagation
+    # Without this, messages from background tasks (InactivityMonitor) won't appear in UI
+    refresh_timer = rx.moment(
+        interval=1000,  # 1 second - necessary for background task → UI propagation
+        on_change=AIState.refresh_debug_console,
+        display="none",
+    )
+
     return rx.accordion.root(
         rx.accordion.item(
             value="debug",  # Eindeutige ID für das Accordion Item
@@ -1098,6 +1106,7 @@ def debug_console() -> rx.Component:
                     width="100%",
                 ),
                 debug_content,
+                refresh_timer,  # Hidden timer for background task state propagation
                 spacing="3",
                 width="100%",
             ),

@@ -5,6 +5,50 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2025-11-30
+
+### ⚡ KoboldCPP Auto-Shutdown: Rolling Window Monitoring (Refactored)
+
+#### Changed
+- **Rolling Window Inactivity Monitoring** ([aifred/state.py:966-1086](aifred/state.py#L966-L1086)):
+  - **Simplified Logic**: Replaced complex "Simple Reset" approach with clean Rolling Window pattern
+  - **Continuous Checking**: GPU checks every 60s (was: 10s) from start to finish
+  - **Responsive Timer Reset**: Any GPU activity resets counter with debug message
+  - **"Bedenkzeit" Use Case**: User has full timeout duration after inference to start new query
+  - **Example**: 5min timeout = 5 consecutive idle checks à 60s
+    - Inferenz finishes at 16:22 → idle checks at 16:23, 16:24, 16:25, 16:26, 16:27 → shutdown at 16:27
+    - New inference at 16:25 → counter reset (was 3/5) → new 5min timer starts after inference
+
+- **Updated Configuration** ([aifred/lib/config.py:234-248](aifred/lib/config.py#L234-L248)):
+  - `KOBOLDCPP_INACTIVITY_TIMEOUT = 300` (5 minutes for testing, was: 30s)
+  - `KOBOLDCPP_INACTIVITY_CHECK_INTERVAL = 60` (1 minute, was: 10s)
+  - Added Rolling Window documentation to config comments
+
+#### Technical Details
+- **Before (Complex)**:
+  - Wait period (timeout - 30s) with activity detection
+  - Final 30s with separate check loop
+  - Nested loops, activity detection during wait
+  - ~130 lines of code
+- **After (Simple)**:
+  - Single while loop with 60s sleep
+  - Continuous checks with consecutive idle counter
+  - GPU activity → reset counter + debug message
+  - ~100 lines of code (-23% reduction)
+- **Debug Message**: `🔄 GPU activity detected - idle timer reset (was at X/5 checks)`
+
+#### Impact
+- **Simpler Code**: Single loop instead of nested wait + check loops
+- **More Efficient**: 60s intervals (6x less CPU/GPU queries than 10s)
+- **Better UX**: User sees timer reset messages when new inference starts
+- **Accurate Timeout**: Integer division ensures exact timeout (300s = 5 × 60s)
+
+#### Files Modified
+- [aifred/state.py](aifred/state.py): Lines 966-1086 (complete function rewrite)
+- [aifred/lib/config.py](aifred/lib/config.py): Lines 234-248 (updated config + docs)
+
+---
+
 ## [Unreleased] - 2025-11-29
 
 ### 🔔 KoboldCPP Auto-Shutdown: Debug Console Messages (Fixed)

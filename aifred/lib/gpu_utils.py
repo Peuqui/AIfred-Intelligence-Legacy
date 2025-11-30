@@ -7,7 +7,7 @@ based on available GPU memory.
 
 import logging
 import httpx
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from .config import (
     VRAM_SAFETY_MARGIN,
     VRAM_CONTEXT_RATIO_DENSE,
@@ -659,3 +659,67 @@ def calculate_gpu_layers(model_size_gb: float, vram_mb: int) -> int:
     estimated_layers = int((usable_vram_mb / model_size_mb) * 40)
 
     return max(0, estimated_layers)
+
+
+# ============================================================
+# GPU UTILIZATION MONITORING (für InactivityMonitor)
+# ============================================================
+
+def get_gpu_utilization() -> Optional[List[int]]:
+    """
+    Get current GPU utilization for all GPUs via nvidia-smi
+
+    Returns:
+        List of utilization percentages (0-100) for each GPU
+        None if nvidia-smi fails or no GPUs found
+
+    Example:
+        >>> utils = get_gpu_utilization()
+        >>> print(utils)
+        [0, 0]  # 2 GPUs, both idle
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=utilization.gpu",
+                "--format=csv,noheader,nounits"
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+            check=False
+        )
+
+        if result.returncode != 0:
+            return None
+
+        # Parse output: "0\n15\n" -> [0, 15]
+        utilizations = [
+            int(line.strip())
+            for line in result.stdout.strip().split('\n')
+            if line.strip()
+        ]
+
+        return utilizations if utilizations else None
+
+    except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
+        return None
+
+
+def are_all_gpus_idle(utilizations: Optional[List[int]]) -> bool:
+    """
+    Check if all GPUs are idle (0% utilization)
+
+    Args:
+        utilizations: List from get_gpu_utilization()
+
+    Returns:
+        True if all GPUs at 0%, False if any GPU active or None
+    """
+    if not utilizations:
+        return False  # Assume active if can't determine
+
+    return all(u == 0 for u in utilizations)
