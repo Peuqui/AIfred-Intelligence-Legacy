@@ -229,7 +229,7 @@ KOBOLDCPP_ROPE_SCALING_FACTOR = 1.5  # Conservative 1.5x for good quality/capaci
 # Maximum context size supported by KoboldCPP (llama.cpp argparse limit)
 # This is a hard limit in KoboldCPP's --contextsize parameter
 # If this changes in future versions, update this constant
-KOBOLDCPP_MAX_CONTEXT = 262144  # 256K tokens (KoboldCPP v1.101.1)
+KOBOLDCPP_MAX_CONTEXT = 61440  # 60K tokens (Baseline für stufenweise Tests)
 
 # ============================================================
 # KOBOLDCPP INACTIVITY AUTO-SHUTDOWN (Rolling Window)
@@ -244,7 +244,7 @@ KOBOLDCPP_MAX_CONTEXT = 262144  # 256K tokens (KoboldCPP v1.101.1)
 #
 # Testing: Set KOBOLDCPP_INACTIVITY_TIMEOUT = 30 for 30-second tests
 # Production: Set KOBOLDCPP_INACTIVITY_TIMEOUT = 1800 for 30-minute timeout
-KOBOLDCPP_INACTIVITY_TIMEOUT = 120  # Seconds of inactivity before auto-shutdown (120s = 2 minutes for testing)
+KOBOLDCPP_INACTIVITY_TIMEOUT = 300  # Seconds of inactivity before auto-shutdown (300s = 5 minutes)
 KOBOLDCPP_INACTIVITY_CHECK_INTERVAL = 60  # Check GPU utilization every 60 seconds (1 minute)
 
 # ============================================================
