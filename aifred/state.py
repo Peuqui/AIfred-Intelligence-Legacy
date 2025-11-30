@@ -964,7 +964,6 @@ class AIState(rx.State):
         # No need to modify anything - self.debug_messages already has the data
         yield
 
-    @rx.event(background=True)
     async def start_inactivity_monitoring(self):
         """
         Background Task: GPU Inactivity Monitoring (Rolling Window)
@@ -1021,67 +1020,60 @@ class AIState(rx.State):
             # Rolling Window Loop - Continuous checking
             while True:
                 # Check if monitoring should stop
-                async with self:
-                    if not self.gpu_monitoring_active:
-                        return
+                if not self.gpu_monitoring_active:
+                    return
 
-                # Sleep OUTSIDE lock (don't block State)
+                # Sleep before check (allows quick start)
                 await asyncio.sleep(KOBOLDCPP_INACTIVITY_CHECK_INTERVAL)
 
                 # Check if still active (might have been stopped during sleep)
-                async with self:
-                    if not self.gpu_monitoring_active:
-                        return
+                if not self.gpu_monitoring_active:
+                    return
 
                 # Check GPUs and update State
                 utilization = get_gpu_utilization()
+                self.gpu_current_utilization = utilization or []
+                self.gpu_total_checks += 1
 
-                async with self:
-                    self.gpu_current_utilization = utilization or []
-                    self.gpu_total_checks += 1
+                # Update timestamp
+                self.gpu_last_check_time = datetime.datetime.now().strftime("%H:%M:%S")
 
-                    # Update timestamp
-                    self.gpu_last_check_time = datetime.datetime.now().strftime("%H:%M:%S")
-
-                    # Check if all GPUs idle
-                    if are_all_gpus_idle(utilization):
-                        self.gpu_consecutive_idle_checks += 1
-                        self.gpu_total_idle_checks += 1
-                    else:
-                        # GPU activity detected - reset timer
-                        if self.gpu_consecutive_idle_checks > 0:
-                            self.debug_messages.append(
-                                f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
-                                f"🔄 GPU activity detected - idle timer reset "
-                                f"(was at {self.gpu_consecutive_idle_checks}/{idle_checks_needed} checks)"
-                            )
-                            # Also log to file
-                            from aifred.lib.logging_utils import log_message
-                            log_message(
-                                f"🔄 GPU activity detected - idle timer reset "
-                                f"(was at {self.gpu_consecutive_idle_checks}/{idle_checks_needed} checks)"
-                            )
-                        self.gpu_consecutive_idle_checks = 0
-                        self.gpu_total_active_checks += 1
-
-                    # Check shutdown threshold
-                    should_shutdown = self.gpu_consecutive_idle_checks >= idle_checks_needed
-
-                if should_shutdown:
-                    async with self:
-                        idle_duration = self.gpu_consecutive_idle_checks * KOBOLDCPP_INACTIVITY_CHECK_INTERVAL
-
-                        # Log shutdown messages
+                # Check if all GPUs idle
+                if are_all_gpus_idle(utilization):
+                    self.gpu_consecutive_idle_checks += 1
+                    self.gpu_total_idle_checks += 1
+                else:
+                    # GPU activity detected - reset timer
+                    if self.gpu_consecutive_idle_checks > 0:
                         self.debug_messages.append(
                             f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
-                            f"🛑 KoboldCPP wird wegen Inaktivität heruntergefahren "
-                            f"(GPUs waren {idle_duration}s idle, Timeout: {KOBOLDCPP_INACTIVITY_TIMEOUT}s)"
+                            f"🔄 GPU activity detected - idle timer reset "
+                            f"(was at {self.gpu_consecutive_idle_checks}/{idle_checks_needed} checks)"
                         )
-                        self.debug_messages.append(
-                            f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
-                            f"   GPU-Statistik: {self.gpu_total_active_checks} aktiv / "
-                            f"{self.gpu_total_idle_checks} idle Checks"
+                        # Also log to file
+                        from aifred.lib.logging_utils import log_message
+                        log_message(
+                            f"🔄 GPU activity detected - idle timer reset "
+                            f"(was at {self.gpu_consecutive_idle_checks}/{idle_checks_needed} checks)"
                         )
+                    self.gpu_consecutive_idle_checks = 0
+                    self.gpu_total_active_checks += 1
+
+                # Check shutdown threshold
+                if self.gpu_consecutive_idle_checks >= idle_checks_needed:
+                    idle_duration = self.gpu_consecutive_idle_checks * KOBOLDCPP_INACTIVITY_CHECK_INTERVAL
+
+                    # Log shutdown messages (via add_debug for UI propagation)
+                    self.debug_messages.append(
+                        f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
+                        f"🛑 KoboldCPP wird wegen Inaktivität heruntergefahren "
+                        f"(GPUs waren {idle_duration}s idle, Timeout: {KOBOLDCPP_INACTIVITY_TIMEOUT}s)"
+                    )
+                    self.debug_messages.append(
+                        f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
+                        f"   GPU-Statistik: {self.gpu_total_active_checks} aktiv / "
+                        f"{self.gpu_total_idle_checks} idle Checks"
+                    )
 
                     # Log to file
                     from aifred.lib.logging_utils import log_message
@@ -1098,42 +1090,36 @@ class AIState(rx.State):
                     try:
                         await koboldcpp_manager.stop()
 
-                        async with self:
-                            self.debug_messages.append(
-                                f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
-                                "✅ KoboldCPP erfolgreich heruntergefahren"
-                            )
-
+                        self.debug_messages.append(
+                            f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
+                            "✅ KoboldCPP erfolgreich heruntergefahren"
+                        )
                         log_message("✅ KoboldCPP erfolgreich heruntergefahren")
 
                         # Add separator
                         console_separator()  # File log
-                        async with self:
-                            self.debug_messages.append(
-                                f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
-                                "────────────────────"
-                            )
+                        self.debug_messages.append(
+                            f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
+                            "────────────────────"
+                        )
 
                     except Exception as e:
-                        async with self:
-                            self.debug_messages.append(
-                                f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
-                                f"❌ Auto-Shutdown fehlgeschlagen: {e}"
-                            )
+                        self.debug_messages.append(
+                            f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
+                            f"❌ Auto-Shutdown fehlgeschlagen: {e}"
+                        )
                         log_message(f"❌ Auto-Shutdown fehlgeschlagen: {e}")
 
                     # Stop monitoring
-                    async with self:
-                        self.gpu_monitoring_active = False
+                    self.gpu_monitoring_active = False
                     return
 
         except Exception as e:
-            async with self:
-                self.debug_messages.append(
-                    f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
-                    f"❌ GPU monitoring error: {e}"
-                )
-                self.gpu_monitoring_active = False
+            self.debug_messages.append(
+                f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
+                f"❌ GPU monitoring error: {e}"
+            )
+            self.gpu_monitoring_active = False
             from aifred.lib.logging_utils import log_message
             log_message(f"❌ GPU monitoring error: {e}")
 
