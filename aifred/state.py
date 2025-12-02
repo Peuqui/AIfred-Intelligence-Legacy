@@ -202,6 +202,21 @@ _global_backend_state: dict[str, Any] = {
 }
 
 
+def extract_model_name(model_display: str) -> str:
+    """
+    Extract pure model name from display format "model_name (X.X GB)".
+
+    Args:
+        model_display: Display name like "qwen3:14b (9.3 GB)"
+
+    Returns:
+        Pure model name like "qwen3:14b"
+    """
+    if " (" in model_display and model_display.endswith(")"):
+        return model_display.split(" (")[0]
+    return model_display
+
+
 class ChatMessage(BaseModel):
     """Single chat message"""
     role: str  # "user" or "assistant"
@@ -657,12 +672,20 @@ class AIState(rx.State):
                         # Find all model directories (format: models--Org--ModelName)
                         model_dirs = [d for d in hf_cache.iterdir() if d.is_dir() and d.name.startswith("models--")]
 
-                        # Filter models by reading config.json
+                        # Filter models by reading config.json and calculate sizes
                         self.available_models = []
                         for model_dir in model_dirs:
                             if is_backend_compatible(model_dir, self.backend_type):
                                 model_id = model_dir.name.replace("models--", "").replace("--", "/", 1)
-                                self.available_models.append(model_id)
+
+                                # Calculate total size of model directory
+                                try:
+                                    total_size = sum(f.stat().st_size for f in model_dir.rglob('*') if f.is_file())
+                                    size_gb = total_size / (1024**3)
+                                    self.available_models.append(f"{model_id} ({size_gb:.1f} GB)")
+                                except Exception:
+                                    # Fallback: show without size if calculation fails
+                                    self.available_models.append(model_id)
 
                         self.add_debug(f"📂 Found {len(self.available_models)} {self.backend_type}-compatible models ({len(model_dirs)} total in cache)")
                     else:
@@ -679,10 +702,10 @@ class AIState(rx.State):
                         gguf_models = find_all_gguf_models()
 
                         if gguf_models:
-                            # Store model names in available_models
-                            self.available_models = [m.name for m in gguf_models]
+                            # Store model names with sizes in available_models
+                            self.available_models = [f"{m.name} ({m.size_gb:.1f} GB)" for m in gguf_models]
 
-                            # Store full model info in global state for later use
+                            # Store full model info in global state (keyed by pure name)
                             _global_backend_state["gguf_models"] = {m.name: m for m in gguf_models}
 
                             # Select first model by default
@@ -718,19 +741,41 @@ class AIState(rx.State):
 
                     if result.returncode == 0:
                         data = json.loads(result.stdout)
-                        self.available_models = [m["name"] for m in data.get("models", [])]
+                        # Format: "model_name (size GB)"
+                        self.available_models = [
+                            f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
+                            for m in data.get("models", [])
+                        ]
                     else:
                         self.available_models = []
 
                 # Common validation for all backends
-                # Validate that configured models exist, fallback to first available if not
-                if self.selected_model not in self.available_models and self.available_models:
-                    log_message(f"⚠️ Configured model '{self.selected_model}' not found, using '{self.available_models[0]}'")
-                    self.selected_model = self.available_models[0]
+                # Match pure model names (from settings) to display format (with size)
+                # Settings: "qwen3:8b" → Display: "qwen3:8b (5.2 GB)"
+                def find_display_name(pure_name: str) -> str:
+                    """Find display name matching pure model name"""
+                    for display_name in self.available_models:
+                        if extract_model_name(display_name) == pure_name:
+                            return display_name
+                    return ""
 
-                if self.automatik_model not in self.available_models and self.available_models:
-                    log_message(f"⚠️ Configured automatik model '{self.automatik_model}' not found, using '{self.available_models[0]}'")
-                    self.automatik_model = self.available_models[0]
+                # Update selected_model to display format
+                if self.selected_model:
+                    display_name = find_display_name(self.selected_model)
+                    if display_name:
+                        self.selected_model = display_name
+                    elif self.available_models:
+                        log_message(f"⚠️ Configured model '{self.selected_model}' not found, using '{self.available_models[0]}'")
+                        self.selected_model = self.available_models[0]
+
+                # Update automatik_model to display format
+                if self.automatik_model:
+                    display_name = find_display_name(self.automatik_model)
+                    if display_name:
+                        self.automatik_model = display_name
+                    elif self.available_models:
+                        log_message(f"⚠️ Configured automatik model '{self.automatik_model}' not found, using '{self.available_models[0]}'")
+                        self.automatik_model = self.available_models[0]
 
                 self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
                 self.backend_healthy = True
@@ -814,10 +859,10 @@ class AIState(rx.State):
         existing = load_settings() or {}
         backend_models = existing.get("backend_models", {})
 
-        # Update current backend's models
+        # Update current backend's models (save pure names without size suffix)
         backend_models[self.backend_type] = {
-            "selected_model": self.selected_model,
-            "automatik_model": self.automatik_model,
+            "selected_model": extract_model_name(self.selected_model),
+            "automatik_model": extract_model_name(self.automatik_model),
         }
 
         settings = {
@@ -1152,7 +1197,7 @@ class AIState(rx.State):
             # IMPORTANT: vLLM cannot switch models like Ollama (requires full restart)
             # Therefore, start directly with the Main-Model (30B) to avoid slow restarts
             # Both Automatik and Main requests will use the same 30B model
-            startup_model = self.selected_model
+            startup_model = extract_model_name(self.selected_model)
             self.add_debug(f"🚀 Starting vLLM server with {startup_model}...")
             self.add_debug("   (vLLM uses Main-Model for all requests - model switching requires slow restart)")
 
@@ -1304,11 +1349,13 @@ class AIState(rx.State):
                 return
 
             # Get GGUF model info from global state
+            # Extract pure model name (remove size suffix)
+            pure_model_name = extract_model_name(self.selected_model)
             gguf_models = _global_backend_state.get("gguf_models", {})
-            if not gguf_models or self.selected_model not in gguf_models:
-                raise RuntimeError(f"GGUF model '{self.selected_model}' not found")
+            if not gguf_models or pure_model_name not in gguf_models:
+                raise RuntimeError(f"GGUF model '{pure_model_name}' not found")
 
-            model_info = gguf_models[self.selected_model]
+            model_info = gguf_models[pure_model_name]
             model_path = str(model_info.path)
 
             # Initialize KoboldCPP Process Manager
@@ -1697,12 +1744,13 @@ class AIState(rx.State):
                 }
 
                 # REAL STREAMING: Call async generator directly
+                # Extract pure model names (remove size suffix like "(9.3 GB)")
                 async for item in perform_agent_research(
                     user_text=user_msg,
                     stt_time=0.0,  # Kein STT in Reflex (noch)
                     mode=self.research_mode,
-                    model_choice=self.selected_model,
-                    automatik_model=self.automatik_model,
+                    model_choice=extract_model_name(self.selected_model),
+                    automatik_model=extract_model_name(self.automatik_model),
                     history=self.chat_history[:-1],  # Exclude current temporary entry
                     session_id=self.session_id,
                     temperature_mode=self.temperature_mode,
@@ -1813,12 +1861,15 @@ class AIState(rx.State):
                     base_url=self.backend_url
                 )
 
+                # Extract pure model name (remove size suffix)
+                pure_model_name = extract_model_name(self.selected_model)
+
                 # Get model context limit
-                model_limit, _ = await llm_client.get_model_context_limit(self.selected_model)
+                model_limit, _ = await llm_client.get_model_context_limit(pure_model_name)
 
                 # Count actual input tokens (using real tokenizer)
                 from .lib.context_manager import estimate_tokens
-                input_tokens = estimate_tokens(messages, model_name=self.selected_model)
+                input_tokens = estimate_tokens(messages, model_name=pure_model_name)
 
                 # IMPORTANT: Preload model BEFORE VRAM calculation!
                 # Unload disabled - let Ollama manage VRAM automatically
@@ -1831,11 +1882,11 @@ class AIState(rx.State):
                     #     yield
 
                     # STEP 2: Load Haupt-LLM (Ollama loads on-demand if not in VRAM)
-                    self.add_debug(f"🚀 Haupt-LLM ({self.selected_model}) wird vorgeladen...")
+                    self.add_debug(f"🚀 Haupt-LLM ({pure_model_name}) wird vorgeladen...")
                     yield
 
                     # Preload via backend (measures actual model loading time)
-                    success, load_time = await backend.preload_model(self.selected_model)
+                    success, load_time = await backend.preload_model(pure_model_name)
 
                     if success:
                         self.add_debug(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
@@ -1900,7 +1951,7 @@ class AIState(rx.State):
                 tokens_generated = 0
 
                 async for chunk in llm_client.chat_stream(
-                    model=self.selected_model,
+                    model=pure_model_name,
                     messages=messages,
                     options=llm_options
                 ):
@@ -2171,7 +2222,11 @@ class AIState(rx.State):
                         if result.returncode == 0:
                             # Try to parse JSON to verify API is actually ready
                             data = json.loads(result.stdout)
-                            self.available_models = [m["name"] for m in data.get("models", [])]
+                            # Format: "model_name (size GB)"
+                            self.available_models = [
+                                f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
+                                for m in data.get("models", [])
+                            ]
 
                             # Update global state
                             _global_backend_state["available_models"] = self.available_models
@@ -2330,16 +2385,17 @@ class AIState(rx.State):
                 gguf_models = {model.name: model for model in gguf_models_list}
                 _global_backend_state["gguf_models"] = gguf_models
 
-                # Update available models list
-                self.available_models = list(gguf_models.keys())
+                # Update available models list with sizes
+                self.available_models = [f"{model.name} ({model.size_gb:.1f} GB)" for model in gguf_models_list]
                 _global_backend_state["available_models"] = self.available_models
 
                 self.add_debug(f"✅ Found {len(gguf_models)} GGUF models")
                 yield
 
-                # Restart KoboldCPP with current model
-                if self.selected_model in gguf_models:
-                    self.add_debug(f"🚀 Restarting KoboldCPP with {self.selected_model}...")
+                # Restart KoboldCPP with current model (extract pure name for lookup)
+                pure_model_name = extract_model_name(self.selected_model)
+                if pure_model_name in gguf_models:
+                    self.add_debug(f"🚀 Restarting KoboldCPP with {pure_model_name}...")
                     yield
 
                     # Trigger backend initialization (will start KoboldCPP)
