@@ -21,6 +21,9 @@ class GPUInfo:
     recommended_backends: List[str]
     unsupported_backends: List[str]
     warnings: List[str]
+    # Multi-GPU info
+    gpu_count: int = 1
+    total_vram_mb: int = 0
 
 
 class GPUDetector:
@@ -162,6 +165,8 @@ class GPUDetector:
             gpu_name = selected_gpu["name"]
             vram_mb = selected_gpu["vram_mb"]
             compute_cap = selected_gpu["compute_cap"]
+            gpu_count = len(gpu_list)
+            total_vram_mb = sum(g["vram_mb"] for g in gpu_list)
 
             # Log multi-GPU detection
             if len(gpu_list) > 1:
@@ -186,7 +191,9 @@ class GPUDetector:
                 supports_fast_fp16=supports_fast_fp16,
                 recommended_backends=recommended,
                 unsupported_backends=unsupported,
-                warnings=warnings
+                warnings=warnings,
+                gpu_count=gpu_count,
+                total_vram_mb=total_vram_mb
             )
 
             return self.gpu_info
