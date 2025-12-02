@@ -71,6 +71,26 @@ DEFAULT_SETTINGS = {
 }
 
 # ============================================================
+# OLLAMA SYSTEMD CONFIGURATION
+# ============================================================
+# Ollama runs as a systemd service and reads environment variables from:
+# /etc/systemd/system/ollama.service.d/override.conf
+#
+# Current configuration (2x Tesla P40, 48GB total VRAM):
+#   CUDA_VISIBLE_DEVICES=0,1          # Both GPUs visible
+#   OLLAMA_MAX_LOADED_MODELS=2        # Max 2 models in VRAM (Automatik + Main)
+#   OLLAMA_NUM_PARALLEL=2             # Parallel inference on both GPUs
+#   OLLAMA_GPU_OVERHEAD=536870912     # 512 MB GPU overhead (default ~1GB)
+#
+# Note: For Dual-LLM Debate System (future feature), OLLAMA_MAX_LOADED_MODELS=2
+# is perfect since we only need 2 models debating each other (no Automatik needed).
+#
+# To modify: Edit override.conf and reload systemd
+#   sudo systemctl daemon-reload
+#   sudo systemctl restart ollama
+# ============================================================
+
+# ============================================================
 # BACKEND-SPECIFIC DEFAULT MODELS
 # ============================================================
 # Für Performance-Vergleiche: Alle Backends nutzen die gleichen Modell-Größen
