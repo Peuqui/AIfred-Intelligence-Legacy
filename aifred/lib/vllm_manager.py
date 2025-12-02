@@ -39,13 +39,32 @@ def get_model_size_bytes(model_name: str) -> int:
     if not cache_base.exists():
         raise FileNotFoundError(f"Model cache not found: {cache_base}")
 
-    # Find all model weight files in snapshots
-    # Common extensions: .safetensors, .bin, .pt
+    # Count unique blobs only (avoid counting same file multiple times across snapshots)
+    # HuggingFace stores actual files in blobs/, snapshots contain symlinks
+    blobs_dir = cache_base / "blobs"
+
+    if blobs_dir.exists():
+        # Count actual blob files (most accurate - no duplicates)
+        total_size = 0
+        for blob_file in blobs_dir.iterdir():
+            if blob_file.is_file():
+                total_size += blob_file.stat().st_size
+
+        if total_size > 0:
+            return total_size
+
+    # Fallback: Use newest snapshot only (if blobs dir doesn't exist)
+    snapshot_dirs = sorted(cache_base.glob("snapshots/*"), key=lambda p: p.stat().st_mtime, reverse=True)
+
+    if not snapshot_dirs:
+        raise FileNotFoundError(f"No snapshots found in {cache_base}")
+
+    newest_snapshot = snapshot_dirs[0]
     total_size = 0
-    for snapshot_dir in cache_base.glob("snapshots/*"):
-        for pattern in ["*.safetensors", "*.bin", "*.pt"]:
-            for file_path in snapshot_dir.glob(pattern):
-                total_size += file_path.stat().st_size
+
+    for pattern in ["*.safetensors", "*.bin", "*.pt"]:
+        for file_path in newest_snapshot.glob(pattern):
+            total_size += file_path.stat().st_size
 
     if total_size == 0:
         raise FileNotFoundError(f"No model weight files found in {cache_base}")
