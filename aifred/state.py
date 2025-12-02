@@ -449,7 +449,17 @@ class AIState(rx.State):
                 gpu_info = detect_gpu()
                 if gpu_info:
                     _global_backend_state["gpu_info"] = gpu_info
-                    log_message(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability})")
+
+                    # Format GPU info with count and VRAM
+                    if gpu_info.gpu_count > 1:
+                        # Multi-GPU: "2x Tesla P40 (Compute 6.1, 48 GB total)"
+                        vram_gb = gpu_info.total_vram_mb / 1024
+                        log_message(f"✅ GPU: {gpu_info.gpu_count}x {gpu_info.name} (Compute {gpu_info.compute_capability}, {vram_gb:.0f} GB total)")
+                    else:
+                        # Single GPU: "Tesla P40 (Compute 6.1, 24 GB)"
+                        vram_gb = gpu_info.vram_mb / 1024
+                        log_message(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability}, {vram_gb:.0f} GB)")
+
                     if gpu_info.unsupported_backends:
                         log_message(f"⚠️ Incompatible backends: {', '.join(gpu_info.unsupported_backends)}")
                     if gpu_info.warnings:
