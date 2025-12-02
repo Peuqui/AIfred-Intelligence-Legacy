@@ -743,9 +743,10 @@ class AIState(rx.State):
                             if is_backend_compatible(model_dir, self.backend_type):
                                 model_id = model_dir.name.replace("models--", "").replace("--", "/", 1)
 
-                                # Calculate total size of model directory
+                                # Calculate size using blob-based calculation (avoids counting duplicates)
                                 try:
-                                    total_size = sum(f.stat().st_size for f in model_dir.rglob('*') if f.is_file())
+                                    from .lib.vllm_manager import get_model_size_bytes
+                                    total_size = get_model_size_bytes(model_id)
                                     size_gb = total_size / (1024**3)
                                     self.available_models.append(f"{model_id} ({size_gb:.1f} GB)")
                                 except Exception:
