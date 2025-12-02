@@ -25,6 +25,21 @@ from .intent_detector import detect_query_intent, get_temperature_for_intent, ge
 from .research import perform_agent_research
 
 
+def extract_model_name(model_display: str) -> str:
+    """
+    Extract pure model name from display format "model_name (X.X GB)".
+
+    Args:
+        model_display: Display name with size, e.g., "qwen3:4b (2.3 GB)"
+
+    Returns:
+        Pure model name, e.g., "qwen3:4b"
+    """
+    if " (" in model_display and model_display.endswith(")"):
+        return model_display.split(" (")[0]
+    return model_display
+
+
 def format_age(seconds: float) -> str:
     """
     Format age in seconds to human-readable format.
@@ -94,6 +109,9 @@ async def chat_interactive_mode(
     Yields:
         Dict with: {"type": "debug"|"content"|"metrics"|"separator"|"result", ...}
     """
+    # Extract pure model names from display format (e.g., "qwen3:4b (2.3 GB)" → "qwen3:4b")
+    model_choice = extract_model_name(model_choice)
+    automatik_model = extract_model_name(automatik_model)
 
     # Initialize LLM clients with correct backend
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)

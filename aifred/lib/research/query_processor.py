@@ -20,6 +20,21 @@ from ..formatting import format_number
 from ..tools.url_utils import deduplicate_urls
 
 
+def extract_model_name(model_display: str) -> str:
+    """
+    Extract pure model name from display format "model_name (X.X GB)".
+
+    Args:
+        model_display: Display name with size, e.g., "qwen3:4b (2.3 GB)"
+
+    Returns:
+        Pure model name, e.g., "qwen3:4b"
+    """
+    if " (" in model_display and model_display.endswith(")"):
+        return model_display.split(" (")[0]
+    return model_display
+
+
 # ============================================================
 # URL DETECTION & INTENT ANALYSIS
 # ============================================================
@@ -148,6 +163,9 @@ async def process_query_and_search(
         Tuple[str, str, float, List[str], List[Dict]]:
         (optimized_query, query_reasoning, query_opt_time, related_urls, tool_results)
     """
+    # Extract pure model name from display format (e.g., "qwen3:4b (2.3 GB)" → "qwen3:4b")
+    automatik_model = extract_model_name(automatik_model)
+
     tool_results = []
 
     # ============================================================
