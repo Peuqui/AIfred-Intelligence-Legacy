@@ -1221,7 +1221,7 @@ def settings_accordion() -> rx.Component:
                     AIState.gpu_detected,
                     rx.box(
                         rx.text(
-                            f"🎮 GPU: {AIState.gpu_name} (Compute {AIState.gpu_compute_cap})",
+                            f"🎮 GPU: {AIState.gpu_display_text}",
                             font_size="10px",
                             font_weight="500",
                             color="#2a9d8f",

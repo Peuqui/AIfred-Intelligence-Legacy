@@ -332,7 +332,24 @@ class AIState(rx.State):
     gpu_name: str = ""
     gpu_compute_cap: float = 0.0
     gpu_warnings: List[str] = []
+    gpu_count: int = 1
+    gpu_vram_gb: int = 0
     available_backends: List[str] = ["ollama", "koboldcpp", "tabbyapi", "vllm"]  # Filtered by GPU compatibility (P40-compatible first)
+
+    @rx.var
+    def gpu_display_text(self) -> str:
+        """
+        Format GPU info for UI display.
+        - Single GPU: "Tesla P40 (Compute 6.1, 24 GB)"
+        - Multi-GPU: "2x Tesla P40 (Compute 6.1, 48 GB total)"
+        """
+        if not self.gpu_detected:
+            return ""
+
+        if self.gpu_count > 1:
+            return f"{self.gpu_count}x {self.gpu_name} (Compute {self.gpu_compute_cap}, {self.gpu_vram_gb} GB total)"
+        else:
+            return f"{self.gpu_name} (Compute {self.gpu_compute_cap}, {self.gpu_vram_gb} GB)"
 
     @rx.var
     def grouped_backends_display(self) -> List[str]:
@@ -450,15 +467,27 @@ class AIState(rx.State):
                 if gpu_info:
                     _global_backend_state["gpu_info"] = gpu_info
 
-                    # Format GPU info with count and VRAM
+                    # Format GPU info with count and VRAM (nominal specs)
+                    # Round up to marketing specs (e.g., 23040 MiB → 24 GB)
+                    def round_to_nominal_vram(vram_mb: int) -> int:
+                        """Round VRAM to nearest marketing spec"""
+                        vram_gb = vram_mb / 1024
+                        sizes = [4, 6, 8, 10, 11, 12, 16, 20, 24, 32, 40, 48, 64, 80]
+                        for size in sizes:
+                            if vram_gb <= size:
+                                return size
+                        import math
+                        return math.ceil(vram_gb)
+
+                    vram_per_gpu_gb = round_to_nominal_vram(gpu_info.vram_mb)
+                    total_vram_gb = vram_per_gpu_gb * gpu_info.gpu_count
+
                     if gpu_info.gpu_count > 1:
                         # Multi-GPU: "2x Tesla P40 (Compute 6.1, 48 GB total)"
-                        vram_gb = gpu_info.total_vram_mb / 1024
-                        log_message(f"✅ GPU: {gpu_info.gpu_count}x {gpu_info.name} (Compute {gpu_info.compute_capability}, {vram_gb:.0f} GB total)")
+                        log_message(f"✅ GPU: {gpu_info.gpu_count}x {gpu_info.name} (Compute {gpu_info.compute_capability}, {total_vram_gb} GB total)")
                     else:
                         # Single GPU: "Tesla P40 (Compute 6.1, 24 GB)"
-                        vram_gb = gpu_info.vram_mb / 1024
-                        log_message(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability}, {vram_gb:.0f} GB)")
+                        log_message(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability}, {vram_per_gpu_gb} GB)")
 
                     if gpu_info.unsupported_backends:
                         log_message(f"⚠️ Incompatible backends: {', '.join(gpu_info.unsupported_backends)}")
@@ -550,6 +579,32 @@ class AIState(rx.State):
                 self.gpu_name = gpu_info.name
                 self.gpu_compute_cap = gpu_info.compute_capability
                 self.gpu_warnings = gpu_info.warnings
+                self.gpu_count = gpu_info.gpu_count
+
+                # Calculate nominal VRAM (round up to marketing specs)
+                # nvidia-smi reports slightly less due to firmware overhead
+                # e.g., 23040 MiB → 24 GB, 11264 MiB → 12 GB
+                def round_to_nominal_vram(vram_mb: int) -> int:
+                    """Round VRAM to nearest marketing spec (8, 12, 16, 20, 24, 32, 40, 48, etc.)"""
+                    vram_gb = vram_mb / 1024
+                    # Common VRAM sizes in GB
+                    sizes = [4, 6, 8, 10, 11, 12, 16, 20, 24, 32, 40, 48, 64, 80]
+                    # Find closest size that's >= actual VRAM
+                    for size in sizes:
+                        if vram_gb <= size:
+                            return size
+                    # Fallback: round up to nearest GB
+                    import math
+                    return math.ceil(vram_gb)
+
+                vram_per_gpu_gb = round_to_nominal_vram(gpu_info.vram_mb)
+                self.gpu_vram_gb = vram_per_gpu_gb * gpu_info.gpu_count
+
+                # Show GPU info in debug console
+                if self.gpu_count > 1:
+                    self.add_debug(f"🎮 GPU: {self.gpu_count}x {self.gpu_name} (Compute {self.gpu_compute_cap}, {self.gpu_vram_gb} GB total)")
+                else:
+                    self.add_debug(f"🎮 GPU: {self.gpu_name} (Compute {self.gpu_compute_cap}, {self.gpu_vram_gb} GB)")
 
                 # Filter available backends based on GPU compatibility
                 # Only show backends that are actually compatible with the GPU
@@ -836,13 +891,11 @@ class AIState(rx.State):
                         # Ollama-specific preload
                         preload_cmd = f'curl -s http://localhost:11434/api/chat -d \'{{"model":"{self.automatik_model}","messages":[{{"role":"user","content":"hi"}}],"stream":false,"options":{{"num_predict":1}}}}\' > /dev/null 2>&1 &'
                         subprocess.Popen(preload_cmd, shell=True)
-                        log_message(f"🚀 Preloading {self.automatik_model} via curl (background)")
                         self.add_debug(f"🚀 Preloading {self.automatik_model}...")
                     elif self.backend_type == "tabbyapi":
                         # OpenAI-compatible preload (TabbyAPI)
                         preload_cmd = f'curl -s {self.backend_url}/chat/completions -H "Content-Type: application/json" -d \'{{"model":"{self.automatik_model}","messages":[{{"role":"user","content":"hi"}}],"max_tokens":1}}\' > /dev/null 2>&1 &'
                         subprocess.Popen(preload_cmd, shell=True)
-                        log_message(f"🚀 Preloading {self.automatik_model} via {self.backend_type} (background)")
                         self.add_debug(f"🚀 Preloading {self.automatik_model}...")
                 except Exception as e:
                     log_message(f"⚠️ Preload failed: {e}")
@@ -2703,7 +2756,6 @@ class AIState(rx.State):
             preload_cmd = f'curl -s http://localhost:11434/api/chat -d \'{{"model":"{model}","messages":[{{"role":"user","content":"hi"}}],"stream":false,"options":{{"num_predict":1}}}}\' > /dev/null 2>&1 &'
             try:
                 subprocess.Popen(preload_cmd, shell=True)
-                log_message(f"🚀 Preloading new Automatik-LLM: {model}")
                 self.add_debug(f"🚀 Preloading {model}...")
             except Exception as e:
                 log_message(f"⚠️ Preload failed: {e}")
