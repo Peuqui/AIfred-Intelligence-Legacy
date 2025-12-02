@@ -10,50 +10,17 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ---
 
-## 🎉 Latest Updates (2025-11-22)
+## 📋 What's New
 
-### 🎯 Unified VRAM Cache System (v2.1.0)
-- ✅ **Backend-Aware Cache**: Single `model_vram_cache.json` for all backends (Ollama/vLLM/TabbyAPI)
-- ✅ **Universal VRAM Tracking**: Measures MB/token for all backends with architecture detection (MoE vs Dense)
-- ✅ **Automatic Migration**: Old vLLM cache auto-migrated on first load
-- ✅ **vLLM Calibrations**: Linear interpolation for context limits at different VRAM levels
-- ✅ **Critical Bug Fix**: Fixed web research crash (ValueError in scraper orchestrator)
-- 🎯 **Result**: 420-line unified module replacing 2 separate cache systems
-- **Impact**: More accurate VRAM predictions, cleaner codebase, extensible for future backends
+**Latest Version:** v2.1.0 (2025-11-22)
 
-### 🧠 VRAM-Based Dynamic Context Window (RTX 3090 Ti Optimization)
-- ✅ **Automatic Context Calculation** based on available GPU memory
-- ✅ **Two-Scenario Detection**: Model loaded vs not loaded (prevents double-subtraction)
-- ✅ **Model Size from Filesystem**: Reads actual blob file size (no hardcoded values)
-- ✅ **Automatic Model Unloading**: Unloads all other models before preload (ensures maximum VRAM)
-- ✅ **VRAM Stabilization**: Waits for VRAM to stabilize after model load (accurate measurements)
-- ✅ **UI Integration**: Manual override option + real-time VRAM debug messages
-- ✅ **Production-Ready**: 512 MB safety margin, 0.097 MB/token ratio (empirically tested)
-- ✅ **Improved Readability**: Spaces between numbers and units in debug output
-- 🎯 **Result**: qwen3:30b-a3b-instruct-2507 achieves **35,010 tokens** context (RTX 3090 Ti, 24GB)
-- **Impact**: Prevents CPU offloading, maximizes usable context, automatic adaptation to VRAM conditions
+Key highlights:
+- 🎯 Unified VRAM cache system for all backends (Ollama/vLLM/TabbyAPI)
+- 🧠 Dynamic context window calculation based on available GPU memory
+- 🔍 Enhanced debug logging and web research quality assessment
+- 🎯 Complete progress UI with real-time feedback
 
-### ✂️ Token Optimization in Prompts
-- ✅ **Redundant Date Line Removed**: `- Jahr: 2025` removed from all prompts
-- 🔧 **Reasoning**: Full date already shows year (`16.11.2025`), separate year line wasted tokens
-- **Impact**: Saves ~15 tokens per prompt across all modes without information loss
-
-### 🔍 Enhanced Debug Logging & Query Visibility (2025-11-15)
-- ✅ **Consistent Debug Output** across all research modes (Own Knowledge, Automatik, Quick, Deep)
-- ✅ **Precise Preload Timing** with `✅ Main-LLM loaded (X.Xs)` in all modes
-- ✅ **Optimized Query Display** shows LLM-generated search terms: `🔎 Optimized Query: [terms]`
-- ✅ **Backend-Aware Timing**: Ollama (actual load time) vs vLLM/TabbyAPI (prep time)
-- 🔧 Comprehensive debug messages added: Token stats, Temperature, TTFT, Tokens/s
-- **Impact**: Professional debug output, easier performance optimization, better web search quality assessment
-
-### 🎯 Progress UI System Complete - MILESTONE (2025-11-14)
-- ✅ **Full Progress Feedback** across all 4 research modes (Automatik, Quick, Deep, None)
-- ✅ **Pulsing Animation** for "Generating Answer" in all modes (including "Own Knowledge")
-- ✅ **Web-Scraping Progress Bar** now visible (1/3, 2/3, 3/3) with orange fill
-- ✅ **Dynamic Status Text** reflects system activity in real-time
-- **Impact**: Professional, consistent UI feedback - users always know what the system is doing
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
+For detailed changes and version history, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
