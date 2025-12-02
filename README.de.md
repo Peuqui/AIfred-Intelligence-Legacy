@@ -12,13 +12,14 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 ## 📋 Neuigkeiten
 
-**Aktuelle Version:** v2.1.0 (2025-11-22)
+**Aktuelle Version:** v2.2.0 (2025-12-02)
 
 Wichtigste Highlights:
-- 🎯 Einheitliches VRAM-Cache-System für alle Backends (Ollama/vLLM/TabbyAPI)
-- 🧠 Dynamische Context-Window-Berechnung basierend auf verfügbarem GPU-Speicher
-- 🔍 Verbessertes Debug-Logging und Web-Recherche-Qualitätsbewertung
-- 🎯 Vollständige Progress-UI mit Echtzeit-Feedback
+- 📚 Dokumentations-Refactoring (READMEs aufgeräumt, Session-Changelogs archiviert)
+- 🎮 GPU-Anzeige verbessert (Multi-GPU-Support, nominale VRAM-Werte)
+- 📝 Ollama systemd-Konfiguration in config.py dokumentiert
+- 🐛 Model-Display-Bug behoben (Größenangaben vor API-Aufrufen entfernt)
+- ⚡ KoboldCPP Auto-Shutdown mit Rolling Window Monitoring
 
 Für detaillierte Änderungen und Versionshistorie siehe [CHANGELOG.md](CHANGELOG.md).
 

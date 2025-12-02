@@ -5,9 +5,55 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2025-11-30
+## [2.2.0] - 2025-12-02
 
-### ⚡ KoboldCPP Auto-Shutdown: Rolling Window Monitoring (Refactored)
+### 📚 Documentation & Configuration (2025-12-02)
+
+#### Changed
+- **Documentation Refactoring** - Complete restructuring for better maintainability:
+  - **READMEs Cleaned Up**: Removed detailed changelog sections from README.md and README.de.md
+  - Replaced with concise "What's New" section linking to CHANGELOG.md
+  - README now focuses purely on project description and features
+  - **Session Changelogs Archived**: Moved to `docs/archive/session-changelogs/`
+    - CHANGELOG_2025-11-01.md, CHANGELOG_2025-11-02.md, CHANGELOG_2025-11-02_Session4.md
+    - CHANGELOG_tokens_per_sec_uniformity.md
+  - **PDF Duplicates Removed** (118KB freed):
+    - Deleted vllm_pascal_patches.pdf and multi_agent_research_technical.pdf
+    - Markdown versions remain as source of truth in `docs/research/`
+  - **docs/INDEX.md Updated**: New archive/ directory structure documented
+
+- **GPU Display Enhancements**:
+  - Multi-GPU support: "2x Tesla P40 (Compute 6.1, 48 GB total)"
+  - Single GPU format: "Tesla P40 (Compute 6.1, 24 GB)"
+  - **Nominal VRAM Values**: Shows marketing specs (48 GB) instead of actual available (45 GB)
+  - GPU info now displayed in Settings UI, startup log, and debug console
+  - Added `gpu_count`, `gpu_vram_gb`, and `gpu_display_text` computed property
+
+- **Ollama Configuration Documented** ([aifred/lib/config.py](aifred/lib/config.py)):
+  - Comprehensive documentation of Ollama systemd environment variables
+  - Explains current setup: 2x Tesla P40 with `OLLAMA_MAX_LOADED_MODELS=2`
+  - Notes that MAX_LOADED_MODELS=2 is perfect for future Dual-LLM Debate System
+  - Instructions for modifying `/etc/systemd/system/ollama.service.d/override.conf`
+
+#### Fixed
+- **Model Display Bug** ([aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py), [aifred/lib/research/query_processor.py](aifred/lib/research/query_processor.py)):
+  - Fixed Ollama 500 Internal Server Error when passing model names with size suffix
+  - Added `extract_model_name()` helper to remove " (X.X GB)" before backend API calls
+  - Model names with sizes (e.g., "qwen3:4b (2.3 GB)") now correctly converted to pure names
+
+#### Files Modified (2025-12-02)
+- README.md, README.de.md: Changelog sections removed (-66 lines)
+- docs/INDEX.md: Updated structure with archive directory
+- aifred/state.py: GPU display fields and computed properties
+- aifred/lib/gpu_detection.py: Multi-GPU detection with total VRAM
+- aifred/aifred.py: GPU display in Settings UI
+- aifred/lib/config.py: Ollama systemd configuration documentation
+- aifred/lib/conversation_handler.py: Model name extraction
+- aifred/lib/research/query_processor.py: Model name extraction
+
+---
+
+### ⚡ KoboldCPP Auto-Shutdown: Rolling Window Monitoring (2025-11-30)
 
 #### Changed
 - **Rolling Window Inactivity Monitoring** ([aifred/state.py:966-1086](aifred/state.py#L966-L1086)):
