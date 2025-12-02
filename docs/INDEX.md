@@ -1,6 +1,6 @@
 # AIfred Intelligence - Dokumentations-Index
 
-**Letzte Aktualisierung:** 2025-11-30
+**Letzte Aktualisierung:** 2025-12-02
 
 ---
 
@@ -9,18 +9,19 @@
 ```
 docs/
 ├── INDEX.md (diese Datei)
+├── ARCHITECTURE.md            # Vollständige System-Architektur
+├── GPU_COMPATIBILITY.md       # GPU Kompatibilitäts-Matrix
+├── CONFIGURATION_TEMPLATE.md  # Config.py Referenz
 ├── api/                       # API-Konfiguration
-├── architecture/              # System-Architektur
-├── development/               # Entwicklungs-Guides & Archive
-├── hardware/                  # Hardware-Erkennung
-├── infrastructure/            # Infrastruktur (Ollama, ROCm)
+├── architecture/              # Architektur-Details
+├── development/               # Entwicklungs-Guides
+├── hardware/                  # Hardware-Erkennung & Optimierung
+├── infrastructure/            # Deployment & Infrastruktur
 ├── llm/                       # LLM-Konfiguration & Vergleiche
 ├── vllm/                      # vLLM-spezifische Dokumentation
-│   ├── VLLM_RTX3060_CONFIG.md     # RTX 3060 Optimierung
-│   ├── VLLM_FIX_SUMMARY.md        # Crash-Fix Zusammenfassung
-│   └── VLLM_CHANGES_ANALYSIS.md   # Commit-History-Analyse
-├── GPU_COMPATIBILITY.md       # GPU Kompatibilitäts-Matrix
-└── TODO.md                    # Projekt-Aufgabenliste
+├── research/                  # Forschungs-Dokumentation
+└── archive/                   # Archivierte Dokumentation
+    └── session-changelogs/    # Alte Session-Changelogs
 ```
 
 ---
@@ -131,6 +132,15 @@ docs/
 ---
 
 ## 📝 Changelog
+
+**Hinweis:** Für vollständige Änderungshistorie siehe [CHANGELOG.md](../CHANGELOG.md) im Root-Verzeichnis.
+
+### 2025-12-02
+- ✅ Dokumentations-Refactoring durchgeführt
+- ✅ README.md und README.de.md aufgeräumt (Changelogs entfernt)
+- ✅ Session-Changelogs in docs/archive/ verschoben
+- ✅ PDF-Duplikate entfernt (Markdown als Source of Truth)
+- ✅ GPU-Anzeige verbessert: Multi-GPU + nominale VRAM-Werte
 
 ### 2025-11-30
 - ✅ Ollama VRAM-Optimierung für 48GB Setup (2x Tesla P40)

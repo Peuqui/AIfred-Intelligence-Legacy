@@ -10,29 +10,17 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 ---
 
-## 🎉 Neueste Updates (2025-11-15)
+## 📋 Neuigkeiten
 
-### 🔍 Verbessertes Debug-Logging & Query-Anzeige
-- ✅ **Konsistente Debug-Ausgabe** über alle Recherche-Modi (Eigenes Wissen, Automatik, Schnell, Ausführlich)
-- ✅ **Präzises Preload-Timing** mit `✅ Haupt-LLM vorgeladen (X.Xs)` in allen Modi
-- ✅ **Optimierte Query-Anzeige** zeigt LLM-generierte Suchbegriffe: `🔎 Optimierte Query: [terms]`
-- ✅ **Backend-abhängiges Timing**: Ollama (echte Ladezeit) vs vLLM/TabbyAPI (Vorbereitungszeit)
-- 🔧 Umfassende Debug-Meldungen hinzugefügt: Token-Statistiken, Temperature, TTFT, Tokens/s
-- **Auswirkung**: Professionelle Debug-Ausgabe, einfachere Performance-Optimierung, bessere Qualitätsbewertung der Web-Recherche
+**Aktuelle Version:** v2.1.0 (2025-11-22)
 
-### 🔧 Persistenz des Research-Modus (2025-11-14)
-- ✅ **Research-Modus bleibt erhalten** über Anwendungsneustarts hinweg
-- 🔧 Fehlender `_save_settings()`-Aufruf in `set_research_mode_display()` behoben
-- **Auswirkung**: Dein bevorzugter Research-Modus (Automatik/Schnell/Ausführlich/Keiner) wird gespeichert
+Wichtigste Highlights:
+- 🎯 Einheitliches VRAM-Cache-System für alle Backends (Ollama/vLLM/TabbyAPI)
+- 🧠 Dynamische Context-Window-Berechnung basierend auf verfügbarem GPU-Speicher
+- 🔍 Verbessertes Debug-Logging und Web-Recherche-Qualitätsbewertung
+- 🎯 Vollständige Progress-UI mit Echtzeit-Feedback
 
-### 🎯 Progress-UI-System vollständig - MEILENSTEIN (2025-11-14)
-- ✅ **Vollständiges Progress-Feedback** über alle 4 Research-Modi (Automatik, Schnell, Ausführlich, Keiner)
-- ✅ **Pulsierende Animation** für "Generiere Antwort" in allen Modi (inklusive "Eigenes Wissen")
-- ✅ **Web-Scraping-Fortschrittsbalken** jetzt sichtbar (1/3, 2/3, 3/3) mit oranger Füllung
-- ✅ **Dynamischer Statustext** zeigt Systemaktivität in Echtzeit
-- **Auswirkung**: Professionelles, konsistentes UI-Feedback - Nutzer wissen immer, was das System gerade tut
-
-Siehe [CHANGELOG.md](CHANGELOG.md) für detaillierte Änderungen.
+Für detaillierte Änderungen und Versionshistorie siehe [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
