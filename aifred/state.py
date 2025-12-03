@@ -5,7 +5,7 @@ Main state for chat, settings, and backend management
 """
 
 import reflex as rx
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, Dict
 import uuid
 import os
 import asyncio
@@ -234,6 +234,11 @@ class AIState(rx.State):
     current_ai_response: str = ""
     is_generating: bool = False
     is_compressing: bool = False  # NEU: Zeigt ob History-Kompression läuft
+
+    # Image Upload State
+    pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "base64": "...", "url": "..."}]
+    image_upload_warning: str = ""  # Warning message if non-vision model selected
+    max_images_per_message: int = 5  # Limit concurrent uploads
 
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi"
@@ -1666,8 +1671,16 @@ class AIState(rx.State):
 
         Portiert von Gradio chat_interactive_mode() mit Research-Integration
         """
-        if not self.current_user_input.strip():
-            return
+        # If no text but images present, use default prompt
+        has_pending_images = len(self.pending_images) > 0
+        user_text = self.current_user_input.strip()
+
+        if not user_text and not has_pending_images:
+            return  # Nothing to send
+
+        if not user_text and has_pending_images:
+            # Auto-prompt for image-only messages
+            user_text = "Analysiere dieses Bild und beschreibe den Inhalt detailliert."
 
         if self.is_generating:
             self.add_debug("⚠️ Already generating, please wait...")
@@ -1676,7 +1689,7 @@ class AIState(rx.State):
         # Ensure backend is initialized (should already be done by on_load)
         await self._ensure_backend_initialized()
 
-        user_msg = self.current_user_input.strip()
+        user_msg = user_text
         self.current_user_input = ""  # Clear input
         self.current_user_message = user_msg  # Zeige sofort die Eingabe an
         self.is_generating = True
@@ -1726,7 +1739,8 @@ class AIState(rx.State):
                     backend_type=self.backend_type,
                     backend_url=self.backend_url,
                     num_ctx_mode=self.num_ctx_mode,
-                    num_ctx_manual=self.num_ctx_manual
+                    num_ctx_manual=self.num_ctx_manual,
+                    pending_images=self.pending_images if len(self.pending_images) > 0 else None
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
@@ -2175,6 +2189,9 @@ class AIState(rx.State):
 
         finally:
             self.is_generating = False
+            # Clear pending images after sending
+            if len(self.pending_images) > 0:
+                self.clear_pending_images()
             # Final debug sync
 
 
@@ -2185,6 +2202,82 @@ class AIState(rx.State):
         self.current_user_message = ""
         self.debug_messages = []  # Debug Console auch leeren!
         self.add_debug("🗑️ Chat cleared")
+
+    # ============================================================
+    # Image Upload Handlers
+    # ============================================================
+
+    async def handle_image_upload(self, files: List[rx.UploadFile]):
+        """Handle image file uploads with validation"""
+        from .lib.vision_utils import (
+            validate_image_file,
+            encode_image_to_base64,
+            resize_image_if_needed,
+            is_vision_model
+        )
+
+        # Check if vision model selected
+        selected_model_pure = extract_model_name(self.selected_model)
+
+        if not await is_vision_model(self, selected_model_pure):
+            self.image_upload_warning = "⚠️ Gewähltes Modell unterstützt keine Bilder. Bitte wähle ein Vision-Modell (z.B. Qwen3-VL, DeepSeek-OCR)."
+            self.add_debug("⚠️ Image upload blocked: Non-vision model selected")
+            return
+
+        # Clear previous warning
+        self.image_upload_warning = ""
+
+        # Check max images limit
+        if len(self.pending_images) + len(files) > self.max_images_per_message:
+            self.image_upload_warning = f"⚠️ Maximal {self.max_images_per_message} Bilder pro Nachricht"
+            return
+
+        for file in files:
+            # Read file content
+            content = await file.read()
+
+            # Validate
+            valid, error = validate_image_file(file.filename, len(content))
+            if not valid:
+                self.image_upload_warning = error
+                continue
+
+            # Resize if needed (save bandwidth/VRAM)
+            resized_content = resize_image_if_needed(content)
+
+            # Encode to base64
+            base64_data = encode_image_to_base64(resized_content)
+
+            # Create data URL for preview
+            data_url = f"data:image/jpeg;base64,{base64_data}"
+
+            # Store
+            self.pending_images.append({
+                "name": file.filename,
+                "base64": base64_data,
+                "url": data_url,  # For UI preview
+                "size_kb": len(resized_content) // 1024
+            })
+
+            self.add_debug(f"📷 Bild hochgeladen: {file.filename} ({len(resized_content) // 1024} KB)")
+
+    def remove_pending_image(self, index: int):
+        """Remove image from pending uploads"""
+        if 0 <= index < len(self.pending_images):
+            removed = self.pending_images.pop(index)
+            self.add_debug(f"🗑️ Bild entfernt: {removed['name']}")
+
+            # Clear warning if it was about model compatibility
+            if self.image_upload_warning.startswith("⚠️ Gewähltes Modell"):
+                self.image_upload_warning = ""
+
+    def clear_pending_images(self):
+        """Clear all pending images"""
+        count = len(self.pending_images)
+        self.pending_images = []
+        self.image_upload_warning = ""
+        if count > 0:
+            self.add_debug(f"🗑️ {count} Bilder gelöscht")
 
     async def load_default_settings(self):
         """Load default settings from config.py and apply them to state"""
@@ -2544,11 +2637,21 @@ class AIState(rx.State):
 
     async def set_selected_model(self, model: str):
         """Set selected model and restart backend if needed"""
+        from .lib.vision_utils import is_vision_model
+
         old_model = self.selected_model
         self.selected_model = model
         # Clear thinking mode warning when model changes
         self.thinking_mode_warning = ""
         self.add_debug(f"📝 Model changed: {old_model} → {model}")
+
+        # Check if switching to non-vision model with pending images
+        if len(self.pending_images) > 0:
+            model_pure = extract_model_name(model)
+            if not await is_vision_model(self, model_pure):
+                self.image_upload_warning = "⚠️ Gewähltes Modell unterstützt keine Bilder. Bilder werden beim Senden ignoriert."
+            else:
+                self.image_upload_warning = ""  # Clear warning
 
         # vLLM/TabbyAPI/KoboldCPP: Force restart backend for model change
         if self.backend_type in ["vllm", "tabbyapi", "koboldcpp"] and old_model != model:

@@ -67,8 +67,43 @@ class OllamaBackend(LLMBackend):
         if options is None:
             options = LLMOptions()
 
-        # Convert LLMMessage to Ollama format
-        ollama_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+        # Convert LLMMessage to Ollama format (supports multimodal content)
+        ollama_messages = []
+        for msg in messages:
+            # Handle multimodal content (text + images)
+            if isinstance(msg.content, list):
+                # Extract text and images from multimodal content
+                text_parts = []
+                image_base64_list = []
+
+                for part in msg.content:
+                    if part.get("type") == "text":
+                        text_parts.append(part.get("text", ""))
+                    elif part.get("type") == "image_url":
+                        # Extract base64 from data URL (format: "data:image/jpeg;base64,...")
+                        image_url = part.get("image_url", {}).get("url", "")
+                        if image_url.startswith("data:image"):
+                            # Extract base64 part after "base64,"
+                            base64_data = image_url.split("base64,", 1)[1] if "base64," in image_url else ""
+                            if base64_data:
+                                image_base64_list.append(base64_data)
+
+                # Build Ollama message with separate images array
+                ollama_msg = {
+                    "role": msg.role,
+                    "content": " ".join(text_parts)
+                }
+                if image_base64_list:
+                    ollama_msg["images"] = image_base64_list
+                    logger.info(f"🖼️ Added {len(image_base64_list)} image(s) to message (base64 length: {len(image_base64_list[0])})")
+
+                ollama_messages.append(ollama_msg)
+            elif isinstance(msg.content, str):
+                # Legacy text-only format
+                ollama_messages.append({
+                    "role": msg.role,
+                    "content": msg.content
+                })
 
         # Build options dict
         ollama_options = {
@@ -220,9 +255,44 @@ class OllamaBackend(LLMBackend):
         if options is None:
             options = LLMOptions()
         
-        # Convert LLMMessage to Ollama format
-        ollama_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
-        
+        # Convert LLMMessage to Ollama format (supports multimodal content)
+        ollama_messages = []
+        for msg in messages:
+            # Handle multimodal content (text + images)
+            if isinstance(msg.content, list):
+                # Extract text and images from multimodal content
+                text_parts = []
+                image_base64_list = []
+
+                for part in msg.content:
+                    if part.get("type") == "text":
+                        text_parts.append(part.get("text", ""))
+                    elif part.get("type") == "image_url":
+                        # Extract base64 from data URL (format: "data:image/jpeg;base64,...")
+                        image_url = part.get("image_url", {}).get("url", "")
+                        if image_url.startswith("data:image"):
+                            # Extract base64 part after "base64,"
+                            base64_data = image_url.split("base64,", 1)[1] if "base64," in image_url else ""
+                            if base64_data:
+                                image_base64_list.append(base64_data)
+
+                # Build Ollama message with separate images array
+                ollama_msg = {
+                    "role": msg.role,
+                    "content": " ".join(text_parts)
+                }
+                if image_base64_list:
+                    ollama_msg["images"] = image_base64_list
+                    logger.info(f"🖼️ Added {len(image_base64_list)} image(s) to message (base64 length: {len(image_base64_list[0])})")
+
+                ollama_messages.append(ollama_msg)
+            elif isinstance(msg.content, str):
+                # Legacy text-only format
+                ollama_messages.append({
+                    "role": msg.role,
+                    "content": msg.content
+                })
+
         # Build options
         ollama_options = {
             "temperature": options.temperature,

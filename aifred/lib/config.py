@@ -67,7 +67,7 @@ DEFAULT_SETTINGS = {
     "enable_gpu": True,
     "temperature": 0.7,
     "temperature_mode": "auto",  # "auto" (Intent-Detection) or "manual" (user slider)
-    "enable_thinking": True  # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
+    "enable_thinking": False  # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
 }
 
 # ============================================================

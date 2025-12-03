@@ -27,7 +27,7 @@ def t(key: str) -> rx.Var:
         "research_mode_quick": "⚡ Web-Suche Schnell (3 beste)",
         "research_mode_deep": "🔍 Web-Suche Ausführlich (7 beste)",
         "choose_research_mode": "Wähle, wie der Assistant Fragen beantwortet",
-        "send_text": "💬 Text senden",
+        "send_text": "💬 Senden",
         "clear_chat": "🗑️ Chat löschen",
         "llm_parameters": "⚙️ LLM-Parameter (Erweitert)",
         "temperature": "🌡️ Temperature",
@@ -170,16 +170,149 @@ def audio_input_section() -> rx.Component:
     )
 
 
+def image_upload_section() -> rx.Component:
+    """Image upload component with preview"""
+    return rx.vstack(
+        # Warning box (if model doesn't support vision)
+        rx.cond(
+            AIState.image_upload_warning != "",
+            rx.box(
+                rx.text(AIState.image_upload_warning),
+                background_color="rgba(255, 152, 0, 0.15)",
+                border="2px solid rgba(255, 152, 0, 0.5)",
+                padding="8px 12px",
+                border_radius="6px",
+                margin_bottom="8px",
+            )
+        ),
+
+        # Horizontal layout: Button(s) left, Images + Hint right
+        rx.hstack(
+            # Left: Upload and Clear buttons
+            rx.hstack(
+                # Upload button with drag & drop (no border/padding on upload wrapper)
+                rx.upload(
+                    rx.button(
+                        rx.icon("image", size=20),
+                        rx.text("Bild hochladen", font_size="16px"),
+                        size="4",
+                        variant="soft",
+                        color_scheme="red",
+                        padding_y="24px",
+                        disabled=AIState.is_generating | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                    ),
+                    id="image-upload",
+                    accept={"image/*": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]},
+                    max_files=AIState.max_images_per_message,
+                    on_drop=AIState.handle_image_upload,
+                    multiple=True,
+                    border="none",
+                    padding="0",
+                ),
+
+                # Clear button (only show if images present)
+                rx.cond(
+                    AIState.pending_images.length() > 0,
+                    rx.button(
+                        rx.icon("trash-2", size=20),
+                        rx.text("Alle löschen", font_size="16px"),
+                        size="4",
+                        variant="soft",
+                        color_scheme="red",
+                        padding_y="24px",
+                        on_click=AIState.clear_pending_images,
+                    )
+                ),
+
+                spacing="2",
+            ),
+
+            # Right: Image previews + Hint text
+            rx.vstack(
+                # Image preview grid
+                rx.cond(
+                    AIState.pending_images.length() > 0,
+                    rx.hstack(
+                        rx.foreach(
+                            AIState.pending_images,
+                            lambda img, idx: rx.box(
+                                rx.image(
+                                    src=img["url"],
+                                    width="60px",
+                                    height="60px",
+                                    object_fit="cover",
+                                    border_radius="4px",
+                                ),
+                                rx.badge(
+                                    img["name"],
+                                    font_size="9px",
+                                    max_width="60px",
+                                    overflow="hidden",
+                                    text_overflow="ellipsis",
+                                    white_space="nowrap"
+                                ),
+                                rx.icon_button(
+                                    rx.icon("x", size=10),
+                                    size="1",
+                                    color_scheme="red",
+                                    position="absolute",
+                                    top="2px",
+                                    right="2px",
+                                    on_click=lambda: AIState.remove_pending_image(idx),
+                                ),
+                                position="relative",
+                                margin_right="6px"
+                            )
+                        ),
+                        spacing="1",
+                        wrap="wrap",
+                        align_items="center",
+                    )
+                ),
+
+                # Hint text
+                rx.text(
+                    "💡 Ziehe Bilder auf den Button oder klicke zum Auswählen",
+                    font_size="12px",
+                    color=COLORS["text_muted"],
+                ),
+
+                spacing="1",
+                flex="1",
+                justify_content="center",
+            ),
+
+            spacing="3",
+            align_items="center",
+            width="100%",
+            margin_bottom="12px",
+        ),
+
+        width="100%",
+        spacing="2"
+    )
+
+
 def text_input_section() -> rx.Component:
     """Text input section with research mode"""
     return rx.vstack(
+        # Image Upload Section (NEW)
+        image_upload_section(),
+
         # Text Input
-        rx.heading(t("text_input"), size="2"),
+        rx.heading(
+            rx.cond(
+                AIState.ui_language == "de",
+                "📝 Texteingabe",
+                "📝 Text Input"
+            ),
+            size="2"
+        ),
         rx.text_area(
             placeholder=rx.cond(
                 AIState.ui_language == "de",
-                "Oder schreibe hier deine Frage...",
-                "Or write your question here..."
+                "Schreibe hier deine Frage...",
+                "Write your question here..."
             ),
             value=AIState.current_user_input,
             on_change=AIState.set_user_input,
@@ -189,7 +322,7 @@ def text_input_section() -> rx.Component:
             style={
                 "border": f"1px solid {COLORS['border']}",
                 "&:focus": {
-                    "border": f"1px solid {COLORS['accent_blue']}",  # Blau beim Fokus (nicht orange)
+                    "border": f"1px solid {COLORS['accent_blue']}",
                     "outline": "none",
                 },
             },
@@ -1849,9 +1982,59 @@ if (document.readyState === 'loading') {
 }
 """
 
+    # Paste handler for image support (desktop)
+    paste_handler_js = """
+console.log('📋 Image paste handler loaded');
+
+// Global paste event handler for images
+document.addEventListener('paste', async function(e) {
+    console.log('📋 Paste event detected');
+    const items = e.clipboardData.items;
+    const imageFiles = [];
+
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+            console.log('🖼️ Image found in clipboard:', item.type);
+            const file = item.getAsFile();
+            if (file) {
+                imageFiles.push(file);
+            }
+        }
+    }
+
+    if (imageFiles.length > 0) {
+        e.preventDefault();
+        console.log('📸 Triggering upload for', imageFiles.length, 'image(s)');
+
+        // Trigger Reflex upload handler
+        const uploadEl = document.getElementById('image-upload');
+        if (uploadEl) {
+            // Simulate file drop event
+            const dataTransfer = new DataTransfer();
+            imageFiles.forEach(f => dataTransfer.items.add(f));
+
+            const dropEvent = new DragEvent('drop', {
+                dataTransfer: dataTransfer,
+                bubbles: true,
+                cancelable: true
+            });
+
+            uploadEl.dispatchEvent(dropEvent);
+            console.log('✅ Upload event dispatched');
+        } else {
+            console.error('❌ Upload element not found');
+        }
+    }
+});
+
+console.log('✅ Paste handler initialized');
+"""
+
     return rx.box(
         # Inline JavaScript (guaranteed to execute)
         rx.script(autoscroll_js),
+        rx.script(paste_handler_js),
         rx.vstack(
             # Header
             rx.heading(t("aifred_intelligence"), size="6", margin_bottom="2"),

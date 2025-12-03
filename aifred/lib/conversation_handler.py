@@ -86,7 +86,8 @@ async def chat_interactive_mode(
     backend_type: str = "ollama",
     backend_url: Optional[str] = None,
     num_ctx_mode: str = "auto_vram",
-    num_ctx_manual: int = 16384
+    num_ctx_manual: int = 16384,
+    pending_images: Optional[List[Dict[str, str]]] = None
 ) -> AsyncIterator[Dict]:
     """
     Automatik-Modus: KI entscheidet selbst, ob Web-Recherche nötig ist
@@ -109,6 +110,20 @@ async def chat_interactive_mode(
     Yields:
         Dict with: {"type": "debug"|"content"|"metrics"|"separator"|"result", ...}
     """
+    # Build multimodal content if images present
+    if pending_images:
+        user_content = [{"type": "text", "text": user_text}]
+        for img in pending_images:
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{img['base64']}"}
+            })
+        # Override user_text with multimodal structure (will be used to build LLMMessage later)
+        multimodal_user_content = user_content
+        yield {"type": "debug", "message": f"📷 Nachricht mit {len(pending_images)} Bild(ern) vorbereitet"}
+    else:
+        multimodal_user_content = None  # Text-only mode
+
     # Extract pure model names from display format (e.g., "qwen3:4b (2.3 GB)" → "qwen3:4b")
     model_choice = extract_model_name(model_choice)
     automatik_model = extract_model_name(automatik_model)
@@ -340,6 +355,11 @@ async def chat_interactive_mode(
             # Build messages from history (all turns)
             messages = build_messages_from_history(history, user_text)
 
+            # Replace last message content with multimodal if images present
+            if multimodal_user_content is not None:
+                messages[-1]['content'] = multimodal_user_content
+                log_message(f"📷 Multimodal content injected into user message")
+
             # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
             from .prompt_loader import load_prompt
             system_prompt_minimal = load_prompt('system_minimal', lang=detected_user_language)
@@ -366,6 +386,14 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
             # Count actual input tokens (using real tokenizer)
             input_tokens = estimate_tokens(messages, model_name=model_choice)
+
+            # Convert dict messages to LLMMessage objects (required by backend)
+            # MUST be done AFTER all system prompts are injected
+            from ..backends.base import LLMMessage
+            llm_messages = [
+                LLMMessage(role=msg['role'], content=msg['content'])
+                for msg in messages
+            ]
 
             # Determine enable_vram_limit based on num_ctx_mode
             # Actual model preloading (only for Ollama - vLLM/TabbyAPI keep models in VRAM)
@@ -479,7 +507,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
             async for chunk in llm_client.chat_stream(
                 model=model_choice,
-                messages=messages,
+                messages=llm_messages,
                 options=main_llm_options
             ):
                 if chunk["type"] == "content":
@@ -593,10 +621,13 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
         log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
 
         # Schritt 1: KI fragen, ob Recherche nötig ist (mit Zeitmessung!)
+        # Check if images are present
+        has_images = pending_images is not None and len(pending_images) > 0
+
         decision_prompt = get_decision_making_prompt(
             user_text=user_text,
+            has_images=has_images,
             lang=detected_user_language
-            # cache_info removed - Vector DB will replace this
         )
 
         # DEBUG: Zeige kompletten Prompt für Diagnose (nur in Log, nicht in UI)
@@ -614,7 +645,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
             yield {"type": "progress", "phase": "automatik"}
 
             # ⚠️ WICHTIG: KEINE History für Decision-Making!
-            messages = [{'role': 'user', 'content': decision_prompt}]
+            decision_messages_dict = [{'role': 'user', 'content': decision_prompt}]
 
             # Get model context limit (use RoPE-scaled value from KoboldCPP if available)
             # For KoboldCPP: Use the actual context from global state (includes RoPE scaling)
@@ -631,7 +662,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
             decision_num_ctx = min(2048, automatik_limit // 2)  # Max 2048 oder 50% des Limits
 
             # Count input tokens (using real tokenizer)
-            input_tokens = estimate_tokens(messages, model_name=automatik_model)
+            input_tokens = estimate_tokens(decision_messages_dict, model_name=automatik_model)
 
             # Show compact context info
             yield {"type": "debug", "message": f"📊 Automatik-LLM: {format_number(input_tokens)} / {format_number(decision_num_ctx)} tok (Model Max: {format_number(automatik_limit)} tok)"}
@@ -654,9 +685,16 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 else:
                     log_message(f"🧠 Decision enable_thinking: False (default - fast decision mode)")
 
+                # Convert decision messages to LLMMessage objects
+                from ..backends.base import LLMMessage
+                decision_messages = [
+                    LLMMessage(role=msg['role'], content=msg['content'])
+                    for msg in decision_messages_dict
+                ]
+
                 response = await automatik_llm_client.chat(
                     model=automatik_model,
-                    messages=messages,
+                    messages=decision_messages,
                     options=automatik_options
                 )
 
@@ -701,6 +739,11 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 # Build messages from history (all turns)
                 messages = build_messages_from_history(history, user_text)
 
+                # Replace last message content with multimodal if images present
+                if multimodal_user_content is not None:
+                    messages[-1]['content'] = multimodal_user_content
+                    log_message(f"📷 Multimodal content injected into user message")
+
                 # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
                 from .prompt_loader import load_prompt
                 system_prompt_minimal = load_prompt('system_minimal', lang=detected_user_language)
@@ -728,6 +771,14 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
                 # Count actual input tokens (using real tokenizer)
                 input_tokens = estimate_tokens(messages, model_name=model_choice)
+
+                # Convert dict messages to LLMMessage objects (required by backend)
+                # MUST be done AFTER all system prompts are injected
+                from ..backends.base import LLMMessage
+                llm_messages_no_rag = [
+                    LLMMessage(role=msg['role'], content=msg['content'])
+                    for msg in messages
+                ]
 
                 # Determine enable_vram_limit based on num_ctx_mode
                 if num_ctx_mode == "manual":
@@ -848,7 +899,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
                 async for chunk in llm_client.chat_stream(
                     model=model_choice,
-                    messages=messages,
+                    messages=llm_messages_no_rag,
                     options=main_llm_options
                 ):
                     if chunk["type"] == "content":

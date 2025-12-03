@@ -195,9 +195,28 @@ def get_query_optimization_prompt(user_text: str, lang: Optional[str] = None) ->
     return load_prompt('query_optimization', lang=lang, user_text=user_text)
 
 
-def get_decision_making_prompt(user_text: str, lang: Optional[str] = None) -> str:
-    """Load decision-making prompt (timestamp injected automatically by load_prompt)"""
-    return load_prompt('decision_making', lang=lang, user_text=user_text)
+def get_decision_making_prompt(user_text: str, has_images: bool = False, lang: Optional[str] = None) -> str:
+    """
+    Load decision-making prompt with optional image context
+
+    Args:
+        user_text: User query text
+        has_images: Whether the message includes image(s)
+        lang: Language override
+
+    Returns:
+        Formatted decision prompt with timestamp and image context
+    """
+    # Build image context string
+    if has_images:
+        if lang == "en":
+            image_context = "\n\n⚠️ USER ATTACHED IMAGE(S) - This is an image analysis task!"
+        else:  # German (default)
+            image_context = "\n\n⚠️ BENUTZER HAT BILD(ER) ANGEHÄNGT - Dies ist eine Bildanalyse-Aufgabe!"
+    else:
+        image_context = ""
+
+    return load_prompt('decision_making', lang=lang, user_text=user_text, image_context=image_context)
 
 
 # Cache decision addon removed - will be replaced with Vector DB semantic search

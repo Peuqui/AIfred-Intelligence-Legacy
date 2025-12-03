@@ -1,4 +1,4 @@
-Frage: "{user_text}"
+Frage: "{user_text}"{image_context}
 
 Du hast KEIN Internet! Trainingsdaten bis Jan 2025.
 
@@ -13,6 +13,7 @@ REGELN:
 • Restaurants/Geschäfte/Orte in Stadt → <search>yes</search>
 • Zeitbezogene Fragen (heute/morgen/dieses Jahr/aktuell/neueste) → <search>yes</search>
 • Event-Termine/Ergebnisse (Emmy/Oscar/Nobelpreis/Wahlen/Sportevents) → <search>yes</search>
+• Bilder analysieren/auswerten/Text extrahieren → <search>no</search>
 • Allgemeinwissen/Mathe/Chat → <search>no</search>
 
 BEISPIELE MIT WEB-RECHERCHE:
@@ -35,5 +36,8 @@ BEISPIELE OHNE WEB-RECHERCHE:
 "Was ist ein Emmy Award?" → <search>no</search>
 "Wie funktioniert eine Wahl?" → <search>no</search>
 "Erkläre mir künstliche Intelligenz" → <search>no</search>
+"Lies den Text auf diesem Bild" (mit Bild) → <search>no</search>
+"Was steht auf diesem Medikamentenplan?" (mit Bild) → <search>no</search>
+"Beschreibe dieses Foto" (mit Bild) → <search>no</search>
 
 Antworte NUR mit der XML-Markierung (nichts anderes)!
