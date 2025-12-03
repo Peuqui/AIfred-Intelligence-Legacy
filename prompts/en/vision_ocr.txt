@@ -1,0 +1,18 @@
+Extract all data from this image as JSON.
+
+Format:
+```json
+{
+  "type": "table|list|form|text",
+  "columns": ["Col1", "Col2"],
+  "rows": [["Val1", "Val2"]]
+}
+```
+
+Types:
+- table: {"columns": [...], "rows": [[...]]}
+- list: {"items": [...]}
+- form: {"fields": [{"label": "...", "value": "..."}]}
+- text: {"content": "..."}
+
+Respond ONLY with valid JSON in markdown code block!

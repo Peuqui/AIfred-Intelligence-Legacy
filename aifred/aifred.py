@@ -57,6 +57,7 @@ def t(key: str) -> rx.Var:
         "backend": "Backend:",
         "main_llm": "Haupt-LLM:",
         "automatic_llm": "Automatik-LLM:",
+        "vision_llm": "Vision-LLM:",
         "system_control": "🔄 System-Steuerung",
         "restart_ollama": "🔄 Ollama Neustart",
         "restart_vllm": "🔄 vLLM Neustart",
@@ -113,6 +114,7 @@ def t(key: str) -> rx.Var:
         "backend": "Backend:",
         "main_llm": "Main LLM:",
         "automatic_llm": "Automatic LLM:",
+        "vision_llm": "Vision LLM:",
         "system_control": "🔄 System Control",
         "restart_ollama": "🔄 Ollama Restart",
         "restart_vllm": "🔄 vLLM Restart",
@@ -1465,6 +1467,25 @@ def settings_accordion() -> rx.Component:
                             "pointer",
                             "not-allowed"
                         ),
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+
+                rx.hstack(
+                    rx.text(
+                        t("vision_llm"),
+                        font_weight="bold",
+                        font_size="12px",
+                    ),
+                    rx.select(
+                        AIState.available_vision_models,
+                        value=AIState.vision_model,
+                        on_change=AIState.set_vision_model,
+                        size="2",
+                        position="popper",  # Better mobile positioning (adapts to viewport)
+                        disabled=AIState.backend_switching,  # Disable during backend switch
+                        placeholder="Select vision model..."
                     ),
                     spacing="3",
                     align="center",

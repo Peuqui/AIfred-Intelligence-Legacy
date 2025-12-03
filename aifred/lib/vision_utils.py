@@ -12,6 +12,29 @@ from typing import Tuple, Optional
 logger = logging.getLogger(__name__)
 
 
+def is_vision_model_sync(model_name: str) -> bool:
+    """
+    Synchronous vision model detection by name patterns (for UI filtering).
+
+    Fast name-based detection for dropdown filtering. Does not query backends.
+    For precise detection, use async is_vision_model() with backend queries.
+
+    Args:
+        model_name: Model name (e.g., "qwen3-vl:30b" or "deepseek-ocr:3b")
+
+    Returns:
+        True if model name contains vision-related markers
+    """
+    vision_markers = [
+        'vision', 'vl', 'visual', 'vlm',
+        'qwen2-vl', 'qwen3-vl', 'llava', 'pixtral',
+        'deepseek-ocr', 'ocr', 'internvl', 'cogvlm',
+        'sam', 'minicpm-v'  # Segment Anything Model, MiniCPM-V
+    ]
+    model_lower = model_name.lower()
+    return any(marker in model_lower for marker in vision_markers)
+
+
 async def is_vision_model(state, model_name: str) -> bool:
     """
     Detect if model supports vision/multimodal input using backend-specific methods.

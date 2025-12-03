@@ -16,13 +16,15 @@ from typing import Dict, List, Optional, AsyncIterator
 
 from .llm_client import LLMClient
 from .logging_utils import log_message, CONSOLE_SEPARATOR
-from .prompt_loader import get_decision_making_prompt
+from .prompt_loader import get_decision_making_prompt, get_vision_ocr_prompt
 from .message_builder import build_messages_from_history
 from .formatting import format_thinking_process, format_metadata, format_number
 # Cache system removed - will be replaced with Vector DB
 from .context_manager import estimate_tokens, calculate_dynamic_num_ctx
 from .intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
 from .research import perform_agent_research
+import json
+import re
 
 
 def extract_model_name(model_display: str) -> str:
@@ -71,6 +73,429 @@ def format_age(seconds: float) -> str:
         parts.append(f"{secs}s")
 
     return " ".join(parts)
+
+
+def _html_table_to_markdown(html_content: str) -> str:
+    """
+    Konvertiert HTML-Tabelle zu Markdown (Fallback für Modelle wie DeepSeek-OCR).
+
+    Args:
+        html_content: HTML-String mit <table> Tags
+
+    Returns:
+        Markdown-formatierte Tabelle
+    """
+    import re
+    from html.parser import HTMLParser
+
+    class TableParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.rows = []
+            self.current_row = []
+            self.in_table = False
+            self.in_row = False
+            self.in_cell = False
+            self.cell_content = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag == 'table':
+                self.in_table = True
+            elif tag == 'tr' and self.in_table:
+                self.in_row = True
+                self.current_row = []
+            elif tag in ['td', 'th'] and self.in_row:
+                self.in_cell = True
+                self.cell_content = []
+
+        def handle_endtag(self, tag):
+            if tag == 'table':
+                self.in_table = False
+            elif tag == 'tr' and self.in_row:
+                self.in_row = False
+                if self.current_row:
+                    self.rows.append(self.current_row)
+            elif tag in ['td', 'th'] and self.in_cell:
+                self.in_cell = False
+                self.current_row.append(''.join(self.cell_content).strip())
+
+        def handle_data(self, data):
+            if self.in_cell:
+                self.cell_content.append(data)
+
+    parser = TableParser()
+    parser.feed(html_content)
+
+    if not parser.rows or len(parser.rows) < 2:
+        raise ValueError("No valid HTML table found")
+
+    # Erste Zeile als Header
+    headers = parser.rows[0]
+    data_rows = parser.rows[1:]
+
+    # Baue Markdown-Tabelle
+    markdown = "| " + " | ".join(headers) + " |\n"
+    markdown += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+
+    for row in data_rows:
+        # Pad row to match header length
+        padded_row = row + [""] * (len(headers) - len(row))
+        markdown += "| " + " | ".join(padded_row[:len(headers)]) + " |\n"
+
+    return markdown
+
+
+def _json_to_readable(parsed_json: dict, lang: str = "de") -> str:
+    """
+    Konvertiert geparsten JSON in menschenlesbaren Text.
+
+    Args:
+        parsed_json: Geparster JSON vom Vision-LLM
+        lang: Sprache ("de" oder "en")
+
+    Returns:
+        Lesbarer Markdown-formatierter Text
+    """
+    doc_type = parsed_json.get("type", "unknown")
+
+    if doc_type == "table":
+        # Tabelle → Markdown Table
+        columns = parsed_json.get("columns", [])
+        rows = parsed_json.get("rows", [])
+
+        # FEHLERKORREKTUR: Manche Modelle packen alles in "columns" als nested list
+        if columns and isinstance(columns[0], list):
+            # Erstes Element ist die echte columns-Liste
+            rows = columns[1:]  # Rest sind die rows
+            columns = columns[0]
+            log_message("⚠️ Vision-LLM Format-Fehler erkannt: columns enthält rows. Automatisch korrigiert.")
+
+        if not columns:
+            return "⚠️ Leere Tabelle" if lang == "de" else "⚠️ Empty table"
+
+        # Falls rows leer ist, aber columns nested ist
+        if not rows and columns:
+            return "⚠️ Tabelle ohne Daten" if lang == "de" else "⚠️ Table without data"
+
+        # Markdown-Tabelle erstellen
+        table = "| " + " | ".join(str(col) for col in columns) + " |\n"
+        table += "| " + " | ".join(["---"] * len(columns)) + " |\n"
+
+        for row in rows:
+            # Sicherstellen, dass row die gleiche Länge wie columns hat
+            row_padded = row + [""] * (len(columns) - len(row))
+            table += "| " + " | ".join(str(cell) for cell in row_padded[:len(columns)]) + " |\n"
+
+        return table
+
+    elif doc_type == "list":
+        # Liste → Markdown List
+        items = parsed_json.get("items", [])
+        if not items:
+            return "⚠️ Leere Liste" if lang == "de" else "⚠️ Empty list"
+
+        return "\n".join(f"- {item}" for item in items)
+
+    elif doc_type == "form":
+        # Formular → Key-Value Liste
+        fields = parsed_json.get("fields", [])
+        if not fields:
+            return "⚠️ Leeres Formular" if lang == "de" else "⚠️ Empty form"
+
+        return "\n".join(f"**{field.get('label', '')}:** {field.get('value', '')}" for field in fields)
+
+    elif doc_type == "text":
+        # Reiner Text
+        return parsed_json.get("content", "")
+
+    elif doc_type == "mixed":
+        # Gemischtes Dokument → rekursiv verarbeiten
+        sections = parsed_json.get("sections", [])
+        if not sections:
+            return "⚠️ Leeres Dokument" if lang == "de" else "⚠️ Empty document"
+
+        result = []
+        for section in sections:
+            heading = section.get("heading", "")
+            if heading:
+                result.append(f"## {heading}\n")
+            result.append(_json_to_readable(section, lang))
+            result.append("")  # Leerzeile
+
+        return "\n".join(result)
+
+    else:
+        return f"⚠️ Unbekannter Dokumenttyp: {doc_type}" if lang == "de" else f"⚠️ Unknown document type: {doc_type}"
+
+
+async def chat_with_vision_pipeline(
+    user_text: str,
+    images: List[Dict[str, str]],
+    vision_model: str,
+    haupt_model: str,
+    backend_type: str = "ollama",
+    backend_url: Optional[str] = None,
+    num_ctx_mode: str = "auto_vram",
+    num_ctx_manual: int = 16384,
+    llm_options: Optional[Dict] = None
+) -> AsyncIterator[Dict]:
+    """
+    3-Model Architecture: Vision-LLM extracts structured data, Haupt-LLM optionally formats it.
+
+    Pipeline:
+    1. Vision-LLM analyzes image(s) with OCR system prompt → JSON output
+    2. If user query contains formatting keywords ("formatiere", "tabelle", "markdown", etc.):
+       → Haupt-LLM post-processes JSON → formatted output
+    3. Otherwise: Return JSON directly
+
+    Args:
+        user_text: User query text
+        images: List of image dicts with "name" and "base64" keys
+        vision_model: Vision-LLM model name (e.g., "qwen3-vl:8b")
+        haupt_model: Main LLM for post-processing (e.g., "qwen3:30b")
+        backend_type: "ollama", "koboldcpp", "vllm", "tabbyapi"
+        backend_url: Backend URL (optional, uses default if None)
+        num_ctx_mode: "auto_vram", "auto_dynamic", "manual"
+        num_ctx_manual: Manual context size if mode="manual"
+        llm_options: Additional LLM options
+
+    Yields:
+        Dict with keys: "type" (status/response/debug/error), "content"
+    """
+    from ..backends.base import LLMMessage
+    from .prompt_loader import detect_language
+
+    # Detect language from user text
+    lang = detect_language(user_text) if user_text else "de"
+
+    # Bildnamen für Anzeige sammeln
+    image_names = ", ".join([img.get("name", "unbekannt") for img in images])
+    log_message(f"📷 Analysiere Bilder: {image_names}")
+
+    # === PHASE 1: Vision-LLM OCR-Extraktion ===
+    status_msg = f"🔍 Vision-LLM ({vision_model}) analysiert {len(images)} Bild(er): {image_names}" if lang == "de" else f"🔍 Vision-LLM ({vision_model}) analyzing {len(images)} image(s): {image_names}"
+    yield {"type": "status", "content": status_msg}
+
+    # Build multimodal message (image + user text)
+    content_parts = []
+
+    # Add user text if provided
+    if user_text:
+        content_parts.append({"type": "text", "text": user_text})
+
+    # Add images
+    for img in images:
+        content_parts.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{img['base64']}"}
+        })
+
+    # Build messages with Vision-LLM system prompt
+    vision_system_prompt = get_vision_ocr_prompt(lang=lang)
+
+    # Log Vision-LLM system prompt (first 200 chars)
+    log_message(f"📝 Vision-LLM System Prompt: {vision_system_prompt[:200]}...")
+
+    messages = [
+        LLMMessage(role="system", content=vision_system_prompt),
+        LLMMessage(role="user", content=content_parts)
+    ]
+
+    # Call Vision-LLM
+    llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
+
+    # Calculate context size for Vision-LLM
+    log_message(f"📐 Berechne Context für Vision-LLM ({vision_model})...")
+    messages_dict = [{"role": m.role, "content": str(m.content)[:500]} for m in messages]
+    num_ctx, warnings = await calculate_dynamic_num_ctx(
+        llm_client=llm_client,
+        model_name=vision_model,
+        messages=messages_dict,
+        llm_options=llm_options,
+        enable_vram_limit=True
+    )
+
+    vision_start_time = time.time()
+    vision_response = ""
+    vision_metrics = None  # Store metrics from backend
+
+    # Prepare options with Vision-LLM specific settings
+    vision_options = {
+        "temperature": 0.1,  # Low temperature for precise OCR
+        "num_ctx": num_ctx,
+        **(llm_options or {})
+    }
+
+    try:
+        async for chunk in llm_client.chat_stream(
+            model=vision_model,
+            messages=messages,
+            options=vision_options
+        ):
+            if chunk.get("type") == "content":
+                text = chunk.get("text", "")
+                vision_response += text
+                # NICHT streamen - sammle nur die Antwort für JSON-Parsing
+            elif chunk.get("type") == "done":
+                # Capture final metrics (tokens/s, etc.)
+                vision_metrics = chunk.get("metrics", {})
+
+        vision_time = time.time() - vision_start_time
+
+    except Exception as e:
+        log_message("error", f"Vision-LLM error: {e}")
+        yield {"type": "error", "content": f"❌ Vision-LLM error: {str(e)}"}
+        return
+
+    # === Parse JSON Response ===
+    # Log raw Vision-LLM output for debugging
+    log_message(f"📄 Vision-LLM Rohausgabe ({len(vision_response)} Zeichen): {vision_response[:500]}...")
+
+    try:
+        # Extract JSON from response (handle markdown code blocks)
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', vision_response, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            # Try direct JSON parsing
+            json_str = vision_response.strip()
+
+        parsed_json = json.loads(json_str)
+
+        # === JSON erfolgreich geparst ===
+        log_message(f"✅ JSON erfolgreich geparst: {parsed_json.get('type', 'unknown')} ({vision_time:.1f}s)")
+
+        # 1. JSON in Collapsible (wie bei <think>)
+        yield {"type": "thinking", "content": json.dumps(parsed_json, indent=2, ensure_ascii=False)}
+
+        # 2. Rohtext konvertieren (JSON → lesbare Tabelle/Text)
+        human_readable = _json_to_readable(parsed_json, lang)
+        yield {"type": "response", "content": human_readable}
+
+        # 3. Send done signal mit metrics (wird in state.py verarbeitet)
+        if vision_metrics:
+            yield {"type": "done", "metrics": vision_metrics}
+
+    except json.JSONDecodeError as e:
+        log_message("warning", f"Vision-LLM did not return valid JSON: {e}")
+
+        # === FALLBACK: Try HTML-to-Markdown conversion (for models like DeepSeek-OCR) ===
+        import re
+        if '<table' in vision_response.lower():
+            log_message("🔄 Detected HTML table, attempting conversion to Markdown...")
+            try:
+                markdown_table = _html_table_to_markdown(vision_response)
+                yield {"type": "response", "content": markdown_table}
+                if vision_metrics:
+                    yield {"type": "done", "metrics": vision_metrics}
+                return
+            except Exception as html_err:
+                log_message("warning", f"HTML conversion failed: {html_err}")
+
+        # Final fallback: Return raw output
+        log_message("⚠️ Returning raw Vision-LLM output (no JSON, no HTML table)")
+        yield {"type": "response", "content": vision_response}
+        # Send done signal mit metrics (wird in state.py verarbeitet)
+        if vision_metrics:
+            yield {"type": "done", "metrics": vision_metrics}
+        return
+
+    # === PHASE 2: Check if Haupt-LLM post-processing needed ===
+    formatting_keywords_de = ["formatiere", "tabelle", "markdown", "übersetze", "zusammenfass", "erstelle", "mach", "konvertiere"]
+    formatting_keywords_en = ["format", "table", "markdown", "translate", "summarize", "create", "make", "convert"]
+
+    formatting_keywords = formatting_keywords_de if lang == "de" else formatting_keywords_en
+
+    needs_formatting = any(keyword in user_text.lower() for keyword in formatting_keywords) if user_text else False
+
+    if needs_formatting and haupt_model and haupt_model != vision_model:
+        # === PHASE 2: Haupt-LLM Post-Processing ===
+        yield {"type": "status", "content": f"📝 Haupt-LLM ({haupt_model}) formatiert Ausgabe..." if lang == "de" else f"📝 Main LLM ({haupt_model}) formatting output..."}
+
+        # Build post-processing prompt
+        if lang == "de":
+            haupt_system_prompt = f"""Du bist ein Formatierungs-Spezialist.
+
+AUFGABE: Formatiere die extrahierten Daten gemäß der Benutzeranfrage.
+
+EXTRAHIERTE DATEN (JSON):
+```json
+{json.dumps(parsed_json, ensure_ascii=False, indent=2)}
+```
+
+BENUTZERANFRAGE: "{user_text}"
+
+WICHTIG:
+- Die Daten wurden bereits aus einem Bild extrahiert
+- Formatiere die Daten EXAKT wie vom Benutzer gewünscht
+- Bei Tabellen: Nutze die columns/rows Struktur aus dem JSON
+- Bei Listen: Nutze die items Struktur
+- Keine Erklärungen - nur die formatierte Ausgabe"""
+        else:
+            haupt_system_prompt = f"""You are a formatting specialist.
+
+TASK: Format the extracted data according to the user's request.
+
+EXTRACTED DATA (JSON):
+```json
+{json.dumps(parsed_json, ensure_ascii=False, indent=2)}
+```
+
+USER REQUEST: "{user_text}"
+
+IMPORTANT:
+- The data has already been extracted from an image
+- Format the data EXACTLY as requested by the user
+- For tables: Use the columns/rows structure from the JSON
+- For lists: Use the items structure
+- No explanations - only the formatted output"""
+
+        haupt_messages = [
+            LLMMessage(role="system", content=haupt_system_prompt),
+            LLMMessage(role="user", content=user_text or ("Formatiere die Daten als Markdown-Tabelle" if lang == "de" else "Format the data as a Markdown table"))
+        ]
+
+        # Calculate context size for Haupt-LLM
+        log_message(f"📐 Berechne Context für Haupt-LLM ({haupt_model})...")
+        haupt_messages_dict = [{"role": m.role, "content": str(m.content)[:500]} for m in haupt_messages]
+        haupt_num_ctx, haupt_warnings = await calculate_dynamic_num_ctx(
+            llm_client=llm_client,
+            model_name=haupt_model,
+            messages=haupt_messages_dict,
+            llm_options=llm_options,
+            enable_vram_limit=True
+        )
+
+        # Call Haupt-LLM
+        haupt_start_time = time.time()
+
+        # Prepare options with Haupt-LLM specific settings
+        haupt_options = {
+            "temperature": 0.3,  # Slightly higher for formatting creativity
+            "num_ctx": haupt_num_ctx,
+            **(llm_options or {})
+        }
+
+        try:
+            async for chunk in llm_client.chat_stream(
+                model=haupt_model,
+                messages=haupt_messages,
+                options=haupt_options
+            ):
+                if chunk["type"] == "content":
+                    yield {"type": "response", "content": chunk["text"]}
+
+            haupt_time = time.time() - haupt_start_time
+
+            yield {"type": "metadata", "content": f"Vision: {vision_time:.1f}s | Formatierung: {haupt_time:.1f}s" if lang == "de" else f"Vision: {vision_time:.1f}s | Formatting: {haupt_time:.1f}s"}
+
+        except Exception as e:
+            log_message("error", f"Haupt-LLM formatting error: {e}")
+            yield {"type": "error", "content": f"❌ Formatierungs-Fehler: {str(e)}" if lang == "de" else f"❌ Formatting error: {str(e)}"}
+
+    else:
+        # No post-processing needed - JSON output already returned
+        yield {"type": "metadata", "content": f"Vision-Zeit: {vision_time:.1f}s" if lang == "de" else f"Vision time: {vision_time:.1f}s"}
 
 
 async def chat_interactive_mode(

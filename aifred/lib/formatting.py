@@ -95,16 +95,20 @@ def format_debug_message(message: str) -> str:
 
 def format_thinking_process(ai_response, model_name=None, inference_time=None, tokens_per_sec=None):
     """
-    Formatiert <think> Tags als Collapsible Accordion für den Chat.
+    Formatiert <think> und <data> Tags als Collapsible Accordion für den Chat.
 
     Args:
-        ai_response: Die AI-Antwort mit optionalen <think> Tags
+        ai_response: Die AI-Antwort mit optionalen <think> oder <data> Tags
         model_name: Name des verwendeten Modells (z.B. "qwen3:1.7b")
         inference_time: Inferenz-Zeit in Sekunden
         tokens_per_sec: Tokens pro Sekunde (optional)
 
     Returns:
-        Formatted string mit Collapsible für Denkprozess (inkl. Modell-Name)
+        Formatted string mit Collapsible für Denkprozess/Daten (inkl. Modell-Name)
+
+    Tags:
+        <think>: Denkprozess (z.B. DeepSeek Reasoning)
+        <data>: Strukturierte Daten (z.B. Vision-LLM JSON)
 
     Example:
         Input: "Some text <think>thinking process</think> More text"
@@ -120,6 +124,10 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
     # Suche nach <think>...</think> Tags (normaler Fall)
     think_pattern = r'<think>(.*?)</think>'
     matches = re.findall(think_pattern, ai_response, re.DOTALL)
+
+    # Suche auch nach <data>...</data> Tags (Vision-LLM JSON)
+    data_pattern = r'<data>(.*?)</data>'
+    data_matches = re.findall(data_pattern, ai_response, re.DOTALL)
 
     # FALLBACK: Prüfe auf fehlendes öffnendes Tag (qwen3:4b Bug)
     # Wenn nur </think> vorhanden ist, aber kein <think>
@@ -153,18 +161,42 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
 
             return formatted
 
+    # === <data> Blöcke verarbeiten (Vision-LLM JSON) ===
+    if data_matches:
+        data_content = data_matches[0].strip()
+        clean_response = re.sub(data_pattern, '', ai_response, flags=re.DOTALL).strip()
+
+        # Baue Summary mit Icon (OHNE Inferenzzeit - die kommt in Metadata-Footer)
+        summary_parts = ["📊 Strukturierte Daten"]
+        if model_name:
+            summary_parts.append(f"({model_name})")
+        summary_text = " ".join(summary_parts)
+
+        # Formatiere als Collapsible
+        formatted = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
+<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
+<div class="thinking-compact">
+
+{data_content}
+
+</div>
+</details>
+
+{clean_response}"""
+
+        return formatted
+
+    # === <think> Blöcke verarbeiten (DeepSeek Reasoning) ===
     if matches:
         # Normaler Fall: Ein <think> Block gefunden
         thinking = matches[0].strip()
         # thinking = re.sub(r'\n\n\n+', '\n\n', thinking)  # DEAKTIVIERT zum Testen
         clean_response = re.sub(think_pattern, '', ai_response, flags=re.DOTALL).strip()
 
-        # Baue Summary mit Modell-Name und Inferenz-Zeit
+        # Baue Summary mit Modell-Name (OHNE Inferenzzeit - die kommt in Metadata-Footer)
         summary_parts = ["💭 Denkprozess"]
         if model_name:
             summary_parts.append(f"({model_name})")
-        if inference_time:
-            summary_parts.append(f"• {inference_time:.1f}s")
         summary_text = " ".join(summary_parts)
 
         # Formatiere mit HTML Details/Summary (Reflex unterstützt HTML in Markdown)
@@ -181,7 +213,7 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
 
         return formatted
     else:
-        # Keine <think> Tags gefunden, gebe Original zurück
+        # Keine <think> oder <data> Tags gefunden, gebe Original zurück
         return ai_response
 
 

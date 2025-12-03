@@ -18,6 +18,7 @@ from .lib import (
     set_language
 )
 from .lib.formatting import format_debug_message
+from .lib.conversation_handler import extract_model_name
 from .lib import config
 from .lib.vllm_manager import vLLMProcessManager
 
@@ -246,10 +247,15 @@ class AIState(rx.State):
     # NOTE: Models loaded from settings.json first, fallback to config.py only if settings don't exist
     selected_model: str = ""  # Initialized in on_load() from settings.json or config.py
     available_models: List[str] = []
+    _vision_models_cache: List[str] = []  # Cached list of vision-capable models (populated by initialize_backend)
 
     # Automatik-LLM (für Decision und Query-Optimierung)
     # NOTE: Loaded from settings.json first, fallback to config.py only if settings don't exist
     automatik_model: str = ""  # Initialized in on_load() from settings.json or config.py
+
+    # Vision-LLM (für Bildanalyse/OCR - Spezialisiert auf strukturierte Datenextraktion)
+    # NOTE: Loaded from settings.json first, fallback to first available vision model
+    vision_model: str = ""  # Initialized in on_load() from settings.json or auto-detect
 
     # LLM Options
     temperature: float = 0.7
@@ -435,6 +441,16 @@ class AIState(rx.State):
         # vLLM and KoboldCPP can't switch models
         return self.backend_type not in ["vllm", "koboldcpp"]
 
+    @rx.var
+    def available_vision_models(self) -> List[str]:
+        """
+        Filter available_models to only include vision-capable models.
+        Used for Vision-LLM dropdown.
+
+        Returns cached vision models list (populated during initialize_backend).
+        """
+        return self._vision_models_cache
+
     async def on_load(self):
         """
         Called when page loads - initialize backend and load models
@@ -541,10 +557,12 @@ class AIState(rx.State):
                 if self.backend_type in backend_models:
                     self.selected_model = backend_models[self.backend_type].get("selected_model", self.selected_model)
                     self.automatik_model = backend_models[self.backend_type].get("automatik_model", self.automatik_model)
+                    self.vision_model = backend_models[self.backend_type].get("vision_model", self.vision_model)
                 else:
                     # Fallback: Use old-style global model settings
                     self.selected_model = saved_settings.get("selected_model", self.selected_model)
                     self.automatik_model = saved_settings.get("automatik_model", self.automatik_model)
+                    self.vision_model = saved_settings.get("vision_model", self.vision_model)
 
                 self.add_debug(f"⚙️ Settings loaded (backend: {self.backend_type})")
 
@@ -564,6 +582,13 @@ class AIState(rx.State):
                     self.add_debug(f"⚙️ Using default automatik_model from config.py: {self.automatik_model}")
                 else:
                     self.add_debug("⚠️ No automatik_model configured")
+
+            if not self.vision_model:
+                self.vision_model = backend_defaults.get("vision_model", "")
+                if self.vision_model:
+                    self.add_debug(f"⚙️ Using default vision_model from config.py: {self.vision_model}")
+                else:
+                    self.add_debug("ℹ️ No vision_model configured - will auto-detect first available vision model")
 
             # vLLM and TabbyAPI can only load ONE model at a time
             # Ensure automatik_model = selected_model for these backends
@@ -669,6 +694,7 @@ class AIState(rx.State):
             self.available_models = _global_backend_state["available_models"]
             self.selected_model = _global_backend_state["selected_model"]
             self.automatik_model = _global_backend_state["automatik_model"]
+            self._vision_models_cache = _global_backend_state.get("vision_models_cache", [])
 
             # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
             if self.backend_type == "vllm" and self.automatik_model != self.selected_model:
@@ -880,6 +906,10 @@ class AIState(rx.State):
             _global_backend_state["automatik_model"] = self.automatik_model
             _global_backend_state["available_models"] = self.available_models
 
+            # === DETECT VISION MODELS (metadata-based) ===
+            self.add_debug("🔍 Detecting vision-capable models...")
+            await self._detect_vision_models()
+
             # Start vLLM process if backend is vLLM
             if self.backend_type == "vllm":
                 await self._start_vllm_server()
@@ -888,24 +918,8 @@ class AIState(rx.State):
             if self.backend_type == "koboldcpp":
                 await self._start_koboldcpp_server()
 
-            # Preload Automatik-LLM via curl in background (simple & non-blocking!)
-            # Note: For vLLM/KoboldCPP, skip preload curl since server was just started with the model
-            if self.automatik_model and self.backend_type not in ["vllm", "koboldcpp"]:
-                import subprocess
-                try:
-                    if self.backend_type == "ollama":
-                        # Ollama-specific preload
-                        preload_cmd = f'curl -s http://localhost:11434/api/chat -d \'{{"model":"{self.automatik_model}","messages":[{{"role":"user","content":"hi"}}],"stream":false,"options":{{"num_predict":1}}}}\' > /dev/null 2>&1 &'
-                        subprocess.Popen(preload_cmd, shell=True)
-                        self.add_debug(f"🚀 Preloading {self.automatik_model}...")
-                    elif self.backend_type == "tabbyapi":
-                        # OpenAI-compatible preload (TabbyAPI)
-                        preload_cmd = f'curl -s {self.backend_url}/chat/completions -H "Content-Type: application/json" -d \'{{"model":"{self.automatik_model}","messages":[{{"role":"user","content":"hi"}}],"max_tokens":1}}\' > /dev/null 2>&1 &'
-                        subprocess.Popen(preload_cmd, shell=True)
-                        self.add_debug(f"🚀 Preloading {self.automatik_model}...")
-                except Exception as e:
-                    log_message(f"⚠️ Preload failed: {e}")
-                    # Not critical, continue anyway
+            # Note: Models are loaded on-demand during first inference (saves VRAM)
+            # Preloading removed to keep GPU in P8 state until actual usage
 
             # Store in global state for future page reloads
             # vllm_manager and koboldcpp_manager are already stored in _global_backend_state by their start functions
@@ -932,6 +946,7 @@ class AIState(rx.State):
         backend_models[self.backend_type] = {
             "selected_model": extract_model_name(self.selected_model),
             "automatik_model": extract_model_name(self.automatik_model),
+            "vision_model": extract_model_name(self.vision_model),
         }
 
         settings = {
@@ -1251,6 +1266,61 @@ class AIState(rx.State):
         print("⚠️ Fallback initialization (on_load didn't run)")
         # Re-use on_load() logic
         await self.on_load()
+
+    async def _detect_vision_models(self):
+        """
+        Detect vision-capable models using backend-specific metadata.
+        Populates self._vision_models_cache for UI dropdown.
+        """
+        global _global_backend_state
+        from .lib.vision_utils import is_vision_model
+
+        vision_models = []
+
+        for model_display in self.available_models:
+            # Extract pure model name (remove size suffix)
+            model_pure = extract_model_name(model_display)
+
+            try:
+                # Query backend metadata to check vision capability
+                if await is_vision_model(self, model_pure):
+                    vision_models.append(model_display)
+            except Exception as e:
+                # Fallback: skip on error (don't block initialization)
+                log_message(f"⚠️ Vision detection failed for {model_pure}: {e}")
+
+        self._vision_models_cache = vision_models
+        _global_backend_state["vision_models_cache"] = vision_models
+
+        self.add_debug(f"✅ Found {len(vision_models)} vision-capable models")
+
+        # Auto-select vision_model if not set or empty
+        if (not self.vision_model or self.vision_model.strip() == "") and vision_models:
+            self.vision_model = vision_models[0]
+            self.add_debug(f"⚙️ Auto-selected vision_model: {self.vision_model}")
+            self._save_settings()
+        # Validate existing vision_model is in cache (compare pure model names)
+        elif self.vision_model and vision_models:
+            # Check if saved model (pure name) matches any cached model (with size suffix)
+            saved_pure = extract_model_name(self.vision_model)
+
+            # Find matching model in vision_models list
+            matching_model = None
+            for model in vision_models:
+                if extract_model_name(model) == saved_pure:
+                    matching_model = model
+                    break
+
+            if matching_model:
+                # Update to display format (with size suffix) if format differs
+                if self.vision_model != matching_model:
+                    self.vision_model = matching_model
+                    self.add_debug(f"⚙️ Vision model updated to display format: {matching_model}")
+            else:
+                # Saved model not found in vision models, auto-select first available
+                self.add_debug(f"⚠️ Saved vision_model '{self.vision_model}' not found in vision models, auto-selecting...")
+                self.vision_model = vision_models[0]
+                self._save_settings()
 
     async def _start_vllm_server(self):
         """Start vLLM server process with selected model"""
@@ -1678,9 +1748,7 @@ class AIState(rx.State):
         if not user_text and not has_pending_images:
             return  # Nothing to send
 
-        if not user_text and has_pending_images:
-            # Auto-prompt for image-only messages
-            user_text = "Analysiere dieses Bild und beschreibe den Inhalt detailliert."
+        # Leerer user_text ist erlaubt für reine OCR-Extraktion (ohne Interpretation)
 
         if self.is_generating:
             self.add_debug("⚠️ Already generating, please wait...")
@@ -1699,6 +1767,127 @@ class AIState(rx.State):
         # Debug message wird von agent_core.py geloggt, nicht hier!
 
         try:
+            # ============================================================
+            # VISION PIPELINE: Route to Vision-LLM if images present
+            # ============================================================
+            if has_pending_images:
+                self.add_debug(f"📷 Vision Pipeline: {len(self.pending_images)} Bild(er) → Vision-LLM ({self.vision_model})")
+
+                # CRITICAL: Ensure KoboldCPP is running before LLM call
+                if self.backend_type == "koboldcpp":
+                    async for _ in self._ensure_koboldcpp_running():
+                        yield  # Forward yields from _ensure_koboldcpp_running() to UI
+
+                # Import vision pipeline
+                from .lib.conversation_handler import chat_with_vision_pipeline
+
+                # Initialize temporary history entry for real-time display
+                temp_history_index = len(self.chat_history)
+                self.chat_history.append((user_msg, self.current_ai_response))
+
+                # Build LLM options
+                llm_options = {
+                    'enable_thinking': self.enable_thinking
+                }
+
+                # Storage für Vision-JSON (wird in history gespeichert statt readable text)
+                vision_json_response = ""
+                vision_readable_text = ""
+                vision_metrics = None
+
+                # REAL STREAMING: Call async generator directly
+                async for item in chat_with_vision_pipeline(
+                    user_text=user_msg,
+                    images=self.pending_images,
+                    vision_model=extract_model_name(self.vision_model),
+                    haupt_model=extract_model_name(self.selected_model),
+                    backend_type=self.backend_type,
+                    backend_url=self.backend_url,
+                    num_ctx_mode=self.num_ctx_mode,
+                    num_ctx_manual=self.num_ctx_manual,
+                    llm_options=llm_options
+                ):
+                    # Route messages based on type
+                    if item["type"] == "status":
+                        self.add_debug(item["content"])
+                    elif item["type"] == "debug":
+                        self.add_debug(item["content"])
+                    elif item["type"] == "thinking":
+                        # JSON vom Vision-LLM → sammle für Collapsible (NICHT sofort anzeigen)
+                        vision_json_response = item["content"]
+                    elif item["type"] == "response":
+                        # Readable text → sammle und zeige im Stream
+                        vision_readable_text += item["content"]
+                        self.current_ai_response += item["content"]
+                        yield
+                    elif item["type"] == "done":
+                        # Metrics vom Backend sammeln
+                        vision_metrics = item.get("metrics", {})
+                    elif item["type"] == "error":
+                        self.add_debug(item["content"])
+
+                # === Nach Vision-Stream: Formatierung wie bei Haupt-LLM ===
+                if vision_json_response:
+                    # Extrahiere Timing-Daten
+                    vision_time = vision_metrics.get("inference_time", 0) if vision_metrics else 0
+                    tokens_generated = vision_metrics.get("tokens_generated", 0) if vision_metrics else 0
+                    tokens_per_sec = vision_metrics.get("tokens_per_second", 0) if vision_metrics else 0
+
+                    # Debug-Log mit Timing (wie Haupt-LLM)
+                    self.add_debug(f"✅ Vision-LLM fertig ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
+                    yield
+
+                    # Separator-Linie (wie Haupt-LLM)
+                    from aifred.lib.logging_utils import console_separator
+                    console_separator()
+                    self.add_debug("────────────────────")
+                    yield
+
+                    # Formatiere <data> Tag als Collapsible (ähnlich wie <think>)
+                    from .lib.formatting import format_thinking_process, format_metadata, format_number
+
+                    # Baue vollständige Response mit <data> Tag
+                    full_response_with_data = f"<data>\n{vision_json_response}\n</data>\n\n{vision_readable_text}"
+
+                    # Formatiere Collapsible (ähnlich wie Thinking)
+                    formatted_html = format_thinking_process(
+                        full_response_with_data,
+                        model_name=extract_model_name(self.vision_model),
+                        inference_time=vision_time,
+                        tokens_per_sec=tokens_per_sec
+                    )
+
+                    # Metadata-Footer anhängen (wie Haupt-LLM)
+                    metadata = format_metadata(
+                        f"(Vision: {format_number(vision_time, 1)}s ({format_number(tokens_per_sec, 1)} tok/s))"
+                    )
+                    formatted_response = f"{formatted_html}\n\n{metadata}"
+
+                    # Update current_ai_response für UI-Anzeige
+                    self.current_ai_response = formatted_response
+
+                    # History Update: Formatierte Version für UI, JSON im Backend für Follow-ups
+                    # NOTE: Die History zeigt die formatierte Version (Collapsible + Tabelle + Metadata)
+                    # Aber bei Follow-up-Fragen wird das JSON aus der formatierten Response extrahiert
+                    self.chat_history[temp_history_index] = (user_msg, formatted_response)
+                    self.add_debug("💾 History gespeichert: Formatierte Vision-Response (mit Collapsible + Metadata)")
+                    yield
+                else:
+                    # Fallback: kein JSON → speichere normale Response
+                    self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
+                    self.add_debug("💾 History gespeichert: Vollständige Response")
+
+                # Clear images after sending
+                self.clear_pending_images()
+
+                # Clear AI response and user message windows
+                self.current_ai_response = ""
+                self.current_user_message = ""
+                self.is_generating = False
+                yield  # Force immediate UI update
+
+                return  # Exit send_message - vision pipeline complete
+
             # ============================================================
             # PHASE 1: Research/Automatik Mode - REAL STREAMING
             # ============================================================
@@ -2212,15 +2401,18 @@ class AIState(rx.State):
         from .lib.vision_utils import (
             validate_image_file,
             encode_image_to_base64,
-            resize_image_if_needed,
-            is_vision_model
+            resize_image_if_needed
         )
 
         # Check if vision model selected
-        selected_model_pure = extract_model_name(self.selected_model)
+        if not self.vision_model:
+            self.image_upload_warning = "⚠️ Bitte wähle zuerst ein Vision-Modell in den Einstellungen."
+            self.add_debug("⚠️ Image upload blocked: No vision model selected")
+            return
 
-        if not await is_vision_model(self, selected_model_pure):
-            self.image_upload_warning = "⚠️ Gewähltes Modell unterstützt keine Bilder. Bitte wähle ein Vision-Modell (z.B. Qwen3-VL, DeepSeek-OCR)."
+        # Check if vision_model is in the vision models cache (metadata-validated)
+        if self.vision_model not in self._vision_models_cache:
+            self.image_upload_warning = "⚠️ Gewähltes Vision-Modell unterstützt keine Bilder. Bitte wähle ein anderes Vision-Modell aus der Dropdown-Liste."
             self.add_debug("⚠️ Image upload blocked: Non-vision model selected")
             return
 
@@ -2854,17 +3046,19 @@ class AIState(rx.State):
             self.add_debug("🔄 Backend-Neustart für Automatik-Modell-Wechsel...")
             await self.initialize_backend()
             self.add_debug("✅ Neues Automatik-Modell geladen")
-        # Ollama: Preload new model in background (via curl)
-        elif self.backend_type == "ollama":
-            import subprocess
-            preload_cmd = f'curl -s http://localhost:11434/api/chat -d \'{{"model":"{model}","messages":[{{"role":"user","content":"hi"}}],"stream":false,"options":{{"num_predict":1}}}}\' > /dev/null 2>&1 &'
-            try:
-                subprocess.Popen(preload_cmd, shell=True)
-                self.add_debug(f"🚀 Preloading {model}...")
-            except Exception as e:
-                log_message(f"⚠️ Preload failed: {e}")
 
-        # Note: Context limit will be queried on first use (fast ~30ms) and cached by httpx
+        # Note: Models are loaded on-demand during first inference (saves VRAM)
+        # Context limit will be queried on first use (fast ~30ms) and cached by httpx
+
+    async def set_vision_model(self, model: str):
+        """Set vision model for OCR/image analysis"""
+        old_model = self.vision_model
+        self.vision_model = model
+        self.add_debug(f"🔍 Vision model changed: {old_model} → {model}")
+        self._save_settings()
+
+        # Note: Vision model will be loaded on-demand when image is uploaded
+        # No preloading needed here to save VRAM
 
     def toggle_tts(self):
         """Toggle TTS on/off"""
