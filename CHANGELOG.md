@@ -5,6 +5,125 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2025-12-03
+
+### 📸 Vision/OCR Support (2025-12-03)
+
+#### Added
+- **Vision/OCR Integration** - Complete multimodal image analysis pipeline:
+  - **3-Model Architecture**: Vision-LLM (OCR) → Main-LLM (interpretation) → Automatik-LLM (decisions)
+  - **Drag & Drop Upload**: Images can be uploaded directly into chat via drag-and-drop or file picker
+  - **Auto-Detection**: Automatically detects vision-capable models via backend metadata queries
+    - Ollama: Checks `.vision.*` and `.sam.*` keys in model_info
+    - vLLM/TabbyAPI: Reads `architectures` from HuggingFace config.json
+    - KoboldCPP: Reads `general.architecture` from GGUF metadata
+  - **Supported Models**: DeepSeek-OCR, Qwen3-VL, Ministral-3 (3B/8B/14B variants)
+  - **Structured Output**: JSON extraction with 5 types (table, list, form, text, mixed)
+  - **Smart Formatting**:
+    - Collapsible JSON display: `📊 Strukturierte Daten (model-name)`
+    - Automatic Markdown conversion (tables, lists, forms)
+    - Metadata footer: `( Vision: 3.7s (192.4 tok/s) )`
+  - **Performance**: 3-15s inference (85% faster prompts: 119 lines → 18 lines)
+  - **Robust Parsing**: Auto-correction for malformed Vision-LLM output
+    - Detects nested columns array and auto-splits into columns + rows
+    - HTML-to-Markdown fallback for models that ignore system prompts
+  - **Image Processing**: Auto-resize to 2048px, JPEG optimization (quality 85)
+  - **History Management**: Stores formatted HTML for UI, preserves JSON for follow-up questions
+
+- **Vision Model Selector** - Dedicated dropdown in UI for Vision-LLM selection
+  - Shows only vision-capable models (metadata-based filtering)
+  - Selection persisted per backend in settings.json
+  - Independent from Main-LLM selection
+
+- **New System Prompts**:
+  - `prompts/de/vision_ocr.txt`: German OCR prompt (18 lines, optimized)
+  - `prompts/en/vision_ocr.txt`: English OCR prompt (18 lines, optimized)
+
+- **Documentation**:
+  - `docs/VISION_OCR.md`: Comprehensive Vision/OCR documentation (600+ lines)
+    - Architecture diagrams
+    - Model benchmarks (performance testing with 7 models)
+    - Usage examples
+    - Troubleshooting guide
+    - JSON format specifications
+  - `docs/development/VISION_IMAGE_SUPPORT_PLAN.md`: Implementation plan (archived)
+
+#### Changed
+- **README.md**: Updated with Vision/OCR features
+  - Added Vision-LLM to Core Features
+  - Model recommendations for Vision-LLM (Ministral-3 series)
+  - Updated version to 2.3.0
+
+- **Context Manager** (`aifred/lib/context_manager.py`):
+  - Modified `strip_thinking_blocks()` to only remove `<think>` tags
+  - Preserves `<data>` tags (Vision JSON) during history compression
+
+- **Formatting** (`aifred/lib/formatting.py`):
+  - Added `<data>` block rendering (similar to `<think>` but with 📊 icon)
+  - Removed inference time from Collapsible headers (now only in metadata footer)
+  - Consistent formatting for `<think>` and `<data>` blocks
+
+- **State Management** (`aifred/state.py`):
+  - Added `vision_model` field with per-backend persistence
+  - Fixed vision model selection bug (was always resetting to first available)
+  - Vision pipeline now formats response after stream completion (like Main-LLM)
+  - Metrics capture: tokens/s, inference time from backend `done` signal
+  - Debug logging: Separator line + timing info after Vision-LLM completion
+
+#### Fixed
+- **Vision Model Persistence** - Vision model selection now correctly saved and restored
+  - Bug: Validation logic always overwrote selection with first model in list
+  - Fix: Search entire list for matching model, not just first element
+  - Now correctly handles different model orders across backends
+
+- **Collapsible Display** - Vision JSON now properly rendered in collapsible HTML
+  - Bug: Chat history stored raw JSON, causing unformatted display
+  - Fix: Store formatted response (Collapsible + Markdown + Metadata) in history
+  - Metadata footer now appears below table: `( Vision: 3.7s (192.4 tok/s) )`
+
+- **Malformed JSON Handling** - Auto-correction for common Vision-LLM errors
+  - Bug: Some models nest entire table data in `columns` array
+  - Fix: Detect `columns[0]` as array → split into proper columns + rows structure
+  - Graceful fallback to raw output if all parsing fails
+
+- **HTML Output Handling** - Fallback for models that ignore system prompts
+  - Bug: DeepSeek-OCR outputs HTML tables instead of JSON
+  - Fix: HTML parser converts `<table>` to Markdown automatically
+  - Still displays formatted table despite wrong output format
+
+#### Performance Benchmarks
+Model performance on medication plan image (465 KB, Ollama, RTX 4090):
+
+| Model | Inference | Tokens | tok/s | Quality |
+|-------|-----------|--------|-------|---------|
+| Ministral-3:3b | 9.8s | 313 | 192 | ⭐⭐⭐⭐ |
+| Ministral-3:8b | 14.4s | 421 | 184 | ⭐⭐⭐⭐⭐ |
+| Ministral-3:14b | 59.9s | 349 | 98 | ⭐⭐⭐⭐⭐ |
+| DeepSeek-OCR:3b | 4.3s | 0* | - | ❌ HTML |
+| Qwen3-VL:8b | 56.6s | 0 | - | ❌ Empty |
+
+\* Outputs HTML instead of JSON
+
+#### Technical Details
+- **Multimodal Messages**: Support for mixed text + image content arrays
+- **Base64 Encoding**: Images converted to data URLs for API compatibility
+- **Backend Integration**: Works with Ollama (tested), vLLM, TabbyAPI, KoboldCPP
+- **Error Correction**: Robust JSON parsing with multiple fallback strategies
+- **Streaming**: Non-streaming for Vision-LLM (prevents fragment display)
+
+#### Files Modified
+- `aifred/state.py`: Vision pipeline, model persistence, metrics capture
+- `aifred/lib/conversation_handler.py`: Vision extraction, JSON parsing, HTML fallback
+- `aifred/lib/formatting.py`: `<data>` block rendering, header time removal
+- `aifred/lib/context_manager.py`: `<data>` tag preservation
+- `aifred/lib/vision_utils.py`: Vision model detection (new file)
+- `prompts/de/vision_ocr.txt`: Optimized OCR prompt (85% shorter)
+- `prompts/en/vision_ocr.txt`: Optimized OCR prompt (85% shorter)
+- `README.md`: Vision/OCR features documentation
+- `docs/VISION_OCR.md`: Comprehensive technical documentation (new file)
+
+---
+
 ## [2.2.0] - 2025-12-02
 
 ### 📚 Documentation & Configuration (2025-12-02)

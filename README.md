@@ -12,14 +12,15 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ## 📋 What's New
 
-**Latest Version:** v2.2.0 (2025-12-02)
+**Latest Version:** v2.3.0 (2025-12-03)
 
 Key highlights:
-- 📚 Documentation refactoring (READMEs cleaned, session changelogs archived)
-- 🎮 GPU display enhancements (multi-GPU support, nominal VRAM values)
-- 📝 Ollama systemd configuration documented in config.py
-- 🐛 Model display bug fix (size suffix removal before API calls)
-- ⚡ KoboldCPP auto-shutdown with rolling window monitoring
+- 📸 **Vision/OCR Support**: Multi-model image analysis with automatic JSON extraction
+- 🎯 **3-Model Architecture**: Vision-LLM (OCR) → Main-LLM (interpretation) → Automatik-LLM (decisions)
+- 🚀 **85% faster prompts**: Optimized system prompts for 3-7s inference (was 30s)
+- 📊 **Smart formatting**: Collapsible JSON + readable Markdown tables
+- 🔧 **Robust parsing**: Auto-correction for malformed Vision-LLM output
+- 💾 **Persistent settings**: Vision model selection now saved per backend
 
 For detailed changes and version history, see [CHANGELOG.md](CHANGELOG.md).
 
@@ -29,12 +30,14 @@ For detailed changes and version history, see [CHANGELOG.md](CHANGELOG.md).
 
 ### 🎯 Core Features
 - **Multi-Backend Support**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2)
+- **Vision/OCR Support**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
+- **3-Model Architecture**: Specialized Vision-LLM for OCR, Main-LLM for interpretation
 - **Qwen3 Thinking Mode**: Chain-of-Thought reasoning for complex tasks (Ollama + vLLM)
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
 - **Voice Interface**: Speech-to-Text and Text-to-Speech integration
 - **Vector Cache**: ChromaDB-based semantic cache for web research (Docker)
-- **Per-Backend Settings**: Each backend remembers its preferred models
+- **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 
 ### 🔧 Technical Highlights
 - **Reflex Framework**: React frontend generated from Python
@@ -47,6 +50,11 @@ For detailed changes and version history, see [CHANGELOG.md](CHANGELOG.md).
 - **KoboldCPP Dynamic RoPE**: Intelligent VRAM-based context optimization with automatic RoPE scaling
 
 ### ⚠️ Model Recommendations
+- **Vision-LLM (OCR/Image Analysis)**: Use **specialized vision models**
+  - **Recommended**: Ministral-3:8b (best balance: 14s, detailed output)
+  - **Fast**: Ministral-3:3b (10s, good for simple extractions)
+  - **Not recommended**: DeepSeek-OCR:3b (ignores system prompts, outputs HTML instead of JSON)
+  - **Slow**: Qwen3-VL:30b (60s+), Qwen3-VL:8b (56s, empty output)
 - **Automatik-LLM (Decision/Intent/Query-Opt)**: Use **Instruct models** only
   - Thinking Models (QwQ-32B, DeepSeek-R1, etc.) are incompatible with Automatik tasks
   - These models ignore `enable_thinking` flags and produce verbose reasoning

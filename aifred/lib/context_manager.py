@@ -65,6 +65,25 @@ def count_tokens_with_tokenizer(text: str, model_name: str) -> int:
         return None
 
 
+def strip_thinking_blocks(text: str) -> str:
+    """
+    Entfernt <think>...</think> Blöcke aus Text (für History Compression).
+
+    Diese Blöcke enthalten:
+    - DeepSeek Reasoning (thinking process)
+    - Vision-LLM JSON (strukturierte Extraktion)
+
+    Args:
+        text: Text mit potentiellen <think> Blöcken
+
+    Returns:
+        Text ohne <think> Blöcke
+    """
+    import re
+    # Entferne alle <think>...</think> Blöcke (non-greedy, multi-line)
+    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+
+
 def estimate_tokens(messages: List[Dict], model_name: Optional[str] = None) -> int:
     """
     Count tokens in messages using real tokenizer (with fallback)
@@ -320,11 +339,15 @@ async def summarize_history_if_needed(
     log_message(f"   └─ Temperature: {HISTORY_SUMMARY_TEMPERATURE}")
     log_message(f"   └─ Context-Limit: {HISTORY_SUMMARY_CONTEXT_LIMIT}")
 
-    # 7. Formatiere Konversation für LLM
+    # 7. Formatiere Konversation für LLM (ohne <think> Blöcke!)
     conversation_text = ""
     for i, (user_msg, ai_msg) in enumerate(messages_to_summarize, 1):
-        log_message(f"   └─ Message {i}: User={len(user_msg)} chars, AI={len(ai_msg)} chars")
-        conversation_text += f"User: {user_msg}\nAI: {ai_msg}\n\n"
+        # Entferne <think> Blöcke aus beiden Messages
+        clean_user_msg = strip_thinking_blocks(user_msg) if user_msg else ""
+        clean_ai_msg = strip_thinking_blocks(ai_msg) if ai_msg else ""
+
+        log_message(f"   └─ Message {i}: User={len(user_msg)}→{len(clean_user_msg)} chars, AI={len(ai_msg)}→{len(clean_ai_msg)} chars")
+        conversation_text += f"User: {clean_user_msg}\nAI: {clean_ai_msg}\n\n"
 
     # Spracherkennung für Konversation (nutze ersten User-Text als Referenz)
     from .prompt_loader import detect_language

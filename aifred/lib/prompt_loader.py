@@ -248,3 +248,8 @@ def get_system_rag_prompt(context: str, user_text: str = "", lang: Optional[str]
 
 
 # Cache metadata prompt removed - will be replaced with Vector DB embeddings
+
+
+def get_vision_ocr_prompt(lang: Optional[str] = None) -> str:
+    """Load Vision-LLM OCR prompt (timestamp injected automatically by load_prompt)"""
+    return load_prompt('vision_ocr', lang=lang)
