@@ -5,15 +5,29 @@ Supports: Ollama, vLLM, llama.cpp, OpenAI, etc.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, AsyncIterator
+from typing import Dict, List, Optional, AsyncIterator, Union, Any
 from dataclasses import dataclass
 
 
 @dataclass
 class LLMMessage:
-    """Standard message format (OpenAI-style)"""
+    """
+    Standard message format (OpenAI-style)
+
+    Supports both text-only and multimodal (text + images) content.
+
+    Examples:
+        # Text-only message
+        LLMMessage(role="user", content="Hello")
+
+        # Multimodal message with images
+        LLMMessage(role="user", content=[
+            {"type": "text", "text": "What's in this image?"},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}
+        ])
+    """
     role: str  # "system", "user", "assistant"
-    content: str
+    content: Union[str, List[Dict[str, Any]]]  # String for text-only, list for multimodal
 
 
 @dataclass

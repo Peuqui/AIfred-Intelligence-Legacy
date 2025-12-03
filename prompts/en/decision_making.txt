@@ -1,4 +1,4 @@
-Question: "{user_text}"
+Question: "{user_text}"{image_context}
 
 You have NO internet! Training data until Jan 2025.
 
@@ -13,6 +13,7 @@ RULES:
 • Restaurants/shops/places in city → <search>yes</search>
 • Time-related questions (today/tomorrow/this year/current/latest) → <search>yes</search>
 • Event dates/results (Emmy/Oscar/Nobel Prize/elections/sports events) → <search>yes</search>
+• Analyze images/extract text from images → <search>no</search>
 • General knowledge/Math/Chat → <search>no</search>
 
 EXAMPLES WITH WEB RESEARCH:
@@ -35,5 +36,8 @@ EXAMPLES WITHOUT WEB RESEARCH:
 "What is an Emmy Award?" → <search>no</search>
 "How does an election work?" → <search>no</search>
 "Explain artificial intelligence" → <search>no</search>
+"Read the text on this image" (with image) → <search>no</search>
+"What does this medication plan say?" (with image) → <search>no</search>
+"Describe this photo" (with image) → <search>no</search>
 
 Respond ONLY with the XML tag (nothing else)!

@@ -70,14 +70,25 @@ def estimate_tokens(messages: List[Dict], model_name: Optional[str] = None) -> i
     Count tokens in messages using real tokenizer (with fallback)
 
     Args:
-        messages: Liste von Message-Dicts mit 'content' Key
+        messages: Liste von Message-Dicts mit 'content' Key (str oder list)
         model_name: Optional model name for accurate tokenization
 
     Returns:
         int: Token count (exact with tokenizer, estimated with fallback)
     """
-    # Combine all message content
-    total_text = "\n".join(m['content'] for m in messages)
+    # Combine all message content (handle both str and multimodal list format)
+    text_parts = []
+    for m in messages:
+        content = m['content']
+        if isinstance(content, str):
+            text_parts.append(content)
+        elif isinstance(content, list):
+            # Multimodal content: extract text parts only (images don't count as text tokens)
+            for part in content:
+                if part.get("type") == "text":
+                    text_parts.append(part.get("text", ""))
+
+    total_text = "\n".join(text_parts)
     total_chars = len(total_text)
 
     # Try real tokenizer first (if model_name provided)
