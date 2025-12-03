@@ -5,6 +5,81 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2025-12-04
+
+### 🔍 Vision Model Intelligence (2025-12-04)
+
+#### Added
+- **Chat Template Detection** ([vision_utils.py](aifred/lib/vision_utils.py)):
+  - `get_vision_model_capabilities()`: Single API call for template + context detection
+  - Detects `{{ .Prompt }}` (simple) vs. `[SYSTEM_PROMPT]` (full chat support)
+  - Auto-detects chat markers: `SYSTEM`, `INST`, `<|im_start|>`, etc.
+  - Returns tuple: `(supports_chat_template, context_window_size)`
+
+- **Smart Model Handling** ([conversation_handler.py](aifred/lib/conversation_handler.py)):
+  - **Models WITH chat template** (Ministral, Qwen2): Use JSON extraction system prompt
+  - **Models WITHOUT chat template** (DeepSeek-OCR, Qwen3-Coder): Skip system prompt + add default text
+  - Default prompt for template-less models: "Extrahiere den Text." (DE) / "Extract the text." (EN)
+  - Prevents empty inference (DeepSeek-OCR needs text to work)
+
+- **Intrinsic Context Windows**:
+  - Vision models now use full model context size (8K-32K)
+  - No more 4K Ollama default truncation
+  - Reads from model metadata: `deepseekocr.context_length`, `llama.context_length`, etc.
+
+#### Changed
+- **Corrected JSON in Collapsibles**:
+  - `_json_to_readable()` now returns `tuple[str, dict]` (readable_text, corrected_json)
+  - Collapsibles display **auto-corrected JSON**, not raw malformed output
+  - Consistent with what's actually processed and sent to Main-LLM
+
+- **Enhanced Error Correction** ([conversation_handler.py:165-185](aifred/lib/conversation_handler.py#L165-L185)):
+  - **Nested Array Fix**: `{"columns": [["A", "B"]]}` → `{"columns": ["A", "B"]}`
+  - **Header+Data Mix Fix**: `{"columns": [["H"], ["R1"], ["R2"]], "rows": []}` → Split correctly
+  - **Ministral-3:3b Compatibility**: Handles malformed JSON with 9-element nested columns
+  - **Ministral-3:8b**: Generates perfect JSON, no correction needed
+
+- **Separator Line Positioning** ([state.py:1880-1884](aifred/state.py#L1880-L1884)):
+  - Moved separator to AFTER history save (was before)
+  - Now shows after "💾 History gespeichert" message
+  - Consistent with Main-LLM flow
+
+#### Fixed
+- **TypeError Prevention** ([state.py:1820-1827](aifred/state.py#L1820-L1827)):
+  - Type-safety check for `item["content"]` (was causing crashes)
+  - Gracefully handles dict-typed content with warning log
+  - Fallback to `str(content)` if type mismatch detected
+
+- **Vision Model Persistence**:
+  - Fixed validation logic to search entire model list (not just first element)
+  - Vision model selection now correctly saved and restored across sessions
+
+- **Separator Display**:
+  - Separator now always shown (even for HTML fallback models like DeepSeek-OCR)
+  - Was missing when `vision_json_response` was empty
+
+#### Performance
+- **Single API Call Optimization**:
+  - Combined chat template + context window detection (was 2 separate calls)
+  - Faster model capability detection (~50% reduction in API overhead)
+
+#### Technical Details
+
+**Model Compatibility Matrix:**
+
+| Model | Template | System Prompt | Auto-Text | Context | JSON Quality |
+|-------|----------|---------------|-----------|---------|--------------|
+| Ministral-3:8b | `[SYSTEM_PROMPT]` | ✅ Yes | ❌ No | 32768 | ⭐⭐⭐⭐⭐ Perfect |
+| Ministral-3:3b | `[SYSTEM_PROMPT]` | ✅ Yes | ❌ No | 32768 | ⚠️ Nested arrays |
+| Qwen2-57b | `<\|im_start\|>` | ✅ Yes | ❌ No | 32768 | ⭐⭐⭐⭐⭐ Perfect |
+| DeepSeek-OCR:3b | `{{ .Prompt }}` | ❌ No | ✅ Yes | 8192 | ❌ HTML output |
+| Qwen3-Coder:30b | `{{ .Prompt }}` | ❌ No | ✅ Yes | 32768 | ❓ Untested |
+
+**Performance Impact:**
+- Ministral-3:8b: 9.3s (105.6 tok/s) - Perfect JSON, no corrections needed
+- Ministral-3:3b: 3.8s (185.0 tok/s) - Fast but needs auto-correction
+- DeepSeek-OCR:3b: 2.3s (312.4 tok/s) - Fastest, but HTML output (fallback works)
+
 ## [2.3.0] - 2025-12-03
 
 ### 📸 Vision/OCR Support (2025-12-03)

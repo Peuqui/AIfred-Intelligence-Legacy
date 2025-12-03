@@ -1817,8 +1817,13 @@ class AIState(rx.State):
                         vision_json_response = item["content"]
                     elif item["type"] == "response":
                         # Readable text → sammle und zeige im Stream
-                        vision_readable_text += item["content"]
-                        self.current_ai_response += item["content"]
+                        # Type safety: Ensure content is a string
+                        content = item["content"]
+                        if not isinstance(content, str):
+                            self.add_debug(f"⚠️ WARNING: Vision response content is {type(content)}, expected str. Converting...")
+                            content = str(content) if content is not None else ""
+                        vision_readable_text += content
+                        self.current_ai_response += content
                         yield
                     elif item["type"] == "done":
                         # Metrics vom Backend sammeln
@@ -1835,12 +1840,6 @@ class AIState(rx.State):
 
                     # Debug-Log mit Timing (wie Haupt-LLM)
                     self.add_debug(f"✅ Vision-LLM fertig ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
-                    yield
-
-                    # Separator-Linie (wie Haupt-LLM)
-                    from aifred.lib.logging_utils import console_separator
-                    console_separator()
-                    self.add_debug("────────────────────")
                     yield
 
                     # Formatiere <data> Tag als Collapsible (ähnlich wie <think>)
@@ -1876,6 +1875,13 @@ class AIState(rx.State):
                     # Fallback: kein JSON → speichere normale Response
                     self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
                     self.add_debug("💾 History gespeichert: Vollständige Response")
+                    yield
+
+                # Separator-Linie NACH History-Speicherung (wie bei Haupt-LLM)
+                from aifred.lib.logging_utils import console_separator
+                console_separator()
+                self.add_debug("────────────────────")
+                yield
 
                 # Clear images after sending
                 self.clear_pending_images()

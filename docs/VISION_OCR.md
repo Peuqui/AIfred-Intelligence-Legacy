@@ -1,7 +1,7 @@
 # 📸 Vision/OCR Support Documentation
 
-**Version:** 2.3.0
-**Date:** 2025-12-03
+**Version:** 2.3.1
+**Date:** 2025-12-04
 **Status:** Production Ready
 
 ---
@@ -499,6 +499,29 @@ MAX_IMAGE_SIZE = 1024  # instead of 2048
 
 ---
 
-**Last Updated:** 2025-12-03
-**Version:** 2.3.0
+**Last Updated:** 2025-12-04
+**Version:** 2.3.1
 **Status:** ✅ Production Ready
+
+## Changelog (v2.3.1)
+
+### 🔍 Vision Model Intelligence (2025-12-04)
+
+**New Features:**
+- **Chat Template Detection**: Automatically detects model capabilities (system prompts vs. simple `{{ .Prompt }}`)
+- **Smart Model Handling**: Ministral uses JSON prompts, DeepSeek-OCR gets default text
+- **Intrinsic Context Windows**: Models use full context (262K for Ministral-3, 8K for DeepSeek-OCR)
+- **Corrected JSON Display**: Collapsibles show auto-corrected JSON (not raw malformed output)
+
+**Improvements:**
+- Enhanced error correction for nested arrays and mixed header+data structures
+- Type-safety checks prevent crashes from dict-typed content
+- Separator line positioning improved (now after history save)
+- Single API call for template + context detection (~50% faster)
+
+**Model Compatibility:**
+| Model | Context | Template | JSON Quality |
+|-------|---------|----------|--------------|
+| Ministral-3:8b | 262K | Full | ⭐⭐⭐⭐⭐ Perfect |
+| Ministral-3:3b | 262K | Full | ⚠️ Needs correction |
+| DeepSeek-OCR:3b | 8K | Simple | ❌ HTML fallback |

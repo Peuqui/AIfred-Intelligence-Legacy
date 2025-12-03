@@ -12,15 +12,16 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ## 📋 What's New
 
-**Latest Version:** v2.3.0 (2025-12-03)
+**Latest Version:** v2.3.1 (2025-12-04)
 
 Key highlights:
 - 📸 **Vision/OCR Support**: Multi-model image analysis with automatic JSON extraction
 - 🎯 **3-Model Architecture**: Vision-LLM (OCR) → Main-LLM (interpretation) → Automatik-LLM (decisions)
-- 🚀 **85% faster prompts**: Optimized system prompts for 3-7s inference (was 30s)
-- 📊 **Smart formatting**: Collapsible JSON + readable Markdown tables
-- 🔧 **Robust parsing**: Auto-correction for malformed Vision-LLM output
-- 💾 **Persistent settings**: Vision model selection now saved per backend
+- 🔍 **Chat Template Detection**: Automatic detection of model capabilities (system prompts vs. simple templates)
+- 🚀 **Smart Model Handling**: DeepSeek-OCR gets default prompt, Ministral uses JSON system prompts
+- 📊 **Corrected JSON Display**: Collapsibles show auto-corrected JSON (not raw malformed output)
+- 🔧 **Robust Error Handling**: Handles nested arrays, missing rows, type mismatches gracefully
+- 💾 **Intrinsic Context Windows**: Vision models use full context size (no 4K Ollama default)
 
 For detailed changes and version history, see [CHANGELOG.md](CHANGELOG.md).
 
