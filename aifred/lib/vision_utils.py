@@ -217,6 +217,92 @@ def encode_image_to_base64(image_bytes: bytes) -> str:
     return base64.b64encode(image_bytes).decode('utf-8')
 
 
+async def get_vision_model_capabilities(backend_url: str, model_name: str) -> Tuple[bool, Optional[int]]:
+    """
+    Get vision model capabilities: chat template support and context window size.
+
+    Combines two checks in a single API call for efficiency:
+    1. Chat template support (system prompts vs. simple "{{ .Prompt }}")
+    2. Context window size from model metadata
+
+    Args:
+        backend_url: Ollama backend URL
+        model_name: Model name to check
+
+    Returns:
+        Tuple of (supports_chat_template, context_window_size)
+        - supports_chat_template: True if model has proper chat template
+        - context_window_size: Context window in tokens, or None if not found
+
+    Examples:
+        >>> await get_vision_model_capabilities("http://localhost:11434", "ministral-3:8b")
+        (True, 32768)  # Full chat template, 32K context
+        >>> await get_vision_model_capabilities("http://localhost:11434", "deepseek-ocr:3b")
+        (False, 8192)  # Simple template, 8K context
+    """
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{backend_url}/api/show",
+                json={"name": model_name}
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # === Check 1: Chat Template Support ===
+            template = data.get('template', '')
+            template_normalized = template.strip()
+
+            supports_chat_template = True  # Default: assume chat support
+
+            if template_normalized == "{{ .Prompt }}":
+                logger.info(f"⚠️ Model {model_name} has simple prompt-only template (no chat support)")
+                supports_chat_template = False
+            else:
+                # Check for role-based markers
+                chat_markers = [
+                    'SYSTEM', 'INST', 'system', 'user', 'assistant',
+                    '[/INST]', '<|im_start|>', '<|start_header_id|>'
+                ]
+                if any(marker in template for marker in chat_markers):
+                    logger.info(f"✅ Model {model_name} has full chat template support")
+                    supports_chat_template = True
+                else:
+                    logger.warning(f"⚠️ Model {model_name} has unknown template format, assuming no chat support")
+                    supports_chat_template = False
+
+            # === Check 2: Context Window Size ===
+            num_ctx = None
+            model_info = data.get('model_info', {})
+
+            if model_info:
+                # Search for any key containing "context_length" (universal approach)
+                for key in model_info.keys():
+                    if "context_length" in key:
+                        num_ctx = model_info[key]
+                        logger.info(f"✅ Found context window: {num_ctx} tokens (from {key})")
+                        break
+
+                # Fallback: Try generic keys if no context_length found
+                if not num_ctx:
+                    for key in ["max_position_embeddings", "max_seq_len"]:
+                        if key in model_info:
+                            num_ctx = model_info[key]
+                            logger.info(f"✅ Found context window: {num_ctx} tokens (from {key})")
+                            break
+
+            if not num_ctx:
+                logger.warning(f"⚠️ Could not detect context window for {model_name}")
+
+            return supports_chat_template, num_ctx
+
+    except Exception as e:
+        logger.warning(f"Failed to get model capabilities for {model_name}: {e}")
+        # Fallback: Assume chat support, no context window
+        return True, None
+
+
 def resize_image_if_needed(image_bytes: bytes, max_dimension: int = 2048) -> bytes:
     """
     Resize image if larger than max_dimension (preserves aspect ratio).

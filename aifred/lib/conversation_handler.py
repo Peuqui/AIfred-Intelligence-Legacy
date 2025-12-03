@@ -85,7 +85,6 @@ def _html_table_to_markdown(html_content: str) -> str:
     Returns:
         Markdown-formatierte Tabelle
     """
-    import re
     from html.parser import HTMLParser
 
     class TableParser(HTMLParser):
@@ -145,37 +144,52 @@ def _html_table_to_markdown(html_content: str) -> str:
     return markdown
 
 
-def _json_to_readable(parsed_json: dict, lang: str = "de") -> str:
+def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
     """
-    Konvertiert geparsten JSON in menschenlesbaren Text.
+    Konvertiert geparsten JSON in menschenlesbaren Text und gibt korrigiertes JSON zurück.
 
     Args:
-        parsed_json: Geparster JSON vom Vision-LLM
+        parsed_json: Geparster JSON vom Vision-LLM (evtl. mit Fehlern)
         lang: Sprache ("de" oder "en")
 
     Returns:
-        Lesbarer Markdown-formatierter Text
+        Tuple of (readable_text, corrected_json)
+        - readable_text: Lesbarer Markdown-formatierter Text
+        - corrected_json: Korrigiertes JSON (mit Fehlerkorrekturen)
     """
-    doc_type = parsed_json.get("type", "unknown")
+    # Create a copy to avoid modifying the original
+    corrected_json = parsed_json.copy()
+    doc_type = corrected_json.get("type", "unknown")
 
     if doc_type == "table":
         # Tabelle → Markdown Table
-        columns = parsed_json.get("columns", [])
-        rows = parsed_json.get("rows", [])
+        columns = corrected_json.get("columns", [])
+        rows = corrected_json.get("rows", [])
 
-        # FEHLERKORREKTUR: Manche Modelle packen alles in "columns" als nested list
+        # FEHLERKORREKTUR: Ministral-3 packt manchmal ALLES in "columns" als nested array
+        # Format 1: {"columns": [["H1", "H2"]], "rows": [[...]]}  → len == 1
+        # Format 2: {"columns": [["H1", "H2"], ["R1C1", "R1C2"], ...], "rows": [...]} → len > 1
         if columns and isinstance(columns[0], list):
-            # Erstes Element ist die echte columns-Liste
-            rows = columns[1:]  # Rest sind die rows
-            columns = columns[0]
-            log_message("⚠️ Vision-LLM Format-Fehler erkannt: columns enthält rows. Automatisch korrigiert.")
+            if len(columns) == 1:
+                # Nur Header in nested array, rows separat
+                columns = columns[0]
+                log_message("⚠️ Vision-LLM Format-Fehler: columns ist nested array (len=1). Korrigiert.")
+            else:
+                # Header + Daten in columns, ignoriere rows (wahrscheinlich leer oder alt)
+                rows = columns[1:]  # Rest sind die echten rows
+                columns = columns[0]  # Erstes Element ist Header
+                log_message(f"⚠️ Vision-LLM Format-Fehler: columns enthält {len(columns)-1} rows. Korrigiert.")
+
+            # Update corrected_json with fixed structure
+            corrected_json["columns"] = columns
+            corrected_json["rows"] = rows
 
         if not columns:
-            return "⚠️ Leere Tabelle" if lang == "de" else "⚠️ Empty table"
+            return ("⚠️ Leere Tabelle" if lang == "de" else "⚠️ Empty table", corrected_json)
 
         # Falls rows leer ist, aber columns nested ist
         if not rows and columns:
-            return "⚠️ Tabelle ohne Daten" if lang == "de" else "⚠️ Table without data"
+            return ("⚠️ Tabelle ohne Daten" if lang == "de" else "⚠️ Table without data", corrected_json)
 
         # Markdown-Tabelle erstellen
         table = "| " + " | ".join(str(col) for col in columns) + " |\n"
@@ -186,46 +200,47 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> str:
             row_padded = row + [""] * (len(columns) - len(row))
             table += "| " + " | ".join(str(cell) for cell in row_padded[:len(columns)]) + " |\n"
 
-        return table
+        return (table, corrected_json)
 
     elif doc_type == "list":
         # Liste → Markdown List
-        items = parsed_json.get("items", [])
+        items = corrected_json.get("items", [])
         if not items:
-            return "⚠️ Leere Liste" if lang == "de" else "⚠️ Empty list"
+            return ("⚠️ Leere Liste" if lang == "de" else "⚠️ Empty list", corrected_json)
 
-        return "\n".join(f"- {item}" for item in items)
+        return ("\n".join(f"- {item}" for item in items), corrected_json)
 
     elif doc_type == "form":
         # Formular → Key-Value Liste
-        fields = parsed_json.get("fields", [])
+        fields = corrected_json.get("fields", [])
         if not fields:
-            return "⚠️ Leeres Formular" if lang == "de" else "⚠️ Empty form"
+            return ("⚠️ Leeres Formular" if lang == "de" else "⚠️ Empty form", corrected_json)
 
-        return "\n".join(f"**{field.get('label', '')}:** {field.get('value', '')}" for field in fields)
+        return ("\n".join(f"**{field.get('label', '')}:** {field.get('value', '')}" for field in fields), corrected_json)
 
     elif doc_type == "text":
         # Reiner Text
-        return parsed_json.get("content", "")
+        return (corrected_json.get("content", ""), corrected_json)
 
     elif doc_type == "mixed":
         # Gemischtes Dokument → rekursiv verarbeiten
-        sections = parsed_json.get("sections", [])
+        sections = corrected_json.get("sections", [])
         if not sections:
-            return "⚠️ Leeres Dokument" if lang == "de" else "⚠️ Empty document"
+            return ("⚠️ Leeres Dokument" if lang == "de" else "⚠️ Empty document", corrected_json)
 
         result = []
         for section in sections:
             heading = section.get("heading", "")
             if heading:
                 result.append(f"## {heading}\n")
-            result.append(_json_to_readable(section, lang))
+            readable_text, _ = _json_to_readable(section, lang)  # Recursive call
+            result.append(readable_text)
             result.append("")  # Leerzeile
 
-        return "\n".join(result)
+        return ("\n".join(result), corrected_json)
 
     else:
-        return f"⚠️ Unbekannter Dokumenttyp: {doc_type}" if lang == "de" else f"⚠️ Unknown document type: {doc_type}"
+        return (f"⚠️ Unbekannter Dokumenttyp: {doc_type}" if lang == "de" else f"⚠️ Unknown document type: {doc_type}", corrected_json)
 
 
 async def chat_with_vision_pipeline(
@@ -276,12 +291,66 @@ async def chat_with_vision_pipeline(
     status_msg = f"🔍 Vision-LLM ({vision_model}) analysiert {len(images)} Bild(er): {image_names}" if lang == "de" else f"🔍 Vision-LLM ({vision_model}) analyzing {len(images)} image(s): {image_names}"
     yield {"type": "status", "content": status_msg}
 
+    # === Get model capabilities (chat template + context window) in single API call ===
+    from .vision_utils import get_vision_model_capabilities
+
+    # Ensure backend_url is set (fallback to default Ollama URL)
+    if not backend_url:
+        backend_url = "http://localhost:11434"
+        log_message("⚠️ No backend_url provided, using default: http://localhost:11434")
+
+    log_message(f"📐 Reading model capabilities for Vision-LLM ({vision_model})...")
+    supports_chat_template, intrinsic_num_ctx = await get_vision_model_capabilities(backend_url, vision_model)
+
+    # === Calculate VRAM-based context limit (same as Main-LLM) ===
+    # This prevents OOM errors when models have large intrinsic context (e.g., 262K for Ministral-3)
+    from .gpu_utils import calculate_vram_based_context, get_model_size_from_cache
+
+    # Get model size from Ollama API (for VRAM calculation)
+    model_size_bytes = 0
+    model_is_loaded = False
+
+    if backend_type == "ollama":
+        from ..backends import BackendFactory
+        backend = BackendFactory.create("ollama", base_url=backend_url)
+
+        # Get model metadata (size + loaded state)
+        _, model_size_bytes = await backend.get_model_context_limit(vision_model)
+
+        # If size not in API, try cache
+        if model_size_bytes == 0:
+            model_size_bytes = get_model_size_from_cache(vision_model)
+
+        # Check if model is already loaded
+        model_is_loaded = await backend.is_model_loaded(vision_model)
+
+    # Calculate practical num_ctx based on VRAM (with MoE auto-detection)
+    vram_num_ctx, debug_msgs = await calculate_vram_based_context(
+        model_name=vision_model,
+        model_size_bytes=model_size_bytes,
+        model_context_limit=intrinsic_num_ctx or 4096,  # Fallback to 4K if detection failed
+        model_is_loaded=model_is_loaded,
+        backend_type=backend_type
+    )
+
+    # Log debug messages
+    for msg in debug_msgs:
+        log_message(msg)
+
+    # Use VRAM-limited context
+    num_ctx = vram_num_ctx
+
     # Build multimodal message (image + user text)
     content_parts = []
 
-    # Add user text if provided
+    # Add user text if provided, OR add default text for models without chat template
     if user_text:
         content_parts.append({"type": "text", "text": user_text})
+    elif not supports_chat_template:
+        # Models like DeepSeek-OCR need a text prompt to work (no inference with empty prompt)
+        default_prompt = "Extrahiere den Text." if lang == "de" else "Extract the text."
+        content_parts.append({"type": "text", "text": default_prompt})
+        log_message(f"⚠️ Added default prompt for template-less model: '{default_prompt}'")
 
     # Add images
     for img in images:
@@ -290,30 +359,24 @@ async def chat_with_vision_pipeline(
             "image_url": {"url": f"data:image/jpeg;base64,{img['base64']}"}
         })
 
-    # Build messages with Vision-LLM system prompt
-    vision_system_prompt = get_vision_ocr_prompt(lang=lang)
-
-    # Log Vision-LLM system prompt (first 200 chars)
-    log_message(f"📝 Vision-LLM System Prompt: {vision_system_prompt[:200]}...")
-
-    messages = [
-        LLMMessage(role="system", content=vision_system_prompt),
-        LLMMessage(role="user", content=content_parts)
-    ]
+    # Build messages based on chat template support
+    if supports_chat_template:
+        # Model supports system prompts → use JSON extraction prompt
+        vision_system_prompt = get_vision_ocr_prompt(lang=lang)
+        log_message("✅ Using system prompt for Vision-LLM (chat template supported)")
+        messages = [
+            LLMMessage(role="system", content=vision_system_prompt),
+            LLMMessage(role="user", content=content_parts)
+        ]
+    else:
+        # Model has only "{{ .Prompt }}" template → skip system prompt
+        log_message("⚠️ Skipping system prompt (model has simple prompt-only template)")
+        messages = [
+            LLMMessage(role="user", content=content_parts)
+        ]
 
     # Call Vision-LLM
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
-
-    # Calculate context size for Vision-LLM
-    log_message(f"📐 Berechne Context für Vision-LLM ({vision_model})...")
-    messages_dict = [{"role": m.role, "content": str(m.content)[:500]} for m in messages]
-    num_ctx, warnings = await calculate_dynamic_num_ctx(
-        llm_client=llm_client,
-        model_name=vision_model,
-        messages=messages_dict,
-        llm_options=llm_options,
-        enable_vram_limit=True
-    )
 
     vision_start_time = time.time()
     vision_response = ""
@@ -322,7 +385,7 @@ async def chat_with_vision_pipeline(
     # Prepare options with Vision-LLM specific settings
     vision_options = {
         "temperature": 0.1,  # Low temperature for precise OCR
-        "num_ctx": num_ctx,
+        "num_ctx": num_ctx,  # VRAM-limited context (prevents OOM)
         **(llm_options or {})
     }
 
@@ -365,11 +428,12 @@ async def chat_with_vision_pipeline(
         # === JSON erfolgreich geparst ===
         log_message(f"✅ JSON erfolgreich geparst: {parsed_json.get('type', 'unknown')} ({vision_time:.1f}s)")
 
-        # 1. JSON in Collapsible (wie bei <think>)
-        yield {"type": "thinking", "content": json.dumps(parsed_json, indent=2, ensure_ascii=False)}
+        # 2. Rohtext konvertieren (JSON → lesbare Tabelle/Text) + Fehlerkorrekturen
+        human_readable, corrected_json = _json_to_readable(parsed_json, lang)
 
-        # 2. Rohtext konvertieren (JSON → lesbare Tabelle/Text)
-        human_readable = _json_to_readable(parsed_json, lang)
+        # 1. Korrigiertes JSON in Collapsible (wie bei <think>)
+        yield {"type": "thinking", "content": json.dumps(corrected_json, indent=2, ensure_ascii=False)}
+
         yield {"type": "response", "content": human_readable}
 
         # 3. Send done signal mit metrics (wird in state.py verarbeitet)
@@ -380,7 +444,6 @@ async def chat_with_vision_pipeline(
         log_message("warning", f"Vision-LLM did not return valid JSON: {e}")
 
         # === FALLBACK: Try HTML-to-Markdown conversion (for models like DeepSeek-OCR) ===
-        import re
         if '<table' in vision_response.lower():
             log_message("🔄 Detected HTML table, attempting conversion to Markdown...")
             try:
@@ -783,7 +846,7 @@ async def chat_interactive_mode(
             # Replace last message content with multimodal if images present
             if multimodal_user_content is not None:
                 messages[-1]['content'] = multimodal_user_content
-                log_message(f"📷 Multimodal content injected into user message")
+                log_message("📷 Multimodal content injected into user message")
 
             # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
             from .prompt_loader import load_prompt
@@ -1108,7 +1171,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                     automatik_options['enable_thinking'] = llm_options['enable_thinking']
                     log_message(f"🧠 Decision enable_thinking: {llm_options['enable_thinking']} (from user toggle)")
                 else:
-                    log_message(f"🧠 Decision enable_thinking: False (default - fast decision mode)")
+                    log_message("🧠 Decision enable_thinking: False (default - fast decision mode)")
 
                 # Convert decision messages to LLMMessage objects
                 from ..backends.base import LLMMessage
@@ -1167,7 +1230,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 # Replace last message content with multimodal if images present
                 if multimodal_user_content is not None:
                     messages[-1]['content'] = multimodal_user_content
-                    log_message(f"📷 Multimodal content injected into user message")
+                    log_message("📷 Multimodal content injected into user message")
 
                 # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
                 from .prompt_loader import load_prompt
