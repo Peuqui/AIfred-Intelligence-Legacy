@@ -226,6 +226,7 @@ class AIState(rx.State):
     image_upload_warning: str = ""  # Warning message if non-vision model selected
     max_images_per_message: int = 5  # Limit concurrent uploads
     camera_available: bool = False  # True if browser supports camera access (set by JavaScript)
+    _camera_detection_done: bool = False  # Internal flag to prevent duplicate logging from Reflex hydration
 
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi"
@@ -2555,7 +2556,13 @@ class AIState(rx.State):
 
     def set_camera_available(self, available: bool):
         """Set camera availability based on browser capabilities (called from JavaScript)"""
+        # Guard: Only log once per session to avoid duplicate messages from Reflex hydration
+        if self._camera_detection_done:
+            return  # Already logged once, skip duplicate from hydration
+
         self.camera_available = available
+        self._camera_detection_done = True  # Mark as logged
+
         if available:
             self.add_debug("📷 Browser supports camera access")
         else:
