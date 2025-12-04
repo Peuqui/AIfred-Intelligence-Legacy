@@ -1,4 +1,4 @@
-Frage: "{user_text}"{image_context}
+Frage: "{user_text}"{image_context}{vision_json_context}
 
 Du hast KEIN Internet! Trainingsdaten bis Jan 2025.
 
@@ -15,6 +15,8 @@ REGELN:
 • Event-Termine/Ergebnisse (Emmy/Oscar/Nobelpreis/Wahlen/Sportevents) → <search>yes</search>
 • Bilder analysieren/auswerten/Text extrahieren → <search>no</search>
 • Allgemeinwissen/Mathe/Chat → <search>no</search>
+• Wenn strukturierte Daten aus Bildern vorhanden sind: Nutze sie für deine Entscheidung
+  (Beispiel: "Recherchiere Nebenwirkungen von [Medikament aus JSON]" → prüfe ob aktuell → <search>yes/no</search>)
 
 BEISPIELE MIT WEB-RECHERCHE:
 "Wetter morgen?" → <search>yes</search>

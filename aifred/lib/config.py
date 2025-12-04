@@ -331,6 +331,24 @@ def _load_volatile_keywords():
 CACHE_EXCLUDE_VOLATILE = _load_volatile_keywords()
 
 # ============================================================
+# VISION/OCR CONFIGURATION
+# ============================================================
+# Maximum image dimension (longest edge) for Vision-LLM processing
+# Images larger than this will be resized (preserving aspect ratio)
+# Trade-offs:
+# - 2048px: Fast inference (8-15s), low VRAM (~512MB), good for most documents
+# - 3072px: Medium inference (15-25s), medium VRAM (~1-1.5GB), high detail
+# - 4096px: Slow inference (25-40s), high VRAM (~2-3GB), excellent detail
+VISION_MAX_IMAGE_DIMENSION = 2048  # pixels
+
+# Context window limit for Vision-LLM (regardless of VRAM calculation)
+# Conservative limit to account for image embedding overhead in VRAM
+# Prevents CPU fallback while maintaining sufficient context for OCR results
+# - 8K tokens ≈ 3-4 pages of text (sufficient for most OCR tasks)
+# - Images already resized to VISION_MAX_IMAGE_DIMENSION
+VISION_CONTEXT_LIMIT = 8192  # tokens
+
+# ============================================================
 # CONFIG VALIDATION (Safety Checks)
 # ============================================================
 # No validation needed - token-based compression handles all edge cases

@@ -252,7 +252,8 @@ async def chat_with_vision_pipeline(
     backend_url: Optional[str] = None,
     num_ctx_mode: str = "auto_vram",
     num_ctx_manual: int = 16384,
-    llm_options: Optional[Dict] = None
+    llm_options: Optional[Dict] = None,
+    state=None  # AIState object (for Automatik routing if user_text present)
 ) -> AsyncIterator[Dict]:
     """
     3-Model Architecture: Vision-LLM extracts structured data, Haupt-LLM optionally formats it.
@@ -337,16 +338,32 @@ async def chat_with_vision_pipeline(
     for msg in debug_msgs:
         log_message(msg)
 
-    # Use VRAM-limited context
-    num_ctx = vram_num_ctx
+    # Apply Vision-specific context limit (accounts for image embedding overhead)
+    from .config import VISION_CONTEXT_LIMIT
 
-    # Build multimodal message (image + user text)
+    # CRITICAL: Vision models need minimum 4096 tokens (image embedding ~2000 + system prompt ~100 + margin)
+    # Generic fallback of 2048 is too small and causes system prompt truncation
+    VISION_MINIMUM_CONTEXT = 4096
+
+    if vram_num_ctx < VISION_MINIMUM_CONTEXT:
+        log_message(f"⚠️ VRAM context {vram_num_ctx} too small for Vision → Using minimum {VISION_MINIMUM_CONTEXT} tokens")
+        log_message("   (Image embedding + system prompt requires at least 4096 tokens)")
+        vram_num_ctx = VISION_MINIMUM_CONTEXT
+
+    num_ctx = min(vram_num_ctx, VISION_CONTEXT_LIMIT)
+
+    if num_ctx < vram_num_ctx:
+        log_message(f"⚙️ Vision context limited to {num_ctx} tokens (config.VISION_CONTEXT_LIMIT)")
+    else:
+        log_message(f"⚙️ Using VRAM-based context: {num_ctx} tokens")
+
+    # Build multimodal message (ONLY image, NO user text)
+    # User text will be processed later by Automatik-LLM → Main-LLM flow
     content_parts = []
 
-    # Add user text if provided, OR add default text for models without chat template
-    if user_text:
-        content_parts.append({"type": "text", "text": user_text})
-    elif not supports_chat_template:
+    # Vision-LLM receives ONLY images + system prompt (no user text confusion)
+    # Exception: Template-less models (DeepSeek-OCR) need a default text prompt
+    if not supports_chat_template:
         # Models like DeepSeek-OCR need a text prompt to work (no inference with empty prompt)
         default_prompt = "Extrahiere den Text." if lang == "de" else "Extract the text."
         content_parts.append({"type": "text", "text": default_prompt})
@@ -414,6 +431,9 @@ async def chat_with_vision_pipeline(
     # Log raw Vision-LLM output for debugging
     log_message(f"📄 Vision-LLM Rohausgabe ({len(vision_response)} Zeichen): {vision_response[:500]}...")
 
+    # Initialize corrected_json (will be set if JSON parsing succeeds)
+    corrected_json = None
+
     try:
         # Extract JSON from response (handle markdown code blocks)
         json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', vision_response, re.DOTALL)
@@ -451,114 +471,33 @@ async def chat_with_vision_pipeline(
                 yield {"type": "response", "content": markdown_table}
                 if vision_metrics:
                     yield {"type": "done", "metrics": vision_metrics}
-                return
+                # DON'T return here - continue to check for Automatik routing
             except Exception as html_err:
                 log_message("warning", f"HTML conversion failed: {html_err}")
 
-        # Final fallback: Return raw output
-        log_message("⚠️ Returning raw Vision-LLM output (no JSON, no HTML table)")
-        yield {"type": "response", "content": vision_response}
-        # Send done signal mit metrics (wird in state.py verarbeitet)
-        if vision_metrics:
-            yield {"type": "done", "metrics": vision_metrics}
-        return
+        # Final fallback: Return raw output (only if no JSON was extracted)
+        if not json_match:
+            log_message("⚠️ Returning raw Vision-LLM output (no JSON, no HTML table)")
+            yield {"type": "response", "content": vision_response}
+            # Send done signal mit metrics (wird in state.py verarbeitet)
+            if vision_metrics:
+                yield {"type": "done", "metrics": vision_metrics}
+            # Still continue to check for user_text Automatik routing
 
-    # === PHASE 2: Check if Haupt-LLM post-processing needed ===
-    formatting_keywords_de = ["formatiere", "tabelle", "markdown", "übersetze", "zusammenfass", "erstelle", "mach", "konvertiere"]
-    formatting_keywords_en = ["format", "table", "markdown", "translate", "summarize", "create", "make", "convert"]
+    # === PHASE 2: Signal completion - state.py will route to Automatik if needed ===
+    # Send vision_complete signal with user_text flag
+    # state.py will decide whether to route to chat_interactive_mode based on user_text
+    yield {
+        "type": "vision_complete",
+        "vision_json": corrected_json,
+        "metrics": vision_metrics,
+        "has_user_text": bool(user_text and user_text.strip())  # Tell state.py if routing needed
+    }
 
-    formatting_keywords = formatting_keywords_de if lang == "de" else formatting_keywords_en
-
-    needs_formatting = any(keyword in user_text.lower() for keyword in formatting_keywords) if user_text else False
-
-    if needs_formatting and haupt_model and haupt_model != vision_model:
-        # === PHASE 2: Haupt-LLM Post-Processing ===
-        yield {"type": "status", "content": f"📝 Haupt-LLM ({haupt_model}) formatiert Ausgabe..." if lang == "de" else f"📝 Main LLM ({haupt_model}) formatting output..."}
-
-        # Build post-processing prompt
-        if lang == "de":
-            haupt_system_prompt = f"""Du bist ein Formatierungs-Spezialist.
-
-AUFGABE: Formatiere die extrahierten Daten gemäß der Benutzeranfrage.
-
-EXTRAHIERTE DATEN (JSON):
-```json
-{json.dumps(parsed_json, ensure_ascii=False, indent=2)}
-```
-
-BENUTZERANFRAGE: "{user_text}"
-
-WICHTIG:
-- Die Daten wurden bereits aus einem Bild extrahiert
-- Formatiere die Daten EXAKT wie vom Benutzer gewünscht
-- Bei Tabellen: Nutze die columns/rows Struktur aus dem JSON
-- Bei Listen: Nutze die items Struktur
-- Keine Erklärungen - nur die formatierte Ausgabe"""
-        else:
-            haupt_system_prompt = f"""You are a formatting specialist.
-
-TASK: Format the extracted data according to the user's request.
-
-EXTRACTED DATA (JSON):
-```json
-{json.dumps(parsed_json, ensure_ascii=False, indent=2)}
-```
-
-USER REQUEST: "{user_text}"
-
-IMPORTANT:
-- The data has already been extracted from an image
-- Format the data EXACTLY as requested by the user
-- For tables: Use the columns/rows structure from the JSON
-- For lists: Use the items structure
-- No explanations - only the formatted output"""
-
-        haupt_messages = [
-            LLMMessage(role="system", content=haupt_system_prompt),
-            LLMMessage(role="user", content=user_text or ("Formatiere die Daten als Markdown-Tabelle" if lang == "de" else "Format the data as a Markdown table"))
-        ]
-
-        # Calculate context size for Haupt-LLM
-        log_message(f"📐 Berechne Context für Haupt-LLM ({haupt_model})...")
-        haupt_messages_dict = [{"role": m.role, "content": str(m.content)[:500]} for m in haupt_messages]
-        haupt_num_ctx, haupt_warnings = await calculate_dynamic_num_ctx(
-            llm_client=llm_client,
-            model_name=haupt_model,
-            messages=haupt_messages_dict,
-            llm_options=llm_options,
-            enable_vram_limit=True
-        )
-
-        # Call Haupt-LLM
-        haupt_start_time = time.time()
-
-        # Prepare options with Haupt-LLM specific settings
-        haupt_options = {
-            "temperature": 0.3,  # Slightly higher for formatting creativity
-            "num_ctx": haupt_num_ctx,
-            **(llm_options or {})
-        }
-
-        try:
-            async for chunk in llm_client.chat_stream(
-                model=haupt_model,
-                messages=haupt_messages,
-                options=haupt_options
-            ):
-                if chunk["type"] == "content":
-                    yield {"type": "response", "content": chunk["text"]}
-
-            haupt_time = time.time() - haupt_start_time
-
-            yield {"type": "metadata", "content": f"Vision: {vision_time:.1f}s | Formatierung: {haupt_time:.1f}s" if lang == "de" else f"Vision: {vision_time:.1f}s | Formatting: {haupt_time:.1f}s"}
-
-        except Exception as e:
-            log_message("error", f"Haupt-LLM formatting error: {e}")
-            yield {"type": "error", "content": f"❌ Formatierungs-Fehler: {str(e)}" if lang == "de" else f"❌ Formatting error: {str(e)}"}
-
+    if user_text and user_text.strip():
+        log_message("📋 Vision complete - state.py will route to Automatik/Research flow")
     else:
-        # No post-processing needed - JSON output already returned
-        yield {"type": "metadata", "content": f"Vision-Zeit: {vision_time:.1f}s" if lang == "de" else f"Vision time: {vision_time:.1f}s"}
+        log_message("✅ Vision extraction complete (no follow-up question)")
 
 
 async def chat_interactive_mode(
@@ -575,7 +514,8 @@ async def chat_interactive_mode(
     backend_url: Optional[str] = None,
     num_ctx_mode: str = "auto_vram",
     num_ctx_manual: int = 16384,
-    pending_images: Optional[List[Dict[str, str]]] = None
+    pending_images: Optional[List[Dict[str, str]]] = None,
+    vision_json_context: Optional[dict] = None
 ) -> AsyncIterator[Dict]:
     """
     Automatik-Modus: KI entscheidet selbst, ob Web-Recherche nötig ist
@@ -594,6 +534,8 @@ async def chat_interactive_mode(
         backend_url: Backend URL (optional, uses default if not provided)
         num_ctx_mode: Context mode ("auto_vram", "auto_max", "manual")
         num_ctx_manual: Manual num_ctx value (only used if mode="manual")
+        pending_images: List of images (for multimodal messages)
+        vision_json_context: Structured data extracted from images by Vision-LLM (optional)
 
     Yields:
         Dict with: {"type": "debug"|"content"|"metrics"|"separator"|"result", ...}
@@ -731,7 +673,23 @@ async def chat_interactive_mode(
 
             # Proceed with fresh web research (no exact match or error)
             yield {"type": "debug", "message": "🌐 Starting fresh web research..."}
-            async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options, backend_type, backend_url, num_ctx_mode, num_ctx_manual):
+            async for item in perform_agent_research(
+                user_text=user_text,
+                stt_time=stt_time,
+                mode="deep",
+                model_choice=model_choice,
+                automatik_model=automatik_model,
+                history=history,
+                session_id=session_id,
+                temperature_mode=temperature_mode,
+                temperature=temperature,
+                llm_options=llm_options,
+                backend_type=backend_type,
+                backend_url=backend_url,
+                num_ctx_mode=num_ctx_mode,
+                num_ctx_manual=num_ctx_manual,
+                vision_json_context=vision_json_context  # CRITICAL: Pass Vision JSON to Research flow
+            ):
                 yield item
             return  # Generator ends after forwarding all items
 
@@ -867,6 +825,22 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
             # Insert before user message (after history)
             messages.insert(-1, rag_system_message)
             log_message(f"💡 RAG context injected into system prompt ({len(rag_context)} chars)")
+
+            # Inject Vision JSON context if available (from Vision-LLM extraction)
+            if vision_json_context:
+                import json
+                vision_system_message = {
+                    'role': 'system',
+                    'content': f"""VORHERIGE BILDEXTRAKTION (STRUKTURIERTE DATEN):
+
+```json
+{json.dumps(vision_json_context, ensure_ascii=False, indent=2)}
+```
+
+Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
+                }
+                messages.insert(-1, vision_system_message)  # Before user message
+                log_message(f"📷 Vision JSON injected into Main-LLM context ({len(str(vision_json_context))} chars)")
 
             # Log RAG context content (preview)
             rag_preview = rag_context[:500] + "..." if len(rag_context) > 500 else rag_context
@@ -1109,12 +1083,13 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
         log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
 
         # Schritt 1: KI fragen, ob Recherche nötig ist (mit Zeitmessung!)
-        # Check if images are present
-        has_images = pending_images is not None and len(pending_images) > 0
+        # Check if images are present OR if Vision JSON context exists
+        has_images = (pending_images is not None and len(pending_images) > 0) or (vision_json_context is not None)
 
         decision_prompt = get_decision_making_prompt(
             user_text=user_text,
             has_images=has_images,
+            vision_json=vision_json_context,  # NEW: Pass Vision JSON to Automatik
             lang=detected_user_language
         )
 
@@ -1210,7 +1185,23 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 # Debug message already yielded above (line 153)
 
                 # Start web research - Forward all yields
-                async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options, backend_type, backend_url, num_ctx_mode, num_ctx_manual):
+                async for item in perform_agent_research(
+                    user_text=user_text,
+                    stt_time=stt_time,
+                    mode="deep",
+                    model_choice=model_choice,
+                    automatik_model=automatik_model,
+                    history=history,
+                    session_id=session_id,
+                    temperature_mode=temperature_mode,
+                    temperature=temperature,
+                    llm_options=llm_options,
+                    backend_type=backend_type,
+                    backend_url=backend_url,
+                    num_ctx_mode=num_ctx_mode,
+                    num_ctx_manual=num_ctx_manual,
+                    vision_json_context=vision_json_context  # CRITICAL: Pass Vision JSON to Research flow
+                ):
                     yield item
                 return
 
@@ -1256,6 +1247,22 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                     # Log RAG context content (preview)
                     rag_preview = rag_context[:500] + "..." if len(rag_context) > 500 else rag_context
                     log_message(f"📄 RAG Context Preview:\n{rag_preview}")
+
+                # Inject Vision JSON context if available (from Vision-LLM extraction)
+                if vision_json_context:
+                    import json
+                    vision_system_message = {
+                        'role': 'system',
+                        'content': f"""VORHERIGE BILDEXTRAKTION (STRUKTURIERTE DATEN):
+
+```json
+{json.dumps(vision_json_context, ensure_ascii=False, indent=2)}
+```
+
+Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
+                    }
+                    messages.insert(-1, vision_system_message)  # Before user message
+                    log_message(f"📷 Vision JSON injected into Main-LLM context ({len(str(vision_json_context))} chars)")
 
                 # Count actual input tokens (using real tokenizer)
                 input_tokens = estimate_tokens(messages, model_name=model_choice)

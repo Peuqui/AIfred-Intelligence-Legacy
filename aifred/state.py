@@ -203,21 +203,6 @@ _global_backend_state: dict[str, Any] = {
 }
 
 
-def extract_model_name(model_display: str) -> str:
-    """
-    Extract pure model name from display format "model_name (X.X GB)".
-
-    Args:
-        model_display: Display name like "qwen3:14b (9.3 GB)"
-
-    Returns:
-        Pure model name like "qwen3:14b"
-    """
-    if " (" in model_display and model_display.endswith(")"):
-        return model_display.split(" (")[0]
-    return model_display
-
-
 class ChatMessage(BaseModel):
     """Single chat message"""
     role: str  # "user" or "assistant"
@@ -1379,7 +1364,6 @@ class AIState(rx.State):
 
                 # Check if YaRN factor was reduced due to VRAM test (crash + auto-correction)
                 native = context_info['native_context']
-                hw_limit = context_info['hardware_limit']
 
                 if "reduced_yarn_factor" in context_info:
                     # Maximum was determined by actual VRAM test (crash + parse)
@@ -1785,7 +1769,7 @@ class AIState(rx.State):
                 temp_history_index = len(self.chat_history)
                 self.chat_history.append((user_msg, self.current_ai_response))
 
-                # Build LLM options
+                # Build LLM options (include enable_thinking toggle)
                 llm_options = {
                     'enable_thinking': self.enable_thinking
                 }
@@ -1794,8 +1778,12 @@ class AIState(rx.State):
                 vision_json_response = ""
                 vision_readable_text = ""
                 vision_metrics = None
+                extracted_vision_json = {}  # Store for passing to chat_interactive_mode
+                has_user_text_for_automatik = False  # Flag from vision_complete
 
-                # REAL STREAMING: Call async generator directly
+                # ==============================================================================
+                # PHASE 1: VISION EXTRACTION (Process Vision-LLM items only)
+                # ==============================================================================
                 async for item in chat_with_vision_pipeline(
                     user_text=user_msg,
                     images=self.pending_images,
@@ -1805,19 +1793,24 @@ class AIState(rx.State):
                     backend_url=self.backend_url,
                     num_ctx_mode=self.num_ctx_mode,
                     num_ctx_manual=self.num_ctx_manual,
-                    llm_options=llm_options
+                    llm_options=llm_options,
+                    state=self  # Pass entire state object (for accessing config, not for calling functions)
                 ):
-                    # Route messages based on type
+                    # Route Vision-LLM items only (NOT Automatik items!)
                     if item["type"] == "status":
-                        self.add_debug(item["content"])
+                        self.add_debug(item.get("content", ""))
+
                     elif item["type"] == "debug":
-                        self.add_debug(item["content"])
+                        msg = item.get("content") or item.get("message", "")
+                        if msg:
+                            self.add_debug(msg)
+
                     elif item["type"] == "thinking":
-                        # JSON vom Vision-LLM → sammle für Collapsible (NICHT sofort anzeigen)
+                        # JSON vom Vision-LLM → sammle für Collapsible
                         vision_json_response = item["content"]
+
                     elif item["type"] == "response":
-                        # Readable text → sammle und zeige im Stream
-                        # Type safety: Ensure content is a string
+                        # Readable text (Markdown table) → sammle und zeige im Stream
                         content = item["content"]
                         if not isinstance(content, str):
                             self.add_debug(f"⚠️ WARNING: Vision response content is {type(content)}, expected str. Converting...")
@@ -1825,72 +1818,152 @@ class AIState(rx.State):
                         vision_readable_text += content
                         self.current_ai_response += content
                         yield
+
                     elif item["type"] == "done":
                         # Metrics vom Backend sammeln
                         vision_metrics = item.get("metrics", {})
+
                     elif item["type"] == "error":
-                        self.add_debug(item["content"])
+                        self.add_debug(item.get("content", "Unknown error"))
 
-                # === Nach Vision-Stream: Formatierung wie bei Haupt-LLM ===
-                if vision_json_response:
-                    # Extrahiere Timing-Daten
-                    vision_time = vision_metrics.get("inference_time", 0) if vision_metrics else 0
-                    tokens_generated = vision_metrics.get("tokens_generated", 0) if vision_metrics else 0
-                    tokens_per_sec = vision_metrics.get("tokens_per_second", 0) if vision_metrics else 0
+                    elif item["type"] == "vision_complete":
+                        # ======================================================================
+                        # CRITICAL: Vision extraction complete - finalize and break!
+                        # ======================================================================
 
-                    # Debug-Log mit Timing (wie Haupt-LLM)
-                    self.add_debug(f"✅ Vision-LLM fertig ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
+                        # Extract data from signal
+                        final_vision_metrics = item.get("metrics", vision_metrics or {})
+                        extracted_vision_json = item.get("vision_json", {})
+                        has_user_text_for_automatik = item.get("has_user_text", False)
+
+                        if vision_json_response:
+                            # Finalize Vision message with collapsible + metadata
+                            from .lib.formatting import format_thinking_process, format_metadata, format_number
+
+                            vision_time = final_vision_metrics.get("inference_time", 0) if final_vision_metrics else 0
+                            tokens_generated = final_vision_metrics.get("tokens_generated", 0) if final_vision_metrics else 0
+                            tokens_per_sec = final_vision_metrics.get("tokens_per_second", 0) if final_vision_metrics else 0
+
+                            # Build full response with <data> tag
+                            full_response_with_data = f"<data>\n{vision_json_response}\n</data>\n\n{vision_readable_text}"
+
+                            # Format collapsible
+                            formatted_html = format_thinking_process(
+                                full_response_with_data,
+                                model_name=extract_model_name(self.vision_model),
+                                inference_time=vision_time,
+                                tokens_per_sec=tokens_per_sec
+                            )
+
+                            # Metadata footer
+                            metadata = format_metadata(
+                                f"(Vision: {format_number(vision_time, 1)}s ({format_number(tokens_per_sec, 1)} tok/s))"
+                            )
+                            formatted_response = f"{formatted_html}\n\n{metadata}"
+
+                            # Update current response and history
+                            self.current_ai_response = formatted_response
+                            self.chat_history[temp_history_index] = (user_msg, formatted_response)
+
+                            self.add_debug(f"✅ Vision-LLM fertig ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
+                            self.add_debug("────────────────────")
+                            yield
+
+                        # BREAK out of Vision loop - Phase 1 complete!
+                        break
+
+                    else:
+                        # Unknown type - log warning
+                        self.add_debug(f"⚠️ Unknown item type from Vision pipeline: {item.get('type', 'MISSING')}")
+
+                # ==============================================================================
+                # PHASE 2: AUTOMATIK/RESEARCH FLOW (if user text present)
+                # ==============================================================================
+                if has_user_text_for_automatik:
+                    self.add_debug("🤖 Main-LLM Phase startet...")
                     yield
 
-                    # Formatiere <data> Tag als Collapsible (ähnlich wie <think>)
-                    from .lib.formatting import format_thinking_process, format_metadata, format_number
+                    # Import here to avoid circular dependency
+                    from .lib.conversation_handler import chat_interactive_mode
 
-                    # Baue vollständige Response mit <data> Tag
-                    full_response_with_data = f"<data>\n{vision_json_response}\n</data>\n\n{vision_readable_text}"
+                    # Initialize temporary history entry for real-time display
+                    # (EXACT same pattern as normal flow in line 2003-2004)
+                    temp_history_index_main = len(self.chat_history)
+                    self.chat_history.append((user_msg, ""))
+                    self.current_ai_response = ""  # Reset for Main-LLM streaming
 
-                    # Formatiere Collapsible (ähnlich wie Thinking)
-                    formatted_html = format_thinking_process(
-                        full_response_with_data,
-                        model_name=extract_model_name(self.vision_model),
-                        inference_time=vision_time,
-                        tokens_per_sec=tokens_per_sec
-                    )
+                    # Call chat_interactive_mode with Vision JSON context
+                    # (EXACT same pattern as normal flow in line 2012-2027)
+                    async for item in chat_interactive_mode(
+                        user_text=user_msg,
+                        stt_time=0.0,  # No STT for Vision follow-up
+                        model_choice=self.selected_model,
+                        automatik_model=self.automatik_model,
+                        history=self.chat_history[:-1],  # Exclude current temporary entry (CRITICAL!)
+                        session_id=self.session_id,
+                        temperature_mode=self.temperature_mode,
+                        temperature=self.temperature,
+                        llm_options=llm_options,
+                        backend_type=self.backend_type,
+                        backend_url=self.backend_url,
+                        num_ctx_mode=self.num_ctx_mode,
+                        num_ctx_manual=self.num_ctx_manual,
+                        pending_images=None,  # Images already processed
+                        vision_json_context=extracted_vision_json  # Pass Vision JSON!
+                    ):
+                        # Handle Main-LLM items using NORMAL FLOW logic
+                        # (EXACT same pattern as normal flow in line 2029-2068)
+                        if item["type"] == "debug":
+                            self.debug_messages.append(format_debug_message(item["message"]))
+                            if len(self.debug_messages) > 500:
+                                self.debug_messages = self.debug_messages[-500:]
 
-                    # Metadata-Footer anhängen (wie Haupt-LLM)
-                    metadata = format_metadata(
-                        f"(Vision: {format_number(vision_time, 1)}s ({format_number(tokens_per_sec, 1)} tok/s))"
-                    )
-                    formatted_response = f"{formatted_html}\n\n{metadata}"
+                        elif item["type"] == "content":
+                            self.current_ai_response += item["text"]
+                            # Update the temporary entry in chat history with the new content
+                            if temp_history_index_main < len(self.chat_history):
+                                self.chat_history[temp_history_index_main] = (user_msg, self.current_ai_response)
+                            yield  # CRITICAL: Update UI to prevent backpressure during fast streaming
 
-                    # Update current_ai_response für UI-Anzeige
-                    self.current_ai_response = formatted_response
+                        elif item["type"] == "result":
+                            result_data = item["data"]
+                            # Extract and update history IMMEDIATELY
+                            ai_text, updated_history, inference_time = result_data
+                            # Replace chat history with updated one from research - message is already in history
+                            self.chat_history = updated_history
+                            # The message is already in the history from the streaming, no need to re-add
+                            yield  # Update UI to show new history entry
+                            # Clear AI response and user message windows IMMEDIATELY
+                            self.current_ai_response = ""
+                            self.current_user_message = ""
+                            self.is_generating = False  # Stop spinner, switch UI to history display
+                            yield  # Force immediate UI update to clear both windows
 
-                    # History Update: Formatierte Version für UI, JSON im Backend für Follow-ups
-                    # NOTE: Die History zeigt die formatierte Version (Collapsible + Tabelle + Metadata)
-                    # Aber bei Follow-up-Fragen wird das JSON aus der formatierten Response extrahiert
-                    self.chat_history[temp_history_index] = (user_msg, formatted_response)
-                    self.add_debug("💾 History gespeichert: Formatierte Vision-Response (mit Collapsible + Metadata)")
-                    yield
+                        elif item["type"] == "progress":
+                            # Update processing progress
+                            if item.get("clear", False):
+                                self.clear_progress()
+                            else:
+                                self.set_progress(
+                                    phase=item.get("phase", ""),
+                                    current=item.get("current", 0),
+                                    total=item.get("total", 0),
+                                    failed=item.get("failed", 0)
+                                )
+
+                        # Note: Update UI after each item (including unknown types)
+                        yield
+
                 else:
-                    # Fallback: kein JSON → speichere normale Response
-                    self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
-                    self.add_debug("💾 History gespeichert: Vollständige Response")
+                    # No user text - just Vision extraction, finalize normally
+                    # Clear images after Vision processing
+                    self.clear_pending_images()
+
+                    # Clear AI response and user message windows
+                    self.current_ai_response = ""
+                    self.current_user_message = ""
+                    self.is_generating = False
                     yield
-
-                # Separator-Linie NACH History-Speicherung (wie bei Haupt-LLM)
-                from aifred.lib.logging_utils import console_separator
-                console_separator()
-                self.add_debug("────────────────────")
-                yield
-
-                # Clear images after sending
-                self.clear_pending_images()
-
-                # Clear AI response and user message windows
-                self.current_ai_response = ""
-                self.current_user_message = ""
-                self.is_generating = False
-                yield  # Force immediate UI update
 
                 return  # Exit send_message - vision pipeline complete
 
@@ -2104,7 +2177,6 @@ class AIState(rx.State):
 
                 # Start timing for preload phase (preparation + actual model loading)
                 import time
-                preload_start = time.time()
 
                 # Build messages from history
                 from .lib.message_builder import build_messages_from_history
@@ -2120,7 +2192,7 @@ class AIState(rx.State):
                 messages.insert(0, {"role": "system", "content": system_prompt_minimal})
 
                 # Create backend and LLM client instances
-                from .backends import BackendFactory, LLMOptions, LLMMessage
+                from .backends import BackendFactory, LLMOptions
                 from .lib.llm_client import LLMClient
 
                 backend = BackendFactory.create(
@@ -2216,7 +2288,6 @@ class AIState(rx.State):
                 yield
 
                 # Stream response directly from LLM
-                import time
                 inference_start = time.time()
                 full_response = ""
                 ttft = None
@@ -2475,7 +2546,7 @@ class AIState(rx.State):
         self.pending_images = []
         self.image_upload_warning = ""
         if count > 0:
-            self.add_debug(f"🗑️ {count} Bilder gelöscht")
+            self.add_debug(f"🗑️ {count} Bild(er) gelöscht")
 
     async def load_default_settings(self):
         """Load default settings from config.py and apply them to state"""

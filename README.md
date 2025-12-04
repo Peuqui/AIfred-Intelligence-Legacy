@@ -12,16 +12,20 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ## 📋 What's New
 
-**Latest Version:** v2.3.1 (2025-12-04)
+**Latest Version:** v2.4.0 (2025-12-04)
+
+### 🔗 Vision + Research Integration
+
+**Game Changer:** Upload an image, ask about its content, and AIfred automatically researches the web with context from the image!
+
+**Example:** Upload a medication plan → Ask *"Recherchiere die Nebenwirkungen des ersten Medikaments"* → AIfred extracts "Acetylsalicylsäure" from the image → Researches web for side effects → Provides comprehensive answer with sources.
 
 Key highlights:
-- 📸 **Vision/OCR Support**: Multi-model image analysis with automatic JSON extraction
-- 🎯 **3-Model Architecture**: Vision-LLM (OCR) → Main-LLM (interpretation) → Automatik-LLM (decisions)
-- 🔍 **Chat Template Detection**: Automatic detection of model capabilities (system prompts vs. simple templates)
-- 🚀 **Smart Model Handling**: DeepSeek-OCR gets default prompt, Ministral uses JSON system prompts
-- 📊 **Corrected JSON Display**: Collapsibles show auto-corrected JSON (not raw malformed output)
-- 🔧 **Robust Error Handling**: Handles nested arrays, missing rows, type mismatches gracefully
-- 💾 **Intrinsic Context Windows**: Vision models use full context size (no 4K Ollama default)
+- 🔗 **Vision JSON Context Propagation**: Structured data from images flows through entire research pipeline
+- 🧠 **Intelligent Query Resolution**: Query Optimizer resolves references like "first medication" using Vision JSON
+- 🎯 **4-Phase Architecture**: Vision-LLM → Automatik-LLM (with Vision context) → Web Research → Main-LLM
+- 🚀 **Clean Two-Phase Flow**: No race conditions, no duplicate messages
+- ⚡ **Performance**: ~40s for complete Vision + Research flow (10s OCR + 2s query opt + 5s scraping + 23s LLM)
 
 For detailed changes and version history, see [CHANGELOG.md](CHANGELOG.md).
 
