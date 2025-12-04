@@ -338,10 +338,19 @@ async def calculate_vram_based_context(
     else:
         # Model NOT loaded - must subtract its size from available VRAM
         vram_for_context = int(usable_vram - model_size_mb)
-        msg = (
-            f"💾 Model NOT loaded → {format_number(vram_for_context, 0)} MB for context "
-            f"({format_number(free_vram_mb)} MB - {format_number(model_size_mb, 0)} MB model - {format_number(safety_margin_mb)} MB margin)"
-        )
+
+        # Special case: Negative value indicates another model is still loaded
+        if vram_for_context < 0:
+            msg = (
+                f"⚠️ Model switch detected → {format_number(vram_for_context, 0)} MB for context "
+                f"({format_number(free_vram_mb)} MB free - {format_number(model_size_mb, 0)} MB new model - {format_number(safety_margin_mb)} MB margin) "
+                f"→ Previous model still in VRAM, will be unloaded on next inference"
+            )
+        else:
+            msg = (
+                f"💾 Model NOT loaded → {format_number(vram_for_context, 0)} MB for context "
+                f"({format_number(free_vram_mb)} MB - {format_number(model_size_mb, 0)} MB model - {format_number(safety_margin_mb)} MB margin)"
+            )
         log_message(msg)
         debug_msgs.append(msg)
 
