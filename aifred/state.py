@@ -225,6 +225,7 @@ class AIState(rx.State):
     pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "base64": "...", "url": "..."}]
     image_upload_warning: str = ""  # Warning message if non-vision model selected
     max_images_per_message: int = 5  # Limit concurrent uploads
+    camera_available: bool = False  # True if browser supports camera access (set by JavaScript)
 
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi"
@@ -2547,6 +2548,14 @@ class AIState(rx.State):
         self.image_upload_warning = ""
         if count > 0:
             self.add_debug(f"🗑️ {count} Bild(er) gelöscht")
+
+    def set_camera_available(self, available: bool):
+        """Set camera availability based on browser capabilities (called from JavaScript)"""
+        self.camera_available = available
+        if available:
+            self.add_debug("📷 Browser supports camera access")
+        else:
+            self.add_debug("⚠️ Browser does not support camera access")
 
     async def load_default_settings(self):
         """Load default settings from config.py and apply them to state"""

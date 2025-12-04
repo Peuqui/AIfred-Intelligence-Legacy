@@ -26,6 +26,7 @@ Key highlights:
 - 🎯 **4-Phase Architecture**: Vision-LLM → Automatik-LLM (with Vision context) → Web Research → Main-LLM
 - 🚀 **Clean Two-Phase Flow**: No race conditions, no duplicate messages
 - ⚡ **Performance**: ~40s for complete Vision + Research flow (10s OCR + 2s query opt + 5s scraping + 23s LLM)
+- 📷 **Camera Button for Mobile**: Browser-based camera detection - button only visible if device has camera
 
 For detailed changes and version history, see [CHANGELOG.md](CHANGELOG.md).
 
