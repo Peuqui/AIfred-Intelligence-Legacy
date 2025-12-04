@@ -681,6 +681,7 @@ class AIState(rx.State):
             self.selected_model = _global_backend_state["selected_model"]
             self.automatik_model = _global_backend_state["automatik_model"]
             self._vision_models_cache = _global_backend_state.get("vision_models_cache", [])
+            self.vision_model = _global_backend_state.get("vision_model", "")
 
             # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
             if self.backend_type == "vllm" and self.automatik_model != self.selected_model:
@@ -1307,6 +1308,9 @@ class AIState(rx.State):
                 self.add_debug(f"⚠️ Saved vision_model '{self.vision_model}' not found in vision models, auto-selecting...")
                 self.vision_model = vision_models[0]
                 self._save_settings()
+
+        # Store vision_model in global state for fast path restore
+        _global_backend_state["vision_model"] = self.vision_model
 
     async def _start_vllm_server(self):
         """Start vLLM server process with selected model"""
