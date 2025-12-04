@@ -190,8 +190,29 @@ def image_upload_section() -> rx.Component:
 
         # Horizontal layout: Button(s) left, Images + Hint right
         rx.hstack(
-            # Left: Upload and Clear buttons
+            # Left: Camera, Upload and Clear buttons
             rx.hstack(
+                # Camera button (mobile only - uses device camera)
+                rx.upload(
+                    rx.button(
+                        rx.icon("camera", size=20),
+                        rx.text("Kamera", font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
+                        size="4",
+                        variant="soft",
+                        color_scheme="red",
+                        padding_y="24px",
+                        disabled=AIState.is_generating | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                    ),
+                    id="camera-upload",
+                    accept={"image/*": []},  # Accept images from camera
+                    capture="environment",  # Use rear camera (change to "user" for front camera)
+                    max_files=1,  # Camera captures one photo at a time
+                    on_drop=AIState.handle_image_upload,
+                    multiple=False,
+                    border="none",
+                    padding="0",
+                ),
+
                 # Upload button with drag & drop (no border/padding on upload wrapper)
                 rx.upload(
                     rx.button(
