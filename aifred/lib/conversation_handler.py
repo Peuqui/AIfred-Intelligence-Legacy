@@ -331,7 +331,8 @@ async def chat_with_vision_pipeline(
         model_size_bytes=model_size_bytes,
         model_context_limit=intrinsic_num_ctx or 4096,  # Fallback to 4K if detection failed
         model_is_loaded=model_is_loaded,
-        backend_type=backend_type
+        backend_type=backend_type,
+        backend=backend if backend_type == "ollama" else None  # Pass backend for auto-unloading
     )
 
     # Log debug messages

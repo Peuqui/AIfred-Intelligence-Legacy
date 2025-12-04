@@ -237,7 +237,8 @@ async def calculate_vram_based_context(
     vram_context_ratio: float | None = None,
     safety_margin_mb: int = VRAM_SAFETY_MARGIN,
     model_is_loaded: bool = False,
-    backend_type: str = "ollama"
+    backend_type: str = "ollama",
+    backend = None  # Backend instance for unloading models (Ollama only)
 ) -> tuple[int, list[str]]:
     """
     Calculate maximum practical context window based on available VRAM
@@ -340,21 +341,43 @@ async def calculate_vram_based_context(
         vram_for_context_calc = int(usable_vram - model_size_mb)
 
         # Special case: Negative value indicates another model is still loaded
-        # CRITICAL: Cannot proceed with negative value - caller MUST unload old model first
+        # SOLUTION: Unload all models automatically and recalculate
         if vram_for_context_calc < 0:
-            msg = (
-                f"⚠️ Model switch detected (previous model still in VRAM) "
-                f"→ Calculation would be negative: {format_number(vram_for_context_calc, 0)} MB "
-                f"({format_number(free_vram_mb)} MB free - {format_number(model_size_mb, 0)} MB new model - {format_number(safety_margin_mb)} MB margin)"
-            )
+            msg = f"⚠️ Model switch detected → Unloading all models and recalculating VRAM..."
             log_message(msg)
             debug_msgs.append(msg)
 
-            # Return fallback - caller MUST unload old model before next calculation
-            msg = "❌ Cannot calculate VRAM with old model loaded → Fallback 2.048 (unload old model first!)"
-            log_message(msg)
-            debug_msgs.append(msg)
-            return 2048, debug_msgs
+            # Unload all models if backend available (Ollama only)
+            if backend and hasattr(backend, 'unload_all_models'):
+                success, unloaded = await backend.unload_all_models()
+                if success and unloaded:
+                    msg = f"✅ Unloaded models: {', '.join(unloaded)}"
+                    log_message(msg)
+                    debug_msgs.append(msg)
+
+                    # Recalculate VRAM after unloading
+                    import time
+                    time.sleep(0.5)  # Give VRAM time to free up
+                    free_vram_mb = get_free_vram()
+                    usable_vram = free_vram_mb - safety_margin_mb
+                    vram_for_context = int(usable_vram - model_size_mb)
+
+                    msg = (
+                        f"💾 Model NOT loaded → {format_number(vram_for_context, 0)} MB for context "
+                        f"({format_number(free_vram_mb)} MB - {format_number(model_size_mb, 0)} MB model - {format_number(safety_margin_mb)} MB margin)"
+                    )
+                    log_message(msg)
+                    debug_msgs.append(msg)
+                else:
+                    msg = "⚠️ Failed to unload models → Using minimal fallback"
+                    log_message(msg)
+                    debug_msgs.append(msg)
+                    return 2048, debug_msgs
+            else:
+                msg = "⚠️ No backend available for unloading → Using minimal fallback"
+                log_message(msg)
+                debug_msgs.append(msg)
+                return 2048, debug_msgs
         else:
             vram_for_context = vram_for_context_calc
             msg = (

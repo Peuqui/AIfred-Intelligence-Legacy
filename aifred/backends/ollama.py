@@ -757,7 +757,8 @@ class OllamaBackend(LLMBackend):
             model_size_bytes=model_size_bytes,
             model_context_limit=model_limit,
             model_is_loaded=model_is_loaded,
-            backend_type="ollama"
+            backend_type="ollama",
+            backend=self  # Pass self for auto-unloading during model switch
         )
 
         return num_ctx, debug_msgs
