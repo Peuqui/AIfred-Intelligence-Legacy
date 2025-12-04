@@ -1762,6 +1762,7 @@ class AIState(rx.State):
             # ============================================================
             if has_pending_images:
                 self.add_debug(f"📷 Vision Pipeline: {len(self.pending_images)} Bild(er) → Vision-LLM ({self.vision_model})")
+                yield  # Update UI immediately to show Vision Pipeline start
 
                 # CRITICAL: Ensure KoboldCPP is running before LLM call
                 if self.backend_type == "koboldcpp":
