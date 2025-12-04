@@ -5,6 +5,126 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2025-12-04
+
+### 🔗 Vision + Research Integration
+
+**Game Changer:** Intelligent image data extraction flows seamlessly into web research and AI analysis.
+
+#### Key Feature: Vision JSON Context Propagation
+
+Enable complex queries like: *"Recherchiere die Nebenwirkungen des ersten Medikaments auf der Liste"* (Research side effects of the first medication on the list) - where the medication name is extracted from an uploaded image.
+
+**Example Flow:**
+1. Upload medication plan image → Vision-LLM extracts table with 8 medications
+2. User asks: *"Recherchiere die Nebenwirkungen des ersten Medikaments"*
+3. Query Optimizer receives Vision JSON → Resolves "erstes Medikament" → "Acetylsalicylsäure"
+4. Web research: "Acetylsalicylsäure Nebenwirkungen 2025"
+5. Main-LLM generates comprehensive answer with sources
+
+#### Added
+
+- **Vision JSON Context Propagation** ([7 files modified]()):
+  - Vision JSON automatically passed through entire research pipeline
+  - Query Optimizer receives structured data for reference resolution
+  - Main-LLM gets Vision JSON as system context for interpretation
+
+- **Two-Phase Vision Architecture** ([state.py:1788-1982](aifred/state.py#L1788-L1982)):
+  - **Phase 1:** Vision-LLM extraction (processes ONLY vision items: thinking, response, done, vision_complete)
+  - **Phase 2:** Automatik/Research flow (if user text present)
+  - Clean separation: Vision loop → Break → Automatik call
+  - No race conditions, no duplicate messages
+
+- **Enhanced Query Optimization Prompts**:
+  - [prompts/de/query_optimization.txt](prompts/de/query_optimization.txt#L10-L11): Vision JSON awareness
+  - [prompts/en/query_optimization.txt](prompts/en/query_optimization.txt#L10-L11): Vision JSON awareness
+  - Example: "Recherchiere Nebenwirkungen des ersten Medikaments" + JSON → "Acetylsalicylsäure Nebenwirkungen 2025"
+
+- **Enhanced Automatik Decision Prompts**:
+  - [prompts/de/decision_making.txt](prompts/de/decision_making.txt#L1): `{vision_json_context}` placeholder
+  - [prompts/en/decision_making.txt](prompts/en/decision_making.txt#L1): `{vision_json_context}` placeholder
+  - Automatik-LLM sees Vision JSON for informed research decisions
+
+#### Changed
+
+- **Vision Pipeline Simplification** ([conversation_handler.py:487-500](aifred/lib/conversation_handler.py#L487-L500)):
+  - Removed `chat_interactive_mode` call from Vision pipeline
+  - Now only yields `vision_complete` signal with `has_user_text` flag
+  - state.py handles routing decision (cleaner architecture)
+
+- **Query Optimizer Function Signature** ([query_optimizer.py:22-55](aifred/lib/query_optimizer.py#L22-L55)):
+  - Added `vision_json_context: Optional[Dict] = None` parameter
+  - Passes Vision JSON to prompt builder
+
+- **Research Query Processor** ([query_processor.py:142-167](aifred/lib/research/query_processor.py#L142-L167)):
+  - `process_query_and_search()` accepts `vision_json_context` parameter
+  - Forwards Vision JSON to Query Optimizer in all modes (Direct, Hybrid, Normal)
+
+- **Prompt Loader** ([prompt_loader.py:198-219](aifred/lib/prompt_loader.py#L198-L219)):
+  - `get_decision_making_prompt()` accepts `vision_json` parameter
+  - `get_query_optimization_prompt()` accepts `vision_json` parameter
+  - Injects Vision JSON into prompts when available
+
+#### Fixed
+
+- **Race Condition in Vision + Research Flow**:
+  - **Problem:** conversation_handler.py called `chat_interactive_mode(history=state.chat_history)` BEFORE state.py processed `vision_complete` signal
+  - **Result:** Research pipeline didn't see Vision-Entry in history
+  - **Fix:** conversation_handler.py no longer calls chat_interactive_mode; state.py calls it AFTER vision_complete
+
+- **Triple Message Duplication**:
+  - **Problem:** Vision-Loop, Research Pipeline, and state.py all created separate history entries
+  - **Fix:** Research Pipeline receives `history[:-1]` (excludes temp entry), creates single final entry
+
+- **Missing Progress Updates in UI** ([state.py:1954-1955](aifred/state.py#L1954-L1955)):
+  - Added `yield` after progress handler (was missing)
+  - Scraping status messages now displayed in UI
+
+#### Technical Implementation
+
+**Files Modified:**
+1. [aifred/state.py](aifred/state.py#L1788-L1982) - Two-phase Vision → Automatik flow
+2. [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py#L487-L500) - Vision pipeline simplification
+3. [aifred/lib/query_optimizer.py](aifred/lib/query_optimizer.py#L22-L55) - Vision JSON parameter
+4. [aifred/lib/research/query_processor.py](aifred/lib/research/query_processor.py#L142-L167) - Vision JSON propagation
+5. [aifred/lib/prompt_loader.py](aifred/lib/prompt_loader.py#L198-L219) - Prompt builders
+6. [prompts/de/query_optimization.txt](prompts/de/query_optimization.txt) - Vision JSON awareness
+7. [prompts/en/query_optimization.txt](prompts/en/query_optimization.txt) - Vision JSON awareness
+8. [prompts/de/decision_making.txt](prompts/de/decision_making.txt) - Vision JSON context
+9. [prompts/en/decision_making.txt](prompts/en/decision_making.txt) - Vision JSON context
+
+**Architecture:**
+```
+User uploads image + asks question
+    ↓
+PHASE 1: Vision-LLM (Pure OCR)
+├─ Input: Image + System Prompt ONLY
+├─ User text: STORED (not sent to Vision-LLM)
+└─ Output: Structured JSON → vision_complete signal
+    ↓
+PHASE 2: Automatik-LLM (Decision with Vision Context)
+├─ Input: User text + Vision JSON
+├─ Decision: <search>yes/no</search>
+└─ Example: "Recherchiere Nebenwirkungen von Aspirin" + JSON {"rows": [["Aspirin",...]]}
+   → Recognizes medication from JSON → <search>yes</search>
+    ↓
+PHASE 3: Query Optimization (with Vision JSON)
+├─ Input: User text + Vision JSON
+├─ Resolves: "erstes Medikament" → "Acetylsalicylsäure" (from JSON row 0)
+└─ Output: "Acetylsalicylsäure Nebenwirkungen 2025"
+    ↓
+PHASE 4: Web Research → Main-LLM (with Vision JSON)
+├─ Input: Vision JSON + Research results + User text
+└─ Output: Comprehensive answer with sources
+```
+
+**Performance:**
+- Vision extraction: ~10s (104 tok/s, Ministral-3:8b)
+- Query optimization: ~2s (Vision JSON context added)
+- Web research: ~5s (6/7 URLs scraped)
+- Main-LLM inference: ~23s (14.3k tokens context)
+- **Total:** ~40s for complete Vision + Research flow
+
 ## [2.3.1] - 2025-12-04
 
 ### 🔍 Vision Model Intelligence (2025-12-04)

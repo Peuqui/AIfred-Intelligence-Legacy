@@ -10,7 +10,7 @@ Handles:
 
 import re
 import time
-from typing import Dict, List, AsyncIterator
+from typing import Dict, List, AsyncIterator, Optional
 from urllib.parse import urlparse
 
 from ..query_optimizer import optimize_search_query
@@ -144,7 +144,8 @@ async def process_query_and_search(
     history: List[tuple],
     automatik_model: str,
     automatik_llm_client,
-    llm_options: Dict = None
+    llm_options: Dict = None,
+    vision_json_context: Optional[Dict] = None
 ) -> AsyncIterator[Dict]:
     """
     Process query optimization and perform web search
@@ -155,6 +156,7 @@ async def process_query_and_search(
         automatik_model: Automatik LLM model name
         automatik_llm_client: Automatik LLM client
         llm_options: Optional Dict mit enable_thinking toggle
+        vision_json_context: Optional Vision JSON from image extraction (for query context)
 
     Yields:
         Dict: Debug messages and search results
@@ -250,7 +252,8 @@ async def process_query_and_search(
             history=history,
             llm_client=automatik_llm_client,
             automatik_llm_context_limit=automatik_limit,
-            llm_options=llm_options
+            llm_options=llm_options,
+            vision_json_context=vision_json_context
         )
         query_opt_time = max(0, time.time() - query_opt_start)
 
@@ -312,7 +315,8 @@ async def process_query_and_search(
             history=history,
             llm_client=automatik_llm_client,
             automatik_llm_context_limit=automatik_limit,
-            llm_options=llm_options
+            llm_options=llm_options,
+            vision_json_context=vision_json_context
         )
         query_opt_time = max(0, time.time() - query_opt_start)
 

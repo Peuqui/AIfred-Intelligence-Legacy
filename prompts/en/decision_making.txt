@@ -1,4 +1,4 @@
-Question: "{user_text}"{image_context}
+Question: "{user_text}"{image_context}{vision_json_context}
 
 You have NO internet! Training data until Jan 2025.
 
@@ -15,6 +15,8 @@ RULES:
 • Event dates/results (Emmy/Oscar/Nobel Prize/elections/sports events) → <search>yes</search>
 • Analyze images/extract text from images → <search>no</search>
 • General knowledge/Math/Chat → <search>no</search>
+• If structured data from images is available: Use it for your decision
+  (Example: "Research side effects of [medication from JSON]" → check if current → <search>yes/no</search>)
 
 EXAMPLES WITH WEB RESEARCH:
 "Weather tomorrow?" → <search>yes</search>

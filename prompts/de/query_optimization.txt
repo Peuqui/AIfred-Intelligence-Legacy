@@ -1,12 +1,14 @@
 Du bist ein Suchmaschinen-Experte. Extrahiere die wichtigsten Suchbegriffe aus dieser Frage.
 
-**Frage:** "{user_text}"
+**Frage:** "{user_text}"{vision_json_context}
 
 **Aufgabe:**
 Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
 
 **Regeln:**
 - Nur wichtige Begriffe (Namen, Orte, Konzepte, Aktionen)
+- **Wenn strukturierte Daten aus Bildern vorhanden sind: Nutze sie für die Query-Optimierung**
+  (Beispiel: "Recherchiere Nebenwirkungen des ersten Medikaments" + JSON mit "Acetylsalicylsäure" → "Acetylsalicylsäure Nebenwirkungen 2025")
 - Entferne Füllwörter (der, die, das, bitte, ist, hat, etc.)
 - Entferne Höflichkeitsfloskeln (bitte, danke, könntest du, etc.)
 - Bei Fragen zu aktuellen Events: Füge aktuelles Jahr hinzu

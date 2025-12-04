@@ -303,13 +303,13 @@ async def get_vision_model_capabilities(backend_url: str, model_name: str) -> Tu
         return True, None
 
 
-def resize_image_if_needed(image_bytes: bytes, max_dimension: int = 2048) -> bytes:
+def resize_image_if_needed(image_bytes: bytes, max_dimension: int = None) -> bytes:
     """
     Resize image if larger than max_dimension (preserves aspect ratio).
 
     Args:
         image_bytes: Raw image data
-        max_dimension: Maximum width or height in pixels
+        max_dimension: Maximum width or height in pixels (defaults to config.VISION_MAX_IMAGE_DIMENSION)
 
     Returns:
         Resized image bytes (or original if already smaller)
@@ -318,7 +318,12 @@ def resize_image_if_needed(image_bytes: bytes, max_dimension: int = 2048) -> byt
         - Preserves aspect ratio
         - Uses LANCZOS resampling for quality
         - Re-encodes as JPEG with quality=90
+        - Configurable via config.VISION_MAX_IMAGE_DIMENSION
     """
+    from .config import VISION_MAX_IMAGE_DIMENSION
+
+    if max_dimension is None:
+        max_dimension = VISION_MAX_IMAGE_DIMENSION
     from PIL import Image
     import io
 

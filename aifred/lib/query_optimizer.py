@@ -25,7 +25,8 @@ async def optimize_search_query(
     history: Optional[List],
     llm_client,
     automatik_llm_context_limit: int,
-    llm_options: Optional[Dict] = None
+    llm_options: Optional[Dict] = None,
+    vision_json_context: Optional[Dict] = None
 ) -> Tuple[str, Optional[str]]:
     """
     Extrahiert optimierte Suchbegriffe aus User-Frage
@@ -37,6 +38,7 @@ async def optimize_search_query(
         llm_client: LLMClient instance
         automatik_llm_context_limit: Context limit for automatik LLM
         llm_options: Optional Dict mit enable_thinking toggle
+        vision_json_context: Optional Vision JSON from image extraction (for query context)
 
     Returns:
         tuple: (optimized_query, reasoning_content)
@@ -46,7 +48,11 @@ async def optimize_search_query(
     detected_user_language = detect_language(user_text)
     log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
 
-    prompt = get_query_optimization_prompt(user_text=user_text, lang=detected_user_language)
+    prompt = get_query_optimization_prompt(
+        user_text=user_text,
+        lang=detected_user_language,
+        vision_json=vision_json_context
+    )
 
     # DEBUG: Zeige Query Optimization Prompt
     log_message("=" * 60)

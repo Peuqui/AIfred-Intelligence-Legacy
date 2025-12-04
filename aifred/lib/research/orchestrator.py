@@ -29,7 +29,8 @@ async def perform_agent_research(
     backend_type: str = "ollama",
     backend_url: Optional[str] = None,
     num_ctx_mode: str = "auto_vram",
-    num_ctx_manual: int = 16384
+    num_ctx_manual: int = 16384,
+    vision_json_context: Optional[dict] = None
 ) -> AsyncIterator[Dict]:
     """
     Agent-Recherche mit Query-Optimierung und parallelemWeb-Scraping
@@ -116,7 +117,8 @@ async def perform_agent_research(
         history=history,
         automatik_model=automatik_model,
         automatik_llm_client=automatik_llm_client,
-        llm_options=llm_options
+        llm_options=llm_options,
+        vision_json_context=vision_json_context
     ):
         if item["type"] == "query_result":
             optimized_query, query_reasoning, query_opt_time, related_urls, tool_results = item["data"]

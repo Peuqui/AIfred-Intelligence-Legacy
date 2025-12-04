@@ -190,22 +190,51 @@ def list_available_prompts() -> list:
 # Convenience functions for frequently used prompts
 # ============================================================
 
-def get_query_optimization_prompt(user_text: str, lang: Optional[str] = None) -> str:
-    """Load query optimization prompt (timestamp injected automatically by load_prompt)"""
-    return load_prompt('query_optimization', lang=lang, user_text=user_text)
+def get_query_optimization_prompt(
+    user_text: str,
+    lang: Optional[str] = None,
+    vision_json: Optional[dict] = None
+) -> str:
+    """Load query optimization prompt with optional Vision JSON context"""
+    # Build Vision JSON context string (same pattern as decision_making_prompt)
+    if vision_json:
+        import json
+        vision_json_context = f"""
+
+STRUKTURIERTE DATEN AUS BILD:
+```json
+{json.dumps(vision_json, ensure_ascii=False, indent=2)}
+```
+
+Diese Daten wurden automatisch aus einem Bild extrahiert."""
+    else:
+        vision_json_context = ""
+
+    return load_prompt(
+        'query_optimization',
+        lang=lang,
+        user_text=user_text,
+        vision_json_context=vision_json_context
+    )
 
 
-def get_decision_making_prompt(user_text: str, has_images: bool = False, lang: Optional[str] = None) -> str:
+def get_decision_making_prompt(
+    user_text: str,
+    has_images: bool = False,
+    vision_json: Optional[dict] = None,
+    lang: Optional[str] = None
+) -> str:
     """
-    Load decision-making prompt with optional image context
+    Load decision-making prompt with optional image and Vision JSON context
 
     Args:
         user_text: User query text
         has_images: Whether the message includes image(s)
+        vision_json: Structured data extracted from images by Vision-LLM
         lang: Language override
 
     Returns:
-        Formatted decision prompt with timestamp and image context
+        Formatted decision prompt with timestamp, image context, and Vision JSON context
     """
     # Build image context string
     if has_images:
@@ -216,7 +245,27 @@ def get_decision_making_prompt(user_text: str, has_images: bool = False, lang: O
     else:
         image_context = ""
 
-    return load_prompt('decision_making', lang=lang, user_text=user_text, image_context=image_context)
+    # Build Vision JSON context string
+    if vision_json:
+        import json
+        vision_json_context = f"""
+
+STRUKTURIERTE DATEN AUS BILD:
+```json
+{json.dumps(vision_json, ensure_ascii=False, indent=2)}
+```
+
+Diese Daten wurden automatisch aus dem Bild extrahiert."""
+    else:
+        vision_json_context = ""
+
+    return load_prompt(
+        'decision_making',
+        lang=lang,
+        user_text=user_text,
+        image_context=image_context,
+        vision_json_context=vision_json_context
+    )
 
 
 # Cache decision addon removed - will be replaced with Vector DB semantic search
