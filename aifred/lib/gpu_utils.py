@@ -337,22 +337,32 @@ async def calculate_vram_based_context(
         debug_msgs.append(msg)
     else:
         # Model NOT loaded - must subtract its size from available VRAM
-        vram_for_context = int(usable_vram - model_size_mb)
+        vram_for_context_calc = int(usable_vram - model_size_mb)
 
         # Special case: Negative value indicates another model is still loaded
-        if vram_for_context < 0:
+        # CRITICAL: Cannot proceed with negative value - caller MUST unload old model first
+        if vram_for_context_calc < 0:
             msg = (
-                f"⚠️ Model switch detected → {format_number(vram_for_context, 0)} MB for context "
-                f"({format_number(free_vram_mb)} MB free - {format_number(model_size_mb, 0)} MB new model - {format_number(safety_margin_mb)} MB margin) "
-                f"→ Previous model still in VRAM, will be unloaded on next inference"
+                f"⚠️ Model switch detected (previous model still in VRAM) "
+                f"→ Calculation would be negative: {format_number(vram_for_context_calc, 0)} MB "
+                f"({format_number(free_vram_mb)} MB free - {format_number(model_size_mb, 0)} MB new model - {format_number(safety_margin_mb)} MB margin)"
             )
+            log_message(msg)
+            debug_msgs.append(msg)
+
+            # Return fallback - caller MUST unload old model before next calculation
+            msg = "❌ Cannot calculate VRAM with old model loaded → Fallback 2.048 (unload old model first!)"
+            log_message(msg)
+            debug_msgs.append(msg)
+            return 2048, debug_msgs
         else:
+            vram_for_context = vram_for_context_calc
             msg = (
                 f"💾 Model NOT loaded → {format_number(vram_for_context, 0)} MB for context "
                 f"({format_number(free_vram_mb)} MB - {format_number(model_size_mb, 0)} MB model - {format_number(safety_margin_mb)} MB margin)"
             )
-        log_message(msg)
-        debug_msgs.append(msg)
+            log_message(msg)
+            debug_msgs.append(msg)
 
     if vram_for_context < 100:
         msg = f"❌ Insufficient VRAM for context: {format_number(vram_for_context, 0)} MB (< 100 MB minimum) → Fallback 2.048"
