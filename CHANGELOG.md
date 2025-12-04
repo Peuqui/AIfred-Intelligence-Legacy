@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Game Changer:** Intelligent image data extraction flows seamlessly into web research and AI analysis.
 
+#### Added (2025-12-04 03:00)
+
+- **Camera Button for Mobile Devices** ([aifred.py:195-217](aifred/aifred.py#L195-L217), [state.py:228](aifred/state.py#L228), [state.py:2552-2558](aifred/state.py#L2552-L2558)):
+  - Browser-based camera detection via JavaScript (`navigator.mediaDevices.enumerateDevices()`)
+  - Camera button only visible if browser supports camera access
+  - Desktop without camera: Button hidden (no confusing file requestor)
+  - Mobile/Tablet with camera: Button visible, opens camera for photo capture
+  - Uses `rx.call_script` with callback to set `camera_available` state
+  - Positioned left of "Bild hochladen" button
+
 #### Key Feature: Vision JSON Context Propagation
 
 Enable complex queries like: *"Recherchiere die Nebenwirkungen des ersten Medikaments auf der Liste"* (Research side effects of the first medication on the list) - where the medication name is extracted from an uploaded image.

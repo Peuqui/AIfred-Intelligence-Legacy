@@ -192,25 +192,28 @@ def image_upload_section() -> rx.Component:
         rx.hstack(
             # Left: Camera, Upload and Clear buttons
             rx.hstack(
-                # Camera button (mobile only - uses device camera)
-                rx.upload(
-                    rx.button(
-                        rx.icon("camera", size=20),
-                        rx.text("Kamera", font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
-                        size="4",
-                        variant="soft",
-                        color_scheme="red",
-                        padding_y="24px",
-                        disabled=AIState.is_generating | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                # Camera button (only visible if browser supports camera)
+                rx.cond(
+                    AIState.camera_available,
+                    rx.upload(
+                        rx.button(
+                            rx.icon("camera", size=20),
+                            rx.text("Kamera", font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
+                            size="4",
+                            variant="soft",
+                            color_scheme="red",
+                            padding_y="24px",
+                            disabled=AIState.is_generating | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                        ),
+                        id="camera-upload",
+                        accept={"image/*": []},  # Accept images from camera
+                        capture="environment",  # Use rear camera (change to "user" for front camera)
+                        max_files=1,  # Camera captures one photo at a time
+                        on_drop=AIState.handle_image_upload,
+                        multiple=False,
+                        border="none",
+                        padding="0",
                     ),
-                    id="camera-upload",
-                    accept={"image/*": []},  # Accept images from camera
-                    capture="environment",  # Use rear camera (change to "user" for front camera)
-                    max_files=1,  # Camera captures one photo at a time
-                    on_drop=AIState.handle_image_upload,
-                    multiple=False,
-                    border="none",
-                    padding="0",
                 ),
 
                 # Upload button with drag & drop (no border/padding on upload wrapper)
@@ -2077,6 +2080,31 @@ console.log('✅ Paste handler initialized');
         # Inline JavaScript (guaranteed to execute)
         rx.script(autoscroll_js),
         rx.script(paste_handler_js),
+
+        # Hidden element to trigger camera detection on mount
+        rx.box(
+            id="camera-detector",
+            display="none",
+            on_mount=rx.call_script(
+                """
+                (async () => {
+                    try {
+                        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                            const devices = await navigator.mediaDevices.enumerateDevices();
+                            const hasCamera = devices.some(device => device.kind === 'videoinput');
+                            console.log('📷 Camera detected:', hasCamera);
+                            return hasCamera;
+                        }
+                    } catch (err) {
+                        console.log('⚠️ Camera detection failed:', err);
+                    }
+                    return false;
+                })()
+                """,
+                callback=AIState.set_camera_available
+            )
+        ),
+
         rx.vstack(
             # Header
             rx.heading(t("aifred_intelligence"), size="6", margin_bottom="2"),
