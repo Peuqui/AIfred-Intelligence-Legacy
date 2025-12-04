@@ -312,8 +312,7 @@ async def chat_with_vision_pipeline(
     log_message(f"📷 Analysiere Bilder: {image_names}")
 
     # === PHASE 1: Vision-LLM OCR-Extraktion ===
-    status_msg = f"🔍 Vision-LLM ({vision_model}) analysiert {len(images)} Bild(er): {image_names}" if lang == "de" else f"🔍 Vision-LLM ({vision_model}) analyzing {len(images)} image(s): {image_names}"
-    yield {"type": "status", "content": status_msg}
+    # Note: Status message now shown in state.py for immediate feedback
 
     # === Get model capabilities (chat template + context window) in single API call ===
     from .vision_utils import get_vision_model_capabilities

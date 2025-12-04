@@ -1761,7 +1761,9 @@ class AIState(rx.State):
             # VISION PIPELINE: Route to Vision-LLM if images present
             # ============================================================
             if has_pending_images:
-                self.add_debug(f"📷 Vision Pipeline: {len(self.pending_images)} Bild(er) → Vision-LLM ({self.vision_model})")
+                # Compact status message with image names
+                image_names = ", ".join([img.get("name", "unbekannt") for img in self.pending_images])
+                self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analysiert: {image_names}")
                 yield  # Update UI immediately to show Vision Pipeline start
 
                 # CRITICAL: Ensure KoboldCPP is running before LLM call
