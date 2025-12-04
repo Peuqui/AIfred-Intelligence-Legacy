@@ -144,6 +144,22 @@ def _html_table_to_markdown(html_content: str) -> str:
     return markdown
 
 
+def _sanitize_json_string(json_str: str) -> str:
+    """
+    Entfernt ungültige JSON-Kommentare (// ...) die manche Vision-LLMs hinzufügen.
+
+    Args:
+        json_str: JSON-String möglicherweise mit Kommentaren
+
+    Returns:
+        Bereinigter JSON-String ohne Kommentare
+    """
+    # Remove single-line comments (// ...) but preserve URLs (http://, https://)
+    # Use negative lookbehind to avoid removing // in URLs
+    sanitized = re.sub(r'(?<!:)//[^\n]*', '', json_str)
+    return sanitized
+
+
 def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
     """
     Konvertiert geparsten JSON in menschenlesbaren Text und gibt korrigiertes JSON zurück.
@@ -466,6 +482,9 @@ async def chat_with_vision_pipeline(
             # Try direct JSON parsing
             json_str = vision_response.strip()
 
+        # Sanitize JSON (remove comments that some Vision-LLMs add)
+        json_str = _sanitize_json_string(json_str)
+
         parsed_json = json.loads(json_str)
 
         # === JSON erfolgreich geparst ===
@@ -484,7 +503,7 @@ async def chat_with_vision_pipeline(
             yield {"type": "done", "metrics": vision_metrics}
 
     except json.JSONDecodeError as e:
-        log_message("warning", f"Vision-LLM did not return valid JSON: {e}")
+        log_message(f"⚠️ Vision-LLM did not return valid JSON: {e}")
 
         # === FALLBACK: Try HTML-to-Markdown conversion (for models like DeepSeek-OCR) ===
         if '<table' in vision_response.lower():
@@ -496,7 +515,7 @@ async def chat_with_vision_pipeline(
                     yield {"type": "done", "metrics": vision_metrics}
                 # DON'T return here - continue to check for Automatik routing
             except Exception as html_err:
-                log_message("warning", f"HTML conversion failed: {html_err}")
+                log_message(f"⚠️ HTML conversion failed: {html_err}")
 
         # Final fallback: Return raw output (only if no JSON was extracted)
         if not json_match:
