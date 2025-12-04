@@ -279,10 +279,33 @@ async def chat_with_vision_pipeline(
         Dict with keys: "type" (status/response/debug/error), "content"
     """
     from ..backends.base import LLMMessage
-    from .prompt_loader import detect_language
+    from .prompt_loader import detect_language, get_language
 
-    # Detect language from user text
-    lang = detect_language(user_text) if user_text else "de"
+    # Detect language from user text, fallback to history or global setting
+    if user_text:
+        lang = detect_language(user_text)
+    else:
+        # No user text (image only) → try to detect from recent chat history
+        lang = None
+        if state and hasattr(state, 'chat_history') and state.chat_history:
+            # Check last 3 messages for language detection
+            for user_msg, _ in reversed(state.chat_history[-3:]):
+                if user_msg and len(user_msg.strip()) > 10:  # Meaningful text
+                    lang = detect_language(user_msg)
+                    log_message(f"🌐 Language detected from history: {lang.upper()}")
+                    break
+
+        # Fallback to global language setting if no history available
+        if not lang:
+            global_lang = get_language()
+            if global_lang == "auto":
+                # Auto mode + no history → default to German (AIfred's primary language)
+                lang = "de"
+                log_message("🌐 Language fallback: de (AIfred default)")
+            else:
+                # Fixed language mode (de/en) → use that
+                lang = global_lang
+                log_message(f"🌐 Language from config: {lang.upper()}")
 
     # Bildnamen für Anzeige sammeln
     image_names = ", ".join([img.get("name", "unbekannt") for img in images])
