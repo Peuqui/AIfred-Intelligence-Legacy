@@ -1766,6 +1766,13 @@ class AIState(rx.State):
                 self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analysiert: {image_names}")
                 yield  # Update UI immediately to show Vision Pipeline start
 
+                # If user_msg is empty (image-only upload), use image names as user message
+                if not user_msg or user_msg.strip() == "":
+                    if len(self.pending_images) == 1:
+                        user_msg = f"📷 {self.pending_images[0].get('name', 'Bild')}"
+                    else:
+                        user_msg = f"📷 {len(self.pending_images)} Bilder: {image_names}"
+
                 # CRITICAL: Ensure KoboldCPP is running before LLM call
                 if self.backend_type == "koboldcpp":
                     async for _ in self._ensure_koboldcpp_running():
@@ -1845,15 +1852,15 @@ class AIState(rx.State):
                         extracted_vision_json = item.get("vision_json", {})
                         has_user_text_for_automatik = item.get("has_user_text", False)
 
+                        # Finalize Vision response (with or without JSON)
+                        from .lib.formatting import format_thinking_process, format_metadata, format_number
+
+                        vision_time = final_vision_metrics.get("inference_time", 0) if final_vision_metrics else 0
+                        tokens_generated = final_vision_metrics.get("tokens_generated", 0) if final_vision_metrics else 0
+                        tokens_per_sec = final_vision_metrics.get("tokens_per_second", 0) if final_vision_metrics else 0
+
                         if vision_json_response:
-                            # Finalize Vision message with collapsible + metadata
-                            from .lib.formatting import format_thinking_process, format_metadata, format_number
-
-                            vision_time = final_vision_metrics.get("inference_time", 0) if final_vision_metrics else 0
-                            tokens_generated = final_vision_metrics.get("tokens_generated", 0) if final_vision_metrics else 0
-                            tokens_per_sec = final_vision_metrics.get("tokens_per_second", 0) if final_vision_metrics else 0
-
-                            # Build full response with <data> tag
+                            # JSON vorhanden: Build full response with <data> tag + collapsible
                             full_response_with_data = f"<data>\n{vision_json_response}\n</data>\n\n{vision_readable_text}"
 
                             # Format collapsible
@@ -1869,14 +1876,23 @@ class AIState(rx.State):
                                 f"(Vision: {format_number(vision_time, 1)}s ({format_number(tokens_per_sec, 1)} tok/s))"
                             )
                             formatted_response = f"{formatted_html}\n\n{metadata}"
+                        elif vision_readable_text:
+                            # Kein JSON, aber readable text vorhanden (z.B. Fallback oder nur Description)
+                            metadata = format_metadata(
+                                f"(Vision: {format_number(vision_time, 1)}s ({format_number(tokens_per_sec, 1)} tok/s))"
+                            )
+                            formatted_response = f"{vision_readable_text}\n\n{metadata}"
+                        else:
+                            # Weder JSON noch Text - Fehler
+                            formatted_response = "⚠️ Vision-LLM konnte kein Ergebnis liefern. Siehe Debug-Log."
 
-                            # Update current response and history
-                            self.current_ai_response = formatted_response
-                            self.chat_history[temp_history_index] = (user_msg, formatted_response)
+                        # ALWAYS update current response and history (even if empty/error)
+                        self.current_ai_response = formatted_response
+                        self.chat_history[temp_history_index] = (user_msg, formatted_response)
 
-                            self.add_debug(f"✅ Vision-LLM fertig ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
-                            self.add_debug("────────────────────")
-                            yield
+                        self.add_debug(f"✅ Vision-LLM fertig ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
+                        self.add_debug("────────────────────")
+                        yield
 
                         # BREAK out of Vision loop - Phase 1 complete!
                         break
@@ -1968,11 +1984,12 @@ class AIState(rx.State):
                     # Clear images after Vision processing
                     self.clear_pending_images()
 
-                    # Clear AI response and user message windows
+                    # Clear both windows and stop generating
+                    # (Response is already in chat_history, UI will show history)
                     self.current_ai_response = ""
                     self.current_user_message = ""
                     self.is_generating = False
-                    yield
+                    yield  # Force UI update to show chat history
 
                 return  # Exit send_message - vision pipeline complete
 
