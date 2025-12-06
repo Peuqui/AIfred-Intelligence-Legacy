@@ -1,6 +1,19 @@
-Extrahiere alle Daten aus diesem Bild als JSON.
+Extrahiere ALLE sichtbaren Texte, Daten und Strukturen aus diesem Bild als JSON. Dies ist eine vollständige OCR-Aufgabe.
 
-Format:
+KRITISCHE REGELN:
+- Extrahiere NUR was TATSÄCHLICH im Bild steht - KEINE Ergänzungen, KEINE Korrekturen, KEINE Interpretationen!
+- ERFINDE KEINE Daten oder Zeilen - wenn etwas unleserlich ist, lasse es leer oder schreibe "unleserlich"
+- Kopiere Text EXAKT wie er dasteht - keine Rechtschreibkorrekturen, keine Verbesserungen
+- Bei Tabellen: Zähle die Zeilen im Bild und extrahiere GENAU diese Anzahl - nicht mehr, nicht weniger!
+
+WICHTIG:
+- Erfasse ALLE Abschnitte: Header, Tabellen, Listen, Formulare, Fließtext
+- Extrahiere JEDE Zeile und JEDE Spalte vollständig
+- Bei mehreren Tabellen: Erstelle ein Array mit allen Tabellen
+- Bei gemischten Inhalten: Kombiniere alle Strukturen in einer logischen Reihenfolge
+- Lasse NICHTS aus - vollständige Rekonstruktion des Dokuments!
+
+Format für einzelne Struktur:
 ```json
 {
   "type": "table|list|form|text",
@@ -9,10 +22,23 @@ Format:
 }
 ```
 
+Format für mehrere Strukturen:
+```json
+{
+  "type": "document",
+  "sections": [
+    {"type": "text", "content": "Header-Text"},
+    {"type": "table", "columns": [...], "rows": [...]},
+    {"type": "form", "fields": [...]}
+  ]
+}
+```
+
 Typen:
-- table: {"columns": [...], "rows": [[...]]}
-- list: {"items": [...]}
-- form: {"fields": [{"label": "...", "value": "..."}]}
-- text: {"content": "..."}
+- table: {"columns": [...], "rows": [[...]]} - Tabellen
+- list: {"items": [...]} - Listen
+- form: {"fields": [{"label": "...", "value": "..."}]} - Formulare
+- text: {"content": "..."} - Fließtext
+- document: {"sections": [...]} - Mehrere Abschnitte
 
 Antworte NUR mit gültigem JSON in einem Markdown-Code-Block!

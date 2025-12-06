@@ -314,12 +314,12 @@ async def build_and_generate_response(
 
     if stt_time > 0:
         user_metadata = format_metadata(f"(STT: {format_number(stt_time, 1)}s, Agent: {mode}, {len(scraped_only)} Quellen)")
-        user_with_time = f"{user_text} {user_metadata}"
+        user_with_time = f"{user_text}  \n{user_metadata}"
     else:
         user_metadata = format_metadata(f"(Agent: {mode}, {len(scraped_only)} Quellen)")
-        user_with_time = f"{user_text} {user_metadata}"
+        user_with_time = f"{user_text}  \n{user_metadata}"
 
-    history.append((user_with_time, thinking_html + " " + metadata))
+    history.append((user_with_time, thinking_html + "  \n" + metadata))
 
     log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {format_number(inference_time, 1)}s)")
 

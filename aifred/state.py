@@ -1766,12 +1766,16 @@ class AIState(rx.State):
                 self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analysiert: {image_names}")
                 yield  # Update UI immediately to show Vision Pipeline start
 
-                # If user_msg is empty (image-only upload), use image names as user message
+                # Save original user text (for Vision pipeline - may be empty!)
+                original_user_text = user_msg
+
+                # If user_msg is empty (image-only upload), use image names as user message FOR HISTORY ONLY
+                display_user_msg = user_msg
                 if not user_msg or user_msg.strip() == "":
                     if len(self.pending_images) == 1:
-                        user_msg = f"📷 {self.pending_images[0].get('name', 'Bild')}"
+                        display_user_msg = f"📷 {self.pending_images[0].get('name', 'Bild')}"
                     else:
-                        user_msg = f"📷 {len(self.pending_images)} Bilder: {image_names}"
+                        display_user_msg = f"📷 {len(self.pending_images)} Bilder: {image_names}"
 
                 # CRITICAL: Ensure KoboldCPP is running before LLM call
                 if self.backend_type == "koboldcpp":
@@ -1781,9 +1785,9 @@ class AIState(rx.State):
                 # Import vision pipeline
                 from .lib.conversation_handler import chat_with_vision_pipeline
 
-                # Initialize temporary history entry for real-time display
+                # Initialize temporary history entry for real-time display (use display_user_msg for history)
                 temp_history_index = len(self.chat_history)
-                self.chat_history.append((user_msg, self.current_ai_response))
+                self.chat_history.append((display_user_msg, self.current_ai_response))
 
                 # Build LLM options (include enable_thinking toggle)
                 llm_options = {
@@ -1801,7 +1805,7 @@ class AIState(rx.State):
                 # PHASE 1: VISION EXTRACTION (Process Vision-LLM items only)
                 # ==============================================================================
                 async for item in chat_with_vision_pipeline(
-                    user_text=user_msg,
+                    user_text=original_user_text,  # CRITICAL: Use original (may be empty!), not display_user_msg
                     images=self.pending_images,
                     vision_model=extract_model_name(self.vision_model),
                     haupt_model=extract_model_name(self.selected_model),
@@ -1822,7 +1826,8 @@ class AIState(rx.State):
                             self.add_debug(msg)
 
                     elif item["type"] == "thinking":
-                        # JSON vom Vision-LLM → sammle für Collapsible
+                        # Vision-LLM structured data → sammle für Collapsible
+                        # <think> tags bleiben jetzt in vision_readable_text!
                         vision_json_response = item["content"]
 
                     elif item["type"] == "response":
@@ -1860,12 +1865,17 @@ class AIState(rx.State):
                         tokens_per_sec = final_vision_metrics.get("tokens_per_second", 0) if final_vision_metrics else 0
 
                         if vision_json_response:
-                            # JSON vorhanden: Build full response with <data> tag + collapsible
-                            full_response_with_data = f"<data>\n{vision_json_response}\n</data>\n\n{vision_readable_text}"
+                            # JSON vorhanden → Build <data> Block
+                            data_block = f"<data>\n{vision_json_response}\n</data>"
+                            full_response = f"{data_block}\n\n{vision_readable_text}"
+                        else:
+                            # Kein JSON → vision_readable_text enthält ggf. <think> tags!
+                            full_response = vision_readable_text
 
-                            # Format collapsible
+                        if full_response:
+                            # format_thinking_process() verarbeitet ALLE XML-Tags automatisch!
                             formatted_html = format_thinking_process(
-                                full_response_with_data,
+                                full_response,
                                 model_name=extract_model_name(self.vision_model),
                                 inference_time=vision_time,
                                 tokens_per_sec=tokens_per_sec
@@ -1887,8 +1897,9 @@ class AIState(rx.State):
                             formatted_response = "⚠️ Vision-LLM konnte kein Ergebnis liefern. Siehe Debug-Log."
 
                         # ALWAYS update current response and history (even if empty/error)
+                        # Use display_user_msg (with image name) for history display
                         self.current_ai_response = formatted_response
-                        self.chat_history[temp_history_index] = (user_msg, formatted_response)
+                        self.chat_history[temp_history_index] = (display_user_msg, formatted_response)
 
                         self.add_debug(f"✅ Vision-LLM fertig ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
                         self.add_debug("────────────────────")
@@ -1912,15 +1923,15 @@ class AIState(rx.State):
                     from .lib.conversation_handler import chat_interactive_mode
 
                     # Initialize temporary history entry for real-time display
-                    # (EXACT same pattern as normal flow in line 2003-2004)
+                    # Use original_user_text (actual user question, not image filename)
                     temp_history_index_main = len(self.chat_history)
-                    self.chat_history.append((user_msg, ""))
+                    self.chat_history.append((original_user_text, ""))
                     self.current_ai_response = ""  # Reset for Main-LLM streaming
 
                     # Call chat_interactive_mode with Vision JSON context
                     # (EXACT same pattern as normal flow in line 2012-2027)
                     async for item in chat_interactive_mode(
-                        user_text=user_msg,
+                        user_text=original_user_text,  # Actual user question
                         stt_time=0.0,  # No STT for Vision follow-up
                         model_choice=self.selected_model,
                         automatik_model=self.automatik_model,
@@ -2369,7 +2380,7 @@ class AIState(rx.State):
                 metadata = format_metadata(
                     f"(Inferenz: {format_number(inference_time, 1)}s ({format_number(tokens_per_sec, 1)} tok/s), Quelle: Trainingsdaten)"
                 )
-                formatted_response = f"{thinking_html} {metadata}"
+                formatted_response = f"{thinking_html}  \n{metadata}"
 
                 # Update chat history with formatted response + metadata
                 self.chat_history[temp_history_index] = (user_msg, formatted_response)

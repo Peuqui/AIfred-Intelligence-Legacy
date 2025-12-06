@@ -220,3 +220,13 @@ li a:hover,
 .thinking-warning-pulse {
     animation: pulse-warning 2s ease-in-out infinite;
 }
+
+/* Metadata-Text in Markdown (kursiv) - grauer und dezenter */
+em,
+.rt-Text em,
+.rt-Box em,
+p em,
+div em {
+    color: #888 !important;  /* Grau wie früher <span style="color: #888"> */
+    font-style: italic !important;
+}

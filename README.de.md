@@ -12,14 +12,26 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 ## 📋 Neuigkeiten
 
-**Aktuelle Version:** v2.2.0 (2025-12-02)
+**Aktuelle Version:** v2.4.1 (2025-12-06)
+
+### 🔧 Generische XML-Tag-Verarbeitung (v2.4.1)
+
+**Großes Refactoring:** Hardcodierte XML-Tag-Verarbeitung durch config-gesteuerte, generische Verarbeitung ersetzt.
 
 Wichtigste Highlights:
-- 📚 Dokumentations-Refactoring (READMEs aufgeräumt, Session-Changelogs archiviert)
-- 🎮 GPU-Anzeige verbessert (Multi-GPU-Support, nominale VRAM-Werte)
-- 📝 Ollama systemd-Konfiguration in config.py dokumentiert
-- 🐛 Model-Display-Bug behoben (Größenangaben vor API-Aufrufen entfernt)
-- ⚡ KoboldCPP Auto-Shutdown mit Rolling Window Monitoring
+- 🔧 **Doppeltes Collapsible behoben**: Vision-LLM mit `<think>` Tags (qwen3-vl:30b) zeigt Denkprozess nicht mehr doppelt
+- 🏷️ **Generische XML-Erkennung**: Jedes `<tagname>inhalt</tagname>` Muster wird automatisch zum Collapsible
+- ⚙️ **Config-gesteuerte Tags**: `XML_TAG_CONFIG` in config.py definiert Icons/Labels (💭 think, 📊 data, 🐍 python, etc.)
+- 📄 **Auto-Fallback**: Unbekannte Tags bekommen automatisch "📄 Tagname" Collapsible - keine Code-Änderungen nötig!
+- 🔗 **Verschachtelte Tags erhalten**: Innere Tags wie `<function>` innerhalb von `<code>` bleiben intakt
+- 🚫 **HTML-Tag-Blacklist**: 96 HTML5-Tags von XML-Verarbeitung ausgeschlossen (neue Datei: `html_tags.py`)
+- 🎨 **Metadata-Formatierung**: Von HTML zu Markdown-Kursiv gewechselt, erscheint auf eigener Zeile ohne extra Abstand
+
+### 🔗 Vision + Research Integration (v2.4.0)
+
+**Game Changer:** Bild hochladen, nach dem Inhalt fragen, und AIfred recherchiert automatisch im Web mit Kontext aus dem Bild!
+
+**Beispiel:** Medikamentenplan hochladen → Fragen *"Recherchiere die Nebenwirkungen des ersten Medikaments"* → AIfred extrahiert "Acetylsalicylsäure" aus dem Bild → Recherchiert im Web nach Nebenwirkungen → Liefert umfassende Antwort mit Quellen.
 
 Für detaillierte Änderungen und Versionshistorie siehe [CHANGELOG.md](CHANGELOG.md).
 
@@ -1111,31 +1123,11 @@ Pull Requests sind willkommen! Für größere Änderungen bitte erst ein Issue �
 
 ---
 
-## 📝 Session Notes - 03. November 2025
-
-### Internationalisierung (i18n) Implementierung
-- Vollständige Übersetzungstabelle für UI-Strings
-- Automatische Spracherkennung für Prompts (de/en basierend auf Nutzereingabe)
-- Manueller UI-Sprachumschalter in den Einstellungen hinzugefügt
-- Englische Prompt-Dateien vervollständigt (waren unvollständig)
-
-### Netzwerk- und Konfigurationsanpassungen
-- `api_url` in `rxconfig.py` auf lokale IP für Entwicklungsumgebung korrigiert
-- Umgebungsabhängige Konfiguration: `AIFRED_ENV=dev` vs `AIFRED_ENV=prod`
-- Problem behoben: Anfragen wurden zu Mini-PC weitergeleitet statt lokal verarbeitet
-- Entwicklung: `http://172.30.8.72:3002` (mit RTX 3060), Produktion: `https://narnia.spdns.de:8443`
-
-### Bugfixes
-- Parameterfehler behoben: `cache_metadata` → `cache_info` in `get_decision_making_prompt()` Aufrufen
-- Funktioniert jetzt korrekt mit der definierten Funktionssignatur
-
----
-
 ## 📄 License
 
 MIT License - siehe [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.0.0 (November 2025)
+**Version**: 2.4.1 (December 2025)
 **Status**: Production-Ready 🚀

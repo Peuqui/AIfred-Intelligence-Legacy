@@ -227,19 +227,37 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
         return ("\n".join(f"- {item}" for item in items), corrected_json)
 
     elif doc_type == "form":
-        # Formular → Key-Value Liste
+        # Formular → Key-Value Liste (mit Unterfelder-Unterstützung)
         fields = corrected_json.get("fields", [])
         if not fields:
             return ("⚠️ Leeres Formular" if lang == "de" else "⚠️ Empty form", corrected_json)
 
-        return ("\n".join(f"**{field.get('label', '')}:** {field.get('value', '')}" for field in fields), corrected_json)
+        result = []
+        for field in fields:
+            label = field.get('label', '')
+            value = field.get('value', '')
+            # Support both "subfields" and "fields" for nested data (Vision-LLM uses "fields")
+            subfields = field.get('subfields', []) or field.get('fields', [])
+
+            if subfields:
+                # Feld hat Unterfelder → Rekursiv verarbeiten
+                result.append(f"**{label}**")
+                for subfield in subfields:
+                    sub_label = subfield.get('label', '')
+                    sub_value = subfield.get('value', '')
+                    result.append(f"  - {sub_label} {sub_value}")
+            else:
+                # Normales Key-Value Feld
+                result.append(f"**{label}:** {value}")
+
+        return ("\n".join(result), corrected_json)
 
     elif doc_type == "text":
         # Reiner Text
         return (corrected_json.get("content", ""), corrected_json)
 
-    elif doc_type == "mixed":
-        # Gemischtes Dokument → rekursiv verarbeiten
+    elif doc_type == "mixed" or doc_type == "document":
+        # Gemischtes/Vollständiges Dokument → rekursiv verarbeiten alle Sections
         sections = corrected_json.get("sections", [])
         if not sections:
             return ("⚠️ Leeres Dokument" if lang == "de" else "⚠️ Empty document", corrected_json)
@@ -251,7 +269,7 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
                 result.append(f"## {heading}\n")
             readable_text, _ = _json_to_readable(section, lang)  # Recursive call
             result.append(readable_text)
-            result.append("")  # Leerzeile
+            result.append("")  # Leerzeile zwischen Sections
 
         return ("\n".join(result), corrected_json)
 
@@ -493,9 +511,10 @@ async def chat_with_vision_pipeline(
         # 2. Rohtext konvertieren (JSON → lesbare Tabelle/Text) + Fehlerkorrekturen
         human_readable, corrected_json = _json_to_readable(parsed_json, lang)
 
-        # 1. Korrigiertes JSON in Collapsible (wie bei <think>)
-        yield {"type": "thinking", "content": json.dumps(corrected_json, indent=2, ensure_ascii=False)}
+        # === STEP 2: Yield JSON as collapsible (SECOND!) ===
+        yield {"type": "thinking", "content": json.dumps(corrected_json, indent=2, ensure_ascii=False), "label": "📊 Strukturierte Daten"}
 
+        # === STEP 3: Yield human-readable output (THIRD!) ===
         yield {"type": "response", "content": human_readable}
 
         # 3. Send done signal mit metrics (wird in state.py verarbeitet)
@@ -520,7 +539,21 @@ async def chat_with_vision_pipeline(
         # Final fallback: Return raw output (only if no JSON was extracted)
         if not json_match:
             log_message("⚠️ Returning raw Vision-LLM output (no JSON, no HTML table)")
-            yield {"type": "response", "content": vision_response}
+
+            # Check for <think> tags and format as collapsible
+            if '<think>' in vision_response:
+                # Format <think> tags as collapsible (with model name + timing)
+                formatted_response = format_thinking_process(
+                    vision_response,
+                    model_name=vision_model,
+                    inference_time=vision_time,
+                    tokens_per_sec=vision_metrics.get("eval_rate", 0) if vision_metrics else None
+                )
+                yield {"type": "response", "content": formatted_response}
+            else:
+                # No <think> tags → return raw output
+                yield {"type": "response", "content": vision_response}
+
             # Send done signal mit metrics (wird in state.py verarbeitet)
             if vision_metrics:
                 yield {"type": "done", "metrics": vision_metrics}
@@ -1086,14 +1119,14 @@ Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
             # User-Text mit Timing (RAG Bypass - keine Entscheidungszeit)
             if stt_time > 0:
                 user_metadata = format_metadata(f"(STT: {format_number(stt_time, 1)}s)")
-                user_with_time = f"{user_text} {user_metadata}"
+                user_with_time = f"{user_text}  \n{user_metadata}"
             else:
                 user_with_time = user_text
 
             # AI-Antwort mit Timing + Quelle (RAG)
             source_label = "Cache+LLM (RAG)"
             metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, {format_number(tokens_per_sec, 1)} tok/s, Quelle: {source_label})")
-            ai_with_source = f"{thinking_html} {metadata}"
+            ai_with_source = f"{thinking_html}  \n{metadata}"
 
             # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
             history.append((user_with_time, ai_with_source))
@@ -1473,10 +1506,10 @@ Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
                 # User-Text mit Timing (Entscheidungszeit + Inferenzzeit)
                 if stt_time > 0:
                     user_metadata = format_metadata(f"(STT: {format_number(stt_time, 1)}s, Entscheidung: {format_number(decision_time, 1)}s)")
-                    user_with_time = f"{user_text} {user_metadata}"
+                    user_with_time = f"{user_text}  \n{user_metadata}"
                 else:
                     user_metadata = format_metadata(f"(Entscheidung: {format_number(decision_time, 1)}s)")
-                    user_with_time = f"{user_text} {user_metadata}"
+                    user_with_time = f"{user_text}  \n{user_metadata}"
 
                 # AI-Antwort mit Timing + Quelle (dynamisch basierend auf RAG/History)
                 if rag_context:
@@ -1487,7 +1520,7 @@ Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
                     source_label = "LLM"
 
                 metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, {format_number(tokens_per_sec, 1)} tok/s, Quelle: {source_label})")
-                ai_with_source = f"{thinking_html} {metadata}"
+                ai_with_source = f"{thinking_html}  \n{metadata}"
 
                 # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
                 history.append((user_with_time, ai_with_source))
