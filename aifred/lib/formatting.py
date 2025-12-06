@@ -7,6 +7,8 @@ and thinking processes in the Reflex UI.
 
 import re
 from .logging_utils import log_message
+from .config import XML_TAG_CONFIG  # Import from central config
+from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
 
 
@@ -50,11 +52,15 @@ def format_metadata(metadata_text: str) -> str:
         metadata_text: Text in Klammern, z.B. "(Inferenz: 1.3s, Quelle: Web-Recherche)"
 
     Returns:
-        HTML-formatierter Text mit kleiner Schrift und hellgrauer Farbe
+        Markdown-formatierter Text (kursiv, kleinere Optik durch Styling in UI)
 
     Example:
         >>> format_metadata("(Inferenz: 1.3s, Quelle: LLM)")
-        '<span style="font-size: 0.85em; color: #aaa;">( Inferenz: 1.3s, Quelle: LLM )</span>'
+        '*( Inferenz: 1.3s, Quelle: LLM )*'
+
+    Note:
+        Verwendet Markdown statt HTML, da rx.markdown() inline HTML escapet.
+        Die Kursiv-Formatierung (*...*) signalisiert Meta-Information.
     """
     if not metadata_text:
         return metadata_text
@@ -63,10 +69,11 @@ def format_metadata(metadata_text: str) -> str:
     text = metadata_text.strip()
     if text.startswith("(") and text.endswith(")"):
         inner = text[1:-1]
-        return f'<span style="font-size: 0.85em; color: #bbb;">( {inner} )</span>'
+        # Markdown kursiv - erscheint automatisch auf neuer Zeile durch \n davor
+        return f'*( {inner} )*'
 
-    # Falls keine Klammern: formatiere komplett
-    return f'<span style="font-size: 0.85em; color: #bbb;">{text}</span>'
+    # Falls keine Klammern: formatiere komplett als kursiv
+    return f'*{text}*'
 
 
 def get_timestamp() -> str:
@@ -77,6 +84,39 @@ def get_timestamp() -> str:
         Formatted timestamp string (z.B. "18:32:33")
     """
     return datetime.now().strftime("%H:%M:%S")
+
+
+def extract_xml_tags(text: str) -> list[tuple[str, str]]:
+    """
+    Extrahiert ALLE XML-Tags aus Text (generisch, nicht hardcoded).
+
+    WICHTIG: HTML-Tags werden IGNORIERT, damit sie nicht versehentlich
+    als Collapsibles formatiert werden (z.B. <span>, <div>, <details>).
+    Die Blacklist ist in html_tags.py definiert.
+
+    Args:
+        text: Text mit optionalen XML-Tags
+
+    Returns:
+        Liste von (tag_name, content) Tuples (ohne HTML-Tags!)
+
+    Example:
+        >>> extract_xml_tags("<think>foo</think> bar <python>code</python>")
+        [("think", "foo"), ("python", "code")]
+
+        >>> extract_xml_tags("<span style='...'>text</span>")  # HTML ignoriert!
+        []
+    """
+    # Generic XML pattern: <tagname>content</tagname>
+    pattern = r'<(\w+)>(.*?)</\1>'
+    matches = re.findall(pattern, text, re.DOTALL)
+
+    # Filter: Nur Non-HTML Tags zurückgeben (Blacklist aus html_tags.py)
+    return [
+        (tag_name, content.strip())
+        for tag_name, content in matches
+        if tag_name.lower() not in HTML_TAG_BLACKLIST
+    ]
 
 
 def format_debug_message(message: str) -> str:
@@ -95,24 +135,31 @@ def format_debug_message(message: str) -> str:
 
 def format_thinking_process(ai_response, model_name=None, inference_time=None, tokens_per_sec=None):
     """
-    Formatiert <think> und <data> Tags als Collapsible Accordion für den Chat.
+    Formatiert XML-Tags als Collapsible Accordions (GENERISCH).
+
+    Unterstützt ALLE in XML_TAG_CONFIG definierten Tags dynamisch.
+    Keine Hardcodierung mehr - neue Tags können via Config hinzugefügt werden!
 
     Args:
-        ai_response: Die AI-Antwort mit optionalen <think> oder <data> Tags
+        ai_response: Die AI-Antwort mit optionalen XML-Tags
         model_name: Name des verwendeten Modells (z.B. "qwen3:1.7b")
         inference_time: Inferenz-Zeit in Sekunden
         tokens_per_sec: Tokens pro Sekunde (optional)
 
     Returns:
-        Formatted string mit Collapsible für Denkprozess/Daten (inkl. Modell-Name)
+        Formatted string mit Collapsibles für alle erkannten XML-Tags
 
-    Tags:
-        <think>: Denkprozess (z.B. DeepSeek Reasoning)
-        <data>: Strukturierte Daten (z.B. Vision-LLM JSON)
+    Supported Tags (via XML_TAG_CONFIG):
+        <think>: Denkprozess (DeepSeek Reasoning)
+        <data>: Strukturierte Daten (Vision-LLM JSON)
+        <python>: Python Code
+        <code>: Generic Code
+        <sql>: SQL Query
+        <json>: JSON Daten
 
     Example:
-        Input: "Some text <think>thinking process</think> More text"
-        Output: HTML mit collapsible <think> section + clean response
+        Input: "<think>reasoning</think> Answer <python>code</python>"
+        Output: 2 Collapsibles (Denkprozess + Python Code) + "Answer"
     """
 
     # DEBUG: Logge KOMPLETTE RAW Response
@@ -121,109 +168,73 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
     log_message(ai_response)
     log_message("=" * 80)
 
-    # Suche nach <think>...</think> Tags (normaler Fall)
-    think_pattern = r'<think>(.*?)</think>'
-    matches = re.findall(think_pattern, ai_response, re.DOTALL)
+    # Extract ALL XML tags generically
+    xml_tags = extract_xml_tags(ai_response)
 
-    # Suche auch nach <data>...</data> Tags (Vision-LLM JSON)
-    data_pattern = r'<data>(.*?)</data>'
-    data_matches = re.findall(data_pattern, ai_response, re.DOTALL)
-
-    # FALLBACK: Prüfe auf fehlendes öffnendes Tag (qwen3:4b Bug)
-    # Wenn nur </think> vorhanden ist, aber kein <think>
-    if not matches and '</think>' in ai_response:
-        log_message("⚠️ Fehlendes <think> Tag erkannt - verwende Fallback-Logik")
-        # Alles VOR dem ersten </think> ist Denkprozess
-        parts = ai_response.split('</think>', 1)
-        if len(parts) == 2:
-            thinking = parts[0].strip()
-            thinking = re.sub(r'\n\n+', '\n\n', thinking)  # Reduziere mehrfache Leerzeilen auf maximal 1
-            clean_response = parts[1].strip()
-
-            # Baue Summary mit Modell-Name und Inferenz-Zeit
-            summary_parts = ["💭 Denkprozess"]
-            if model_name:
-                summary_parts.append(f"({model_name})")
-            if inference_time:
-                summary_parts.append(f"• {inference_time:.1f}s")
-            summary_text = " ".join(summary_parts)
-
-            formatted = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
-<div class="thinking-compact">
-
-{thinking}
-
-</div>
-</details>
-
-{clean_response}"""
-
-            return formatted
-
-    # === <data> Blöcke verarbeiten (Vision-LLM JSON) ===
-    if data_matches:
-        data_content = data_matches[0].strip()
-        clean_response = re.sub(data_pattern, '', ai_response, flags=re.DOTALL).strip()
-
-        # Baue Summary mit Icon (OHNE Inferenzzeit - die kommt in Metadata-Footer)
-        summary_parts = ["📊 Strukturierte Daten"]
-        if model_name:
-            summary_parts.append(f"({model_name})")
-        summary_text = " ".join(summary_parts)
-
-        # Formatiere als Collapsible
-        formatted = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
-<div class="thinking-compact">
-
-{data_content}
-
-</div>
-</details>
-
-{clean_response}"""
-
-        return formatted
-
-    # === <think> Blöcke verarbeiten (DeepSeek Reasoning) ===
-    if matches:
-        # Normaler Fall: Ein <think> Block gefunden
-        thinking = matches[0].strip()
-        # thinking = re.sub(r'\n\n\n+', '\n\n', thinking)  # DEAKTIVIERT zum Testen
-        clean_response = re.sub(think_pattern, '', ai_response, flags=re.DOTALL).strip()
-
-        # Baue Summary mit Modell-Name (OHNE Inferenzzeit - die kommt in Metadata-Footer)
-        summary_parts = ["💭 Denkprozess"]
-        if model_name:
-            summary_parts.append(f"({model_name})")
-        summary_text = " ".join(summary_parts)
-
-        # Formatiere mit HTML Details/Summary (Reflex unterstützt HTML in Markdown)
-        formatted = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
-<div class="thinking-compact">
-
-{thinking}
-
-</div>
-</details>
-
-{clean_response}"""
-
-        return formatted
-    else:
-        # Keine <think> oder <data> Tags gefunden, gebe Original zurück
+    if not xml_tags:
+        # No tags found, return original
         return ai_response
+
+    # Build collapsibles for each detected tag
+    collapsibles = []
+    for tag_name, content in xml_tags:
+        config = XML_TAG_CONFIG.get(tag_name)
+
+        if config:
+            # Known tag → Use config (schönes Icon + Label)
+            icon = config['icon']
+            label = config['label']
+            css_class = config['class']
+        else:
+            # Unknown tag → Auto-generate (Fallback für ALLE Tags!)
+            icon = "📄"
+            label = tag_name.capitalize()
+            css_class = "thinking-compact"
+            log_message(f"ℹ️ Auto-formatiere unbekanntes XML-Tag: <{tag_name}> → {icon} {label}")
+
+        # Build summary with icon + label
+        summary_parts = [f"{icon} {label}"]
+        if model_name:
+            summary_parts.append(f"({model_name})")
+        if inference_time and tag_name == "think":  # Nur für <think> Zeit zeigen
+            summary_parts.append(f"• {inference_time:.1f}s")
+        summary_text = " ".join(summary_parts)
+
+        # Build collapsible HTML
+        collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
+<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
+<div class="{css_class}">
+
+{content}
+
+</div>
+</details>"""
+        collapsibles.append(collapsible)
+
+    # Remove nur die extrahierten Top-Level-Tags (nicht nested tags!)
+    clean_response = ai_response
+    for tag_name, _ in xml_tags:
+        # Entferne nur das erste Vorkommen des extrahierten Tags
+        pattern = rf'<{tag_name}>.*?</{tag_name}>'
+        clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
+    clean_response = clean_response.strip()
+
+    # Return: Collapsibles + Clean Response
+    if collapsibles:
+        return "\n\n".join(collapsibles) + "\n\n" + clean_response
+    else:
+        return clean_response
 
 
 def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model, query_time=None, final_time=None):
     """
     Baut Debug-Accordion für Agent-Recherche mit allen KI-Denkprozessen.
 
+    Nutzt jetzt extract_xml_tags() für generische XML-Verarbeitung!
+
     Args:
         query_reasoning: <think> Content from Query Optimization
-        ai_text: Final AI response with optional <think> tags
+        ai_text: Final AI response with optional XML tags
         automatik_model: Name des Automatik-Modells (für Query-Opt)
         main_model: Name des Haupt-Modells (für finale Antwort)
         query_time: Inferenz-Zeit für Query Optimization (optional)
@@ -243,55 +254,41 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
 
     # 1. Query Optimization Reasoning (falls vorhanden)
     if query_reasoning:
-        query_think = re.sub(r'\n\n+', '\n\n', query_reasoning)  # Reduziere mehrfache Leerzeilen auf maximal 1
         time_suffix = f" • {query_time:.1f}s" if query_time else ""
         debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa;">🔍 Query-Optimierung ({automatik_model}){time_suffix}</summary>
 <div class="thinking-compact">
 
-{query_think}
+{query_reasoning}
 
 </div>
 </details>""")
 
-    # 2. Final Answer <think> process (extract but don't remove yet)
-    think_match = re.search(r'<think>(.*?)</think>', ai_text, re.DOTALL)
+    # 2. Final Answer XML tags (generic extraction)
+    xml_tags = extract_xml_tags(ai_text)
 
-    # FALLBACK: Prüfe auf fehlendes öffnendes Tag (qwen3:4b Bug)
-    if not think_match and '</think>' in ai_text:
-        log_message("⚠️ Fehlendes <think> Tag in Agent Response erkannt")
-        # Alles VOR dem ersten </think> ist Denkprozess
-        parts = ai_text.split('</think>', 1)
-        if len(parts) == 2:
-            final_think = parts[0].strip()
-            final_think = re.sub(r'\n\n+', '\n\n', final_think)  # Reduziere mehrfache Leerzeilen auf maximal 1
+    for tag_name, content in xml_tags:
+        if tag_name == "think":
+            # <think> tag → Add as debug collapsible
             time_suffix = f" • {final_time:.1f}s" if final_time else ""
             debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa;">💭 Finale Antwort Denkprozess ({main_model}){time_suffix}</summary>
 <div class="thinking-compact">
 
-{final_think}
+{content}
 
 </div>
-</details>""")
-    elif think_match:
-        final_think = think_match.group(1).strip()
-        final_think = re.sub(r'\n\n+', '\n\n', final_think)  # Reduziere mehrfache Leerzeilen auf maximal 1
-        time_suffix = f" • {final_time:.1f}s" if final_time else ""
-        debug_sections.append(f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">💭 Finale Antwort Denkprozess ({main_model}){time_suffix}</summary>
-<div style="margin: 0; padding: 0.3em 0.8em; background: #2a2a2a; border-left: 3px solid #666; font-size: 0.95em; color: #e8e8e8; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{final_think}</div>
 </details>""")
 
     # Kombiniere alle Debug-Sections
     debug_accordion = "\n".join(debug_sections)
 
-    # Entferne <think> Tags aus ai_text (clean response)
-    # FALLBACK: Wenn nur </think> vorhanden (qwen3:4b Bug)
-    if '</think>' in ai_text and '<think>' not in ai_text:
-        clean_response = ai_text.split('</think>', 1)[1].strip() if '</think>' in ai_text else ai_text
-    else:
-        clean_response = re.sub(r'<think>.*?</think>', '', ai_text, flags=re.DOTALL).strip()
+    # Entferne nur die extrahierten Top-Level-Tags (nicht nested tags!)
+    clean_response = ai_text
+    for tag_name, _ in xml_tags:
+        pattern = rf'<{tag_name}>.*?</{tag_name}>'
+        clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
+    clean_response = clean_response.strip()
 
     # Return: Debug Accordion + Clean Response
     if debug_accordion:

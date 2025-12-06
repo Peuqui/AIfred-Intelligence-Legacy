@@ -1,6 +1,19 @@
-Extract all data from this image as JSON.
+Extract ALL visible text, data and structures from this image as JSON. This is a complete OCR task.
 
-Format:
+CRITICAL RULES:
+- Extract ONLY what is ACTUALLY visible in the image - NO additions, NO corrections, NO interpretations!
+- DO NOT INVENT data or rows - if something is illegible, leave it empty or write "illegible"
+- Copy text EXACTLY as shown - no spell corrections, no improvements
+- For tables: Count the rows in the image and extract EXACTLY that number - no more, no less!
+
+IMPORTANT:
+- Capture ALL sections: headers, tables, lists, forms, plain text
+- Extract EVERY row and EVERY column completely
+- For multiple tables: Create an array with all tables
+- For mixed content: Combine all structures in logical order
+- Leave NOTHING out - complete document reconstruction!
+
+Format for single structure:
 ```json
 {
   "type": "table|list|form|text",
@@ -9,10 +22,23 @@ Format:
 }
 ```
 
+Format for multiple structures:
+```json
+{
+  "type": "document",
+  "sections": [
+    {"type": "text", "content": "Header text"},
+    {"type": "table", "columns": [...], "rows": [...]},
+    {"type": "form", "fields": [...]}
+  ]
+}
+```
+
 Types:
-- table: {"columns": [...], "rows": [[...]]}
-- list: {"items": [...]}
-- form: {"fields": [{"label": "...", "value": "..."}]}
-- text: {"content": "..."}
+- table: {"columns": [...], "rows": [[...]]} - Tables
+- list: {"items": [...]} - Lists
+- form: {"fields": [{"label": "...", "value": "..."}]} - Forms
+- text: {"content": "..."} - Plain text
+- document: {"sections": [...]} - Multiple sections
 
 Respond ONLY with valid JSON in markdown code block!

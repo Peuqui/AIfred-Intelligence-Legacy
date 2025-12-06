@@ -5,6 +5,135 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2025-12-06
+
+### 🔧 Generic XML-Tag Processing & Vision Collapsible Bugfix
+
+**Major refactor:** Replaced hardcoded XML-tag handling with generic, config-driven processing. Fixed critical double-collapsible bug in Vision-LLM responses.
+
+#### Fixed
+
+- **Double Collapsible Bug in Vision-LLM** ([conversation_handler.py:494-502](aifred/lib/conversation_handler.py#L494-L502), [state.py:1799-1907](aifred/state.py#L1799-L1907)):
+  - **Problem:** Vision-LLM with `<think>` tags (qwen3-vl:30b) showed thinking process TWICE
+  - **Root Cause:** `<think>` content extracted in conversation_handler.py, rebuilt in state.py, then extracted AGAIN by format_thinking_process()
+  - **Fix:** Removed `<think>` extraction from conversation_handler.py; let format_thinking_process() handle it once
+  - Vision-LLM responses now show single collapsible as expected
+
+- **Nested XML-Tag Stripping** ([formatting.py:195-201](aifred/lib/formatting.py#L195-L201), [formatting.py:267-272](aifred/lib/formatting.py#L267-L272)):
+  - **Problem:** Nested tags like `<code><function>...</function></code>` lost inner tags
+  - **Root Cause:** Global regex `re.sub(r'<(\w+)>.*?</\1>', '', ...)` removed ALL tags
+  - **Fix:** Only remove extracted top-level tags; preserve nested tags in collapsible content
+
+#### Added
+
+- **Generic XML-Tag Detection** ([formatting.py:94-111](aifred/lib/formatting.py#L94-L111)):
+  - New `extract_xml_tags()` helper function with regex `r'<(\w+)>(.*?)</\1>'`
+  - Detects ANY XML-style tags automatically (not just hardcoded `<think>`, `<data>`)
+  - Returns list of `(tag_name, content)` tuples for processing
+
+- **XML Tag Configuration Dictionary** ([config.py:340-347](aifred/lib/config.py#L340-L347)):
+  - `XML_TAG_CONFIG` dict defines icon, label, CSS class per tag
+  - Known tags: `think` (💭), `data` (📊), `python` (🐍), `code` (💻), `sql` (🗃️), `json` (📋)
+  - **Unknown tags get auto-fallback:** "📄 Tagname" (capitalized)
+  - Config-driven: Add new tags without code changes!
+
+- **Auto-Formatting for Unknown XML Tags** ([formatting.py:164-172](aifred/lib/formatting.py#L164-L172)):
+  - Any XML tag not in `XML_TAG_CONFIG` gets automatic collapsible with "📄" icon
+  - Log info: `ℹ️ Auto-formatiere unbekanntes XML-Tag: <tagname> → 📄 Tagname`
+  - Example: LLM generates `<peitenfunktion>code</peitenfunktion>` → "📄 Peitenfunktion" collapsible
+
+#### Changed
+
+- **Refactored format_thinking_process()** ([formatting.py:128-206](aifred/lib/formatting.py#L128-L206)):
+  - **Before:** Hardcoded pattern matching for `<think>` and `<data>` tags only
+  - **After:** Generic loop over all detected XML tags with config lookup
+  - Supports unlimited tag types via `XML_TAG_CONFIG`
+  - Inference time shown only for `<think>` tags (reasoning)
+
+- **Refactored build_debug_accordion()** ([formatting.py:209-277](aifred/lib/formatting.py#L209-L277)):
+  - Now uses `extract_xml_tags()` instead of hardcoded patterns
+  - Consistent behavior with main formatter
+
+- **Simplified Vision Response Reconstruction** ([state.py:1867-1889](aifred/state.py#L1867-L1889)):
+  - Removed `vision_think_content` variable (no longer needed)
+  - `vision_readable_text` may contain `<think>` tags - handled by format_thinking_process()
+  - Only `<data>` block explicitly constructed for JSON responses
+
+#### Technical Details
+
+**Before (Buggy Flow):**
+```
+conversation_handler → Extracts <think> → yields {"type": "thinking"}
+                                          ↓
+state.py → Collects think_content → Rebuilds <think> tags
+                                          ↓
+format_thinking_process() → Extracts <think> AGAIN → DOUBLE COLLAPSIBLE!
+```
+
+**After (Fixed Flow):**
+```
+conversation_handler → Leaves <think> tags in vision_readable_text
+                                          ↓
+state.py → Passes vision_readable_text unchanged
+                                          ↓
+format_thinking_process() → Extracts <think> ONCE → Single collapsible!
+```
+
+**Generic XML Processing:**
+```python
+# Old (hardcoded):
+if '<think>' in response: ...  # Only 2 tags supported
+if '<data>' in response: ...
+
+# New (generic):
+xml_tags = extract_xml_tags(response)  # ANY tag detected!
+for tag_name, content in xml_tags:
+    config = XML_TAG_CONFIG.get(tag_name, fallback)
+```
+
+#### Files Modified
+
+1. [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py) - Removed <think> extraction
+2. [aifred/state.py](aifred/state.py) - Simplified Vision response handling
+3. [aifred/lib/formatting.py](aifred/lib/formatting.py) - Generic XML processing, nested tag fix
+4. [aifred/lib/config.py](aifred/lib/config.py) - Added XML_TAG_CONFIG dictionary
+
+---
+
+### 🎨 Metadata Formatting & HTML Tag Blacklist (2025-12-06)
+
+**UI refinement:** Improved metadata display and added HTML tag blacklist for XML processing.
+
+#### Added
+
+- **HTML Tag Blacklist** ([html_tags.py](aifred/lib/html_tags.py)):
+  - New file with 96 HTML5 tags excluded from XML-Tag processing
+  - Prevents HTML elements like `<span>`, `<div>`, `<details>` from becoming collapsibles
+  - Categories: inline, block, table, form, media, interactive, meta elements
+  - `extract_xml_tags()` now checks against `HTML_TAG_BLACKLIST`
+
+#### Changed
+
+- **Metadata Formatting** ([formatting.py:47-76](aifred/lib/formatting.py#L47-L76)):
+  - Changed from HTML `<span style="...">` to Markdown `*...*` (italic)
+  - **Why:** `rx.markdown()` escapes inline HTML by default
+  - CSS styling in [custom.css](assets/custom.css) makes `<em>` tags gray (#888)
+  - Metadata now appears on its own line (Markdown line break: `"  \n"`)
+
+- **Metadata Line Breaks** ([conversation_handler.py](aifred/lib/conversation_handler.py), [state.py](aifred/state.py), [context_builder.py](aifred/lib/research/context_builder.py)):
+  - Changed from `\n\n` (paragraph) to `  \n` (Markdown line break)
+  - Removes extra blank line between content and metadata
+  - Metadata displays directly below content on its own line
+
+#### Files Modified
+
+5. [aifred/lib/html_tags.py](aifred/lib/html_tags.py) - **NEW:** HTML tag blacklist (96 tags)
+6. [aifred/lib/formatting.py](aifred/lib/formatting.py) - Markdown metadata formatting
+7. [assets/custom.css](assets/custom.css) - CSS for gray italic `<em>` tags
+8. [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py) - Metadata line breaks
+9. [aifred/state.py](aifred/state.py) - Metadata line breaks
+10. [aifred/lib/research/context_builder.py](aifred/lib/research/context_builder.py) - Metadata line breaks
+
 ## [2.4.0] - 2025-12-04
 
 ### 🔗 Vision + Research Integration

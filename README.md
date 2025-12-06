@@ -12,9 +12,22 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ## 📋 What's New
 
-**Latest Version:** v2.4.0 (2025-12-04)
+**Latest Version:** v2.4.1 (2025-12-06)
 
-### 🔗 Vision + Research Integration
+### 🔧 Generic XML-Tag Processing (v2.4.1)
+
+**Major refactor:** Replaced hardcoded XML-tag handling with config-driven, generic processing.
+
+Key highlights:
+- 🔧 **Fixed Double Collapsible Bug**: Vision-LLM with `<think>` tags (qwen3-vl:30b) no longer shows thinking process twice
+- 🏷️ **Generic XML Detection**: Any `<tagname>content</tagname>` pattern automatically converted to collapsible
+- ⚙️ **Config-Driven Tags**: `XML_TAG_CONFIG` in config.py defines icons/labels (💭 think, 📊 data, 🐍 python, etc.)
+- 📄 **Auto-Fallback**: Unknown tags get automatic "📄 Tagname" collapsible - no code changes needed!
+- 🔗 **Nested Tags Preserved**: Inner tags like `<function>` inside `<code>` stay intact
+- 🚫 **HTML Tag Blacklist**: 96 HTML5 tags excluded from XML processing (new file: `html_tags.py`)
+- 🎨 **Metadata Formatting**: Changed from HTML to Markdown italic, displays on own line without extra spacing
+
+### 🔗 Vision + Research Integration (v2.4.0)
 
 **Game Changer:** Upload an image, ask about its content, and AIfred automatically researches the web with context from the image!
 
@@ -1146,31 +1159,11 @@ Pull requests are welcome! For major changes, please open an issue first.
 
 ---
 
-## 📝 Session Notes - November 3, 2025
-
-### Internationalization (i18n) Implementation
-- Complete translation table for UI strings
-- Automatic language detection for prompts (de/en based on user input)
-- Manual UI language switcher added to settings
-- English prompt files completed (were incomplete)
-
-### Network and Configuration Adjustments
-- Fixed `api_url` in `rxconfig.py` to local IP for development environment
-- Environment-dependent configuration: `AIFRED_ENV=dev` vs `AIFRED_ENV=prod`
-- Fixed issue: Requests were forwarded to Mini-PC instead of processed locally
-- Development: `http://172.30.8.72:3002` (with RTX 3060), Production: `https://narnia.spdns.de:8443`
-
-### Bugfixes
-- Fixed parameter error: `cache_metadata` → `cache_info` in `get_decision_making_prompt()` calls
-- Now works correctly with the defined function signature
-
----
-
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.1.0 (November 2025)
+**Version**: 2.4.1 (December 2025)
 **Status**: Production-Ready 🚀

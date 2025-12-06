@@ -331,6 +331,22 @@ def _load_volatile_keywords():
 CACHE_EXCLUDE_VOLATILE = _load_volatile_keywords()
 
 # ============================================================
+# XML TAG FORMATTING CONFIGURATION
+# ============================================================
+# Collapsible-Formatierung für XML-Tags in AI-Responses
+# Config-Dictionary definiert Icon, Label und CSS-Class pro Tag
+# ALLE XML-Tags werden erkannt - diese Liste ist nur für schöne Icons!
+# Unknown Tags bekommen automatisch "📄 Tagname" als Fallback
+XML_TAG_CONFIG = {
+    "think": {"icon": "💭", "label": "Denkprozess", "class": "thinking-compact"},
+    "data": {"icon": "📊", "label": "Strukturierte Daten", "class": "thinking-compact"},
+    "python": {"icon": "🐍", "label": "Python Code", "class": "thinking-compact"},
+    "code": {"icon": "💻", "label": "Code", "class": "thinking-compact"},
+    "sql": {"icon": "🗃️", "label": "SQL Query", "class": "thinking-compact"},
+    "json": {"icon": "📋", "label": "JSON Daten", "class": "thinking-compact"},
+}
+
+# ============================================================
 # VISION/OCR CONFIGURATION
 # ============================================================
 # Maximum image dimension (longest edge) for Vision-LLM processing
