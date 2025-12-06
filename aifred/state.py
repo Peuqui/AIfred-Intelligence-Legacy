@@ -2100,7 +2100,7 @@ class AIState(rx.State):
                         if full_response:
                             # format_thinking_process() verarbeitet ALLE XML-Tags automatisch!
                             formatted_html = format_thinking_process(
-                                full_response_with_data,
+                                full_response,
                                 model_name=self.vision_model_id,  # Pure ID
                                 inference_time=vision_time,
                                 tokens_per_sec=tokens_per_sec
@@ -3205,6 +3205,8 @@ class AIState(rx.State):
 
         old_model = self.selected_model
         self.selected_model = model
+        # CRITICAL: Sync selected_model_id from display label
+        self.selected_model_id = extract_model_name(model)
         # Clear thinking mode warning when model changes
         self.thinking_mode_warning = ""
         self.add_debug(f"📝 Main-LLM: {model}")
@@ -3411,6 +3413,8 @@ class AIState(rx.State):
         """Set automatik model for decision and query optimization"""
         old_model = self.automatik_model
         self.automatik_model = model
+        # CRITICAL: Sync automatik_model_id from display label
+        self.automatik_model_id = extract_model_name(model)
         self.add_debug(f"⚡ Automatik-LLM: {model}")
         self._save_settings()
 
@@ -3427,6 +3431,8 @@ class AIState(rx.State):
         """Set vision model for OCR/image analysis"""
         old_model = self.vision_model
         self.vision_model = model
+        # CRITICAL: Sync vision_model_id from display label (fixes Vision-LLM using wrong model)
+        self.vision_model_id = extract_model_name(model)
         self.add_debug(f"👁️ Vision-LLM: {model}")
         self._save_settings()
 
