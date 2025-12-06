@@ -136,6 +136,94 @@ def t(key: str) -> rx.Var:
 
 
 # ============================================================
+# MOBILE NATIVE SELECT HELPERS
+# ============================================================
+
+def native_select_backend(value_var, on_change_handler, disabled_condition, backend_list) -> rx.Component:
+    """Native HTML <select> for Backend Selection (Mobile)
+
+    Simple approach: value and text are the same (display name like "Ollama").
+    Identical pattern to native_select_model.
+
+    Args:
+        value_var: State variable for current backend display name (AIState.backend_label)
+        on_change_handler: Event handler function (AIState.switch_backend_by_label)
+        disabled_condition: Boolean condition to disable the select
+        backend_list: List of backend display names (e.g., ["Ollama", "KoboldCPP"])
+    """
+    return rx.el.select(
+        # Simple foreach - value and text are the same
+        rx.foreach(
+            backend_list,
+            lambda backend: rx.el.option(
+                backend,  # Display: "Ollama"
+                value=backend,  # Value: "Ollama" (same!)
+            ),
+        ),
+        value=value_var,
+        on_change=on_change_handler,
+        disabled=disabled_condition,
+        # Dark theme styling for native select
+        style={
+            "width": "100%",
+            "padding": "8px 12px",
+            "font_size": "12px",  # Smaller font to fit more text
+            "color": COLORS["text_primary"],
+            "background": COLORS["input_bg"],
+            "border": f"1px solid {COLORS['border']}",
+            "border_radius": "6px",
+            "min_height": "48px",  # Touch-friendly
+            "cursor": "pointer",
+        },
+    )
+
+
+def native_select_model(value_var, on_change_handler, disabled_condition=False, model_list=None) -> rx.Component:
+    """Native HTML <select> for Model Selection (Mobile)
+
+    Uses simple list of display names (like before).
+    The value must match one of the options exactly.
+
+    Args:
+        value_var: State variable for current value (display name with size)
+        on_change_handler: Event handler function
+        disabled_condition: Boolean condition to disable the select (default: False)
+        model_list: List of model display names (default: AIState.available_models)
+    """
+    # Default to available_models if no list specified
+    models = model_list if model_list is not None else AIState.available_models
+
+    return rx.el.select(
+        # Generate options - value and text are the same (display name)
+        rx.foreach(
+            models,
+            lambda model: rx.el.option(
+                model,  # Display: "qwen3:8b (2.3 GB)"
+                value=model,  # Value: "qwen3:8b (2.3 GB)" (same!)
+            ),
+        ),
+        value=value_var,
+        on_change=on_change_handler,
+        disabled=disabled_condition,
+        # Dark theme styling for native select - Model names visible
+        style={
+            "width": "100%",
+            "padding": "8px 12px",
+            "font_size": "12px",  # Smaller font to fit more text
+            "color": COLORS["text_primary"],
+            "background": COLORS["input_bg"],
+            "border": f"1px solid {COLORS['border']}",
+            "border_radius": "6px",
+            "min_height": "48px",  # Touch-friendly
+            "cursor": "pointer",
+            "white_space": "nowrap",  # Don't wrap long model names
+            "overflow": "hidden",  # Hide overflow
+            "text_overflow": "ellipsis",  # Show ... if text is too long
+        },
+    )
+
+
+# ============================================================
 # LEFT COLUMN: Input Controls
 # ============================================================
 
@@ -1304,58 +1392,95 @@ def settings_accordion() -> rx.Component:
                     align="center",
                 ),
 
-                # Backend Selection with grouped headers
+                # Backend Selection - Mobile: Native select, Desktop: Radix UI
                 rx.hstack(
                     rx.text(t("backend"), font_weight="bold", font_size="12px"),
-                    rx.select.root(
-                        rx.select.trigger(),
-                        rx.select.content(
-                            # Universal Compatibility Header
-                            rx.select.item(
-                                "─── Universelle Kompatibilität (GGUF) ───",
-                                value="header_universal",
-                                disabled=True,
-                                font_weight="bold",
-                                color="blue",
+                    # Conditional rendering: Native select for mobile, Radix UI for desktop
+                    rx.cond(
+                        AIState.is_mobile,
+                        # MOBILE: Native HTML <select> - use IDs with rx.match for labels
+                        rx.el.select(
+                            rx.foreach(
+                                AIState.available_backends,  # IDs: ["ollama", "koboldcpp"]
+                                lambda bid: rx.el.option(
+                                    # Display capitalized label via rx.match
+                                    rx.match(
+                                        bid,
+                                        ("ollama", "Ollama"),
+                                        ("koboldcpp", "KoboldCPP"),
+                                        ("vllm", "vLLM"),
+                                        ("tabbyapi", "TabbyAPI"),
+                                        bid,  # fallback
+                                    ),
+                                    value=bid,  # ID as value
+                                ),
                             ),
-                            # P40-compatible backends
-                            rx.cond(
-                                AIState.available_backends.contains("ollama"),
-                                rx.select.item("Ollama", value="ollama"),
-                            ),
-                            rx.cond(
-                                AIState.available_backends.contains("koboldcpp"),
-                                rx.select.item("KoboldCPP", value="koboldcpp"),
-                            ),
-                            # Separator
-                            rx.select.item(
-                                "─────────────────────────────────",
-                                value="separator",
-                                disabled=True,
-                                color="gray",
-                            ),
-                            # Modern GPUs Header
-                            rx.select.item(
-                                "─── Moderne GPUs (FP16) ───",
-                                value="header_modern",
-                                disabled=True,
-                                font_weight="bold",
-                                color="blue",
-                            ),
-                            # Modern backends
-                            rx.cond(
-                                AIState.available_backends.contains("tabbyapi"),
-                                rx.select.item("TabbyAPI", value="tabbyapi"),
-                            ),
-                            rx.cond(
-                                AIState.available_backends.contains("vllm"),
-                                rx.select.item("vLLM", value="vllm"),
-                            ),
+                            value=AIState.backend_type,  # ID: "ollama"
+                            on_change=AIState.switch_backend,  # Direct handler
+                            disabled=AIState.backend_switching,
+                            style={
+                                "width": "100%",
+                                "padding": "8px 12px",
+                                "font_size": "12px",
+                                "color": COLORS["text_primary"],
+                                "background": COLORS["input_bg"],
+                                "border": f"1px solid {COLORS['border']}",
+                                "border_radius": "6px",
+                                "min_height": "48px",
+                                "cursor": "pointer",
+                            },
                         ),
-                        value=AIState.backend_type,
-                        on_change=AIState.switch_backend,
-                        size="2",
-                        disabled=AIState.backend_switching,
+                        # DESKTOP: Radix UI Select with grouped headers
+                        rx.select.root(
+                            rx.select.trigger(),
+                            rx.select.content(
+                                # Universal Compatibility Header
+                                rx.select.item(
+                                    "─── Universelle Kompatibilität (GGUF) ───",
+                                    value="header_universal",
+                                    disabled=True,
+                                    font_weight="bold",
+                                    color="blue",
+                                ),
+                                # P40-compatible backends
+                                rx.cond(
+                                    AIState.available_backends.contains("ollama"),
+                                    rx.select.item("Ollama", value="ollama"),
+                                ),
+                                rx.cond(
+                                    AIState.available_backends.contains("koboldcpp"),
+                                    rx.select.item("KoboldCPP", value="koboldcpp"),
+                                ),
+                                # Separator
+                                rx.select.item(
+                                    "─────────────────────────────────",
+                                    value="separator",
+                                    disabled=True,
+                                    color="gray",
+                                ),
+                                # Modern GPUs Header
+                                rx.select.item(
+                                    "─── Moderne GPUs (FP16) ───",
+                                    value="header_modern",
+                                    disabled=True,
+                                    font_weight="bold",
+                                    color="blue",
+                                ),
+                                # Modern backends
+                                rx.cond(
+                                    AIState.available_backends.contains("tabbyapi"),
+                                    rx.select.item("TabbyAPI", value="tabbyapi"),
+                                ),
+                                rx.cond(
+                                    AIState.available_backends.contains("vllm"),
+                                    rx.select.item("vLLM", value="vllm"),
+                                ),
+                            ),
+                            value=AIState.backend_type,
+                            on_change=AIState.switch_backend,
+                            size="2",
+                            disabled=AIState.backend_switching,
+                        ),
                     ),
                     rx.cond(
                         AIState.backend_switching,
@@ -1445,21 +1570,33 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
-                # Model Selection
+                # Model Selection - Mobile: Native select, Desktop: Radix UI
                 rx.hstack(
                     rx.text(t("main_llm"), font_weight="bold", font_size="12px"),
-                    rx.select(
-                        AIState.available_models,
-                        value=AIState.selected_model,
-                        on_change=AIState.set_selected_model,
-                        size="2",
-                        position="popper",  # Better mobile positioning (adapts to viewport)
-                        disabled=AIState.backend_switching,  # Disable during backend switch
+                    rx.cond(
+                        AIState.is_mobile,
+                        # MOBILE: Native HTML <select> (simple list)
+                        native_select_model(
+                            AIState.selected_model,  # Display name with size
+                            AIState.set_selected_model,  # Original handler
+                            AIState.backend_switching,
+                            AIState.available_models,  # Simple list of display names
+                        ),
+                        # DESKTOP: Radix UI Select
+                        rx.select(
+                            AIState.available_models,
+                            value=AIState.selected_model,
+                            on_change=AIState.set_selected_model,
+                            size="2",
+                            position="popper",  # Better mobile positioning (adapts to viewport)
+                            disabled=AIState.backend_switching,  # Disable during backend switch
+                        ),
                     ),
                     spacing="3",
                     align="center",
                 ),
 
+                # Automatik LLM Selection - Mobile: Native select, Desktop: Radix UI
                 rx.hstack(
                     rx.text(
                         t("automatic_llm"),
@@ -1472,44 +1609,67 @@ def settings_accordion() -> rx.Component:
                             "0.5"
                         ),
                     ),
-                    rx.select(
-                        AIState.available_models,
-                        value=AIState.automatik_model,
-                        on_change=AIState.set_automatik_model,
-                        size="2",
-                        position="popper",  # Better mobile positioning (adapts to viewport)
-                        # Disable if backend can't switch models or during backend switch
-                        disabled=(~AIState.backend_supports_dynamic_models) | AIState.backend_switching,
-                        # Visual styling: Gray out when disabled
-                        opacity=rx.cond(
-                            AIState.backend_supports_dynamic_models,
-                            "1.0",
-                            "0.4"
+                    rx.cond(
+                        AIState.is_mobile,
+                        # MOBILE: Native HTML <select> (simple list)
+                        native_select_model(
+                            AIState.automatik_model,  # Display name with size
+                            AIState.set_automatik_model,  # Original handler
+                            (~AIState.backend_supports_dynamic_models) | AIState.backend_switching,
+                            AIState.available_models,  # Simple list of display names
                         ),
-                        cursor=rx.cond(
-                            AIState.backend_supports_dynamic_models,
-                            "pointer",
-                            "not-allowed"
+                        # DESKTOP: Radix UI Select
+                        rx.select(
+                            AIState.available_models,
+                            value=AIState.automatik_model,
+                            on_change=AIState.set_automatik_model,
+                            size="2",
+                            position="popper",  # Better mobile positioning (adapts to viewport)
+                            # Disable if backend can't switch models or during backend switch
+                            disabled=(~AIState.backend_supports_dynamic_models) | AIState.backend_switching,
+                            # Visual styling: Gray out when disabled
+                            opacity=rx.cond(
+                                AIState.backend_supports_dynamic_models,
+                                "1.0",
+                                "0.4"
+                            ),
+                            cursor=rx.cond(
+                                AIState.backend_supports_dynamic_models,
+                                "pointer",
+                                "not-allowed"
+                            ),
                         ),
                     ),
                     spacing="3",
                     align="center",
                 ),
 
+                # Vision LLM Selection - Mobile: Native select, Desktop: Radix UI
                 rx.hstack(
                     rx.text(
                         t("vision_llm"),
                         font_weight="bold",
                         font_size="12px",
                     ),
-                    rx.select(
-                        AIState.available_vision_models,
-                        value=AIState.vision_model,
-                        on_change=AIState.set_vision_model,
-                        size="2",
-                        position="popper",  # Better mobile positioning (adapts to viewport)
-                        disabled=AIState.backend_switching,  # Disable during backend switch
-                        placeholder="Select vision model..."
+                    rx.cond(
+                        AIState.is_mobile,
+                        # MOBILE: Native HTML <select> (simple list)
+                        native_select_model(
+                            AIState.vision_model,  # Display name with size
+                            AIState.set_vision_model,  # Original handler
+                            AIState.backend_switching,
+                            AIState.available_vision_models_list,  # Vision models list (state var, not computed)
+                        ),
+                        # DESKTOP: Radix UI Select
+                        rx.select(
+                            AIState.available_vision_models_list,  # State var instead of computed property
+                            value=AIState.vision_model,
+                            on_change=AIState.set_vision_model,
+                            size="2",
+                            position="popper",  # Better mobile positioning (adapts to viewport)
+                            disabled=AIState.backend_switching,  # Disable during backend switch
+                            placeholder="Select vision model..."
+                        ),
                     ),
                     spacing="3",
                     align="center",
@@ -2085,24 +2245,57 @@ console.log('✅ Paste handler initialized');
         rx.box(
             id="camera-detector",
             display="none",
-            on_mount=rx.call_script(
-                """
-                (async () => {
-                    try {
-                        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                            const devices = await navigator.mediaDevices.enumerateDevices();
-                            const hasCamera = devices.some(device => device.kind === 'videoinput');
-                            console.log('📷 Camera detected:', hasCamera);
-                            return hasCamera;
+            on_mount=[
+                # Camera Detection
+                rx.call_script(
+                    """
+                    (async () => {
+                        try {
+                            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                                const devices = await navigator.mediaDevices.enumerateDevices();
+                                const hasCamera = devices.some(device => device.kind === 'videoinput');
+                                console.log('📷 Camera detected:', hasCamera);
+                                return hasCamera;
+                            }
+                        } catch (err) {
+                            console.log('⚠️ Camera detection failed:', err);
                         }
-                    } catch (err) {
-                        console.log('⚠️ Camera detection failed:', err);
-                    }
-                    return false;
-                })()
-                """,
-                callback=AIState.set_camera_available
-            )
+                        return false;
+                    })()
+                    """,
+                    callback=AIState.set_camera_available
+                ),
+                # Mobile Detection (User-Agent + Touch)
+                rx.call_script(
+                    """
+                    (() => {
+                        // Check User-Agent for mobile devices
+                        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+                        const mobileRegex = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini|mobile/i;
+                        const isMobileUA = mobileRegex.test(userAgent.toLowerCase());
+
+                        // Check for touch support
+                        const hasTouch = ('ontouchstart' in window) ||
+                                        (navigator.maxTouchPoints > 0) ||
+                                        (navigator.msMaxTouchPoints > 0);
+
+                        // Mobile = Mobile UA + Touch support
+                        const isMobile = isMobileUA && hasTouch;
+
+                        console.log('📱 Mobile detection:', {
+                            userAgent: userAgent,
+                            isMobileUA: isMobileUA,
+                            hasTouch: hasTouch,
+                            maxTouchPoints: navigator.maxTouchPoints,
+                            isMobile: isMobile
+                        });
+
+                        return isMobile;
+                    })()
+                    """,
+                    callback=AIState.set_is_mobile
+                )
+            ]
         ),
 
         rx.vstack(
@@ -2133,7 +2326,7 @@ console.log('✅ Paste handler initialized');
             rx.grid(
                 debug_console(),
                 settings_accordion(),
-                columns="11fr 9fr",  # Debug Console 55% (11fr), Settings 45% (9fr)
+                columns="1fr 1fr",  # Equal width: 50% Debug Console, 50% Settings
                 spacing="4",
                 width="100%",
             ),

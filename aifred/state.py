@@ -96,6 +96,52 @@ def initialize_vector_cache():
         return None
 
 
+def sort_models_grouped(models_dict: Dict[str, str]) -> Dict[str, str]:
+    """
+    Sort models by model family (alphabetically) and then by size (ascending).
+
+    Groups models by their base name (e.g., "qwen2.5", "qwen3", "mistral", "gemma")
+    and sorts within each group by size.
+
+    Args:
+        models_dict: Dict[model_id, display_label] e.g., {"qwen3:8b": "qwen3:8b (5.2 GB)"}
+
+    Returns:
+        Sorted dict with same structure
+    """
+    import re
+
+    def get_model_family(model_id: str) -> str:
+        """Extract model family for grouping (e.g., 'qwen3:8b' -> 'qwen3', 'qwen3-vl:8b' -> 'qwen3-vl')"""
+        # Remove size suffix like :8b, :30b, :0.6b, :1.7b etc.
+        base = re.sub(r':\d+\.?\d*b.*$', '', model_id.lower())
+        # Remove the part after colon entirely if still present (e.g., :latest, :mini)
+        base = re.sub(r':.*$', '', base)
+        # Remove version suffixes like -instruct, -2507, -thinking, -a3b etc.
+        # BUT keep -vl, -coder as they define different model families!
+        base = re.sub(r'[-_](instruct|chat|latest|thinking|a3b|\d{4}).*$', '', base)
+        return base
+
+    def get_model_size_gb(display_label: str) -> float:
+        """Extract size in GB from display label like 'model (5.2 GB)'"""
+        match = re.search(r'\((\d+\.?\d*)\s*GB\)', display_label)
+        if match:
+            return float(match.group(1))
+        return 0.0
+
+    # Create list of (model_id, display_label, family, size)
+    models_with_info = [
+        (mid, label, get_model_family(mid), get_model_size_gb(label))
+        for mid, label in models_dict.items()
+    ]
+
+    # Sort by family (alphabetically), then by size (ascending)
+    models_with_info.sort(key=lambda x: (x[2], x[3]))
+
+    # Convert back to dict (preserves order in Python 3.7+)
+    return {mid: label for mid, label, _, _ in models_with_info}
+
+
 def is_backend_compatible(model_dir, backend: str) -> bool:
     """
     Check if model is compatible with backend by reading config.json
@@ -229,20 +275,38 @@ class AIState(rx.State):
     _camera_detection_done: bool = False  # Internal flag to prevent duplicate logging from Reflex hydration
 
     # Backend Settings
-    backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi"
+    backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi" [DEPRECATED - use backend_id]
+    backend_id: str = "ollama"  # NEW: Pure backend ID (synced with backend_type for compatibility)
+    current_backend_label: str = "Ollama"  # NEW: Display label for current backend (synced with backend_id)
     backend_url: str = "http://localhost:11434"  # Default Ollama URL
+
+    # Backend ID/Label Mapping (static - all possible backends)
+    available_backends_dict: Dict[str, str] = {
+        "ollama": "Ollama",
+        "koboldcpp": "KoboldCPP",
+        "tabbyapi": "TabbyAPI",
+        "vllm": "vLLM"
+    }
+
     # NOTE: Models loaded from settings.json first, fallback to config.py only if settings don't exist
-    selected_model: str = ""  # Initialized in on_load() from settings.json or config.py
-    available_models: List[str] = []
-    _vision_models_cache: List[str] = []  # Cached list of vision-capable models (populated by initialize_backend)
+    selected_model: str = ""  # Initialized in on_load() from settings.json or config.py [DEPRECATED]
+    selected_model_id: str = ""  # NEW: Pure model ID (synced with selected_model)
+
+    available_models: List[str] = []  # List of display labels [DEPRECATED]
+    available_models_dict: Dict[str, str] = {}  # NEW: {model_id: display_label}
+
+    vision_models_cache: List[str] = []  # Cached list of vision model IDs (populated by initialize_backend)
+    available_vision_models_list: List[str] = []  # NEW: Display names for vision models (synced with vision_models_cache)
 
     # Automatik-LLM (für Decision und Query-Optimierung)
     # NOTE: Loaded from settings.json first, fallback to config.py only if settings don't exist
-    automatik_model: str = ""  # Initialized in on_load() from settings.json or config.py
+    automatik_model: str = ""  # Initialized in on_load() from settings.json or config.py [DEPRECATED]
+    automatik_model_id: str = ""  # NEW: Pure model ID (synced with automatik_model)
 
     # Vision-LLM (für Bildanalyse/OCR - Spezialisiert auf strukturierte Datenextraktion)
     # NOTE: Loaded from settings.json first, fallback to first available vision model
-    vision_model: str = ""  # Initialized in on_load() from settings.json or auto-detect
+    vision_model: str = ""  # Initialized in on_load() from settings.json or auto-detect [DEPRECATED]
+    vision_model_id: str = ""  # NEW: Pure model ID (synced with vision_model)
 
     # LLM Options
     temperature: float = 0.7
@@ -311,6 +375,10 @@ class AIState(rx.State):
     # UI Language Settings
     ui_language: str = "de"  # "de" or "en" - für UI Sprache
 
+    # Mobile Detection (clientseitig via JavaScript)
+    is_mobile: bool = False  # True if mobile device detected (User-Agent + Touch)
+    _mobile_detection_done: bool = False  # Internal flag to prevent duplicate logging from Reflex hydration
+
     # Processing Progress (Automatik, Scraping, LLM)
     progress_active: bool = False
     progress_phase: str = ""  # "automatik", "scraping", "llm"
@@ -333,6 +401,7 @@ class AIState(rx.State):
     gpu_count: int = 1
     gpu_vram_gb: int = 0
     available_backends: List[str] = ["ollama", "koboldcpp", "tabbyapi", "vllm"]  # Filtered by GPU compatibility (P40-compatible first)
+    available_backends_list: List[str] = ["Ollama", "KoboldCPP", "TabbyAPI", "vLLM"]  # NEW: Display names (synced with available_backends)
 
     @rx.var
     def gpu_display_text(self) -> str:
@@ -434,9 +503,82 @@ class AIState(rx.State):
         Filter available_models to only include vision-capable models.
         Used for Vision-LLM dropdown.
 
-        Returns cached vision models list (populated during initialize_backend).
+        Returns display names (with size) for vision models.
+        vision_models_cache stores IDs, we map them to display names.
         """
-        return self._vision_models_cache
+        # Map IDs to display names using available_models_dict
+        return [self.available_models_dict.get(mid, mid) for mid in self.vision_models_cache
+                if mid in self.available_models_dict]
+
+    # ===== NEW: KEY-VALUE COMPUTED PROPERTIES FOR MOBILE NATIVE SELECTS =====
+
+    # Backend Computed Properties
+    @rx.var
+    def backend_label(self) -> str:
+        """Get display label for current backend (e.g., 'ollama' -> 'Ollama')"""
+        return self.available_backends_dict.get(self.backend_id, self.backend_id)
+
+    @rx.var
+    def available_backends_display(self) -> List[str]:
+        """Get list of backend display names (filtered by GPU compatibility)
+
+        Returns display names like ["Ollama", "KoboldCPP"] for use in native select.
+        Mirrors how available_models works for model dropdowns.
+        """
+        return [self.available_backends_dict.get(bid, bid) for bid in self.available_backends
+                if bid in self.available_backends_dict]
+
+    @rx.var
+    def available_backend_ids(self) -> List[str]:
+        """Get list of available backend IDs (filtered by GPU compatibility)"""
+        # Return only backends that are compatible with current GPU
+        return [bid for bid in self.available_backends_dict.keys()
+                if bid in self.available_backends]
+
+    @rx.var
+    def available_backends_for_select(self) -> List[List[str]]:
+        """Get filtered list of [id, label] pairs for native select (GPU-compatible only)
+
+        Returns List[List[str]] instead of Dict because rx.foreach() works better with lists.
+        Format: [["ollama", "Ollama"], ["koboldcpp", "KoboldCPP"]]
+        """
+        return [[bid, label] for bid, label in self.available_backends_dict.items()
+                if bid in self.available_backends]
+
+    # Model Computed Properties
+    @rx.var
+    def selected_model_label(self) -> str:
+        """Get display label for selected model"""
+        return self.available_models_dict.get(self.selected_model_id, self.selected_model_id)
+
+    @rx.var
+    def automatik_model_label(self) -> str:
+        """Get display label for automatik model"""
+        return self.available_models_dict.get(self.automatik_model_id, self.automatik_model_id)
+
+    @rx.var
+    def vision_model_label(self) -> str:
+        """Get display label for vision model"""
+        return self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
+
+    @rx.var
+    def available_models_for_select(self) -> List[List[str]]:
+        """Get list of [id, label] pairs for native model select
+
+        Returns List[List[str]] instead of Dict because rx.foreach() works better with lists.
+        Format: [["qwen3:8b", "qwen3:8b (2.3 GB)"], ...]
+        """
+        return [[mid, label] for mid, label in self.available_models_dict.items()]
+
+    @rx.var
+    def available_vision_models_for_select(self) -> List[List[str]]:
+        """Get list of [id, label] pairs for vision model select
+
+        Returns List[List[str]] instead of Dict because rx.foreach() works better with lists.
+        """
+        return [[mid, self.available_models_dict[mid]]
+                for mid in self.vision_models_cache
+                if mid in self.available_models_dict]
 
     async def on_load(self):
         """
@@ -521,6 +663,8 @@ class AIState(rx.State):
             if saved_settings:
                 # Use saved settings
                 self.backend_type = saved_settings.get("backend_type", self.backend_type)
+                self.backend_id = self.backend_type  # Sync ID with type
+                self.current_backend_label = self.available_backends_dict.get(self.backend_id, self.backend_id)
                 self.research_mode = saved_settings.get("research_mode", self.research_mode)
 
                 # Update research_mode_display to match loaded research_mode
@@ -540,16 +684,36 @@ class AIState(rx.State):
                 # They are calculated dynamically on every vLLM startup based on VRAM availability
 
                 # Load per-backend models (if available)
+                from .lib.conversation_handler import extract_model_name
                 backend_models = saved_settings.get("backend_models", {})
-                if self.backend_type in backend_models:
-                    self.selected_model = backend_models[self.backend_type].get("selected_model", self.selected_model)
-                    self.automatik_model = backend_models[self.backend_type].get("automatik_model", self.automatik_model)
-                    self.vision_model = backend_models[self.backend_type].get("vision_model", self.vision_model)
+                if self.backend_id in backend_models:
+                    # NEW: Load pure IDs (backward compatible - extract from old display format)
+                    selected_raw = backend_models[self.backend_id].get("selected_model", "")
+                    automatik_raw = backend_models[self.backend_id].get("automatik_model", "")
+                    vision_raw = backend_models[self.backend_id].get("vision_model", "")
+
+                    # Extract pure IDs (handles both old "model (size)" and new "model" formats)
+                    self.selected_model_id = extract_model_name(selected_raw)
+                    self.automatik_model_id = extract_model_name(automatik_raw)
+                    self.vision_model_id = extract_model_name(vision_raw)
+
+                    # Sync deprecated variables (will be populated later after models load)
+                    self.selected_model = selected_raw
+                    self.automatik_model = automatik_raw
+                    self.vision_model = vision_raw
                 else:
                     # Fallback: Use old-style global model settings
-                    self.selected_model = saved_settings.get("selected_model", self.selected_model)
-                    self.automatik_model = saved_settings.get("automatik_model", self.automatik_model)
-                    self.vision_model = saved_settings.get("vision_model", self.vision_model)
+                    selected_raw = saved_settings.get("selected_model", "")
+                    automatik_raw = saved_settings.get("automatik_model", "")
+                    vision_raw = saved_settings.get("vision_model", "")
+
+                    self.selected_model_id = extract_model_name(selected_raw)
+                    self.automatik_model_id = extract_model_name(automatik_raw)
+                    self.vision_model_id = extract_model_name(vision_raw)
+
+                    self.selected_model = selected_raw
+                    self.automatik_model = automatik_raw
+                    self.vision_model = vision_raw
 
                 self.add_debug(f"⚙️ Settings loaded (backend: {self.backend_type})")
 
@@ -627,14 +791,27 @@ class AIState(rx.State):
                 # Only show backends that are actually compatible with the GPU
                 if gpu_info.recommended_backends:
                     self.available_backends = gpu_info.recommended_backends
+                    # Sync display names list
+                    self.available_backends_list = [
+                        self.available_backends_dict.get(bid, bid)
+                        for bid in self.available_backends
+                    ]
+                    # Store in global state for fast-path restore
+                    _global_backend_state["available_backends"] = self.available_backends
+                    _global_backend_state["available_backends_list"] = self.available_backends_list
                     self.add_debug(f"✅ Compatible backends: {', '.join(self.available_backends)}")
 
                     # If current backend is not compatible, switch to first available
                     if self.backend_type not in self.available_backends:
                         old_backend = self.backend_type
                         self.backend_type = self.available_backends[0]
+                        self.backend_id = self.backend_type  # Sync ID with type
                         self.add_debug(f"⚠️ Backend '{old_backend}' not compatible with {gpu_info.name}")
                         self.add_debug(f"🔄 Auto-switched to '{self.backend_type}'")
+
+                    # ALWAYS sync current_backend_label (fixes closed dropdown display)
+                    self.current_backend_label = self.available_backends_dict.get(self.backend_id, self.backend_id)
+                    _global_backend_state["current_backend_label"] = self.current_backend_label
 
             # Initialize backend (or restore from global state)
             self.add_debug("🔧 Initializing backend...")
@@ -672,17 +849,29 @@ class AIState(rx.State):
 
         # Check if this backend was already initialized globally
         is_same_backend = (_global_backend_state["backend_type"] == self.backend_type)
+        # Also check that vision detection is complete (prevents race condition)
+        init_complete = _global_backend_state.get("_init_complete", False)
 
-        if is_same_backend and _global_backend_state["available_models"]:
+        if is_same_backend and _global_backend_state["available_models"] and init_complete:
             # FAST PATH: Restore from global state (page reload case)
             print(f"⚡ Backend '{self.backend_type}' already initialized, restoring from global state...")
 
             self.backend_url = _global_backend_state["backend_url"]
             self.available_models = _global_backend_state["available_models"]
+            self.available_models_dict = _global_backend_state.get("available_models_dict", {})  # CRITICAL for vision dropdown!
             self.selected_model = _global_backend_state["selected_model"]
+            self.selected_model_id = _global_backend_state.get("selected_model_id", "")
             self.automatik_model = _global_backend_state["automatik_model"]
-            self._vision_models_cache = _global_backend_state.get("vision_models_cache", [])
+            self.automatik_model_id = _global_backend_state.get("automatik_model_id", "")
+            self.vision_models_cache = _global_backend_state.get("vision_models_cache", [])
+            self.available_vision_models_list = _global_backend_state.get("available_vision_models_list", [])
             self.vision_model = _global_backend_state.get("vision_model", "")
+            self.vision_model_id = _global_backend_state.get("vision_model_id", "")
+            # Restore backend dropdown data
+            self.available_backends = _global_backend_state.get("available_backends", self.available_backends)
+            self.available_backends_list = _global_backend_state.get("available_backends_list", self.available_backends_list)
+            self.current_backend_label = _global_backend_state.get("current_backend_label",
+                self.available_backends_dict.get(self.backend_type, self.backend_type))
 
             # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
             if self.backend_type == "vllm" and self.automatik_model != self.selected_model:
@@ -757,7 +946,7 @@ class AIState(rx.State):
                         model_dirs = [d for d in hf_cache.iterdir() if d.is_dir() and d.name.startswith("models--")]
 
                         # Filter models by reading config.json and calculate sizes
-                        self.available_models = []
+                        unsorted_dict = {}
                         for model_dir in model_dirs:
                             if is_backend_compatible(model_dir, self.backend_type):
                                 model_id = model_dir.name.replace("models--", "").replace("--", "/", 1)
@@ -767,13 +956,19 @@ class AIState(rx.State):
                                     from .lib.vllm_manager import get_model_size_bytes
                                     total_size = get_model_size_bytes(model_id)
                                     size_gb = total_size / (1024**3)
-                                    self.available_models.append(f"{model_id} ({size_gb:.1f} GB)")
+                                    unsorted_dict[model_id] = f"{model_id} ({size_gb:.1f} GB)"
                                 except Exception:
                                     # Fallback: show without size if calculation fails
-                                    self.available_models.append(model_id)
+                                    unsorted_dict[model_id] = model_id
+
+                        # Sort by model family, then by size
+                        self.available_models_dict = sort_models_grouped(unsorted_dict)
+                        # Keep list for compatibility (DEPRECATED)
+                        self.available_models = list(self.available_models_dict.values())
 
                         self.add_debug(f"📂 Found {len(self.available_models)} {self.backend_type}-compatible models ({len(model_dirs)} total in cache)")
                     else:
+                        self.available_models_dict = {}
                         self.available_models = []
                         self.add_debug("⚠️ HuggingFace cache not found")
 
@@ -787,8 +982,15 @@ class AIState(rx.State):
                         gguf_models = find_all_gguf_models()
 
                         if gguf_models:
-                            # Store model names with sizes in available_models
-                            self.available_models = [f"{m.name} ({m.size_gb:.1f} GB)" for m in gguf_models]
+                            # Build dict: {model_id: display_label}
+                            unsorted_dict = {
+                                m.name: f"{m.name} ({m.size_gb:.1f} GB)"
+                                for m in gguf_models
+                            }
+                            # Sort by model family, then by size
+                            self.available_models_dict = sort_models_grouped(unsorted_dict)
+                            # Keep list for compatibility (DEPRECATED)
+                            self.available_models = list(self.available_models_dict.values())
 
                             # Store full model info in global state (keyed by pure name)
                             _global_backend_state["gguf_models"] = {m.name: m for m in gguf_models}
@@ -800,6 +1002,7 @@ class AIState(rx.State):
                             # KoboldCPP can only load ONE model - Automatik uses same model
                             self.automatik_model = self.selected_model
                         else:
+                            self.available_models_dict = {}
                             self.available_models = []
                             self.add_debug("⚠️ No GGUF models found")
                             self.add_debug("💡 Download GGUF models:")
@@ -807,6 +1010,7 @@ class AIState(rx.State):
                             self.add_debug("       Qwen3-30B-Instruct-2507-Q4_K_M.gguf --local-dir ~/models/")
 
                     except Exception as e:
+                        self.available_models_dict = {}
                         self.available_models = []
                         self.add_debug(f"❌ GGUF discovery failed: {e}")
                         import traceback
@@ -826,50 +1030,55 @@ class AIState(rx.State):
 
                     if result.returncode == 0:
                         data = json.loads(result.stdout)
-                        # Format: "model_name (size GB)"
-                        self.available_models = [
-                            f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
+                        # Build dict: {model_id: display_label}
+                        unsorted_dict = {
+                            m['name']: f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
                             for m in data.get("models", [])
-                        ]
+                        }
+                        # Sort by model family, then by size
+                        self.available_models_dict = sort_models_grouped(unsorted_dict)
+                        # Keep list for compatibility (DEPRECATED)
+                        self.available_models = list(self.available_models_dict.values())
                     else:
+                        self.available_models_dict = {}
                         self.available_models = []
 
-                # Common validation for all backends
-                # Match pure model names (from settings) to display format (with size)
-                # Settings: "qwen3:8b" → Display: "qwen3:8b (5.2 GB)"
-                def find_display_name(pure_name: str) -> str:
-                    """Find display name matching pure model name"""
-                    for display_name in self.available_models:
-                        if extract_model_name(display_name) == pure_name:
-                            return display_name
-                    return ""
+                # NEW: Sync deprecated display variables with IDs using dict lookup
+                # No more extract_model_name() needed - direct dict access!
 
-                # Update selected_model to display format
-                if self.selected_model:
-                    display_name = find_display_name(self.selected_model)
-                    if display_name:
-                        self.selected_model = display_name
-                    elif self.available_models:
-                        log_message(f"⚠️ Configured model '{self.selected_model}' not found, using '{self.available_models[0]}'")
-                        self.selected_model = self.available_models[0]
+                # Validate and sync selected_model
+                if self.selected_model_id in self.available_models_dict:
+                    self.selected_model = self.available_models_dict[self.selected_model_id]
+                elif self.available_models_dict:
+                    # Fallback to first available model
+                    first_id = next(iter(self.available_models_dict.keys()))
+                    log_message(f"⚠️ Configured model '{self.selected_model_id}' not found, using '{first_id}'")
+                    self.selected_model_id = first_id
+                    self.selected_model = self.available_models_dict[first_id]
 
-                # Update automatik_model to display format
-                if self.automatik_model:
-                    display_name = find_display_name(self.automatik_model)
-                    if display_name:
-                        self.automatik_model = display_name
-                    elif self.available_models:
-                        log_message(f"⚠️ Configured automatik model '{self.automatik_model}' not found, using '{self.available_models[0]}'")
-                        self.automatik_model = self.available_models[0]
+                # Validate and sync automatik_model
+                if self.automatik_model_id in self.available_models_dict:
+                    self.automatik_model = self.available_models_dict[self.automatik_model_id]
+                elif self.available_models_dict:
+                    # Fallback to first available model
+                    first_id = next(iter(self.available_models_dict.keys()))
+                    log_message(f"⚠️ Configured automatik model '{self.automatik_model_id}' not found, using '{first_id}'")
+                    self.automatik_model_id = first_id
+                    self.automatik_model = self.available_models_dict[first_id]
 
                 self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
                 self.backend_healthy = True
 
                 # For backends without model switching (vLLM, KoboldCPP, TabbyAPI), show only Main model
                 if self.backend_type.lower() in ["vllm", "koboldcpp", "tabbyapi"]:
-                    self.add_debug(f"✅ {len(self.available_models)} Models vorhanden (Main: {self.selected_model})")
+                    # Compact format for Mobile: Multi-line with indentation
+                    self.add_debug(f"✅ {len(self.available_models)} Models vorhanden")
+                    self.add_debug(f"   Main: {self.selected_model}")
                 else:
-                    self.add_debug(f"✅ {len(self.available_models)} Models vorhanden (Main: {self.selected_model}, Automatik: {self.automatik_model})")
+                    # Compact format for Mobile: Multi-line with indentation
+                    self.add_debug(f"✅ {len(self.available_models)} Models vorhanden")
+                    self.add_debug(f"   Main: {self.selected_model}")
+                    self.add_debug(f"   Automatik: {self.automatik_model}")
 
             except Exception as e:
                 self.backend_healthy = False
@@ -891,8 +1100,12 @@ class AIState(rx.State):
             _global_backend_state["backend_type"] = self.backend_type
             _global_backend_state["backend_url"] = self.backend_url
             _global_backend_state["selected_model"] = self.selected_model
+            _global_backend_state["selected_model_id"] = self.selected_model_id
             _global_backend_state["automatik_model"] = self.automatik_model
+            _global_backend_state["automatik_model_id"] = self.automatik_model_id
             _global_backend_state["available_models"] = self.available_models
+            _global_backend_state["available_models_dict"] = self.available_models_dict  # CRITICAL for vision dropdown!
+            _global_backend_state["current_backend_label"] = self.current_backend_label
 
             # === DETECT VISION MODELS (metadata-based) ===
             self.add_debug("🔍 Detecting vision-capable models...")
@@ -911,6 +1124,7 @@ class AIState(rx.State):
 
             # Store in global state for future page reloads
             # vllm_manager and koboldcpp_manager are already stored in _global_backend_state by their start functions
+            _global_backend_state["_init_complete"] = True  # Mark init complete (enables fast-path for page reloads)
             print(f"✅ Backend '{self.backend_type}' fully initialized and stored in global state")
 
             # Mark initialization as complete (hide loading spinner)
@@ -930,11 +1144,11 @@ class AIState(rx.State):
         existing = load_settings() or {}
         backend_models = existing.get("backend_models", {})
 
-        # Update current backend's models (save pure names without size suffix)
-        backend_models[self.backend_type] = {
-            "selected_model": extract_model_name(self.selected_model),
-            "automatik_model": extract_model_name(self.automatik_model),
-            "vision_model": extract_model_name(self.vision_model),
+        # NEW: Save pure IDs directly (no more extract_model_name() needed!)
+        backend_models[self.backend_id] = {
+            "selected_model": self.selected_model_id,  # Pure ID: "qwen3:8b"
+            "automatik_model": self.automatik_model_id,
+            "vision_model": self.vision_model_id,
         }
 
         settings = {
@@ -951,6 +1165,17 @@ class AIState(rx.State):
             # They are calculated dynamically on every vLLM startup based on VRAM
         }
         save_settings(settings)
+
+    async def switch_backend_by_label(self, label: str):
+        """Switch backend using display label (for native mobile select)
+
+        Maps display label like "Ollama" to ID like "ollama" and calls switch_backend.
+        """
+        # Reverse lookup: label -> ID
+        label_to_id = {v: k for k, v in self.available_backends_dict.items()}
+        backend_id = label_to_id.get(label, label.lower())  # Fallback to lowercase
+        async for _ in self.switch_backend(backend_id):
+            yield
 
     async def switch_backend(self, new_backend: str):
         """Switch to different backend and restore last used models"""
@@ -1014,6 +1239,10 @@ class AIState(rx.State):
 
             # Switch backend and load models
             self.backend_type = new_backend
+            self.backend_id = new_backend  # Sync ID with type
+            self.current_backend_label = self.available_backends_dict.get(new_backend, new_backend)
+            # Reset init flag to force full initialization
+            _global_backend_state["_init_complete"] = False
             await self.initialize_backend()
 
             # Save settings for new backend
@@ -1258,60 +1487,56 @@ class AIState(rx.State):
     async def _detect_vision_models(self):
         """
         Detect vision-capable models using backend-specific metadata.
-        Populates self._vision_models_cache for UI dropdown.
+        Populates self.vision_models_cache for UI dropdown.
         """
         global _global_backend_state
         from .lib.vision_utils import is_vision_model
 
-        vision_models = []
+        vision_model_ids = []  # NEW: Store IDs, not display names
 
-        for model_display in self.available_models:
-            # Extract pure model name (remove size suffix)
-            model_pure = extract_model_name(model_display)
-
+        # NEW: Iterate over dict items
+        for model_id, model_display in self.available_models_dict.items():
             try:
                 # Query backend metadata to check vision capability
-                if await is_vision_model(self, model_pure):
-                    vision_models.append(model_display)
+                if await is_vision_model(self, model_id):  # model_id is already pure
+                    vision_model_ids.append(model_id)  # Store pure ID
             except Exception as e:
                 # Fallback: skip on error (don't block initialization)
-                log_message(f"⚠️ Vision detection failed for {model_pure}: {e}")
+                log_message(f"⚠️ Vision detection failed for {model_id}: {e}")
 
-        self._vision_models_cache = vision_models
-        _global_backend_state["vision_models_cache"] = vision_models
+        self.vision_models_cache = vision_model_ids  # Store IDs
+        _global_backend_state["vision_models_cache"] = vision_model_ids
 
-        self.add_debug(f"✅ Found {len(vision_models)} vision-capable models")
+        # Build display names list for dropdown (synced state variable, not computed property)
+        self.available_vision_models_list = [
+            self.available_models_dict.get(mid, mid) for mid in vision_model_ids
+            if mid in self.available_models_dict
+        ]
+        _global_backend_state["available_vision_models_list"] = self.available_vision_models_list
+
+        self.add_debug(f"✅ Found {len(vision_model_ids)} vision-capable models")
 
         # Auto-select vision_model if not set or empty
-        if (not self.vision_model or self.vision_model.strip() == "") and vision_models:
-            self.vision_model = vision_models[0]
-            self.add_debug(f"⚙️ Auto-selected vision_model: {self.vision_model}")
+        if (not self.vision_model_id or self.vision_model_id.strip() == "") and vision_model_ids:
+            self.vision_model_id = vision_model_ids[0]
+            self.vision_model = self.available_models_dict[self.vision_model_id]  # Sync display
+            self.add_debug(f"⚙️ Auto-selected vision_model: {self.vision_model_id}")
             self._save_settings()
-        # Validate existing vision_model is in cache (compare pure model names)
-        elif self.vision_model and vision_models:
-            # Check if saved model (pure name) matches any cached model (with size suffix)
-            saved_pure = extract_model_name(self.vision_model)
-
-            # Find matching model in vision_models list
-            matching_model = None
-            for model in vision_models:
-                if extract_model_name(model) == saved_pure:
-                    matching_model = model
-                    break
-
-            if matching_model:
-                # Update to display format (with size suffix) if format differs
-                if self.vision_model != matching_model:
-                    self.vision_model = matching_model
-                    self.add_debug(f"⚙️ Vision model updated to display format: {matching_model}")
+        # Validate existing vision_model is in cache
+        elif self.vision_model_id and vision_model_ids:
+            if self.vision_model_id in vision_model_ids:
+                # Sync display variable
+                self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
             else:
                 # Saved model not found in vision models, auto-select first available
-                self.add_debug(f"⚠️ Saved vision_model '{self.vision_model}' not found in vision models, auto-selecting...")
-                self.vision_model = vision_models[0]
+                self.add_debug(f"⚠️ Saved vision_model '{self.vision_model_id}' not found in vision models, auto-selecting...")
+                self.vision_model_id = vision_model_ids[0]
+                self.vision_model = self.available_models_dict[self.vision_model_id]
                 self._save_settings()
 
         # Store vision_model in global state for fast path restore
         _global_backend_state["vision_model"] = self.vision_model
+        _global_backend_state["vision_model_id"] = self.vision_model_id
 
     async def _start_vllm_server(self):
         """Start vLLM server process with selected model"""
@@ -1327,7 +1552,7 @@ class AIState(rx.State):
             # IMPORTANT: vLLM cannot switch models like Ollama (requires full restart)
             # Therefore, start directly with the Main-Model (30B) to avoid slow restarts
             # Both Automatik and Main requests will use the same 30B model
-            startup_model = extract_model_name(self.selected_model)
+            startup_model = self.selected_model_id  # Pure ID
             self.add_debug(f"🚀 Starting vLLM server with {startup_model}...")
             self.add_debug("   (vLLM uses Main-Model for all requests - model switching requires slow restart)")
 
@@ -1479,7 +1704,7 @@ class AIState(rx.State):
 
             # Get GGUF model info from global state
             # Extract pure model name (remove size suffix)
-            pure_model_name = extract_model_name(self.selected_model)
+            pure_model_name = self.selected_model_id  # Pure ID
             gguf_models = _global_backend_state.get("gguf_models", {})
             if not gguf_models or pure_model_name not in gguf_models:
                 raise RuntimeError(f"GGUF model '{pure_model_name}' not found")
@@ -1807,8 +2032,8 @@ class AIState(rx.State):
                 async for item in chat_with_vision_pipeline(
                     user_text=original_user_text,  # CRITICAL: Use original (may be empty!), not display_user_msg
                     images=self.pending_images,
-                    vision_model=extract_model_name(self.vision_model),
-                    haupt_model=extract_model_name(self.selected_model),
+                    vision_model=self.vision_model_id,  # Pure ID
+                    haupt_model=self.selected_model_id,  # Pure ID
                     backend_type=self.backend_type,
                     backend_url=self.backend_url,
                     num_ctx_mode=self.num_ctx_mode,
@@ -1875,8 +2100,8 @@ class AIState(rx.State):
                         if full_response:
                             # format_thinking_process() verarbeitet ALLE XML-Tags automatisch!
                             formatted_html = format_thinking_process(
-                                full_response,
-                                model_name=extract_model_name(self.vision_model),
+                                full_response_with_data,
+                                model_name=self.vision_model_id,  # Pure ID
                                 inference_time=vision_time,
                                 tokens_per_sec=tokens_per_sec
                             )
@@ -2132,8 +2357,8 @@ class AIState(rx.State):
                     user_text=user_msg,
                     stt_time=0.0,  # Kein STT in Reflex (noch)
                     mode=self.research_mode,
-                    model_choice=extract_model_name(self.selected_model),
-                    automatik_model=extract_model_name(self.automatik_model),
+                    model_choice=self.selected_model_id,  # Pure ID
+                    automatik_model=self.automatik_model_id,  # Pure ID
                     history=self.chat_history[:-1],  # Exclude current temporary entry
                     session_id=self.session_id,
                     temperature_mode=self.temperature_mode,
@@ -2244,7 +2469,7 @@ class AIState(rx.State):
                 )
 
                 # Extract pure model name (remove size suffix)
-                pure_model_name = extract_model_name(self.selected_model)
+                pure_model_name = self.selected_model_id  # Pure ID
 
                 # Get model context limit
                 model_limit, _ = await llm_client.get_model_context_limit(pure_model_name)
@@ -2525,7 +2750,8 @@ class AIState(rx.State):
             return
 
         # Check if vision_model is in the vision models cache (metadata-validated)
-        if self.vision_model not in self._vision_models_cache:
+        # Compare IDs, not display names
+        if self.vision_model_id not in self.vision_models_cache:
             self.image_upload_warning = "⚠️ Gewähltes Vision-Modell unterstützt keine Bilder. Bitte wähle ein anderes Vision-Modell aus der Dropdown-Liste."
             self.add_debug("⚠️ Image upload blocked: Non-vision model selected")
             return
@@ -2599,6 +2825,18 @@ class AIState(rx.State):
         else:
             self.add_debug("⚠️ Browser does not support camera access")
 
+    def set_is_mobile(self, is_mobile: bool):
+        """Set mobile device detection based on User-Agent and touch capabilities (called from JavaScript)"""
+        # Guard: Only log once per session to avoid duplicate messages from Reflex hydration
+        if self._mobile_detection_done:
+            return  # Already logged once, skip duplicate from hydration
+
+        self.is_mobile = is_mobile
+        self._mobile_detection_done = True  # Mark as logged
+
+        device_type = "📱 Mobile" if is_mobile else "🖥️ Desktop"
+        self.add_debug(f"{device_type} device detected")
+
     async def load_default_settings(self):
         """Load default settings from config.py and apply them to state"""
         from .lib.settings import reset_to_defaults, load_settings
@@ -2617,6 +2855,8 @@ class AIState(rx.State):
                 # Update state with loaded settings (only attributes that exist in state)
                 # No fallbacks needed - reset_to_defaults() ensures all values are present
                 self.backend_type = saved_settings["backend_type"]
+                self.backend_id = self.backend_type  # Sync ID with type
+                self.current_backend_label = self.available_backends_dict.get(self.backend_id, self.backend_id)
                 self.research_mode = saved_settings["research_mode"]
 
                 # Update research_mode_display to match loaded research_mode
@@ -2699,11 +2939,15 @@ class AIState(rx.State):
                         if result.returncode == 0:
                             # Try to parse JSON to verify API is actually ready
                             data = json.loads(result.stdout)
-                            # Format: "model_name (size GB)"
-                            self.available_models = [
-                                f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
+                            # Build dict: {model_id: display_label}
+                            unsorted_dict = {
+                                m['name']: f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
                                 for m in data.get("models", [])
-                            ]
+                            }
+                            # Sort by model family, then by size
+                            self.available_models_dict = sort_models_grouped(unsorted_dict)
+                            # Keep list for compatibility (DEPRECATED)
+                            self.available_models = list(self.available_models_dict.values())
 
                             # Update global state
                             _global_backend_state["available_models"] = self.available_models
@@ -2870,7 +3114,7 @@ class AIState(rx.State):
                 yield
 
                 # Restart KoboldCPP with current model (extract pure name for lookup)
-                pure_model_name = extract_model_name(self.selected_model)
+                pure_model_name = self.selected_model_id  # Pure ID
                 if pure_model_name in gguf_models:
                     self.add_debug(f"🚀 Restarting KoboldCPP with {pure_model_name}...")
                     yield
@@ -2963,15 +3207,18 @@ class AIState(rx.State):
         self.selected_model = model
         # Clear thinking mode warning when model changes
         self.thinking_mode_warning = ""
-        self.add_debug(f"📝 Model changed: {old_model} → {model}")
+        self.add_debug(f"📝 Main-LLM: {model}")
 
         # Check if switching to non-vision model with pending images
         if len(self.pending_images) > 0:
-            model_pure = extract_model_name(model)
-            if not await is_vision_model(self, model_pure):
+            # Use ID directly - extract_model_name() not needed anymore
+            if not await is_vision_model(self, self.selected_model_id):
                 self.image_upload_warning = "⚠️ Gewähltes Modell unterstützt keine Bilder. Bilder werden beim Senden ignoriert."
             else:
                 self.image_upload_warning = ""  # Clear warning
+
+        # ALWAYS save settings first (fixes Ollama not saving model changes)
+        self._save_settings()
 
         # vLLM/TabbyAPI/KoboldCPP: Force restart backend for model change
         if self.backend_type in ["vllm", "tabbyapi", "koboldcpp"] and old_model != model:
@@ -3008,8 +3255,6 @@ class AIState(rx.State):
                 # Hide loading spinner
                 self.vllm_restarting = False
                 yield  # Update UI to hide spinner
-
-        self._save_settings()
 
     def toggle_thinking_mode(self):
         """Toggle Qwen3 Thinking Mode"""
@@ -3166,7 +3411,7 @@ class AIState(rx.State):
         """Set automatik model for decision and query optimization"""
         old_model = self.automatik_model
         self.automatik_model = model
-        self.add_debug(f"⚡ Automatik model changed: {old_model} → {model}")
+        self.add_debug(f"⚡ Automatik-LLM: {model}")
         self._save_settings()
 
         # vLLM/TabbyAPI: Auto-restart backend for model change
@@ -3182,11 +3427,49 @@ class AIState(rx.State):
         """Set vision model for OCR/image analysis"""
         old_model = self.vision_model
         self.vision_model = model
-        self.add_debug(f"🔍 Vision model changed: {old_model} → {model}")
+        self.add_debug(f"👁️ Vision-LLM: {model}")
         self._save_settings()
 
         # Note: Vision model will be loaded on-demand when image is uploaded
         # No preloading needed here to save VRAM
+
+    # ===== NEW: ID-BASED MODEL HANDLERS FOR KEY-VALUE SYSTEM =====
+
+    async def set_selected_model_by_id(self, model_id: str):
+        """Set selected model using pure ID (new key-value system)"""
+        # Update ID
+        self.selected_model_id = model_id
+
+        # Sync deprecated display variable
+        display_label = self.available_models_dict.get(model_id, model_id)
+        self.selected_model = display_label
+
+        # Call existing handler with display label (reuses all logic)
+        await self.set_selected_model(display_label)
+
+    async def set_automatik_model_by_id(self, model_id: str):
+        """Set automatik model using pure ID (new key-value system)"""
+        # Update ID
+        self.automatik_model_id = model_id
+
+        # Sync deprecated display variable
+        display_label = self.available_models_dict.get(model_id, model_id)
+        self.automatik_model = display_label
+
+        # Call existing handler with display label (reuses all logic)
+        await self.set_automatik_model(display_label)
+
+    async def set_vision_model_by_id(self, model_id: str):
+        """Set vision model using pure ID (new key-value system)"""
+        # Update ID
+        self.vision_model_id = model_id
+
+        # Sync deprecated display variable
+        display_label = self.available_models_dict.get(model_id, model_id)
+        self.vision_model = display_label
+
+        # Call existing handler with display label (reuses all logic)
+        await self.set_vision_model(display_label)
 
     def toggle_tts(self):
         """Toggle TTS on/off"""
