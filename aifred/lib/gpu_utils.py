@@ -358,7 +358,7 @@ async def calculate_vram_based_context(
                     # Recalculate VRAM after unloading
                     import time
                     time.sleep(0.5)  # Give VRAM time to free up
-                    free_vram_mb = get_free_vram()
+                    free_vram_mb = get_free_vram_mb()
                     usable_vram = free_vram_mb - safety_margin_mb
                     vram_for_context = int(usable_vram - model_size_mb)
 
