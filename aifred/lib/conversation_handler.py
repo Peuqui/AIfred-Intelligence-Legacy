@@ -274,7 +274,50 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
         return ("\n".join(result), corrected_json)
 
     else:
-        return (f"⚠️ Unbekannter Dokumenttyp: {doc_type}" if lang == "de" else f"⚠️ Unknown document type: {doc_type}", corrected_json)
+        # Universeller Fallback: Versuche Inhalt aus bekannten Feldern zu extrahieren
+        # Das ermöglicht Vision-LLMs kreative/unbekannte Typen zu verwenden
+        result_parts = []
+
+        # Versuche "content" (häufigstes Feld)
+        content = corrected_json.get("content")
+        if content:
+            if isinstance(content, dict):
+                # Nested content (z.B. {"description": "..."})
+                for key, value in content.items():
+                    if isinstance(value, str) and value.strip():
+                        result_parts.append(value)
+            elif isinstance(content, str) and content.strip():
+                result_parts.append(content)
+
+        # Versuche "description"
+        description = corrected_json.get("description")
+        if description and isinstance(description, str) and description.strip():
+            result_parts.append(description)
+
+        # Versuche "text"
+        text = corrected_json.get("text")
+        if text and isinstance(text, str) and text.strip():
+            result_parts.append(text)
+
+        # Versuche "items" (Liste)
+        items = corrected_json.get("items")
+        if items and isinstance(items, list):
+            result_parts.append("\n".join(f"- {item}" for item in items if item))
+
+        # Versuche "sections" rekursiv
+        sections = corrected_json.get("sections")
+        if sections and isinstance(sections, list):
+            for section in sections:
+                if isinstance(section, dict):
+                    readable, _ = _json_to_readable(section, lang)
+                    if readable and readable.strip():
+                        result_parts.append(readable)
+
+        if result_parts:
+            return ("\n\n".join(result_parts), corrected_json)
+
+        # Letzter Fallback: JSON als String zurückgeben
+        return (json.dumps(corrected_json, indent=2, ensure_ascii=False), corrected_json)
 
 
 async def chat_with_vision_pipeline(

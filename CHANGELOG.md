@@ -5,6 +5,34 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.2] - 2025-12-06
+
+### 🔧 Model-Sync Fix & Universelle Vision-Erkennung
+
+**Kritische Bugfixes:** Model-IDs werden jetzt korrekt synchronisiert wenn User im Dropdown wechselt. Vision-LLM unterstützt jetzt beliebige Dokumenttypen ohne Fehlermeldungen.
+
+#### Fixed
+
+- **Model-ID Sync beim Dropdown-Wechsel** ([state.py:3207-3209](aifred/state.py#L3207-L3209), [state.py:3414-3415](aifred/state.py#L3414-L3415), [state.py:3431](aifred/state.py#L3431)):
+  - **Problem:** Vision-LLM zeigte falsches Modell (UI: qwen3-vl:8b, tatsächlich: deepseek-ocr:3b)
+  - **Root Cause:** `set_selected_model()`, `set_automatik_model()`, `set_vision_model()` setzten nur Display-Variable, nicht die `*_model_id`
+  - **Fix:** Alle drei Handler synchronisieren jetzt die ID via `extract_model_name()`
+  - Model-Änderungen werden jetzt auch korrekt gespeichert
+
+- **Model-Settings nicht gespeichert bei Ollama** ([state.py:3210-3211](aifred/state.py#L3210-L3211)):
+  - **Problem:** `_save_settings()` wurde bei Ollama-Backend nicht aufgerufen (nur bei vLLM/TabbyAPI/KoboldCPP)
+  - **Fix:** `_save_settings()` wird jetzt VOR dem Backend-spezifischen Code aufgerufen
+
+#### Added
+
+- **Universeller Vision-Dokumenttyp-Handler** ([conversation_handler.py:289-333](aifred/lib/conversation_handler.py#L289-L333)):
+  - **Vorher:** Unbekannte Typen wie `image_description` zeigten Fehlermeldung
+  - **Nachher:** Dynamischer Fallback extrahiert Inhalt aus bekannten Feldern (`content`, `description`, `text`, `items`, `sections`)
+  - Vision-LLM kann jetzt beliebige Typen zurückgeben (`photo`, `scene`, `diagram`, etc.)
+  - Keine Hardcodierung neuer Typen mehr nötig
+
+---
+
 ## [2.4.1] - 2025-12-06
 
 ### 🔧 Generic XML-Tag Processing & Vision Collapsible Bugfix
