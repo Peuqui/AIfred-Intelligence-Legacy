@@ -5,6 +5,66 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2025-12-07
+
+### 📷 Sequentielle Bildverarbeitung + Session Persistenz
+
+**Stabilere Vision-Ergebnisse:** Multi-Image wird jetzt sequentiell verarbeitet. Mobile Sessions bleiben erhalten.
+
+#### Added
+
+- **Sequentielle Bildverarbeitung** ([conversation_handler.py:676-851](aifred/lib/conversation_handler.py#L676-L851)):
+  - Bilder werden nacheinander verarbeitet statt gleichzeitig
+  - Auch große Vision-Modelle produzieren konsistentere Ergebnisse
+  - Kleinere Modelle (z.B. deepseek-ocr:3b) werden nicht mehr überlastet
+  - Debug-Output zeigt Fortschritt: `[1/3] Verarbeite: image.jpg`
+  - Ergebnisse werden im `multi_image` JSON-Format kombiniert
+
+- **Session Persistenz** (Cookie + Server-Side Storage):
+  - **Neue Datei:** [browser_storage.py](aifred/lib/browser_storage.py) - JavaScript Cookie-Helfer
+  - **Neue Datei:** [session_storage.py](aifred/lib/session_storage.py) - Server-seitige Session-Speicherung
+  - Mobile Browser behalten Chat-History nach Background/Neustart
+  - Sessions in `~/.config/aifred/sessions/{device_id}.json`
+  - 128-bit Device-ID via Cookie (1 Jahr gültig)
+  - Auto-Cleanup: Sessions > 30 Tage werden gelöscht
+  - PIN-Funktionen vorbereitet für Cross-Device-Zugriff (Phase 2)
+
+#### Fixed
+
+- **Fast Path Settings Override Bug** ([state.py:895-932](aifred/state.py#L895-L932)):
+  - **Problem:** Nach Backend-Wechsel (vLLM → Ollama) wurde falsches Modell geladen
+  - **Ursache:** Fast Path überschrieb settings.json mit altem Global State
+  - **Fix:** Fast Path respektiert jetzt settings.json Modell-Auswahl
+
+#### Technical Details
+
+**Sequentielle Verarbeitung:**
+```python
+# Bei 1 Bild: Direkte Verarbeitung (wie bisher)
+# Bei N Bildern: Sequentiell, dann kombinieren
+for i, img in enumerate(images):
+    result = await _process_single_image_vision(img, i, ...)
+    all_results.append(result)
+
+# Ergebnisse kombinieren
+corrected_json = {
+    "type": "multi_image",
+    "processing_mode": "sequential",
+    "images": combined_images
+}
+```
+
+**Session-Persistenz Flow:**
+```
+1. on_load() → rx.call_script(get_device_id_script())
+2. Callback → handle_device_id_loaded()
+   - "NEW" → generate_device_id() + set cookie
+   - existing → load_session(device_id)
+3. Nach jeder Chat-Nachricht → _save_current_session()
+```
+
+---
+
 ## [2.5.3] - 2025-12-07
 
 ### 🎯 Dynamische Vision-Kontext-Berechnung

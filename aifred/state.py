@@ -360,6 +360,11 @@ class AIState(rx.State):
     # Session Management
     session_id: str = ""
 
+    # Session Persistence (Cookie-based device identification)
+    device_id: str = ""  # Device-ID aus Cookie (16 hex chars)
+    session_restored: bool = False  # True wenn Chat-History aus Session geladen wurde
+    _session_initialized: bool = False  # Guard gegen mehrfache on_load() Hydration
+
     # Backend Status
     backend_healthy: bool = False
     backend_info: str = ""
@@ -846,6 +851,15 @@ class AIState(rx.State):
             self._backend_initialized = True
             print("✅ Session initialization complete")
 
+            # Session Persistence: Read device_id from cookie (async callback)
+            # NACH Backend-Init, damit Chat-History Restore nicht mit Loading kollidiert
+            if not self._session_initialized:
+                from .lib.browser_storage import get_device_id_script
+                yield rx.call_script(
+                    get_device_id_script(),
+                    callback=AIState.handle_device_id_loaded
+                )
+
     async def initialize_backend(self):
         """
         Initialize LLM backend
@@ -865,22 +879,57 @@ class AIState(rx.State):
             # FAST PATH: Restore from global state (page reload case)
             print(f"⚡ Backend '{self.backend_type}' already initialized, restoring from global state...")
 
+            # Restore backend URL and available models list from global state
             self.backend_url = _global_backend_state["backend_url"]
             self.available_models = _global_backend_state["available_models"]
             self.available_models_dict = _global_backend_state.get("available_models_dict", {})  # CRITICAL for vision dropdown!
-            self.selected_model = _global_backend_state["selected_model"]
-            self.selected_model_id = _global_backend_state.get("selected_model_id", "")
-            self.automatik_model = _global_backend_state["automatik_model"]
-            self.automatik_model_id = _global_backend_state.get("automatik_model_id", "")
             self.vision_models_cache = _global_backend_state.get("vision_models_cache", [])
             self.available_vision_models_list = _global_backend_state.get("available_vision_models_list", [])
-            self.vision_model = _global_backend_state.get("vision_model", "")
-            self.vision_model_id = _global_backend_state.get("vision_model_id", "")
+
             # Restore backend dropdown data
             self.available_backends = _global_backend_state.get("available_backends", self.available_backends)
             self.available_backends_list = _global_backend_state.get("available_backends_list", self.available_backends_list)
             self.current_backend_label = _global_backend_state.get("current_backend_label",
                 self.available_backends_dict.get(self.backend_type, self.backend_type))
+
+            # FIX: Respect settings.json model selection instead of blindly using global state!
+            # The model IDs were already loaded from settings.json in on_load() before this call.
+            # We only need to validate they exist and sync the display labels.
+
+            # Validate and sync selected_model (use settings, not global state)
+            if self.selected_model_id and self.selected_model_id in self.available_models_dict:
+                self.selected_model = self.available_models_dict[self.selected_model_id]
+            elif _global_backend_state.get("selected_model_id") in self.available_models_dict:
+                # Fallback to global state if settings model not found
+                self.selected_model_id = _global_backend_state["selected_model_id"]
+                self.selected_model = self.available_models_dict[self.selected_model_id]
+            else:
+                # Last resort: first available model
+                first_id = next(iter(self.available_models_dict.keys()), "")
+                self.selected_model_id = first_id
+                self.selected_model = self.available_models_dict.get(first_id, first_id)
+
+            # Validate and sync automatik_model (use settings, not global state)
+            if self.automatik_model_id and self.automatik_model_id in self.available_models_dict:
+                self.automatik_model = self.available_models_dict[self.automatik_model_id]
+            elif _global_backend_state.get("automatik_model_id") in self.available_models_dict:
+                self.automatik_model_id = _global_backend_state["automatik_model_id"]
+                self.automatik_model = self.available_models_dict[self.automatik_model_id]
+            else:
+                first_id = next(iter(self.available_models_dict.keys()), "")
+                self.automatik_model_id = first_id
+                self.automatik_model = self.available_models_dict.get(first_id, first_id)
+
+            # Validate and sync vision_model (use settings, not global state)
+            if self.vision_model_id and self.vision_model_id in self.vision_models_cache:
+                self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
+            elif _global_backend_state.get("vision_model_id") in self.vision_models_cache:
+                self.vision_model_id = _global_backend_state["vision_model_id"]
+                self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
+            elif self.vision_models_cache:
+                # Fallback to first vision model
+                self.vision_model_id = self.vision_models_cache[0]
+                self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
 
             # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
             if self.backend_type == "vllm" and self.automatik_model != self.selected_model:
@@ -2740,7 +2789,9 @@ class AIState(rx.State):
             # Clear pending images after sending
             if len(self.pending_images) > 0:
                 self.clear_pending_images()
-            # Final debug sync
+
+            # Auto-Save: Session nach jeder Chat-Nachricht speichern
+            self._save_current_session()
 
 
     def clear_chat(self):
@@ -2750,6 +2801,83 @@ class AIState(rx.State):
         self.current_user_message = ""
         self.debug_messages = []  # Debug Console auch leeren!
         self.add_debug("🗑️ Chat cleared")
+
+        # Session speichern (leerer Chat)
+        self._save_current_session()
+
+    # ============================================================
+    # Session Persistence (Cookie-based device identification)
+    # ============================================================
+
+    def handle_device_id_loaded(self, device_id: str):
+        """
+        Callback nach Cookie-Read via rx.call_script().
+
+        Wird aufgerufen wenn das JavaScript die Device-ID aus dem Cookie gelesen hat.
+        Lädt bestehende Session oder erstellt neue.
+        """
+        # Guard: Nur einmal ausführen (Reflex ruft on_load mehrfach auf!)
+        if self._session_initialized:
+            return
+        self._session_initialized = True
+
+        from .lib.session_storage import load_session, generate_device_id
+        from .lib.browser_storage import set_device_id_script
+
+        if device_id == "NEW" or not device_id:
+            # Neues Gerät - generiere Device-ID und setze Cookie
+            self.device_id = generate_device_id()
+            self.session_restored = False
+            self.add_debug(f"🆕 Neue Session ({self.device_id[:8]}...)")
+            return rx.call_script(set_device_id_script(self.device_id))
+
+        # Bekanntes Gerät - versuche Session zu laden
+        self.device_id = device_id
+        session = load_session(device_id)
+
+        if session and session.get("data"):
+            self._restore_session(session)
+            self.session_restored = True
+            msg_count = len(self.chat_history)
+            self.add_debug(f"✅ Session wiederhergestellt ({device_id[:8]}..., {msg_count} Messages)")
+        else:
+            self.session_restored = False
+            self.add_debug(f"🆕 Leere Session ({device_id[:8]}...)")
+
+    def _restore_session(self, session: dict):
+        """
+        Stellt Chat-History aus gespeicherter Session wieder her.
+
+        Args:
+            session: Session-Dict mit "data" Feld
+        """
+        data = session.get("data", {})
+
+        # Chat-History wiederherstellen
+        # WICHTIG: JSON serialisiert Tuples als Listen, hier zurückkonvertieren!
+        if "chat_history" in data and data["chat_history"]:
+            self.chat_history = [tuple(msg) for msg in data["chat_history"]]
+
+        if "chat_summaries" in data and data["chat_summaries"]:
+            # Falls chat_summaries existiert (für zukünftige Erweiterung)
+            pass  # Aktuell nicht in State gespeichert
+
+    def _save_current_session(self):
+        """
+        Speichert aktuelle Session auf Server.
+
+        Wird nach jeder Chat-Änderung aufgerufen (Auto-Save).
+        Nur speichern wenn device_id vorhanden (Session initialisiert).
+        """
+        if not self.device_id:
+            return
+
+        from .lib.session_storage import update_chat_data
+        update_chat_data(
+            device_id=self.device_id,
+            chat_history=self.chat_history,
+            chat_summaries=None  # Aktuell nicht persistiert
+        )
 
     # ============================================================
     # Image Upload Handlers

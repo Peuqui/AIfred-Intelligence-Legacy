@@ -42,6 +42,153 @@ def extract_model_name(model_display: str) -> str:
     return model_display
 
 
+async def _process_single_image_vision(
+    image: Dict[str, str],
+    image_index: int,
+    vision_model: str,
+    backend_type: str,
+    backend_url: str,
+    num_ctx: int,
+    supports_chat_template: bool,
+    lang: str,
+    llm_options: Optional[Dict] = None
+) -> Dict:
+    """
+    Process a single image with Vision-LLM.
+
+    This helper function handles the actual Vision-LLM call for one image.
+    Used by chat_with_vision_pipeline() for sequential multi-image processing.
+
+    Args:
+        image: Dict with "name" and "base64" keys
+        image_index: 0-based index for logging
+        vision_model: Vision-LLM model name
+        backend_type: Backend type (ollama, vllm, etc.)
+        backend_url: Backend URL
+        num_ctx: Context window size
+        supports_chat_template: Whether model supports system prompts
+        lang: Language code ("de" or "en")
+        llm_options: Additional LLM options
+
+    Returns:
+        Dict with keys:
+        - "success": bool
+        - "json": Parsed JSON dict (if successful)
+        - "raw": Raw response string
+        - "metrics": Backend metrics (tokens/s, etc.)
+        - "error": Error message (if failed)
+        - "time": Processing time in seconds
+    """
+    from ..backends.base import LLMMessage
+
+    img_name = image.get("name", f"image_{image_index + 1}")
+    log_message(f"📷 [{image_index + 1}] Verarbeite: {img_name}")
+
+    # Build content parts for single image
+    content_parts = []
+
+    # Add default prompt for template-less models
+    if not supports_chat_template:
+        model_lower = vision_model.lower()
+        if "ocr" in model_lower or "deepseek-ocr" in model_lower:
+            default_prompt = "Extrahiere den Text." if lang == "de" else "Extract the text."
+        else:
+            default_prompt = (
+                "Beschreibe das Bild und extrahiere vorhandenen Text."
+                if lang == "de" else
+                "Describe the image and extract any text present."
+            )
+        content_parts.append({"type": "text", "text": default_prompt})
+
+    # Add single image
+    content_parts.append({
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{image['base64']}"}
+    })
+
+    # Build messages
+    if supports_chat_template:
+        vision_system_prompt = get_vision_ocr_prompt(lang=lang)
+        messages = [
+            LLMMessage(role="system", content=vision_system_prompt),
+            LLMMessage(role="user", content=content_parts)
+        ]
+    else:
+        messages = [
+            LLMMessage(role="user", content=content_parts)
+        ]
+
+    # Call Vision-LLM
+    llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
+
+    vision_options = {
+        "temperature": 0.1,
+        "num_ctx": num_ctx,
+        **(llm_options or {})
+    }
+
+    start_time = time.time()
+    response_text = ""
+    metrics = None
+
+    try:
+        async for chunk in llm_client.chat_stream(
+            model=vision_model,
+            messages=messages,
+            options=vision_options
+        ):
+            if chunk.get("type") == "content":
+                response_text += chunk.get("text", "")
+            elif chunk.get("type") == "done":
+                metrics = chunk.get("metrics", {})
+
+        elapsed = time.time() - start_time
+        log_message(f"✅ [{image_index + 1}] {img_name} fertig ({elapsed:.1f}s)")
+
+        # Try to parse JSON
+        try:
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                json_str = response_text.strip()
+
+            json_str = _sanitize_json_string(json_str)
+            parsed_json = json.loads(json_str)
+
+            return {
+                "success": True,
+                "json": parsed_json,
+                "raw": response_text,
+                "metrics": metrics,
+                "time": elapsed,
+                "image_name": img_name
+            }
+        except json.JSONDecodeError:
+            # JSON parsing failed, return raw response
+            return {
+                "success": True,  # API call succeeded, just no JSON
+                "json": None,
+                "raw": response_text,
+                "metrics": metrics,
+                "time": elapsed,
+                "image_name": img_name
+            }
+
+    except Exception as e:
+        elapsed = time.time() - start_time
+        log_message(f"❌ [{image_index + 1}] {img_name} Fehler: {e}")
+        return {
+            "success": False,
+            "json": None,
+            "raw": "",
+            "metrics": None,
+            "error": str(e),
+            "time": elapsed,
+            "image_name": img_name
+        }
+
+
 def format_age(seconds: float) -> str:
     """
     Format age in seconds to human-readable format.
@@ -396,7 +543,6 @@ async def chat_with_vision_pipeline(
     Yields:
         Dict with keys: "type" (status/response/debug/error), "content"
     """
-    from ..backends.base import LLMMessage
     from .prompt_loader import detect_language, get_language
 
     # === DEBUG: Log entry point with image count ===
@@ -431,6 +577,10 @@ async def chat_with_vision_pipeline(
                 # Fixed language mode (de/en) → use that
                 lang = global_lang
                 log_message(f"🌐 Language from config: {lang.upper()}")
+
+    # Ensure lang is always set (mypy type narrowing)
+    if not lang:
+        lang = "de"
 
     # Bildnamen für Anzeige sammeln
     image_names = ", ".join([img.get("name", "unbekannt") for img in images])
@@ -491,12 +641,12 @@ async def chat_with_vision_pipeline(
     for msg in debug_msgs:
         yield {"type": "debug", "message": msg}
 
-    # Calculate required tokens for Vision:
+    # Calculate required tokens for Vision (SEQUENTIAL: only 1 image at a time!)
     # - Image embeddings: ~2000 tokens per image (conservative estimate)
     # - System prompt: ~500 tokens
     # - Reserve for response: 8K tokens (Vision outputs can be long with OCR)
-    num_images = len(images)
-    image_tokens = num_images * 2000  # ~2K per image embedding
+    # NOTE: We always calculate for 1 image since we process sequentially!
+    image_tokens = 1 * 2000  # Only 1 image at a time
     system_prompt_tokens = 500
     response_reserve = 8192  # 8K reserve for Vision response
 
@@ -521,160 +671,172 @@ async def chat_with_vision_pipeline(
     num_ctx = min(calculated_ctx, vram_num_ctx, model_limit)
 
     # Log detailed calculation (same style as Main-LLM)
-    # NOTE: Only yield to debug - state.py will log via log_message()
     ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok"
     ctx_msg2 = f"   (benötigt: {format_number(needed_tokens)}, VRAM-max: {format_number(vram_num_ctx)}, Model-max: {format_number(model_limit)})"
     yield {"type": "debug", "message": ctx_msg1}
     yield {"type": "debug", "message": ctx_msg2}
 
-    # Build multimodal message (ONLY image, NO user text)
-    # User text will be processed later by Automatik-LLM → Main-LLM flow
-    content_parts = []
+    # ============================================================
+    # SEQUENTIAL IMAGE PROCESSING (v2.6.0)
+    # Process images one at a time for better model accuracy!
+    # Even large Vision models produce inconsistent results with
+    # multiple images in one request.
+    # ============================================================
 
-    # Vision-LLM receives ONLY images + system prompt (no user text confusion)
-    # Exception: Template-less models (DeepSeek-OCR) need a default text prompt
-    if not supports_chat_template:
-        # Models like DeepSeek-OCR need a text prompt to work (no inference with empty prompt)
-        # Use model-specific prompts based on model capabilities
-        model_lower = vision_model.lower()
-
-        if "ocr" in model_lower or "deepseek-ocr" in model_lower:
-            # OCR-Spezialist → nur Text extrahieren (kann keine Bildbeschreibungen)
-            default_prompt = "Extrahiere den Text." if lang == "de" else "Extract the text."
-        else:
-            # Generisches Vision-Modell → beschreiben + Text extrahieren
-            default_prompt = (
-                "Beschreibe das Bild und extrahiere vorhandenen Text."
-                if lang == "de" else
-                "Describe the image and extract any text present."
-            )
-
-        content_parts.append({"type": "text", "text": default_prompt})
-        log_message(f"⚠️ Added default prompt for template-less model: '{default_prompt}'")
-
-    # Add images
-    for img in images:
-        content_parts.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{img['base64']}"}
-        })
-
-    # Build messages based on chat template support
-    if supports_chat_template:
-        # Model supports system prompts → use JSON extraction prompt
-        vision_system_prompt = get_vision_ocr_prompt(lang=lang)
-        log_message("✅ Using system prompt for Vision-LLM (chat template supported)")
-        messages = [
-            LLMMessage(role="system", content=vision_system_prompt),
-            LLMMessage(role="user", content=content_parts)
-        ]
-    else:
-        # Model has only "{{ .Prompt }}" template → skip system prompt
-        log_message("⚠️ Skipping system prompt (model has simple prompt-only template)")
-        messages = [
-            LLMMessage(role="user", content=content_parts)
-        ]
-
-    # Call Vision-LLM
-    llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
-
+    num_images = len(images)
     vision_start_time = time.time()
-    vision_response = ""
-    vision_metrics = None  # Store metrics from backend
+    corrected_json = None  # Will be set after processing
+    vision_metrics = None  # Will hold metrics from last image
+    all_results = []  # Collect results from each image
 
-    # Prepare options with Vision-LLM specific settings
-    vision_options = {
-        "temperature": 0.1,  # Low temperature for precise OCR
-        "num_ctx": num_ctx,  # VRAM-limited context (prevents OOM)
-        **(llm_options or {})
-    }
+    if num_images == 1:
+        # === SINGLE IMAGE: Direct processing (original behavior) ===
+        log_message("📷 Single image mode - direct processing")
 
-    try:
-        async for chunk in llm_client.chat_stream(
-            model=vision_model,
-            messages=messages,
-            options=vision_options
-        ):
-            if chunk.get("type") == "content":
-                text = chunk.get("text", "")
-                vision_response += text
-                # NICHT streamen - sammle nur die Antwort für JSON-Parsing
-            elif chunk.get("type") == "done":
-                # Capture final metrics (tokens/s, etc.)
-                vision_metrics = chunk.get("metrics", {})
+        result = await _process_single_image_vision(
+            image=images[0],
+            image_index=0,
+            vision_model=vision_model,
+            backend_type=backend_type,
+            backend_url=backend_url,
+            num_ctx=num_ctx,
+            supports_chat_template=supports_chat_template,
+            lang=lang,
+            llm_options=llm_options
+        )
 
-        vision_time = time.time() - vision_start_time
+        if not result["success"]:
+            yield {"type": "error", "content": f"❌ Vision-LLM error: {result.get('error', 'Unknown error')}"}
+            return
 
-    except Exception as e:
-        log_message("error", f"Vision-LLM error: {e}")
-        yield {"type": "error", "content": f"❌ Vision-LLM error: {str(e)}"}
-        return
+        vision_metrics = result.get("metrics")
+        vision_response = result["raw"]
 
-    # === Parse JSON Response ===
-    # Log raw Vision-LLM output for debugging
-    log_message(f"📄 Vision-LLM Rohausgabe ({len(vision_response)} Zeichen): {vision_response[:500]}...")
+        # Process result same as before
+        if result["json"]:
+            parsed_json = result["json"]
+            vision_time = result["time"]
 
-    # Initialize corrected_json (will be set if JSON parsing succeeds)
-    corrected_json = None
+            log_message(f"✅ JSON erfolgreich geparst: {parsed_json.get('type', 'unknown')} ({vision_time:.1f}s)")
 
-    try:
-        # Extract JSON from response (handle markdown code blocks)
-        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', vision_response, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(1)
-        else:
-            # Try direct JSON parsing
-            json_str = vision_response.strip()
+            human_readable, corrected_json = _json_to_readable(parsed_json, lang)
 
-        # Sanitize JSON (remove comments that some Vision-LLMs add)
-        json_str = _sanitize_json_string(json_str)
+            yield {"type": "thinking", "content": json.dumps(corrected_json, indent=2, ensure_ascii=False), "label": "📊 Strukturierte Daten"}
+            yield {"type": "response", "content": human_readable}
 
-        parsed_json = json.loads(json_str)
-
-        # === JSON erfolgreich geparst ===
-        log_message(f"✅ JSON erfolgreich geparst: {parsed_json.get('type', 'unknown')} ({vision_time:.1f}s)")
-
-        # 2. Rohtext konvertieren (JSON → lesbare Tabelle/Text) + Fehlerkorrekturen
-        human_readable, corrected_json = _json_to_readable(parsed_json, lang)
-
-        # === STEP 2: Yield JSON as collapsible (SECOND!) ===
-        yield {"type": "thinking", "content": json.dumps(corrected_json, indent=2, ensure_ascii=False), "label": "📊 Strukturierte Daten"}
-
-        # === STEP 3: Yield human-readable output (THIRD!) ===
-        yield {"type": "response", "content": human_readable}
-
-        # 3. Send done signal mit metrics (wird in state.py verarbeitet)
-        if vision_metrics:
-            yield {"type": "done", "metrics": vision_metrics}
-
-    except json.JSONDecodeError as e:
-        log_message(f"⚠️ Vision-LLM did not return valid JSON: {e}")
-
-        # === FALLBACK: Try HTML-to-Markdown conversion (for models like DeepSeek-OCR) ===
-        if '<table' in vision_response.lower():
-            log_message("🔄 Detected HTML table, attempting conversion to Markdown...")
-            try:
-                markdown_table = _html_table_to_markdown(vision_response)
-                yield {"type": "response", "content": markdown_table}
-                if vision_metrics:
-                    yield {"type": "done", "metrics": vision_metrics}
-                # DON'T return here - continue to check for Automatik routing
-            except Exception as html_err:
-                log_message(f"⚠️ HTML conversion failed: {html_err}")
-
-        # Final fallback: Return raw output (only if no JSON was extracted)
-        if not json_match:
-            log_message("⚠️ Returning raw Vision-LLM output (no JSON, no HTML table)")
-
-            # WICHTIG: <think> Tags NICHT hier formatieren!
-            # format_thinking_process() wird in state.py bei vision_complete aufgerufen.
-            # Doppelte Formatierung führt zu doppeltem Denkprozess-Bug!
-            yield {"type": "response", "content": vision_response}
-
-            # Send done signal mit metrics (wird in state.py verarbeitet)
             if vision_metrics:
                 yield {"type": "done", "metrics": vision_metrics}
-            # Still continue to check for user_text Automatik routing
+        else:
+            # No JSON - try fallbacks
+            if '<table' in vision_response.lower():
+                log_message("🔄 Detected HTML table, attempting conversion to Markdown...")
+                try:
+                    markdown_table = _html_table_to_markdown(vision_response)
+                    yield {"type": "response", "content": markdown_table}
+                    if vision_metrics:
+                        yield {"type": "done", "metrics": vision_metrics}
+                except Exception as html_err:
+                    log_message(f"⚠️ HTML conversion failed: {html_err}")
+                    yield {"type": "response", "content": vision_response}
+            else:
+                log_message("⚠️ Returning raw Vision-LLM output")
+                yield {"type": "response", "content": vision_response}
+                if vision_metrics:
+                    yield {"type": "done", "metrics": vision_metrics}
+
+    else:
+        # === MULTI-IMAGE: Sequential processing ===
+        log_message(f"📷 Sequential mode: Processing {num_images} images one at a time")
+        yield {"type": "debug", "message": f"📷 Sequentielle Verarbeitung: {num_images} Bilder nacheinander"}
+
+        for i, img in enumerate(images):
+            img_name = img.get("name", f"image_{i + 1}")
+            yield {"type": "debug", "message": f"🔄 [{i + 1}/{num_images}] Verarbeite: {img_name}"}
+
+            result = await _process_single_image_vision(
+                image=img,
+                image_index=i,
+                vision_model=vision_model,
+                backend_type=backend_type,
+                backend_url=backend_url,
+                num_ctx=num_ctx,
+                supports_chat_template=supports_chat_template,
+                lang=lang,
+                llm_options=llm_options
+            )
+
+            all_results.append(result)
+
+            if result["success"]:
+                yield {"type": "debug", "message": f"✅ [{i + 1}/{num_images}] {img_name} fertig ({result['time']:.1f}s)"}
+            else:
+                yield {"type": "debug", "message": f"⚠️ [{i + 1}/{num_images}] {img_name} Fehler: {result.get('error', 'Unknown')}"}
+
+        # Capture metrics from last successful result
+        for r in reversed(all_results):
+            if r.get("metrics"):
+                vision_metrics = r["metrics"]
+                break
+
+        total_time = time.time() - vision_start_time
+        log_message(f"✅ Alle {num_images} Bilder verarbeitet ({total_time:.1f}s gesamt)")
+
+        # === Combine results into multi_image JSON format ===
+        combined_images = []
+        combined_readable_parts = []
+
+        for i, result in enumerate(all_results):
+            img_name = result.get("image_name", f"image_{i + 1}")
+
+            if result["json"]:
+                # Add to combined JSON
+                image_entry = {
+                    "image_name": img_name,
+                    **result["json"]  # Merge parsed JSON fields
+                }
+                combined_images.append(image_entry)
+
+                # Generate human-readable for this image
+                human_part, _ = _json_to_readable(result["json"], lang)
+                combined_readable_parts.append(f"### 📷 {img_name}\n\n{human_part}")
+
+            elif result["raw"]:
+                # No JSON but has raw output
+                combined_images.append({
+                    "image_name": img_name,
+                    "type": "raw_text",
+                    "content": result["raw"][:500]  # Truncate for JSON
+                })
+                combined_readable_parts.append(f"### 📷 {img_name}\n\n{result['raw']}")
+
+            else:
+                # Failed
+                error_msg = result.get("error", "Verarbeitung fehlgeschlagen")
+                combined_images.append({
+                    "image_name": img_name,
+                    "type": "error",
+                    "error": error_msg
+                })
+                combined_readable_parts.append(f"### 📷 {img_name}\n\n❌ Fehler: {error_msg}")
+
+        # Build final combined JSON
+        corrected_json = {
+            "type": "multi_image",
+            "count": num_images,
+            "processing_mode": "sequential",
+            "total_time_seconds": round(total_time, 1),
+            "images": combined_images
+        }
+
+        # Combine human-readable output
+        human_readable = "\n\n---\n\n".join(combined_readable_parts)
+
+        # Yield results
+        yield {"type": "thinking", "content": json.dumps(corrected_json, indent=2, ensure_ascii=False), "label": f"📊 Strukturierte Daten ({num_images} Bilder)"}
+        yield {"type": "response", "content": human_readable}
+
+        if vision_metrics:
+            yield {"type": "done", "metrics": vision_metrics}
 
     # === PHASE 2: Signal completion - state.py will route to Automatik if needed ===
     # Send vision_complete signal with user_text flag
@@ -687,9 +849,9 @@ async def chat_with_vision_pipeline(
     }
 
     if user_text and user_text.strip():
-        log_message("📋 Vision complete - state.py will route to Automatik/Research flow")
+        log_message("📋 Vision fertig - weiter zu Automatik/Research")
     else:
-        log_message("✅ Vision extraction complete (no follow-up question)")
+        log_message("✅ Vision-Extraktion abgeschlossen (keine Folgefrage)")
 
 
 async def chat_interactive_mode(
