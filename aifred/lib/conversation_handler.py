@@ -253,8 +253,13 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
         return ("\n".join(result), corrected_json)
 
     elif doc_type == "text":
-        # Reiner Text
-        return (corrected_json.get("content", ""), corrected_json)
+        # Reiner Text - Newlines zu Markdown-Zeilenumbrüchen (2 Leerzeichen + \n)
+        content = corrected_json.get("content", "")
+        # In Markdown wird \n ignoriert - "  \n" macht harten Zeilenumbruch ohne Absatzabstand
+        if content:
+            content = re.sub(r'\n{2,}', '\n\n', content)  # Mehrfache Newlines → ein Absatz
+            content = re.sub(r'(?<!\n)\n(?!\n)', '  \n', content)  # Single \n → Markdown line break
+        return (content, corrected_json)
 
     elif doc_type == "mixed" or doc_type == "document":
         # Gemischtes/Vollständiges Dokument → rekursiv verarbeiten alle Sections
@@ -273,10 +278,46 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
 
         return ("\n".join(result), corrected_json)
 
+    elif doc_type == "multi_image":
+        # Multi-Image Analyse → Jedes Bild einzeln formatieren
+        images = corrected_json.get("images", [])
+        if not images:
+            return ("⚠️ Keine Bilder analysiert" if lang == "de" else "⚠️ No images analyzed", corrected_json)
+
+        result = []
+        for img in images:
+            img_index = img.get("image_index", "?")
+            description = img.get("description", "")
+            content = img.get("content", {})
+
+            # Header für jedes Bild
+            header = f"📷 **Bild {img_index}**" if lang == "de" else f"📷 **Image {img_index}**"
+            if description:
+                header += f": {description}"
+            result.append(header)
+
+            # Content rekursiv verarbeiten
+            if isinstance(content, dict):
+                readable_text, _ = _json_to_readable(content, lang)
+                if readable_text and readable_text.strip():
+                    result.append(readable_text)
+            elif isinstance(content, str) and content.strip():
+                result.append(content)
+
+            result.append("")  # Leerzeile zwischen Bildern
+
+        return ("\n".join(result).strip(), corrected_json)
+
     else:
         # Universeller Fallback: Versuche Inhalt aus bekannten Feldern zu extrahieren
         # Das ermöglicht Vision-LLMs kreative/unbekannte Typen zu verwenden
         result_parts = []
+
+        # Helper für Newline-Konvertierung (Markdown: "  \n" = harter Zeilenumbruch)
+        def _fix_newlines(text: str) -> str:
+            text = re.sub(r'\n{2,}', '\n\n', text)  # Mehrfache Newlines → ein Absatz
+            text = re.sub(r'(?<!\n)\n(?!\n)', '  \n', text)  # Single \n → Markdown line break
+            return text
 
         # Versuche "content" (häufigstes Feld)
         content = corrected_json.get("content")
@@ -285,19 +326,19 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
                 # Nested content (z.B. {"description": "..."})
                 for key, value in content.items():
                     if isinstance(value, str) and value.strip():
-                        result_parts.append(value)
+                        result_parts.append(_fix_newlines(value))
             elif isinstance(content, str) and content.strip():
-                result_parts.append(content)
+                result_parts.append(_fix_newlines(content))
 
         # Versuche "description"
         description = corrected_json.get("description")
         if description and isinstance(description, str) and description.strip():
-            result_parts.append(description)
+            result_parts.append(_fix_newlines(description))
 
         # Versuche "text"
         text = corrected_json.get("text")
         if text and isinstance(text, str) and text.strip():
-            result_parts.append(text)
+            result_parts.append(_fix_newlines(text))
 
         # Versuche "items" (Liste)
         items = corrected_json.get("items")
@@ -357,6 +398,13 @@ async def chat_with_vision_pipeline(
     """
     from ..backends.base import LLMMessage
     from .prompt_loader import detect_language, get_language
+
+    # === DEBUG: Log entry point with image count ===
+    log_message(f"🚀 Vision Pipeline gestartet: {len(images)} Bild(er)")
+    for i, img in enumerate(images):
+        img_name = img.get("name", "unknown")
+        img_size = len(img.get("base64", "")) // 1024  # KB
+        log_message(f"   [{i+1}] {img_name} ({img_size} KB base64)")
 
     # Detect language from user text, fallback to history or global setting
     if user_text:
@@ -583,19 +631,10 @@ async def chat_with_vision_pipeline(
         if not json_match:
             log_message("⚠️ Returning raw Vision-LLM output (no JSON, no HTML table)")
 
-            # Check for <think> tags and format as collapsible
-            if '<think>' in vision_response:
-                # Format <think> tags as collapsible (with model name + timing)
-                formatted_response = format_thinking_process(
-                    vision_response,
-                    model_name=vision_model,
-                    inference_time=vision_time,
-                    tokens_per_sec=vision_metrics.get("eval_rate", 0) if vision_metrics else None
-                )
-                yield {"type": "response", "content": formatted_response}
-            else:
-                # No <think> tags → return raw output
-                yield {"type": "response", "content": vision_response}
+            # WICHTIG: <think> Tags NICHT hier formatieren!
+            # format_thinking_process() wird in state.py bei vision_complete aufgerufen.
+            # Doppelte Formatierung führt zu doppeltem Denkprozess-Bug!
+            yield {"type": "response", "content": vision_response}
 
             # Send done signal mit metrics (wird in state.py verarbeitet)
             if vision_metrics:

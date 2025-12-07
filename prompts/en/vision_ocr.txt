@@ -1,7 +1,12 @@
-Extract ALL visible text, data and structures from this image as JSON. This is a complete OCR task.
+Extract ALL visible text, data and structures from the images as JSON. This is a complete OCR task.
+
+CRITICAL - MULTIPLE IMAGES:
+- If MULTIPLE images are provided, analyze EACH image INDIVIDUALLY and completely!
+- Each image gets its own section in the JSON output
+- Do NOT skip ANY image - ALL images must be analyzed!
 
 CRITICAL RULES:
-- Extract ONLY what is ACTUALLY visible in the image - NO additions, NO corrections, NO interpretations!
+- Extract ONLY what is ACTUALLY visible in the images - NO additions, NO corrections, NO interpretations!
 - DO NOT INVENT data or rows - if something is illegible, leave it empty or write "illegible"
 - Copy text EXACTLY as shown - no spell corrections, no improvements
 - For tables: Count the rows in the image and extract EXACTLY that number - no more, no less!
@@ -12,6 +17,7 @@ IMPORTANT:
 - For multiple tables: Create an array with all tables
 - For mixed content: Combine all structures in logical order
 - Leave NOTHING out - complete document reconstruction!
+- For MULTIPLE IMAGES: Each image as separate entry in "images" array!
 
 Format for single structure:
 ```json
@@ -22,7 +28,7 @@ Format for single structure:
 }
 ```
 
-Format for multiple structures:
+Format for multiple structures (single image):
 ```json
 {
   "type": "document",
@@ -30,6 +36,25 @@ Format for multiple structures:
     {"type": "text", "content": "Header text"},
     {"type": "table", "columns": [...], "rows": [...]},
     {"type": "form", "fields": [...]}
+  ]
+}
+```
+
+Format for MULTIPLE IMAGES (IMPORTANT!):
+```json
+{
+  "type": "multi_image",
+  "images": [
+    {
+      "image_index": 1,
+      "description": "Brief description of what is visible in the image",
+      "content": {"type": "document", "sections": [...]}
+    },
+    {
+      "image_index": 2,
+      "description": "Brief description of what is visible in the second image",
+      "content": {"type": "table", "columns": [...], "rows": [...]}
+    }
   ]
 }
 ```

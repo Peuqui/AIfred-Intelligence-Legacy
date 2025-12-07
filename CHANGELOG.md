@@ -5,6 +5,60 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.2] - 2025-12-07
+
+### 📷 Multi-Image Vision Pipeline Improvements
+
+**Enhanced multi-image analysis:** Fixed JSON-to-readable conversion for multi-image output, improved log formatting, and better Markdown rendering.
+
+#### Added
+
+- **Multi-Image Handler** ([conversation_handler.py:276-304](aifred/lib/conversation_handler.py#L276-L304)):
+  - New `multi_image` type handler in `_json_to_readable()` function
+  - Recursively processes each image's content (document, text, table, etc.)
+  - Generates formatted output with `📷 **Bild N**: Description` headers
+
+- **Collapsible JSON Formatting** ([custom.css:164-171](assets/custom.css#L164-L171)):
+  - Added `white-space: pre-wrap` for proper JSON indentation display
+  - Added `font-family: monospace` for better readability
+  - JSON in "Strukturierte Daten" collapsible now properly formatted
+
+#### Fixed
+
+- **Markdown Line Breaks** ([conversation_handler.py:255-262](aifred/lib/conversation_handler.py#L255-L262)):
+  - **Problem:** Single `\n` in text content was ignored by Markdown, causing text to run together
+  - **Fix:** Convert single `\n` to `  \n` (two spaces + newline) for hard line breaks
+  - Text now displays with proper line breaks without extra paragraph spacing
+
+- **Log Alignment** ([state.py:2005-2007](aifred/state.py#L2005-L2007)):
+  - **Problem:** Bullet points in image list not aligned with "Vision-LLM" text
+  - **Fix:** Changed indent from 3 spaces to 2 spaces for proper alignment
+
+#### Changed
+
+- **Vision Context Limit**: Increased from 8192 to 16384 tokens for multi-image analysis
+
+#### Technical Details
+
+**Markdown Line Break Fix:**
+```python
+# Single \n → Markdown hard line break (two spaces + newline)
+content = re.sub(r'(?<!\n)\n(?!\n)', '  \n', content)
+```
+
+**Multi-Image JSON Format:**
+```json
+{
+  "type": "multi_image",
+  "images": [
+    {"image_index": 1, "description": "...", "content": {...}},
+    {"image_index": 2, "description": "...", "content": {...}}
+  ]
+}
+```
+
+---
+
 ## [2.5.1] - 2025-12-07
 
 ### 📱 Mobile UX Improvements - Crop Modal & Image Upload

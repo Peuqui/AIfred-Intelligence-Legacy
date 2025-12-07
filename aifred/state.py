@@ -1995,9 +1995,16 @@ class AIState(rx.State):
             # VISION PIPELINE: Route to Vision-LLM if images present
             # ============================================================
             if has_pending_images:
-                # Compact status message with image names
-                image_names = ", ".join([img.get("name", "unbekannt") for img in self.pending_images])
-                self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analysiert: {image_names}")
+                # CRITICAL FIX: Copy images to LOCAL variable BEFORE any yield!
+                # Reflex State can be modified between yields, causing race conditions.
+                # Deep copy ensures we keep the image data even if self.pending_images gets cleared.
+                import copy
+                local_images = copy.deepcopy(self.pending_images)
+                local_image_names = ", ".join([img.get("name", "unbekannt") for img in local_images])
+
+                # Format image names as bullet list on separate lines (aligned with "Vision")
+                image_list = "\n".join([f"  • {img.get('name', 'unbekannt')}" for img in local_images])
+                self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analysiert:\n{image_list}")
                 yield  # Update UI immediately to show Vision Pipeline start
 
                 # Save original user text (for Vision pipeline - may be empty!)
@@ -2006,10 +2013,10 @@ class AIState(rx.State):
                 # If user_msg is empty (image-only upload), use image names as user message FOR HISTORY ONLY
                 display_user_msg = user_msg
                 if not user_msg or user_msg.strip() == "":
-                    if len(self.pending_images) == 1:
-                        display_user_msg = f"📷 {self.pending_images[0].get('name', 'Bild')}"
+                    if len(local_images) == 1:
+                        display_user_msg = f"📷 {local_images[0].get('name', 'Bild')}"
                     else:
-                        display_user_msg = f"📷 {len(self.pending_images)} Bilder: {image_names}"
+                        display_user_msg = f"📷 {len(local_images)} Bilder: {local_image_names}"
 
                 # CRITICAL: Ensure KoboldCPP is running before LLM call
                 if self.backend_type == "koboldcpp":
@@ -2038,9 +2045,11 @@ class AIState(rx.State):
                 # ==============================================================================
                 # PHASE 1: VISION EXTRACTION (Process Vision-LLM items only)
                 # ==============================================================================
+                from .lib.logging_utils import log_message
+
                 async for item in chat_with_vision_pipeline(
                     user_text=original_user_text,  # CRITICAL: Use original (may be empty!), not display_user_msg
-                    images=self.pending_images,
+                    images=local_images,  # CRITICAL: Use local copy, NOT self.pending_images!
                     vision_model=self.vision_model_id,  # Pure ID
                     haupt_model=self.selected_model_id,  # Pure ID
                     backend_type=self.backend_type,
@@ -2050,6 +2059,7 @@ class AIState(rx.State):
                     llm_options=llm_options,
                     state=self  # Pass entire state object (for accessing config, not for calling functions)
                 ):
+
                     # Route Vision-LLM items only (NOT Automatik items!)
                     if item["type"] == "status":
                         self.add_debug(item.get("content", ""))
