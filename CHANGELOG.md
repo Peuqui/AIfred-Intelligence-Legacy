@@ -5,6 +5,65 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1] - 2025-12-07
+
+### 🧠 VRAM-Aware Context Building
+
+**Intelligentes RAG-Budgeting:** Context wird jetzt BEVOR er gebaut wird auf verfügbares VRAM geprüft. Keine "Eingabe zu groß" Fehler mehr bei großem Web-Scraping.
+
+#### Added
+
+- **VRAM-Aware Context Building** ([context_manager.py:151-215](aifred/lib/context_manager.py#L151-L215)):
+  - Neue Funktion `get_max_available_context()` ermittelt VRAM-Limit VOR dem Context-Building
+  - Neue Funktion `calculate_adaptive_reserve()` mit stufenweiser Reserve-Anpassung
+  - RAG-Context wird dynamisch auf verfügbares Budget begrenzt
+  - Verhindert "Eingabe zu groß" Fehler bei großem Web-Scraping
+
+- **Adaptive Reserve-Stufen** (8K → 6K → 4K):
+  - **8K Reserve** (Standard): Ideal für ausführliche Antworten
+  - **6K Reserve**: Wenn RAG-Content unter 80% vom Ziel fällt
+  - **4K Reserve** (Minimum): Nur wenn VRAM sehr knapp
+  - Erst wenn Reserve auf 4K, wird RAG-Content gekürzt
+
+#### Changed
+
+- **research/context_builder.py** ([context_builder.py:87-128](aifred/lib/research/context_builder.py#L87-L128)):
+  - VRAM-Limit wird vor `build_context()` abgefragt
+  - `max_context_tokens` Parameter wird jetzt dynamisch übergeben
+  - Overhead (System-Prompt, History, User) wird vorab geschätzt
+
+- **research/cache_handler.py** ([cache_handler.py:77-115](aifred/lib/research/cache_handler.py#L77-L115)):
+  - Gleiche VRAM-aware Logik wie context_builder.py
+  - Cache-Hits nutzen ebenfalls adaptive Reserve
+
+- **context_manager.py**:
+  - Reserve vereinfacht auf konstante 8K (statt dynamisch 8K/12K/16K)
+  - `OUTPUT_RESERVE_PREFERRED/REDUCED/MINIMUM` Konstanten
+
+#### Technical Details
+
+**Adaptive Reserve Logik:**
+```python
+# Priorität: Maximiere RAG-Content, reduziere Reserve stufenweise
+available = VRAM_limit  # z.B. 32K
+base = System_Prompt + History + User  # z.B. 4K
+
+# Stufe 1: 8K Reserve → RAG = available - base - 8K
+# Stufe 2: Falls RAG < 80% Ziel → 6K Reserve
+# Stufe 3: Falls RAG < 80% Ziel → 4K Reserve
+# Stufe 4: Falls RAG < 80% Ziel → Kürze RAG-Content
+```
+
+**Beispiel-Szenarien:**
+| VRAM | Base | Reserve | RAG |
+|------|------|---------|-----|
+| 40K | 4K | 8K | 20K (voll) |
+| 30K | 4K | 8K | 17.8K (leicht reduziert) |
+| 28K | 4K | 6K | 17.8K (Reserve reduziert) |
+| 18K | 4K | 4K | 9.9K (RAG gekürzt) |
+
+---
+
 ## [2.6.0] - 2025-12-07
 
 ### 📷 Sequentielle Bildverarbeitung + Session Persistenz

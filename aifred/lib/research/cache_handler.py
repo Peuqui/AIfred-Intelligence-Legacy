@@ -10,7 +10,8 @@ from typing import Dict, List, Optional, AsyncIterator
 from ..cache_manager import get_cached_research
 from ..agent_tools import build_context
 from ..prompt_loader import load_prompt
-from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx
+from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx, get_max_available_context, calculate_adaptive_reserve
+from ..config import MAX_RAG_CONTEXT_TOKENS
 from ..intent_detector import detect_cache_followup_intent, get_temperature_for_intent, get_temperature_label
 from ..formatting import format_thinking_process, format_number, format_metadata
 from ..logging_utils import log_message, console_separator, CONSOLE_SEPARATOR
@@ -72,8 +73,47 @@ async def handle_cache_hit(
 
     # Nutze ALLE Quellen aus dem Cache
     scraped_only = cached_sources
-    # Intelligenter Context (Limit aus config.py: MAX_RAG_CONTEXT_TOKENS)
-    context = build_context(user_text, scraped_only)
+
+    # ============================================================
+    # VRAM-AWARE Context Building (wie in context_builder.py)
+    # ============================================================
+
+    # 1. VRAM-Limit vorab ermitteln
+    if num_ctx_mode == "auto_vram":
+        max_ctx, model_limit_ctx = await get_max_available_context(
+            llm_client, model_choice,
+            enable_vram_limit=True
+        )
+    elif num_ctx_mode == "manual":
+        max_ctx = num_ctx_manual
+        model_limit_ctx = num_ctx_manual
+    else:
+        max_ctx, model_limit_ctx = await get_max_available_context(
+            llm_client, model_choice,
+            enable_vram_limit=False
+        )
+
+    # 2. Fixe Overhead-Schätzung
+    SYSTEM_PROMPT_ESTIMATE = 2500  # Cache-Hit Prompt etwas größer
+    HISTORY_ESTIMATE = len(history) * 500
+    USER_MESSAGE_ESTIMATE = len(user_text) // 3
+
+    # 3. Base Input ohne RAG-Context
+    base_input = SYSTEM_PROMPT_ESTIMATE + HISTORY_ESTIMATE + USER_MESSAGE_ESTIMATE
+
+    # 4. Adaptive Reserve-Berechnung
+    # Priorität: Maximiere RAG-Content, reduziere Reserve stufenweise (8K → 6K → 4K)
+    actual_reserve, max_rag_tokens = calculate_adaptive_reserve(
+        available_context=max_ctx,
+        base_input=base_input,
+        max_rag_target=MAX_RAG_CONTEXT_TOKENS
+    )
+
+    log_message(f"📊 Cache RAG Budget: {format_number(max_rag_tokens)} tok "
+                f"(VRAM-max: {format_number(max_ctx)}, Reserve: {format_number(actual_reserve)})")
+
+    # 6. Context mit dynamischem Limit bauen
+    context = build_context(user_text, scraped_only, max_context_tokens=max_rag_tokens)
 
     # Spracherkennung für User-Text
     from ..prompt_loader import detect_language
