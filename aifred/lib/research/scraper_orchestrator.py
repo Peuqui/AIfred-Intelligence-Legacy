@@ -69,7 +69,6 @@ async def orchestrate_scraping(
     # vLLM, TabbyAPI and KoboldCPP keep models loaded in VRAM, so preloading is unnecessary
     needs_preload = llm_client.backend_type not in ["vllm", "tabbyapi", "koboldcpp"]
     preload_task = None
-    unload_task = None
     preload_message_sent = False
     unloaded_models = []
 

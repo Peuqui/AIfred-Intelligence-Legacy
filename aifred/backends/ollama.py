@@ -178,7 +178,7 @@ class OllamaBackend(LLMBackend):
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 raise BackendModelNotFoundError(f"Model '{model}' not found in Ollama")
-            elif e.response.status_code == 400 and options.enable_thinking == True:
+            elif e.response.status_code == 400 and options.enable_thinking:
                 # Check if error is about thinking mode not supported
                 try:
                     error_data = e.response.json()
@@ -222,7 +222,7 @@ class OllamaBackend(LLMBackend):
                             inference_time=inference_time,
                             model=model
                         )
-                except:
+                except Exception:
                     pass  # If JSON parsing fails, fall through to normal error handling
                 raise BackendInferenceError(f"Ollama HTTP error: {e}")
             elif e.response.status_code == 500:
@@ -330,7 +330,7 @@ class OllamaBackend(LLMBackend):
 
                 async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
                     # Check for 400 error with thinking mode BEFORE raise_for_status
-                    if response.status_code == 400 and options.enable_thinking == True and attempt == 0:
+                    if response.status_code == 400 and options.enable_thinking and attempt == 0:
                         # Read error body while stream is still open
                         import json
                         error_body = await response.aread()
@@ -409,7 +409,7 @@ class OllamaBackend(LLMBackend):
             except httpx.HTTPStatusError as e:
                 # If this is attempt 0 and might be thinking-related, loop will retry
                 # If this is attempt 1 or not thinking-related, raise the error
-                if attempt == 1 or not (e.response.status_code == 400 and options.enable_thinking == True):
+                if attempt == 1 or not (e.response.status_code == 400 and options.enable_thinking):
                     if e.response.status_code == 404:
                         raise BackendModelNotFoundError(f"Model '{model}' not found")
                     else:

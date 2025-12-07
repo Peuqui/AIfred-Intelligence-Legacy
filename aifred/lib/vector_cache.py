@@ -157,7 +157,6 @@ class VectorCache:
 
         # Get best match
         distance = results['distances'][0][0]
-        document = results['documents'][0][0]
         metadata = results['metadatas'][0][0]
 
         # Check if entry has expired (TTL-based expiry check)

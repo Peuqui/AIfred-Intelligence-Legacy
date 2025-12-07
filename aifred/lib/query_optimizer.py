@@ -91,7 +91,7 @@ async def optimize_search_query(
             options['enable_thinking'] = llm_options['enable_thinking']
             log_message(f"🧠 Query-Opt enable_thinking: {llm_options['enable_thinking']} (from user toggle)")
         else:
-            log_message(f"🧠 Query-Opt enable_thinking: False (default - fast keyword mode)")
+            log_message("🧠 Query-Opt enable_thinking: False (default - fast keyword mode)")
 
         log_message(f"Total Messages: {len(messages)}, Temperature: 0.3")
         log_message("=" * 60)

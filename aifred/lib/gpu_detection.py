@@ -80,12 +80,6 @@ class GPUDetector:
             "requires_tensor_cores": False,
             "requires_fast_fp16": True,
             "description": "ExLlamaV2/V3 (EXL2), requires fast FP16"
-        },
-        "koboldcpp": {
-            "min_compute_capability": 3.5,
-            "requires_tensor_cores": False,
-            "requires_fast_fp16": False,
-            "description": "GGUF models (llama.cpp), universal compatibility"
         }
     }
 

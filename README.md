@@ -12,7 +12,17 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ## 📋 What's New
 
-**Latest Version:** v2.5.2 (2025-12-07)
+**Latest Version:** v2.5.3 (2025-12-07)
+
+### 🎯 Dynamic Vision Context Calculation (v2.5.3)
+
+**Optimized VRAM usage:** Vision context is now calculated dynamically like the Main-LLM - based on actually needed tokens, VRAM capacity, and model limits.
+
+Key highlights:
+- 🎯 **Dynamic Calculation**: Vision context now uses `min(needed, VRAM-max, model-limit)`
+- 💾 **VRAM Savings**: Shorter queries use less VRAM instead of fixed 16K context
+- 🧹 **Code Cleanup**: Removed dead code (`VISION_CONTEXT_LIMIT`, duplicate functions)
+- 🔧 **Bug Fixes**: Fixed duplicate log lines, mypy type errors
 
 ### 📷 Multi-Image Vision Pipeline (v2.5.2)
 
@@ -1199,5 +1209,5 @@ MIT License - see [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.5.2 (December 2025)
+**Version**: 2.5.3 (December 2025)
 **Status**: Production-Ready 🚀

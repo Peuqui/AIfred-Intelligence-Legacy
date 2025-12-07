@@ -5,6 +5,57 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.3] - 2025-12-07
+
+### 🎯 Dynamische Vision-Kontext-Berechnung
+
+**Optimierte VRAM-Nutzung:** Vision-Kontext wird jetzt dynamisch berechnet wie beim Haupt-LLM - basierend auf tatsächlich benötigten Tokens, VRAM-Kapazität und Model-Limits.
+
+#### Added
+
+- **Dynamische Vision-Kontext-Berechnung** ([conversation_handler.py:1892-1920](aifred/lib/conversation_handler.py#L1892-L1920)):
+  - Vision-Kontext wird jetzt wie Haupt-LLM berechnet: `min(benötigt, VRAM-max, Model-max)`
+  - Nutzt `calculate_vram_based_context()` für VRAM-basierte Berechnung
+  - Fallback auf feste Werte wenn VRAM-Berechnung fehlschlägt
+
+#### Fixed
+
+- **Vision-Kontext nutzt jetzt Minimum statt Maximum**:
+  - **Problem:** Vision-Kontext war statisch auf 16384 Tokens gesetzt
+  - **Fix:** Berechnet jetzt `min(benötigte_tokens, vram_max, model_limit)`
+  - Spart VRAM bei kürzeren Anfragen
+
+- **Doppelte Log-Zeilen entfernt** ([gpu_utils.py](aifred/lib/gpu_utils.py)):
+  - **Problem:** Debug-Meldungen wurden doppelt geloggt (direkt + via add_debug)
+  - **Fix:** `log_message()` Aufrufe aus `calculate_vram_based_context()` entfernt
+  - Nachrichten werden nur noch via `debug_msgs` gesammelt und einmal geloggt
+
+- **Mypy Type-Fehler behoben** ([gpu_utils.py:337,342,444](aifred/lib/gpu_utils.py#L337)):
+  - Fixed: `None - int` Operation durch early return
+  - Fixed: `format_number(None)` durch early return
+  - Fixed: `return Any` durch explizite Type-Annotation
+
+#### Removed
+
+- **Toter Code entfernt**:
+  - `VISION_CONTEXT_LIMIT` aus config.py entfernt (ungenutzt)
+  - Doppelte `detect_gpu_vendor()` Funktion aus gpu_utils.py entfernt
+
+#### Technical Details
+
+**Vision-Kontext-Berechnung:**
+```python
+# Dynamische Berechnung wie Haupt-LLM
+vram_num_ctx = calculate_vram_based_context(model_name, ...)
+model_limit = get_model_context_limit(model_name)
+needed_tokens = len(prompt_tokens) + expected_output
+
+# Minimum aller drei Werte
+num_ctx = min(needed_tokens, vram_num_ctx, model_limit)
+```
+
+---
+
 ## [2.5.2] - 2025-12-07
 
 ### 📷 Multi-Image Vision Pipeline Improvements
