@@ -1,0 +1,1 @@
+Beschreibe das Bild und extrahiere vorhandenen Text.

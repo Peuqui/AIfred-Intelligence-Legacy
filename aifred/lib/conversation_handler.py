@@ -16,7 +16,12 @@ from typing import Dict, List, Optional, AsyncIterator
 
 from .llm_client import LLMClient
 from .logging_utils import log_message, CONSOLE_SEPARATOR
-from .prompt_loader import get_decision_making_prompt, get_vision_ocr_prompt
+from .prompt_loader import (
+    get_decision_making_prompt,
+    get_vision_ocr_prompt,
+    get_vision_templateless_ocr_prompt,
+    get_vision_templateless_default_prompt
+)
 from .message_builder import build_messages_from_history
 from .formatting import format_thinking_process, format_metadata, format_number
 # Cache system removed - will be replaced with Vector DB
@@ -91,13 +96,9 @@ async def _process_single_image_vision(
     if not supports_chat_template:
         model_lower = vision_model.lower()
         if "ocr" in model_lower or "deepseek-ocr" in model_lower:
-            default_prompt = "Extrahiere den Text." if lang == "de" else "Extract the text."
+            default_prompt = get_vision_templateless_ocr_prompt(lang=lang)
         else:
-            default_prompt = (
-                "Beschreibe das Bild und extrahiere vorhandenen Text."
-                if lang == "de" else
-                "Describe the image and extract any text present."
-            )
+            default_prompt = get_vision_templateless_default_prompt(lang=lang)
         content_parts.append({"type": "text", "text": default_prompt})
 
     # Add single image
