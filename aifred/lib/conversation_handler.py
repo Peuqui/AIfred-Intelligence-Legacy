@@ -521,10 +521,9 @@ async def chat_with_vision_pipeline(
     num_ctx = min(calculated_ctx, vram_num_ctx, model_limit)
 
     # Log detailed calculation (same style as Main-LLM)
+    # NOTE: Only yield to debug - state.py will log via log_message()
     ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok"
     ctx_msg2 = f"   (benötigt: {format_number(needed_tokens)}, VRAM-max: {format_number(vram_num_ctx)}, Model-max: {format_number(model_limit)})"
-    log_message(ctx_msg1)
-    log_message(ctx_msg2)
     yield {"type": "debug", "message": ctx_msg1}
     yield {"type": "debug", "message": ctx_msg2}
 
@@ -536,7 +535,20 @@ async def chat_with_vision_pipeline(
     # Exception: Template-less models (DeepSeek-OCR) need a default text prompt
     if not supports_chat_template:
         # Models like DeepSeek-OCR need a text prompt to work (no inference with empty prompt)
-        default_prompt = "Extrahiere den Text." if lang == "de" else "Extract the text."
+        # Use model-specific prompts based on model capabilities
+        model_lower = vision_model.lower()
+
+        if "ocr" in model_lower or "deepseek-ocr" in model_lower:
+            # OCR-Spezialist → nur Text extrahieren (kann keine Bildbeschreibungen)
+            default_prompt = "Extrahiere den Text." if lang == "de" else "Extract the text."
+        else:
+            # Generisches Vision-Modell → beschreiben + Text extrahieren
+            default_prompt = (
+                "Beschreibe das Bild und extrahiere vorhandenen Text."
+                if lang == "de" else
+                "Describe the image and extract any text present."
+            )
+
         content_parts.append({"type": "text", "text": default_prompt})
         log_message(f"⚠️ Added default prompt for template-less model: '{default_prompt}'")
 
