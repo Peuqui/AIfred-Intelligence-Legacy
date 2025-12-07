@@ -83,19 +83,70 @@ def get_timestamp() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
 
+def format_html_preview(text: str) -> str:
+    """
+    Erkennt ```html Code-Blöcke und formatiert sie in einem Collapsible mit Hinweis.
+
+    HINWEIS: React blockiert alle dynamischen URLs (data:, javascript:) aus Sicherheitsgründen.
+    Daher zeigen wir nur den Code mit Anleitung zum manuellen Öffnen.
+
+    Args:
+        text: Text mit optionalen ```html Code-Blöcken
+
+    Returns:
+        Text mit HTML Code in Collapsibles + Anleitung
+
+    Example:
+        Input:  "Hier ist HTML:\n```html\n<h1>Hello</h1>\n```\nFertig!"
+        Output: "Hier ist HTML:\n<details open>...[code + hint]...</details>\nFertig!"
+    """
+    # Pattern für ```html Code-Blöcke (mit optionalem Whitespace)
+    html_block_pattern = r'```html\s*\n([\s\S]*?)```'
+
+    def replace_html_block(match):
+        html_code = match.group(1).strip()
+
+        # HTML Code in aufgeklapptem Collapsible mit Anleitung
+        # React blockiert data: URLs, daher nur Hinweis zum manuellen Öffnen
+        code_collapsible = f"""<details open style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.5em; border: 1px solid #30363d; border-radius: 6px;">
+<summary style="cursor: pointer; font-weight: bold; color: #58a6ff; padding: 0.5em;">🌐 HTML Code</summary>
+<div style="padding: 0.5em;">
+
+> 💡 **Tipp:** Code kopieren → in `.html` Datei speichern → im Browser öffnen
+
+```html
+{html_code}
+```
+
+</div>
+</details>"""
+
+        return code_collapsible
+
+    # Ersetze alle ```html Blöcke
+    result = re.sub(html_block_pattern, replace_html_block, text)
+
+    # Log wenn HTML-Blöcke gefunden wurden
+    if result != text:
+        log_message("🌐 HTML Code: Code-Block(s) zu Collapsible konvertiert")
+
+    return result
+
+
 def extract_xml_tags(text: str) -> list[tuple[str, str]]:
     """
     Extrahiert ALLE XML-Tags aus Text (generisch, nicht hardcoded).
 
-    WICHTIG: HTML-Tags werden IGNORIERT, damit sie nicht versehentlich
-    als Collapsibles formatiert werden (z.B. <span>, <div>, <details>).
-    Die Blacklist ist in html_tags.py definiert.
+    WICHTIG:
+    1. HTML-Tags werden IGNORIERT (Blacklist in html_tags.py)
+    2. Tags innerhalb von Markdown Code-Blocks werden IGNORIERT!
+       (``` ... ``` Blöcke enthalten oft HTML/XML Code-Beispiele)
 
     Args:
         text: Text mit optionalen XML-Tags
 
     Returns:
-        Liste von (tag_name, content) Tuples (ohne HTML-Tags!)
+        Liste von (tag_name, content) Tuples (ohne HTML-Tags, ohne Code-Block-Tags!)
 
     Example:
         >>> extract_xml_tags("<think>foo</think> bar <python>code</python>")
@@ -103,12 +154,19 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
 
         >>> extract_xml_tags("<span style='...'>text</span>")  # HTML ignoriert!
         []
-    """
-    # Generic XML pattern: <tagname>content</tagname>
-    pattern = r'<(\w+)>(.*?)</\1>'
-    matches = re.findall(pattern, text, re.DOTALL)
 
-    # Filter: Nur Non-HTML Tags zurückgeben (Blacklist aus html_tags.py)
+        >>> extract_xml_tags("```html\\n<head>...</head>\\n```")  # Code-Block ignoriert!
+        []
+    """
+    # STEP 1: Entferne Markdown Code-Blocks BEVOR wir nach XML-Tags suchen
+    # Code-Blocks können HTML/XML Code-Beispiele enthalten, die NICHT verarbeitet werden sollen
+    text_without_codeblocks = re.sub(r'```[\s\S]*?```', '', text)
+
+    # STEP 2: Generic XML pattern: <tagname>content</tagname>
+    pattern = r'<(\w+)>(.*?)</\1>'
+    matches = re.findall(pattern, text_without_codeblocks, re.DOTALL)
+
+    # STEP 3: Filter: Nur Non-HTML Tags zurückgeben (Blacklist aus html_tags.py)
     return [
         (tag_name, content.strip())
         for tag_name, content in matches
@@ -168,11 +226,7 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
     # Extract ALL XML tags generically
     xml_tags = extract_xml_tags(ai_response)
 
-    if not xml_tags:
-        # No tags found, return original
-        return ai_response
-
-    # Build collapsibles for each detected tag
+    # Build collapsibles for each detected tag (if any)
     collapsibles = []
     for tag_name, content in xml_tags:
         config = XML_TAG_CONFIG.get(tag_name)
@@ -183,11 +237,11 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
             label = config['label']
             css_class = config['class']
         else:
-            # Unknown tag → Auto-generate (Fallback für ALLE Tags!)
-            icon = "📄"
-            label = tag_name.capitalize()
-            css_class = "thinking-compact"
-            log_message(f"ℹ️ Auto-formatiere unbekanntes XML-Tag: <{tag_name}> → {icon} {label}")
+            # Unknown tag → SKIP (nicht als Collapsible formatieren!)
+            # Kleine Modelle geben oft Tags wie <result>, <function> aus,
+            # die nicht als Collapsibles gedacht sind
+            log_message(f"ℹ️ Überspringe unbekanntes XML-Tag: <{tag_name}> (nicht in XML_TAG_CONFIG)")
+            continue
 
         # Build summary with icon + label
         summary_parts = [f"{icon} {label}"]
@@ -208,19 +262,26 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
 </details>"""
         collapsibles.append(collapsible)
 
-    # Remove nur die extrahierten Top-Level-Tags (nicht nested tags!)
+    # Remove nur BEKANNTE Tags (die zu Collapsibles wurden) aus dem Response
+    # Unbekannte Tags bleiben im Text stehen!
     clean_response = ai_response
     for tag_name, _ in xml_tags:
-        # Entferne nur das erste Vorkommen des extrahierten Tags
-        pattern = rf'<{tag_name}>.*?</{tag_name}>'
-        clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
+        # Nur entfernen wenn Tag in Config ist (also ein Collapsible erstellt wurde)
+        if tag_name in XML_TAG_CONFIG:
+            pattern = rf'<{tag_name}>.*?</{tag_name}>'
+            clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
     clean_response = clean_response.strip()
 
     # Return: Collapsibles + Clean Response
     if collapsibles:
-        return "\n\n".join(collapsibles) + "\n\n" + clean_response
+        result = "\n\n".join(collapsibles) + "\n\n" + clean_response
     else:
-        return clean_response
+        result = clean_response
+
+    # FINAL STEP: HTML Preview für ```html Code-Blöcke
+    result = format_html_preview(result)
+
+    return result
 
 
 def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model, query_time=None, final_time=None):
@@ -280,15 +341,23 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
     # Kombiniere alle Debug-Sections
     debug_accordion = "\n".join(debug_sections)
 
-    # Entferne nur die extrahierten Top-Level-Tags (nicht nested tags!)
+    # Entferne nur BEKANNTE Tags (think) aus dem Response
+    # In build_debug_accordion wird nur <think> verarbeitet
     clean_response = ai_text
     for tag_name, _ in xml_tags:
-        pattern = rf'<{tag_name}>.*?</{tag_name}>'
-        clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
+        # Nur <think> Tag entfernen (das einzige was hier als Debug-Section verwendet wird)
+        if tag_name == "think":
+            pattern = rf'<{tag_name}>.*?</{tag_name}>'
+            clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
     clean_response = clean_response.strip()
 
     # Return: Debug Accordion + Clean Response
     if debug_accordion:
-        return f"{debug_accordion}\n\n{clean_response}"
+        result = f"{debug_accordion}\n\n{clean_response}"
     else:
-        return clean_response
+        result = clean_response
+
+    # FINAL STEP: HTML Preview für ```html Code-Blöcke
+    result = format_html_preview(result)
+
+    return result
