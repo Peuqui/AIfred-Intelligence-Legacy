@@ -127,6 +127,15 @@ HTML_TAG_BLACKLIST = {
     'menuitem',  # Menu item (deprecated)
 
     # ============================================================
+    # DOKUMENT-STRUKTUR (HTML-Dokument-Tags)
+    # ============================================================
+    'html',      # Root element
+    'head',      # Document head
+    'body',      # Document body
+    'title',     # Page title
+    'doctype',   # DOCTYPE declaration (als Tag erkannt)
+
+    # ============================================================
     # SONSTIGE / META
     # ============================================================
     'script',    # JavaScript
