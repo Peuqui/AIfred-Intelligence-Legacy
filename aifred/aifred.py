@@ -163,17 +163,22 @@ def native_select_backend(value_var, on_change_handler, disabled_condition, back
         value=value_var,
         on_change=on_change_handler,
         disabled=disabled_condition,
-        # Dark theme styling for native select
+        # Dark theme styling for native select (same as native_select_model)
         style={
             "width": "100%",
+            "min_width": "120px",  # Ensure minimum width for text
+            "flex": "1",  # Take available space in hstack
             "padding": "8px 12px",
-            "font_size": "12px",  # Smaller font to fit more text
+            "font_size": "12px",
             "color": COLORS["text_primary"],
             "background": COLORS["input_bg"],
             "border": f"1px solid {COLORS['border']}",
             "border_radius": "6px",
-            "min_height": "48px",  # Touch-friendly
+            "min_height": "48px",
             "cursor": "pointer",
+            "white_space": "nowrap",
+            "overflow": "hidden",
+            "text_overflow": "ellipsis",
         },
     )
 
@@ -1398,29 +1403,12 @@ def settings_accordion() -> rx.Component:
                     # Conditional rendering: Native select for mobile, Radix UI for desktop
                     rx.cond(
                         AIState.is_mobile,
-                        # MOBILE: Native HTML <select> - use display labels (same as LLM dropdowns)
-                        rx.el.select(
-                            rx.foreach(
-                                AIState.available_backends_list,  # Labels: ["Ollama", "KoboldCPP"]
-                                lambda label: rx.el.option(
-                                    label,  # Display: "Ollama"
-                                    value=label,  # Value: "Ollama" (same as display!)
-                                ),
-                            ),
-                            value=AIState.current_backend_label,  # Label: "Ollama"
-                            on_change=AIState.switch_backend_by_label,  # Maps label -> ID
-                            disabled=AIState.backend_switching,
-                            style={
-                                "width": "100%",
-                                "padding": "8px 12px",
-                                "font_size": "12px",
-                                "color": COLORS["text_primary"],
-                                "background": COLORS["input_bg"],
-                                "border": f"1px solid {COLORS['border']}",
-                                "border_radius": "6px",
-                                "min_height": "48px",
-                                "cursor": "pointer",
-                            },
+                        # MOBILE: Native HTML <select>
+                        native_select_backend(
+                            AIState.current_backend_label,
+                            AIState.switch_backend_by_label,
+                            AIState.backend_switching,
+                            AIState.available_backends_list,
                         ),
                         # DESKTOP: Radix UI Select with grouped headers
                         rx.select.root(
