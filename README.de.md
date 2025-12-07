@@ -12,20 +12,34 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 ## 📋 Neuigkeiten
 
-**Aktuelle Version:** v2.4.1 (2025-12-06)
+**Aktuelle Version:** v2.5.1 (2025-12-07)
+
+### 📱 Mobile UX Verbesserungen (v2.5.1)
+
+**Verbesserte Mobile-Erfahrung:** Vollbild-Crop-Modal, optimiertes Thumbnail-Layout und intelligente Bildnamen.
+
+Wichtigste Highlights:
+- 📱 **Vollbild-Crop-Modal**: Positionierungsprobleme auf Mobile behoben - Modal jetzt immer zentriert
+- 🖐️ **Touch-freundlich**: Snap-to-Grid-Verhalten deaktiviert, größere Touch-Targets (80px Thumbnails)
+- 📝 **Intelligente Bildnamen**: Lange Kamera-Dateinamen werden zu "Bild_001.jpg" gekürzt
+- 🔧 **Backend-Dropdown Fix**: Jetzt auch auf Mobile im geschlossenen Zustand sichtbar
+- ⬅️ **Linksbündiges Layout**: Buttons und Thumbnails korrekt ausgerichtet
+
+### ✂️ Bild-Zuschnitt & 4K Auto-Resize (v2.5.0)
+
+**Neues Feature:** Bilder vor dem Senden an Vision-LLM zuschneiden, mit automatischer 4K-Auflösungsbegrenzung.
+
+Wichtigste Highlights:
+- ✂️ **Interaktives Crop-Tool**: Bilder direkt in der UI vor OCR/Analyse zuschneiden
+- 🎯 **8-Punkt Drag-Handles**: 4 Ecken + 4 Kanten für präzises Zuschneiden
+- 📐 **Freies Seitenverhältnis**: Kein festes Verhältnis - beliebigen rechteckigen Bereich zuschneiden
+- 📷 **4K Auto-Resize**: Bilder automatisch auf max 3840px skaliert (vorher 2048px)
+- 🔄 **EXIF-Rotations-Fix**: Mobile Fotos werden jetzt korrekt ausgerichtet
+- 🎨 **RGBA→RGB Konvertierung**: PNG-Screenshots mit Transparenz funktionieren korrekt
 
 ### 🔧 Generische XML-Tag-Verarbeitung (v2.4.1)
 
 **Großes Refactoring:** Hardcodierte XML-Tag-Verarbeitung durch config-gesteuerte, generische Verarbeitung ersetzt.
-
-Wichtigste Highlights:
-- 🔧 **Doppeltes Collapsible behoben**: Vision-LLM mit `<think>` Tags (qwen3-vl:30b) zeigt Denkprozess nicht mehr doppelt
-- 🏷️ **Generische XML-Erkennung**: Jedes `<tagname>inhalt</tagname>` Muster wird automatisch zum Collapsible
-- ⚙️ **Config-gesteuerte Tags**: `XML_TAG_CONFIG` in config.py definiert Icons/Labels (💭 think, 📊 data, 🐍 python, etc.)
-- 📄 **Auto-Fallback**: Unbekannte Tags bekommen automatisch "📄 Tagname" Collapsible - keine Code-Änderungen nötig!
-- 🔗 **Verschachtelte Tags erhalten**: Innere Tags wie `<function>` innerhalb von `<code>` bleiben intakt
-- 🚫 **HTML-Tag-Blacklist**: 96 HTML5-Tags von XML-Verarbeitung ausgeschlossen (neue Datei: `html_tags.py`)
-- 🎨 **Metadata-Formatierung**: Von HTML zu Markdown-Kursiv gewechselt, erscheint auf eigener Zeile ohne extra Abstand
 
 ### 🔗 Vision + Research Integration (v2.4.0)
 
@@ -1129,5 +1143,5 @@ MIT License - siehe [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.4.1 (December 2025)
+**Version**: 2.5.1 (December 2025)
 **Status**: Production-Ready 🚀

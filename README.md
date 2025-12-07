@@ -12,7 +12,18 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ## 📋 What's New
 
-**Latest Version:** v2.5.0 (2025-12-07)
+**Latest Version:** v2.5.1 (2025-12-07)
+
+### 📱 Mobile UX Improvements (v2.5.1)
+
+**Enhanced mobile experience:** Fullscreen crop modal, improved thumbnail layout, and smarter image naming.
+
+Key highlights:
+- 📱 **Fullscreen Crop Modal**: Fixed positioning issues on mobile - modal now always centered
+- 🖐️ **Touch-Friendly**: Disabled snap-to-grid behavior, larger touch targets (80px thumbnails)
+- 📝 **Smart Image Names**: Long camera filenames shortened to "Bild_001.jpg"
+- 🔧 **Backend Dropdown Fix**: Now visible on mobile in closed state
+- ⬅️ **Left-Aligned Layout**: Buttons and thumbnails properly aligned
 
 ### ✂️ Image Crop & 4K Auto-Resize (v2.5.0)
 
@@ -1178,5 +1189,5 @@ MIT License - see [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.5.0 (December 2025)
+**Version**: 2.5.1 (December 2025)
 **Status**: Production-Ready 🚀
