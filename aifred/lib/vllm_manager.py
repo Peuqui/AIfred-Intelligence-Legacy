@@ -629,7 +629,7 @@ class vLLMProcessManager:
                     )
                     log_feedback(f"💾 Cached calibration point: {free_vram_mb:.0f}MB → {target_context:,} tokens")
                 else:
-                    log_feedback(f"⚠️ YaRN active - not caching (cache is for native context only)")
+                    log_feedback("⚠️ YaRN active - not caching (cache is for native context only)")
 
                 return (True, {
                     "native_context": native_context,
@@ -806,7 +806,7 @@ class vLLMProcessManager:
                         )
                         log_feedback(f"💾 Cached calibration point: {free_vram_mb:.0f}MB → {max_possible:,} tokens")
                     else:
-                        log_feedback(f"⚠️ YaRN active - not caching (cache is for native context only)")
+                        log_feedback("⚠️ YaRN active - not caching (cache is for native context only)")
 
                     result = {
                         "native_context": native_context,

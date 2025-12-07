@@ -482,28 +482,51 @@ async def chat_with_vision_pipeline(
         backend=backend if backend_type == "ollama" else None  # Pass backend for auto-unloading
     )
 
-    # Log debug messages
+    # === Dynamic Vision Context Calculation (v2.5.3) ===
+    # Same logic as Main-LLM: min(calculated, VRAM-based, Model-Limit)
+    # This ensures we use only as much context as needed, saving VRAM!
+    from .formatting import format_number
+
+    # Send debug messages to UI console (same as Main-LLM)
     for msg in debug_msgs:
-        log_message(msg)
+        yield {"type": "debug", "message": msg}
 
-    # Apply Vision-specific context limit (accounts for image embedding overhead)
-    from .config import VISION_CONTEXT_LIMIT
+    # Calculate required tokens for Vision:
+    # - Image embeddings: ~2000 tokens per image (conservative estimate)
+    # - System prompt: ~500 tokens
+    # - Reserve for response: 8K tokens (Vision outputs can be long with OCR)
+    num_images = len(images)
+    image_tokens = num_images * 2000  # ~2K per image embedding
+    system_prompt_tokens = 500
+    response_reserve = 8192  # 8K reserve for Vision response
 
-    # CRITICAL: Vision models need minimum 4096 tokens (image embedding ~2000 + system prompt ~100 + margin)
-    # Generic fallback of 2048 is too small and causes system prompt truncation
+    estimated_tokens = image_tokens + system_prompt_tokens
+    needed_tokens = estimated_tokens + response_reserve
+
+    # Model limit (fallback to 128K if detection failed)
+    model_limit = intrinsic_num_ctx or 131072
+
+    # CRITICAL: Minimum for Vision (image embedding needs at least this)
     VISION_MINIMUM_CONTEXT = 4096
 
     if vram_num_ctx < VISION_MINIMUM_CONTEXT:
-        log_message(f"⚠️ VRAM context {vram_num_ctx} too small for Vision → Using minimum {VISION_MINIMUM_CONTEXT} tokens")
-        log_message("   (Image embedding + system prompt requires at least 4096 tokens)")
+        msg = f"⚠️ VRAM context {vram_num_ctx} too small for Vision → Using minimum {VISION_MINIMUM_CONTEXT} tokens"
+        log_message(msg)
+        yield {"type": "debug", "message": msg}
         vram_num_ctx = VISION_MINIMUM_CONTEXT
 
-    num_ctx = min(vram_num_ctx, VISION_CONTEXT_LIMIT)
+    # Final context = min(needed, VRAM-max, model-max) - same as Main-LLM!
+    # But ensure at least VISION_MINIMUM_CONTEXT
+    calculated_ctx = max(needed_tokens, VISION_MINIMUM_CONTEXT)
+    num_ctx = min(calculated_ctx, vram_num_ctx, model_limit)
 
-    if num_ctx < vram_num_ctx:
-        log_message(f"⚙️ Vision context limited to {num_ctx} tokens (config.VISION_CONTEXT_LIMIT)")
-    else:
-        log_message(f"⚙️ Using VRAM-based context: {num_ctx} tokens")
+    # Log detailed calculation (same style as Main-LLM)
+    ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok"
+    ctx_msg2 = f"   (benötigt: {format_number(needed_tokens)}, VRAM-max: {format_number(vram_num_ctx)}, Model-max: {format_number(model_limit)})"
+    log_message(ctx_msg1)
+    log_message(ctx_msg2)
+    yield {"type": "debug", "message": ctx_msg1}
+    yield {"type": "debug", "message": ctx_msg2}
 
     # Build multimodal message (ONLY image, NO user text)
     # User text will be processed later by Automatik-LLM → Main-LLM flow

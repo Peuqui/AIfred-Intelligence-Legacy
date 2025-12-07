@@ -117,8 +117,8 @@ class KoboldCPPBackend(LLMBackend):
 
             if not success:
                 raise BackendConnectionError(
-                    f"Failed to auto-restart KoboldCPP server. "
-                    f"Please check logs and restart manually via UI."
+                    "Failed to auto-restart KoboldCPP server. "
+                    "Please check logs and restart manually via UI."
                 )
 
             # Update global state with new config
@@ -454,7 +454,7 @@ class KoboldCPPBackend(LLMBackend):
         Returns:
             Tuple of (success: bool, load_time: float)
         """
-        logger.info(f"KoboldCPP preload_model called, but models are loaded at server startup")
+        logger.info("KoboldCPP preload_model called, but models are loaded at server startup")
         return (True, 0.0)
 
     def get_capabilities(self) -> Dict[str, bool]:

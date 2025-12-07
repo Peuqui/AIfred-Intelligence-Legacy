@@ -14,7 +14,6 @@ from .config import (
     VRAM_CONTEXT_RATIO_MOE,
     ENABLE_VRAM_CONTEXT_CALCULATION
 )
-from .logging_utils import log_message
 from .formatting import format_number
 
 logger = logging.getLogger(__name__)
@@ -70,30 +69,6 @@ def get_free_vram_mb() -> Optional[int]:
     except Exception as e:
         logger.debug(f"Could not query GPU via pynvml: {e}")
         return None
-
-
-def detect_gpu_vendor() -> str:
-    """
-    Detect GPU vendor (NVIDIA, AMD, or unknown)
-
-    Returns:
-        "nvidia", "amd", or "unknown"
-    """
-    try:
-        import pynvml
-        pynvml.nvmlInit()
-        # If we can init NVML, it's NVIDIA
-        pynvml.nvmlShutdown()
-        return "nvidia"
-    except:
-        pass
-
-    # Check for AMD via rocm-smi
-    import shutil
-    if shutil.which("rocm-smi"):
-        return "amd"
-
-    return "unknown"
 
 
 async def is_moe_model(model_name: str, ollama_url: str = "http://localhost:11434") -> bool:
@@ -200,7 +175,6 @@ def get_model_size_from_cache(model_name: str) -> int:
         int: Model size in bytes, or 0 if not found
     """
     from pathlib import Path
-    import os
 
     cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
 
@@ -313,7 +287,6 @@ async def calculate_vram_based_context(
             "⚠️ VRAM query failed (CPU-only or nvidia-smi unavailable), "
             "using model's architectural limit"
         )
-        log_message(msg)
         debug_msgs.append(msg)
         return model_context_limit, debug_msgs
 
@@ -330,12 +303,10 @@ async def calculate_vram_based_context(
     if model_is_loaded:
         # Model already in VRAM - free_vram_mb already accounts for it
         vram_for_context = usable_vram
-        msg = (
-            f"💾 Model loaded → {format_number(vram_for_context, 0)} MB for context "
-            f"({format_number(free_vram_mb)} MB free - {format_number(safety_margin_mb)} MB margin)"
-        )
-        log_message(msg)
-        debug_msgs.append(msg)
+        msg1 = f"💾 Model loaded → {format_number(vram_for_context, 0)} MB for context"
+        msg2 = f"   ({format_number(free_vram_mb)} MB free - {format_number(safety_margin_mb)} MB margin)"
+        debug_msgs.append(msg1)
+        debug_msgs.append(msg2)
     else:
         # Model NOT loaded - must subtract its size from available VRAM
         vram_for_context_calc = int(usable_vram - model_size_mb)
@@ -343,8 +314,7 @@ async def calculate_vram_based_context(
         # Special case: Negative value indicates another model is still loaded
         # SOLUTION: Unload all models automatically and recalculate
         if vram_for_context_calc < 0:
-            msg = f"⚠️ Model switch detected → Unloading all models and recalculating VRAM..."
-            log_message(msg)
+            msg = "⚠️ Model switch detected → Unloading all models and recalculating VRAM..."
             debug_msgs.append(msg)
 
             # Unload all models if backend available (Ollama only)
@@ -352,44 +322,40 @@ async def calculate_vram_based_context(
                 success, unloaded = await backend.unload_all_models()
                 if success and unloaded:
                     msg = f"✅ Unloaded models: {', '.join(unloaded)}"
-                    log_message(msg)
                     debug_msgs.append(msg)
 
                     # Recalculate VRAM after unloading
                     import time
                     time.sleep(0.5)  # Give VRAM time to free up
                     free_vram_mb = get_free_vram_mb()
+                    if free_vram_mb is None:
+                        msg = "⚠️ VRAM query failed after unload → Using minimal fallback"
+                        debug_msgs.append(msg)
+                        return 2048, debug_msgs
                     usable_vram = free_vram_mb - safety_margin_mb
                     vram_for_context = int(usable_vram - model_size_mb)
 
-                    msg = (
-                        f"💾 Model NOT loaded → {format_number(vram_for_context, 0)} MB for context "
-                        f"({format_number(free_vram_mb)} MB - {format_number(model_size_mb, 0)} MB model - {format_number(safety_margin_mb)} MB margin)"
-                    )
-                    log_message(msg)
-                    debug_msgs.append(msg)
+                    msg1 = f"💾 Model NOT loaded → {format_number(vram_for_context, 0)} MB for context"
+                    msg2 = f"   ({format_number(free_vram_mb)} MB - {format_number(model_size_mb, 0)} MB model - {format_number(safety_margin_mb)} MB margin)"
+                    debug_msgs.append(msg1)
+                    debug_msgs.append(msg2)
                 else:
                     msg = "⚠️ Failed to unload models → Using minimal fallback"
-                    log_message(msg)
                     debug_msgs.append(msg)
                     return 2048, debug_msgs
             else:
                 msg = "⚠️ No backend available for unloading → Using minimal fallback"
-                log_message(msg)
                 debug_msgs.append(msg)
                 return 2048, debug_msgs
         else:
             vram_for_context = vram_for_context_calc
-            msg = (
-                f"💾 Model NOT loaded → {format_number(vram_for_context, 0)} MB for context "
-                f"({format_number(free_vram_mb)} MB - {format_number(model_size_mb, 0)} MB model - {format_number(safety_margin_mb)} MB margin)"
-            )
-            log_message(msg)
-            debug_msgs.append(msg)
+            msg1 = f"💾 Model NOT loaded → {format_number(vram_for_context, 0)} MB for context"
+            msg2 = f"   ({format_number(free_vram_mb)} MB - {format_number(model_size_mb, 0)} MB model - {format_number(safety_margin_mb)} MB margin)"
+            debug_msgs.append(msg1)
+            debug_msgs.append(msg2)
 
     if vram_for_context < 100:
         msg = f"❌ Insufficient VRAM for context: {format_number(vram_for_context, 0)} MB (< 100 MB minimum) → Fallback 2.048"
-        log_message(msg)
         debug_msgs.append(msg)
         return 2048, debug_msgs  # Minimal fallback
 
@@ -412,7 +378,6 @@ async def calculate_vram_based_context(
     else:
         # Model is the bottleneck
         msg = f"🎯 Model-Limit: {formatted_ctx} tok (VRAM Max: {formatted_vram_max} tok)"
-    log_message(msg)
     debug_msgs.append(msg)
 
     return final_num_ctx, debug_msgs
@@ -434,7 +399,7 @@ def detect_gpu_vendor() -> str:
         pynvml.nvmlInit()
         pynvml.nvmlShutdown()
         return "nvidia"
-    except:
+    except Exception:
         pass
 
     # Try AMD ROCm detection
@@ -448,7 +413,7 @@ def detect_gpu_vendor() -> str:
         )
         if result.returncode == 0:
             return "amd"
-    except:
+    except Exception:
         pass
 
     return "cpu"
@@ -464,10 +429,10 @@ def get_gpu_count() -> int:
     try:
         import pynvml
         pynvml.nvmlInit()
-        count = pynvml.nvmlDeviceGetCount()
+        count: int = pynvml.nvmlDeviceGetCount()
         pynvml.nvmlShutdown()
         return count
-    except:
+    except Exception:
         return 0
 
 
@@ -490,7 +455,7 @@ def get_gpu_names() -> list[str]:
                 name = name.decode('utf-8')
             names.append(name)
         pynvml.nvmlShutdown()
-    except:
+    except Exception:
         pass
 
     return names
@@ -514,7 +479,7 @@ def get_gpu_vram_per_gpu() -> list[int]:
             vram_mb = mem_info.total / (1024 * 1024)
             vram_sizes.append(int(vram_mb))
         pynvml.nvmlShutdown()
-    except:
+    except Exception:
         pass
 
     return vram_sizes

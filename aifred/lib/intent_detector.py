@@ -80,7 +80,7 @@ async def detect_query_intent(
             intent_options['enable_thinking'] = llm_options['enable_thinking']
             log_message(f"🧠 Intent enable_thinking: {llm_options['enable_thinking']} (from user toggle)")
         else:
-            log_message(f"🧠 Intent enable_thinking: False (default - fast intent mode)")
+            log_message("🧠 Intent enable_thinking: False (default - fast intent mode)")
 
         response = await llm_client.chat(
             model=automatik_model,
@@ -145,7 +145,7 @@ async def detect_cache_followup_intent(
             followup_intent_options['enable_thinking'] = llm_options['enable_thinking']
             log_message(f"🧠 Followup Intent enable_thinking: {llm_options['enable_thinking']} (from user toggle)")
         else:
-            log_message(f"🧠 Followup Intent enable_thinking: False (default - fast intent mode)")
+            log_message("🧠 Followup Intent enable_thinking: False (default - fast intent mode)")
 
         response = await llm_client.chat(
             model=automatik_model,

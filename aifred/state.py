@@ -110,7 +110,6 @@ def sort_models_grouped(models_dict: Dict[str, str]) -> Dict[str, str]:
     Returns:
         Sorted dict with same structure
     """
-    import re
 
     def get_model_family(model_id: str) -> str:
         """Extract model family for grouping (e.g., 'qwen3:8b' -> 'qwen3', 'qwen3-vl:8b' -> 'qwen3-vl')"""
@@ -3576,7 +3575,6 @@ class AIState(rx.State):
 
     async def set_vision_model(self, model: str):
         """Set vision model for OCR/image analysis"""
-        old_model = self.vision_model
         self.vision_model = model
         # CRITICAL: Sync vision_model_id from display label (fixes Vision-LLM using wrong model)
         self.vision_model_id = extract_model_name(model)

@@ -12,7 +12,7 @@ from ..agent_tools import build_context
 from ..prompt_loader import load_prompt
 from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx
 from ..intent_detector import detect_cache_followup_intent, get_temperature_for_intent, get_temperature_label
-from ..formatting import format_thinking_process, format_number
+from ..formatting import format_thinking_process, format_number, format_metadata
 from ..logging_utils import log_message, console_separator, CONSOLE_SEPARATOR
 
 

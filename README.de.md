@@ -12,7 +12,17 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 ## 📋 Neuigkeiten
 
-**Aktuelle Version:** v2.5.2 (2025-12-07)
+**Aktuelle Version:** v2.5.3 (2025-12-07)
+
+### 🎯 Dynamische Vision-Kontext-Berechnung (v2.5.3)
+
+**Optimierte VRAM-Nutzung:** Vision-Kontext wird jetzt dynamisch berechnet wie beim Haupt-LLM - basierend auf tatsächlich benötigten Tokens, VRAM-Kapazität und Model-Limits.
+
+Wichtigste Highlights:
+- 🎯 **Dynamische Berechnung**: Vision-Kontext nutzt jetzt `min(benötigt, VRAM-max, Model-max)`
+- 💾 **VRAM-Ersparnis**: Kürzere Anfragen nutzen weniger VRAM statt fixem 16K-Kontext
+- 🧹 **Code-Aufräumen**: Toter Code entfernt (`VISION_CONTEXT_LIMIT`, doppelte Funktionen)
+- 🔧 **Bug-Fixes**: Doppelte Log-Zeilen behoben, Mypy Type-Fehler gefixt
 
 ### 📷 Multi-Image Vision Pipeline (v2.5.2)
 
@@ -1153,5 +1163,5 @@ MIT License - siehe [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.5.2 (December 2025)
+**Version**: 2.5.3 (December 2025)
 **Status**: Production-Ready 🚀

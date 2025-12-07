@@ -178,7 +178,10 @@ async def is_vision_model(state, model_name: str) -> bool:
 
     except Exception as e:
         logger.warning(f"Could not detect vision capabilities for {model_name}: {e}")
-        # Fallback to name-based detection
+        # For Ollama: Don't fallback to name-based detection - API is authoritative
+        # For other backends: Use name-based fallback
+        if backend_type == "ollama":
+            return False  # Ollama API failed = assume not vision
         return _is_vision_model_by_name(model_name)
 
 

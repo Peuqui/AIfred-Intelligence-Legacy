@@ -357,13 +357,12 @@ XML_TAG_CONFIG = {
 # - 4096px: Slow inference (25-40s), high VRAM (~2-3GB), excellent detail
 VISION_MAX_IMAGE_DIMENSION = 3840  # 4K UHD - beste OCR-Qualität bei akzeptabler Inferenzzeit
 
-# Context window limit for Vision-LLM (regardless of VRAM calculation)
-# Conservative limit to account for image embedding overhead in VRAM
-# Prevents CPU fallback while maintaining sufficient context for OCR results
-# - 16K tokens = ~6K for 3 images + ~2K system prompt + ~8K for response
-# - Required for Multi-Image analysis (each image ~2000 tokens)
-# - Images already resized to VISION_MAX_IMAGE_DIMENSION
-VISION_CONTEXT_LIMIT = 16384  # tokens (was 8192, increased for multi-image)
+# REMOVED: VISION_CONTEXT_LIMIT (v2.5.3)
+# Vision context is now dynamically calculated using the same VRAM-based logic
+# as the Main-LLM (via calculate_vram_based_context()). The model's intrinsic
+# context limit serves as the upper bound instead of a hardcoded value.
+# This allows Vision-LLMs with larger context (e.g., 131K for gemma3) to use
+# more context when VRAM allows it.
 
 # ============================================================
 # CONFIG VALIDATION (Safety Checks)

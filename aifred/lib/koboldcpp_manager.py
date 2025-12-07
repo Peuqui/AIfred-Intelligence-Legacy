@@ -200,10 +200,10 @@ class KoboldCPPProcessManager:
                 # Total GPU layers = blocks + 1 output layer
                 actual_gpu_layers = layer_count + 1
                 logger.info(f"   🎯 GPU Layers: {actual_gpu_layers} (ALL - extracted from GGUF metadata)")
-                logger.info(f"      Using explicit count instead of -1 to bypass conservative auto-detection")
+                logger.info("      Using explicit count instead of -1 to bypass conservative auto-detection")
             else:
                 actual_gpu_layers = -1
-                logger.info(f"   🎯 GPU Layers: -1 (auto - could not read from GGUF)")
+                logger.info("   🎯 GPU Layers: -1 (auto - could not read from GGUF)")
         else:
             logger.info(f"   🎯 GPU Layers: {gpu_layers} (explicit)")
 
@@ -626,7 +626,7 @@ class KoboldCPPProcessManager:
                 rope_extended_context = KOBOLDCPP_MAX_CONTEXT
 
             # Log RoPE configuration
-            log_feedback(f"📐 RoPE Configuration:")
+            log_feedback("📐 RoPE Configuration:")
             log_feedback(f"   Native context: {native_context:,} tokens")
             log_feedback(f"   RoPE factor: {rope_factor:.2f}x")
             log_feedback(f"   Target context: {rope_extended_context:,} tokens")
@@ -642,7 +642,7 @@ class KoboldCPPProcessManager:
             rope_context_vram_needed = rope_extended_context * mb_per_token
             if rope_context_vram_needed <= available_for_context_mb:
                 attempt_to_try = "rope"
-                log_feedback(f"✅ VRAM Pre-check: RoPE-extended fits in VRAM")
+                log_feedback("✅ VRAM Pre-check: RoPE-extended fits in VRAM")
                 log_feedback(f"   Context needs {rope_context_vram_needed:.0f}MB ≤ {available_for_context_mb:.0f}MB available")
                 log_feedback(f"   (Free: {free_vram_mb:,}MB - Model: {model_size_mb:.0f}MB - Safety: {safety_margin_mb}MB)")
             else:
@@ -653,19 +653,19 @@ class KoboldCPPProcessManager:
                     log_feedback(f"⚠️ VRAM Pre-check: RoPE too large ({rope_context_vram_needed:.0f}MB), trying Native")
                     log_feedback(f"   Native context needs {native_context_vram_needed:.0f}MB ≤ {available_for_context_mb:.0f}MB available")
                 else:
-                    log_feedback(f"⚠️ VRAM Pre-check: Both RoPE and Native too large")
+                    log_feedback("⚠️ VRAM Pre-check: Both RoPE and Native too large")
                     log_feedback(f"   RoPE needs: {rope_context_vram_needed:.0f}MB, Native needs: {native_context_vram_needed:.0f}MB")
                     log_feedback(f"   Available for context: {available_for_context_mb:.0f}MB (Free: {free_vram_mb:,}MB - Model: {model_size_mb:.0f}MB - Safety: {safety_margin_mb}MB)")
-                    log_feedback(f"   Skipping to VRAM-calculated context")
+                    log_feedback("   Skipping to VRAM-calculated context")
 
         # ATTEMPT 1: Try RoPE (if pre-check passed)
         if attempt_to_try == "rope":
             # Check if RoPE was actually applied or capped
             if rope_extended_context == native_context:
-                log_feedback(f"🚀 Attempt 1: Starting with native context (RoPE capped at KoboldCPP limit)")
+                log_feedback("🚀 Attempt 1: Starting with native context (RoPE capped at KoboldCPP limit)")
                 log_feedback(f"   Using: {native_context:,} tokens (maximum supported)")
             else:
-                log_feedback(f"🚀 Attempt 1: Starting with RoPE-extended context")
+                log_feedback("🚀 Attempt 1: Starting with RoPE-extended context")
                 log_feedback(f"   Native: {native_context:,} tokens × {KOBOLDCPP_ROPE_SCALING_FACTOR} = {rope_extended_context:,} tokens")
 
             try:
@@ -725,7 +725,7 @@ class KoboldCPPProcessManager:
 
         # ATTEMPT 2: Try Native (if pre-check passed and RoPE didn't fit)
         elif attempt_to_try == "native":
-            log_feedback(f"🚀 Attempt 2: Starting with native context (no RoPE)")
+            log_feedback("🚀 Attempt 2: Starting with native context (no RoPE)")
             log_feedback(f"   Trying: {native_context:,} tokens (architectural limit)")
 
             try:
