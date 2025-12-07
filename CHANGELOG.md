@@ -5,6 +5,63 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2025-12-07
+
+### 📱 Mobile UX Improvements - Crop Modal & Image Upload
+
+**Enhanced mobile experience:** Fullscreen crop modal, improved thumbnail layout, and smarter image naming.
+
+#### Fixed
+
+- **Crop Modal Positioning** ([aifred.py:409-590](aifred/aifred.py#L409-L590)):
+  - **Problem:** Crop modal appeared at bottom-right on mobile devices, often off-screen when page was scrolled
+  - **Fix:** Replaced `rx.dialog` with fullscreen overlay using `position: fixed`
+  - Added JavaScript to scroll page to top and block body scroll when modal opens
+  - Restored scroll on modal close
+
+- **Touch Interaction Issues** ([custom.css:238-395](assets/custom.css#L238-L395)):
+  - **Problem:** "Snap-to-grid" behavior on mobile made crop box hard to control
+  - **Fix:** Added `touch-action: none` on all crop elements (container, overlay, box, handles)
+  - Disabled webkit touch callout and user-select
+
+- **Backend Dropdown Empty on Mobile** ([aifred.py](aifred/aifred.py)):
+  - **Problem:** Backend dropdown showed nothing in closed state on mobile
+  - **Root Cause:** CSS layout issue - badge next to dropdown consumed all space
+  - **Fix:** Added `min_width: 120px` and `flex: 1` to native select
+
+#### Changed
+
+- **Image Upload Layout** ([aifred.py:348-407](aifred/aifred.py#L348-L407)):
+  - Buttons and hint text now left-aligned (not centered)
+  - Thumbnails display below buttons (not beside them)
+  - Thumbnail size increased: 60px → 80px
+  - Crop/delete buttons enlarged for better touch targets (size="2")
+
+- **Image Name Shortening** ([state.py:2743-2752](aifred/state.py#L2743-L2752)):
+  - Camera images with long names (>20 chars) like `2025-12-07_11.36.123456789.jpg` now display as `Bild_001.jpg`
+  - Original filename preserved internally
+
+- **Crop Completion Messages** ([state.py:2916-2920](aifred/state.py#L2916-L2920)):
+  - Simplified from: `✂️ Bild zugeschnitten: image.png (1920 x 1080 → 91% x 47% → 1747 x 508 px)`
+  - To: `✂️ Bild zugeschnitten: 91% x 47% → 1747 x 508 px`
+  - Filename already shown in previous message
+
+#### Technical Details
+
+**Scroll Fix JavaScript:**
+```javascript
+// When modal opens:
+document.body.style.overflow = 'hidden';
+document.documentElement.style.overflow = 'hidden';
+window.scrollTo(0, 0);
+
+// When modal closes:
+document.body.style.overflow = '';
+document.documentElement.style.overflow = '';
+```
+
+---
+
 ## [2.5.0] - 2025-12-07
 
 ### ✂️ Image Crop & 4K Auto-Resize

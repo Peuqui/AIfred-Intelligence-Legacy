@@ -2792,15 +2792,27 @@ class AIState(rx.State):
             # Create data URL for preview
             data_url = f"data:image/jpeg;base64,{base64_data}"
 
+            # Kürze lange Dateinamen (z.B. von Kamera: "2025-12-07_11.36.123456789.jpg")
+            short_name = file.filename
+            if len(short_name) > 20:
+                # Behalte Endung und kürze den Rest
+                name_parts = short_name.rsplit(".", 1)
+                if len(name_parts) == 2:
+                    base_name, ext = name_parts
+                    # Kürze auf "Bild_001.jpg" Format mit Zähler
+                    short_name = f"Bild_{len(self.pending_images) + 1:03d}.{ext}"
+                else:
+                    short_name = f"Bild_{len(self.pending_images) + 1:03d}"
+
             # Store
             self.pending_images.append({
-                "name": file.filename,
+                "name": short_name,
                 "base64": base64_data,
                 "url": data_url,  # For UI preview
                 "size_kb": len(resized_content) // 1024
             })
 
-            self.add_debug(f"📷 Bild hochgeladen: {file.filename} ({len(resized_content) // 1024} KB)")
+            self.add_debug(f"📷 Bild hochgeladen: {short_name} ({len(resized_content) // 1024} KB)")
 
     def remove_pending_image(self, index: int):
         """Remove image from pending uploads"""
@@ -2919,7 +2931,7 @@ class AIState(rx.State):
                 "size_kb": len(cropped_bytes) // 1024
             }
 
-            self.add_debug(f"✂️ Bild zugeschnitten: {image_data['name']} ({orig_width} x {orig_height} → {width:.0f}% x {height:.0f}% → {px_width} x {px_height} px)")
+            self.add_debug(f"✂️ Bild zugeschnitten: {width:.0f}% x {height:.0f}% → {px_width} x {px_height} px")
         else:
             self.add_debug(f"ℹ️ Kein Zuschnitt nötig: {image_data['name']}")
 
