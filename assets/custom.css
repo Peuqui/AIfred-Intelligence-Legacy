@@ -230,3 +230,152 @@ div em {
     color: #888 !important;  /* Grau wie früher <span style="color: #888"> */
     font-style: italic !important;
 }
+
+/* ============================================================
+   IMAGE CROP MODAL - Draggable Crop Box
+   ============================================================ */
+
+/* Crop Overlay - bedeckt das gesamte Bild */
+.crop-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+/* Crop Box - der selektierte Bereich */
+.crop-box {
+    position: absolute;
+    border: 2px dashed #4CAF50;
+    background: rgba(76, 175, 80, 0.1);
+    cursor: move;
+    pointer-events: auto;
+    /* Initial: Ganzes Bild */
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* Alle Handles (Ecken und Kanten) */
+.crop-handle {
+    position: absolute;
+    background: #4CAF50;
+    pointer-events: auto;
+}
+
+/* Ecken - quadratisch, größer für Touch */
+.crop-handle-nw,
+.crop-handle-ne,
+.crop-handle-sw,
+.crop-handle-se {
+    width: 16px;
+    height: 16px;
+    border-radius: 2px;
+    z-index: 10;
+}
+
+.crop-handle-nw {
+    top: -8px;
+    left: -8px;
+    cursor: nw-resize;
+}
+
+.crop-handle-ne {
+    top: -8px;
+    right: -8px;
+    cursor: ne-resize;
+}
+
+.crop-handle-sw {
+    bottom: -8px;
+    left: -8px;
+    cursor: sw-resize;
+}
+
+.crop-handle-se {
+    bottom: -8px;
+    right: -8px;
+    cursor: se-resize;
+}
+
+/* Kanten - rechteckig, entlang der Seite */
+.crop-handle-n,
+.crop-handle-s {
+    width: 40px;
+    height: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-radius: 2px;
+}
+
+.crop-handle-n {
+    top: -5px;
+    cursor: n-resize;
+}
+
+.crop-handle-s {
+    bottom: -5px;
+    cursor: s-resize;
+}
+
+.crop-handle-w,
+.crop-handle-e {
+    width: 10px;
+    height: 40px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-radius: 2px;
+}
+
+.crop-handle-w {
+    left: -5px;
+    cursor: w-resize;
+}
+
+.crop-handle-e {
+    right: -5px;
+    cursor: e-resize;
+}
+
+/* Hover-Effekt für Handles */
+.crop-handle:hover {
+    background: #66BB6A;
+    transform-origin: center;
+}
+
+/* Mobile: Größere Touch-Targets */
+@media (max-width: 768px) {
+    .crop-handle-nw,
+    .crop-handle-ne,
+    .crop-handle-sw,
+    .crop-handle-se {
+        width: 24px;
+        height: 24px;
+    }
+
+    .crop-handle-nw { top: -12px; left: -12px; }
+    .crop-handle-ne { top: -12px; right: -12px; }
+    .crop-handle-sw { bottom: -12px; left: -12px; }
+    .crop-handle-se { bottom: -12px; right: -12px; }
+
+    .crop-handle-n,
+    .crop-handle-s {
+        width: 60px;
+        height: 14px;
+    }
+
+    .crop-handle-n { top: -7px; }
+    .crop-handle-s { bottom: -7px; }
+
+    .crop-handle-w,
+    .crop-handle-e {
+        width: 14px;
+        height: 60px;
+    }
+
+    .crop-handle-w { left: -7px; }
+    .crop-handle-e { right: -7px; }
+}

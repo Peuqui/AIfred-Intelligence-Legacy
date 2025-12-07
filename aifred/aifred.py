@@ -355,35 +355,43 @@ def image_upload_section() -> rx.Component:
                         rx.foreach(
                             AIState.pending_images,
                             lambda img, idx: rx.box(
+                                # Thumbnail
                                 rx.image(
                                     src=img["url"],
                                     width="60px",
                                     height="60px",
                                     object_fit="cover",
                                     border_radius="4px",
+                                    border="1px solid #30363d",
                                 ),
-                                rx.badge(
-                                    img["name"],
-                                    font_size="9px",
-                                    max_width="60px",
-                                    overflow="hidden",
-                                    text_overflow="ellipsis",
-                                    white_space="nowrap"
-                                ),
+                                # Crop-Button (links oben) - GRÜN für Sichtbarkeit
                                 rx.icon_button(
-                                    rx.icon("x", size=10),
+                                    rx.icon("crop", size=12),
+                                    size="1",
+                                    color_scheme="green",
+                                    variant="solid",
+                                    position="absolute",
+                                    top="2px",
+                                    left="2px",
+                                    on_click=AIState.open_crop_modal(idx),
+                                    title="Zuschneiden",
+                                ),
+                                # Remove-Button (rechts oben)
+                                rx.icon_button(
+                                    rx.icon("x", size=12),
                                     size="1",
                                     color_scheme="red",
+                                    variant="solid",
                                     position="absolute",
                                     top="2px",
                                     right="2px",
-                                    on_click=lambda: AIState.remove_pending_image(idx),
+                                    on_click=AIState.remove_pending_image(idx),
                                 ),
                                 position="relative",
-                                margin_right="6px"
+                                margin_right="6px",
                             )
                         ),
-                        spacing="1",
+                        spacing="2",
                         wrap="wrap",
                         align_items="center",
                     )
@@ -1987,6 +1995,119 @@ def settings_accordion() -> rx.Component:
 
 
 # ============================================================
+# IMAGE CROP MODAL
+# ============================================================
+
+def crop_modal() -> rx.Component:
+    """
+    Modal für Bild-Zuschnitt mit draggbarer Bounding-Box.
+    Features:
+    - 4 Ecken zum diagonalen Resize
+    - 4 Kanten zum horizontalen/vertikalen Resize
+    - Gesamte Box zum Verschieben
+    """
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title(
+                rx.hstack(
+                    rx.icon("crop", size=20),
+                    rx.text("Bild zuschneiden"),
+                    spacing="2",
+                    align="center",
+                )
+            ),
+
+            # Container für Bild + Crop-Overlay
+            rx.box(
+                # Das Bild
+                rx.image(
+                    src=AIState.crop_preview_url,
+                    id="crop-image",
+                    width="100%",
+                    max_height="60vh",
+                    object_fit="contain",
+                    border_radius="8px",
+                    background_color="#1a1a1a",
+                ),
+                # Crop-Overlay (wird via JavaScript positioniert)
+                rx.box(
+                    # Die draggbare Crop-Box
+                    rx.box(
+                        # 4 Ecken (diagonal resize)
+                        rx.box(class_name="crop-handle crop-handle-nw", id="crop-nw"),
+                        rx.box(class_name="crop-handle crop-handle-ne", id="crop-ne"),
+                        rx.box(class_name="crop-handle crop-handle-sw", id="crop-sw"),
+                        rx.box(class_name="crop-handle crop-handle-se", id="crop-se"),
+                        # 4 Kanten (horizontal/vertikal resize)
+                        rx.box(class_name="crop-handle crop-handle-n", id="crop-n"),
+                        rx.box(class_name="crop-handle crop-handle-s", id="crop-s"),
+                        rx.box(class_name="crop-handle crop-handle-w", id="crop-w"),
+                        rx.box(class_name="crop-handle crop-handle-e", id="crop-e"),
+                        id="crop-box",
+                        class_name="crop-box",
+                    ),
+                    id="crop-overlay",
+                    class_name="crop-overlay",
+                ),
+                position="relative",
+                width="100%",
+                margin_y="4",
+            ),
+
+            # Info-Text
+            rx.text(
+                "Ziehe die Ecken oder Kanten um den Bereich anzupassen",
+                font_size="12px",
+                color=COLORS["text_muted"],
+                text_align="center",
+                margin_bottom="4",
+            ),
+
+            # Buttons
+            rx.flex(
+                rx.button(
+                    "Abbrechen",
+                    on_click=AIState.cancel_crop,
+                    variant="soft",
+                    color_scheme="gray",
+                ),
+                rx.button(
+                    rx.hstack(
+                        rx.icon("check", size=16),
+                        rx.text("Zuschneiden"),
+                        spacing="1",
+                    ),
+                    on_click=rx.call_script(
+                        """
+                        (() => {
+                            const cropBox = document.getElementById('crop-box');
+                            if (cropBox) {
+                                const left = parseFloat(cropBox.style.left) || 0;
+                                const top = parseFloat(cropBox.style.top) || 0;
+                                const width = parseFloat(cropBox.style.width) || 100;
+                                const height = parseFloat(cropBox.style.height) || 100;
+                                console.log('Crop coords:', { x: left, y: top, width, height });
+                                return JSON.stringify({ x: left, y: top, width: width, height: height });
+                            }
+                            return JSON.stringify({ x: 0, y: 0, width: 100, height: 100 });
+                        })()
+                        """,
+                        callback=AIState.apply_crop_with_coords
+                    ),
+                    color_scheme="green",
+                ),
+                gap="3",
+                justify="end",
+            ),
+
+            max_width="90vw",
+            max_height="90vh",
+        ),
+        open=AIState.crop_modal_open,
+    )
+
+
+# ============================================================
 # MAIN PAGE
 # ============================================================
 
@@ -2216,10 +2337,201 @@ document.addEventListener('paste', async function(e) {
 console.log('✅ Paste handler initialized');
 """
 
+    # JavaScript für Crop-Funktionalität
+    crop_js = """
+console.log('✂️ Crop handler loaded');
+
+// Crop-Box Drag-Funktionalität
+(function() {
+    let isDragging = false;
+    let dragType = null; // 'move', 'nw', 'ne', 'sw', 'se', 'n', 's', 'w', 'e'
+    let startX, startY;
+    let startBox = { x: 0, y: 0, width: 100, height: 100 };
+    let currentBox = { x: 0, y: 0, width: 100, height: 100 };
+
+    function initCrop() {
+        const overlay = document.getElementById('crop-overlay');
+        const cropBox = document.getElementById('crop-box');
+        const image = document.getElementById('crop-image');
+
+        if (!overlay || !cropBox || !image) {
+            // Modal nicht offen, retry später
+            setTimeout(initCrop, 500);
+            return;
+        }
+
+        // Initial: Ganzes Bild selektiert
+        currentBox = { x: 0, y: 0, width: 100, height: 100 };
+        updateCropBoxUI();
+
+        // Event Listener für Crop-Box (move)
+        cropBox.addEventListener('mousedown', (e) => {
+            if (e.target === cropBox) {
+                startDrag(e, 'move');
+            }
+        });
+        cropBox.addEventListener('touchstart', (e) => {
+            if (e.target === cropBox) {
+                startDrag(e.touches[0], 'move');
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        // Event Listener für Handles
+        const handles = ['nw', 'ne', 'sw', 'se', 'n', 's', 'w', 'e'];
+        handles.forEach(h => {
+            const handle = document.getElementById('crop-' + h);
+            if (handle) {
+                handle.addEventListener('mousedown', (e) => {
+                    startDrag(e, h);
+                    e.stopPropagation();
+                });
+                handle.addEventListener('touchstart', (e) => {
+                    startDrag(e.touches[0], h);
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, { passive: false });
+            }
+        });
+
+        // Global mouse/touch events
+        document.addEventListener('mousemove', onDrag);
+        document.addEventListener('mouseup', endDrag);
+        document.addEventListener('touchmove', (e) => {
+            if (isDragging) {
+                onDrag(e.touches[0]);
+                e.preventDefault();
+            }
+        }, { passive: false });
+        document.addEventListener('touchend', endDrag);
+
+        console.log('✂️ Crop initialized');
+    }
+
+    function startDrag(e, type) {
+        isDragging = true;
+        dragType = type;
+        startX = e.clientX;
+        startY = e.clientY;
+        startBox = { ...currentBox };
+    }
+
+    function onDrag(e) {
+        if (!isDragging) return;
+
+        const overlay = document.getElementById('crop-overlay');
+        if (!overlay) return;
+
+        const rect = overlay.getBoundingClientRect();
+        const deltaX = ((e.clientX - startX) / rect.width) * 100;
+        const deltaY = ((e.clientY - startY) / rect.height) * 100;
+
+        let newBox = { ...startBox };
+
+        switch(dragType) {
+            case 'move':
+                newBox.x = Math.max(0, Math.min(100 - startBox.width, startBox.x + deltaX));
+                newBox.y = Math.max(0, Math.min(100 - startBox.height, startBox.y + deltaY));
+                break;
+            case 'nw':
+                newBox.x = Math.max(0, Math.min(startBox.x + startBox.width - 5, startBox.x + deltaX));
+                newBox.y = Math.max(0, Math.min(startBox.y + startBox.height - 5, startBox.y + deltaY));
+                newBox.width = startBox.width - (newBox.x - startBox.x);
+                newBox.height = startBox.height - (newBox.y - startBox.y);
+                break;
+            case 'ne':
+                newBox.y = Math.max(0, Math.min(startBox.y + startBox.height - 5, startBox.y + deltaY));
+                newBox.width = Math.max(5, Math.min(100 - startBox.x, startBox.width + deltaX));
+                newBox.height = startBox.height - (newBox.y - startBox.y);
+                break;
+            case 'sw':
+                newBox.x = Math.max(0, Math.min(startBox.x + startBox.width - 5, startBox.x + deltaX));
+                newBox.width = startBox.width - (newBox.x - startBox.x);
+                newBox.height = Math.max(5, Math.min(100 - startBox.y, startBox.height + deltaY));
+                break;
+            case 'se':
+                newBox.width = Math.max(5, Math.min(100 - startBox.x, startBox.width + deltaX));
+                newBox.height = Math.max(5, Math.min(100 - startBox.y, startBox.height + deltaY));
+                break;
+            case 'n':
+                newBox.y = Math.max(0, Math.min(startBox.y + startBox.height - 5, startBox.y + deltaY));
+                newBox.height = startBox.height - (newBox.y - startBox.y);
+                break;
+            case 's':
+                newBox.height = Math.max(5, Math.min(100 - startBox.y, startBox.height + deltaY));
+                break;
+            case 'w':
+                newBox.x = Math.max(0, Math.min(startBox.x + startBox.width - 5, startBox.x + deltaX));
+                newBox.width = startBox.width - (newBox.x - startBox.x);
+                break;
+            case 'e':
+                newBox.width = Math.max(5, Math.min(100 - startBox.x, startBox.width + deltaX));
+                break;
+        }
+
+        currentBox = newBox;
+        updateCropBoxUI();
+    }
+
+    function endDrag() {
+        if (isDragging) {
+            isDragging = false;
+            dragType = null;
+            // Update State via Reflex
+            updateReflexState();
+        }
+    }
+
+    function updateCropBoxUI() {
+        const cropBox = document.getElementById('crop-box');
+        if (cropBox) {
+            cropBox.style.left = currentBox.x + '%';
+            cropBox.style.top = currentBox.y + '%';
+            cropBox.style.width = currentBox.width + '%';
+            cropBox.style.height = currentBox.height + '%';
+        }
+    }
+
+    function updateReflexState() {
+        // Reflex State via custom event updaten
+        const event = new CustomEvent('cropBoxChanged', {
+            detail: {
+                x: currentBox.x,
+                y: currentBox.y,
+                width: currentBox.width,
+                height: currentBox.height
+            }
+        });
+        document.dispatchEvent(event);
+    }
+
+    // Observer für Modal-Öffnung
+    const observer = new MutationObserver((mutations) => {
+        const overlay = document.getElementById('crop-overlay');
+        if (overlay) {
+            initCrop();
+        }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Auch beim Laden initialisieren
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initCrop);
+    } else {
+        setTimeout(initCrop, 500);
+    }
+})();
+"""
+
     return rx.box(
         # Inline JavaScript (guaranteed to execute)
         rx.script(autoscroll_js),
         rx.script(paste_handler_js),
+        rx.script(crop_js),
+
+        # Crop Modal (rendered but hidden until open)
+        crop_modal(),
 
         # Hidden element to trigger camera detection on mount
         rx.box(

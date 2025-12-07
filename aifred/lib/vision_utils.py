@@ -324,13 +324,25 @@ def resize_image_if_needed(image_bytes: bytes, max_dimension: int = None) -> byt
 
     if max_dimension is None:
         max_dimension = VISION_MAX_IMAGE_DIMENSION
-    from PIL import Image
+    from PIL import Image, ImageOps
     import io
 
     img = Image.open(io.BytesIO(image_bytes))
 
+    # EXIF-Rotation korrigieren (wichtig für Handy-Fotos!)
+    # Handys speichern Rotation oft nur als EXIF-Metadaten, nicht physisch im Bild
+    # Ohne das kann ein Querformat-Bild um 90° gedreht ankommen
+    img = ImageOps.exif_transpose(img)
+
     # Check if resize needed
     if img.width <= max_dimension and img.height <= max_dimension:
+        # Auch wenn kein Resize nötig, müssen wir bei EXIF-Korrektur neu encodieren
+        # (nur wenn das Bild tatsächlich transponiert wurde)
+        if img.getexif():
+            output = io.BytesIO()
+            format_to_use = img.format if img.format in ['JPEG', 'PNG', 'GIF', 'WEBP', 'BMP'] else 'JPEG'
+            img.save(output, format=format_to_use, quality=90)
+            return output.getvalue()
         return image_bytes
 
     # Calculate new size (preserve aspect ratio)
@@ -346,5 +358,84 @@ def resize_image_if_needed(image_bytes: bytes, max_dimension: int = None) -> byt
     img_resized.save(output, format=format_to_use, quality=90)
 
     logger.info(f"📐 Image resized: {img.width}x{img.height} → {new_size[0]}x{new_size[1]} ({format_to_use})")
+
+    return output.getvalue()
+
+
+def crop_and_resize_image(
+    image_bytes: bytes,
+    crop_box: dict = None,
+    max_dimension: int = None
+) -> bytes:
+    """
+    Crop image (optional) and resize to max_dimension.
+
+    Args:
+        image_bytes: Raw image data
+        crop_box: {"x": 10, "y": 5, "width": 80, "height": 90} in Prozent (0-100)
+                  x, y = obere linke Ecke des Crop-Bereichs
+                  width, height = Größe des Crop-Bereichs
+        max_dimension: Maximum width or height in pixels (defaults to config.VISION_MAX_IMAGE_DIMENSION)
+
+    Returns:
+        Cropped and resized image bytes
+
+    Notes:
+        - EXIF-Rotation wird automatisch korrigiert
+        - Preserves aspect ratio during resize
+        - Uses LANCZOS resampling for quality
+        - Re-encodes as JPEG with quality=90
+    """
+    from .config import VISION_MAX_IMAGE_DIMENSION
+    from PIL import Image, ImageOps
+    import io
+
+    if max_dimension is None:
+        max_dimension = VISION_MAX_IMAGE_DIMENSION
+
+    img = Image.open(io.BytesIO(image_bytes))
+
+    # EXIF-Rotation korrigieren (wichtig für Handy-Fotos!)
+    img = ImageOps.exif_transpose(img)
+
+    original_width, original_height = img.size
+
+    # STEP 1: Crop (wenn crop_box vorhanden)
+    if crop_box:
+        # Koordinaten von Prozent zu Pixel umrechnen
+        x = int(original_width * crop_box["x"] / 100)
+        y = int(original_height * crop_box["y"] / 100)
+        w = int(original_width * crop_box["width"] / 100)
+        h = int(original_height * crop_box["height"] / 100)
+
+        # Sicherstellen dass Crop-Box innerhalb des Bildes liegt
+        x = max(0, min(x, original_width - 1))
+        y = max(0, min(y, original_height - 1))
+        w = min(w, original_width - x)
+        h = min(h, original_height - y)
+
+        if w > 0 and h > 0:
+            img = img.crop((x, y, x + w, y + h))
+            logger.info(f"✂️ Image cropped: {original_width}x{original_height} → {w}x{h}")
+
+    # STEP 2: Resize (wenn nötig)
+    if img.width > max_dimension or img.height > max_dimension:
+        ratio = min(max_dimension / img.width, max_dimension / img.height)
+        new_size = (int(img.width * ratio), int(img.height * ratio))
+        img = img.resize(new_size, Image.Resampling.LANCZOS)
+        logger.info(f"📐 Image resized: {img.width}x{img.height} → {new_size[0]}x{new_size[1]}")
+
+    # STEP 3: Re-encode als JPEG
+    # RGBA (PNG mit Transparenz) → RGB konvertieren (JPEG unterstützt kein Alpha)
+    if img.mode in ('RGBA', 'LA', 'P'):
+        # Weißer Hintergrund für transparente Bereiche
+        background = Image.new('RGB', img.size, (255, 255, 255))
+        if img.mode == 'P':
+            img = img.convert('RGBA')
+        background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+        img = background
+
+    output = io.BytesIO()
+    img.save(output, format='JPEG', quality=90)
 
     return output.getvalue()

@@ -12,7 +12,20 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ## 📋 What's New
 
-**Latest Version:** v2.4.1 (2025-12-06)
+**Latest Version:** v2.5.0 (2025-12-07)
+
+### ✂️ Image Crop & 4K Auto-Resize (v2.5.0)
+
+**New feature:** Crop images before sending to Vision-LLM, with automatic 4K resolution limit.
+
+Key highlights:
+- ✂️ **Interactive Crop Tool**: Crop images directly in the UI before OCR/analysis
+- 🎯 **8-Point Drag Handles**: 4 corners + 4 edges for precise cropping
+- 📐 **Free Aspect Ratio**: No fixed ratio - crop any rectangular area
+- 📷 **4K Auto-Resize**: Images automatically resized to max 3840px (up from 2048px)
+- 🔄 **EXIF Rotation Fix**: Mobile photos now correctly oriented (ImageOps.exif_transpose)
+- 🎨 **RGBA→RGB Conversion**: PNG screenshots with transparency work correctly (white background)
+- 📊 **Detailed Logging**: Shows original size, crop percentage, and final dimensions
 
 ### 🔧 Generic XML-Tag Processing (v2.4.1)
 
@@ -1165,5 +1178,5 @@ MIT License - see [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.4.1 (December 2025)
+**Version**: 2.5.0 (December 2025)
 **Status**: Production-Ready 🚀

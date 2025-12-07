@@ -268,11 +268,20 @@ class AIState(rx.State):
     is_compressing: bool = False  # NEU: Zeigt ob History-Kompression läuft
 
     # Image Upload State
-    pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "base64": "...", "url": "..."}]
+    pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "base64": "...", "url": "...", "original_bytes": bytes}]
     image_upload_warning: str = ""  # Warning message if non-vision model selected
     max_images_per_message: int = 5  # Limit concurrent uploads
     camera_available: bool = False  # True if browser supports camera access (set by JavaScript)
     _camera_detection_done: bool = False  # Internal flag to prevent duplicate logging from Reflex hydration
+
+    # Image Crop State
+    crop_modal_open: bool = False  # Crop Modal anzeigen?
+    crop_image_index: int = -1  # Welches Bild wird gecroppt (Index in pending_images)
+    crop_preview_url: str = ""  # Data-URL für Crop-Preview (großes Bild im Modal)
+    crop_box_x: float = 0.0  # Crop-Box Position X in Prozent (0-100)
+    crop_box_y: float = 0.0  # Crop-Box Position Y in Prozent (0-100)
+    crop_box_width: float = 100.0  # Crop-Box Breite in Prozent (0-100)
+    crop_box_height: float = 100.0  # Crop-Box Höhe in Prozent (0-100)
 
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi" [DEPRECATED - use backend_id]
@@ -2810,6 +2819,112 @@ class AIState(rx.State):
         self.image_upload_warning = ""
         if count > 0:
             self.add_debug(f"🗑️ {count} Bild(er) gelöscht")
+
+    # ============================================================
+    # IMAGE CROP HANDLERS
+    # ============================================================
+
+    def open_crop_modal(self, index: int):
+        """Öffnet Crop-Modal für Bild an Index"""
+        if 0 <= index < len(self.pending_images):
+            self.crop_image_index = index
+            self.crop_preview_url = self.pending_images[index]["url"]
+            # Reset Crop-Box auf ganzes Bild
+            self.crop_box_x = 0.0
+            self.crop_box_y = 0.0
+            self.crop_box_width = 100.0
+            self.crop_box_height = 100.0
+            self.crop_modal_open = True
+            self.add_debug(f"✂️ Crop-Modus geöffnet für: {self.pending_images[index]['name']}")
+
+    def cancel_crop(self):
+        """Schließt Modal ohne Änderung"""
+        self.crop_modal_open = False
+        self.crop_image_index = -1
+        self.crop_preview_url = ""
+
+    def update_crop_box(self, x: float, y: float, width: float, height: float):
+        """Update Crop-Box Koordinaten (von JavaScript/UI)"""
+        self.crop_box_x = max(0, min(100, x))
+        self.crop_box_y = max(0, min(100, y))
+        self.crop_box_width = max(1, min(100 - self.crop_box_x, width))
+        self.crop_box_height = max(1, min(100 - self.crop_box_y, height))
+
+    async def apply_crop(self):
+        """Wendet Crop an und aktualisiert das Bild in pending_images (Legacy, nutzt State-Koordinaten)"""
+        await self._do_apply_crop(self.crop_box_x, self.crop_box_y, self.crop_box_width, self.crop_box_height)
+
+    async def apply_crop_with_coords(self, coords_json: str):
+        """Wendet Crop an mit Koordinaten vom JavaScript (JSON String)"""
+        import json
+        try:
+            coords = json.loads(coords_json)
+            x = float(coords.get("x", 0))
+            y = float(coords.get("y", 0))
+            width = float(coords.get("width", 100))
+            height = float(coords.get("height", 100))
+            await self._do_apply_crop(x, y, width, height)
+        except Exception as e:
+            self.add_debug(f"❌ Crop fehlgeschlagen: {e}")
+            self.cancel_crop()
+
+    async def _do_apply_crop(self, x: float, y: float, width: float, height: float):
+        """Interne Funktion: Führt den Crop mit gegebenen Koordinaten aus"""
+        from .lib.vision_utils import crop_and_resize_image, encode_image_to_base64
+        import base64
+
+        if self.crop_image_index < 0 or self.crop_image_index >= len(self.pending_images):
+            self.add_debug("❌ Crop fehlgeschlagen: Ungültiger Bild-Index")
+            self.cancel_crop()
+            return
+
+        image_data = self.pending_images[self.crop_image_index]
+
+        # Original-Bytes aus Base64 dekodieren
+        try:
+            original_bytes = base64.b64decode(image_data["base64"])
+        except Exception as e:
+            self.add_debug(f"❌ Crop fehlgeschlagen: {e}")
+            self.cancel_crop()
+            return
+
+        # Original-Größe auslesen
+        from PIL import Image
+        import io
+        original_img = Image.open(io.BytesIO(original_bytes))
+        orig_width, orig_height = original_img.size
+
+        # Crop anwenden (nur wenn nicht 100%)
+        if x > 0.5 or y > 0.5 or width < 99.5 or height < 99.5:
+            crop_box = {
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height
+            }
+            cropped_bytes = crop_and_resize_image(original_bytes, crop_box=crop_box)
+
+            # Pixel-Größe aus dem gecropten Bild auslesen
+            cropped_img = Image.open(io.BytesIO(cropped_bytes))
+            px_width, px_height = cropped_img.size
+
+            # Update pending_images
+            new_base64 = encode_image_to_base64(cropped_bytes)
+            new_url = f"data:image/jpeg;base64,{new_base64}"
+
+            self.pending_images[self.crop_image_index] = {
+                "name": image_data["name"],
+                "base64": new_base64,
+                "url": new_url,
+                "size_kb": len(cropped_bytes) // 1024
+            }
+
+            self.add_debug(f"✂️ Bild zugeschnitten: {image_data['name']} ({orig_width} x {orig_height} → {width:.0f}% x {height:.0f}% → {px_width} x {px_height} px)")
+        else:
+            self.add_debug(f"ℹ️ Kein Zuschnitt nötig: {image_data['name']}")
+
+        # Modal schließen
+        self.cancel_crop()
 
     def set_camera_available(self, available: bool):
         """Set camera availability based on browser capabilities (called from JavaScript)"""
