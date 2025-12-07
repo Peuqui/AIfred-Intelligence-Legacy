@@ -139,6 +139,112 @@ def estimate_tokens_from_history(history: List[tuple]) -> int:
 # Global cache für VRAM-Limit (verhindert Neuberechnung bei History-Kompression)
 _last_vram_limit_cache = {"limit": 0}
 
+# Reserve-Stufen für LLM-Output (stufenweise Reduzierung bevor Content gekürzt wird)
+OUTPUT_RESERVE_PREFERRED = 8192   # 8K - Ideal für ausführliche Antworten
+OUTPUT_RESERVE_REDUCED = 6144     # 6K - Akzeptabel wenn VRAM knapp
+OUTPUT_RESERVE_MINIMUM = 4096     # 4K - Minimum, darunter wird Content gekürzt
+
+# Für Abwärtskompatibilität (wird in calculate_dynamic_num_ctx verwendet)
+OUTPUT_RESERVE_TOKENS = OUTPUT_RESERVE_PREFERRED
+
+
+def calculate_adaptive_reserve(
+    available_context: int,
+    base_input: int,
+    max_rag_target: int
+) -> tuple[int, int]:
+    """
+    Berechnet adaptive Reserve und RAG-Budget.
+
+    Priorität: Maximiere Reserve (8K), dann reduziere stufenweise wenn RAG zu knapp wird.
+
+    Stufen:
+    1. Versuche mit 8K Reserve → wenn RAG >= max_rag_target: perfekt
+    2. Falls 8K RAG knapp, aber > min threshold: nutze 8K mit reduziertem RAG
+    3. Falls RAG < min threshold: Reduziere Reserve auf 6K
+    4. Falls 6K RAG knapp: nutze 6K mit reduziertem RAG
+    5. Falls RAG < min threshold: Reduziere auf 4K (Minimum)
+    6. Erst DANN: Kürze RAG-Content auf verfügbares Budget
+
+    Args:
+        available_context: Max verfügbarer Context (VRAM/Model-limitiert)
+        base_input: Geschätzter Input ohne RAG (System-Prompt + History + User)
+        max_rag_target: Ziel-Größe für RAG-Context (z.B. MAX_RAG_CONTEXT_TOKENS = 20K)
+
+    Returns:
+        tuple[int, int]: (actual_reserve, max_rag_tokens)
+    """
+    from .logging_utils import log_message
+    from .formatting import format_number
+
+    # Minimum RAG bevor Reserve reduziert wird (80% vom Ziel)
+    min_rag_threshold = int(max_rag_target * 0.8)  # z.B. 16K bei 20K Ziel
+
+    # Stufe 1: Versuche mit voller Reserve (8K)
+    rag_budget_8k = available_context - base_input - OUTPUT_RESERVE_PREFERRED
+    if rag_budget_8k >= max_rag_target:
+        return OUTPUT_RESERVE_PREFERRED, max_rag_target
+    if rag_budget_8k >= min_rag_threshold:
+        # RAG etwas knapp, aber akzeptabel - behalte 8K Reserve
+        log_message(f"ℹ️ RAG leicht reduziert: {format_number(max_rag_target)} → {format_number(rag_budget_8k)} tok (Reserve: 8K)")
+        return OUTPUT_RESERVE_PREFERRED, rag_budget_8k
+
+    # Stufe 2: Reduziere auf 6K Reserve
+    rag_budget_6k = available_context - base_input - OUTPUT_RESERVE_REDUCED
+    if rag_budget_6k >= max_rag_target:
+        log_message(f"⚠️ Reserve reduziert: 8K → 6K (RAG-Budget: {format_number(rag_budget_6k)} tok)")
+        return OUTPUT_RESERVE_REDUCED, max_rag_target
+    if rag_budget_6k >= min_rag_threshold:
+        # RAG etwas knapp, aber akzeptabel - behalte 6K Reserve
+        log_message(f"⚠️ Reserve reduziert: 8K → 6K, RAG: {format_number(rag_budget_6k)} tok")
+        return OUTPUT_RESERVE_REDUCED, rag_budget_6k
+
+    # Stufe 3: Reduziere auf 4K Reserve (Minimum)
+    rag_budget_4k = available_context - base_input - OUTPUT_RESERVE_MINIMUM
+    if rag_budget_4k >= max_rag_target:
+        log_message(f"⚠️ Reserve reduziert: 8K → 4K (RAG-Budget: {format_number(rag_budget_4k)} tok)")
+        return OUTPUT_RESERVE_MINIMUM, max_rag_target
+
+    # Stufe 4: Reserve auf Minimum, RAG wird gekürzt
+    if rag_budget_4k > 0:
+        log_message(f"⚠️ RAG-Content wird gekürzt: {format_number(max_rag_target)} → {format_number(rag_budget_4k)} tok (Reserve: 4K)")
+        return OUTPUT_RESERVE_MINIMUM, max(4096, rag_budget_4k)  # Mindestens 4K RAG
+
+    # Extremfall: Kein Platz für RAG (sollte nie passieren)
+    log_message(f"❌ Kritisch: Kein Platz für RAG-Content! (available: {format_number(available_context)}, base: {format_number(base_input)})")
+    return OUTPUT_RESERVE_MINIMUM, 4096  # Fallback: Minimum RAG
+
+
+async def get_max_available_context(
+    llm_client,
+    model_name: str,
+    enable_vram_limit: bool = True
+) -> tuple[int, int]:
+    """
+    Berechnet max verfügbaren Context VOR dem Context-Building.
+
+    Diese Funktion ermittelt das praktische Limit BEVOR der RAG-Context gebaut wird,
+    damit build_context() weiß wie viel Platz zur Verfügung steht.
+
+    Args:
+        llm_client: LLMClient instance
+        model_name: Name des Modells
+        enable_vram_limit: Ob VRAM-basierte Begrenzung angewandt wird
+
+    Returns:
+        tuple[int, int]: (max_practical_ctx, model_limit)
+    """
+    # Query Model-Limit vom Backend
+    model_limit, _ = await llm_client.get_model_context_limit(model_name)
+
+    if enable_vram_limit:
+        backend = llm_client._get_backend()
+        max_practical_ctx, _ = await backend.calculate_practical_context(model_name)
+    else:
+        max_practical_ctx = model_limit
+
+    return min(max_practical_ctx, model_limit), model_limit
+
 
 async def calculate_dynamic_num_ctx(
     llm_client,
@@ -184,18 +290,10 @@ async def calculate_dynamic_num_ctx(
     # Berechne Tokens aus Message-Größe
     estimated_tokens = estimate_tokens(messages)  # 1 Token ≈ 3.5 Zeichen
 
-    # GENERÖSE Reserve für lange Antworten:
-    # Input + 8K-16K Reserve (je nach Input-Größe)
-    # Verhindert abgeschnittene Antworten bei ausführlichen Erklärungen
-    if estimated_tokens < 2048:
-        # Kleine Anfragen: +8K Reserve
-        reserve = 8192
-    elif estimated_tokens < 8192:
-        # Mittlere Anfragen: +12K Reserve
-        reserve = 12288
-    else:
-        # Große Anfragen (Research): +16K Reserve
-        reserve = 16384
+    # Konstante 8K Reserve für LLM-Output
+    # Bei Research (Summarization) ist Output KÜRZER als Input, daher reichen 8K
+    # (~6000 Wörter / 4-5 A4-Seiten für ausführliche Antworten)
+    reserve = OUTPUT_RESERVE_TOKENS  # 8192
 
     needed_tokens = estimated_tokens + reserve
 

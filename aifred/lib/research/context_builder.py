@@ -16,11 +16,11 @@ from typing import Dict, List, Optional, AsyncIterator
 from ..agent_tools import build_context
 # Cache system removed - will be replaced with Vector DB
 from ..prompt_loader import load_prompt
-from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens
+from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens, get_max_available_context, calculate_adaptive_reserve
 from ..message_builder import build_messages_from_history
 from ..formatting import format_thinking_process, build_debug_accordion, format_metadata, format_number
 from ..logging_utils import log_message
-from ..config import CHARS_PER_TOKEN, TTL_HOURS
+from ..config import CHARS_PER_TOKEN, TTL_HOURS, MAX_RAG_CONTEXT_TOKENS
 from ..vector_cache import format_ttl_hours
 from ..intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
 
@@ -85,14 +85,51 @@ async def build_and_generate_response(
             log_message(f"  📄 Quelle {i} Preview: {content_preview}...")
 
     # ============================================================
-    # Build context from current sources (old metadata system removed)
-    # TODO: Replace with Vector DB semantic search in Phase 1
+    # VRAM-AWARE Context Building
+    # Berechne max verfügbaren Context BEVOR build_context() läuft
     # ============================================================
-    context = build_context(user_text, scraped_only)
+
+    # 1. VRAM-Limit vorab ermitteln (wenn auto_vram aktiv)
+    if num_ctx_mode == "auto_vram":
+        max_ctx, model_limit = await get_max_available_context(
+            llm_client, model_choice,
+            enable_vram_limit=True
+        )
+    elif num_ctx_mode == "manual":
+        max_ctx = num_ctx_manual
+        model_limit = num_ctx_manual
+    else:
+        # auto_unlimited: Kein VRAM-Limit
+        max_ctx, model_limit = await get_max_available_context(
+            llm_client, model_choice,
+            enable_vram_limit=False
+        )
+
+    # 2. Fixe Overhead-Schätzung (System-Prompt, History, User-Message)
+    SYSTEM_PROMPT_ESTIMATE = 2000  # RAG System-Prompt ist ~2K Tokens
+    HISTORY_ESTIMATE = len(history) * 500  # Grobe Schätzung: 500 tok/turn
+    USER_MESSAGE_ESTIMATE = len(user_text) // 3  # ~3 chars/token
+
+    # 3. Base Input ohne RAG-Context
+    base_input = SYSTEM_PROMPT_ESTIMATE + HISTORY_ESTIMATE + USER_MESSAGE_ESTIMATE
+
+    # 4. Adaptive Reserve-Berechnung
+    # Priorität: Maximiere RAG-Content, reduziere Reserve stufenweise (8K → 6K → 4K)
+    actual_reserve, max_rag_tokens = calculate_adaptive_reserve(
+        available_context=max_ctx,
+        base_input=base_input,
+        max_rag_target=MAX_RAG_CONTEXT_TOKENS
+    )
+
+    log_message(f"📊 RAG Context Budget: {format_number(max_rag_tokens)} tok "
+                f"(VRAM-max: {format_number(max_ctx)}, Reserve: {format_number(actual_reserve)})")
+
+    # 6. Context mit dynamischem Limit bauen
+    context = build_context(user_text, scraped_only, max_context_tokens=max_rag_tokens)
 
     # Estimate tokens
     est_tokens = len(context) // CHARS_PER_TOKEN
-    log_message(f"📊 Context: ~{format_number(est_tokens)} tok")
+    log_message(f"📊 Context gebaut: ~{format_number(est_tokens)} tok")
 
     # Show context preview
     if len(context) > 800:
