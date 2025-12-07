@@ -479,7 +479,7 @@ def text_input_section() -> rx.Component:
                         spacing="2",
                     ),
                     rx.slider(
-                        default_value=AIState.temperature,
+                        value=[AIState.temperature],  # REACTIVE: value statt default_value!
                         min=0.0,
                         max=2.0,
                         step=0.1,
