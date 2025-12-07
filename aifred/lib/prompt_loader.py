@@ -302,3 +302,35 @@ def get_system_rag_prompt(context: str, user_text: str = "", lang: Optional[str]
 def get_vision_ocr_prompt(lang: Optional[str] = None) -> str:
     """Load Vision-LLM OCR prompt (timestamp injected automatically by load_prompt)"""
     return load_prompt('vision_ocr', lang=lang)
+
+
+def get_vision_templateless_ocr_prompt(lang: Optional[str] = None) -> str:
+    """
+    Load Vision-LLM OCR prompt for template-less models (DeepSeek-OCR, etc.)
+
+    Note: No timestamp injection for template-less models (keeps prompt minimal)
+    """
+    if lang is None:
+        lang = _current_language
+    if lang == "auto":
+        lang = "de"  # Default to German
+
+    prompt_file = PROMPTS_DIR / lang / "vision_templateless_ocr.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
+def get_vision_templateless_default_prompt(lang: Optional[str] = None) -> str:
+    """
+    Load default Vision prompt for template-less models
+
+    Note: No timestamp injection for template-less models (keeps prompt minimal)
+    """
+    if lang is None:
+        lang = _current_language
+    if lang == "auto":
+        lang = "de"  # Default to German
+
+    prompt_file = PROMPTS_DIR / lang / "vision_templateless_default.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
