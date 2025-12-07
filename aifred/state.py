@@ -8,6 +8,7 @@ import reflex as rx
 from typing import List, Tuple, Any, Dict
 import uuid
 import os
+import re
 import asyncio
 from pydantic import BaseModel
 from .lib import (
@@ -2002,9 +2003,10 @@ class AIState(rx.State):
                 local_images = copy.deepcopy(self.pending_images)
                 local_image_names = ", ".join([img.get("name", "unbekannt") for img in local_images])
 
-                # Format image names as bullet list on separate lines (aligned with "Vision")
-                image_list = "\n".join([f"  • {img.get('name', 'unbekannt')}" for img in local_images])
-                self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analysiert:\n{image_list}")
+                # Log Vision-LLM header + each image on separate line (like Main/Automatik)
+                self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analysiert:")
+                for img in local_images:
+                    self.add_debug(f"   • {img.get('name', 'unbekannt')}")
                 yield  # Update UI immediately to show Vision Pipeline start
 
                 # Save original user text (for Vision pipeline - may be empty!)
@@ -2755,7 +2757,15 @@ class AIState(rx.State):
     # ============================================================
 
     async def handle_image_upload(self, files: List[rx.UploadFile]):
-        """Handle image file uploads with validation"""
+        """Handle image file uploads - keeps original filename"""
+        await self._process_image_upload(files, from_camera=False)
+
+    async def handle_camera_upload(self, files: List[rx.UploadFile]):
+        """Handle camera uploads - shortens filename to Bild_001.jpg"""
+        await self._process_image_upload(files, from_camera=True)
+
+    async def _process_image_upload(self, files: List[rx.UploadFile], from_camera: bool = False):
+        """Internal handler for image uploads with validation"""
         from .lib.vision_utils import (
             validate_image_file,
             encode_image_to_base64,
@@ -2802,27 +2812,27 @@ class AIState(rx.State):
             # Create data URL for preview
             data_url = f"data:image/jpeg;base64,{base64_data}"
 
-            # Kürze lange Dateinamen (z.B. von Kamera: "2025-12-07_11.36.123456789.jpg")
-            short_name = file.filename
-            if len(short_name) > 20:
-                # Behalte Endung und kürze den Rest
-                name_parts = short_name.rsplit(".", 1)
+            # Kamera-Fotos: Kürze auf "Bild_001.jpg" (Browser-Namen sind unlesbar lang)
+            # Datei-Uploads: Behalte Original-Dateinamen
+            if from_camera:
+                name_parts = file.filename.rsplit(".", 1)
                 if len(name_parts) == 2:
-                    base_name, ext = name_parts
-                    # Kürze auf "Bild_001.jpg" Format mit Zähler
-                    short_name = f"Bild_{len(self.pending_images) + 1:03d}.{ext}"
+                    _, ext = name_parts
+                    display_name = f"Bild_{len(self.pending_images) + 1:03d}.{ext}"
                 else:
-                    short_name = f"Bild_{len(self.pending_images) + 1:03d}"
+                    display_name = f"Bild_{len(self.pending_images) + 1:03d}.jpg"
+            else:
+                display_name = file.filename
 
             # Store
             self.pending_images.append({
-                "name": short_name,
+                "name": display_name,
                 "base64": base64_data,
                 "url": data_url,  # For UI preview
                 "size_kb": len(resized_content) // 1024
             })
 
-            self.add_debug(f"📷 Bild hochgeladen: {short_name} ({len(resized_content) // 1024} KB)")
+            self.add_debug(f"📷 Bild hochgeladen: {display_name} ({len(resized_content) // 1024} KB)")
 
     def remove_pending_image(self, index: int):
         """Remove image from pending uploads"""
