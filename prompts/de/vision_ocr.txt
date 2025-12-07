@@ -1,7 +1,12 @@
-Extrahiere ALLE sichtbaren Texte, Daten und Strukturen aus diesem Bild als JSON. Dies ist eine vollständige OCR-Aufgabe.
+Extrahiere ALLE sichtbaren Texte, Daten und Strukturen aus den Bildern als JSON. Dies ist eine vollständige OCR-Aufgabe.
+
+KRITISCH - MEHRERE BILDER:
+- Wenn MEHRERE Bilder vorhanden sind, analysiere JEDES Bild EINZELN und vollständig!
+- Jedes Bild bekommt einen eigenen Abschnitt in der JSON-Ausgabe
+- Überspringe KEIN Bild - ALLE Bilder müssen analysiert werden!
 
 KRITISCHE REGELN:
-- Extrahiere NUR was TATSÄCHLICH im Bild steht - KEINE Ergänzungen, KEINE Korrekturen, KEINE Interpretationen!
+- Extrahiere NUR was TATSÄCHLICH in den Bildern steht - KEINE Ergänzungen, KEINE Korrekturen, KEINE Interpretationen!
 - ERFINDE KEINE Daten oder Zeilen - wenn etwas unleserlich ist, lasse es leer oder schreibe "unleserlich"
 - Kopiere Text EXAKT wie er dasteht - keine Rechtschreibkorrekturen, keine Verbesserungen
 - Bei Tabellen: Zähle die Zeilen im Bild und extrahiere GENAU diese Anzahl - nicht mehr, nicht weniger!
@@ -12,6 +17,7 @@ WICHTIG:
 - Bei mehreren Tabellen: Erstelle ein Array mit allen Tabellen
 - Bei gemischten Inhalten: Kombiniere alle Strukturen in einer logischen Reihenfolge
 - Lasse NICHTS aus - vollständige Rekonstruktion des Dokuments!
+- Bei MEHREREN BILDERN: Jedes Bild als separater Eintrag in "images" Array!
 
 Format für einzelne Struktur:
 ```json
@@ -22,7 +28,7 @@ Format für einzelne Struktur:
 }
 ```
 
-Format für mehrere Strukturen:
+Format für mehrere Strukturen (ein Bild):
 ```json
 {
   "type": "document",
@@ -30,6 +36,25 @@ Format für mehrere Strukturen:
     {"type": "text", "content": "Header-Text"},
     {"type": "table", "columns": [...], "rows": [...]},
     {"type": "form", "fields": [...]}
+  ]
+}
+```
+
+Format für MEHRERE BILDER (WICHTIG!):
+```json
+{
+  "type": "multi_image",
+  "images": [
+    {
+      "image_index": 1,
+      "description": "Kurze Beschreibung was im Bild zu sehen ist",
+      "content": {"type": "document", "sections": [...]}
+    },
+    {
+      "image_index": 2,
+      "description": "Kurze Beschreibung was im zweiten Bild zu sehen ist",
+      "content": {"type": "table", "columns": [...], "rows": [...]}
+    }
   ]
 }
 ```

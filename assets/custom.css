@@ -165,6 +165,9 @@ details summary {
     color: #aaa !important;  /* GLEICHE Farbe wie Summary */
     background-color: transparent !important;
     padding: 0.5em !important;
+    white-space: pre-wrap !important;  /* JSON/Code formatiert anzeigen */
+    font-family: monospace !important;  /* Monospace für bessere Lesbarkeit */
+    font-size: 0.85em !important;  /* Etwas kleiner */
 }
 
 .thinking-compact p {

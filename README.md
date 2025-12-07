@@ -12,7 +12,17 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ## 📋 What's New
 
-**Latest Version:** v2.5.1 (2025-12-07)
+**Latest Version:** v2.5.2 (2025-12-07)
+
+### 📷 Multi-Image Vision Pipeline (v2.5.2)
+
+**Enhanced multi-image analysis:** Fixed JSON-to-readable conversion, improved log formatting, and better Markdown rendering.
+
+Key highlights:
+- 📷 **Multi-Image Handler**: New `multi_image` type in `_json_to_readable()` for proper formatting
+- 📝 **Markdown Line Breaks**: Single `\n` now renders as proper line breaks (not paragraph spacing)
+- 🎨 **Pretty-Printed JSON**: Collapsible "Strukturierte Daten" now shows formatted JSON
+- 🔧 **Log Alignment**: Image bullet points properly aligned with "Vision-LLM" text
 
 ### 📱 Mobile UX Improvements (v2.5.1)
 
@@ -1189,5 +1199,5 @@ MIT License - see [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.5.1 (December 2025)
+**Version**: 2.5.2 (December 2025)
 **Status**: Production-Ready 🚀

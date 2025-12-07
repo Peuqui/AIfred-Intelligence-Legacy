@@ -360,9 +360,10 @@ VISION_MAX_IMAGE_DIMENSION = 3840  # 4K UHD - beste OCR-Qualität bei akzeptable
 # Context window limit for Vision-LLM (regardless of VRAM calculation)
 # Conservative limit to account for image embedding overhead in VRAM
 # Prevents CPU fallback while maintaining sufficient context for OCR results
-# - 8K tokens ≈ 3-4 pages of text (sufficient for most OCR tasks)
+# - 16K tokens = ~6K for 3 images + ~2K system prompt + ~8K for response
+# - Required for Multi-Image analysis (each image ~2000 tokens)
 # - Images already resized to VISION_MAX_IMAGE_DIMENSION
-VISION_CONTEXT_LIMIT = 8192  # tokens
+VISION_CONTEXT_LIMIT = 16384  # tokens (was 8192, increased for multi-image)
 
 # ============================================================
 # CONFIG VALIDATION (Safety Checks)

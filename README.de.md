@@ -12,7 +12,17 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 ## 📋 Neuigkeiten
 
-**Aktuelle Version:** v2.5.1 (2025-12-07)
+**Aktuelle Version:** v2.5.2 (2025-12-07)
+
+### 📷 Multi-Image Vision Pipeline (v2.5.2)
+
+**Verbesserte Multi-Bild-Analyse:** JSON-zu-Text Konvertierung gefixt, Log-Formatierung verbessert, besseres Markdown-Rendering.
+
+Wichtigste Highlights:
+- 📷 **Multi-Image Handler**: Neuer `multi_image` Typ in `_json_to_readable()` für korrekte Formatierung
+- 📝 **Markdown Zeilenumbrüche**: Einzelne `\n` werden jetzt als Zeilenumbrüche gerendert (ohne Absatzabstand)
+- 🎨 **Formatiertes JSON**: Collapsible "Strukturierte Daten" zeigt jetzt formatiertes JSON
+- 🔧 **Log-Ausrichtung**: Bild-Aufzählungspunkte korrekt mit "Vision-LLM" ausgerichtet
 
 ### 📱 Mobile UX Verbesserungen (v2.5.1)
 
@@ -1143,5 +1153,5 @@ MIT License - siehe [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.5.1 (December 2025)
+**Version**: 2.5.2 (December 2025)
 **Status**: Production-Ready 🚀

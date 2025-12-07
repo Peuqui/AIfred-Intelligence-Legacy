@@ -69,7 +69,7 @@ def is_vision_language_model(architecture: str) -> bool:
     vision encoder outputs (2.6x more than text-only models).
 
     Args:
-        architecture: Model architecture string from GGUF
+        architecture: Model architecture string from GGUF (general.architecture)
 
     Returns:
         True if VLM, False if text-only LLM
@@ -79,15 +79,65 @@ def is_vision_language_model(architecture: str) -> bool:
         True
         >>> is_vision_language_model("qwen3moe")
         False
+        >>> is_vision_language_model("mllama")
+        True
+        >>> is_vision_language_model("llava")
+        True
+
+    Note:
+        Pattern list based on 2024/2025 GGUF VLM landscape.
+        GGUF architecture names are often lowercase without separators.
     """
     if not architecture:
         return False
 
-    # Check for vision-related strings in architecture
-    vision_markers = ['vl', 'vision', 'visual', 'vlm']
     arch_lower = architecture.lower()
 
-    return any(marker in arch_lower for marker in vision_markers)
+    # Comprehensive list of GGUF Vision-Language Model architectures (2024/2025)
+    # These are the values found in general.architecture GGUF metadata
+    vision_architectures = [
+        # === Generic markers ===
+        'vl', 'vision', 'visual', 'vlm',
+
+        # === Qwen Vision ===
+        'qwen2vl', 'qwen3vl',  # qwen2vlmoe, qwen3vlmoe etc.
+
+        # === LLaVA Family ===
+        'llava', 'llavanext',
+
+        # === Meta LLaMA Vision ===
+        'mllama',  # LLaMA 3.2 Vision uses "mllama" architecture
+
+        # === Google/Gemma Vision ===
+        'paligemma', 'gemma3',
+
+        # === Mistral Vision ===
+        'pixtral',
+
+        # === DeepSeek Vision ===
+        'deepseek_vl', 'janus',
+
+        # === InternLM/InternVL ===
+        'internvl', 'internlm',
+
+        # === CogVLM ===
+        'cogvlm',
+
+        # === MiniCPM Vision ===
+        'minicpm',
+
+        # === Microsoft Vision ===
+        'phi3v', 'florence',
+
+        # === Others ===
+        'moondream', 'idefics', 'kosmos',
+        'molmo', 'cambrian',
+
+        # === CLIP-based (Vision Encoder) ===
+        'clip',
+    ]
+
+    return any(marker in arch_lower for marker in vision_architectures)
 
 
 def get_kv_cache_mb_per_token(architecture: str, quantization: str) -> float:

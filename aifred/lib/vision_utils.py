@@ -79,9 +79,17 @@ async def is_vision_model(state, model_name: str) -> bool:
             response.raise_for_status()
             data = response.json()
 
+            # === PRIMARY: Check Ollama capabilities array (official way) ===
+            # Example: {"capabilities": ["completion", "vision"]}
+            capabilities = data.get('capabilities', [])
+            if 'vision' in capabilities:
+                logger.info(f"✅ Vision model detected (Ollama capabilities): {model_name}")
+                return True
+
+            # === FALLBACK: Check model_info for .vision.* keys ===
+            # Some older models may not have capabilities but have vision keys
             model_info = data.get('model_info') or data.get('modelinfo', {})
 
-            # Check for vision-specific parameters
             vision_keys = [
                 '.vision.block_count',
                 '.vision.image_size',
@@ -91,7 +99,7 @@ async def is_vision_model(state, model_name: str) -> bool:
 
             for key in model_info.keys():
                 if any(vision_key in key for vision_key in vision_keys):
-                    logger.info(f"✅ Vision model detected (Ollama): {model_name} has {key}")
+                    logger.info(f"✅ Vision model detected (Ollama model_info): {model_name} has {key}")
                     return True
 
         # === KOBOLDCPP: Check GGUF metadata ===
@@ -128,11 +136,36 @@ async def is_vision_model(state, model_name: str) -> bool:
                 architectures = config.get('architectures', [])
                 model_type = config.get('model_type', '')
 
-                # Vision model patterns in HuggingFace
+                # Comprehensive Vision model patterns in HuggingFace config.json (2024/2025)
+                # These match architecture names and model_type values
                 vision_patterns = [
-                    'vision', 'vl', 'visual', 'vlm',
-                    'llava', 'qwen2-vl', 'qwen3-vl',
-                    'pixtral', 'internvl', 'cogvlm'
+                    # Generic
+                    'vision', 'vl', 'visual', 'vlm', 'multimodal',
+                    # LLaVA variants
+                    'llava', 'llavanext', 'llavaone',
+                    # Qwen Vision
+                    'qwen2vl', 'qwen2_vl', 'qwen3vl', 'qwen3_vl',
+                    # Google
+                    'paligemma', 'gemma3',
+                    # Mistral
+                    'pixtral',
+                    # DeepSeek
+                    'deepseek_vl', 'janus',
+                    # InternLM/InternVL
+                    'internvl', 'internlm',
+                    # CogVLM
+                    'cogvlm', 'cogagent',
+                    # MiniCPM
+                    'minicpm', 'openbmb',
+                    # Microsoft
+                    'phi3v', 'phi3vision', 'florence',
+                    # BLIP
+                    'blip', 'instructblip',
+                    # Others
+                    'moondream', 'idefics', 'kosmos', 'smolvlm',
+                    'molmo', 'cambrian', 'aria', 'apollo',
+                    # Meta LLaMA Vision
+                    'mllama', 'llama_vision',
                 ]
 
                 for arch in architectures + [model_type]:
@@ -161,13 +194,66 @@ def _is_vision_model_by_name(model_name: str) -> bool:
 
     Returns:
         True if name matches known vision model patterns
+
+    Note:
+        Pattern list based on 2024/2025 VLM landscape research.
+        See: https://github.com/gokayfem/awesome-vlm-architectures
     """
+    # Comprehensive list of Vision-Language Model name patterns (2024/2025)
     vision_markers = [
-        'vision', 'vl', 'visual', 'vlm',
-        'qwen2-vl', 'qwen3-vl', 'llava', 'pixtral',
-        'deepseek-ocr', 'ocr', 'internvl', 'cogvlm',
-        'sam'  # Segment Anything Model
+        # === Generic markers ===
+        'vision', 'vl', 'visual', 'vlm', 'multimodal',
+
+        # === Qwen Vision Series ===
+        'qwen-vl', 'qwen2-vl', 'qwen2.5-vl', 'qwen3-vl',
+
+        # === LLaVA Family ===
+        'llava', 'llava-next', 'llava-cot', 'llava-onevision',
+
+        # === Meta/LLaMA Vision ===
+        'llama-vision', 'llama3.2-vision', 'llama-3.2-vision',
+
+        # === Google/Gemma Vision ===
+        'gemma-vision', 'gemma3', 'paligemma', 'paligemma2',
+
+        # === Mistral Vision ===
+        'pixtral',
+
+        # === DeepSeek Vision ===
+        'deepseek-vl', 'deepseek-ocr', 'deepseek-janus', 'janus',
+
+        # === Alibaba/InternLM Vision ===
+        'internvl', 'internlm-xcomposer', 'xcomposer',
+
+        # === Tsinghua/CogVLM ===
+        'cogvlm', 'cogvlm2', 'cogagent',
+
+        # === OpenBMB/MiniCPM Vision ===
+        'minicpm-v', 'minicpm-llama3-v', 'openbmb',
+
+        # === Microsoft Vision ===
+        'phi-vision', 'phi3-vision', 'phi-3-vision', 'florence',
+
+        # === Salesforce/BLIP ===
+        'blip', 'blip2', 'blip-2', 'instructblip',
+
+        # === Other Vision Models ===
+        'moondream',           # Vikhyat Moondream
+        'idefics', 'idefics2', # HuggingFace IDEFICS
+        'kosmos', 'kosmos-2',  # Microsoft Kosmos
+        'smolvlm',             # HuggingFace SmolVLM
+        'apollo',              # Apollo VLM
+        'aria',                # Rhymes AI ARIA
+        'molmo',               # Allen AI Molmo
+        'cambrian',            # Cambrian-1
+
+        # === OCR/Document Models ===
+        'ocr', 'docvqa', 'layoutlm', 'donut',
+
+        # === Segment Anything ===
+        'sam', 'sam2', 'segment-anything',
     ]
+
     model_lower = model_name.lower()
     is_vision = any(marker in model_lower for marker in vision_markers)
 
