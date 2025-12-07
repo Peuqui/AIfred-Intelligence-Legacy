@@ -310,13 +310,13 @@ async def build_and_generate_response(
 
     # Update history
     total_time = time.time() - agent_start
-    metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, {format_number(tokens_per_sec, 1)} tok/s, Quelle: Web-Recherche)")
+    metadata = format_metadata(f"Inferenz: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Quelle: Web-Recherche")
 
     if stt_time > 0:
-        user_metadata = format_metadata(f"(STT: {format_number(stt_time, 1)}s, Agent: {mode}, {len(scraped_only)} Quellen)")
+        user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s    Agent: {mode}    {len(scraped_only)} Quellen")
         user_with_time = f"{user_text}  \n{user_metadata}"
     else:
-        user_metadata = format_metadata(f"(Agent: {mode}, {len(scraped_only)} Quellen)")
+        user_metadata = format_metadata(f"Agent: {mode}    {len(scraped_only)} Quellen")
         user_with_time = f"{user_text}  \n{user_metadata}"
 
     history.append((user_with_time, thinking_html + "  \n" + metadata))

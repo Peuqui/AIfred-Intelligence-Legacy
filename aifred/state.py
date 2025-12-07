@@ -2108,13 +2108,13 @@ class AIState(rx.State):
 
                             # Metadata footer
                             metadata = format_metadata(
-                                f"(Vision: {format_number(vision_time, 1)}s ({format_number(tokens_per_sec, 1)} tok/s))"
+                                f"Vision: {format_number(vision_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s"
                             )
                             formatted_response = f"{formatted_html}\n\n{metadata}"
                         elif vision_readable_text:
                             # Kein JSON, aber readable text vorhanden (z.B. Fallback oder nur Description)
                             metadata = format_metadata(
-                                f"(Vision: {format_number(vision_time, 1)}s ({format_number(tokens_per_sec, 1)} tok/s))"
+                                f"Vision: {format_number(vision_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s"
                             )
                             formatted_response = f"{vision_readable_text}\n\n{metadata}"
                         else:
@@ -2603,7 +2603,7 @@ class AIState(rx.State):
 
                 # Add metadata footer (Inferenz + Tok/s + Quelle) like other modes
                 metadata = format_metadata(
-                    f"(Inferenz: {format_number(inference_time, 1)}s ({format_number(tokens_per_sec, 1)} tok/s), Quelle: Trainingsdaten)"
+                    f"Inferenz: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Quelle: Trainingsdaten"
                 )
                 formatted_response = f"{thinking_html}  \n{metadata}"
 

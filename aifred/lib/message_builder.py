@@ -53,12 +53,15 @@ def build_messages_from_history(
     messages = []
 
     # Liste aller bekannten Timing-Patterns (robust gegen neue Patterns)
+    # Format: "*( Label: Zeit    tok/s    Quelle: ... )*" (kursiv, in Klammern)
     timing_patterns = [
-        " (STT:",          # Speech-to-Text Zeit
-        " (Agent:",        # Agent Research Zeit
-        " (Inferenz:",     # LLM Inference Zeit
-        " (TTS:",          # Text-to-Speech Zeit
-        " (Entscheidung:", # Automatik Decision Zeit
+        "*( STT:",           # Speech-to-Text Zeit
+        "*( Agent:",         # Agent Research Zeit
+        "*( Inferenz:",      # LLM Inference Zeit
+        "*( Vision:",        # Vision-LLM Zeit
+        "*( TTS:",           # Text-to-Speech Zeit
+        "*( Entscheidung:",  # Automatik Decision Zeit
+        "*( Cache-Hit:",     # Cache Hit Zeit
     ]
 
     # Begrenze History falls gewünscht (z.B. nur letzte 3 Turns)

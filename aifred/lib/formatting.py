@@ -46,34 +46,31 @@ def format_number(n: int | float, decimals: int = 0) -> str:
 
 def format_metadata(metadata_text: str) -> str:
     """
-    Formatiert Metadaten (Inferenzzeiten, Quellen, etc.) mit kleinerem Font und grauer Farbe.
+    Formatiert Metadaten (Inferenzzeiten, Quellen, etc.) als kursiven Text in Klammern.
 
     Args:
-        metadata_text: Text in Klammern, z.B. "(Inferenz: 1.3s, Quelle: Web-Recherche)"
+        metadata_text: Metadaten-Text, z.B. "Inferenz: 1.3s    Quelle: Web-Recherche"
+                       (4 Leerzeichen als Trenner zwischen Werten)
 
     Returns:
-        Markdown-formatierter Text (kursiv, kleinere Optik durch Styling in UI)
+        Markdown-formatierter Text (kursiv, in Klammern) mit geschützten Leerzeichen
 
     Example:
-        >>> format_metadata("(Inferenz: 1.3s, Quelle: LLM)")
-        '*( Inferenz: 1.3s, Quelle: LLM )*'
+        >>> format_metadata("Inferenz: 1.3s    61,1 tok/s    Quelle: LLM")
+        '*( Inferenz: 1.3s    61,1 tok/s    Quelle: LLM )*'  # mit non-breaking spaces
 
     Note:
         Verwendet Markdown statt HTML, da rx.markdown() inline HTML escapet.
         Die Kursiv-Formatierung (*...*) signalisiert Meta-Information.
+        4 normale Leerzeichen werden zu 4 Non-Breaking Spaces konvertiert.
     """
     if not metadata_text:
         return metadata_text
 
-    # Entferne äußere Klammern für Formatierung
     text = metadata_text.strip()
-    if text.startswith("(") and text.endswith(")"):
-        inner = text[1:-1]
-        # Markdown kursiv - erscheint automatisch auf neuer Zeile durch \n davor
-        return f'*( {inner} )*'
-
-    # Falls keine Klammern: formatiere komplett als kursiv
-    return f'*{text}*'
+    # Ersetze 4 normale Leerzeichen durch 4 Non-Breaking Spaces (werden nicht zusammengekürzt)
+    text = text.replace("    ", "\u00A0\u00A0\u00A0\u00A0")
+    return f'*( {text} )*'
 
 
 def get_timestamp() -> str:
