@@ -12,7 +12,18 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 ## 📋 Neuigkeiten
 
-**Aktuelle Version:** v2.5.3 (2025-12-07)
+**Aktuelle Version:** v2.6.0 (2025-12-07)
+
+### 📷 Sequentielle Bildverarbeitung + Session Persistenz (v2.6.0)
+
+**Stabilere Vision-Ergebnisse:** Multi-Image wird jetzt sequentiell verarbeitet. Mobile Sessions bleiben erhalten.
+
+Wichtigste Highlights:
+- 📷 **Sequentielle Verarbeitung**: Bilder werden nacheinander für konsistentere Ergebnisse verarbeitet
+- 💾 **Session Persistenz**: Chat-Verlauf überlebt Mobile-Browser-Hintergrund/Neustart
+- 🍪 **Cookie-basierte Device-ID**: 128-bit ID im Browser-Cookie gespeichert (1 Jahr gültig)
+- 📁 **Server-seitige Speicherung**: Sessions in `~/.config/aifred/sessions/`
+- 🔧 **Bug-Fix**: Fast Path überschreibt nicht mehr settings.json Modell-Auswahl
 
 ### 🎯 Dynamische Vision-Kontext-Berechnung (v2.5.3)
 
@@ -1163,5 +1174,5 @@ MIT License - siehe [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.5.3 (December 2025)
+**Version**: 2.6.0 (Dezember 2025)
 **Status**: Production-Ready 🚀
