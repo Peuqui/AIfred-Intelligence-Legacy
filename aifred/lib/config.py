@@ -355,7 +355,7 @@ XML_TAG_CONFIG = {
 # - 2048px: Fast inference (8-15s), low VRAM (~512MB), good for most documents
 # - 3072px: Medium inference (15-25s), medium VRAM (~1-1.5GB), high detail
 # - 4096px: Slow inference (25-40s), high VRAM (~2-3GB), excellent detail
-VISION_MAX_IMAGE_DIMENSION = 2048  # pixels
+VISION_MAX_IMAGE_DIMENSION = 3840  # 4K UHD - beste OCR-Qualität bei akzeptabler Inferenzzeit
 
 # Context window limit for Vision-LLM (regardless of VRAM calculation)
 # Conservative limit to account for image embedding overhead in VRAM

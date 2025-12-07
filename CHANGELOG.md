@@ -5,6 +5,108 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2025-12-07
+
+### ✂️ Image Crop & 4K Auto-Resize
+
+**New feature:** Crop images before sending to Vision-LLM, with automatic 4K resolution limit.
+
+#### Added
+
+- **Interactive Crop Modal** ([aifred.py:409-590](aifred/aifred.py#L409-L590)):
+  - Full-screen modal with dark semi-transparent overlay
+  - Image displayed with `object-fit: contain` for proper aspect ratio
+  - Draggable crop box with visual selection area
+  - "Zuschneiden" (Crop) and "Abbrechen" (Cancel) buttons
+
+- **8-Point Drag Handles** ([custom.css:234-381](assets/custom.css#L234-L381)):
+  - 4 corner handles (nw, ne, sw, se) - diagonal resizing
+  - 4 edge handles (n, s, e, w) - single-axis resizing
+  - Touch-friendly: 24px hit area, 12px visible circle
+  - Visual feedback with `cursor` styles and hover effects
+
+- **Crop Button per Image** ([aifred.py:348-407](aifred/aifred.py#L348-L407)):
+  - Green crop icon button on each image thumbnail
+  - Position: top-left corner of preview
+  - Opens crop modal for that specific image
+
+- **Crop State Variables** ([state.py:282-291](aifred/state.py#L282-L291)):
+  - `crop_modal_open`: Modal visibility toggle
+  - `crop_image_index`: Which image is being cropped
+  - `crop_image_url`: Data-URL for crop preview
+  - `crop_box`: {x, y, width, height} in percent (0-100)
+
+- **Crop Handler** ([state.py:2858-2937](aifred/state.py#L2858-L2937)):
+  - `open_crop_modal(index)`: Opens modal with selected image
+  - `apply_crop()`: Applies crop and replaces image in pending_images
+  - `cancel_crop()`: Closes modal without changes
+  - Detailed logging: `✂️ Bild zugeschnitten: image.png (1920 x 1080 → 91% x 47% → 1747 x 508 px)`
+
+- **crop_and_resize_image() Function** ([vision_utils.py:377-453](aifred/lib/vision_utils.py#L377-L453)):
+  - Crop image based on percentage box `{x, y, width, height}`
+  - EXIF rotation fix with `ImageOps.exif_transpose()`
+  - Automatic resize to max dimension (4K)
+  - RGBA→RGB conversion for PNG transparency (white background)
+
+#### Changed
+
+- **4K Resolution Limit** ([config.py:358](aifred/lib/config.py#L358)):
+  - `VISION_MAX_IMAGE_DIMENSION`: 2048 → 3840 (4K UHD)
+  - Better quality for detailed documents and images
+
+- **EXIF Rotation Handling** ([vision_utils.py:392-395](aifred/lib/vision_utils.py#L392-L395)):
+  - Mobile photos now correctly oriented before cropping
+  - Uses `PIL.ImageOps.exif_transpose()` to auto-rotate
+
+- **RGBA to RGB Conversion** ([vision_utils.py:428-441](aifred/lib/vision_utils.py#L428-L441)):
+  - PNG screenshots with transparency now work correctly
+  - Transparent areas filled with white background
+  - Supports RGBA, LA, and P (palette) modes
+
+#### Technical Details
+
+**Crop Flow:**
+```
+User clicks crop button on thumbnail
+    ↓
+open_crop_modal(index) → Shows modal with image
+    ↓
+User drags corners/edges to adjust crop box
+    ↓
+JavaScript updates crop_box state via on_change
+    ↓
+User clicks "Zuschneiden"
+    ↓
+apply_crop() → crop_and_resize_image(original_bytes, crop_box)
+    ↓
+Cropped image replaces original in pending_images
+    ↓
+Modal closes, thumbnail updates
+```
+
+**Crop Box Calculation:**
+```python
+# crop_box = {x: 10, y: 20, width: 60, height: 50} (percent)
+# Image size = 1920 x 1080 pixels
+
+x_px = 1920 * 10 / 100 = 192
+y_px = 1080 * 20 / 100 = 216
+w_px = 1920 * 60 / 100 = 1152
+h_px = 1080 * 50 / 100 = 540
+
+cropped = img.crop((192, 216, 192+1152, 216+540))
+```
+
+#### Files Modified
+
+1. [aifred/aifred.py](aifred/aifred.py) - Crop button + modal UI
+2. [aifred/lib/config.py](aifred/lib/config.py) - 4K resolution limit
+3. [aifred/lib/vision_utils.py](aifred/lib/vision_utils.py) - crop_and_resize_image(), EXIF fix, RGBA→RGB
+4. [aifred/state.py](aifred/state.py) - Crop state variables + handlers
+5. [assets/custom.css](assets/custom.css) - Crop modal styling with drag handles
+
+---
+
 ## [2.4.2] - 2025-12-06
 
 ### 🔧 Model-Sync Fix & Universelle Vision-Erkennung
