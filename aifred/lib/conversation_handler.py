@@ -1161,14 +1161,14 @@ Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
 
             # User-Text mit Timing (RAG Bypass - keine Entscheidungszeit)
             if stt_time > 0:
-                user_metadata = format_metadata(f"(STT: {format_number(stt_time, 1)}s)")
+                user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s")
                 user_with_time = f"{user_text}  \n{user_metadata}"
             else:
                 user_with_time = user_text
 
             # AI-Antwort mit Timing + Quelle (RAG)
-            source_label = "Cache+LLM (RAG)"
-            metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, {format_number(tokens_per_sec, 1)} tok/s, Quelle: {source_label})")
+            source_label = "Cache+LLM RAG"
+            metadata = format_metadata(f"Inferenz: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Quelle: {source_label}")
             ai_with_source = f"{thinking_html}  \n{metadata}"
 
             # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
@@ -1548,21 +1548,21 @@ Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
 
                 # User-Text mit Timing (Entscheidungszeit + Inferenzzeit)
                 if stt_time > 0:
-                    user_metadata = format_metadata(f"(STT: {format_number(stt_time, 1)}s, Entscheidung: {format_number(decision_time, 1)}s)")
+                    user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s    Entscheidung: {format_number(decision_time, 1)}s")
                     user_with_time = f"{user_text}  \n{user_metadata}"
                 else:
-                    user_metadata = format_metadata(f"(Entscheidung: {format_number(decision_time, 1)}s)")
+                    user_metadata = format_metadata(f"Entscheidung: {format_number(decision_time, 1)}s")
                     user_with_time = f"{user_text}  \n{user_metadata}"
 
                 # AI-Antwort mit Timing + Quelle (dynamisch basierend auf RAG/History)
                 if rag_context:
-                    source_label = "Cache+LLM (RAG)"
+                    source_label = "Cache+LLM RAG"
                 elif len(history) > 0:
-                    source_label = "LLM (mit History)"
+                    source_label = "LLM mit History"
                 else:
                     source_label = "LLM"
 
-                metadata = format_metadata(f"(Inferenz: {format_number(inference_time, 1)}s, {format_number(tokens_per_sec, 1)} tok/s, Quelle: {source_label})")
+                metadata = format_metadata(f"Inferenz: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Quelle: {source_label}")
                 ai_with_source = f"{thinking_html}  \n{metadata}"
 
                 # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)

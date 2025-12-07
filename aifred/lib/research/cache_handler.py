@@ -229,11 +229,11 @@ async def handle_cache_hit(
     final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time, tokens_per_sec=tokens_per_sec)
 
     # Zeitmessung-Text
-    timing_text = f" (Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s, {format_number(tokens_per_sec, 1)} tok/s, Quelle: Session Cache)"
-    ai_text_with_timing = final_answer_formatted + timing_text
+    timing_text = format_metadata(f"Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Quelle: Session Cache")
+    ai_text_with_timing = final_answer_formatted + "\n\n" + timing_text
 
     # Update History
-    user_display = f"{user_text} (Agent: Cache-Hit, {len(cached_sources)} Quellen)"
+    user_display = f"{user_text}\n{format_metadata(f'Agent: Cache-Hit    {len(cached_sources)} Quellen')}"
     ai_display = ai_text_with_timing
     history.append((user_display, ai_display))
 
