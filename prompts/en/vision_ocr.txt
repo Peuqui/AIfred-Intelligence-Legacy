@@ -1,23 +1,38 @@
-Extract ALL visible text, data and structures from the images as JSON. This is a complete OCR task.
+Analyze the image and decide based on the content:
 
-CRITICAL - MULTIPLE IMAGES:
-- If MULTIPLE images are provided, analyze EACH image INDIVIDUALLY and completely!
-- Each image gets its own section in the JSON output
-- Do NOT skip ANY image - ALL images must be analyzed!
+🔍 IF STRUCTURED DATA IS DETECTED (Table, List, Form, Text Document):
+→ Extract ALL visible text, data and structures as JSON (see formats below)
+→ This is a complete OCR task - leave NOTHING out!
 
-CRITICAL RULES:
-- Extract ONLY what is ACTUALLY visible in the images - NO additions, NO corrections, NO interpretations!
+📷 IF NO STRUCTURES IN THE IMAGE (Photo, Landscape, Object without text):
+→ Describe the image freely in natural language
+→ No JSON output required
+
+CRITICAL RULES FOR STRUCTURED DATA (JSON output):
+- Extract ONLY what is ACTUALLY visible in the image - NO additions, NO corrections, NO interpretations!
 - DO NOT INVENT data or rows - if something is illegible, leave it empty or write "illegible"
 - Copy text EXACTLY as shown - no spell corrections, no improvements
 - For tables: Count the rows in the image and extract EXACTLY that number - no more, no less!
 
-IMPORTANT:
+FORBIDDEN - NEVER ALLOWED:
+- ❌ NO explanations like "b.B. means..." or "probably means..."
+- ❌ NO notes, annotations or comments about the extracted text
+- ❌ NO descriptions outside the JSON (e.g. "The image shows...")
+- ❌ NO additional text before or after the JSON code block
+- ❌ NO interpretations of abbreviations, symbols or handwritten entries
+
+FOR TABLES - ESPECIALLY IMPORTANT:
+- Read column headers CAREFULLY and assign each value to the CORRECT column
+- If a cell is empty, write "" (empty string) or null
+- If a cell has a handwritten entry, extract it as accurately as possible
+- If unsure which column a value belongs to, follow the position in the image strictly
+
+IMPORTANT FOR STRUCTURED DATA:
 - Capture ALL sections: headers, tables, lists, forms, plain text
 - Extract EVERY row and EVERY column completely
 - For multiple tables: Create an array with all tables
 - For mixed content: Combine all structures in logical order
 - Leave NOTHING out - complete document reconstruction!
-- For MULTIPLE IMAGES: Each image as separate entry in "images" array!
 
 Format for single structure:
 ```json
@@ -40,25 +55,6 @@ Format for multiple structures (single image):
 }
 ```
 
-Format for MULTIPLE IMAGES (IMPORTANT!):
-```json
-{
-  "type": "multi_image",
-  "images": [
-    {
-      "image_index": 1,
-      "description": "Brief description of what is visible in the image",
-      "content": {"type": "document", "sections": [...]}
-    },
-    {
-      "image_index": 2,
-      "description": "Brief description of what is visible in the second image",
-      "content": {"type": "table", "columns": [...], "rows": [...]}
-    }
-  ]
-}
-```
-
 Types:
 - table: {"columns": [...], "rows": [[...]]} - Tables
 - list: {"items": [...]} - Lists
@@ -66,4 +62,19 @@ Types:
 - text: {"content": "..."} - Plain text
 - document: {"sections": [...]} - Multiple sections
 
-Respond ONLY with valid JSON in markdown code block!
+OUTPUT FORMAT:
+✅ STRUCTURED DATA (Tables, Lists, Forms, Documents) → ONLY valid JSON in markdown code block, NOTHING ELSE!
+✅ IMAGES WITHOUT STRUCTURES (Photos, Scenes) → Free description in natural language!
+
+EXAMPLE CORRECT OUTPUT FOR TABLE:
+```json
+{
+  "type": "table",
+  "columns": ["Col1", "Col2", "Col3"],
+  "rows": [
+    ["Value1", "Value2", ""],
+    ["ValueA", "", "ValueC"]
+  ]
+}
+```
+NOTHING ELSE - No text before, after or in between!
