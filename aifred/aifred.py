@@ -1398,25 +1398,17 @@ def settings_accordion() -> rx.Component:
                     # Conditional rendering: Native select for mobile, Radix UI for desktop
                     rx.cond(
                         AIState.is_mobile,
-                        # MOBILE: Native HTML <select> - use IDs with rx.match for labels
+                        # MOBILE: Native HTML <select> - use display labels (same as LLM dropdowns)
                         rx.el.select(
                             rx.foreach(
-                                AIState.available_backends,  # IDs: ["ollama", "koboldcpp"]
-                                lambda bid: rx.el.option(
-                                    # Display capitalized label via rx.match
-                                    rx.match(
-                                        bid,
-                                        ("ollama", "Ollama"),
-                                        ("koboldcpp", "KoboldCPP"),
-                                        ("vllm", "vLLM"),
-                                        ("tabbyapi", "TabbyAPI"),
-                                        bid,  # fallback
-                                    ),
-                                    value=bid,  # ID as value
+                                AIState.available_backends_list,  # Labels: ["Ollama", "KoboldCPP"]
+                                lambda label: rx.el.option(
+                                    label,  # Display: "Ollama"
+                                    value=label,  # Value: "Ollama" (same as display!)
                                 ),
                             ),
-                            value=AIState.backend_type,  # ID: "ollama"
-                            on_change=AIState.switch_backend,  # Direct handler
+                            value=AIState.current_backend_label,  # Label: "Ollama"
+                            on_change=AIState.switch_backend_by_label,  # Maps label -> ID
                             disabled=AIState.backend_switching,
                             style={
                                 "width": "100%",
