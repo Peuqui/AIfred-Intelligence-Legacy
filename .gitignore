@@ -65,6 +65,7 @@ Bilder/
 .web/
 reflex.db
 assets/generated/
+assets/html_preview/
 
 # Python Backups (additional patterns)
 *_backup.py
