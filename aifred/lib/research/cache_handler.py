@@ -10,11 +10,13 @@ from typing import Dict, List, Optional, AsyncIterator
 from ..cache_manager import get_cached_research
 from ..agent_tools import build_context
 from ..prompt_loader import load_prompt
-from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx, get_max_available_context, calculate_adaptive_reserve
-from ..config import MAX_RAG_CONTEXT_TOKENS
+from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx
 from ..intent_detector import detect_cache_followup_intent, get_temperature_for_intent, get_temperature_label
 from ..formatting import format_thinking_process, format_number, format_metadata
 from ..logging_utils import log_message, console_separator, CONSOLE_SEPARATOR
+from .context_utils import get_cache_context_budget
+from ..streaming_utils import stream_llm_response, log_llm_completion
+from ..config import DYNAMIC_NUM_PREDICT_SAFETY_MARGIN, DYNAMIC_NUM_PREDICT_MINIMUM
 
 
 async def handle_cache_hit(
@@ -75,42 +77,16 @@ async def handle_cache_hit(
     scraped_only = cached_sources
 
     # ============================================================
-    # VRAM-AWARE Context Building (wie in context_builder.py)
+    # VRAM-AWARE Context Building (via context_utils.py)
     # ============================================================
-
-    # 1. VRAM-Limit vorab ermitteln
-    if num_ctx_mode == "auto_vram":
-        max_ctx, model_limit_ctx = await get_max_available_context(
-            llm_client, model_choice,
-            enable_vram_limit=True
-        )
-    elif num_ctx_mode == "manual":
-        max_ctx = num_ctx_manual
-        model_limit_ctx = num_ctx_manual
-    else:
-        max_ctx, model_limit_ctx = await get_max_available_context(
-            llm_client, model_choice,
-            enable_vram_limit=False
-        )
-
-    # 2. Fixe Overhead-Schätzung
-    SYSTEM_PROMPT_ESTIMATE = 2500  # Cache-Hit Prompt etwas größer
-    HISTORY_ESTIMATE = len(history) * 500
-    USER_MESSAGE_ESTIMATE = len(user_text) // 3
-
-    # 3. Base Input ohne RAG-Context
-    base_input = SYSTEM_PROMPT_ESTIMATE + HISTORY_ESTIMATE + USER_MESSAGE_ESTIMATE
-
-    # 4. Adaptive Reserve-Berechnung
-    # Priorität: Maximiere RAG-Content, reduziere Reserve stufenweise (8K → 6K → 4K)
-    actual_reserve, max_rag_tokens = calculate_adaptive_reserve(
-        available_context=max_ctx,
-        base_input=base_input,
-        max_rag_target=MAX_RAG_CONTEXT_TOKENS
+    max_rag_tokens, actual_reserve, max_ctx = await get_cache_context_budget(
+        llm_client=llm_client,
+        model_choice=model_choice,
+        num_ctx_mode=num_ctx_mode,
+        num_ctx_manual=num_ctx_manual,
+        history=history,
+        user_text=user_text
     )
-
-    log_message(f"📊 Cache RAG Budget: {format_number(max_rag_tokens)} tok "
-                f"(VRAM-max: {format_number(max_ctx)}, Reserve: {format_number(actual_reserve)})")
 
     # 6. Context mit dynamischem Limit bauen
     context = build_context(user_text, scraped_only, max_context_tokens=max_rag_tokens)
@@ -208,18 +184,13 @@ async def handle_cache_hit(
     # Show LLM generation phase
     yield {"type": "progress", "phase": "llm"}
 
-    llm_start = time.time()
-    final_answer = ""
-    metrics = {}
-    ttft = None
-    first_token_received = False
-
     # Calculate dynamic num_predict: Available output space after input tokens
-    # Safety margin: 2048 tokens (for tokenizer inaccuracies and buffer)
-    safety_margin = 2048
-    available_output = max(512, final_num_ctx - input_tokens - safety_margin)
+    available_output = max(
+        DYNAMIC_NUM_PREDICT_MINIMUM,
+        final_num_ctx - input_tokens - DYNAMIC_NUM_PREDICT_SAFETY_MARGIN
+    )
 
-    log_message(f"🧮 Dynamic num_predict: {format_number(available_output)} tokens (num_ctx: {format_number(final_num_ctx)}, input: {format_number(input_tokens)}, margin: {safety_margin})")
+    log_message(f"🧮 Dynamic num_predict: {format_number(available_output)} tokens (num_ctx: {format_number(final_num_ctx)}, input: {format_number(input_tokens)}, margin: {DYNAMIC_NUM_PREDICT_SAFETY_MARGIN})")
 
     # Build LLM options (include enable_thinking from user settings)
     cache_llm_options = {
@@ -232,37 +203,33 @@ async def handle_cache_hit(
     if llm_options and 'enable_thinking' in llm_options:
         cache_llm_options['enable_thinking'] = llm_options['enable_thinking']
 
-    # Stream response from LLM
-    async for chunk in llm_client.chat_stream(
-        model=model_choice,
-        messages=messages,
-        options=cache_llm_options
+    # Stream response using centralized utility
+    final_answer = ""
+    metrics = {}
+    llm_time = 0.0
+    tokens_per_sec = 0.0
+
+    async for chunk in stream_llm_response(
+        llm_client, model_choice, messages, cache_llm_options,
+        ttft_label="TTFT (Time-to-First-Token)"
     ):
         if chunk["type"] == "content":
-            # Measure TTFT
-            if not first_token_received:
-                ttft = time.time() - llm_start
-                first_token_received = True
-                log_message(f"⚡ TTFT (Time-to-First-Token): {format_number(ttft, 2)}s")
-                yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
-
-            final_answer += chunk["text"]
-            yield {"type": "content", "text": chunk["text"]}
+            yield chunk
         elif chunk["type"] == "debug":
-            # Forward debug messages from backend (e.g., thinking mode retry warning)
             yield chunk
         elif chunk["type"] == "thinking_warning":
-            # Forward thinking mode warning (model doesn't support reasoning)
             yield chunk
-        elif chunk["type"] == "done":
+        elif chunk["type"] == "stream_result":
+            # Final chunk with accumulated data
+            final_answer = chunk["text"]
             metrics = chunk["metrics"]
+            llm_time = chunk["inference_time"]
+            tokens_per_sec = metrics.get("tokens_per_second", 0)
 
-    llm_time = time.time() - llm_start
     total_time = time.time() - agent_start
 
-    # Console: LLM finished
+    # Console: LLM finished (Cache-specific with total time)
     tokens_generated = metrics.get("tokens_generated", 0)
-    tokens_per_sec = metrics.get("tokens_per_second", 0)
     yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({format_number(llm_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s, Cache-Total: {format_number(total_time, 1)}s)"}
 
     # Formatiere <think> Tags als Collapsible (falls vorhanden)

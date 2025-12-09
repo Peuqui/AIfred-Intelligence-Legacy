@@ -14,6 +14,7 @@ from typing import Dict
 
 from .base import BaseTool
 from ..logging_utils import log_message
+from ..config import PLAYWRIGHT_FALLBACK_THRESHOLD
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ class WebScraperTool(BaseTool):
     """
 
     # Konstanten
-    PLAYWRIGHT_FALLBACK_THRESHOLD = 800  # Wörter - unter diesem Wert wird Playwright versucht
+    # PLAYWRIGHT_FALLBACK_THRESHOLD aus config.py importiert (Modul-Level)
     MAX_RETRY_ATTEMPTS = 2  # Maximum retry attempts for Cloudflare/rate-limit blocks
     RETRY_DELAY = 3.0  # Seconds to wait before retry
 
@@ -79,7 +80,7 @@ class WebScraperTool(BaseTool):
             return result
 
         # Trafilatura erfolgreich, aber zu wenig Content? → JS-heavy Site!
-        if result.get('word_count', 0) < self.PLAYWRIGHT_FALLBACK_THRESHOLD:
+        if result.get('word_count', 0) < PLAYWRIGHT_FALLBACK_THRESHOLD:
             log_message(f"⚠️ trafilatura nur {result['word_count']} Wörter → Retry mit Playwright (JavaScript)")
             playwright_result = self._scrape_with_playwright(url)
             if playwright_result['success']:

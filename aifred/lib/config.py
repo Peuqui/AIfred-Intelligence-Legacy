@@ -116,6 +116,38 @@ BACKEND_DEFAULT_MODELS = {
 }
 
 # ============================================================
+# BACKEND URLs
+# ============================================================
+# Default URLs for each backend type (localhost development)
+BACKEND_URLS = {
+    "ollama": "http://localhost:11434",
+    "vllm": "http://localhost:8001/v1",      # Port 8001 for dev (8000 on production MiniPC)
+    "tabbyapi": "http://localhost:5000/v1",
+    "koboldcpp": "http://localhost:5001/v1",
+}
+
+# Backend display labels (for UI dropdowns)
+BACKEND_LABELS = {
+    "ollama": "Ollama",
+    "koboldcpp": "KoboldCPP",
+    "tabbyapi": "TabbyAPI",
+    "vllm": "vLLM",
+}
+
+# Backend dropdown special items (headers, separators)
+BACKEND_DROPDOWN_ITEMS = {
+    "header_universal": "─── Universelle Kompatibilität (GGUF) ───",
+    "separator": "─────────────────────────────────",
+    "header_modern": "─── Moderne GPUs (FP16) ───",
+}
+
+# Non-selectable backend items (headers and separators)
+BACKEND_NON_SELECTABLE = ["header_universal", "separator", "header_modern"]
+
+# Default backend ordering (for dropdowns)
+BACKEND_ORDER = ["ollama", "koboldcpp", "tabbyapi", "vllm"]
+
+# ============================================================
 # AVAILABLE VOICES
 # ============================================================
 VOICES = {
@@ -161,6 +193,52 @@ MAX_WORDS_PER_SOURCE = 2000
 # Token-zu-Zeichen Ratio für Context-Berechnung
 # Deutsch/Englisch Mix: ~3 Zeichen pro Token
 CHARS_PER_TOKEN = 3
+
+# ============================================================
+# CONTEXT ESTIMATION CONSTANTS
+# ============================================================
+# Token-Schätzungen für System-Prompt, History und User-Input
+# Verwendet für VRAM-basierte Context-Berechnung
+
+# System-Prompt Token-Schätzung (RAG-Mode)
+SYSTEM_PROMPT_ESTIMATE_RAG = 2000  # RAG System-Prompt ist ~2K Tokens
+
+# System-Prompt Token-Schätzung (Cache-Hit Mode - etwas größer)
+SYSTEM_PROMPT_ESTIMATE_CACHE = 2500  # Cache-Hit Prompt mit extra Context
+
+# Token-Schätzung pro History-Turn (Frage + Antwort)
+TOKENS_PER_HISTORY_TURN = 500  # Grobe Schätzung: 500 tok/turn
+
+# ============================================================
+# DYNAMIC OUTPUT GENERATION CONSTANTS
+# ============================================================
+# Für dynamische num_predict-Berechnung (verfügbare Output-Tokens)
+
+# Safety Margin: Puffer für Tokenizer-Ungenauigkeiten
+# Wird von num_ctx abgezogen bevor Output-Space berechnet wird
+DYNAMIC_NUM_PREDICT_SAFETY_MARGIN = 2048  # tokens
+
+# Minimum Output-Tokens (verhindert zu kleine Antworten)
+DYNAMIC_NUM_PREDICT_MINIMUM = 512  # tokens
+
+# Maximum Output-Tokens (verhindert KV-Cache-Overflow bei großen Kontexten)
+# ~10-20 Seiten Text - realistisches Maximum für eine Antwort
+DYNAMIC_NUM_PREDICT_HARD_LIMIT = 4096  # tokens
+
+# ============================================================
+# VISION/OCR CONTEXT CONSTANTS
+# ============================================================
+# Minimum Context für Vision-LLM (OCR, Bildanalyse)
+# Unter diesem Wert funktioniert Vision-Processing nicht zuverlässig
+VISION_MINIMUM_CONTEXT = 4096  # 4K Minimum für Vision-LLM
+
+# ============================================================
+# WEB SCRAPING CONSTANTS
+# ============================================================
+# Playwright-Fallback Threshold für Web-Scraping
+# Wenn trafilatura weniger als diese Wort-Anzahl extrahiert,
+# wird Playwright (headless browser) als Fallback versucht
+PLAYWRIGHT_FALLBACK_THRESHOLD = 800  # Wörter - unter diesem Wert wird Playwright versucht
 
 # ============================================================
 # HISTORY SUMMARIZATION CONFIGURATION

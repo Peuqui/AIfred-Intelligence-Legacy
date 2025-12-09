@@ -44,6 +44,45 @@ def format_number(n: int | float, decimals: int = 0) -> str:
         return formatted
 
 
+def format_age(seconds: float) -> str:
+    """
+    Format age in seconds to human-readable format.
+
+    Examples:
+        >>> format_age(30)
+        '30s'
+        >>> format_age(90)
+        '1min 30s'
+        >>> format_age(3600)
+        '1h'
+        >>> format_age(7200)
+        '2h'
+        >>> format_age(86400)
+        '1d'
+        >>> format_age(90061)
+        '1d 1h 1min'
+    """
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+
+    days = int(seconds // 86400)
+    hours = int((seconds % 86400) // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0:
+        parts.append(f"{minutes}min")
+    if secs > 0 and days == 0:  # Only show seconds if less than a day
+        parts.append(f"{secs}s")
+
+    return " ".join(parts)
+
+
 def format_metadata(metadata_text: str) -> str:
     """
     Formatiert Metadaten (Inferenzzeiten, Quellen, etc.) als kursiven Text in Klammern.

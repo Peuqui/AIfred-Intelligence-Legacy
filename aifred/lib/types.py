@@ -1,0 +1,132 @@
+"""
+AIfred Type Definitions - Central location for type aliases and TypedDicts.
+
+This module provides type definitions for:
+1. Streaming chunks (content, debug, done)
+2. Re-exports of LLM types from backends.base
+
+Usage:
+    from aifred.lib.types import StreamChunk, ContentChunk, DoneChunk
+    from aifred.lib.types import LLMMessage, LLMOptions, LLMResponse
+"""
+
+from typing import TypedDict, Literal, Union, Dict, Any, Optional
+from typing_extensions import NotRequired
+
+# Re-export LLM types from backends.base for convenience
+# This allows importing from lib.types instead of backends.base
+from ..backends.base import LLMMessage, LLMOptions, LLMResponse
+
+__all__ = [
+    # LLM Types (re-exported from backends.base)
+    "LLMMessage",
+    "LLMOptions",
+    "LLMResponse",
+    # Streaming Chunk Types
+    "ContentChunk",
+    "DebugChunk",
+    "ThinkingWarningChunk",
+    "DoneChunk",
+    "StreamChunk",
+    "StreamMetrics",
+]
+
+
+# ============================================================
+# STREAMING CHUNK TYPES
+# ============================================================
+# These TypedDicts provide type hints for streaming responses
+# without requiring changes to existing dict-based code.
+
+
+class StreamMetrics(TypedDict, total=False):
+    """
+    Metrics returned in the 'done' chunk.
+
+    All fields are optional because different backends
+    may return different subsets of metrics.
+    """
+    tokens_prompt: int
+    tokens_generated: int
+    tokens_per_second: float
+    inference_time: float
+    model: str
+    # Additional backend-specific metrics
+    eval_count: NotRequired[int]
+    eval_duration: NotRequired[int]
+    prompt_eval_count: NotRequired[int]
+    prompt_eval_duration: NotRequired[int]
+
+
+class ContentChunk(TypedDict):
+    """
+    Content chunk from streaming response.
+
+    Example:
+        {"type": "content", "text": "Hello, how can I help?"}
+    """
+    type: Literal["content"]
+    text: str
+
+
+class DebugChunk(TypedDict):
+    """
+    Debug chunk from streaming response.
+
+    Example:
+        {"type": "debug", "message": "Processing query..."}
+    """
+    type: Literal["debug"]
+    message: str
+
+
+class ThinkingWarningChunk(TypedDict):
+    """
+    Warning chunk for thinking mode (Qwen3).
+
+    Example:
+        {"type": "thinking_warning", "message": "Model is in thinking mode"}
+    """
+    type: Literal["thinking_warning"]
+    message: str
+
+
+class DoneChunk(TypedDict):
+    """
+    Final chunk signaling stream completion with metrics.
+
+    Example:
+        {"type": "done", "metrics": {"tokens_per_second": 45.2, ...}}
+    """
+    type: Literal["done"]
+    metrics: StreamMetrics
+
+
+# Union type for all possible stream chunks
+StreamChunk = Union[ContentChunk, DebugChunk, ThinkingWarningChunk, DoneChunk]
+
+
+# ============================================================
+# HELPER TYPE GUARDS
+# ============================================================
+# These functions can be used for runtime type checking
+
+
+def is_content_chunk(chunk: Dict[str, Any]) -> bool:
+    """Check if chunk is a content chunk."""
+    return chunk.get("type") == "content"
+
+
+def is_done_chunk(chunk: Dict[str, Any]) -> bool:
+    """Check if chunk is a done chunk."""
+    return chunk.get("type") == "done"
+
+
+def is_debug_chunk(chunk: Dict[str, Any]) -> bool:
+    """Check if chunk is a debug chunk."""
+    return chunk.get("type") == "debug"
+
+
+def is_thinking_warning_chunk(chunk: Dict[str, Any]) -> bool:
+    """Check if chunk is a thinking warning chunk."""
+    return chunk.get("type") == "thinking_warning"

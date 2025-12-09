@@ -174,3 +174,75 @@ IMPORTANT TIME INFORMATION:
 Use this information for time-related queries (e.g., "What's today's date?", "What year is it?", "Current events")."""
 
     return {'role': 'system', 'content': content}
+
+
+def inject_rag_context(
+    messages: List[Dict[str, str]],
+    rag_context: str,
+    position: int = -1
+) -> None:
+    """
+    Inject RAG context as system message into messages list.
+
+    Modifies the list in-place by inserting a system message with
+    previously researched context.
+
+    Args:
+        messages: List of message dicts to modify
+        rag_context: The RAG context string to inject
+        position: Where to insert (-1 = before last message, i.e., before user's question)
+
+    Example:
+        >>> messages = [{"role": "system", "content": "..."}, {"role": "user", "content": "Frage"}]
+        >>> inject_rag_context(messages, "Recherche-Ergebnisse hier")
+        >>> len(messages)
+        3  # System message was inserted
+    """
+    rag_system_message = {
+        'role': 'system',
+        'content': f"""
+ZUSÄTZLICHER KONTEXT AUS VORHERIGEN RECHERCHEN:
+
+{rag_context}
+
+Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für die aktuelle Frage relevant sind.
+"""
+    }
+    messages.insert(position, rag_system_message)
+
+
+def inject_vision_json_context(
+    messages: List[Dict[str, str]],
+    vision_json: dict,
+    position: int = -1
+) -> None:
+    """
+    Inject Vision JSON context as system message into messages list.
+
+    Modifies the list in-place by inserting a system message with
+    extracted image data.
+
+    Args:
+        messages: List of message dicts to modify
+        vision_json: The extracted JSON from Vision-LLM
+        position: Where to insert (-1 = before last message)
+
+    Example:
+        >>> messages = [{"role": "user", "content": "Was steht im Bild?"}]
+        >>> inject_vision_json_context(messages, {"text": "Hello World"})
+        >>> len(messages)
+        2  # Vision context was inserted
+    """
+    import json
+
+    vision_system_message = {
+        'role': 'system',
+        'content': f"""VORHERIGE BILDEXTRAKTION (STRUKTURIERTE DATEN):
+
+```json
+{json.dumps(vision_json, ensure_ascii=False, indent=2)}
+```
+
+Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
+    }
+    messages.insert(position, vision_system_message)
