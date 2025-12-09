@@ -133,6 +133,41 @@ def format_html_preview(text: str) -> str:
     return result
 
 
+def fix_orphan_closing_think_tag(text: str) -> str:
+    """
+    Repariert verwaiste schließende </think> Tags (ohne öffnenden Tag).
+
+    Manche Modelle (z.B. Qwen3 mit enable_thinking=false) geben den Denkprozess
+    ohne öffnenden <think> Tag aus, aber mit schließendem </think> Tag.
+
+    LOGIK:
+    - Wenn <think> UND </think> vorhanden → Nichts tun (korrekte Tags)
+    - Wenn NUR </think> vorhanden (ohne <think>) → <think> am Anfang einfügen
+
+    Args:
+        text: Text mit potentiell fehlendem öffnenden Tag
+
+    Returns:
+        Text mit repariertem Tag (falls nötig)
+
+    Example:
+        Input:  "Okay, let me think...\\n</think>\\nAnswer here"
+        Output: "<think>Okay, let me think...\\n</think>\\nAnswer here"
+
+        Input:  "<think>normal</think> text"  # Bleibt unverändert
+        Output: "<think>normal</think> text"
+    """
+    has_opening = '<think>' in text
+    has_closing = '</think>' in text
+
+    # Nur reparieren wenn schließender Tag da ist, aber kein öffnender
+    if has_closing and not has_opening:
+        text = '<think>' + text
+        log_message("🔧 Fehlender <think> Tag repariert (öffnender Tag hinzugefügt)")
+
+    return text
+
+
 def extract_xml_tags(text: str) -> list[tuple[str, str]]:
     """
     Extrahiert ALLE XML-Tags aus Text (generisch, nicht hardcoded).
@@ -141,6 +176,7 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
     1. HTML-Tags werden IGNORIERT (Blacklist in html_tags.py)
     2. Tags innerhalb von Markdown Code-Blocks werden IGNORIERT!
        (``` ... ``` Blöcke enthalten oft HTML/XML Code-Beispiele)
+    3. Verwaiste schließende </think> Tags werden automatisch repariert!
 
     Args:
         text: Text mit optionalen XML-Tags
@@ -157,6 +193,14 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
 
         >>> extract_xml_tags("```html\\n<head>...</head>\\n```")  # Code-Block ignoriert!
         []
+
+        >>> extract_xml_tags("Thinking...\\n</think>\\nAnswer")  # Verwaister Tag repariert!
+        [("think", "Thinking...")]
+
+    Note:
+        Die Reparatur verwaister </think> Tags erfolgt in den aufrufenden Funktionen
+        (format_thinking_process, build_debug_accordion), BEVOR extract_xml_tags aufgerufen wird.
+        Dies ist notwendig, damit clean_response korrekt funktioniert.
     """
     # STEP 1: Entferne Markdown Code-Blocks BEVOR wir nach XML-Tags suchen
     # Code-Blocks können HTML/XML Code-Beispiele enthalten, die NICHT verarbeitet werden sollen
@@ -222,6 +266,10 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
     log_message("🔍 RAW AI RESPONSE (KOMPLETT):")
     log_message(ai_response)
     log_message("=" * 80)
+
+    # STEP 0: Repariere verwaiste </think> Tags BEVOR wir extrahieren
+    # (Wichtig: Muss auf ai_response angewendet werden, damit clean_response später funktioniert)
+    ai_response = fix_orphan_closing_think_tag(ai_response)
 
     # Extract ALL XML tags generically
     xml_tags = extract_xml_tags(ai_response)
@@ -307,6 +355,9 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
     log_message("🔍 RAW AI RESPONSE (KOMPLETT):")
     log_message(ai_text)
     log_message("=" * 80)
+
+    # STEP 0: Repariere verwaiste </think> Tags BEVOR wir extrahieren
+    ai_text = fix_orphan_closing_think_tag(ai_text)
 
     debug_sections = []
 
