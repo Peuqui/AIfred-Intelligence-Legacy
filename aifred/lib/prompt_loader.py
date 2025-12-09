@@ -334,3 +334,29 @@ def get_vision_templateless_default_prompt(lang: Optional[str] = None) -> str:
     prompt_file = PROMPTS_DIR / lang / "vision_templateless_default.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
+
+
+def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) -> str:
+    """
+    Load cache metadata generation prompt.
+
+    Used to generate a concise summary of cached research sources
+    for later cache hit decisions.
+
+    Args:
+        sources_preview: Preview text of research sources
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Formatted prompt with sources inserted
+    """
+    if lang is None:
+        lang = _current_language
+    if lang == "auto":
+        lang = "en"  # Cache metadata is always English for consistency
+
+    prompt_file = PROMPTS_DIR / lang / "cache_metadata.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        template = f.read().strip()
+
+    return template.format(sources_preview=sources_preview)
