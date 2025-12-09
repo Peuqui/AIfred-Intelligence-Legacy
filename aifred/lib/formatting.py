@@ -6,10 +6,17 @@ and thinking processes in the Reflex UI.
 """
 
 import re
+import uuid
+from pathlib import Path
 from .logging_utils import log_message
 from .config import XML_TAG_CONFIG  # Import from central config
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
+
+# HTML Preview: Pfad zum assets/html_preview Verzeichnis
+# Reflex serviert assets/ unter / - also /html_preview/dateiname.html
+_ASSETS_DIR = Path(__file__).parent.parent.parent / "assets"
+_HTML_PREVIEW_DIR = _ASSETS_DIR / "html_preview"
 
 
 def format_number(n: int | float, decimals: int = 0) -> str:
@@ -122,22 +129,83 @@ def get_timestamp() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
 
+def _save_html_to_assets(html_code: str) -> str:
+    """
+    Speichert HTML-Code als Datei in assets/html_preview/ und gibt URL zurück.
+
+    Args:
+        html_code: Der HTML-Code zum Speichern
+
+    Returns:
+        URL-Pfad zur gespeicherten Datei (z.B. "/html_preview/abc123.html")
+    """
+    # Stelle sicher dass das Verzeichnis existiert
+    _HTML_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Generiere eindeutigen Dateinamen
+    filename = f"{uuid.uuid4().hex[:8]}.html"
+    filepath = _HTML_PREVIEW_DIR / filename
+
+    # Speichere HTML-Code
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(html_code)
+
+    log_message(f"🌐 HTML Preview: Datei gespeichert → {filepath}")
+
+    # Reflex serviert assets/ unter / - also /html_preview/dateiname.html
+    return f"/html_preview/{filename}"
+
+
+def cleanup_old_html_previews(max_age_hours: int = 24) -> int:
+    """
+    Löscht alte HTML-Preview-Dateien aus assets/html_preview/.
+
+    Args:
+        max_age_hours: Maximales Alter in Stunden (default: 24)
+
+    Returns:
+        Anzahl gelöschter Dateien
+    """
+    import time
+
+    if not _HTML_PREVIEW_DIR.exists():
+        return 0
+
+    deleted = 0
+    max_age_seconds = max_age_hours * 3600
+    now = time.time()
+
+    for filepath in _HTML_PREVIEW_DIR.glob("*.html"):
+        try:
+            age = now - filepath.stat().st_mtime
+            if age > max_age_seconds:
+                filepath.unlink()
+                deleted += 1
+        except OSError:
+            pass  # Ignoriere Fehler beim Löschen
+
+    if deleted > 0:
+        log_message(f"🧹 HTML Preview: {deleted} alte Datei(en) gelöscht")
+
+    return deleted
+
+
 def format_html_preview(text: str) -> str:
     """
-    Erkennt ```html Code-Blöcke und formatiert sie in einem Collapsible mit Hinweis.
+    Erkennt ```html Code-Blöcke, speichert sie als Dateien und generiert Preview-Buttons.
 
-    HINWEIS: React blockiert alle dynamischen URLs (data:, javascript:) aus Sicherheitsgründen.
-    Daher zeigen wir nur den Code mit Anleitung zum manuellen Öffnen.
+    Die HTML-Dateien werden in assets/html_preview/ gespeichert und können
+    über einen Link im neuen Browser-Tab geöffnet werden.
 
     Args:
         text: Text mit optionalen ```html Code-Blöcken
 
     Returns:
-        Text mit HTML Code in Collapsibles + Anleitung
+        Text mit HTML-Preview-Buttons und Collapsible Code
 
     Example:
         Input:  "Hier ist HTML:\n```html\n<h1>Hello</h1>\n```\nFertig!"
-        Output: "Hier ist HTML:\n<details open>...[code + hint]...</details>\nFertig!"
+        Output: "Hier ist HTML:\n[🌐 Im Browser öffnen](/html_preview/abc123.html)\n<details>...</details>\nFertig!"
     """
     # Pattern für ```html Code-Blöcke (mit optionalem Whitespace)
     html_block_pattern = r'```html\s*\n([\s\S]*?)```'
@@ -145,20 +213,26 @@ def format_html_preview(text: str) -> str:
     def replace_html_block(match):
         html_code = match.group(1).strip()
 
-        # HTML Code in aufgeklapptem Collapsible mit Anleitung
-        # React blockiert data: URLs, daher nur Hinweis zum manuellen Öffnen
-        code_collapsible = f"""<details open style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.5em; border: 1px solid #30363d; border-radius: 6px;">
-<summary style="cursor: pointer; font-weight: bold; color: #58a6ff; padding: 0.5em;">🌐 HTML Code</summary>
-<div style="padding: 0.5em;">
+        # Speichere HTML-Code und erhalte URL
+        preview_url = _save_html_to_assets(html_code)
 
-> 💡 **Tipp:** Code kopieren → in `.html` Datei speichern → im Browser öffnen
+        # Button-Link (wird durch custom.js im neuen Tab geöffnet)
+        # + Collapsible mit dem Code zum Ansehen/Kopieren
+        code_collapsible = f"""<div style="margin-bottom: 1em; margin-top: 0.5em;">
+
+**[🌐 Im Browser öffnen]({preview_url})** *(Klick öffnet neuen Tab)*
+
+<details style="font-size: 0.9em; border: 1px solid #30363d; border-radius: 6px;">
+<summary style="cursor: pointer; font-weight: bold; color: #58a6ff; padding: 0.5em;">📄 HTML Code anzeigen</summary>
+<div style="padding: 0.5em;">
 
 ```html
 {html_code}
 ```
 
 </div>
-</details>"""
+</details>
+</div>"""
 
         return code_collapsible
 
@@ -167,7 +241,7 @@ def format_html_preview(text: str) -> str:
 
     # Log wenn HTML-Blöcke gefunden wurden
     if result != text:
-        log_message("🌐 HTML Code: Code-Block(s) zu Collapsible konvertiert")
+        log_message("🌐 HTML Code: Preview-Button(s) generiert")
 
     return result
 

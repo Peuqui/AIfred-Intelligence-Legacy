@@ -3,10 +3,20 @@
 
 console.log('🔧 custom.js loaded');
 
-// Make all external links open in new tab
+// Make all external links and HTML preview links open in new tab
 function makeLinksOpenInNewTab() {
-    const links = document.querySelectorAll('a[href^="http"]');
-    links.forEach(link => {
+    // External links (http/https)
+    const externalLinks = document.querySelectorAll('a[href^="http"]');
+    externalLinks.forEach(link => {
+        if (!link.hasAttribute('target')) {
+            link.setAttribute('target', '_blank');
+            link.setAttribute('rel', 'noopener noreferrer');
+        }
+    });
+
+    // HTML Preview links (/html_preview/...)
+    const previewLinks = document.querySelectorAll('a[href^="/html_preview/"]');
+    previewLinks.forEach(link => {
         if (!link.hasAttribute('target')) {
             link.setAttribute('target', '_blank');
             link.setAttribute('rel', 'noopener noreferrer');
