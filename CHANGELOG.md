@@ -5,6 +5,76 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.2] - 2025-12-08
+
+### 🔧 Vision-Prompts Overhaul + Think-Tag Fix
+
+**Massive Verbesserung der Vision-LLM Prompts und Fix für fehlende Think-Tags bei Qwen3.**
+
+#### Added
+
+- **Template-less Vision-Prompts** ([prompts/*/vision_templateless_*.txt](prompts/de/)):
+  - Neue Dateien für OCR-Modelle ohne Chat-Template (DeepSeek-OCR, etc.)
+  - `vision_templateless_ocr.txt`: Minimaler OCR-Prompt ohne Timestamp
+  - `vision_templateless_default.txt`: Für Nicht-OCR template-less Modelle
+  - Kein Timestamp-Injection (verwirrt manche Modelle)
+
+- **Think-Tag Reparatur** ([formatting.py:136-168](aifred/lib/formatting.py#L136-L168)):
+  - Neue Funktion `fix_orphan_closing_think_tag()`
+  - Repariert verwaiste `</think>` Tags (ohne öffnenden `<think>`)
+  - Löst Problem: Qwen3 mit `enable_thinking=false` gibt trotzdem Denkprozess aus, aber ohne öffnenden Tag
+  - Log-Meldung: "🔧 Fehlender <think> Tag repariert"
+
+#### Changed
+
+- **Vision-OCR Prompts verschärft** ([prompts/*/vision_ocr.txt](prompts/de/vision_ocr.txt)):
+  - Kontextabhängige Ausgabe: JSON nur bei strukturierten Daten
+  - Neue VERBOTEN-Sektion gegen Interpretationen
+  - Keine Erklärungen wie "b.B. steht für..."
+  - Tabellen-spezifische Regeln für korrekte Spaltenzuordnung
+  - Multi-Image Abschnitt entfernt (sequentielle Verarbeitung)
+  - Singular-Formulierung (ein Bild pro Call)
+
+- **prompt_loader.py** ([prompt_loader.py:307-336](aifred/lib/prompt_loader.py#L307-L336)):
+  - Neue Funktionen: `get_vision_templateless_ocr_prompt()`, `get_vision_templateless_default_prompt()`
+  - Direkte Datei-Lese-Funktionen ohne Timestamp-Injection
+
+- **conversation_handler.py** ([conversation_handler.py:95-102](aifred/lib/conversation_handler.py#L95-L102)):
+  - Hardcodierte template-less Prompts durch Datei-basierte Loader ersetzt
+
+- **formatting.py**:
+  - `format_thinking_process()` und `build_debug_accordion()` rufen `fix_orphan_closing_think_tag()` auf
+
+#### Fixed
+
+- **DeepSeek-OCR leere Antworten**: Timestamp-Injection hat das Modell verwirrt → jetzt minimaler Prompt ohne Timestamp
+- **Qwen3-VL Markdown statt JSON**: Verschärfte Prompts erzwingen JSON bei strukturierten Daten
+- **Qwen3 fehlende Think-Tags**: Denkprozess wurde nicht in Collapsible angezeigt → automatische Tag-Reparatur
+- **Vision-LLM Spalten-Verwechslungen**: Neue Regeln für korrektes Spalten-Mapping bei Tabellen
+
+#### Technical Details
+
+**Think-Tag Reparatur Logik:**
+```python
+# Wenn nur </think> vorhanden (ohne <think>):
+# → Alles davor wird als Denkprozess behandelt
+if '</think>' in text and '<think>' not in text:
+    text = '<think>' + text  # Öffnenden Tag am Anfang einfügen
+```
+
+**Template-less Prompt-Logik:**
+```python
+# OCR-Modelle (DeepSeek-OCR): Minimaler Prompt
+if "ocr" in model_lower:
+    prompt = get_vision_templateless_ocr_prompt(lang)  # "Extrahiere den Text aus dem Bild."
+
+# Andere template-less Modelle: Bildbeschreibung + Text
+else:
+    prompt = get_vision_templateless_default_prompt(lang)  # "Beschreibe das Bild..."
+```
+
+---
+
 ## [2.6.1] - 2025-12-07
 
 ### 🧠 VRAM-Aware Context Building
