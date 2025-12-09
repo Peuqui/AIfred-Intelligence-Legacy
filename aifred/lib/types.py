@@ -10,7 +10,7 @@ Usage:
     from aifred.lib.types import LLMMessage, LLMOptions, LLMResponse
 """
 
-from typing import TypedDict, Literal, Union, Dict, Any, Optional
+from typing import TypedDict, Literal, Union, Dict, Any
 from typing_extensions import NotRequired
 
 # Re-export LLM types from backends.base for convenience

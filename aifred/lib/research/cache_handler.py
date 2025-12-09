@@ -15,7 +15,7 @@ from ..intent_detector import detect_cache_followup_intent, get_temperature_for_
 from ..formatting import format_thinking_process, format_number, format_metadata
 from ..logging_utils import log_message, console_separator, CONSOLE_SEPARATOR
 from .context_utils import get_cache_context_budget
-from ..streaming_utils import stream_llm_response, log_llm_completion
+from ..streaming_utils import stream_llm_response
 from ..config import DYNAMIC_NUM_PREDICT_SAFETY_MARGIN, DYNAMIC_NUM_PREDICT_MINIMUM
 
 

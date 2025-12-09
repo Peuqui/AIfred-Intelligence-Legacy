@@ -8,7 +8,6 @@ import reflex as rx
 from typing import List, Tuple, Any, Dict
 import uuid
 import os
-import re
 import asyncio
 from pydantic import BaseModel
 from .lib import (
@@ -823,7 +822,6 @@ class AIState(rx.State):
 
             # Load models SYNCHRONOUSLY via httpx (no async deadlock!)
             import httpx
-            import json
             try:
                 # For vLLM/TabbyAPI: Get models from HuggingFace cache (local files)
                 # For Ollama: Get models from server API
@@ -3002,7 +3000,7 @@ class AIState(rx.State):
     async def restart_backend(self):
         """Restart current LLM backend service and reload model list"""
         import subprocess
-        import json
+        import httpx
         import asyncio
         global _global_backend_state
 
@@ -3034,16 +3032,11 @@ class AIState(rx.State):
                 for attempt in range(max_retries):
                     try:
                         endpoint = f'{self.backend_url}/api/tags'
-                        result = subprocess.run(
-                            ['curl', '-s', endpoint],
-                            capture_output=True,
-                            text=True,
-                            timeout=2.0
-                        )
+                        response = httpx.get(endpoint, timeout=2.0)
 
-                        if result.returncode == 0:
-                            # Try to parse JSON to verify API is actually ready
-                            data = json.loads(result.stdout)
+                        if response.status_code == 200:
+                            # Parse JSON to verify API is actually ready
+                            data = response.json()
                             # Build dict: {model_id: display_label}
                             unsorted_dict = {
                                 m['name']: f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
@@ -3061,8 +3054,8 @@ class AIState(rx.State):
                             self.add_debug(f"✅ Ollama ready after {elapsed_time:.1f}s ({len(self.available_models)} models found)")
                             ollama_ready = True
                             break
-                    except Exception:
-                        pass  # Retry on any error
+                    except httpx.RequestError:
+                        pass  # Retry on connection error
 
                     if attempt < max_retries - 1:
                         await asyncio.sleep(0.5)  # Short polling interval
@@ -3091,9 +3084,8 @@ class AIState(rx.State):
 
                 for attempt in range(max_retries):
                     try:
-                        import requests
                         # vLLM health check endpoint
-                        response = requests.get(
+                        response = httpx.get(
                             f"{self.backend_url}/health",
                             timeout=2.0
                         )
@@ -3103,8 +3095,8 @@ class AIState(rx.State):
                             self.add_debug(f"✅ vLLM ready after {elapsed_time:.1f}s")
                             vllm_ready = True
                             break
-                    except Exception:
-                        pass  # Retry on any error
+                    except httpx.RequestError:
+                        pass  # Retry on connection error
 
                     if attempt < max_retries - 1:
                         await asyncio.sleep(0.5)
@@ -3121,8 +3113,7 @@ class AIState(rx.State):
 
                 try:
                     # Unload current model
-                    import requests
-                    response = requests.post(
+                    response = httpx.post(
                         f"{self.backend_url}/v1/model/unload",
                         headers={"Content-Type": "application/json"},
                         timeout=10.0
@@ -3136,7 +3127,7 @@ class AIState(rx.State):
                         self.add_debug("🚀 Reloading TabbyAPI model...")
                         yield
 
-                        load_response = requests.post(
+                        load_response = httpx.post(
                             f"{self.backend_url}/v1/model/load",
                             json={"name": self.selected_model},
                             headers={"Content-Type": "application/json"},
@@ -3156,7 +3147,7 @@ class AIState(rx.State):
 
                             for attempt in range(max_retries):
                                 try:
-                                    verify_response = requests.get(
+                                    verify_response = httpx.get(
                                         f"{self.backend_url}/v1/models",
                                         headers={"Content-Type": "application/json"},
                                         timeout=2.0
@@ -3170,7 +3161,7 @@ class AIState(rx.State):
                                             self.add_debug(f"✅ TabbyAPI ready after {elapsed_time:.1f}s")
                                             model_ready = True
                                             break
-                                except Exception:
+                                except httpx.RequestError:
                                     pass
 
                                 if attempt < max_retries - 1:
@@ -3184,7 +3175,7 @@ class AIState(rx.State):
                     else:
                         self.add_debug(f"⚠️ Model unload failed: {response.status_code}")
 
-                except Exception as e:
+                except httpx.RequestError as e:
                     self.add_debug(f"⚠️ TabbyAPI restart failed: {e}")
 
                 yield  # Update UI
