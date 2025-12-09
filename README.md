@@ -241,7 +241,7 @@ AIfred offers 4 different research modes, each using different strategies depend
    └─ "search", "google", "research on the internet", etc.
 
 2. IF keyword found:
-   └─ Trigger fresh web research (mode='deep')
+   └─ Trigger fresh web research (mode='deep' → 7 URLs)
    └─ BYPASS Automatik decision
 ```
 
@@ -258,7 +258,7 @@ AIfred offers 4 different research modes, each using different strategies depend
    └─ Response: '<search>yes</search>' | '<search>no</search>'
 
 2. Parse decision:
-   ├─ IF yes: → Web Research (mode='deep')
+   ├─ IF yes: → Web Research (mode='deep' → 7 URLs)
    └─ IF no:  → Direct LLM Answer (Phase 5)
 ```
 
@@ -302,7 +302,7 @@ AIfred offers 4 different research modes, each using different strategies depend
 
 ### 3️⃣ Quick Web Search Mode (Quick Research)
 
-**Fastest web research mode**: Top 3 URLs, optimized for speed.
+**Fastest web research mode**: Scrapes top 3 URLs in parallel, optimized for speed.
 
 #### Phase 1: Session Cache Check
 ```
@@ -328,9 +328,10 @@ AIfred offers 4 different research modes, each using different strategies depend
    └─ Output: optimized_query, query_reasoning
 
 2. Web Search (Multi-API with Fallback)
-   ├─ Try: Brave API
-   ├─ Fallback: Tavily
-   ├─ Fallback: SearXNG (local)
+   ├─ Try: Brave Search API
+   ├─ Fallback: Tavily Search API
+   ├─ Fallback: SearXNG (local instance)
+   ├─ Each API returns up to 10 URLs
    └─ Deduplication across APIs
 ```
 
@@ -407,14 +408,19 @@ Progress Updates:
 
 ### 4️⃣ Deep Web Search Mode (Deep Research)
 
-**Most thorough mode**: Top 7 URLs for maximum information depth.
+**Most thorough mode**: Scrapes top 7 URLs in parallel for maximum information depth.
 
 **Workflow:** Identical to Quick Web Search, with the following differences:
 
 #### Scraping Strategy
 ```
-Quick Mode:  3 URLs → ~3 successful sources
-Deep Mode:   7 URLs → ~5-7 successful sources
+URL Scraping (parallel via ThreadPoolExecutor):
+├─ Quick Mode:  3 URLs scraped → ~3 successful sources
+├─ Deep Mode:   7 URLs scraped → ~5-7 successful sources
+└─ Automatik:   7 URLs scraped (uses deep mode)
+
+Note: "APIs" refers to search APIs (Brave, Tavily, SearXNG)
+      "URLs" refers to actual web pages being scraped
 
 Parallel Execution:
 ├─ ThreadPoolExecutor (max 5 workers)
