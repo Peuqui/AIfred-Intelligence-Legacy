@@ -22,6 +22,12 @@ from .lib.formatting import format_debug_message
 from .lib.conversation_handler import extract_model_name
 from .lib import config
 from .lib.vllm_manager import vLLMProcessManager
+from .lib.model_manager import (
+    sort_models_grouped,
+    is_backend_compatible
+    # NOTE: backend_supports_dynamic_models nicht importiert - State hat eigene @rx.var Implementierung
+)
+from .lib.gpu_monitor import round_to_nominal_vram
 
 # ============================================================
 # Module-Level Vector Cache (ChromaDB Server Mode)
@@ -95,141 +101,6 @@ def initialize_vector_cache():
         log_message(f"⚠️ Vector Cache connection failed: {e}")
         log_message("💡 Make sure ChromaDB is running: docker-compose up -d chromadb")
         return None
-
-
-def sort_models_grouped(models_dict: Dict[str, str]) -> Dict[str, str]:
-    """
-    Sort models by model family (alphabetically) and then by size (ascending).
-
-    Groups models by their base name (e.g., "qwen2.5", "qwen3", "mistral", "gemma")
-    and sorts within each group by size.
-
-    Args:
-        models_dict: Dict[model_id, display_label] e.g., {"qwen3:8b": "qwen3:8b (5.2 GB)"}
-
-    Returns:
-        Sorted dict with same structure
-    """
-
-    def get_model_family(model_id: str) -> str:
-        """Extract model family for grouping (e.g., 'qwen3:8b' -> 'qwen3', 'qwen3-vl:8b' -> 'qwen3-vl')"""
-        # Remove size suffix like :8b, :30b, :0.6b, :1.7b etc.
-        base = re.sub(r':\d+\.?\d*b.*$', '', model_id.lower())
-        # Remove the part after colon entirely if still present (e.g., :latest, :mini)
-        base = re.sub(r':.*$', '', base)
-        # Remove version suffixes like -instruct, -2507, -thinking, -a3b etc.
-        # BUT keep -vl, -coder as they define different model families!
-        base = re.sub(r'[-_](instruct|chat|latest|thinking|a3b|\d{4}).*$', '', base)
-        return base
-
-    def get_model_size_gb(display_label: str) -> float:
-        """Extract size in GB from display label like 'model (5.2 GB)'"""
-        match = re.search(r'\((\d+\.?\d*)\s*GB\)', display_label)
-        if match:
-            return float(match.group(1))
-        return 0.0
-
-    # Create list of (model_id, display_label, family, size)
-    models_with_info = [
-        (mid, label, get_model_family(mid), get_model_size_gb(label))
-        for mid, label in models_dict.items()
-    ]
-
-    # Sort by family (alphabetically), then by size (ascending)
-    models_with_info.sort(key=lambda x: (x[2], x[3]))
-
-    # Convert back to dict (preserves order in Python 3.7+)
-    return {mid: label for mid, label, _, _ in models_with_info}
-
-
-def is_backend_compatible(model_dir, backend: str) -> bool:
-    """
-    Check if model is compatible with backend by reading config.json
-
-    vLLM supports:
-    - AWQ (quantization_config.quant_method = "awq")
-    - GPTQ (quantization_config.quant_method = "gptq")
-    - compressed-tensors (quantization_config.quant_method = "compressed-tensors")
-    - FP16/BF16 (no quantization_config)
-
-    TabbyAPI supports:
-    - EXL2 (quantization_config.quant_method = "exl2")
-    - EXL3 (quantization_config.quant_method = "exl3" or model name contains "exl3")
-
-    Both do NOT support:
-    - GGUF (Ollama-only)
-    - Non-LLM models (Whisper, Vision, etc.)
-    """
-    import json
-
-    model_name = model_dir.name.replace("models--", "").replace("--", "/", 1)
-
-    # Exclude non-LLM models by name pattern
-    exclude_patterns = ['whisper', 'faster-whisper', 'table-transformer', 'resnet', 'gguf']
-    if any(pattern in model_name.lower() for pattern in exclude_patterns):
-        return False
-
-    # Try to find config.json in model directory
-    config_paths = list(model_dir.glob("**/config.json"))
-
-    if not config_paths:
-        # No config.json found - skip this model
-        return False
-
-    try:
-        with open(config_paths[0], 'r') as f:
-            config_data = json.load(f)
-
-        # Check if it's a valid LLM config (has model_type)
-        if "model_type" not in config_data:
-            return False
-
-        # Check quantization format
-        if "quantization_config" in config_data:
-            quant_method = config_data["quantization_config"].get("quant_method", "")
-
-            if backend == "vllm":
-                # vLLM supports: awq, gptq, compressed-tensors
-                return quant_method in ["awq", "gptq", "compressed-tensors"]
-            elif backend == "tabbyapi":
-                # TabbyAPI supports: exl2, exl3
-                # Also check model name for "exl2" or "exl3" (some repos don't have quant_method in config)
-                return quant_method in ["exl2", "exl3"] or any(fmt in model_name.lower() for fmt in ["exl2", "exl3"])
-        else:
-            # No quantization config
-            if backend == "vllm":
-                # FP16/BF16 (supported by vLLM)
-                return True
-            elif backend == "tabbyapi":
-                # TabbyAPI needs quantization - check model name for EXL format
-                return any(fmt in model_name.lower() for fmt in ["exl2", "exl3"])
-
-    except Exception:
-        # Failed to read config.json
-        return False
-
-
-def backend_supports_dynamic_models(backend) -> bool:
-    """
-    Check if backend supports dynamic model loading using capabilities API.
-
-    Returns:
-        True if backend can load different models on-demand (like Ollama, TabbyAPI)
-        False if backend requires server restart for model changes (like vLLM, KoboldCPP)
-
-    Usage:
-        backend = BackendFactory.create("vllm")
-        if backend_supports_dynamic_models(backend):
-            # Can switch models without restart
-        else:
-            # Needs restart - disable Automatik-LLM if different from Main
-    """
-    try:
-        caps = backend.get_capabilities()
-        return caps.get("dynamic_models", True)  # Default True for backwards compat
-    except Exception:
-        # Fallback to True (assume dynamic if capabilities not available)
-        return True
 
 
 # ============================================================
@@ -472,21 +343,15 @@ class AIState(rx.State):
         Get display label for backend dropdown items.
 
         Maps special IDs (headers, separator) to display text.
+        Uses centralized config for consistency.
         """
-        labels = {
-            "header_universal": "─── Universelle Kompatibilität (GGUF) ───",
-            "separator": "─────────────────────────────────",
-            "header_modern": "─── Moderne GPUs (FP16) ───",
-            "ollama": "Ollama",
-            "koboldcpp": "KoboldCPP",
-            "tabbyapi": "TabbyAPI",
-            "vllm": "vLLM",
-        }
+        # Merge dropdown items with backend labels
+        labels = {**config.BACKEND_DROPDOWN_ITEMS, **config.BACKEND_LABELS}
         return labels.get(backend_id, backend_id)
 
     def is_backend_item_selectable(self, backend_id: str) -> bool:
         """Check if backend item is selectable (not header/separator)"""
-        return backend_id not in ["header_universal", "separator", "header_modern"]
+        return backend_id not in config.BACKEND_NON_SELECTABLE
 
     @rx.var
     def is_koboldcpp_auto_restarting(self) -> bool:
@@ -632,17 +497,7 @@ class AIState(rx.State):
                     _global_backend_state["gpu_info"] = gpu_info
 
                     # Format GPU info with count and VRAM (nominal specs)
-                    # Round up to marketing specs (e.g., 23040 MiB → 24 GB)
-                    def round_to_nominal_vram(vram_mb: int) -> int:
-                        """Round VRAM to nearest marketing spec"""
-                        vram_gb = vram_mb / 1024
-                        sizes = [4, 6, 8, 10, 11, 12, 16, 20, 24, 32, 40, 48, 64, 80]
-                        for size in sizes:
-                            if vram_gb <= size:
-                                return size
-                        import math
-                        return math.ceil(vram_gb)
-
+                    # Uses centralized round_to_nominal_vram from gpu_monitor.py
                     vram_per_gpu_gb = round_to_nominal_vram(gpu_info.vram_mb)
                     total_vram_gb = vram_per_gpu_gb * gpu_info.gpu_count
 
@@ -777,21 +632,7 @@ class AIState(rx.State):
                 self.gpu_count = gpu_info.gpu_count
 
                 # Calculate nominal VRAM (round up to marketing specs)
-                # nvidia-smi reports slightly less due to firmware overhead
-                # e.g., 23040 MiB → 24 GB, 11264 MiB → 12 GB
-                def round_to_nominal_vram(vram_mb: int) -> int:
-                    """Round VRAM to nearest marketing spec (8, 12, 16, 20, 24, 32, 40, 48, etc.)"""
-                    vram_gb = vram_mb / 1024
-                    # Common VRAM sizes in GB
-                    sizes = [4, 6, 8, 10, 11, 12, 16, 20, 24, 32, 40, 48, 64, 80]
-                    # Find closest size that's >= actual VRAM
-                    for size in sizes:
-                        if vram_gb <= size:
-                            return size
-                    # Fallback: round up to nearest GB
-                    import math
-                    return math.ceil(vram_gb)
-
+                # Uses centralized round_to_nominal_vram from gpu_monitor.py
                 vram_per_gpu_gb = round_to_nominal_vram(gpu_info.vram_mb)
                 self.gpu_vram_gb = vram_per_gpu_gb * gpu_info.gpu_count
 
@@ -966,16 +807,8 @@ class AIState(rx.State):
         print(f"🔧 Full backend initialization for '{self.backend_type}'...")
 
         try:
-            # Update URL based on backend type
-            if self.backend_type == "ollama":
-                self.backend_url = "http://localhost:11434"
-            elif self.backend_type == "vllm":
-                # Use port 8001 for development (8000 will be used on production MiniPC)
-                self.backend_url = "http://localhost:8001/v1"
-            elif self.backend_type == "tabbyapi":
-                self.backend_url = "http://localhost:5000/v1"
-            elif self.backend_type == "koboldcpp":
-                self.backend_url = "http://localhost:5001/v1"
+            # Update URL based on backend type (from centralized config)
+            self.backend_url = config.BACKEND_URLS.get(self.backend_type, "http://localhost:11434")
 
             # add_debug() already logs to file, so we only need one call
             self.add_debug(f"🔧 Creating backend: {self.backend_type}")
@@ -988,8 +821,8 @@ class AIState(rx.State):
             self.backend_info = f"{self.backend_type} initializing..."
             self.add_debug(f"⚡ Backend: {self.backend_type} (skip health check)")
 
-            # Load models SYNCHRONOUSLY via curl (no async deadlock!)
-            import subprocess
+            # Load models SYNCHRONOUSLY via httpx (no async deadlock!)
+            import httpx
             import json
             try:
                 # For vLLM/TabbyAPI: Get models from HuggingFace cache (local files)
@@ -1078,26 +911,24 @@ class AIState(rx.State):
                     # Ollama: Query server API
                     endpoint = f'{self.backend_url}/api/tags'
 
-                    # Synchronous curl call to get model list
-                    result = subprocess.run(
-                        ['curl', '-s', endpoint],
-                        capture_output=True,
-                        text=True,
-                        timeout=5.0
-                    )
-
-                    if result.returncode == 0:
-                        data = json.loads(result.stdout)
-                        # Build dict: {model_id: display_label}
-                        unsorted_dict = {
-                            m['name']: f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
-                            for m in data.get("models", [])
-                        }
-                        # Sort by model family, then by size
-                        self.available_models_dict = sort_models_grouped(unsorted_dict)
-                        # Keep list for compatibility (DEPRECATED)
-                        self.available_models = list(self.available_models_dict.values())
-                    else:
+                    # Synchronous httpx call to get model list (replaces subprocess+curl)
+                    try:
+                        response = httpx.get(endpoint, timeout=5.0)
+                        if response.status_code == 200:
+                            data = response.json()
+                            # Build dict: {model_id: display_label}
+                            unsorted_dict = {
+                                m['name']: f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
+                                for m in data.get("models", [])
+                            }
+                            # Sort by model family, then by size
+                            self.available_models_dict = sort_models_grouped(unsorted_dict)
+                            # Keep list for compatibility (DEPRECATED)
+                            self.available_models = list(self.available_models_dict.values())
+                        else:
+                            self.available_models_dict = {}
+                            self.available_models = []
+                    except httpx.RequestError:
                         self.available_models_dict = {}
                         self.available_models = []
 

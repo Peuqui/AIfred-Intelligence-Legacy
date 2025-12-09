@@ -22,10 +22,20 @@ from .prompt_loader import (
     get_vision_templateless_ocr_prompt,
     get_vision_templateless_default_prompt
 )
-from .message_builder import build_messages_from_history
-from .formatting import format_thinking_process, format_metadata, format_number
+from .message_builder import (
+    build_messages_from_history,
+    inject_rag_context,
+    inject_vision_json_context
+)
+from .formatting import format_thinking_process, format_metadata, format_number, format_age
 # Cache system removed - will be replaced with Vector DB
 from .context_manager import estimate_tokens, calculate_dynamic_num_ctx
+from .streaming_utils import stream_llm_response, log_llm_completion
+from .config import (
+    DYNAMIC_NUM_PREDICT_SAFETY_MARGIN,
+    DYNAMIC_NUM_PREDICT_MINIMUM,
+    DYNAMIC_NUM_PREDICT_HARD_LIMIT
+)
 from .intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
 from .research import perform_agent_research
 import json
@@ -188,39 +198,6 @@ async def _process_single_image_vision(
             "time": elapsed,
             "image_name": img_name
         }
-
-
-def format_age(seconds: float) -> str:
-    """
-    Format age in seconds to human-readable format.
-
-    Examples:
-        30s → "30s"
-        90s → "1min 30s"
-        3600s → "1h"
-        7200s → "2h"
-        86400s → "1d"
-        90061s → "1d 1h 1min"
-    """
-    if seconds < 60:
-        return f"{seconds:.0f}s"
-
-    days = int(seconds // 86400)
-    hours = int((seconds % 86400) // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-
-    parts = []
-    if days > 0:
-        parts.append(f"{days}d")
-    if hours > 0:
-        parts.append(f"{hours}h")
-    if minutes > 0:
-        parts.append(f"{minutes}min")
-    if secs > 0 and days == 0:  # Only show seconds if less than a day
-        parts.append(f"{secs}s")
-
-    return " ".join(parts)
 
 
 def _html_table_to_markdown(html_content: str) -> str:
@@ -658,7 +635,7 @@ async def chat_with_vision_pipeline(
     model_limit = intrinsic_num_ctx or 131072
 
     # CRITICAL: Minimum for Vision (image embedding needs at least this)
-    VISION_MINIMUM_CONTEXT = 4096
+    from .config import VISION_MINIMUM_CONTEXT  # Zentrale Konstante
 
     if vram_num_ctx < VISION_MINIMUM_CONTEXT:
         msg = f"⚠️ VRAM context {vram_num_ctx} too small for Vision → Using minimum {VISION_MINIMUM_CONTEXT} tokens"
@@ -1166,35 +1143,13 @@ async def chat_interactive_mode(
             system_prompt_minimal = load_prompt('system_minimal', lang=detected_user_language)
             messages.insert(0, {"role": "system", "content": system_prompt_minimal})
 
-            # Inject RAG context as additional system message
-            rag_system_message = {
-                'role': 'system',
-                'content': f"""
-ZUSÄTZLICHER KONTEXT AUS VORHERIGEN RECHERCHEN:
-
-{rag_context}
-
-Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für die aktuelle Frage relevant sind.
-"""
-            }
-            # Insert before user message (after history)
-            messages.insert(-1, rag_system_message)
+            # Inject RAG context using centralized helper
+            inject_rag_context(messages, rag_context)
             log_message(f"💡 RAG context injected into system prompt ({len(rag_context)} chars)")
 
             # Inject Vision JSON context if available (from Vision-LLM extraction)
             if vision_json_context:
-                import json
-                vision_system_message = {
-                    'role': 'system',
-                    'content': f"""VORHERIGE BILDEXTRAKTION (STRUKTURIERTE DATEN):
-
-```json
-{json.dumps(vision_json_context, ensure_ascii=False, indent=2)}
-```
-
-Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
-                }
-                messages.insert(-1, vision_system_message)  # Before user message
+                inject_vision_json_context(messages, vision_json_context)
                 log_message(f"📷 Vision JSON injected into Main-LLM context ({len(str(vision_json_context))} chars)")
 
             # Log RAG context content (preview)
@@ -1583,20 +1538,9 @@ Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
                 system_prompt_minimal = load_prompt('system_minimal', lang=detected_user_language)
                 messages.insert(0, {"role": "system", "content": system_prompt_minimal})
 
-                # If RAG context available, inject as additional system message
+                # Inject RAG context using centralized helper
                 if rag_context:
-                    rag_system_message = {
-                        'role': 'system',
-                        'content': f"""
-ZUSÄTZLICHER KONTEXT AUS VORHERIGEN RECHERCHEN:
-
-{rag_context}
-
-Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für die aktuelle Frage relevant sind.
-"""
-                    }
-                    # Insert before user message (after history)
-                    messages.insert(-1, rag_system_message)
+                    inject_rag_context(messages, rag_context)
                     log_message(f"💡 RAG context injected into system prompt ({len(rag_context)} chars)")
 
                     # Log RAG context content (preview)
@@ -1605,18 +1549,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
                 # Inject Vision JSON context if available (from Vision-LLM extraction)
                 if vision_json_context:
-                    import json
-                    vision_system_message = {
-                        'role': 'system',
-                        'content': f"""VORHERIGE BILDEXTRAKTION (STRUKTURIERTE DATEN):
-
-```json
-{json.dumps(vision_json_context, ensure_ascii=False, indent=2)}
-```
-
-Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
-                    }
-                    messages.insert(-1, vision_system_message)  # Before user message
+                    inject_vision_json_context(messages, vision_json_context)
                     log_message(f"📷 Vision JSON injected into Main-LLM context ({len(str(vision_json_context))} chars)")
 
                 # Count actual input tokens (using real tokenizer)
@@ -1714,20 +1647,19 @@ Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
                 yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
 
                 # Calculate dynamic num_predict: Available output space after input tokens
-                # Safety margin: 2048 tokens (for tokenizer inaccuracies and buffer)
-                safety_margin = 2048
-                available_output = max(512, final_num_ctx - input_tokens - safety_margin)
+                available_output = max(
+                    DYNAMIC_NUM_PREDICT_MINIMUM,
+                    final_num_ctx - input_tokens - DYNAMIC_NUM_PREDICT_SAFETY_MARGIN
+                )
 
-                # HARD LIMIT: Max 4096 tokens (prevents KV-Cache overflow to CPU RAM)
+                # HARD LIMIT: Prevents KV-Cache overflow to CPU RAM
                 # Problem: Large num_predict causes KoboldCPP to pre-allocate huge KV-Cache
-                # Example: 259K num_predict → 19.7 GB CPU RAM, 88°C CPU temp, performance degradation
-                # Solution: Cap num_predict at realistic output length (4096 = ~10-20 pages of text)
-                MAX_NUM_PREDICT = 4096
-                if available_output > MAX_NUM_PREDICT:
-                    log_message(f"⚠️ num_predict capped: {format_number(available_output)} → {format_number(MAX_NUM_PREDICT)} tokens (KV-Cache protection)")
-                    available_output = MAX_NUM_PREDICT
+                # Example: 259K num_predict → 19.7 GB CPU RAM, 88°C CPU temp
+                if available_output > DYNAMIC_NUM_PREDICT_HARD_LIMIT:
+                    log_message(f"⚠️ num_predict capped: {format_number(available_output)} → {format_number(DYNAMIC_NUM_PREDICT_HARD_LIMIT)} tokens (KV-Cache protection)")
+                    available_output = DYNAMIC_NUM_PREDICT_HARD_LIMIT
 
-                log_message(f"🧮 Dynamic num_predict: {format_number(available_output)} tokens (num_ctx: {format_number(final_num_ctx)}, input: {format_number(input_tokens)}, margin: {safety_margin})")
+                log_message(f"🧮 Dynamic num_predict: {format_number(available_output)} tokens (num_ctx: {format_number(final_num_ctx)}, input: {format_number(input_tokens)}, margin: {DYNAMIC_NUM_PREDICT_SAFETY_MARGIN})")
 
                 # Build main LLM options (include enable_thinking from user settings)
                 main_llm_options = {
@@ -1740,43 +1672,31 @@ Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
                 if llm_options and 'enable_thinking' in llm_options:
                     main_llm_options['enable_thinking'] = llm_options['enable_thinking']
 
-                # Zeit messen für finale Inferenz - STREAM response
-                inference_start = time.time()
+                # Stream response using centralized utility
                 ai_text = ""
                 metrics = {}
-                ttft = None
-                first_token_received = False
+                inference_time = 0.0
+                tokens_per_sec = 0.0
 
-                async for chunk in llm_client.chat_stream(
-                    model=model_choice,
-                    messages=llm_messages_no_rag,
-                    options=main_llm_options
+                async for chunk in stream_llm_response(
+                    llm_client, model_choice, llm_messages_no_rag, main_llm_options,
+                    ttft_label="TTFT (Time-to-First-Token)"
                 ):
                     if chunk["type"] == "content":
-                        # Measure TTFT
-                        if not first_token_received:
-                            ttft = time.time() - inference_start
-                            first_token_received = True
-                            log_message(f"⚡ TTFT (Time-to-First-Token): {format_number(ttft, 2)}s")
-                            yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
-
-                        ai_text += chunk["text"]
-                        yield {"type": "content", "text": chunk["text"]}
+                        yield chunk
                     elif chunk["type"] == "debug":
-                        # Forward debug messages from backend (e.g., thinking mode retry warning)
                         yield chunk
                     elif chunk["type"] == "thinking_warning":
-                        # Forward thinking mode warning (model doesn't support reasoning)
                         yield chunk
-                    elif chunk["type"] == "done":
+                    elif chunk["type"] == "stream_result":
+                        # Final chunk with accumulated data
+                        ai_text = chunk["text"]
                         metrics = chunk["metrics"]
-
-                inference_time = time.time() - inference_start
+                        inference_time = chunk["inference_time"]
+                        tokens_per_sec = metrics.get("tokens_per_second", 0)
 
                 # Console: LLM finished
-                tokens_generated = metrics.get("tokens_generated", 0)
-                tokens_per_sec = metrics.get("tokens_per_second", 0)
-                yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s)"}
+                yield log_llm_completion(inference_time, metrics)
 
                 # Separator als letztes Element in der Debug Console
 

@@ -1,0 +1,175 @@
+"""
+Model Manager - Utility functions for model sorting and backend compatibility.
+
+This module extracts pure helper functions from state.py that don't require
+State access and can be used independently.
+
+Extracted from state.py (Phase 3.2 Refactoring):
+- sort_models_grouped(): Sort models by family and size
+- is_backend_compatible(): Check model compatibility with backend
+- backend_supports_dynamic_models(): Check if backend supports hot-swapping models
+"""
+
+import re
+import json
+from typing import Dict, Any
+from pathlib import Path
+
+
+def sort_models_grouped(models_dict: Dict[str, str]) -> Dict[str, str]:
+    """
+    Sort models by model family (alphabetically) and then by size (ascending).
+
+    Groups models by their base name (e.g., "qwen2.5", "qwen3", "mistral", "gemma")
+    and sorts within each group by size.
+
+    Args:
+        models_dict: Dict[model_id, display_label] e.g., {"qwen3:8b": "qwen3:8b (5.2 GB)"}
+
+    Returns:
+        Sorted dict with same structure
+
+    Example:
+        >>> models = {"qwen3:8b": "qwen3:8b (5.2 GB)", "qwen3:1.7b": "qwen3:1.7b (1.0 GB)"}
+        >>> sorted_models = sort_models_grouped(models)
+        >>> list(sorted_models.keys())
+        ['qwen3:1.7b', 'qwen3:8b']  # Sorted by size within family
+    """
+
+    def get_model_family(model_id: str) -> str:
+        """Extract model family for grouping (e.g., 'qwen3:8b' -> 'qwen3', 'qwen3-vl:8b' -> 'qwen3-vl')"""
+        # Remove size suffix like :8b, :30b, :0.6b, :1.7b etc.
+        base = re.sub(r':\d+\.?\d*b.*$', '', model_id.lower())
+        # Remove the part after colon entirely if still present (e.g., :latest, :mini)
+        base = re.sub(r':.*$', '', base)
+        # Remove version suffixes like -instruct, -chat, -latest, -thinking, -a3b, -2507 etc.
+        # BUT keep -vl, -coder as they define different model families!
+        base = re.sub(r'[-_](instruct|chat|latest|thinking|a3b|\d{4}).*$', '', base)
+        return base
+
+    def get_model_size_gb(display_label: str) -> float:
+        """Extract size in GB from display label like 'model (5.2 GB)'"""
+        match = re.search(r'\((\d+\.?\d*)\s*GB\)', display_label)
+        if match:
+            return float(match.group(1))
+        return 0.0
+
+    # Create list of (model_id, display_label, family, size)
+    models_with_info = [
+        (mid, label, get_model_family(mid), get_model_size_gb(label))
+        for mid, label in models_dict.items()
+    ]
+
+    # Sort by family (alphabetically), then by size (ascending)
+    models_with_info.sort(key=lambda x: (x[2], x[3]))
+
+    # Convert back to dict (preserves order in Python 3.7+)
+    return {mid: label for mid, label, _, _ in models_with_info}
+
+
+def is_backend_compatible(model_dir: Path, backend: str) -> bool:
+    """
+    Check if model is compatible with backend by reading config.json.
+
+    vLLM supports:
+    - AWQ (quantization_config.quant_method = "awq")
+    - GPTQ (quantization_config.quant_method = "gptq")
+    - compressed-tensors (quantization_config.quant_method = "compressed-tensors")
+    - FP16/BF16 (no quantization_config)
+
+    TabbyAPI supports:
+    - EXL2 (quantization_config.quant_method = "exl2")
+    - EXL3 (quantization_config.quant_method = "exl3" or model name contains "exl3")
+
+    Both do NOT support:
+    - GGUF (Ollama-only)
+    - Non-LLM models (Whisper, Vision, etc.)
+
+    Args:
+        model_dir: Path to the model directory (e.g., from HuggingFace cache)
+        backend: Backend name ("vllm" or "tabbyapi")
+
+    Returns:
+        True if model is compatible with the specified backend
+
+    Example:
+        >>> from pathlib import Path
+        >>> model_path = Path("/home/user/.cache/huggingface/hub/models--Qwen--Qwen2.5-7B-AWQ")
+        >>> is_backend_compatible(model_path, "vllm")
+        True
+    """
+    model_name = model_dir.name.replace("models--", "").replace("--", "/", 1)
+
+    # Exclude non-LLM models by name pattern
+    exclude_patterns = ['whisper', 'faster-whisper', 'table-transformer', 'resnet', 'gguf']
+    if any(pattern in model_name.lower() for pattern in exclude_patterns):
+        return False
+
+    # Try to find config.json in model directory
+    config_paths = list(model_dir.glob("**/config.json"))
+
+    if not config_paths:
+        # No config.json found - skip this model
+        return False
+
+    try:
+        with open(config_paths[0], 'r') as f:
+            config_data = json.load(f)
+
+        # Check if it's a valid LLM config (has model_type)
+        if "model_type" not in config_data:
+            return False
+
+        # Check quantization format
+        if "quantization_config" in config_data:
+            quant_method = config_data["quantization_config"].get("quant_method", "")
+
+            if backend == "vllm":
+                # vLLM supports: awq, gptq, compressed-tensors
+                return quant_method in ["awq", "gptq", "compressed-tensors"]
+            elif backend == "tabbyapi":
+                # TabbyAPI supports: exl2, exl3
+                # Also check model name for "exl2" or "exl3" (some repos don't have quant_method in config)
+                return quant_method in ["exl2", "exl3"] or any(fmt in model_name.lower() for fmt in ["exl2", "exl3"])
+        else:
+            # No quantization config
+            if backend == "vllm":
+                # FP16/BF16 (supported by vLLM)
+                return True
+            elif backend == "tabbyapi":
+                # TabbyAPI needs quantization - check model name for EXL format
+                return any(fmt in model_name.lower() for fmt in ["exl2", "exl3"])
+
+    except Exception:
+        # Failed to read config.json
+        pass
+
+    return False
+
+
+def backend_supports_dynamic_models(backend: Any) -> bool:
+    """
+    Check if backend supports dynamic model loading using capabilities API.
+
+    Args:
+        backend: Backend instance (from BackendFactory.create())
+
+    Returns:
+        True if backend can load different models on-demand (like Ollama, TabbyAPI)
+        False if backend requires server restart for model changes (like vLLM, KoboldCPP)
+
+    Usage:
+        >>> from aifred.lib.backends import BackendFactory
+        >>> backend = BackendFactory.create("ollama")
+        >>> backend_supports_dynamic_models(backend)
+        True
+        >>> backend = BackendFactory.create("vllm")
+        >>> backend_supports_dynamic_models(backend)
+        False
+    """
+    try:
+        caps = backend.get_capabilities()
+        return caps.get("dynamic_models", True)  # Default True for backwards compat
+    except Exception:
+        # Fallback to True (assume dynamic if capabilities not available)
+        return True
