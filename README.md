@@ -112,6 +112,7 @@ For detailed changes and version history, see [CHANGELOG.md](CHANGELOG.md).
 - **Voice Interface**: Speech-to-Text and Text-to-Speech integration
 - **Vector Cache**: ChromaDB-based semantic cache for web research (Docker)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
+- **Share Chat**: Copy entire conversation to clipboard as formatted text (🔗 button)
 
 ### 🔧 Technical Highlights
 - **Reflex Framework**: React frontend generated from Python
@@ -249,11 +250,12 @@ AIfred offers 4 different research modes, each using different strategies depend
 ```
 1. LLM Call - Decision Making
    ├─ Model: Automatik-LLM (e.g., Qwen2.5-3B)
-   ├─ Prompt: decision_making
-   ├─ Messages: NO history (focused decision)
+   ├─ Prompt: decision_making (+ Vision JSON if present)
+   ├─ Messages: ❌ NO history (focused, unbiased decision)
    ├─ Options:
    │  ├─ temperature: 0.2 (consistent decisions)
    │  ├─ num_ctx: min(2048, automatik_limit // 2)
+   │  ├─ num_predict: 64 (short response)
    │  └─ enable_thinking: False (fast)
    └─ Response: '<search>yes</search>' | '<search>no</search>'
 
@@ -261,6 +263,11 @@ AIfred offers 4 different research modes, each using different strategies depend
    ├─ IF yes: → Web Research (mode='deep' → 7 URLs)
    └─ IF no:  → Direct LLM Answer (Phase 5)
 ```
+
+**Why no history for Decision-Making?**
+- Prevents bias from previous conversation context
+- Decision based purely on current question + Vision data
+- Ensures consistent, objective web research triggering
 
 #### Phase 5: Direct LLM Answer (if decision = no)
 ```
@@ -296,6 +303,21 @@ AIfred offers 4 different research modes, each using different strategies depend
 - Web Research: 4-5 + optional 1 Compression
 - Direct Answer: 2-3 + optional 1 Compression
 
+#### History & Context Usage Summary (Automatik Mode)
+
+| LLM Call | Model | Chat History | Vision JSON | Temperature |
+|----------|-------|--------------|-------------|-------------|
+| Decision-Making | Automatik | ❌ No | ✅ In prompt | 0.2 |
+| Query-Optimization | Automatik | ✅ Last 3 turns | ✅ In prompt | 0.3 |
+| RAG-Relevance | Automatik | ✅ Indirect | ❌ No | 0.1 |
+| Intent-Detection | Automatik | ❌ No | ❌ No | Internal |
+| Main Response | Main-LLM | ✅ Full history | ✅ In context | Auto/Manual |
+
+**Design Rationale:**
+- **Decision-Making without history**: Unbiased decision based purely on current query
+- **Query-Optimization with history**: Context-aware search for follow-up questions
+- **Main-LLM with full history**: Complete conversation context for coherent responses
+
 **Code:** `aifred/lib/conversation_handler.py`
 
 ---
@@ -315,11 +337,12 @@ AIfred offers 4 different research modes, each using different strategies depend
 ```
 1. LLM Call - Query Optimization
    ├─ Model: Automatik-LLM
-   ├─ Prompt: query_optimization
-   ├─ Messages: Last 3 history turns (for follow-up context)
+   ├─ Prompt: query_optimization (+ Vision JSON if present)
+   ├─ Messages: ✅ Last 3 history turns (for follow-up context)
    ├─ Options:
    │  ├─ temperature: 0.3 (balanced for keywords)
    │  ├─ num_ctx: min(8192, automatik_limit)
+   │  ├─ num_predict: 128 (keyword extraction)
    │  └─ enable_thinking: False
    ├─ Post-processing:
    │  ├─ Extract <think> tags (reasoning)
@@ -334,6 +357,11 @@ AIfred offers 4 different research modes, each using different strategies depend
    ├─ Each API returns up to 10 URLs
    └─ Deduplication across APIs
 ```
+
+**Why history for Query-Optimization?**
+- Enables context-aware follow-up queries (e.g., "Tell me more about that")
+- Limited to 3 turns to keep prompt focused
+- Vision JSON injected for image-based searches
 
 #### Phase 3: Parallel Web Scraping
 ```
@@ -502,20 +530,22 @@ USER INPUT
      │                       │         │     │      │
      │                       │         │     └──────┤
      │                       │         ▼            │
-     │                       │   ┌──────────────┐  │
-     │                       │   │ LLM Decision │  │
-     │                       │   │ (yes/no)     │  │
-     │                       │   └──────────────┘  │
-     │                       │         │     │      │
-     │                       │         NO   YES     │
-     │                       │         │     │      │
-     │                       │         │     └──────┤
-     ▼                       ▼         ▼            ▼
+     │                       │   ┌──────────────────┐│
+     │                       │   │ LLM Decision     ││
+     │                       │   │ (Automatik-LLM)  ││
+     │                       │   │ ❌ History: NO   ││
+     │                       │   │ ✅ Vision JSON   ││
+     │                       │   └──────────────────┘│
+     │                       │         │     │       │
+     │                       │         NO   YES      │
+     │                       │         │     │       │
+     │                       │         │     └───────┤
+     ▼                       ▼         ▼             ▼
 ╔══════════════════════════════════════════════════════╗
 ║         DIRECT LLM INFERENCE                         ║
 ║  1. Build Messages (with/without RAG)                ║
-║  2. Intent Detection (auto mode)                     ║
-║  3. Main LLM Call (streaming)                        ║
+║  2. Intent Detection (auto mode, ❌ no history)     ║
+║  3. Main LLM Call (streaming, ✅ FULL history)      ║
 ║  4. Format & Update History                          ║
 ╚══════════════════════════════════════════════════════╝
                            │
@@ -535,11 +565,12 @@ USER INPUT
         ┌───────────┴────────────┐
         │                        │
         ▼                        ▼
-   ┌────────┐          ┌─────────────────┐
-   │ CACHE  │          │ Query           │
-   │ HIT    │          │ Optimization    │
-   └────────┘          │ (Automatik-LLM) │
-                       └─────────────────┘
+   ┌────────┐          ┌─────────────────────────┐
+   │ CACHE  │          │ Query Optimization      │
+   │ HIT    │          │ (Automatik-LLM)         │
+   └────────┘          │ ✅ History: 3 turns     │
+                       │ ✅ Vision JSON          │
+                       └─────────────────────────┘
                                 │
                                 ▼
                        ┌─────────────────┐
@@ -563,10 +594,11 @@ USER INPUT
                        └─────────────────┘
                                 │
                                 ▼
-                       ┌─────────────────┐
-                       │ Main LLM        │
-                       │ (streaming)     │
-                       └─────────────────┘
+                       ┌─────────────────────────┐
+                       │ Main LLM (streaming)    │
+                       │ ✅ History: FULL        │
+                       │ ✅ Vision JSON          │
+                       └─────────────────────────┘
                                 │
                                 ▼
                        ┌─────────────────┐

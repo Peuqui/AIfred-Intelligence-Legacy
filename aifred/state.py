@@ -2634,6 +2634,45 @@ class AIState(rx.State):
         # Session speichern (leerer Chat)
         self._save_current_session()
 
+    def share_chat(self):
+        """Share chat history - copy to clipboard as formatted text"""
+        if not self.chat_history:
+            self.add_debug("⚠️ No chat to share")
+            return
+
+        # Format chat history as readable text
+        lines = ["═" * 50, "🎩 AIfred Intelligence - Chat Export", "═" * 50, ""]
+
+        for i, (user_msg, ai_msg) in enumerate(self.chat_history, 1):
+            lines.append(f"👤 User ({i}):")
+            lines.append(user_msg)
+            lines.append("")
+            lines.append(f"🤖 AIfred ({i}):")
+            lines.append(ai_msg)
+            lines.append("")
+            lines.append("─" * 40)
+            lines.append("")
+
+        chat_text = "\n".join(lines)
+
+        # Escape special characters for JavaScript
+        escaped_text = chat_text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+
+        # Copy to clipboard via JavaScript
+        js_script = f"""
+        (async () => {{
+            try {{
+                await navigator.clipboard.writeText(`{escaped_text}`);
+                console.log('Chat copied to clipboard');
+            }} catch (err) {{
+                console.error('Failed to copy:', err);
+            }}
+        }})();
+        """
+
+        self.add_debug(f"📋 Chat copied to clipboard ({len(self.chat_history)} messages)")
+        return rx.call_script(js_script)
+
     # ============================================================
     # Session Persistence (Cookie-based device identification)
     # ============================================================

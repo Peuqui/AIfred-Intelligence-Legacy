@@ -325,8 +325,24 @@ async def calculate_vram_based_context(
                     debug_msgs.append(msg)
 
                     # Recalculate VRAM after unloading
+                    # Wait for VRAM to actually free up (polling with increasing delay)
                     import time
-                    time.sleep(0.5)  # Give VRAM time to free up
+                    max_wait_seconds = 5.0
+                    poll_interval = 0.5
+                    elapsed = 0.0
+                    previous_vram = get_free_vram_mb() or 0
+
+                    while elapsed < max_wait_seconds:
+                        time.sleep(poll_interval)
+                        elapsed += poll_interval
+                        current_vram = get_free_vram_mb()
+                        if current_vram is None:
+                            continue
+                        # VRAM is stable when it stops increasing
+                        if current_vram <= previous_vram + 50:  # Allow 50 MB tolerance
+                            break
+                        previous_vram = current_vram
+
                     free_vram_mb = get_free_vram_mb()
                     if free_vram_mb is None:
                         msg = "⚠️ VRAM query failed after unload → Using minimal fallback"
