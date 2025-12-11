@@ -29,6 +29,7 @@ def t(key: str) -> rx.Var:
         "choose_research_mode": "Wähle, wie der Assistant Fragen beantwortet",
         "send_text": "💬 Senden",
         "clear_chat": "🗑️ Chat löschen",
+        "share_chat": "🔗 Chat teilen",
         "llm_parameters": "⚙️ LLM-Parameter (Erweitert)",
         "temperature": "🌡️ Temperature",
         "current": "Aktuell:",
@@ -86,6 +87,7 @@ def t(key: str) -> rx.Var:
         "choose_research_mode": "Choose how the assistant answers questions",
         "send_text": "💬 Send Text",
         "clear_chat": "🗑️ Clear Chat",
+        "share_chat": "🔗 Share Chat",
         "llm_parameters": "⚙️ LLM Parameters (Advanced)",
         "temperature": "🌡️ Temperature",
         "current": "Current:",
@@ -570,7 +572,7 @@ def text_input_section() -> rx.Component:
                 variant="outline",
                 color_scheme="orange",
                 style={
-                    "min_width": "140px",  # Schmaler als Text senden
+                    "min_width": "120px",
                     "background": "rgba(100, 10, 0, 0.4)",  # Dezenter transparenter roter Hintergrund
                     "&:hover:not([disabled])": {
                         "background": "rgba(150, 15, 0, 0.6) !important",
@@ -579,6 +581,27 @@ def text_input_section() -> rx.Component:
                     },
                     "&:active:not([disabled])": {
                         "background": "rgba(80, 5, 0, 0.7) !important",
+                        "transform": "scale(0.98)",
+                    },
+                },
+            ),
+            rx.button(
+                t("share_chat"),
+                on_click=AIState.share_chat,
+                disabled=AIState.is_generating | AIState.is_compressing,
+                size="2",
+                variant="outline",
+                color_scheme="blue",
+                style={
+                    "min_width": "120px",
+                    "background": "rgba(0, 50, 100, 0.4)",  # Dezenter transparenter blauer Hintergrund
+                    "&:hover:not([disabled])": {
+                        "background": "rgba(0, 80, 150, 0.6) !important",
+                        "border_color": "#4da6ff !important",
+                        "transform": "scale(1.02)",
+                    },
+                    "&:active:not([disabled])": {
+                        "background": "rgba(0, 40, 80, 0.7) !important",
                         "transform": "scale(0.98)",
                     },
                 },
