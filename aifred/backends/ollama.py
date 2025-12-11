@@ -733,33 +733,52 @@ class OllamaBackend(LLMBackend):
         Ollama models can be loaded/unloaded dynamically, so context is calculated
         fresh each time based on current VRAM availability.
 
+        IMPORTANT: This function UNLOADS ALL MODELS before measuring VRAM!
+        This ensures accurate VRAM measurement even if Automatik-LLM or Vision-LLM
+        were running before the Main-LLM inference.
+
         Args:
             model: Model name
 
         Returns:
             tuple[int, list[str]]: (context_limit, debug_messages)
         """
+        import asyncio
         from ..lib.gpu_utils import calculate_vram_based_context, get_model_size_from_cache
 
-        # Get model metadata
+        debug_msgs = []
+
+        # Get model metadata FIRST (doesn't require unloading)
         model_limit, model_size_bytes = await self.get_model_context_limit(model)
 
         # If model size not available from API, try cache
         if model_size_bytes == 0:
             model_size_bytes = get_model_size_from_cache(model)
 
-        # Check if model is loaded (affects VRAM calculation)
-        model_is_loaded = await self.is_model_loaded(model)
+        # CRITICAL: Unload ALL models before VRAM measurement
+        # This ensures we measure truly free VRAM, not VRAM minus Automatik-LLM
+        success, unloaded = await self.unload_all_models()
+        if success and unloaded:
+            debug_msgs.append(f"🔄 Modelle entladen: {', '.join(unloaded)}")
+            # Wait for VRAM to be fully released by GPU driver
+            await asyncio.sleep(2.0)
+            debug_msgs.append("✅ VRAM freigegeben")
+
+        # After unloading, model is definitely NOT loaded
+        model_is_loaded = False
 
         # Calculate practical context based on current VRAM (with auto-MoE detection)
-        num_ctx, debug_msgs = await calculate_vram_based_context(
+        num_ctx, vram_debug_msgs = await calculate_vram_based_context(
             model_name=model,
             model_size_bytes=model_size_bytes,
             model_context_limit=model_limit,
             model_is_loaded=model_is_loaded,
             backend_type="ollama",
-            backend=self  # Pass self for auto-unloading during model switch
+            backend=self  # Pass self for fallback unloading (shouldn't be needed now)
         )
+
+        # Combine debug messages
+        debug_msgs.extend(vram_debug_msgs)
 
         return num_ctx, debug_msgs
 

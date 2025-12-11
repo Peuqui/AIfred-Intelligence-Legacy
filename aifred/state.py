@@ -3357,6 +3357,11 @@ class AIState(rx.State):
         # ALWAYS save settings first (fixes Ollama not saving model changes)
         self._save_settings()
 
+        # Note: For Ollama, model unloading happens JUST BEFORE VRAM measurement
+        # in calculate_practical_context() - not here. This ensures accurate VRAM
+        # readings even if other processes use GPU memory between model selection
+        # and actual inference.
+
         # vLLM/TabbyAPI/KoboldCPP: Force restart backend for model change
         if self.backend_type in ["vllm", "tabbyapi", "koboldcpp"] and old_model != model:
             # vLLM/KoboldCPP can only load ONE model - set Automatik-LLM to same as Main-LLM

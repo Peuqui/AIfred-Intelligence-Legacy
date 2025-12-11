@@ -5,6 +5,50 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.3] - 2025-12-11
+
+### 🎯 VRAM-Messung optimiert für Automatik-Modus
+
+**Korrekte VRAM-Messung für optimale Context-Window Berechnung.**
+
+#### Changed
+
+- **VRAM-Messung verschoben** ([ollama.py:729-783](aifred/backends/ollama.py#L729-L783)):
+  - Entladen aller Modelle erfolgt jetzt in `calculate_practical_context()` statt in `set_selected_model()`
+  - Sichert korrekte VRAM-Messung auch wenn Automatik-LLM vorher lief
+  - 2 Sekunden Wartezeit für vollständige VRAM-Freigabe durch GPU-Treiber
+
+- **Proaktives Entladen entfernt** ([state.py:3360-3363](aifred/state.py#L3360-L3363)):
+  - Beim Modellwechsel wird nicht mehr sofort entladen
+  - Vermeidet unnötige Wartezeit bei Modellauswahl
+
+#### Fixed
+
+- **Falsches Context-Window nach Automatik-LLM**: VRAM wurde gemessen während Automatik-LLM noch geladen war → zu kleines Context-Window für Haupt-LLM
+- **Race Condition mit externen Prozessen**: Gecachte VRAM-Werte konnten durch andere GPU-Nutzer veraltet sein → jetzt Just-in-Time Messung
+
+#### Technical Details
+
+**Neuer Flow für Automatik-Modus:**
+```
+1. User sendet Nachricht
+2. Automatik-LLM läuft (Entscheidung: Web/RAG/Eigenes Wissen)
+3. calculate_practical_context() wird aufgerufen:
+   → Entlade ALLE Modelle (inkl. Automatik-LLM)
+   → 2s warten (VRAM-Freigabe)
+   → VRAM messen (jetzt komplett frei!)
+4. Haupt-LLM laden mit optimalem Context-Window
+```
+
+**Vorheriger (fehlerhafter) Flow:**
+```
+1. User wählt Modell → Entlade + 2s warten (zu früh!)
+2. Automatik-LLM läuft → VRAM belegt
+3. VRAM messen → FALSCH (Automatik-LLM noch geladen)
+```
+
+---
+
 ## [2.6.2] - 2025-12-08
 
 ### 🔧 Vision-Prompts Overhaul + Think-Tag Fix
