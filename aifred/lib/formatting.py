@@ -216,11 +216,11 @@ def format_html_preview(text: str) -> str:
         # Speichere HTML-Code und erhalte URL
         preview_url = _save_html_to_assets(html_code)
 
-        # Button-Link (wird durch custom.js im neuen Tab geöffnet)
+        # Button-Link mit target="_blank" direkt im HTML (nicht Markdown!)
         # + Collapsible mit dem Code zum Ansehen/Kopieren
         code_collapsible = f"""<div style="margin-bottom: 1em; margin-top: 0.5em;">
 
-**[🌐 Im Browser öffnen]({preview_url})** *(Klick öffnet neuen Tab)*
+<a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="font-weight: bold; color: #58a6ff; text-decoration: none;">🌐 Im Browser öffnen</a> <em>(Neuer Tab)</em>
 
 <details style="font-size: 0.9em; border: 1px solid #30363d; border-radius: 6px;">
 <summary style="cursor: pointer; font-weight: bold; color: #58a6ff; padding: 0.5em;">📄 HTML Code anzeigen</summary>
