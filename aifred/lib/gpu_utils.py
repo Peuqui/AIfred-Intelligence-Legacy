@@ -312,40 +312,26 @@ async def calculate_vram_based_context(
         vram_for_context_calc = int(usable_vram - model_size_mb)
 
         # Special case: Negative value indicates another model is still loaded
-        # SOLUTION: Unload all models automatically and recalculate
+        # This is a FALLBACK - normally models are unloaded in calculate_practical_context()
+        # before this function is called. This code path should rarely execute.
         if vram_for_context_calc < 0:
-            msg = "⚠️ Model switch detected → Unloading all models and recalculating VRAM..."
+            msg = "⚠️ Anderes Modell noch geladen → Entlade alle Modelle..."
             debug_msgs.append(msg)
 
             # Unload all models if backend available (Ollama only)
             if backend and hasattr(backend, 'unload_all_models'):
                 success, unloaded = await backend.unload_all_models()
                 if success and unloaded:
-                    msg = f"✅ Unloaded models: {', '.join(unloaded)}"
+                    msg = f"✅ Entladen: {', '.join(unloaded)}"
                     debug_msgs.append(msg)
 
-                    # Recalculate VRAM after unloading
-                    # Wait for VRAM to actually free up (polling with increasing delay)
-                    import time
-                    max_wait_seconds = 5.0
-                    poll_interval = 0.5
-                    elapsed = 0.0
-                    previous_vram = get_free_vram_mb() or 0
-
-                    while elapsed < max_wait_seconds:
-                        time.sleep(poll_interval)
-                        elapsed += poll_interval
-                        current_vram = get_free_vram_mb()
-                        if current_vram is None:
-                            continue
-                        # VRAM is stable when it stops increasing
-                        if current_vram <= previous_vram + 50:  # Allow 50 MB tolerance
-                            break
-                        previous_vram = current_vram
+                    # Wait 2 seconds for VRAM to be released
+                    import asyncio
+                    await asyncio.sleep(2.0)
 
                     free_vram_mb = get_free_vram_mb()
                     if free_vram_mb is None:
-                        msg = "⚠️ VRAM query failed after unload → Using minimal fallback"
+                        msg = "⚠️ VRAM-Abfrage fehlgeschlagen → Minimaler Fallback"
                         debug_msgs.append(msg)
                         return 2048, debug_msgs
                     usable_vram = free_vram_mb - safety_margin_mb
@@ -356,11 +342,11 @@ async def calculate_vram_based_context(
                     debug_msgs.append(msg1)
                     debug_msgs.append(msg2)
                 else:
-                    msg = "⚠️ Failed to unload models → Using minimal fallback"
+                    msg = "⚠️ Entladen fehlgeschlagen → Minimaler Fallback"
                     debug_msgs.append(msg)
                     return 2048, debug_msgs
             else:
-                msg = "⚠️ No backend available for unloading → Using minimal fallback"
+                msg = "⚠️ Kein Backend verfügbar → Minimaler Fallback"
                 debug_msgs.append(msg)
                 return 2048, debug_msgs
         else:
