@@ -5,6 +5,30 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1] - 2025-12-11
+
+### 🌐 HTML Preview Button
+
+**AI-generierter HTML-Code kann jetzt direkt im Browser geöffnet werden.**
+
+#### Added
+
+- **HTML Preview Button** ([formatting.py:186-239](aifred/lib/formatting.py#L186-L239)):
+  - `\`\`\`html` Code-Blöcke erhalten automatisch einen "🌐 Im Browser öffnen" Link
+  - HTML wird nach `assets/html_preview/` gespeichert und statisch serviert
+  - Link öffnet im neuen Browser-Tab (AIfred bleibt erhalten)
+
+- **Cleanup-Funktion** ([formatting.py:152-183](aifred/lib/formatting.py#L152-L183)):
+  - `cleanup_old_html_previews()` löscht Dateien älter als 24h
+  - Verhindert Ansammlung temporärer HTML-Dateien
+
+#### Changed
+
+- **custom.js erweitert** ([custom.js:17-24](assets/custom.js#L17-L24)):
+  - `/html_preview/` Links werden automatisch mit `target="_blank"` versehen
+
+---
+
 ## [2.6.3] - 2025-12-11
 
 ### 🎯 VRAM-Messung optimiert für Automatik-Modus
