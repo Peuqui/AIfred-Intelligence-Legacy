@@ -406,3 +406,41 @@ div em {
 [data-state="open"] .rt-DialogContent {
     overflow: hidden !important;
 }
+
+/* ============================================================
+   DEBUG CONSOLE & SETTINGS - Responsive Layout
+   ============================================================ */
+
+/* Debug Console Grid: Responsive ohne Media Query Breakpoints
+   Verwendet CSS min() für automatisches Umbrechen */
+.debug-settings-grid {
+    display: grid !important;
+    /* Desktop: 2 Spalten (Debug flexibel, Settings 320-400px)
+       Mobile: Automatisch 1 Spalte wenn zu schmal */
+    grid-template-columns: 1fr minmax(380px, 460px) !important;
+    gap: 1rem !important;
+}
+
+/* Fallback: Wenn Grid-Items zu schmal werden → Stack */
+@supports (container-type: inline-size) {
+    .debug-settings-container {
+        container-type: inline-size;
+    }
+
+    @container (max-width: 650px) {
+        .debug-settings-grid {
+            grid-template-columns: 1fr !important;
+        }
+    }
+}
+
+/* Debug Console: Mindestbreite damit sie nicht schrumpft bei wenig Content */
+#debug-console-box {
+    min-width: 100%;
+}
+
+/* Accordion Items: Volle Breite im Container */
+.rt-AccordionRoot {
+    width: 100%;
+    min-width: 0;  /* Erlaubt Schrumpfen des Textes, nicht der Box */
+}
