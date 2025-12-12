@@ -5,6 +5,70 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.2] - 2025-12-12
+
+### 👥 Multi-User Support + Package Updates
+
+**Multi-User Concurrent Requests werden jetzt korrekt in eine Queue gestellt.** Python-Dependencies auf aktuelle Versionen aktualisiert.
+
+#### Added
+
+- **KoboldCPP Multi-User Mode** ([koboldcpp_manager.py:265-268](aifred/lib/koboldcpp_manager.py#L265-L268)):
+  - `--multiuser 5` Parameter für Request-Queuing
+  - Bis zu 5 gleichzeitige Clients werden in Queue gestellt
+  - Verarbeitung bleibt sequentiell (KoboldCPP Limitation: `n_seq_max = 1`)
+  - Verhindert Timeout/Hänger wenn zweiter Request während Verarbeitung kommt
+
+#### Changed
+
+- **Python Package Updates**:
+  - `reflex`: 0.8.21 → 0.8.22
+  - `openai`: 2.6.1 → 2.11.0
+  - `chromadb`: 1.3.4 → 1.3.7
+  - `fastapi`: 0.121.1 → 0.124.4
+  - `granian`: 2.5.6 → 2.6.0
+  - `pydantic`: 2.12.3 → 2.12.5
+  - `transformers`: 4.57.1 → 4.57.3
+  - `starlette`: 0.46.4 → 0.47.0
+  - `SQLAlchemy`: 2.0.36 → 2.0.40
+  - `beautifulsoup4`: 4.12.3 → 4.13.4
+  - `certifi`: 2025.4.26 → 2025.6.15
+  - Diverse weitere Updates (urllib3, soupsieve, etc.)
+
+- **ChromaDB Docker**: Auf latest Image aktualisiert
+
+#### Fixed
+
+- **huggingface-hub Versionskonflikt**: transformers erforderte `<1.0`, aber `1.2.3` war installiert
+  - Upgrade auf transformers 4.57.3 löste den Konflikt (huggingface-hub automatisch auf 0.36.0 angepasst)
+
+- **Mobile Device Stuck**: Bei gleichzeitiger Desktop- und Mobile-Nutzung blieb der zweite Request hängen
+  - Multi-User Mode stellt Requests jetzt in Queue
+
+- **GGUF Model Not Found bei Service-Start** ([state.py:1609-1615](aifred/state.py#L1609-L1615), [koboldcpp.py:99-105](aifred/backends/koboldcpp.py#L99-L105)):
+  - `gguf_models` Dictionary war bei Service-Neustart noch nicht geladen
+  - Auto-Scan der GGUF-Modelle wenn Dictionary leer ist
+  - Behebt "GGUF model 'X' not found" Fehler beim Senden der ersten Nachricht
+
+#### Technical Details
+
+**KoboldCPP Multi-User Verhalten:**
+```
+Request 1 (Desktop): Wird verarbeitet
+Request 2 (Mobile):  Wird in Queue gestellt (max 5)
+Request 1 fertig:    Request 2 startet automatisch
+```
+
+**Ohne `--multiuser`:**
+- Zweiter Request während Verarbeitung → Timeout oder Endlosschleife
+- `n_seq_max = 1` bedeutet nur eine Sequenz im KV-Cache
+
+**Mit `--multiuser 5`:**
+- Requests werden in interne Queue gestellt
+- Sequentielle Verarbeitung mit korrektem Queuing
+
+---
+
 ## [2.7.1] - 2025-12-11
 
 ### 🌐 HTML Preview Button

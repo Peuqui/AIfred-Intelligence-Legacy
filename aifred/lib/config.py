@@ -324,10 +324,10 @@ KOBOLDCPP_CONTEXT_SAFETY_TOKENS = 1500  # 1.5K token reduction for final attempt
 # KoboldCPP only supports Linear RoPE (llama.cpp limitation)
 KOBOLDCPP_ROPE_SCALING_FACTOR = 1.5  # Conservative 1.5x for good quality/capacity balance
 
-# Maximum context size supported by KoboldCPP (llama.cpp argparse limit)
-# This is a hard limit in KoboldCPP's --contextsize parameter
-# If this changes in future versions, update this constant
-KOBOLDCPP_MAX_CONTEXT = 61440  # 60K tokens (Baseline für stufenweise Tests)
+# KoboldCPP Hard Limit (llama.cpp limitation)
+# KoboldCPP enforces: --contextsize must be within [256, 262144]
+# This is independent of model architecture or VRAM - it's a hard coded limit in llama.cpp
+KOBOLDCPP_HARD_MAX_CONTEXT = 262144  # Maximum allowed by KoboldCPP CLI
 
 # ============================================================
 # KOBOLDCPP INACTIVITY AUTO-SHUTDOWN (Rolling Window)

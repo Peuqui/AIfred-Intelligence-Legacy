@@ -4,7 +4,7 @@
 
 # 🤖 AIfred Intelligence - Fortschrittlicher KI-Assistent
 
-**Produktionsreifer KI-Assistent mit Multi-LLM-Unterstützung, Web-Recherche & Sprachschnittstelle**
+**KI-Assistent mit Multi-LLM-Unterstützung, Web-Recherche & Sprachschnittstelle**
 
 AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web-Recherche, Multi-Model-Support und History-Kompression für unbegrenzte Konversationen.
 

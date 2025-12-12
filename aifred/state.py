@@ -118,6 +118,11 @@ _global_backend_state: dict[str, Any] = {
     "vllm_manager": None,  # Global vLLM process manager (persists across reloads)
 }
 
+# Lock to prevent race conditions during backend initialization
+# (e.g., two browser tabs starting simultaneously)
+import asyncio
+_backend_init_lock = asyncio.Lock()
+
 
 class ChatMessage(BaseModel):
     """Single chat message"""
@@ -670,8 +675,9 @@ class AIState(rx.State):
             # Initialize backend (or restore from global state)
             self.add_debug("🔧 Initializing backend...")
             backend_init_success = False
+            was_fast_path = False
             try:
-                await self.initialize_backend()
+                was_fast_path = await self.initialize_backend()
                 backend_init_success = True
             except Exception as e:
                 self.add_debug(f"❌ Backend init failed: {e}")
@@ -679,11 +685,12 @@ class AIState(rx.State):
                 import traceback
                 log_message(traceback.format_exc())
 
-            # Only show "Backend ready" if initialization succeeded
-            if backend_init_success:
+            # Only show "Backend ready" for SLOW PATH (FAST PATH already logged its own message)
+            if backend_init_success and not was_fast_path:
                 self.add_debug("✅ Backend ready")
 
-                # Add separator after backend ready
+            # Add separator after backend ready (both paths)
+            if backend_init_success:
                 from aifred.lib.logging_utils import console_separator
                 console_separator()  # File log
                 self.debug_messages.append("────────────────────")  # UI
@@ -800,7 +807,7 @@ class AIState(rx.State):
             # Hide loading spinner (fast path = already initialized)
             self.backend_initializing = False
 
-            return  # Done! No expensive initialization needed
+            return True  # FAST PATH - caller should NOT add another "Backend ready"
 
         # SLOW PATH: Full initialization (first time or backend switch)
         print(f"🔧 Full backend initialization for '{self.backend_type}'...")
@@ -1017,11 +1024,14 @@ class AIState(rx.State):
             # Mark initialization as complete (hide loading spinner)
             self.backend_initializing = False
 
+            return False  # SLOW PATH - caller should add "Backend ready"
+
         except Exception as e:
             self.backend_healthy = False
             self.backend_info = f"Error: {str(e)}"
             self.add_debug(f"❌ Backend initialization failed: {e}")
             self.backend_initializing = False  # Hide spinner even on error
+            return False  # Error case - let caller handle
 
     def _save_settings(self):
         """Save current settings to file (per-backend models)"""
@@ -1243,10 +1253,10 @@ class AIState(rx.State):
         # Calculate how many consecutive idle checks needed
         idle_checks_needed = max(1, KOBOLDCPP_INACTIVITY_TIMEOUT // KOBOLDCPP_INACTIVITY_CHECK_INTERVAL)
 
-        # Log startup
+        # Log startup (zwei Zeilen für bessere Lesbarkeit auf Mobile)
+        self.add_debug("🎯 GPU Inactivity Monitor started")
         self.add_debug(
-            f"🎯 GPU Inactivity Monitor started "
-            f"(Rolling Window: {idle_checks_needed} consecutive checks à {KOBOLDCPP_INACTIVITY_CHECK_INTERVAL}s = {KOBOLDCPP_INACTIVITY_TIMEOUT}s timeout)"
+            f"  • Rolling Window: {idle_checks_needed} checks à {KOBOLDCPP_INACTIVITY_CHECK_INTERVAL}s = {KOBOLDCPP_INACTIVITY_TIMEOUT}s timeout"
         )
 
         try:
@@ -1582,93 +1592,104 @@ class AIState(rx.State):
         """Start KoboldCPP server process with selected GGUF model"""
         global _global_backend_state
 
-        try:
-            # Check if KoboldCPP is already running from global state
-            existing_manager = _global_backend_state.get("koboldcpp_manager")
-            if existing_manager and existing_manager.is_running():
-                self.add_debug("✅ KoboldCPP server already running (using existing process)")
-                return
+        # Use lock to prevent race condition when multiple sessions start simultaneously
+        async with _backend_init_lock:
+            try:
+                # Check if KoboldCPP is already running from global state
+                existing_manager = _global_backend_state.get("koboldcpp_manager")
+                if existing_manager and existing_manager.is_running():
+                    self.add_debug("✅ KoboldCPP server already running (using existing process)")
+                    return
 
-            # Get GGUF model info from global state
-            # Extract pure model name (remove size suffix)
-            pure_model_name = self.selected_model_id  # Pure ID
-            gguf_models = _global_backend_state.get("gguf_models", {})
-            if not gguf_models or pure_model_name not in gguf_models:
-                raise RuntimeError(f"GGUF model '{pure_model_name}' not found")
+                # Get GGUF model info from global state
+                # Extract pure model name (remove size suffix)
+                pure_model_name = self.selected_model_id  # Pure ID
+                gguf_models = _global_backend_state.get("gguf_models", {})
 
-            model_info = gguf_models[pure_model_name]
-            model_path = str(model_info.path)
+                # If gguf_models not loaded yet (e.g. service restart), scan now
+                if not gguf_models:
+                    from aifred.lib.gguf_utils import find_all_gguf_models
+                    gguf_models_list = find_all_gguf_models()
+                    gguf_models = {model.name: model for model in gguf_models_list}
+                    _global_backend_state["gguf_models"] = gguf_models
+                    self.add_debug(f"🔍 GGUF models scanned: {len(gguf_models)} found")
 
-            # Initialize KoboldCPP Process Manager
-            from aifred.lib.koboldcpp_manager import KoboldCPPProcessManager
+                if pure_model_name not in gguf_models:
+                    raise RuntimeError(f"GGUF model '{pure_model_name}' not found")
 
-            koboldcpp_manager = KoboldCPPProcessManager(port=5001)
+                model_info = gguf_models[pure_model_name]
+                model_path = str(model_info.path)
 
-            # Start server with automatic context detection (vLLM-style)
-            # Uses cache interpolation and crash recovery
-            def debug_callback(msg: str):
-                self.add_debug(msg)
+                # Initialize KoboldCPP Process Manager
+                from aifred.lib.koboldcpp_manager import KoboldCPPProcessManager
 
-            success, config_info = await koboldcpp_manager.start_with_auto_detection(
-                model_path=model_path,
-                model_name=self.selected_model,  # For cache lookup
-                timeout=240,  # 4 minutes for large models (30B needs ~2-3 min to load)
-                feedback_callback=debug_callback
-            )
+                koboldcpp_manager = KoboldCPPProcessManager(port=5001)
 
-            if success and config_info:
-                # Show cache status
-                if config_info.get('cached'):
-                    self.add_debug("  • 📈 Context from cache (interpolated)")
-                elif config_info.get('recalibrated'):
-                    self.add_debug("  • 🔄 Context recalibrated (cache updated)")
-                elif config_info.get('calibrated'):
-                    self.add_debug("  • 🔬 Context calibrated (new cache entry)")
+                # Start server with automatic context detection (vLLM-style)
+                # Uses cache interpolation and crash recovery
+                def debug_callback(msg: str):
+                    self.add_debug(msg)
 
-                # Cache startup context in backend (like vLLM does)
-                from .backends import BackendFactory
-                koboldcpp_backend = BackendFactory.create("koboldcpp", base_url=self.backend_url)
-                debug_messages = [
-                    f"   Model: {model_info.name}",
-                    f"   GPU Config: {config_info['gpu_config']}"
-                ]
-                koboldcpp_backend.set_startup_context(
-                    context=config_info['context_size'],
-                    debug_messages=debug_messages
+                success, config_info = await koboldcpp_manager.start_with_auto_detection(
+                    model_path=model_path,
+                    model_name=self.selected_model_id,  # For cache lookup (pure ID)
+                    timeout=240,  # 4 minutes for large models (30B needs ~2-3 min to load)
+                    feedback_callback=debug_callback
                 )
 
-                # Store in global state so it persists across page reloads
-                _global_backend_state["koboldcpp_manager"] = koboldcpp_manager
-                _global_backend_state["koboldcpp_context"] = config_info['context_size']
-                _global_backend_state["koboldcpp_native_context"] = config_info.get('native_context')
-                _global_backend_state["koboldcpp_selected_model"] = self.selected_model  # For auto-restart
+                if success and config_info:
+                    # Show cache status
+                    if config_info.get('cached'):
+                        self.add_debug("  • 📈 Context from cache (interpolated)")
+                    elif config_info.get('recalibrated'):
+                        self.add_debug("  • 🔄 Context recalibrated (cache updated)")
+                    elif config_info.get('calibrated'):
+                        self.add_debug("  • 🔬 Context calibrated (new cache entry)")
 
-                # Store context size in global cache for History compression
-                # (same as vLLM does in context_manager.py)
-                from aifred.lib.context_manager import _last_vram_limit_cache
-                _last_vram_limit_cache["limit"] = config_info['context_size']
+                    # Cache startup context in backend (like vLLM does)
+                    from .backends import BackendFactory
+                    koboldcpp_backend = BackendFactory.create("koboldcpp", base_url=self.backend_url)
+                    debug_messages = [
+                        f"   Model: {model_info.name}",
+                        f"   GPU Config: {config_info['gpu_config']}"
+                    ]
+                    koboldcpp_backend.set_startup_context(
+                        context=config_info['context_size'],
+                        debug_messages=debug_messages
+                    )
 
-                # Start GPU Inactivity Monitoring (Reflex Background Task)
-                # Automatically shuts down KoboldCPP after inactivity to save power (~100W idle)
-                self.gpu_monitoring_active = True
-                self.gpu_consecutive_idle_checks = 0
-                self.gpu_total_checks = 0
-                self.gpu_total_idle_checks = 0
-                self.gpu_total_active_checks = 0
+                    # Store in global state so it persists across page reloads
+                    _global_backend_state["koboldcpp_manager"] = koboldcpp_manager
+                    _global_backend_state["koboldcpp_context"] = config_info['context_size']
+                    _global_backend_state["koboldcpp_native_context"] = config_info.get('native_context')
+                    _global_backend_state["koboldcpp_selected_model"] = self.selected_model  # For auto-restart
 
-                # Start background task via Reflex Event system
-                # Background event with @rx.event(background=True) handles State locking internally
-                asyncio.create_task(self.start_inactivity_monitoring())
+                    # Store context size in global cache for History compression
+                    # (same as vLLM does in context_manager.py)
+                    from aifred.lib.context_manager import _last_vram_limit_cache
+                    _last_vram_limit_cache["limit"] = config_info['context_size']
 
-                self.add_debug("✅ KoboldCPP server ready on port 5001")
-            else:
-                raise RuntimeError("KoboldCPP failed to start with auto-config")
+                    # Start GPU Inactivity Monitoring (Reflex Background Task)
+                    # Automatically shuts down KoboldCPP after inactivity to save power (~100W idle)
+                    self.gpu_monitoring_active = True
+                    self.gpu_consecutive_idle_checks = 0
+                    self.gpu_total_checks = 0
+                    self.gpu_total_idle_checks = 0
+                    self.gpu_total_active_checks = 0
 
-        except Exception as e:
-            self.add_debug(f"❌ Failed to start KoboldCPP: {e}")
-            import traceback
-            self.add_debug(f"   {traceback.format_exc()}")
-            _global_backend_state["koboldcpp_manager"] = None
+                    # Start background task via Reflex Event system
+                    # Background event with @rx.event(background=True) handles State locking internally
+                    asyncio.create_task(self.start_inactivity_monitoring())
+
+                    self.add_debug("✅ KoboldCPP server ready on port 5001")
+                else:
+                    raise RuntimeError("KoboldCPP failed to start with auto-config")
+
+            except Exception as e:
+                self.add_debug(f"❌ Failed to start KoboldCPP: {e}")
+                import traceback
+                self.add_debug(f"   {traceback.format_exc()}")
+                _global_backend_state["koboldcpp_manager"] = None
 
     async def _ensure_koboldcpp_running(self):
         """Ensure KoboldCPP is running, start if stopped (e.g., by auto-unload monitor)"""
@@ -2056,8 +2077,8 @@ class AIState(rx.State):
                     async for item in chat_interactive_mode(
                         user_text=original_user_text,  # Actual user question
                         stt_time=0.0,  # No STT for Vision follow-up
-                        model_choice=self.selected_model,
-                        automatik_model=self.automatik_model,
+                        model_choice=self.selected_model_id,
+                        automatik_model=self.automatik_model_id,
                         history=self.chat_history[:-1],  # Exclude current temporary entry (CRITICAL!)
                         session_id=self.session_id,
                         temperature_mode=self.temperature_mode,
@@ -2157,8 +2178,8 @@ class AIState(rx.State):
                 async for item in chat_interactive_mode(
                     user_text=user_msg,
                     stt_time=0.0,
-                    model_choice=self.selected_model,
-                    automatik_model=self.automatik_model,
+                    model_choice=self.selected_model_id,
+                    automatik_model=self.automatik_model_id,
                     history=self.chat_history[:-1],  # Exclude current temporary entry
                     session_id=self.session_id,
                     temperature_mode=self.temperature_mode,
@@ -2416,7 +2437,7 @@ class AIState(rx.State):
                     # Dynamic num_ctx calculation (AFTER preload to get accurate VRAM state)
                     from .lib.context_manager import calculate_dynamic_num_ctx
                     final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
-                        llm_client, self.selected_model, messages, None,
+                        llm_client, self.selected_model_id, messages, None,
                         enable_vram_limit=enable_vram_limit
                     )
 

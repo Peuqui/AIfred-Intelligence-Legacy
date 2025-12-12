@@ -96,6 +96,14 @@ class KoboldCPPBackend(LLMBackend):
             gguf_models = _global_backend_state.get("gguf_models", {})
             selected_model = _global_backend_state.get("koboldcpp_selected_model")
 
+            # If gguf_models not loaded yet (e.g. service restart), scan now
+            if not gguf_models:
+                from aifred.lib.gguf_utils import find_all_gguf_models
+                gguf_models_list = find_all_gguf_models()
+                gguf_models = {model.name: model for model in gguf_models_list}
+                _global_backend_state["gguf_models"] = gguf_models
+                logger.info(f"🔍 GGUF models scanned: {len(gguf_models)} found")
+
             if not selected_model or selected_model not in gguf_models:
                 raise BackendConnectionError(
                     "Cannot auto-restart: Model configuration not cached. "
@@ -372,7 +380,7 @@ class KoboldCPPBackend(LLMBackend):
         Model size is not available via API.
 
         Args:
-            model: Model name
+            model: Model ID (pure name without size suffix)
 
         Returns:
             tuple[int, int]: (context_limit, model_size_bytes)
