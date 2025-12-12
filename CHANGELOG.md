@@ -5,6 +5,29 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.3] - 2025-12-13
+
+### 🔒 Multi-User Request Lock
+
+**Python-Level asyncio.Lock verhindert KoboldCPP-Hänger bei gleichzeitigen Requests.**
+
+#### Added
+
+- **Request Serialization Lock** ([koboldcpp.py:32-34](aifred/backends/koboldcpp.py#L32-L34)):
+  - Globaler `asyncio.Lock` für alle KoboldCPP API-Calls
+  - Verhindert parallele Requests die KoboldCPP zum Hängen bringen
+  - "⏳ In Warteschlange" Log-Message wenn Lock bereits belegt
+
+#### Fixed
+
+- **KoboldCPP Hänger bei Multi-User** ([koboldcpp.py:184-188](aifred/backends/koboldcpp.py#L184-L188), [koboldcpp.py:267-271](aifred/backends/koboldcpp.py#L267-L271)):
+  - `--multiuser 5` allein reichte nicht - KoboldCPP hing bei parallelen async Requests
+  - Lock serialisiert jetzt alle `chat()` und `chat_stream()` Calls
+  - Faire Abwechslung zwischen Users (FIFO durch asyncio)
+  - Bessere UX: Kurze Calls (Decision, Intent) werden abwechselnd bedient
+
+---
+
 ## [2.7.2] - 2025-12-12
 
 ### 👥 Multi-User Support + Package Updates
