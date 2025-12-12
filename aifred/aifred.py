@@ -2695,11 +2695,16 @@ console.log('✂️ Crop handler loaded');
             ),
 
             # Debug Console & Settings side-by-side (bottom)
-            rx.grid(
-                debug_console(),
-                settings_accordion(),
-                columns="1fr 1fr",  # Equal width: 50% Debug Console, 50% Settings
-                spacing="4",
+            # Desktop: Debug Console flexibel (1fr), Settings schmaler (max 360px)
+            # Mobile: Automatisches Umbrechen via CSS Container Query (custom.css)
+            rx.box(
+                rx.box(
+                    debug_console(),
+                    settings_accordion(),
+                    class_name="debug-settings-grid",
+                    width="100%",
+                ),
+                class_name="debug-settings-container",
                 width="100%",
             ),
 
