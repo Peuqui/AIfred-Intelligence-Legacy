@@ -1599,83 +1599,71 @@ def settings_accordion() -> rx.Component:
                     align="center",
                 ),
 
-                # Automatik LLM Selection - Mobile: Native select, Desktop: Radix UI
-                rx.hstack(
-                    rx.text(
-                        t("automatic_llm"),
-                        font_weight="bold",
-                        font_size="12px",
-                        # Gray out label when backend doesn't support dynamic models
-                        opacity=rx.cond(
-                            AIState.backend_supports_dynamic_models,
-                            "1.0",
-                            "0.5"
+                # Automatik LLM Selection - Hidden for KoboldCPP (single model only)
+                rx.cond(
+                    AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text(
+                            t("automatic_llm"),
+                            font_weight="bold",
+                            font_size="12px",
                         ),
-                    ),
-                    rx.cond(
-                        AIState.is_mobile,
-                        # MOBILE: Native HTML <select> (simple list)
-                        native_select_model(
-                            AIState.automatik_model,  # Display name with size
-                            AIState.set_automatik_model,  # Original handler
-                            (~AIState.backend_supports_dynamic_models) | AIState.backend_switching,
-                            AIState.available_models,  # Simple list of display names
-                        ),
-                        # DESKTOP: Radix UI Select
-                        rx.select(
-                            AIState.available_models,
-                            value=AIState.automatik_model,
-                            on_change=AIState.set_automatik_model,
-                            size="2",
-                            position="popper",  # Better mobile positioning (adapts to viewport)
-                            # Disable if backend can't switch models or during backend switch
-                            disabled=(~AIState.backend_supports_dynamic_models) | AIState.backend_switching,
-                            # Visual styling: Gray out when disabled
-                            opacity=rx.cond(
-                                AIState.backend_supports_dynamic_models,
-                                "1.0",
-                                "0.4"
+                        rx.cond(
+                            AIState.is_mobile,
+                            # MOBILE: Native HTML <select> (simple list)
+                            native_select_model(
+                                AIState.automatik_model,  # Display name with size
+                                AIState.set_automatik_model,  # Original handler
+                                AIState.backend_switching,
+                                AIState.available_models,  # Simple list of display names
                             ),
-                            cursor=rx.cond(
-                                AIState.backend_supports_dynamic_models,
-                                "pointer",
-                                "not-allowed"
+                            # DESKTOP: Radix UI Select
+                            rx.select(
+                                AIState.available_models,
+                                value=AIState.automatik_model,
+                                on_change=AIState.set_automatik_model,
+                                size="2",
+                                position="popper",  # Better mobile positioning (adapts to viewport)
+                                disabled=AIState.backend_switching,  # Disable during backend switch
                             ),
                         ),
+                        spacing="3",
+                        align="center",
                     ),
-                    spacing="3",
-                    align="center",
                 ),
 
-                # Vision LLM Selection - Mobile: Native select, Desktop: Radix UI
-                rx.hstack(
-                    rx.text(
-                        t("vision_llm"),
-                        font_weight="bold",
-                        font_size="12px",
-                    ),
-                    rx.cond(
-                        AIState.is_mobile,
-                        # MOBILE: Native HTML <select> (simple list)
-                        native_select_model(
-                            AIState.vision_model,  # Display name with size
-                            AIState.set_vision_model,  # Original handler
-                            AIState.backend_switching,
-                            AIState.available_vision_models_list,  # Vision models list (state var, not computed)
+                # Vision LLM Selection - Hidden for KoboldCPP (single model only)
+                rx.cond(
+                    AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text(
+                            t("vision_llm"),
+                            font_weight="bold",
+                            font_size="12px",
                         ),
-                        # DESKTOP: Radix UI Select
-                        rx.select(
-                            AIState.available_vision_models_list,  # State var instead of computed property
-                            value=AIState.vision_model,
-                            on_change=AIState.set_vision_model,
-                            size="2",
-                            position="popper",  # Better mobile positioning (adapts to viewport)
-                            disabled=AIState.backend_switching,  # Disable during backend switch
-                            placeholder="Select vision model..."
+                        rx.cond(
+                            AIState.is_mobile,
+                            # MOBILE: Native HTML <select> (simple list)
+                            native_select_model(
+                                AIState.vision_model,  # Display name with size
+                                AIState.set_vision_model,  # Original handler
+                                AIState.backend_switching,
+                                AIState.available_vision_models_list,  # Vision models list (state var, not computed)
+                            ),
+                            # DESKTOP: Radix UI Select
+                            rx.select(
+                                AIState.available_vision_models_list,  # State var instead of computed property
+                                value=AIState.vision_model,
+                                on_change=AIState.set_vision_model,
+                                size="2",
+                                position="popper",  # Better mobile positioning (adapts to viewport)
+                                disabled=AIState.backend_switching,  # Disable during backend switch
+                                placeholder="Select vision model..."
+                            ),
                         ),
+                        spacing="3",
+                        align="center",
                     ),
-                    spacing="3",
-                    align="center",
                 ),
 
                 # Thinking Mode Toggle (für alle Modelle sichtbar)

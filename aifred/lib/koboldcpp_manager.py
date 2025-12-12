@@ -18,6 +18,8 @@ import httpx
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
 
+from .formatting import format_number
+
 logger = logging.getLogger(__name__)
 
 
@@ -183,7 +185,7 @@ class KoboldCPPProcessManager:
             raise FileNotFoundError(f"Model file not found: {model_path}")
 
         logger.info(f"🚀 Starting KoboldCPP server with model: {model_file.name}")
-        logger.info(f"   Context: {context_size:,} tokens")
+        logger.info(f"   Context: {format_number(context_size)} tokens")
         logger.info(f"   Context Offload: {context_offload}")
         logger.info(f"   Tensor Split: {tensor_split or 'auto'}")
 
@@ -257,6 +259,11 @@ class KoboldCPPProcessManager:
             cmd.extend(["--quantkv", "2"])  # 2 = Q4 quantization for KV cache (75% VRAM savings)
             logger.info("   🗜️ Quantized KV Cache ENABLED (Q4 - 75% savings)")
 
+        # Multi-User Mode: Queue up to 5 concurrent requests (processed sequentially)
+        # Without this, second request while first is processing may timeout/hang
+        cmd.extend(["--multiuser", "5"])
+        logger.info("   👥 Multi-User Mode ENABLED (queue: 5 requests)")
+
         # Start process
         try:
             # Log the full command for debugging
@@ -289,7 +296,13 @@ class KoboldCPPProcessManager:
             while asyncio.get_event_loop().time() - start_time < timeout:
                 # Check if process crashed
                 if self.process.poll() is not None:
-                    stderr = self.process.stderr.read() if self.process.stderr else ""
+                    # Try to get stderr from buffer first (more reliable)
+                    stderr = ""
+                    if hasattr(self, 'stderr_buffer') and self.stderr_buffer:
+                        stderr = "".join(self.stderr_buffer[-20:])
+                    # Fallback to direct read
+                    if not stderr and self.process.stderr:
+                        stderr = self.process.stderr.read()
                     raise RuntimeError(f"KoboldCPP process died unexpectedly:\n{stderr}")
 
                 # Try health check
@@ -457,7 +470,8 @@ class KoboldCPPProcessManager:
         from aifred.lib.gguf_utils import extract_quantization_from_filename, get_gguf_native_context
         from aifred.lib.model_vram_cache import (
             interpolate_koboldcpp_context,
-            add_koboldcpp_calibration
+            add_koboldcpp_calibration,
+            CACHE_FILE
         )
         from aifred.lib.config import KOBOLDCPP_CONTEXT_SAFETY_TOKENS
         from pathlib import Path
@@ -508,9 +522,9 @@ class KoboldCPPProcessManager:
 
             gpu_model = gpu_models[0] if gpu_models else "Unknown"
             if gpu_count > 1:
-                log_feedback(f"📊 VRAM: {total_vram_mb:,}MB total ({gpu_count}x GPUs), {free_vram_mb:,}MB free")
+                log_feedback(f"📊 VRAM: {format_number(total_vram_mb)}MB total ({gpu_count}x GPUs), {format_number(free_vram_mb)}MB free")
             else:
-                log_feedback(f"📊 VRAM: {total_vram_mb:,}MB total, {free_vram_mb:,}MB free")
+                log_feedback(f"📊 VRAM: {format_number(total_vram_mb)}MB total, {format_number(free_vram_mb)}MB free")
         except Exception as e:
             log_feedback(f"⚠️ Could not query GPU: {e}")
             gpu_model = "Unknown"
@@ -519,7 +533,7 @@ class KoboldCPPProcessManager:
         # Get native context from GGUF metadata
         native_context = get_gguf_native_context(model_file)
         if native_context:
-            log_feedback(f"📊 Native Context: {native_context:,} tokens (from GGUF metadata)")
+            log_feedback(f"📊 Native Context: {format_number(native_context)} tokens (from GGUF metadata)")
         else:
             log_feedback("⚠️ Could not read native context from GGUF - will use VRAM calculation")
 
@@ -527,8 +541,9 @@ class KoboldCPPProcessManager:
         interpolated_context = interpolate_koboldcpp_context(model_name, free_vram_mb)
 
         if interpolated_context:
-            log_feedback(f"📈 Interpolated context from cache: {interpolated_context:,} tokens")
-            log_feedback(f"   Based on {free_vram_mb:,}MB free VRAM")
+            log_feedback(f"📈 Interpolated context from cache: {format_number(interpolated_context)} tokens")
+            log_feedback(f"   Cache file: {CACHE_FILE}")
+            log_feedback(f"   Based on {format_number(free_vram_mb)}MB free VRAM")
 
             # Try cached value
             try:
@@ -544,7 +559,7 @@ class KoboldCPPProcessManager:
                 )
 
                 if success:
-                    log_feedback(f"✅ Started successfully with cached context: {interpolated_context:,} tokens")
+                    log_feedback(f"✅ Started successfully with cached context: {format_number(interpolated_context)} tokens")
                     return (True, {
                         "model_size_gb": model_size_gb,
                         "context_size": interpolated_context,
@@ -565,14 +580,15 @@ class KoboldCPPProcessManager:
                 if hasattr(self, 'stderr_buffer') and self.stderr_buffer:
                     stderr_output = "".join(self.stderr_buffer[-50:])
 
-                log_feedback(f"⚠️ Cached value failed: {interpolated_context:,} tokens")
+                log_feedback(f"⚠️ Cached value failed: {format_number(interpolated_context)} tokens")
 
                 if not is_koboldcpp_oom_error(error_msg + "\n" + stderr_output):
                     log_feedback("   Non-OOM error - falling back to calibration...")
                 # Fall through to STRATEGY 2
 
         # STRATEGY 2: No cache or cache failed - use smart calibration with VRAM pre-check
-        log_feedback("🔬 No cached calibrations found (or cache failed) - starting calibration...")
+        log_feedback(f"🔬 No cached calibrations found (or cache failed) - starting calibration...")
+        log_feedback(f"   Cache file: {CACHE_FILE}")
 
         # Determine MB/token for VRAM estimation
         # Using Q4 KV Cache quantization (--quantkv 2) for 75% VRAM savings
@@ -611,25 +627,25 @@ class KoboldCPPProcessManager:
         # PRE-CHECK: Calculate VRAM requirements for RoPE and Native
         # Skip attempts that would definitely OOM
         attempt_to_try = None  # Will be "rope", "native", or "vram_calc"
+        rope_extended_context = None  # Will be set if native_context exists
 
         if native_context:
-            from aifred.lib.config import KOBOLDCPP_ROPE_SCALING_FACTOR, KOBOLDCPP_MAX_CONTEXT
+            from aifred.lib.config import KOBOLDCPP_ROPE_SCALING_FACTOR, KOBOLDCPP_HARD_MAX_CONTEXT
 
             # Calculate RoPE-extended context
             rope_factor = KOBOLDCPP_ROPE_SCALING_FACTOR
             rope_extended_context = int(native_context * rope_factor)
 
-            # Cap at KoboldCPP hard limit
-            if rope_extended_context > KOBOLDCPP_MAX_CONTEXT:
-                log_feedback(f"⚠️ RoPE context ({rope_extended_context:,}) exceeds KoboldCPP limit ({KOBOLDCPP_MAX_CONTEXT:,})")
-                log_feedback(f"   Capping at maximum: {KOBOLDCPP_MAX_CONTEXT:,} tokens")
-                rope_extended_context = KOBOLDCPP_MAX_CONTEXT
-
-            # Log RoPE configuration
+            # Log RoPE configuration BEFORE capping (so user sees the math)
             log_feedback("📐 RoPE Configuration:")
-            log_feedback(f"   Native context: {native_context:,} tokens")
+            log_feedback(f"   Native context: {format_number(native_context)} tokens")
             log_feedback(f"   RoPE factor: {rope_factor:.2f}x")
-            log_feedback(f"   Target context: {rope_extended_context:,} tokens")
+            log_feedback(f"   Calculated: {format_number(rope_extended_context)} tokens")
+
+            # Cap at KoboldCPP hard limit (llama.cpp enforces max 262144)
+            if rope_extended_context > KOBOLDCPP_HARD_MAX_CONTEXT:
+                log_feedback(f"⚠️ Exceeds KoboldCPP limit ({format_number(KOBOLDCPP_HARD_MAX_CONTEXT)}) → capped")
+                rope_extended_context = KOBOLDCPP_HARD_MAX_CONTEXT
 
             # VRAM Pre-check
             # Calculate available VRAM for context
@@ -644,7 +660,7 @@ class KoboldCPPProcessManager:
                 attempt_to_try = "rope"
                 log_feedback("✅ VRAM Pre-check: RoPE-extended fits in VRAM")
                 log_feedback(f"   Context needs {rope_context_vram_needed:.0f}MB ≤ {available_for_context_mb:.0f}MB available")
-                log_feedback(f"   (Free: {free_vram_mb:,}MB - Model: {model_size_mb:.0f}MB - Safety: {safety_margin_mb}MB)")
+                log_feedback(f"   (Free: {format_number(free_vram_mb)}MB - Model: {model_size_mb:.0f}MB - Safety: {safety_margin_mb}MB)")
             else:
                 # RoPE doesn't fit, check Native
                 native_context_vram_needed = native_context * mb_per_token
@@ -655,7 +671,7 @@ class KoboldCPPProcessManager:
                 else:
                     log_feedback("⚠️ VRAM Pre-check: Both RoPE and Native too large")
                     log_feedback(f"   RoPE needs: {rope_context_vram_needed:.0f}MB, Native needs: {native_context_vram_needed:.0f}MB")
-                    log_feedback(f"   Available for context: {available_for_context_mb:.0f}MB (Free: {free_vram_mb:,}MB - Model: {model_size_mb:.0f}MB - Safety: {safety_margin_mb}MB)")
+                    log_feedback(f"   Available for context: {available_for_context_mb:.0f}MB (Free: {format_number(free_vram_mb)}MB - Model: {model_size_mb:.0f}MB - Safety: {safety_margin_mb}MB)")
                     log_feedback("   Skipping to VRAM-calculated context")
 
         # ATTEMPT 1: Try RoPE (if pre-check passed)
@@ -663,10 +679,10 @@ class KoboldCPPProcessManager:
             # Check if RoPE was actually applied or capped
             if rope_extended_context == native_context:
                 log_feedback("🚀 Attempt 1: Starting with native context (RoPE capped at KoboldCPP limit)")
-                log_feedback(f"   Using: {native_context:,} tokens (maximum supported)")
+                log_feedback(f"   Using: {format_number(native_context)} tokens (maximum supported)")
             else:
                 log_feedback("🚀 Attempt 1: Starting with RoPE-extended context")
-                log_feedback(f"   Native: {native_context:,} tokens × {KOBOLDCPP_ROPE_SCALING_FACTOR} = {rope_extended_context:,} tokens")
+                log_feedback(f"   Native: {format_number(native_context)} tokens × {KOBOLDCPP_ROPE_SCALING_FACTOR} = {format_number(rope_extended_context)} tokens")
 
             try:
                 success = await self.start(
@@ -682,7 +698,7 @@ class KoboldCPPProcessManager:
 
                 if success:
                     log_feedback("✅ Calibration succeeded!")
-                    log_feedback(f"   KoboldCPP started with {rope_extended_context:,} tokens (VRAM sufficient for RoPE extension)")
+                    log_feedback(f"   KoboldCPP started with {format_number(rope_extended_context)} tokens (VRAM sufficient for RoPE extension)")
 
                     # Update cache with RoPE-extended value
                     add_koboldcpp_calibration(
@@ -693,7 +709,8 @@ class KoboldCPPProcessManager:
                         gpu_model=gpu_model,
                         model_size_gb=model_size_gb
                     )
-                    log_feedback(f"💾 Cached calibration point: {free_vram_mb:,}MB → {rope_extended_context:,} tokens")
+                    log_feedback(f"💾 Cached calibration point: {format_number(free_vram_mb)}MB → {format_number(rope_extended_context)} tokens")
+                    log_feedback(f"   Saved to: {CACHE_FILE}")
 
                     return (True, {
                         "model_size_gb": model_size_gb,
@@ -713,10 +730,16 @@ class KoboldCPPProcessManager:
                     stderr_output = "".join(self.stderr_buffer[-50:])
 
                 if is_koboldcpp_oom_error(error_msg + "\n" + stderr_output):
-                    log_feedback(f"⚠️ RoPE-extended context ({rope_extended_context:,} tokens) caused OOM despite pre-check")
+                    log_feedback(f"⚠️ RoPE-extended context ({format_number(rope_extended_context)} tokens) caused OOM despite pre-check")
                     log_feedback("   Pre-check estimation was incorrect - falling back to VRAM calculation...")
                 else:
                     log_feedback(f"⚠️ Attempt 1 failed (non-OOM): {str(e)[:100]}")
+                    if stderr_output:
+                        # Show last 3 lines of stderr for debugging
+                        last_lines = stderr_output.strip().split('\n')[-3:]
+                        for line in last_lines:
+                            if line.strip():
+                                log_feedback(f"   stderr: {line.strip()[:80]}")
 
                 # Cleanup
                 await self.stop()
@@ -726,7 +749,7 @@ class KoboldCPPProcessManager:
         # ATTEMPT 2: Try Native (if pre-check passed and RoPE didn't fit)
         elif attempt_to_try == "native":
             log_feedback("🚀 Attempt 2: Starting with native context (no RoPE)")
-            log_feedback(f"   Trying: {native_context:,} tokens (architectural limit)")
+            log_feedback(f"   Trying: {format_number(native_context)} tokens (architectural limit)")
 
             try:
                 success = await self.start(
@@ -742,7 +765,7 @@ class KoboldCPPProcessManager:
 
                 if success:
                     log_feedback("✅ Calibration succeeded!")
-                    log_feedback(f"   KoboldCPP started with {native_context:,} tokens (native context without RoPE)")
+                    log_feedback(f"   KoboldCPP started with {format_number(native_context)} tokens (native context without RoPE)")
 
                     # Update cache
                     add_koboldcpp_calibration(
@@ -753,7 +776,8 @@ class KoboldCPPProcessManager:
                         gpu_model=gpu_model,
                         model_size_gb=model_size_gb
                     )
-                    log_feedback(f"💾 Cached calibration point: {free_vram_mb:,}MB → {native_context:,} tokens")
+                    log_feedback(f"💾 Cached calibration point: {format_number(free_vram_mb)}MB → {format_number(native_context)} tokens")
+                    log_feedback(f"   Saved to: {CACHE_FILE}")
 
                     return (True, {
                         "model_size_gb": model_size_gb,
@@ -773,7 +797,7 @@ class KoboldCPPProcessManager:
                     stderr_output = "".join(self.stderr_buffer[-50:])
 
                 if is_koboldcpp_oom_error(error_msg + "\n" + stderr_output):
-                    log_feedback(f"⚠️ Native context ({native_context:,} tokens) caused OOM despite pre-check")
+                    log_feedback(f"⚠️ Native context ({format_number(native_context)} tokens) caused OOM despite pre-check")
                     log_feedback("   Pre-check estimation was incorrect - falling back to VRAM calculation...")
                 else:
                     log_feedback(f"⚠️ Attempt 2 failed (non-OOM): {str(e)[:100]}")
@@ -784,25 +808,40 @@ class KoboldCPPProcessManager:
                 # Fall through to VRAM-calculated context
 
         # ATTEMPT 3: Calculate context from available VRAM (pre-check failed or no native context)
-        log_feedback("🚀 Attempt 3: Calculating context from available VRAM...")
+        # Determine the last attempted context value
+        last_attempted_context = None
+        if attempt_to_try == "rope":
+            last_attempted_context = rope_extended_context
+        elif attempt_to_try == "native":
+            last_attempted_context = native_context
 
-        from aifred.lib.config import KOBOLDCPP_MAX_CONTEXT
-
-        # free_vram_mb is measured BEFORE model load
-        # So subtract model weights + safety margin to get available VRAM for context
+        # Calculate VRAM-based context
         available_context_vram_mb = free_vram_mb - model_size_mb - safety_margin_mb
         vram_calculated_context = int(available_context_vram_mb / mb_per_token)
         vram_calculated_context = max(1024, vram_calculated_context)  # Minimum 1K
 
-        # Cap at KoboldCPP's maximum context size
-        if vram_calculated_context > KOBOLDCPP_MAX_CONTEXT:
-            log_feedback(f"   ⚠️ Calculated context ({vram_calculated_context:,}) exceeds KoboldCPP limit")
-            log_feedback(f"   Capping at maximum: {KOBOLDCPP_MAX_CONTEXT:,} tokens")
-            vram_calculated_context = KOBOLDCPP_MAX_CONTEXT
+        # CRITICAL: Cap by architectural limit (RoPE-extended or native)
+        architectural_max = rope_extended_context if rope_extended_context else native_context
+        if architectural_max and vram_calculated_context > architectural_max:
+            vram_calculated_context = architectural_max
 
-        log_feedback(f"   Calculated context: {vram_calculated_context:,} tokens")
+        # FINAL CHECK: Never exceed KoboldCPP hard limit (llama.cpp: max 262144)
+        from aifred.lib.config import KOBOLDCPP_HARD_MAX_CONTEXT
+        if vram_calculated_context > KOBOLDCPP_HARD_MAX_CONTEXT:
+            vram_calculated_context = KOBOLDCPP_HARD_MAX_CONTEXT
+
+        # SKIP Attempt 3 if it would use the same context as Attempt 1/2
+        # (no point retrying with identical value)
+        if last_attempted_context and vram_calculated_context >= last_attempted_context:
+            log_feedback(f"⏭️ Skipping Attempt 3: VRAM-calc ({format_number(vram_calculated_context)}) ≥ last attempt ({format_number(last_attempted_context)})")
+            log_feedback("   Trying reduced context with 50% reduction instead...")
+            # Reduce to 50% of last attempted for a meaningful retry
+            vram_calculated_context = max(1024, last_attempted_context // 2)
+
+        log_feedback("🚀 Attempt 3: Calculating context from available VRAM...")
+        log_feedback(f"   Calculated context: {format_number(vram_calculated_context)} tokens")
         log_feedback(f"   ({available_context_vram_mb:.0f}MB available / {mb_per_token} MB/token)")
-        log_feedback(f"   (Free: {free_vram_mb:,}MB - Model: {model_size_mb:.0f}MB - Safety: {safety_margin_mb}MB)")
+        log_feedback(f"   (Free: {format_number(free_vram_mb)}MB - Model: {model_size_mb:.0f}MB - Safety: {safety_margin_mb}MB)")
 
         try:
             success = await self.start(
@@ -818,7 +857,7 @@ class KoboldCPPProcessManager:
 
             if success:
                 log_feedback("✅ Calibration succeeded!")
-                log_feedback(f"   KoboldCPP started with {vram_calculated_context:,} tokens")
+                log_feedback(f"   KoboldCPP started with {format_number(vram_calculated_context)} tokens")
 
                 # Update cache
                 add_koboldcpp_calibration(
@@ -829,7 +868,8 @@ class KoboldCPPProcessManager:
                     gpu_model=gpu_model,
                     model_size_gb=model_size_gb
                 )
-                log_feedback(f"💾 Cached calibration point: {free_vram_mb:,}MB → {vram_calculated_context:,} tokens")
+                log_feedback(f"💾 Cached calibration point: {format_number(free_vram_mb)}MB → {format_number(vram_calculated_context)} tokens")
+                log_feedback(f"   Saved to: {CACHE_FILE}")
 
                 return (True, {
                     "model_size_gb": model_size_gb,
@@ -849,7 +889,7 @@ class KoboldCPPProcessManager:
                 stderr_output = "".join(self.stderr_buffer[-50:])
 
             if is_koboldcpp_oom_error(error_msg + "\n" + stderr_output):
-                log_feedback(f"⚠️ VRAM-calculated context ({vram_calculated_context:,} tokens) caused OOM")
+                log_feedback(f"⚠️ VRAM-calculated context ({format_number(vram_calculated_context)} tokens) caused OOM")
                 log_feedback("   Applying fixed safety buffer for final attempt...")
             else:
                 log_feedback(f"⚠️ Attempt 3 failed (non-OOM): {str(e)[:100]}")
@@ -862,7 +902,7 @@ class KoboldCPPProcessManager:
         # ATTEMPT 4: Apply fixed safety buffer
         reduced_context = max(1024, vram_calculated_context - KOBOLDCPP_CONTEXT_SAFETY_TOKENS)
         log_feedback("🚀 Attempt 4: Reduced context with safety buffer")
-        log_feedback(f"   {vram_calculated_context:,} - {KOBOLDCPP_CONTEXT_SAFETY_TOKENS:,} = {reduced_context:,} tokens")
+        log_feedback(f"   {format_number(vram_calculated_context)} - {format_number(KOBOLDCPP_CONTEXT_SAFETY_TOKENS)} = {format_number(reduced_context)} tokens")
 
         try:
             success = await self.start(
@@ -878,7 +918,7 @@ class KoboldCPPProcessManager:
 
             if success:
                 log_feedback("✅ Calibration succeeded with safety buffer!")
-                log_feedback(f"   KoboldCPP started with {reduced_context:,} tokens")
+                log_feedback(f"   KoboldCPP started with {format_number(reduced_context)} tokens")
 
                 # Update cache
                 add_koboldcpp_calibration(
@@ -889,7 +929,8 @@ class KoboldCPPProcessManager:
                     gpu_model=gpu_model,
                     model_size_gb=model_size_gb
                 )
-                log_feedback(f"💾 Cached calibration point: {free_vram_mb:,}MB → {reduced_context:,} tokens")
+                log_feedback(f"💾 Cached calibration point: {format_number(free_vram_mb)}MB → {format_number(reduced_context)} tokens")
+                log_feedback(f"   Saved to: {CACHE_FILE}")
 
                 return (True, {
                     "model_size_gb": model_size_gb,

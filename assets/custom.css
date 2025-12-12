@@ -411,36 +411,48 @@ div em {
    DEBUG CONSOLE & SETTINGS - Responsive Layout
    ============================================================ */
 
-/* Debug Console Grid: Responsive ohne Media Query Breakpoints
-   Verwendet CSS min() für automatisches Umbrechen */
+/* Debug Console Grid: Responsive Layout
+   Desktop: 2 Spalten (Debug flexibel, Settings 380-460px)
+   Mobile (<700px): 1 Spalte, volle Breite */
 .debug-settings-grid {
     display: grid !important;
-    /* Desktop: 2 Spalten (Debug flexibel, Settings 320-400px)
-       Mobile: Automatisch 1 Spalte wenn zu schmal */
     grid-template-columns: 1fr minmax(380px, 460px) !important;
     gap: 1rem !important;
 }
 
-/* Fallback: Wenn Grid-Items zu schmal werden → Stack */
-@supports (container-type: inline-size) {
-    .debug-settings-container {
-        container-type: inline-size;
-    }
-
-    @container (max-width: 650px) {
-        .debug-settings-grid {
-            grid-template-columns: 1fr !important;
-        }
+/* Mobile: Stack layout (1 Spalte) */
+@media (max-width: 700px) {
+    .debug-settings-grid {
+        grid-template-columns: 1fr !important;
     }
 }
 
-/* Debug Console: Mindestbreite damit sie nicht schrumpft bei wenig Content */
+/* Debug Console: Volle Breite im Container + Zeilenumbruch */
 #debug-console-box {
-    min-width: 100%;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
 }
 
-/* Accordion Items: Volle Breite im Container */
+/* Debug Console Inhalt: Zeilenumbruch mit Hanging Indent
+   Folgezeilen werden eingerückt, sodass sie unter dem Text-Inhalt
+   (nach Timestamp "HH:MM:SS | " + Emoji) beginnen, nicht am linken Rand
+   Format: "21:22:24 | 🔧 " = ca. 14 Zeichen */
+#debug-console-box .rt-Text,
+#debug-console-box p {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    max-width: 100%;
+    /* Hanging Indent: Erste Zeile normal, Folgezeilen eingerückt */
+    padding-left: 14ch;       /* Einrückung für Folgezeilen (14 Zeichen) */
+    text-indent: -14ch;       /* Erste Zeile zurück nach links */
+}
+
+/* Settings Accordion: Volle Breite, aber nicht über Container hinaus */
 .rt-AccordionRoot {
     width: 100%;
-    min-width: 0;  /* Erlaubt Schrumpfen des Textes, nicht der Box */
+    min-width: 0;
+    max-width: 100%;
 }

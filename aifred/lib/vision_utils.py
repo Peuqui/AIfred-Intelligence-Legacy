@@ -105,16 +105,17 @@ async def is_vision_model(state, model_name: str) -> bool:
         # === KOBOLDCPP: Check GGUF metadata ===
         elif backend_type == "koboldcpp":
             from .gguf_utils import find_all_gguf_models
-            from .gguf_utils_vision import get_gguf_architecture, is_vision_language_model
+            from .gguf_utils_vision import is_vision_language_model
 
             # Find GGUF file for this model
             gguf_models = find_all_gguf_models()
             for gguf_model in gguf_models:
                 # Match model name (case-insensitive, partial match)
                 if gguf_model.name.lower() in model_name.lower() or model_name.lower() in gguf_model.name.lower():
-                    arch = get_gguf_architecture(gguf_model.path)
-                    if arch and is_vision_language_model(arch):
-                        logger.info(f"✅ Vision model detected (GGUF): {model_name} has architecture '{arch}'")
+                    # Read multiple GGUF metadata fields for comprehensive vision detection
+                    arch, tags, name = _get_gguf_vision_metadata(gguf_model.path)
+                    if is_vision_language_model(arch, tags=tags, name=name):
+                        logger.info(f"✅ Vision model detected (GGUF): {model_name} (arch={arch}, tags={tags}, name={name})")
                         return True
 
         # === vLLM/TabbyAPI: Check HuggingFace config.json ===
@@ -183,6 +184,53 @@ async def is_vision_model(state, model_name: str) -> bool:
         if backend_type == "ollama":
             return False  # Ollama API failed = assume not vision
         return _is_vision_model_by_name(model_name)
+
+
+def _get_gguf_vision_metadata(gguf_path: Path) -> tuple:
+    """
+    Extract vision-relevant metadata from GGUF file.
+
+    Args:
+        gguf_path: Path to GGUF model file
+
+    Returns:
+        Tuple of (architecture, tags, name) - any can be None if not found
+    """
+    try:
+        import gguf
+
+        with open(gguf_path, "rb") as f:
+            reader = gguf.GGUFReader(f)
+
+            architecture = None
+            tags = None
+            name = None
+
+            for field in reader.fields.values():
+                try:
+                    value_array = field.parts[-1]
+                    if hasattr(value_array, 'tobytes'):
+                        value = value_array.tobytes().decode('utf-8', errors='ignore').strip('\x00')
+                    else:
+                        value = str(value_array)
+
+                    if field.name == 'general.architecture':
+                        architecture = value
+                    elif field.name == 'general.tags':
+                        tags = value
+                    elif field.name == 'general.name':
+                        name = value
+                except Exception:
+                    continue
+
+            return architecture, tags, name
+
+    except ImportError:
+        logger.warning("gguf-py library not installed")
+        return None, None, None
+    except Exception as e:
+        logger.warning(f"Error reading GGUF metadata from {gguf_path}: {e}")
+        return None, None, None
 
 
 def _is_vision_model_by_name(model_name: str) -> bool:

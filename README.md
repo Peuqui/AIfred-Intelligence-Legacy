@@ -4,7 +4,7 @@
 
 # 🤖 AIfred Intelligence - Advanced AI Assistant
 
-**Production-Ready AI Assistant with Multi-LLM Support, Web Research & Voice Interface**
+**AI Assistant with Multi-LLM Support, Web Research & Voice Interface**
 
 AIfred Intelligence is an advanced AI assistant with automatic web research, multi-model support, and history compression for unlimited conversations.
 
@@ -12,7 +12,26 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ## 📋 What's New
 
-**Latest Version:** v2.6.0 (2025-12-07)
+**Latest Version:** v2.7.2 (2025-12-12)
+
+### 👥 Multi-User Support + Package Updates (v2.7.2)
+
+**Multi-user concurrent requests now properly queued.** Python dependencies updated to latest versions.
+
+Key highlights:
+- 👥 **KoboldCPP Multi-User Mode**: `--multiuser 5` parameter added for proper request queuing
+- 📦 **Package Updates**: reflex 0.8.22, openai 2.11.0, chromadb 1.3.7, fastapi 0.124.4, transformers 4.57.3
+- 🐳 **ChromaDB Docker**: Updated to latest image
+- 🔧 **huggingface-hub Compatibility**: Fixed version conflict with transformers
+- 🐛 **GGUF Auto-Scan**: Models now auto-scanned on service restart (fixes "model not found" error)
+
+### 🌐 HTML Preview Button (v2.7.1)
+
+**AI-generated HTML code can now be opened directly in the browser.**
+
+Key highlights:
+- 🌐 **Browser Preview**: `html` code blocks get automatic "Open in Browser" link
+- 🧹 **Auto-Cleanup**: HTML preview files older than 24h are automatically deleted
 
 ### 📷 Sequential Image Processing + Session Persistence (v2.6.0)
 
@@ -1258,5 +1277,5 @@ MIT License - see [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.6.0 (December 2025)
+**Version**: 2.7.2 (December 2025)
 **Status**: Production-Ready 🚀

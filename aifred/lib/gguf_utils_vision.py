@@ -61,15 +61,19 @@ def get_gguf_architecture(gguf_path: Path) -> Optional[str]:
         return None
 
 
-def is_vision_language_model(architecture: str) -> bool:
+def is_vision_language_model(architecture: str, tags: str = None, name: str = None) -> bool:
     """
-    Determine if architecture is a Vision-Language Model.
+    Determine if model is a Vision-Language Model using multiple GGUF metadata fields.
 
-    Vision-Language Models require more VRAM for KV cache due to
-    vision encoder outputs (2.6x more than text-only models).
+    Checks (in order):
+    1. general.architecture - for vision-specific architectures (qwen3vl, mllama, etc.)
+    2. general.tags - for "image-text-to-text" or similar vision tags
+    3. general.name - for "V" suffix indicating vision capability (e.g. GLM-4.6V)
 
     Args:
         architecture: Model architecture string from GGUF (general.architecture)
+        tags: Optional tags from GGUF (general.tags)
+        name: Optional model name from GGUF (general.name)
 
     Returns:
         True if VLM, False if text-only LLM
@@ -77,67 +81,88 @@ def is_vision_language_model(architecture: str) -> bool:
     Example:
         >>> is_vision_language_model("qwen3vlmoe")
         True
+        >>> is_vision_language_model("glm4", tags="image-text-to-text")
+        True
+        >>> is_vision_language_model("glm4", name="GLM-4.6V-Flash")
+        True
         >>> is_vision_language_model("qwen3moe")
         False
-        >>> is_vision_language_model("mllama")
-        True
-        >>> is_vision_language_model("llava")
-        True
 
     Note:
         Pattern list based on 2024/2025 GGUF VLM landscape.
-        GGUF architecture names are often lowercase without separators.
     """
-    if not architecture:
-        return False
+    # Check 1: Architecture-based detection
+    if architecture:
+        arch_lower = architecture.lower()
 
-    arch_lower = architecture.lower()
+        # Comprehensive list of GGUF Vision-Language Model architectures (2024/2025)
+        vision_architectures = [
+            # === Generic markers ===
+            'vl', 'vision', 'visual', 'vlm',
 
-    # Comprehensive list of GGUF Vision-Language Model architectures (2024/2025)
-    # These are the values found in general.architecture GGUF metadata
-    vision_architectures = [
-        # === Generic markers ===
-        'vl', 'vision', 'visual', 'vlm',
+            # === Qwen Vision ===
+            'qwen2vl', 'qwen3vl',  # qwen2vlmoe, qwen3vlmoe etc.
 
-        # === Qwen Vision ===
-        'qwen2vl', 'qwen3vl',  # qwen2vlmoe, qwen3vlmoe etc.
+            # === LLaVA Family ===
+            'llava', 'llavanext',
 
-        # === LLaVA Family ===
-        'llava', 'llavanext',
+            # === Meta LLaMA Vision ===
+            'mllama',  # LLaMA 3.2 Vision uses "mllama" architecture
 
-        # === Meta LLaMA Vision ===
-        'mllama',  # LLaMA 3.2 Vision uses "mllama" architecture
+            # === Google/Gemma Vision ===
+            'paligemma', 'gemma3',
 
-        # === Google/Gemma Vision ===
-        'paligemma', 'gemma3',
+            # === Mistral Vision ===
+            'pixtral',
 
-        # === Mistral Vision ===
-        'pixtral',
+            # === DeepSeek Vision ===
+            'deepseek_vl', 'janus',
 
-        # === DeepSeek Vision ===
-        'deepseek_vl', 'janus',
+            # === InternLM/InternVL ===
+            'internvl', 'internlm',
 
-        # === InternLM/InternVL ===
-        'internvl', 'internlm',
+            # === CogVLM ===
+            'cogvlm',
 
-        # === CogVLM ===
-        'cogvlm',
+            # === MiniCPM Vision ===
+            'minicpm',
 
-        # === MiniCPM Vision ===
-        'minicpm',
+            # === Microsoft Vision ===
+            'phi3v', 'florence',
 
-        # === Microsoft Vision ===
-        'phi3v', 'florence',
+            # === Others ===
+            'moondream', 'idefics', 'kosmos',
+            'molmo', 'cambrian',
 
-        # === Others ===
-        'moondream', 'idefics', 'kosmos',
-        'molmo', 'cambrian',
+            # === CLIP-based (Vision Encoder) ===
+            'clip',
+        ]
 
-        # === CLIP-based (Vision Encoder) ===
-        'clip',
-    ]
+        if any(marker in arch_lower for marker in vision_architectures):
+            return True
 
-    return any(marker in arch_lower for marker in vision_architectures)
+    # Check 2: Tags-based detection (e.g. "image-text-to-text")
+    if tags:
+        vision_tags = ['image-text-to-text', 'vision', 'multimodal', 'vlm']
+        if any(vt in tags.lower() for vt in vision_tags):
+            return True
+
+    # Check 3: Name-based detection (e.g. "GLM-4.6V", "Qwen2-VL")
+    if name:
+        import re
+        # Matches: -V-, -VL, .V, V-Flash, etc. but not just any V in the name
+        vision_name_patterns = [
+            r'[-.]V[-.]',      # -V- or .V.
+            r'[-.]V$',         # ends with -V or .V
+            r'[-.]VL',         # -VL or .VL
+            r'V-Flash',        # V-Flash (GLM style)
+            r'[-.]Vision',     # -Vision
+        ]
+        for pattern in vision_name_patterns:
+            if re.search(pattern, name, re.IGNORECASE):
+                return True
+
+    return False
 
 
 def get_kv_cache_mb_per_token(architecture: str, quantization: str) -> float:
