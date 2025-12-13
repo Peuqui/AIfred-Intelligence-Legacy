@@ -271,6 +271,7 @@ class KoboldCPPBackend(LLMBackend):
             Dict with either:
             - {"type": "content", "text": str} for content chunks
             - {"type": "done", "metrics": {...}} for final metrics
+            - {"type": "debug", "message": str} for queue notification (if waiting)
         """
         # CRITICAL: Ensure server is running BEFORE API call (auto-restart if needed)
         await self._ensure_server_running()
@@ -278,6 +279,8 @@ class KoboldCPPBackend(LLMBackend):
         # Multi-User Lock: Warten wenn andere Inferenz läuft
         if _koboldcpp_request_lock.locked():
             log_message("⏳ In Warteschlange - andere Inferenz läuft...")
+            # Yield debug message for UI console
+            yield {"type": "debug", "message": "⏳ In Warteschlange - andere Inferenz läuft..."}
 
         async with _koboldcpp_request_lock:
             if options is None:
