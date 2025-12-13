@@ -29,9 +29,15 @@ from aifred.lib.logging_utils import log_message
 
 logger = logging.getLogger(__name__)
 
-# Global Lock für Request-Serialisierung (Multi-User Support)
-# KoboldCPP kann nur eine Inferenz gleichzeitig - ohne Lock hängt der Server
-_koboldcpp_request_lock = asyncio.Lock()
+# NOTE: Python asyncio.Lock removed - KoboldCPP handles queuing internally via --multiuser 5
+# The Python Lock caused deadlocks when async generators were not fully consumed.
+# KoboldCPP's native queue is more robust and doesn't suffer from async generator lifecycle issues.
+#
+# For GPU inactivity monitoring, we now check KoboldCPP's queue status directly via /api/extra/perf
+
+# Dummy lock for backwards compatibility with state.py inactivity monitor
+# This is a simple flag that tracks if any request is in progress
+_koboldcpp_request_active = False
 
 
 class KoboldCPPBackend(LLMBackend):
@@ -187,71 +193,69 @@ class KoboldCPPBackend(LLMBackend):
         # CRITICAL: Ensure server is running BEFORE API call (auto-restart if needed)
         await self._ensure_server_running()
 
-        # Multi-User Lock: Warten wenn andere Inferenz läuft
-        if _koboldcpp_request_lock.locked():
-            log_message("⏳ In Warteschlange - andere Inferenz läuft...")
+        # NOTE: No Python lock needed - KoboldCPP handles queuing via --multiuser 5
+        # The server queues up to 5 concurrent requests and processes them sequentially
 
-        async with _koboldcpp_request_lock:
-            if options is None:
-                options = LLMOptions()
+        if options is None:
+            options = LLMOptions()
 
-            # Convert LLMMessage to OpenAI format
-            openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+        # Convert LLMMessage to OpenAI format
+        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
-            # Build kwargs
-            kwargs = {
-                "model": model,
-                "messages": openai_messages,
-                "temperature": options.temperature,
-                "top_p": options.top_p,
-                "stream": False
-            }
+        # Build kwargs
+        kwargs = {
+            "model": model,
+            "messages": openai_messages,
+            "temperature": options.temperature,
+            "top_p": options.top_p,
+            "stream": False
+        }
 
-            # KoboldCPP-specific parameters (via extra_body)
-            extra_body: Dict[str, Any] = {}
-            if options.repeat_penalty and options.repeat_penalty != 1.0:
-                extra_body["repetition_penalty"] = options.repeat_penalty
-            if options.top_k and options.top_k != 40:
-                extra_body["top_k"] = options.top_k
-            if options.num_predict:
-                kwargs["max_tokens"] = options.num_predict
+        # KoboldCPP-specific parameters (via extra_body)
+        extra_body: Dict[str, Any] = {}
+        if options.repeat_penalty and options.repeat_penalty != 1.0:
+            extra_body["repetition_penalty"] = options.repeat_penalty
+        if options.top_k and options.top_k != 40:
+            extra_body["top_k"] = options.top_k
+        if options.num_predict:
+            kwargs["max_tokens"] = options.num_predict
 
-            if extra_body:
-                kwargs["extra_body"] = extra_body
-                logger.info(f"📦 extra_body: {extra_body}")
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+            logger.info(f"📦 extra_body: {extra_body}")
 
-            try:
-                start_time = time.time()
-                response = await self.client.chat.completions.create(**kwargs)
-                inference_time = time.time() - start_time
+        try:
+            start_time = time.time()
+            response = await self.client.chat.completions.create(**kwargs)
+            inference_time = time.time() - start_time
 
-                choice = response.choices[0]
-                text = choice.message.content
+            choice = response.choices[0]
+            text = choice.message.content
 
-                # Extract usage info
-                usage = response.usage
-                tokens_prompt = usage.prompt_tokens if usage else 0
-                tokens_generated = usage.completion_tokens if usage else 0
+            # Extract usage info
+            usage = response.usage
+            tokens_prompt = usage.prompt_tokens if usage else 0
+            tokens_generated = usage.completion_tokens if usage else 0
 
-                tokens_per_second = (tokens_generated / inference_time) if inference_time > 0 else 0
+            tokens_per_second = (tokens_generated / inference_time) if inference_time > 0 else 0
 
-                # NOTE: No manual activity recording needed - GPU monitor tracks automatically
+            # NOTE: No manual activity recording needed - GPU monitor tracks automatically
 
-                return LLMResponse(
-                    text=text,
-                    tokens_prompt=tokens_prompt,
-                    tokens_generated=tokens_generated,
-                    tokens_per_second=tokens_per_second,
-                    inference_time=inference_time,
-                    model=model
-                )
+            return LLMResponse(
+                text=text,
+                tokens_prompt=tokens_prompt,
+                tokens_generated=tokens_generated,
+                tokens_per_second=tokens_per_second,
+                inference_time=inference_time,
+                model=model
+            )
 
-            except Exception as e:
-                error_str = str(e)
-                if "model" in error_str.lower() and "not found" in error_str.lower():
-                    raise BackendModelNotFoundError(f"Model '{model}' not found in KoboldCPP")
-                else:
-                    raise BackendInferenceError(f"KoboldCPP inference failed: {e}")
+        except Exception as e:
+            error_str = str(e)
+            if "model" in error_str.lower() and "not found" in error_str.lower():
+                raise BackendModelNotFoundError(f"Model '{model}' not found in KoboldCPP")
+            else:
+                raise BackendInferenceError(f"KoboldCPP inference failed: {e}")
 
     async def chat_stream(
         self,
@@ -276,84 +280,80 @@ class KoboldCPPBackend(LLMBackend):
         # CRITICAL: Ensure server is running BEFORE API call (auto-restart if needed)
         await self._ensure_server_running()
 
-        # Multi-User Lock: Warten wenn andere Inferenz läuft
-        if _koboldcpp_request_lock.locked():
-            log_message("⏳ In Warteschlange - andere Inferenz läuft...")
-            # Yield debug message for UI console
-            yield {"type": "debug", "message": "⏳ In Warteschlange - andere Inferenz läuft..."}
+        # NOTE: No Python lock needed - KoboldCPP handles queuing via --multiuser 5
+        # The server queues up to 5 concurrent requests and processes them sequentially
 
-        async with _koboldcpp_request_lock:
-            if options is None:
-                options = LLMOptions()
+        if options is None:
+            options = LLMOptions()
 
-            # Convert messages
-            openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+        # Convert messages
+        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
-            # Build kwargs
-            kwargs = {
-                "model": model,
-                "messages": openai_messages,
-                "temperature": options.temperature,
-                "top_p": options.top_p,
-                "stream": True,
-                "stream_options": {"include_usage": True}  # Request usage stats in stream
+        # Build kwargs
+        kwargs = {
+            "model": model,
+            "messages": openai_messages,
+            "temperature": options.temperature,
+            "top_p": options.top_p,
+            "stream": True,
+            "stream_options": {"include_usage": True}  # Request usage stats in stream
+        }
+
+        # KoboldCPP-specific parameters
+        extra_body: Dict[str, Any] = {}
+        if options.repeat_penalty and options.repeat_penalty != 1.0:
+            extra_body["repetition_penalty"] = options.repeat_penalty
+        if options.top_k and options.top_k != 40:
+            extra_body["top_k"] = options.top_k
+        if options.num_predict:
+            kwargs["max_tokens"] = options.num_predict
+
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+            logger.info(f"📦 extra_body: {extra_body}")
+
+        try:
+            start_time = time.time()
+            stream = await self.client.chat.completions.create(**kwargs)
+
+            total_tokens = 0
+            prompt_tokens = 0
+
+            async for chunk in stream:
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        yield {"type": "content", "text": delta.content}
+                        total_tokens += 1  # Rough estimate
+
+                # Check for usage info (sent at the end by OpenAI-compatible APIs)
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    prompt_tokens = chunk.usage.prompt_tokens
+                    total_tokens = chunk.usage.completion_tokens
+
+            # Final metrics
+            inference_time = time.time() - start_time
+            tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
+
+            # NOTE: No manual activity recording needed - GPU monitor tracks automatically
+
+            yield {
+                "type": "done",
+                "metrics": {
+                    "tokens_prompt": prompt_tokens,
+                    "tokens_generated": total_tokens,
+                    "tokens_per_second": tokens_per_second,
+                    "inference_time": inference_time,
+                    "model": model
+                }
             }
 
-            # KoboldCPP-specific parameters
-            extra_body: Dict[str, Any] = {}
-            if options.repeat_penalty and options.repeat_penalty != 1.0:
-                extra_body["repetition_penalty"] = options.repeat_penalty
-            if options.top_k and options.top_k != 40:
-                extra_body["top_k"] = options.top_k
-            if options.num_predict:
-                kwargs["max_tokens"] = options.num_predict
-
-            if extra_body:
-                kwargs["extra_body"] = extra_body
-                logger.info(f"📦 extra_body: {extra_body}")
-
-            try:
-                start_time = time.time()
-                stream = await self.client.chat.completions.create(**kwargs)
-
-                total_tokens = 0
-                prompt_tokens = 0
-
-                async for chunk in stream:
-                    if chunk.choices:
-                        delta = chunk.choices[0].delta
-                        if delta.content:
-                            yield {"type": "content", "text": delta.content}
-                            total_tokens += 1  # Rough estimate
-
-                    # Check for usage info (sent at the end by OpenAI-compatible APIs)
-                    if hasattr(chunk, 'usage') and chunk.usage:
-                        prompt_tokens = chunk.usage.prompt_tokens
-                        total_tokens = chunk.usage.completion_tokens
-
-                # Final metrics
-                inference_time = time.time() - start_time
-                tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
-
-                # NOTE: No manual activity recording needed - GPU monitor tracks automatically
-
-                yield {
-                    "type": "done",
-                    "metrics": {
-                        "tokens_prompt": prompt_tokens,
-                        "tokens_generated": total_tokens,
-                        "tokens_per_second": tokens_per_second,
-                        "inference_time": inference_time,
-                        "model": model
-                    }
-                }
-
-            except Exception as e:
-                error_str = str(e)
-                if "model" in error_str.lower() and "not found" in error_str.lower():
-                    raise BackendModelNotFoundError(f"Model '{model}' not found")
-                else:
-                    raise BackendInferenceError(f"KoboldCPP streaming failed: {e}")
+        except Exception as e:
+            error_str = str(e)
+            if "model" in error_str.lower() and "not found" in error_str.lower():
+                raise BackendModelNotFoundError(f"Model '{model}' not found")
+            else:
+                raise BackendInferenceError(f"KoboldCPP streaming failed: {e}")
 
     async def health_check(self) -> bool:
         """Check if KoboldCPP is reachable"""

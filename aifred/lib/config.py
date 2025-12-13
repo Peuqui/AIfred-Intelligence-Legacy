@@ -330,6 +330,25 @@ KOBOLDCPP_ROPE_SCALING_FACTOR = 1.5  # Conservative 1.5x for good quality/capaci
 KOBOLDCPP_HARD_MAX_CONTEXT = 262144  # Maximum allowed by KoboldCPP CLI
 
 # ============================================================
+# KOBOLDCPP QUANTKV CONFIGURATION
+# ============================================================
+# KV-Cache Quantization Level (--quantkv parameter)
+# Reduces VRAM usage for large context windows
+#
+# Options:
+#   0 = FP16 (no quantization, 100% VRAM, best quality)
+#   1 = Q8   (8-bit quantization, ~50% VRAM savings, minimal quality loss)
+#   2 = Q4   (4-bit quantization, ~75% VRAM savings, slight quality loss)
+#
+# NOTE: quantkv=2 has a known deadlock bug on multi-GPU setups with
+# flashattention enabled after 2-3 large requests. Use quantkv=1 for stability.
+#
+# Recommended:
+#   - Single GPU: quantkv=2 (max VRAM savings)
+#   - Multi-GPU (2x P40): quantkv=1 (stability, confirmed working with 262k context)
+KOBOLDCPP_QUANTKV = 1  # Q8 quantization - stable on multi-GPU, ~50% VRAM savings
+
+# ============================================================
 # KOBOLDCPP INACTIVITY AUTO-SHUTDOWN (Rolling Window)
 # ============================================================
 # Automatically shutdown KoboldCPP after inactivity period to save power (~100W idle)
