@@ -5,6 +5,28 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.5] - 2025-12-13
+
+### 🔧 Automatik-Tasks: Thinking immer deaktiviert
+
+**User-Toggle für Thinking gilt nur noch für Haupt-LLM, nicht für Automatik-Tasks.**
+
+#### Fixed
+
+- **Automatik-Tasks ignorieren jetzt User-Toggle** ([query_optimizer.py:89-91](aifred/lib/query_optimizer.py#L89-L91), [intent_detector.py:78-79](aifred/lib/intent_detector.py#L78-L79), [conversation_handler.py:1454-1455](aifred/lib/conversation_handler.py#L1454-L1455)):
+  - Query-Optimierung, Intent-Detection und Automatik-Entscheidungen laufen immer mit `enable_thinking: False`
+  - Vorher: User-Toggle überschrieb Default, was zu unnötig langen Antwortzeiten führte
+  - Jetzt: Automatik-Tasks sind konsistent schnell, unabhängig von User-Einstellung
+  - Haupt-LLM respektiert weiterhin den User-Toggle
+
+#### Betroffene Dateien
+
+- `aifred/lib/query_optimizer.py` - Zeilen 89-91
+- `aifred/lib/intent_detector.py` - Zeilen 78-79, 139-140
+- `aifred/lib/conversation_handler.py` - Zeilen 1454-1455
+
+---
+
 ## [2.7.4] - 2025-12-13
 
 ### 🔧 Multi-Session Deadlock Fix (QuantKV + Native Queue)

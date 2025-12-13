@@ -1451,12 +1451,8 @@ async def chat_interactive_mode(
                     'enable_thinking': False  # Default: Fast decisions without reasoning
                 }
 
-                # Use user's enable_thinking toggle if explicitly set
-                if llm_options and 'enable_thinking' in llm_options:
-                    automatik_options['enable_thinking'] = llm_options['enable_thinking']
-                    log_message(f"🧠 Decision enable_thinking: {llm_options['enable_thinking']} (from user toggle)")
-                else:
-                    log_message("🧠 Decision enable_thinking: False (default - fast decision mode)")
+                # Automatik-Tasks: Thinking ist IMMER aus (unabhängig vom User-Toggle)
+                log_message("🧠 Decision enable_thinking: False (Automatik-Task)")
 
                 # Convert decision messages to LLMMessage objects
                 from ..backends.base import LLMMessage
