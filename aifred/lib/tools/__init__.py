@@ -31,7 +31,7 @@ from .scraper_tool import WebScraperTool
 from .context_builder import build_context
 
 # Registry and wrappers
-from .registry import ToolRegistry, get_tool_registry, search_web, scrape_webpage
+from .registry import ToolRegistry, get_tool_registry, search_web, search_web_multi, scrape_webpage
 
 __all__ = [
     # Base
@@ -54,5 +54,6 @@ __all__ = [
     'ToolRegistry',
     'get_tool_registry',
     'search_web',
+    'search_web_multi',
     'scrape_webpage',
 ]

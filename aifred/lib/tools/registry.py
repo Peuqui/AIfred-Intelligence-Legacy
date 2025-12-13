@@ -62,10 +62,31 @@ def get_tool_registry() -> ToolRegistry:
 def search_web(query: str) -> Dict:
     """
     Convenience-Funktion für Web-Suche mit Multi-API Fallback
+    (Legacy: Einzelne Query an ALLE APIs parallel)
     """
     registry = get_tool_registry()
     search_tool = registry.get("Multi-API Search")
     return search_tool.execute(query)
+
+
+def search_web_multi(queries: List[str]) -> Dict:
+    """
+    Multi-Query Web-Suche: Verteilt Queries auf verschiedene APIs
+
+    Jede Query wird an eine andere API gesendet (1:1 Mapping):
+    - Query 1 → Tavily (Primary)
+    - Query 2 → Brave
+    - Query 3 → SearXNG
+
+    Args:
+        queries: Liste von optimierten Suchanfragen
+
+    Returns:
+        Dict mit aggregierten URLs von allen Queries
+    """
+    registry = get_tool_registry()
+    search_tool = registry.get("Multi-API Search")
+    return search_tool.execute_multi_query(queries)
 
 
 def scrape_webpage(url: str) -> Dict:

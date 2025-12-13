@@ -206,12 +206,34 @@ class VectorCache:
                     'distance': distance
                 }
 
+        # Parse sources and failed_sources from JSON if available
+        cached_sources = []
+        failed_sources = []
+        if source == 'CACHE' and metadata:
+            import json
+            # Parse successful sources
+            sources_json = metadata.get('sources_json', '')
+            if sources_json:
+                try:
+                    cached_sources = json.loads(sources_json)
+                except (json.JSONDecodeError, TypeError):
+                    cached_sources = []
+            # Parse failed sources
+            failed_json = metadata.get('failed_sources_json', '')
+            if failed_json:
+                try:
+                    failed_sources = json.loads(failed_json)
+                except (json.JSONDecodeError, TypeError):
+                    failed_sources = []
+
         return {
             'source': source,
             'confidence': confidence,
             'distance': distance,
             'answer': answer,
-            'metadata': metadata if source == 'CACHE' else None
+            'metadata': metadata if source == 'CACHE' else None,
+            'cached_sources': cached_sources,  # Parsed list of successful source URLs
+            'failed_sources': failed_sources  # Parsed list of failed URLs
         }
 
     async def query_newest(self, user_query: str, n_results: int = 5) -> Dict:
@@ -328,12 +350,34 @@ class VectorCache:
                     'distance': distance
                 }
 
+            # Parse sources and failed_sources from JSON if available
+            cached_sources = []
+            failed_sources = []
+            if source == 'CACHE':
+                import json
+                # Parse successful sources
+                sources_json = metadata.get('sources_json', '')
+                if sources_json:
+                    try:
+                        cached_sources = json.loads(sources_json)
+                    except (json.JSONDecodeError, TypeError):
+                        cached_sources = []
+                # Parse failed sources
+                failed_json = metadata.get('failed_sources_json', '')
+                if failed_json:
+                    try:
+                        failed_sources = json.loads(failed_json)
+                    except (json.JSONDecodeError, TypeError):
+                        failed_sources = []
+
             return {
                 'source': source,
                 'confidence': confidence,
                 'distance': distance,
                 'answer': answer,
-                'metadata': metadata if source == 'CACHE' else None
+                'metadata': metadata if source == 'CACHE' else None,
+                'cached_sources': cached_sources,  # Parsed list of successful source URLs
+                'failed_sources': failed_sources  # Parsed list of failed URLs
             }
         else:
             # No similar queries found (distance >= CACHE_DISTANCE_DUPLICATE)
@@ -349,6 +393,7 @@ class VectorCache:
         query: str,
         answer: str,
         sources: List[Dict],
+        failed_sources: Optional[List[Dict]] = None,
         metadata: Optional[Dict] = None
     ) -> Dict:
         """
@@ -362,6 +407,7 @@ class VectorCache:
             query: User's question
             answer: Generated answer (full text, no truncation)
             sources: List of scraped sources with 'url' keys
+            failed_sources: List of failed scraping attempts with 'url' and 'error' keys
             metadata: Additional metadata (optional)
 
         Returns:
@@ -371,6 +417,8 @@ class VectorCache:
             - total_entries: Total cache entries after addition/update
             - error: Error message (if failed)
         """
+        failed_sources = failed_sources or []
+
         # Duplicate check: Query if very similar entry exists
         # Use query_newest to check for semantic duplicates (from config)
         existing = await self.query_newest(query, n_results=5)
@@ -385,7 +433,7 @@ class VectorCache:
                 # Delete old entry and save new one (ChromaDB has no "update" operation)
                 return await asyncio.to_thread(
                     self._update_sync,
-                    old_id, query, answer, sources, metadata
+                    old_id, query, answer, sources, failed_sources, metadata
                 )
             else:
                 # No ID found, fallback to save as new entry
@@ -395,7 +443,7 @@ class VectorCache:
         # No duplicate, proceed with save
         return await asyncio.to_thread(
             self._add_sync,
-            query, answer, sources, metadata
+            query, answer, sources, failed_sources, metadata
         )
 
     def _add_sync(
@@ -403,6 +451,7 @@ class VectorCache:
         query: str,
         answer: str,
         sources: List[Dict],
+        failed_sources: List[Dict],
         metadata: Optional[Dict] = None
     ) -> Dict:
         """
@@ -411,6 +460,7 @@ class VectorCache:
         # Build metadata (ChromaDB only supports str, int, float, bool)
         # Store answer in metadata since it can be large
         source_urls = [s.get('url', 'N/A')[:100] for s in sources[:3]]  # Max 3 URLs
+        failed_urls = [f.get('url', 'N/A')[:100] for f in failed_sources[:5]]  # Max 5 failed URLs
 
         # Generate unique ID
         entry_id = str(uuid.uuid4())
@@ -424,13 +474,27 @@ class VectorCache:
         else:
             expires_at = None  # PERMANENT = no expiry
 
+        # Build sources JSON (store full info for UI display)
+        import json
+        sources_data = [
+            {'url': s.get('url', ''), 'title': s.get('title', '')}
+            for s in sources[:10]  # Max 10 successful sources
+        ]
+        failed_sources_data = [
+            {'url': f.get('url', ''), 'error': f.get('error', 'Unknown')}
+            for f in failed_sources[:5]  # Max 5 failed sources
+        ]
+
         cache_metadata = {
             'id': entry_id,  # Store ID in metadata for later updates
             'timestamp': datetime.now().isoformat(),
             'volatility': volatility,  # DAILY/WEEKLY/MONTHLY/PERMANENT
             'expires_at': expires_at or 'None',  # ISO timestamp or 'None'
             'num_sources': len(sources),
-            'source_urls': ', '.join(source_urls),
+            'source_urls': ', '.join(source_urls),  # Legacy: comma-separated (truncated)
+            'sources_json': json.dumps(sources_data) if sources_data else '',  # NEW: Full JSON
+            'num_failed': len(failed_sources),
+            'failed_sources_json': json.dumps(failed_sources_data) if failed_sources_data else '',
             'answer': answer,  # Store full answer in metadata
             'mode': (metadata or {}).get('mode', 'unknown')
         }
@@ -469,6 +533,7 @@ class VectorCache:
         query: str,
         answer: str,
         sources: List[Dict],
+        failed_sources: List[Dict],
         metadata: Optional[Dict] = None
     ) -> Dict:
         """
@@ -480,7 +545,7 @@ class VectorCache:
             log_message(f"🗑️ Deleted old cache entry (id={old_id})")
 
             # Add new entry with updated data
-            return self._add_sync(query, answer, sources, metadata)
+            return self._add_sync(query, answer, sources, failed_sources, metadata)
 
         except Exception as e:
             log_message(f"⚠️ Vector Cache update failed: {e}")

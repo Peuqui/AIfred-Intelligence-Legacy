@@ -434,3 +434,151 @@ class MultiAPISearchTool(BaseTool):
             }
         }
 
+    def execute_multi_query(self, queries: List[str], **kwargs) -> Dict:
+        """
+        Verteilt mehrere Queries auf verfügbare APIs (1:1 Mapping)
+
+        Query 1 → API 1 (Tavily)
+        Query 2 → API 2 (Brave)
+        Query 3 → API 3 (SearXNG)
+
+        Falls mehr Queries als APIs: Round-Robin (Query 4 → API 1, etc.)
+        Falls weniger Queries als APIs: Nur die ersten N APIs werden genutzt
+
+        Args:
+            queries: Liste von Such-Queries (1-3 typischerweise)
+
+        Returns:
+            Dict mit aggregierten Ergebnissen und detaillierten Stats
+        """
+        if not queries:
+            logger.error("❌ Keine Queries übergeben!")
+            return {
+                'success': False,
+                'source': 'Multi-API Search (Multi-Query)',
+                'queries': [],
+                'related_urls': [],
+                'error': 'Keine Queries übergeben'
+            }
+
+        if not self.apis:
+            logger.error("❌ Keine Search APIs konfiguriert!")
+            return {
+                'success': False,
+                'source': 'Multi-API Search (Multi-Query)',
+                'queries': queries,
+                'related_urls': [],
+                'error': 'Keine Search APIs verfügbar'
+            }
+
+        num_queries = len(queries)
+        num_apis = len(self.apis)
+
+        logger.info(f"🚀 Multi-Query Search: {num_queries} Queries → {num_apis} APIs")
+
+        # Erstelle Query-API Zuordnung (Round-Robin bei mehr Queries als APIs)
+        query_api_pairs = []
+        for i, query in enumerate(queries):
+            api = self.apis[i % num_apis]  # Round-Robin
+            query_api_pairs.append((query, api))
+            logger.info(f"   Query {i+1} → {api.name}: {query[:50]}...")
+
+        # Parallel Execution
+        all_urls = []
+        successful_apis = []
+        failed_apis = []
+        query_results = []  # Detaillierte Ergebnisse pro Query
+
+        with ThreadPoolExecutor(max_workers=len(query_api_pairs)) as executor:
+            # Starte alle Query-API Kombinationen parallel
+            future_to_pair = {
+                executor.submit(api.execute, query, **kwargs): (query, api)
+                for query, api in query_api_pairs
+            }
+
+            # Sammle Ergebnisse
+            for future in as_completed(future_to_pair):
+                query, api = future_to_pair[future]
+                try:
+                    result = future.result(timeout=15)
+
+                    if result.get('success') and result.get('related_urls'):
+                        urls = result['related_urls']
+                        logger.info(f"✅ {api.name} ({query[:30]}...): {len(urls)} URLs")
+                        all_urls.extend(urls)
+                        successful_apis.append(api.name)
+                        query_results.append({
+                            'query': query,
+                            'api': api.name,
+                            'urls_found': len(urls),
+                            'success': True
+                        })
+                    else:
+                        logger.warning(f"⚠️ {api.name} ({query[:30]}...): Keine URLs")
+                        failed_apis.append((api.name, "Keine URLs"))
+                        query_results.append({
+                            'query': query,
+                            'api': api.name,
+                            'urls_found': 0,
+                            'success': False,
+                            'error': 'Keine URLs gefunden'
+                        })
+
+                except (RateLimitError, APIKeyMissingError) as e:
+                    logger.warning(f"⚠️ {api.name}: {e}")
+                    failed_apis.append((api.name, str(e)))
+                    query_results.append({
+                        'query': query,
+                        'api': api.name,
+                        'urls_found': 0,
+                        'success': False,
+                        'error': str(e)
+                    })
+
+                except Exception as e:
+                    logger.error(f"❌ {api.name}: {e}")
+                    failed_apis.append((api.name, str(e)))
+                    query_results.append({
+                        'query': query,
+                        'api': api.name,
+                        'urls_found': 0,
+                        'success': False,
+                        'error': str(e)
+                    })
+
+        # Mindestens eine Query erfolgreich?
+        if not all_urls:
+            logger.error("❌ Alle Queries fehlgeschlagen!")
+            error_summary = ", ".join([f"{name}: {err}" for name, err in failed_apis])
+            return {
+                'success': False,
+                'source': 'Multi-API Search (Multi-Query)',
+                'queries': queries,
+                'related_urls': [],
+                'query_results': query_results,
+                'error': f'Alle Queries fehlgeschlagen. Details: {error_summary}'
+            }
+
+        # Deduplizierung
+        unique_urls = deduplicate_urls(all_urls)
+
+        logger.info(f"🔄 Multi-Query Ergebnis: {len(all_urls)} URLs → {len(unique_urls)} unique")
+
+        return {
+            'success': True,
+            'source': 'Multi-API Search (Multi-Query)',
+            'apis_used': list(set(successful_apis)),  # Unique API names
+            'queries': queries,
+            'related_urls': unique_urls,
+            'query_results': query_results,
+            'stats': {
+                'total_queries': num_queries,
+                'successful_queries': len([r for r in query_results if r['success']]),
+                'total_urls': len(all_urls),
+                'unique_urls': len(unique_urls),
+                'duplicates_removed': len(all_urls) - len(unique_urls),
+                'successful_apis': len(set(successful_apis)),
+                'failed_apis': len(failed_apis)
+            }
+        }
+

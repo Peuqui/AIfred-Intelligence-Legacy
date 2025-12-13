@@ -129,6 +129,7 @@ async def perform_agent_research(
     # PHASE 3: Parallel Web Scraping
     # ==============================================================
     scraped_results = []
+    failed_sources = []  # Collect failed URLs for cache storage
 
     async for item in orchestrate_scraping(
         related_urls=related_urls,
@@ -139,6 +140,9 @@ async def perform_agent_research(
         if item["type"] == "scraping_result":
             scraped_results, scraping_tool_results = item["data"]
             tool_results.extend(scraping_tool_results)
+        elif item["type"] == "failed_sources":
+            failed_sources.extend(item["data"])  # Collect failed sources
+            yield item  # Still pass through to UI
         else:
             yield item
 
@@ -181,6 +185,9 @@ async def perform_agent_research(
                 if item["type"] == "scraping_result":
                     scraped_results, scraping_tool_results = item["data"]
                     tool_results.extend(scraping_tool_results)
+                elif item["type"] == "failed_sources":
+                    failed_sources.extend(item["data"])  # Also collect from fallback
+                    yield item
                 else:
                     yield item
 
@@ -201,6 +208,7 @@ async def perform_agent_research(
         user_text=user_text,
         scraped_results=scraped_results,
         tool_results=tool_results,
+        failed_sources=failed_sources,  # Pass failed URLs for cache storage
         history=history,
         session_id=session_id,
         mode=mode,

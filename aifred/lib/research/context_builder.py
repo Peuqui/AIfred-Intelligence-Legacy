@@ -36,6 +36,7 @@ async def build_and_generate_response(
     user_text: str,
     scraped_results: List[Dict],
     tool_results: List[Dict],
+    failed_sources: List[Dict],
     history: List[tuple],
     session_id: Optional[str],
     mode: str,
@@ -60,6 +61,7 @@ async def build_and_generate_response(
         user_text: User's question
         scraped_results: Successfully scraped sources
         tool_results: All tool results (including failed)
+        failed_sources: Failed scraping attempts (for cache storage)
         history: Chat history
         session_id: Session ID for caching
         mode: Research mode ('quick' or 'deep')
@@ -298,6 +300,10 @@ async def build_and_generate_response(
     # Remove volatility tag from answer before displaying to user
     ai_text = re.sub(r'<volatility>.*?</volatility>', '', ai_text, flags=re.IGNORECASE | re.DOTALL).strip()
 
+    # Create clean version without <think> block for cache storage
+    # The thinking process is unnecessary overhead in the cache
+    ai_text_for_cache = re.sub(r'<think>.*?</think>', '', ai_text, flags=re.IGNORECASE | re.DOTALL).strip()
+
     # Separator nach LLM-Antwort-Block (Ende der Einheit)
     from ..logging_utils import console_separator, CONSOLE_SEPARATOR
     console_separator()
@@ -342,8 +348,9 @@ async def build_and_generate_response(
         cache = get_cache()
         result = await cache.add(
             query=user_text,
-            answer=ai_text,
+            answer=ai_text_for_cache,  # Clean version without <think> block
             sources=scraped_only,
+            failed_sources=failed_sources,  # URLs that couldn't be scraped
             metadata={
                 'mode': mode,
                 'volatility': volatility  # Haupt-LLM decision

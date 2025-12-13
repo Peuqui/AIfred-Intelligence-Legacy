@@ -5,7 +5,7 @@ Main state for chat, settings, and backend management
 """
 
 import reflex as rx
-from typing import List, Tuple, Any, Dict
+from typing import List, Tuple, Any, Dict, TypedDict
 import uuid
 import os
 import asyncio
@@ -27,6 +27,23 @@ from .lib.model_manager import (
     # NOTE: backend_supports_dynamic_models nicht importiert - State hat eigene @rx.var Implementierung
 )
 from .lib.gpu_monitor import round_to_nominal_vram
+
+# ============================================================
+# TypedDicts for Reflex (foreach requires typed dicts)
+# ============================================================
+
+class FailedSourceDict(TypedDict):
+    """A single failed source entry"""
+    url: str
+    error: str
+    method: str
+
+class ChatMessageParsed(TypedDict):
+    """Parsed chat message with embedded failed sources"""
+    user_msg: str
+    ai_msg: str
+    failed_sources: List[FailedSourceDict]
+
 
 # ============================================================
 # Module-Level Vector Cache (ChromaDB Server Mode)
@@ -148,6 +165,11 @@ class AIState(rx.State):
     max_images_per_message: int = 5  # Limit concurrent uploads
     camera_available: bool = False  # True if browser supports camera access (set by JavaScript)
     _camera_detection_done: bool = False  # Internal flag to prevent duplicate logging from Reflex hydration
+
+    # Failed Sources State (shown as clickable bubble before AI response)
+    failed_sources: List[Dict[str, str]] = []  # [{"url": "...", "error": "...", "method": "..."}]
+    # Pending failed sources for current request (will be embedded in AI response)
+    _pending_failed_sources: List[Dict[str, str]] = []
 
     # Image Crop State
     crop_modal_open: bool = False  # Crop Modal anzeigen?
@@ -462,6 +484,55 @@ class AIState(rx.State):
         return [[mid, self.available_models_dict[mid]]
                 for mid in self.vision_models_cache
                 if mid in self.available_models_dict]
+
+    @rx.var
+    def chat_history_parsed(self) -> List[ChatMessageParsed]:
+        """
+        Parse chat_history and extract embedded failed_sources from AI messages.
+
+        Returns list of dicts:
+        [
+            {
+                "user_msg": "...",
+                "ai_msg": "..." (cleaned, without comment),
+                "failed_sources": [...] or []
+            }
+        ]
+
+        This computed property allows the UI to render failed_sources per message.
+        """
+        import json
+        import re
+
+        result = []
+        pattern = r'<!--FAILED_SOURCES:(\[.*?\])-->\n?'
+
+        for user_msg, ai_msg in self.chat_history:
+            match = re.search(pattern, ai_msg, re.DOTALL)
+
+            if match:
+                try:
+                    failed_sources = json.loads(match.group(1))
+                    clean_msg = re.sub(pattern, '', ai_msg, count=1)
+                    result.append({
+                        "user_msg": user_msg,
+                        "ai_msg": clean_msg,
+                        "failed_sources": failed_sources
+                    })
+                except json.JSONDecodeError:
+                    result.append({
+                        "user_msg": user_msg,
+                        "ai_msg": ai_msg,
+                        "failed_sources": []
+                    })
+            else:
+                result.append({
+                    "user_msg": user_msg,
+                    "ai_msg": ai_msg,
+                    "failed_sources": []
+                })
+
+        return result
 
     async def on_load(self):
         """
@@ -1957,6 +2028,7 @@ class AIState(rx.State):
         self.current_user_message = user_msg  # Zeige sofort die Eingabe an
         self.is_generating = True
         self.current_ai_response = ""
+        self.failed_sources = []  # Clear failed sources from previous request
         yield  # Update UI sofort (Eingabefeld leeren + Spinner zeigen + Eingabe anzeigen)
 
         # Debug message wird von agent_core.py geloggt, nicht hier!
@@ -2278,6 +2350,15 @@ class AIState(rx.State):
                         result_data = item["data"]
                         # Extract and update history IMMEDIATELY
                         ai_text, updated_history, inference_time = result_data
+                        # Embed failed_sources in the last message if any pending
+                        if self._pending_failed_sources and updated_history:
+                            import json as json_module
+                            last_idx = len(updated_history) - 1
+                            user_msg, ai_msg = updated_history[last_idx]
+                            # Prepend failed sources markup to AI message
+                            failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(self._pending_failed_sources)}-->\n"
+                            updated_history[last_idx] = (user_msg, failed_markup + ai_msg)
+                            self._pending_failed_sources = []  # Clear pending
                         # Replace chat history with updated one from research - message is already in history
                         self.chat_history = updated_history
                         # The message is already in the history from the streaming, no need to re-add
@@ -2307,6 +2388,11 @@ class AIState(rx.State):
                     elif item["type"] == "thinking_warning":
                         # Show thinking mode warning (model doesn't support reasoning)
                         self.thinking_mode_warning = item["model"]
+                    elif item["type"] == "failed_sources":
+                        # Store failed sources for UI display AND persistent history
+                        self.failed_sources = item["data"]
+                        self._pending_failed_sources = item["data"]  # Will be embedded in message
+                        self.add_debug(f"⚠️ {len(item['data'])} Quellen nicht verfügbar")
                     elif item["type"] == "error":
                         # Handle error (e.g., context overflow, backend error)
                         error_msg = item.get("message", "Unknown error")
@@ -2374,6 +2460,15 @@ class AIState(rx.State):
                         result_data = item["data"]
                         # Extract and update history IMMEDIATELY
                         ai_text, updated_history, inference_time = result_data
+                        # Embed failed_sources in the last message if any pending
+                        if self._pending_failed_sources and updated_history:
+                            import json as json_module
+                            last_idx = len(updated_history) - 1
+                            user_msg_hist, ai_msg_hist = updated_history[last_idx]
+                            # Prepend failed sources markup to AI message
+                            failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(self._pending_failed_sources)}-->\n"
+                            updated_history[last_idx] = (user_msg_hist, failed_markup + ai_msg_hist)
+                            self._pending_failed_sources = []  # Clear pending
                         # Replace chat history with updated one from research - message is already in history
                         self.chat_history = updated_history
                         # The message is already in the history from the streaming, no need to re-add
@@ -2403,6 +2498,11 @@ class AIState(rx.State):
                     elif item["type"] == "thinking_warning":
                         # Show thinking mode warning (model doesn't support reasoning)
                         self.thinking_mode_warning = item["model"]
+                    elif item["type"] == "failed_sources":
+                        # Store failed sources for UI display AND persistent history
+                        self.failed_sources = item["data"]
+                        self._pending_failed_sources = item["data"]  # Will be embedded in message
+                        self.add_debug(f"⚠️ {len(item['data'])} Quellen nicht verfügbar")
                     elif item["type"] == "error":
                         # Handle error (e.g., context overflow, backend error)
                         error_msg = item.get("message", "Unknown error")

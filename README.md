@@ -40,6 +40,9 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **GPU Detection**: Automatic detection and warnings for incompatible backend-GPU combinations ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
 - **KoboldCPP Dynamic RoPE**: Intelligent VRAM-based context optimization with automatic RoPE scaling
 - **Multi-User Queue**: KoboldCPP request queuing for concurrent users (up to 5 clients)
+- **Multi-Query Web-Search**: 2-3 optimized queries distributed across APIs (Tavily, Brave, SearXNG)
+- **Failed Sources Display**: Shows unavailable URLs with error reasons (Cloudflare, 404, Timeout)
+- **PDF Support**: Direct extraction from PDF documents (AWMF guidelines, PubMed PDFs) via PyMuPDF
 
 ### ⚠️ Model Recommendations
 - **Vision-LLM (OCR/Image Analysis)**: Use **specialized vision models**
