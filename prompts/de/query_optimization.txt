@@ -1,76 +1,81 @@
-Du bist ein Suchmaschinen-Experte. Extrahiere die wichtigsten Suchbegriffe aus dieser Frage.
+Du bist ein Experte fuer semantische Suchanfragen und wissenschaftliche Recherche.
 
 **Frage:** "{user_text}"{vision_json_context}
 
-**Aufgabe:**
-Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
+**Deine Aufgabe:**
+Erstelle 2-3 optimierte Suchanfragen, die zu hochwertigen Ergebnissen fuehren.
 
-**Regeln:**
-- Nur wichtige Begriffe (Namen, Orte, Konzepte, Aktionen)
-- **Wenn strukturierte Daten aus Bildern vorhanden sind: Nutze sie für die Query-Optimierung**
-  (Beispiel: "Recherchiere Nebenwirkungen des ersten Medikaments" + JSON mit "Acetylsalicylsäure" → "Acetylsalicylsäure Nebenwirkungen 2025")
-- Entferne Füllwörter (der, die, das, bitte, ist, hat, etc.)
-- Entferne Höflichkeitsfloskeln (bitte, danke, könntest du, etc.)
-- Bei Fragen zu aktuellen Events: Füge aktuelles Jahr hinzu
-- Bei Wetter-Fragen: Füge "Wetter" + Ort + Zeitpunkt hinzu
-- Sortiere: Wichtigste Begriffe zuerst
-- **KRITISCH: Nutze die GLEICHE SPRACHE wie die Frage! Deutsch → deutsche Keywords, Englisch → englische Keywords**
-- **URLs NIEMALS ZERLEGEN: Wenn eine URL oder Webadresse in der Frage steht (z.B. https://..., www...., domain.com, github.com/...), gib sie VOLLSTÄNDIG und UNGEFILTERT zurück!**
+## ANALYSE-SCHRITTE (intern, nicht ausgeben!)
 
-**Beispiele:**
-- "Präsident Trump hat mit Hamas ein Friedensabkommen geschlossen, das Biden vorbereitet hat. Recherchiere die Dokumente."
-  → "Trump Hamas Netanyahu Biden Friedensabkommen Dokumente 2025"
+1. **Domaene erkennen:**
+   - Medizin/Gesundheit → Mix aus Englisch (PubMed) UND Deutsch (AWMF-Leitlinien)
+   - Wissenschaft/Technik → Englische Fachbegriffe bevorzugen
+   - Aktuelle Ereignisse → Deutsche Keywords + Jahr
+   - Alltagsfragen → Sprache der Frage beibehalten
 
-- "Wie ist das Wetter morgen in Berlin?"
-  → "Wetter Berlin morgen"
+2. **Semantische Dekonstruktion:**
+   - Zerlege komplexe Konzepte in Komponenten
+   - Beispiel: "TAVI-Patienten mit Volumenschwankungen" →
+     - TAVI = Transkatheter-Aortenklappenimplantation
+     - → diastolische Dysfunktion, LV-Hypertrophie
+     - "Volumenschwankungen" → preload sensitivity, hemodynamic instability
 
-- "Was sind die neuesten Entwicklungen im KI-Bereich?"
-  → "KI Entwicklungen neueste 2025"
+3. **Fachsynonyme ableiten:**
+   - Nutze dein Wissen ueber Fachterminologie
+   - Deutsche Begriffe → englische Aequivalente (bei Fachthemen!)
+   - Laien-Begriffe → Fachbegriffe
 
-- "Hat die Bundesregierung neue Klimaschutzgesetze beschlossen?"
-  → "Bundesregierung Klimaschutzgesetze neu 2025"
+## SPRACHREGELN
 
-- "What is the weather forecast for London tomorrow?"
-  → "weather London tomorrow forecast"
+- **Medizin:** Gemischt! Eine Query Englisch (PubMed, internationale Studien), eine Query Deutsch (AWMF-Leitlinien, deutsche Fachliteratur)
+- **Wissenschaft/Technik:** Englisch bevorzugen
+- **Aktuelle Nachrichten DE:** Deutsch
+- **Tech-Dokumentation:** Englisch
+- **Lokale Themen (Wetter, Politik DE):** Deutsch
+- **URLs:** Vollstaendig uebernehmen, nicht zerlegen!
 
-- "Latest news about Trump and Netanyahu?"
-  → "Trump Netanyahu latest news 2025"
+## BEISPIELE
 
-- "Analysiere diese Webseite: https://example.com/artikel/ki-entwicklung"
-  → "https://example.com/artikel/ki-entwicklung"
+**Medizinisch komplex:**
+Frage: "Recherchiere, inwieweit Patienten nach TAVI, die zeitnah operiert werden muessen, empfindlich auf intravasale Volumenschwankungen reagieren"
+→ TAVI noncardiac surgery hemodynamic management preload sensitivity
+→ TAVI Leitlinie perioperativ Volumenmanagement AWMF
+→ post-TAVI diastolic dysfunction volume status anesthesia
 
-- "Was steht auf www.bundesregierung.de über Klimaschutz?"
-  → "www.bundesregierung.de Klimaschutz"
+**Medikamente:**
+Frage: "Was sind die Nebenwirkungen von Metformin?"
+→ metformin side effects adverse reactions
+→ Metformin Nebenwirkungen Kontraindikationen Fachinformation
 
-- "Schau dir github.com/user/repo an und erkläre den Code"
-  → "github.com/user/repo Code erklären"
+**Aktuelle Nachrichten:**
+Frage: "Was hat die Bundesregierung zur Klimapolitik beschlossen?"
+→ Bundesregierung Klimapolitik Beschluesse 2025
+→ Deutschland Klimaschutzgesetz aktuell
 
-- "Was steht in example.com/blog/artikel-2025?"
-  → "example.com/blog/artikel-2025"
+**Technologie:**
+Frage: "Wie funktioniert RAG bei LLMs?"
+→ retrieval augmented generation LLM implementation
+→ RAG architecture vector database embedding
 
-- "Analysiere https://github.com/user/repo und finde ähnliche Projekte"
-  → "https://github.com/user/repo ähnliche Projekte alternative"
+**Mit Vision-Kontext:**
+Frage: "Recherchiere Nebenwirkungen des ersten Medikaments"
+Vision-Kontext enthaelt: Acetylsalicylsaeure (aus Bild extrahiert)
+→ acetylsalicylic acid aspirin side effects
+→ ASA adverse reactions bleeding risk
 
-- "Was steht auf example.com/artikel und gibt es neuere Studien dazu?"
-  → "example.com/artikel neuere Studien 2025"
+**URLs:**
+Frage: "Analysiere https://github.com/user/repo"
+→ https://github.com/user/repo
 
-**WICHTIG:**
-- Antworte NUR mit den Keywords (keine Erklärung!)
-- Nutze Leerzeichen zwischen Keywords
-- Keine Sonderzeichen, keine Anführungszeichen
-- Maximal 8 Keywords
-- **SPRACHE BEIBEHALTEN: Deutsch in → Deutsch raus, Englisch in → Englisch raus**
-- **URLs KOMPLETT ÜBERNEHMEN: Webadresse erkannt? → Vollständig zurückgeben, nicht zerlegen!**
+## OUTPUT-FORMAT
 
-**ABSOLUT VERBOTEN:**
-- ❌ KEINE Erklärungen wie "Erklärung der Auswahl:"
-- ❌ KEINE Begründungen wie "(Ich habe ... entfernt)"
-- ❌ KEINE Klammern () mit Erklärungen
-- ❌ KEINE zusätzlichen Texte vor oder nach den Keywords
-- ❌ KEINE Formatierungen wie ** oder ###
-- ✅ NUR die Keywords, getrennt durch Leerzeichen
+Gib 1-3 Suchanfragen aus, eine pro Zeile.
+Jede Query: 4-8 Keywords, durch Leerzeichen getrennt.
 
-**ANTWORTE NUR MIT KEYWORDS IN EINER EINZIGEN ZEILE!**
-**KEINE ERKLÄRUNGEN! KEINE KLAMMERN! NUR KEYWORDS!**
+**VERBOTEN:**
+- Keine Erklaerungen oder Begruendungen
+- Keine Nummerierung (1., 2., etc.)
+- Keine Klammern mit Anmerkungen
+- Keine Formatierung (**, ##, etc.)
 
-**Deine optimierte Query:**
+**Deine optimierten Queries (eine pro Zeile):**
