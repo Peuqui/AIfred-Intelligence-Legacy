@@ -5,6 +5,55 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.7] - 2025-12-13
+
+### 📄 RAG Prompt: Flexible User-Anfragen (Übersetzen, Zitieren, Analysieren)
+
+**RAG System-Prompt respektiert jetzt User-Intent statt immer zusammenzufassen.**
+
+#### Changed
+
+- **RAG System-Prompt überarbeitet** ([prompts/de/system_rag.txt](prompts/de/system_rag.txt), [prompts/en/system_rag.txt](prompts/en/system_rag.txt)):
+  - **Vorher**: Prompt erzwang immer "Fasse die Recherche-Ergebnisse zusammen"
+  - **Jetzt**: Prompt erkennt User-Intent und passt Verhalten an:
+    - `"übersetze"` → Vollständige Übersetzung Absatz für Absatz
+    - `"zitiere"` → Wörtliches Zitieren aus den Quellen
+    - `"analysiere"` → Detaillierte Analyse
+    - Allgemeine Fragen → Zusammenfassung (wie bisher)
+
+- **Übersetzungs-Modus mit strikten Regeln**:
+  - Keine Meta-Kommentare ("Hier ist die Übersetzung...")
+  - Keine Einleitungen ("Laut meiner Recherche...")
+  - Direkter Start mit übersetztem Titel/Text
+  - Vollständige Übersetzung aller Abschnitte
+  - Original-Struktur beibehalten
+  - Nur Quellen-Liste am Ende
+
+- **Single-Source Word Limit erhöht** ([config.py:193-197](aifred/lib/config.py#L193-L197), [context_builder.py:70-73](aifred/lib/tools/context_builder.py#L70-L73)):
+  - Neuer Konstante `MAX_WORDS_SINGLE_SOURCE = 12000`
+  - Bei Direct URL Research (nur 1 Quelle) → höheres Limit
+  - Ermöglicht vollständige PDF/Paper-Analyse ohne Kürzung
+  - Multi-Source bleibt bei `MAX_WORDS_PER_SOURCE = 2000`
+
+#### Technical Details
+
+**Dynamisches Word-Limit in context_builder.py:**
+```python
+is_single_source = len(successful_results) == 1
+word_limit = MAX_WORDS_SINGLE_SOURCE if is_single_source else MAX_WORDS_PER_SOURCE
+```
+
+**Neuer Prompt-Abschnitt für Übersetzungen:**
+```
+⚠️ BEI ÜBERSETZUNGEN:
+- Gib NUR den übersetzten Text aus - KEINE Meta-Kommentare!
+- ❌ KEINE Einleitung wie "Hier ist die Übersetzung..."
+- ✅ Beginne DIREKT mit dem übersetzten Text (Titel/erste Überschrift)
+- ✅ Übersetze JEDEN Abschnitt vollständig
+```
+
+---
+
 ## [2.7.6] - 2025-12-13
 
 ### 📄 PDF-Scraping & Failed Sources Cache

@@ -7,7 +7,7 @@ Extracted from agent_tools.py for better modularity.
 import logging
 from typing import Dict, List
 
-from ..config import MAX_RAG_CONTEXT_TOKENS, MAX_WORDS_PER_SOURCE, CHARS_PER_TOKEN
+from ..config import MAX_RAG_CONTEXT_TOKENS, MAX_WORDS_PER_SOURCE, MAX_WORDS_SINGLE_SOURCE, CHARS_PER_TOKEN
 from ..logging_utils import log_message
 
 # Logging Setup
@@ -67,12 +67,17 @@ def build_context(user_text: str, tool_results: List[Dict], max_context_tokens: 
         title = result.get('title', '')
         word_count = result.get('word_count', 0)
 
-        # Limitiere LANGE Quellen (Wikipedia) - Wert aus config.py
-        if word_count > MAX_WORDS_PER_SOURCE:
+        # Bestimme Wort-Limit: Bei nur 1 Quelle (Direct URL) höheres Limit
+        # z.B. wissenschaftliche Papers, PDFs mit 4000-8000 Wörtern
+        is_single_source = len(successful_results) == 1
+        word_limit = MAX_WORDS_SINGLE_SOURCE if is_single_source else MAX_WORDS_PER_SOURCE
+
+        # Limitiere LANGE Quellen - Wert aus config.py
+        if word_count > word_limit:
             # Schneide Content ab (Grob: 1 Token = 0.75 Wörter)
             words = content.split()
-            content = ' '.join(words[:MAX_WORDS_PER_SOURCE])
-            log_message(f"⚠️ Quelle {i} ({url}) gekürzt: {word_count} → {MAX_WORDS_PER_SOURCE} Wörter")
+            content = ' '.join(words[:word_limit])
+            log_message(f"⚠️ Quelle {i} ({url}) gekürzt: {word_count} → {word_limit} Wörter")
 
         # Format source
         source_text = ""
