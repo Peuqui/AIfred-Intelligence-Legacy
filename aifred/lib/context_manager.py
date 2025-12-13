@@ -140,7 +140,7 @@ def estimate_tokens_from_history(history: List[tuple]) -> int:
 _last_vram_limit_cache = {"limit": 0}
 
 # Reserve-Stufen für LLM-Output (stufenweise Reduzierung bevor Content gekürzt wird)
-OUTPUT_RESERVE_PREFERRED = 8192   # 8K - Ideal für ausführliche Antworten
+OUTPUT_RESERVE_PREFERRED = 32768  # 32K - Ideal für ausführliche Antworten (4x erhöht für 108K+ Context)
 OUTPUT_RESERVE_REDUCED = 6144     # 6K - Akzeptabel wenn VRAM knapp
 OUTPUT_RESERVE_MINIMUM = 4096     # 4K - Minimum, darunter wird Content gekürzt
 
@@ -156,11 +156,11 @@ def calculate_adaptive_reserve(
     """
     Berechnet adaptive Reserve und RAG-Budget.
 
-    Priorität: Maximiere Reserve (8K), dann reduziere stufenweise wenn RAG zu knapp wird.
+    Priorität: Maximiere Reserve (32K), dann reduziere stufenweise wenn RAG zu knapp wird.
 
     Stufen:
-    1. Versuche mit 8K Reserve → wenn RAG >= max_rag_target: perfekt
-    2. Falls 8K RAG knapp, aber > min threshold: nutze 8K mit reduziertem RAG
+    1. Versuche mit 32K Reserve → wenn RAG >= max_rag_target: perfekt
+    2. Falls 32K RAG knapp, aber > min threshold: nutze 32K mit reduziertem RAG
     3. Falls RAG < min threshold: Reduziere Reserve auf 6K
     4. Falls 6K RAG knapp: nutze 6K mit reduziertem RAG
     5. Falls RAG < min threshold: Reduziere auf 4K (Minimum)
@@ -180,29 +180,29 @@ def calculate_adaptive_reserve(
     # Minimum RAG bevor Reserve reduziert wird (80% vom Ziel)
     min_rag_threshold = int(max_rag_target * 0.8)  # z.B. 16K bei 20K Ziel
 
-    # Stufe 1: Versuche mit voller Reserve (8K)
-    rag_budget_8k = available_context - base_input - OUTPUT_RESERVE_PREFERRED
-    if rag_budget_8k >= max_rag_target:
+    # Stufe 1: Versuche mit voller Reserve (32K)
+    rag_budget_32k = available_context - base_input - OUTPUT_RESERVE_PREFERRED
+    if rag_budget_32k >= max_rag_target:
         return OUTPUT_RESERVE_PREFERRED, max_rag_target
-    if rag_budget_8k >= min_rag_threshold:
-        # RAG etwas knapp, aber akzeptabel - behalte 8K Reserve
-        log_message(f"ℹ️ RAG leicht reduziert: {format_number(max_rag_target)} → {format_number(rag_budget_8k)} tok (Reserve: 8K)")
-        return OUTPUT_RESERVE_PREFERRED, rag_budget_8k
+    if rag_budget_32k >= min_rag_threshold:
+        # RAG etwas knapp, aber akzeptabel - behalte 32K Reserve
+        log_message(f"ℹ️ RAG leicht reduziert: {format_number(max_rag_target)} → {format_number(rag_budget_32k)} tok (Reserve: 32K)")
+        return OUTPUT_RESERVE_PREFERRED, rag_budget_32k
 
-    # Stufe 2: Reduziere auf 6K Reserve
+    # Stufe 2: Reduziere auf 6K Reserve (VRAM knapp)
     rag_budget_6k = available_context - base_input - OUTPUT_RESERVE_REDUCED
     if rag_budget_6k >= max_rag_target:
-        log_message(f"⚠️ Reserve reduziert: 8K → 6K (RAG-Budget: {format_number(rag_budget_6k)} tok)")
+        log_message(f"⚠️ Reserve reduziert: 32K → 6K (RAG-Budget: {format_number(rag_budget_6k)} tok)")
         return OUTPUT_RESERVE_REDUCED, max_rag_target
     if rag_budget_6k >= min_rag_threshold:
         # RAG etwas knapp, aber akzeptabel - behalte 6K Reserve
-        log_message(f"⚠️ Reserve reduziert: 8K → 6K, RAG: {format_number(rag_budget_6k)} tok")
+        log_message(f"⚠️ Reserve reduziert: 32K → 6K, RAG: {format_number(rag_budget_6k)} tok")
         return OUTPUT_RESERVE_REDUCED, rag_budget_6k
 
     # Stufe 3: Reduziere auf 4K Reserve (Minimum)
     rag_budget_4k = available_context - base_input - OUTPUT_RESERVE_MINIMUM
     if rag_budget_4k >= max_rag_target:
-        log_message(f"⚠️ Reserve reduziert: 8K → 4K (RAG-Budget: {format_number(rag_budget_4k)} tok)")
+        log_message(f"⚠️ Reserve reduziert: 32K → 4K (RAG-Budget: {format_number(rag_budget_4k)} tok)")
         return OUTPUT_RESERVE_MINIMUM, max_rag_target
 
     # Stufe 4: Reserve auf Minimum, RAG wird gekürzt
@@ -330,8 +330,11 @@ async def calculate_dynamic_num_ctx(
         )
     else:
         # Ollama/vLLM/TabbyAPI: Dynamische num_ctx Berechnung möglich
-        # Clippe auf das kleinste Limit (VRAM, Model-Maximum)
-        final_num_ctx = min(calculated_ctx, max_practical_ctx, model_limit)
+        # gpu_utils.calculate_vram_based_context() liefert:
+        # - Kalibriert: den gemessenen max_context_gpu_only Wert
+        # - Nicht kalibriert: dynamisch berechneten VRAM-basierten Wert
+        # In beiden Fällen: Auf Modell-Limit clippen
+        final_num_ctx = min(max_practical_ctx, model_limit)
 
     # Speichere VRAM-Limit in globalem Cache für History-Kompression
     # (verhindert dass History das Limit neu berechnen muss)
@@ -341,23 +344,14 @@ async def calculate_dynamic_num_ctx(
     if state is not None:
         state.last_vram_limit = min(max_practical_ctx, model_limit)
 
-    # Warne wenn Context überschritten (nur für Ollama/vLLM/TabbyAPI)
+    # Log Context Window Info (nur für Ollama/vLLM/TabbyAPI)
     if backend_type != "KoboldCPPBackend":
-        if calculated_ctx > max_practical_ctx:
-            log_message(
-                f"⚠️ Gewünschter Context {format_number(calculated_ctx)} > Praktisches Limit {format_number(max_practical_ctx)} "
-                f"(VRAM-begrenzt), clippe auf {format_number(final_num_ctx)}"
-            )
-        elif calculated_ctx > model_limit:
-            log_message(
-                f"⚠️ Gewünschter Context {format_number(calculated_ctx)} > Modell-Limit {format_number(model_limit)}, "
-                f"clippe auf {format_number(final_num_ctx)}"
-            )
-
+        # Berechne verfügbaren Output-Space
+        available_output = final_num_ctx - estimated_tokens
         log_message(
             f"🎯 Context Window: {format_number(final_num_ctx)} tok "
-            f"(berechnet: {format_number(calculated_ctx)}, praktisch: {format_number(max_practical_ctx)}, "
-            f"modell-max: {format_number(model_limit)}, ~{format_number(estimated_tokens)} benötigt)"
+            f"(Input: ~{format_number(estimated_tokens)}, Output-Platz: ~{format_number(available_output)}, "
+            f"VRAM-Limit: {format_number(max_practical_ctx)}, Modell-Max: {format_number(model_limit)})"
         )
 
     return final_num_ctx, vram_debug_msgs

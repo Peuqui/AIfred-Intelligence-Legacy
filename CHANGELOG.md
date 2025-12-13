@@ -5,6 +5,56 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.8] - 2025-12-13
+
+### 🎯 Context Management: Kalibrierte VRAM-Limits & Erhöhte Output-Reserve
+
+**Ollama nutzt jetzt kalibrierte max_context-Werte aus Cache und Output-Reserve erhöht auf 32K.**
+
+#### Added
+
+- **Kalibrierte Context-Limits für Ollama** ([gpu_utils.py:252-262](aifred/lib/gpu_utils.py#L252-L262), [model_vram_cache.py:264-288](aifred/lib/model_vram_cache.py#L264-L288)):
+  - Neue Funktion `get_ollama_calibrated_max_context()` liest experimentell gemessene Werte
+  - Kalibrierte Werte haben Priorität vor dynamischer VRAM-Berechnung
+  - Verhindert fehlerhafte Context-Größen (z.B. 143K statt korrekter 108K)
+  - Nicht-kalibrierte Modelle nutzen weiterhin dynamische Berechnung mit `[uncalibrated]` Marker
+
+- **Kalibrierungsdaten in model_vram_cache.json**:
+  - Qwen3 30B A3B Q8_0: max 110592 tokens (108K) ohne CPU-Offloading
+  - Struktur: `ollama_calibrations[].max_context_gpu_only`
+
+#### Changed
+
+- **Output-Reserve erhöht** ([context_manager.py:142-148](aifred/lib/context_manager.py#L142-L148)):
+  - `OUTPUT_RESERVE_PREFERRED`: 8K → **32K** (für 108K+ Context Windows)
+  - `OUTPUT_RESERVE_REDUCED`: 6K (unverändert, Fallback bei knappem VRAM)
+  - `OUTPUT_RESERVE_MINIMUM`: 4K (unverändert, Notfall-Minimum)
+  - Ermöglicht deutlich längere LLM-Antworten ohne Truncation
+
+- **Context-Berechnung vereinfacht** ([context_manager.py:331-337](aifred/lib/context_manager.py#L331-L337)):
+  - Für Ollama: Nutze vollen kalibrierten/berechneten Wert
+  - Alte Logik "Input + 8K Reserve" entfernt
+  - VRAM-Reservierung kostet keine Geschwindigkeit, nur die Füllung
+
+#### Technical Details
+
+**Kalibrierungs-Priorität:**
+```python
+# PRIORITY 1: Check for calibrated max_context (most accurate!)
+calibrated_max = get_ollama_calibrated_max_context(model_name)
+if calibrated_max is not None:
+    return calibrated_max, debug_msgs  # Skip dynamic calculation
+```
+
+**Neue Reserve-Stufen:**
+```python
+OUTPUT_RESERVE_PREFERRED = 32768  # 32K für ausführliche Antworten
+OUTPUT_RESERVE_REDUCED = 6144     # 6K Fallback
+OUTPUT_RESERVE_MINIMUM = 4096     # 4K Minimum
+```
+
+---
+
 ## [2.7.7] - 2025-12-13
 
 ### 📄 RAG Prompt: Flexible User-Anfragen (Übersetzen, Zitieren, Analysieren)
