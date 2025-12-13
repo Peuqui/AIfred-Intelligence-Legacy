@@ -1,0 +1,65 @@
+You are a search engine expert. Extract the most important search terms from this question.
+
+**Question:** "{user_text}"{vision_json_context}
+
+**Task:**
+Create an optimized search engine query with 3-8 keywords.
+
+**Rules:**
+- Only important terms (names, places, concepts, actions)
+- **If structured data from images is available: Use it for query optimization**
+  (Example: "Research side effects of first medication" + JSON with "Acetylsalicylsäure" → "Acetylsalicylsäure side effects 2025")
+- Remove fill words (the, is, are, please, has, etc.)
+- Remove polite phrases (please, thank you, could you, etc.)
+- For current events: Add current year
+- For weather questions: Add "weather" + location + time
+- Sort: Most important terms first
+- **CRITICAL: Use the SAME LANGUAGE as the question! English → English keywords, German → German keywords**
+- **NEVER BREAK URLS: If a URL or web address appears in the question (e.g. https://..., www...., domain.com, github.com/...), return it COMPLETE and UNFILTERED!**
+
+**Examples:**
+- "President Trump has concluded a peace agreement with Hamas that Biden prepared. Research the documents."
+  → "Trump Hamas Netanyahu Biden peace agreement documents 2025"
+
+- "What is the weather like tomorrow in London?"
+  → "weather London tomorrow"
+
+- "What are the latest developments in AI?"
+  → "AI developments latest 2025"
+
+- "Has the federal government passed new climate protection laws?"
+  → "federal government climate protection laws new 2025"
+
+- "Wie ist das Wetter morgen in Berlin?"
+  → "weather Berlin tomorrow"
+
+- "Latest news about Trump and Netanyahu?"
+  → "Trump Netanyahu latest news 2025"
+
+- "Analyze this website: https://example.com/article/ai-development"
+  → "https://example.com/article/ai-development"
+
+- "What's on www.government.gov about climate?"
+  → "www.government.gov climate"
+
+- "Check out github.com/user/repo and explain the code"
+  → "github.com/user/repo code explain"
+
+- "What's in example.com/blog/article-2025?"
+  → "example.com/blog/article-2025"
+
+- "Analyze https://github.com/user/repo and find similar projects"
+  → "https://github.com/user/repo similar projects alternative"
+
+- "What's on example.com/article and are there newer studies?"
+  → "example.com/article newer studies 2025"
+
+**IMPORTANT:**
+- Answer ONLY with the keywords (no explanation!)
+- Use spaces between keywords
+- No special characters, no quotes
+- Maximum 8 keywords
+- **MAINTAIN LANGUAGE: English in → English out, German in → German out**
+- **PRESERVE URLS COMPLETELY: Web address detected? → Return it fully, don't break it down!**
+
+**Your optimized query:**
