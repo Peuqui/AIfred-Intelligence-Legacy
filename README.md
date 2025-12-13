@@ -41,8 +41,8 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **KoboldCPP Dynamic RoPE**: Intelligent VRAM-based context optimization with automatic RoPE scaling
 - **Multi-User Queue**: KoboldCPP request queuing for concurrent users (up to 5 clients)
 - **Multi-Query Web-Search**: 2-3 optimized queries distributed across APIs (Tavily, Brave, SearXNG)
-- **Failed Sources Display**: Shows unavailable URLs with error reasons (Cloudflare, 404, Timeout)
-- **PDF Support**: Direct extraction from PDF documents (AWMF guidelines, PubMed PDFs) via PyMuPDF
+- **Failed Sources Display**: Shows unavailable URLs with error reasons (Cloudflare, 404, Timeout) - persisted in Vector Cache for cache hits
+- **PDF Support**: Direct extraction from PDF documents (AWMF guidelines, PubMed PDFs) via PyMuPDF with browser-like User-Agent
 
 ### ⚠️ Model Recommendations
 - **Vision-LLM (OCR/Image Analysis)**: Use **specialized vision models**

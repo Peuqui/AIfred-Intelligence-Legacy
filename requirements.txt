@@ -17,6 +17,7 @@ playwright>=1.50.0      # JavaScript-heavy page scraping
 searxng-search>=0.1.0   # SearXNG meta-search integration
 requests>=2.31.0        # HTTP requests for search APIs
 lxml>=5.0.0             # XML/HTML parser (trafilatura dependency)
+pymupdf>=1.26.0         # PDF text extraction (AWMF guidelines, PubMed PDFs)
 
 # Vector Database & Semantic Search
 chromadb>=0.4.24        # Vector database for semantic caching

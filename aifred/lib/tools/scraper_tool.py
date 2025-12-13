@@ -374,9 +374,16 @@ class WebScraperTool(BaseTool):
         try:
             logger.info(f"📄 PDF-Download: {url}")
 
-            # Download PDF with timeout
+            # Download PDF with timeout (use real browser User-Agent to avoid hotlink protection)
+            # Extract domain for Referer header (required by some servers)
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            referer = f"{parsed.scheme}://{parsed.netloc}/"
+
             response = requests.get(url, timeout=15, headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; AIfred/1.0)'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': referer,
+                'Accept': 'application/pdf,*/*'
             })
             response.raise_for_status()
 

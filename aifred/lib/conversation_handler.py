@@ -982,6 +982,12 @@ async def chat_interactive_mode(
                     cache_time_ms = cache_result.get('query_time_ms', 0) / 1000
                     timing_suffix = f" (Cache-Hit: {format_number(cache_time_ms, 2)}s, Age: {age_formatted}, Quelle: Vector Cache)"
 
+                    # Emit failed_sources from cache for UI display (if any)
+                    cached_failed_sources = cache_result.get('failed_sources', [])
+                    if cached_failed_sources:
+                        log_message(f"📋 Cache-Hit: {len(cached_failed_sources)} failed source(s) from cache")
+                        yield {"type": "failed_sources", "data": cached_failed_sources}
+
                     # Add to history with timing suffix (no timestamp prefix)
                     history.append((user_text, answer + timing_suffix))
 
