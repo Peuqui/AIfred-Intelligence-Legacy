@@ -1023,25 +1023,20 @@ def render_failed_sources_inline(failed_sources) -> rx.Component:
                     value="inline_failed_sources",
                     header=rx.box(
                         rx.hstack(
-                            rx.text("⚠", font_size="12px", line_height="1"),
+                            rx.text("⚠", font_size="13px", line_height="1"),
                             rx.text(
                                 f"{failed_sources.length()} Quellen nicht verfügbar",
                                 font_weight="500",
-                                font_size="12px",
+                                font_size="13px",
                                 color="#cc6a00",  # Dunkleres Orange
                                 line_height="1",
                             ),
                             spacing="1",
                             align="center",
                         ),
-                        padding="2px 6px",
-                        background_color="#1a1206",  # Sehr dunkles Orange/Braun
-                        border_radius="3px",
+                        padding="0",
+                        background_color="transparent",
                         cursor="pointer",
-                        transition="background-color 0.2s ease",
-                        _hover={
-                            "background_color": "#2d1f00",
-                        },
                     ),
                     content=rx.box(
                         rx.vstack(
@@ -1051,20 +1046,20 @@ def render_failed_sources_inline(failed_sources) -> rx.Component:
                                     rx.link(
                                         rx.text(
                                             src["url"],
-                                            font_size="11px",
+                                            font_size="13px",
                                             color=COLORS["accent_blue"],
                                             _hover={"text_decoration": "underline"},
                                             overflow="hidden",
                                             text_overflow="ellipsis",
                                             white_space="nowrap",
-                                            max_width="350px",
+                                            max_width="450px",
                                         ),
                                         href=src["url"],
                                         is_external=True,
                                     ),
                                     rx.text(
                                         f"({src['error']})",
-                                        font_size="10px",
+                                        font_size="12px",
                                         color=COLORS["text_muted"],
                                         font_style="italic",
                                     ),
@@ -1073,14 +1068,12 @@ def render_failed_sources_inline(failed_sources) -> rx.Component:
                                     width="100%",
                                 )
                             ),
-                            spacing="1",
+                            spacing="0",
                             width="100%",
                             align_items="start",
+                            padding_top="4px",
                         ),
-                        padding="4px 8px",
-                        background_color="rgba(204, 106, 0, 0.08)",
-                        border_radius="3px",
-                        border=f"1px solid {COLORS['border']}",
+                        padding="0",
                         width="100%",
                     ),
                 ),
@@ -1089,7 +1082,7 @@ def render_failed_sources_inline(failed_sources) -> rx.Component:
                 width="auto",
             ),
             width="auto",
-            margin_y="2px",
+            margin_y="0",
         ),
         rx.fragment(),  # Empty component when no failed sources
     )

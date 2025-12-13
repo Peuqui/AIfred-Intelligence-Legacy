@@ -456,3 +456,50 @@ div em {
     min-width: 0;
     max-width: 100%;
 }
+
+/* ============================================================
+   INLINE FAILED SOURCES - Kompaktes Collapsible im Chat
+   ============================================================ */
+
+/* Ghost-Variante: Kompakt für inline Failed Sources */
+.rt-AccordionRoot[data-variant="ghost"] {
+    --accordion-content-padding: 0 !important;
+}
+
+/* Header komplett ohne Padding */
+.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionHeader {
+    padding: 0 !important;
+    min-height: unset !important;
+    height: auto !important;
+}
+
+/* Trigger-Button minimal */
+.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionTrigger {
+    padding: 0 !important;
+    min-height: unset !important;
+    height: auto !important;
+    gap: 4px !important;
+}
+
+/* Trigger-Icon (Chevron) */
+.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionTrigger svg {
+    width: 14px !important;
+    height: 14px !important;
+}
+
+/* Kein Hover-Hintergrund */
+.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionTrigger:hover {
+    background-color: transparent !important;
+}
+
+/* Content ohne Padding */
+.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionContent {
+    padding: 0 !important;
+    padding-top: 2px !important;
+}
+
+/* AccordionItem ohne extra Spacing */
+.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionItem {
+    margin: 0 !important;
+    padding: 0 !important;
+}

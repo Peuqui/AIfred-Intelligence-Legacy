@@ -5,6 +5,32 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.6] - 2025-12-13
+
+### 📄 PDF-Scraping & Failed Sources Cache
+
+**PDF-Extraktion verbessert und Failed Sources werden jetzt im Vector Cache gespeichert.**
+
+#### Added
+
+- **Failed Sources im Vector Cache** ([conversation_handler.py:985-989](aifred/lib/conversation_handler.py#L985-L989)):
+  - Bei Cache-Hits werden jetzt auch gespeicherte Failed Sources angezeigt
+  - URLs die beim ursprünglichen Scraping fehlschlugen erscheinen wieder im Collapsible
+  - Vollständige Transparenz über Quellenverfügbarkeit auch bei gecachten Antworten
+
+#### Fixed
+
+- **PDF-Scraping mit Hotlink-Protection** ([scraper_tool.py:377-387](aifred/lib/tools/scraper_tool.py#L377-L387)):
+  - Browser User-Agent statt Bot-UA (`Mozilla/5.0 Chrome/120...`)
+  - Referer-Header automatisch aus Domain generiert
+  - Behebt 403 Forbidden bei PDFs mit Hotlink-Schutz (z.B. jvsmedicscorner.com)
+
+#### Changed
+
+- **requirements.txt**: `pymupdf>=1.26.0` hinzugefügt für PDF-Support
+
+---
+
 ## [2.7.5] - 2025-12-13
 
 ### 🔧 Automatik-Tasks: Thinking immer deaktiviert
