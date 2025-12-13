@@ -1107,13 +1107,15 @@ class AIState(rx.State):
             # Determine which models to use for new backend
             target_main_model = None
             target_auto_model = None
+            target_vision_model = None
 
             if new_backend in backend_models:
                 # Use saved models from backend_models.json
                 saved_models = backend_models[new_backend]
                 target_main_model = saved_models.get("selected_model")
                 target_auto_model = saved_models.get("automatik_model")
-                self.add_debug(f"📝 Found saved models for {new_backend}: Main={target_main_model}, Auto={target_auto_model}")
+                target_vision_model = saved_models.get("vision_model")
+                self.add_debug(f"📝 Found saved models for {new_backend}: Main={target_main_model}, Auto={target_auto_model}, Vision={target_vision_model}")
             else:
                 # Use backend-specific defaults from config.py
                 default_models = config.BACKEND_DEFAULT_MODELS.get(new_backend, {})
@@ -1122,10 +1124,16 @@ class AIState(rx.State):
                 self.add_debug(f"📝 Using default models for {new_backend}: Main={target_main_model}, Auto={target_auto_model}")
 
             # Set target models BEFORE initialize_backend() so validation doesn't override them
+            # CRITICAL: Set BOTH display name AND ID - initialize_backend() uses _id for validation!
             if target_main_model:
                 self.selected_model = target_main_model
+                self.selected_model_id = target_main_model  # IDs are same as names in settings
             if target_auto_model:
                 self.automatik_model = target_auto_model
+                self.automatik_model_id = target_auto_model  # IDs are same as names in settings
+            if target_vision_model:
+                self.vision_model = target_vision_model
+                self.vision_model_id = target_vision_model  # IDs are same as names in settings
 
             # vLLM and TabbyAPI can only load ONE model at a time
             # Set automatik_model = selected_model BEFORE initialize_backend() to prevent wrong model loading
@@ -1133,6 +1141,7 @@ class AIState(rx.State):
                 if self.automatik_model != self.selected_model:
                     self.add_debug(f"⚠️ {new_backend} can only load one model - using {self.selected_model} for both Main and Automatik")
                 self.automatik_model = self.selected_model
+                self.automatik_model_id = self.selected_model_id  # Sync IDs too
 
             # Switch backend and load models
             self.backend_type = new_backend
@@ -1474,6 +1483,10 @@ class AIState(rx.State):
                 self.vision_model_id = vision_model_ids[0]
                 self.vision_model = self.available_models_dict[self.vision_model_id]
                 self._save_settings()
+
+        # Show selected vision model (consistent with Main/Automatik format)
+        if self.vision_model_id:
+            self.add_debug(f"   Vision: {self.vision_model}")
 
         # Store vision_model in global state for fast path restore
         _global_backend_state["vision_model"] = self.vision_model
