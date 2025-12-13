@@ -126,8 +126,16 @@ async def optimize_search_query(
         # Remove closing tags (orphaned): </think>
         optimized_query = re.sub(r'</think>', '', optimized_query, flags=re.IGNORECASE)
 
+        # NEW: Handle multi-line output (prompt can return 1-3 queries)
+        # Take the FIRST non-empty line as primary query
+        query_lines = [line.strip() for line in optimized_query.split('\n') if line.strip()]
+        if query_lines:
+            optimized_query = query_lines[0]  # Use first query
+            if len(query_lines) > 1:
+                log_message(f"   📋 {len(query_lines)} Queries generiert, nutze erste")
+
         # Entferne Anführungszeichen und Sonderzeichen
-        optimized_query = re.sub(r'["\'\n\r]', '', optimized_query)
+        optimized_query = re.sub(r'["\']', '', optimized_query)
         optimized_query = ' '.join(optimized_query.split())  # Normalize whitespace
 
         # ============================================================
