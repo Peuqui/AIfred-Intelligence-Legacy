@@ -86,12 +86,9 @@ async def optimize_search_query(
             'enable_thinking': False  # Default: Fast keyword extraction without reasoning
         }
 
-        # Use user's enable_thinking toggle if explicitly set
-        if llm_options and 'enable_thinking' in llm_options:
-            options['enable_thinking'] = llm_options['enable_thinking']
-            log_message(f"🧠 Query-Opt enable_thinking: {llm_options['enable_thinking']} (from user toggle)")
-        else:
-            log_message("🧠 Query-Opt enable_thinking: False (default - fast keyword mode)")
+        # Automatik-Tasks: Thinking ist IMMER aus (unabhängig vom User-Toggle)
+        # User-Toggle gilt nur für Haupt-LLM, nicht für Query-Optimierung
+        log_message("🧠 Query-Opt enable_thinking: False (Automatik-Task)")
 
         log_message(f"Total Messages: {len(messages)}, Temperature: 0.3")
         log_message("=" * 60)
