@@ -12,7 +12,18 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 ## 📋 What's New
 
-**Latest Version:** v2.7.2 (2025-12-12)
+**Latest Version:** v2.7.4 (2025-12-13)
+
+### 🔧 Multi-Session Deadlock Fix (v2.7.4)
+
+**Stable multi-session without Python asyncio.Lock.** Root cause for deadlocks identified and fixed.
+
+Key highlights:
+- 🔓 **Python Lock Removed**: asyncio.Lock caused deadlocks with unconsumed async generators
+- 🔄 **Native Queue Only**: KoboldCPP's `--multiuser 5` handles all request serialization
+- 📊 **QuantKV=1 Default**: Q4 quantization had hardware bug on multi-GPU with FlashAttention
+- 🔍 **Native API Monitoring**: GPU inactivity monitor now queries `/api/extra/perf` instead of Python lock
+- ✅ **Tested**: 5 parallel requests completed successfully without hanging
 
 ### 👥 Multi-User Support + Package Updates (v2.7.2)
 
@@ -1277,5 +1288,5 @@ MIT License - see [LICENSE](LICENSE) file
 
 ---
 
-**Version**: 2.7.2 (December 2025)
+**Version**: 2.7.4 (December 2025)
 **Status**: Production-Ready 🚀

@@ -138,6 +138,7 @@ class KoboldCPPProcessManager:
         tensor_split: Optional[str] = None,
         flash_attention: bool = True,
         quantized_kv: bool = True,
+        quantkv: int = 1,
         timeout: int = 60
     ) -> bool:
         """
@@ -154,6 +155,8 @@ class KoboldCPPProcessManager:
                          For 2x P40: "1,0" (model on GPU0) + context_offload=True (context on GPU1)
             flash_attention: Enable Flash Attention (faster, less VRAM) (default: True)
             quantized_kv: Enable Quantized KV Cache (less VRAM) (default: True)
+            quantkv: KV cache quantization level (0=FP16, 1=Q8, 2=Q4) (default: 1)
+                    NOTE: quantkv=2 has deadlock bug on multi-GPU with flashattention
             timeout: Seconds to wait for server ready (default: 60)
 
         Returns:
@@ -255,9 +258,10 @@ class KoboldCPPProcessManager:
             logger.info("   ⚡ Flash Attention ENABLED")
 
         # Quantized KV Cache (less VRAM usage)
-        if quantized_kv:
-            cmd.extend(["--quantkv", "2"])  # 2 = Q4 quantization for KV cache (75% VRAM savings)
-            logger.info("   🗜️ Quantized KV Cache ENABLED (Q4 - 75% savings)")
+        if quantized_kv and quantkv > 0:
+            cmd.extend(["--quantkv", str(quantkv)])
+            quantkv_desc = {0: "FP16 (no quantization)", 1: "Q8 (~50% savings)", 2: "Q4 (~75% savings)"}
+            logger.info(f"   🗜️ Quantized KV Cache ENABLED ({quantkv_desc.get(quantkv, f'level {quantkv}')})")
 
         # Multi-User Mode: Queue up to 5 concurrent requests (processed sequentially)
         # Without this, second request while first is processing may timeout/hang
@@ -555,6 +559,7 @@ class KoboldCPPProcessManager:
                     tensor_split=config["tensor_split"],
                     flash_attention=config["flash_attention"],
                     quantized_kv=config["quantized_kv"],
+                    quantkv=config.get("quantkv", 1),
                     timeout=timeout
                 )
 
@@ -693,6 +698,7 @@ class KoboldCPPProcessManager:
                     tensor_split=config["tensor_split"],
                     flash_attention=config["flash_attention"],
                     quantized_kv=config["quantized_kv"],
+                    quantkv=config.get("quantkv", 1),
                     timeout=timeout
                 )
 
@@ -760,6 +766,7 @@ class KoboldCPPProcessManager:
                     tensor_split=config["tensor_split"],
                     flash_attention=config["flash_attention"],
                     quantized_kv=config["quantized_kv"],
+                    quantkv=config.get("quantkv", 1),
                     timeout=timeout
                 )
 
@@ -852,6 +859,7 @@ class KoboldCPPProcessManager:
                 tensor_split=config["tensor_split"],
                 flash_attention=config["flash_attention"],
                 quantized_kv=config["quantized_kv"],
+                quantkv=config.get("quantkv", 1),
                 timeout=timeout
             )
 
@@ -913,6 +921,7 @@ class KoboldCPPProcessManager:
                 tensor_split=config["tensor_split"],
                 flash_attention=config["flash_attention"],
                 quantized_kv=config["quantized_kv"],
+                quantkv=config.get("quantkv", 1),
                 timeout=timeout
             )
 

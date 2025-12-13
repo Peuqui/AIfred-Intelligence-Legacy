@@ -12,7 +12,8 @@ from .config import (
     VRAM_SAFETY_MARGIN,
     VRAM_CONTEXT_RATIO_DENSE,
     VRAM_CONTEXT_RATIO_MOE,
-    ENABLE_VRAM_CONTEXT_CALCULATION
+    ENABLE_VRAM_CONTEXT_CALCULATION,
+    KOBOLDCPP_QUANTKV
 )
 from .formatting import format_number
 
@@ -527,6 +528,7 @@ def detect_koboldcpp_gpu_config() -> Dict:
                 "tensor_split": None,
                 "flash_attention": False,
                 "quantized_kv": False,
+                "quantkv": 0,  # No KV quantization for CPU
                 "use_cublas": False,
                 "cublas_args": None
             }
@@ -547,6 +549,7 @@ def detect_koboldcpp_gpu_config() -> Dict:
                 "tensor_split": None,
                 "flash_attention": True,
                 "quantized_kv": True,
+                "quantkv": 2,  # Q4 for single GPU (safe)
                 "use_cublas": True,
                 "cublas_args": "mmq"  # AMD-specific optimized kernels
             }
@@ -578,13 +581,16 @@ def detect_koboldcpp_gpu_config() -> Dict:
                     "context_offload": False,   # Not supported by KoboldCPP (uses auto-distribution)
                     "tensor_split": None,       # Let KoboldCPP auto-distribute (50/50) - overridable
                     "flash_attention": True,    # P40 supports Flash Attention (Compute Capability 6.1)
-                    "quantized_kv": True,       # Q4 KV cache saves ~75% VRAM for large contexts
+                    "quantized_kv": True,       # Enable KV cache quantization
+                    "quantkv": KOBOLDCPP_QUANTKV,  # Use config value (1=Q8 for multi-GPU stability)
                     "use_cublas": True,
                     "cublas_args": None
                 }
             }
 
     # Single GPU or generic dual GPU (RTX config)
+    # For single GPU, quantkv=2 is safe. For multi-GPU, use config default.
+    quantkv_value = 2 if gpu_count == 1 else KOBOLDCPP_QUANTKV
     return {
         "type": "rtx",
         "description": f"{gpu_names[0] if gpu_names else 'NVIDIA GPU'} (Single GPU)" if gpu_count == 1 else f"{gpu_count}x {gpu_names[0]} (Generic)",
@@ -598,6 +604,7 @@ def detect_koboldcpp_gpu_config() -> Dict:
             "tensor_split": None,
             "flash_attention": True,
             "quantized_kv": True,
+            "quantkv": quantkv_value,  # Q4 for single GPU, config default for multi-GPU
             "use_cublas": True,
             "cublas_args": None
         }

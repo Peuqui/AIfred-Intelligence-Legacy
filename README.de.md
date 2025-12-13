@@ -12,7 +12,18 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 ## 📋 Neuigkeiten
 
-**Aktuelle Version:** v2.6.0 (2025-12-07)
+**Aktuelle Version:** v2.7.4 (2025-12-13)
+
+### 🔧 Multi-Session Deadlock Fix (v2.7.4)
+
+**Stabiles Multi-Session ohne Python asyncio.Lock.** Root Cause für Deadlocks identifiziert und behoben.
+
+Wichtigste Highlights:
+- 🔓 **Python Lock entfernt**: asyncio.Lock verursachte Deadlocks mit nicht-konsumierten async generators
+- 🔄 **Nur Native Queue**: KoboldCPP's `--multiuser 5` übernimmt allein die Request-Serialisierung
+- 📊 **QuantKV=1 Default**: Q4 Quantisierung hatte Hardware-Bug auf Multi-GPU mit FlashAttention
+- 🔍 **Native API Monitoring**: GPU Inactivity Monitor fragt jetzt `/api/extra/perf` ab statt Python Lock
+- ✅ **Getestet**: 5 parallele Requests erfolgreich ohne Hänger
 
 ### 📷 Sequentielle Bildverarbeitung + Session Persistenz (v2.6.0)
 

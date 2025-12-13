@@ -5,26 +5,70 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.7.3] - 2025-12-13
+## [2.7.4] - 2025-12-13
 
-### 🔒 Multi-User Request Lock
+### 🔧 Multi-Session Deadlock Fix (QuantKV + Native Queue)
 
-**Python-Level asyncio.Lock verhindert KoboldCPP-Hänger bei gleichzeitigen Requests.**
+**Stabiles Multi-Session ohne Python asyncio.Lock.** Root Cause für Deadlocks identifiziert und behoben.
 
-#### Added
+#### Changed
 
-- **Request Serialization Lock** ([koboldcpp.py:32-34](aifred/backends/koboldcpp.py#L32-L34)):
-  - Globaler `asyncio.Lock` für alle KoboldCPP API-Calls
-  - Verhindert parallele Requests die KoboldCPP zum Hängen bringen
-  - "⏳ In Warteschlange" Log-Message wenn Lock bereits belegt
+- **Python asyncio.Lock entfernt** ([koboldcpp.py:32-40](aifred/backends/koboldcpp.py#L32-L40)):
+  - asyncio.Lock verursachte Deadlocks wenn async generators nicht vollständig konsumiert wurden
+  - KoboldCPP's natives `--multiuser 5` Queuing übernimmt jetzt allein die Request-Serialisierung
+  - Getestet mit 5 parallelen Requests - alle erfolgreich ohne Hänger
+
+- **GPU Inactivity Monitor nutzt native API** ([state.py:1284-1307](aifred/state.py#L1284-L1307), [state.py:1328-1349](aifred/state.py#L1328-L1349)):
+  - Statt Python Lock-Status wird jetzt `/api/extra/perf` abgefragt
+  - `queue > 0` oder `idle == 0` = Requests aktiv
+  - Robuster als Python-Lock-Check
+
+- **QuantKV Default auf Q8 (quantkv=1)** ([config.py:349](aifred/lib/config.py#L349), [gpu_utils.py:582](aifred/lib/gpu_utils.py#L582)):
+  - `quantkv=2` (Q4) hat Deadlock-Bug auf Multi-GPU mit FlashAttention
+  - `quantkv=1` (Q8) stabil auf 2x Tesla P40 mit 262k Context
+  - Dokumentiert in config.py mit Hinweis auf den Hardware-Bug
 
 #### Fixed
 
-- **KoboldCPP Hänger bei Multi-User** ([koboldcpp.py:184-188](aifred/backends/koboldcpp.py#L184-L188), [koboldcpp.py:267-271](aifred/backends/koboldcpp.py#L267-L271)):
-  - `--multiuser 5` allein reichte nicht - KoboldCPP hing bei parallelen async Requests
-  - Lock serialisiert jetzt alle `chat()` und `chat_stream()` Calls
-  - Faire Abwechslung zwischen Users (FIFO durch asyncio)
-  - Bessere UX: Kurze Calls (Decision, Intent) werden abwechselnd bedient
+- **Multi-GPU Deadlock bei parallelen Requests**:
+  - **Root Cause 1**: `quantkv=2` + FlashAttention + Multi-GPU = Deadlock nach 2-3 großen Requests
+  - **Root Cause 2**: Python asyncio.Lock + nicht-konsumierte async generators = Lock nie freigegeben
+  - **Lösung**: QuantKV=1 (Hardware-Bug umgehen) + Native Queue (robuster als Python Lock)
+
+#### Technical Details
+
+**Warum asyncio.Lock problematisch war:**
+```python
+# PROBLEM: Wenn async generator nicht vollständig konsumiert wird
+async with _koboldcpp_request_lock:  # Lock acquired
+    async for chunk in stream:
+        yield chunk  # Generator suspended here
+        # Wenn Caller abbricht → Lock bleibt für immer gehalten!
+```
+
+**Jetzt mit nativem KoboldCPP Queue:**
+```
+Request 1 → KoboldCPP Queue (verarbeitet)
+Request 2 → KoboldCPP Queue (wartet)
+Request 3 → KoboldCPP Queue (wartet)
+           └─ Kein Python Lock, keine Generator-Lifecycle-Probleme
+```
+
+**QuantKV Hardware-Bug:**
+- `quantkv=2` (Q4) + `--flashattention` + Multi-GPU = Deadlock
+- Manifestiert sich nach 2-3 großen Requests (~40k+ tokens)
+- GPUs zeigen 0% Auslastung obwohl Queue voll
+- Mit `quantkv=1` (Q8) läuft 262k Context stabil
+
+---
+
+## [2.7.3] - 2025-12-13
+
+### 🔒 Multi-User Request Lock (Reverted in 2.7.4)
+
+**Hinweis: Dieser Ansatz wurde in v2.7.4 durch natives KoboldCPP-Queuing ersetzt.**
+
+Python asyncio.Lock wurde hinzugefügt, verursachte aber selbst Deadlocks bei nicht-konsumierten async generators.
 
 ---
 
