@@ -261,6 +261,33 @@ def get_measurement_count(model_name: str) -> int:
     return 0
 
 
+def get_ollama_calibrated_max_context(model_name: str) -> Optional[int]:
+    """
+    Get calibrated max_context_gpu_only for an Ollama model.
+
+    Returns the experimentally measured maximum context that fits in GPU memory
+    without CPU offloading. This is more accurate than dynamic VRAM calculation.
+
+    Args:
+        model_name: Ollama model name (e.g., "qwen3:30b-a3b-instruct-2507-q8_0")
+
+    Returns:
+        Calibrated max context tokens, or None if no calibration exists
+    """
+    cache = load_cache()
+
+    if model_name not in cache:
+        return None
+
+    calibrations = cache[model_name].get("ollama_calibrations", [])
+    if not calibrations:
+        return None
+
+    # Return the most recent calibration's max_context_gpu_only
+    latest = calibrations[-1]
+    return latest.get("max_context_gpu_only")
+
+
 # ============================================================================
 # vLLM CALIBRATION FUNCTIONS (vLLM-specific)
 # ============================================================================

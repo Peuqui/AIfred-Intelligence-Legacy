@@ -249,7 +249,19 @@ async def calculate_vram_based_context(
     """
     debug_msgs = []  # Collect messages for UI yield
 
-    # Auto-detect VRAM context ratio if not provided
+    # PRIORITY 1: Check for calibrated max_context (most accurate!)
+    # If we have a manually calibrated max_context_gpu_only value, use it directly
+    # instead of calculating dynamically (calibration > estimation)
+    if backend_type == "ollama":
+        from .model_vram_cache import get_ollama_calibrated_max_context
+        calibrated_max = get_ollama_calibrated_max_context(model_name)
+        if calibrated_max is not None:
+            # Use calibrated value directly - no VRAM calculation needed!
+            final_ctx = min(calibrated_max, model_context_limit)
+            debug_msgs.append(f"🎯 Calibrated: {format_number(final_ctx)} tok (measured max_context_gpu_only)")
+            return final_ctx, debug_msgs
+
+    # PRIORITY 2: Auto-detect VRAM context ratio if not provided
     if vram_context_ratio is None:
         # Only detect MoE for Ollama (vLLM/TabbyAPI use manual override)
         if backend_type == "ollama":
@@ -377,10 +389,10 @@ async def calculate_vram_based_context(
     # Determine limiting factor and create compact message
     if max_practical_tokens <= model_context_limit:
         # VRAM is the bottleneck
-        msg = f"🎯 VRAM-Limit: {formatted_ctx} tok (Model Max: {formatted_model_max} tok)"
+        msg = f"🎯 VRAM-Limit: {formatted_ctx} tok (Model Max: {formatted_model_max} tok) [uncalibrated]"
     else:
         # Model is the bottleneck
-        msg = f"🎯 Model-Limit: {formatted_ctx} tok (VRAM Max: {formatted_vram_max} tok)"
+        msg = f"🎯 Model-Limit: {formatted_ctx} tok (VRAM Max: {formatted_vram_max} tok) [uncalibrated]"
     debug_msgs.append(msg)
 
     return final_num_ctx, debug_msgs
