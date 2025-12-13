@@ -190,6 +190,12 @@ MAX_RAG_CONTEXT_TOKENS = 20000
 # Verhindert, dass eine einzelne Quelle den gesamten Context dominiert
 MAX_WORDS_PER_SOURCE = 2000
 
+# Maximale Wörter für Single-Source Research (Direct URL)
+# Bei nur 1 Quelle (z.B. PDF-Analyse, wissenschaftliches Paper) brauchen wir das volle Dokument
+# Typisches wissenschaftliches Paper: 4000-8000 Wörter
+# Längere Reviews/Guidelines: bis zu 15000 Wörter
+MAX_WORDS_SINGLE_SOURCE = 12000
+
 # Token-zu-Zeichen Ratio für Context-Berechnung
 # Deutsch/Englisch Mix: ~3 Zeichen pro Token
 CHARS_PER_TOKEN = 3

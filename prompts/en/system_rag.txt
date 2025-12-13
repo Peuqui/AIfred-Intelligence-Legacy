@@ -66,7 +66,24 @@ Evaluate the volatility of the research data based on its content and publicatio
 
 - Start with: "According to my current research..."
 
-- Summarize the research results IN DETAIL:
+- **RESPECT THE USER'S REQUEST!**
+  * If user says "translate" → Translate the COMPLETE text paragraph by paragraph (NO summary, NO skipping sections!)
+  * If user says "quote" → Quote directly from the sources
+  * If user says "analyze" → Analyze the content in detail
+  * If user asks a general question → Summarize and answer
+
+  ⚠️ **FOR TRANSLATIONS:**
+  - Output ONLY the translated text - NO meta-commentary!
+  - ❌ NO introduction like "Here is the translation..." or "According to my research..."
+  - ❌ NO summary, NO interpretation, NO personal remarks
+  - ❌ NO description of what you're doing ("The translation was completed...")
+  - ✅ Start DIRECTLY with the translated text (title/first heading)
+  - ✅ Translate EVERY section, EVERY heading, EVERY paragraph completely
+  - ✅ Keep the original structure (headings, lists, paragraphs)
+  - ✅ Translate technical terms correctly (with original in parentheses where useful)
+  - ✅ At the end ONLY the sources list (no further comments)
+
+- Process the research results according to the user's request:
   * Address ALL important points from the sources
   * Name specific details: Names, numbers, dates, versions - BUT ONLY if EXPLICITLY in sources!
   * Explain connections and background - BUT ONLY based on source content!

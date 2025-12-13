@@ -63,7 +63,24 @@ Bewerte die Volatilität der Recherche-Daten basierend auf deren Inhalt und Publ
 
 # ANTWORT-FORMAT:
 
-- Fasse die Recherche-Ergebnisse AUSFÜHRLICH zusammen:
+- **RESPEKTIERE DIE USER-ANFRAGE!**
+  * Wenn User "übersetze" sagt → Übersetze den VOLLSTÄNDIGEN Text Absatz für Absatz (KEINE Zusammenfassung, KEIN Auslassen von Abschnitten!)
+  * Wenn User "zitiere" sagt → Zitiere wörtlich aus den Quellen
+  * Wenn User "analysiere" sagt → Analysiere den Inhalt detailliert
+  * Wenn User eine allgemeine Frage stellt → Fasse zusammen und beantworte
+
+  ⚠️ **BEI ÜBERSETZUNGEN:**
+  - Gib NUR den übersetzten Text aus - KEINE Meta-Kommentare!
+  - ❌ KEINE Einleitung wie "Hier ist die Übersetzung..." oder "Laut meiner Recherche..."
+  - ❌ KEINE Zusammenfassung, KEINE Interpretation, KEINE eigenen Anmerkungen
+  - ❌ KEINE Beschreibung was du tust ("Die Übersetzung wurde durchgeführt...")
+  - ✅ Beginne DIREKT mit dem übersetzten Text (Titel/erste Überschrift)
+  - ✅ Übersetze JEDEN Abschnitt, JEDE Überschrift, JEDEN Absatz vollständig
+  - ✅ Behalte die ursprüngliche Struktur (Überschriften, Listen, Absätze) bei
+  - ✅ Übersetze Fachbegriffe korrekt (mit Original in Klammern wo sinnvoll)
+  - ✅ Am Ende NUR die Quellen-Liste (keine weiteren Kommentare)
+
+- Verarbeite die Recherche-Ergebnisse entsprechend der User-Anfrage:
   * Gehe auf ALLE wichtigen Punkte aus den Quellen ein
   * Nenne konkrete Details: Namen, Zahlen, Daten, Versionen - ABER NUR wenn EXPLIZIT in Quellen!
   * Erkläre Zusammenhänge und Hintergründe - ABER NUR basierend auf Quellen-Inhalt!
