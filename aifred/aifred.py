@@ -1010,11 +1010,103 @@ def parse_thinking(ai_response: str) -> tuple[str, str]:
     return "", ai_response
 
 
-def render_chat_message(msg: tuple) -> rx.Component:
-    """Rendert eine einzelne Chat-Message (User+AI oder Summary)"""
+def render_failed_sources_inline(failed_sources) -> rx.Component:
+    """
+    Rendert failed sources als kompaktes Collapsible innerhalb einer Chat-Message.
+    Dunkleres Orange-Theme für bessere Unterscheidbarkeit.
+    """
+    return rx.cond(
+        failed_sources.length() > 0,
+        rx.box(
+            rx.accordion.root(
+                rx.accordion.item(
+                    value="inline_failed_sources",
+                    header=rx.box(
+                        rx.hstack(
+                            rx.text("⚠", font_size="12px", line_height="1"),
+                            rx.text(
+                                f"{failed_sources.length()} Quellen nicht verfügbar",
+                                font_weight="500",
+                                font_size="12px",
+                                color="#cc6a00",  # Dunkleres Orange
+                                line_height="1",
+                            ),
+                            spacing="1",
+                            align="center",
+                        ),
+                        padding="2px 6px",
+                        background_color="#1a1206",  # Sehr dunkles Orange/Braun
+                        border_radius="3px",
+                        cursor="pointer",
+                        transition="background-color 0.2s ease",
+                        _hover={
+                            "background_color": "#2d1f00",
+                        },
+                    ),
+                    content=rx.box(
+                        rx.vstack(
+                            rx.foreach(
+                                failed_sources,
+                                lambda src: rx.hstack(
+                                    rx.link(
+                                        rx.text(
+                                            src["url"],
+                                            font_size="11px",
+                                            color=COLORS["accent_blue"],
+                                            _hover={"text_decoration": "underline"},
+                                            overflow="hidden",
+                                            text_overflow="ellipsis",
+                                            white_space="nowrap",
+                                            max_width="350px",
+                                        ),
+                                        href=src["url"],
+                                        is_external=True,
+                                    ),
+                                    rx.text(
+                                        f"({src['error']})",
+                                        font_size="10px",
+                                        color=COLORS["text_muted"],
+                                        font_style="italic",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                    width="100%",
+                                )
+                            ),
+                            spacing="1",
+                            width="100%",
+                            align_items="start",
+                        ),
+                        padding="4px 8px",
+                        background_color="rgba(204, 106, 0, 0.08)",
+                        border_radius="3px",
+                        border=f"1px solid {COLORS['border']}",
+                        width="100%",
+                    ),
+                ),
+                collapsible=True,
+                variant="ghost",
+                width="auto",
+            ),
+            width="auto",
+            margin_y="2px",
+        ),
+        rx.fragment(),  # Empty component when no failed sources
+    )
+
+
+def render_chat_message(msg: dict) -> rx.Component:
+    """
+    Rendert eine einzelne Chat-Message (User+AI oder Summary).
+
+    msg ist ein Dict mit:
+    - user_msg: User-Nachricht
+    - ai_msg: AI-Nachricht (bereinigt)
+    - failed_sources: Liste der fehlgeschlagenen URLs
+    """
     # Check ob es eine Summary ist (leerer User-Teil + "[📊 Komprimiert" am Anfang)
     # Verwende Reflex bitwise operators: & statt 'and'
-    is_summary = (msg[0] == "") & msg[1].startswith("[📊 Komprimiert")
+    is_summary = (msg["user_msg"] == "") & msg["ai_msg"].startswith("[📊 Komprimiert")
 
     return rx.cond(
         is_summary,
@@ -1047,7 +1139,7 @@ def render_chat_message(msg: tuple) -> rx.Component:
                     ),
                     content=rx.box(
                         rx.markdown(
-                            msg[1],  # Zeige den kompletten Summary-Text
+                            msg["ai_msg"],  # Zeige den kompletten Summary-Text
                             color=COLORS["text_primary"],
                             font_size="12px"
                         ),
@@ -1071,14 +1163,14 @@ def render_chat_message(msg: tuple) -> rx.Component:
             width="100%",
             margin_bottom="3",
         ),
-        # Normale Message-Anzeige (User + AI)
+        # Normale Message-Anzeige (User + AI + Failed Sources)
         rx.vstack(
             # User message (rechts, max 70%) - mit hellgrauem Container
             rx.box(
                 rx.hstack(
                     rx.spacer(),
                     rx.box(
-                        rx.markdown(msg[0], color=COLORS["user_text"], font_size="13px"),
+                        rx.markdown(msg["user_msg"], color=COLORS["user_text"], font_size="13px"),
                         background_color=COLORS["user_msg"],
                         padding="3",
                         border_radius="6px",
@@ -1095,14 +1187,16 @@ def render_chat_message(msg: tuple) -> rx.Component:
                 border_radius="8px",
                 width="100%",
             ),
+            # Failed Sources (wenn vorhanden) - ZWISCHEN User und AI Message
+            render_failed_sources_inline(msg["failed_sources"]),
             # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
             rx.box(
                 rx.hstack(
                     rx.text("🤖", font_size="13px"),
                     rx.box(
                         rx.markdown(
-                            msg[1],
-                            color=COLORS["ai_text"], 
+                            msg["ai_msg"],
+                            color=COLORS["ai_text"],
                             font_size="13px"
                         ),
                         background_color=COLORS["ai_msg"],
@@ -1189,7 +1283,7 @@ def chat_history_display() -> rx.Component:
             # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
             rx.auto_scroll(
                 rx.foreach(
-                    AIState.chat_history,
+                    AIState.chat_history_parsed,
                     render_chat_message  # Verwende separate Render-Funktion
                 ),
                 id="chat-history-box",
@@ -1207,7 +1301,7 @@ def chat_history_display() -> rx.Component:
             # Auto-Scroll disabled: normale rx.box (kein Scroll)
             rx.box(
                 rx.foreach(
-                    AIState.chat_history,
+                    AIState.chat_history_parsed,
                     render_chat_message  # Verwende separate Render-Funktion
                 ),
                 id="chat-history-box",
@@ -1271,6 +1365,10 @@ def chat_history_display() -> rx.Component:
         variant="soft",  # Soft statt ghost für besseres Styling
         color_scheme="gray",  # Grau statt Blau
     )
+
+
+# NOTE: Legacy failed_sources_display() removed - failed sources are now rendered
+# inline within each chat message via render_failed_sources_inline()
 
 
 def right_column() -> rx.Component:
@@ -2670,6 +2768,7 @@ console.log('✂️ Crop handler loaded');
             ),
 
             # Chat History (top - read conversation first)
+            # NOTE: Failed sources are now displayed inline within each message (persistent)
             chat_history_display(),
 
             # Input controls (below chat history for easy access after reading)

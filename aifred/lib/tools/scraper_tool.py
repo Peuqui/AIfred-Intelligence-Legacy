@@ -2,19 +2,30 @@
 Web Scraper Tool - Content Extraction
 
 Extracted from agent_tools.py for better modularity.
+Supports HTML (trafilatura/Playwright) and PDF (PyMuPDF) content extraction.
 """
 
+import io
 import logging
 import re
 import time
 import trafilatura
 from trafilatura.settings import DEFAULT_CONFIG
 from copy import deepcopy
-from typing import Dict
+from typing import Dict, Optional
+import requests
 
 from .base import BaseTool
 from ..logging_utils import log_message
 from ..config import PLAYWRIGHT_FALLBACK_THRESHOLD
+
+# Optional: PyMuPDF for PDF extraction (best quality)
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+    fitz = None
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -53,12 +64,14 @@ class WebScraperTool(BaseTool):
         Args:
             query: URL der Webseite (umbenennung von 'url' zu 'query' für BaseTool-Kompatibilität)
 
-        Strategie (2-Stufen Fallback):
+        Strategie (3-Stufen):
+        0. PDF-Erkennung: Content-Type prüfen → PyMuPDF
         1. trafilatura (sauberster Content, filtert Werbung/Navigation/Cookies automatisch)
         2. Falls < threshold ODER fehlgeschlagen → Playwright (JavaScript-Rendering)
 
         trafilatura funktioniert für 95% aller Websites (News, Blogs, Wetter).
         Playwright nur für JavaScript-heavy Single-Page-Apps (React, Vue, etc.).
+        PyMuPDF für PDFs (AWMF Leitlinien, Orphananesthesia, etc.)
 
         Ollama's dynamisches num_ctx übernimmt die Context-Größen-Kontrolle!
         """
@@ -67,7 +80,18 @@ class WebScraperTool(BaseTool):
         # Intern verwenden wir 'url' für Klarheit
         url = query
 
-        # Versuch 1: trafilatura (schnell + sauber)
+        # ============================================================
+        # STEP 0: PDF-Erkennung (Content-Type Header Check)
+        # ============================================================
+        is_pdf = self._is_pdf_url(url)
+        if is_pdf:
+            logger.info(f"📄 PDF erkannt: {url}")
+            log_message(f"📄 PDF erkannt: {url}")
+            return self._scrape_pdf(url)
+
+        # ============================================================
+        # STEP 1: trafilatura (schnell + sauber für HTML)
+        # ============================================================
         result = self._scrape_with_trafilatura(url)
 
         # Intelligente Playwright-Fallback-Strategie:
@@ -288,4 +312,158 @@ class WebScraperTool(BaseTool):
 
         # Generic Fallback
         return f"Download Failed ({error_msg[:50]})"
+
+    # ============================================================
+    # PDF SUPPORT (PyMuPDF)
+    # ============================================================
+
+    def _is_pdf_url(self, url: str) -> bool:
+        """
+        Erkennt ob eine URL auf ein PDF zeigt.
+
+        Prüft:
+        1. URL-Endung (.pdf)
+        2. HEAD-Request Content-Type Header
+
+        Args:
+            url: URL zu prüfen
+
+        Returns:
+            True wenn PDF, False sonst
+        """
+        # Schnelle Prüfung: URL endet mit .pdf
+        if url.lower().endswith('.pdf'):
+            return True
+
+        # Langsame Prüfung: HEAD-Request für Content-Type
+        try:
+            response = requests.head(url, timeout=5, allow_redirects=True, headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; AIfred/1.0)'
+            })
+            content_type = response.headers.get('Content-Type', '').lower()
+            return 'application/pdf' in content_type
+        except Exception:
+            # Bei Fehlern: Kein PDF annehmen (trafilatura wird es versuchen)
+            return False
+
+    def _scrape_pdf(self, url: str) -> Dict:
+        """
+        Extrahiert Text aus PDF-Dokumenten mit PyMuPDF.
+
+        PyMuPDF (fitz) bietet:
+        - Schnellste Text-Extraktion
+        - Beste Qualität
+        - Gute Tabellen-Erkennung
+        - Metadaten-Extraktion (Titel, Autor)
+
+        Args:
+            url: URL des PDF-Dokuments
+
+        Returns:
+            Dict mit extrahiertem Content oder Fehler
+        """
+        if not PYMUPDF_AVAILABLE:
+            logger.warning("⚠️ PyMuPDF nicht installiert → PDF-Support deaktiviert")
+            return {
+                'success': False,
+                'method': 'pdf',
+                'source': url,
+                'error': 'PyMuPDF not installed (pip install pymupdf)'
+            }
+
+        try:
+            logger.info(f"📄 PDF-Download: {url}")
+
+            # Download PDF with timeout
+            response = requests.get(url, timeout=15, headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; AIfred/1.0)'
+            })
+            response.raise_for_status()
+
+            # Verify it's actually a PDF
+            content_type = response.headers.get('Content-Type', '').lower()
+            if 'application/pdf' not in content_type and not url.lower().endswith('.pdf'):
+                logger.warning(f"⚠️ Kein PDF: Content-Type={content_type}")
+                # Fallback zu trafilatura
+                return self._scrape_with_trafilatura(url)
+
+            # Open PDF from memory
+            pdf_data = io.BytesIO(response.content)
+            doc = fitz.open(stream=pdf_data, filetype="pdf")
+
+            # Extract metadata
+            metadata = doc.metadata
+            title = metadata.get('title', '') if metadata else ''
+            if not title:
+                # Fallback: Use filename from URL
+                title = url.split('/')[-1].replace('.pdf', '')
+
+            # Extract text from all pages
+            text_parts = []
+            page_count = len(doc)  # Save before closing!
+            for page_num, page in enumerate(doc):
+                page_text = page.get_text("text")
+                if page_text.strip():
+                    text_parts.append(page_text)
+
+            doc.close()
+
+            # Combine and clean text
+            full_text = '\n\n'.join(text_parts)
+            full_text = self._clean_text(full_text)
+            word_count = len(full_text.split())
+
+            if not full_text:
+                logger.warning("⚠️ PDF: Kein Text extrahiert (möglicherweise Scan/Bild-PDF)")
+                return {
+                    'success': False,
+                    'method': 'pdf',
+                    'source': url,
+                    'error': 'No text extracted (possibly scanned PDF)'
+                }
+
+            logger.info(f"  ✅ PDF: {word_count} Wörter, {page_count} Seiten")
+            log_message(f"  ✅ PDF: {word_count} Wörter extrahiert")
+
+            return {
+                'success': True,
+                'source': url,
+                'title': title,
+                'content': full_text,
+                'url': url,
+                'word_count': word_count,
+                'truncated': False,
+                'method': 'pdf',
+                'pages': page_count
+            }
+
+        except requests.exceptions.Timeout:
+            error_msg = "PDF Download Timeout"
+            logger.error(f"❌ {error_msg}: {url}")
+            return {
+                'success': False,
+                'method': 'pdf',
+                'source': url,
+                'error': error_msg
+            }
+
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}"
+            logger.error(f"❌ {error_msg}: {url}")
+            return {
+                'success': False,
+                'method': 'pdf',
+                'source': url,
+                'error': error_msg
+            }
+
+        except Exception as e:
+            error_msg = str(e)[:100]
+            logger.error(f"❌ PDF-Fehler bei {url}: {error_msg}")
+            return {
+                'success': False,
+                'method': 'pdf',
+                'source': url,
+                'error': f"PDF extraction failed: {error_msg}"
+            }
 

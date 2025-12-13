@@ -14,7 +14,7 @@ from typing import Dict, List, AsyncIterator, Optional
 from urllib.parse import urlparse
 
 from ..query_optimizer import optimize_search_query
-from ..agent_tools import search_web
+from ..agent_tools import search_web_multi
 from ..logging_utils import log_message
 from ..formatting import format_number
 from ..tools.url_utils import deduplicate_urls
@@ -246,7 +246,7 @@ async def process_query_and_search(
         query_opt_start = time.time()
         automatik_limit, _ = await automatik_llm_client.get_model_context_limit(automatik_model)
 
-        optimized_query, query_reasoning = await optimize_search_query(
+        optimized_queries, query_reasoning = await optimize_search_query(
             user_text=text_without_urls,
             automatik_model=automatik_model,
             history=history,
@@ -258,30 +258,45 @@ async def process_query_and_search(
         query_opt_time = max(0, time.time() - query_opt_start)
 
         yield {"type": "debug", "message": f"✅ Query-Optimierung fertig ({format_number(query_opt_time, 1)}s)"}
-        yield {"type": "debug", "message": f"🔎 Optimierte Query: {optimized_query}"}
+        yield {"type": "debug", "message": f"🔎 {len(optimized_queries)} Queries generiert:"}
 
-        # Web-Suche mit optimierter Query
+        # API-Namen für Round-Robin Vorschau (Reihenfolge wie in MultiAPISearchTool)
+        api_names = ["Tavily", "Brave", "SearXNG"]
+        for i, q in enumerate(optimized_queries):
+            api_name = api_names[i % len(api_names)]
+            yield {"type": "debug", "message": f"   {i+1}. [{api_name}] {q}"}
+
+        # Web-Suche mit Multi-Query (verteilt auf verschiedene APIs)
         log_message("=" * 60)
-        log_message("🔍 Web-Suche mit optimierter Query (Hybrid)")
+        log_message("🔍 Multi-Query Web-Suche (Hybrid)")
         log_message("=" * 60)
 
-        search_result = search_web(optimized_query)
+        search_result = search_web_multi(optimized_queries)
         tool_results.append(search_result)
 
-        # Console Log: Welche API wurde benutzt?
+        # Log Multi-Query Stats (File-Log + UI)
         api_source = search_result.get('source', 'Unbekannt')
         stats = search_result.get('stats', {})
         apis_used = search_result.get('apis_used', [])
+        query_results = search_result.get('query_results', [])
 
         if stats and apis_used:
             total_urls = stats.get('total_urls', 0)
             unique_urls = stats.get('unique_urls', 0)
             duplicates = stats.get('duplicates_removed', 0)
 
-            yield {"type": "debug", "message": f"🌐 Web-Suche: {', '.join(apis_used)} ({len(apis_used)} APIs)"}
-            # Always show deduplication stats (even if 0 duplicates)
+            # File-Log: Detaillierte Query→API Zuordnung
+            log_message(f"📋 Query → API Zuordnung:")
+            for qr in query_results:
+                status = "✅" if qr.get('success') else "❌"
+                log_message(f"   {status} {qr.get('api')}: \"{qr.get('query', '')[:50]}...\" → {qr.get('urls_found', 0)} URLs")
+            log_message(f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)")
+
+            # UI Debug-Konsole
+            yield {"type": "debug", "message": f"🌐 Multi-Query Search: {', '.join(apis_used)} ({len(apis_used)} APIs)"}
             yield {"type": "debug", "message": f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)"}
         else:
+            log_message(f"🌐 Web-Suche mit: {api_source}")
             yield {"type": "debug", "message": f"🌐 Web-Suche mit: {api_source}"}
 
         # Combine detected URLs with search results
@@ -293,8 +308,8 @@ async def process_query_and_search(
 
         yield {"type": "debug", "message": f"🔀 Gesamt: {len(related_urls)} URLs (direkt + Search)"}
 
-        # Return results
-        yield {"type": "query_result", "data": (optimized_query, query_reasoning, query_opt_time, related_urls, tool_results)}
+        # Return results (first query for display, all queries in search_result)
+        yield {"type": "query_result", "data": (optimized_queries[0], query_reasoning, query_opt_time, related_urls, tool_results)}
         return
 
     # ============================================================
@@ -309,7 +324,7 @@ async def process_query_and_search(
         # Query Automatik-Model Context Limit (silent - already shown in decision phase)
         automatik_limit, _ = await automatik_llm_client.get_model_context_limit(automatik_model)
 
-        optimized_query, query_reasoning = await optimize_search_query(
+        optimized_queries, query_reasoning = await optimize_search_query(
             user_text=user_text,
             automatik_model=automatik_model,
             history=history,
@@ -320,22 +335,29 @@ async def process_query_and_search(
         )
         query_opt_time = max(0, time.time() - query_opt_start)
 
-        # Show query optimization completion AND optimized query
+        # Show query optimization completion AND all queries with API assignment
         yield {"type": "debug", "message": f"✅ Query-Optimierung fertig ({format_number(query_opt_time, 1)}s)"}
-        yield {"type": "debug", "message": f"🔎 Optimierte Query: {optimized_query}"}
+        yield {"type": "debug", "message": f"🔎 {len(optimized_queries)} Queries generiert:"}
 
-        # 2. Web-Suche
+        # API-Namen für Round-Robin Vorschau (Reihenfolge wie in MultiAPISearchTool)
+        api_names = ["Tavily", "Brave", "SearXNG"]
+        for i, q in enumerate(optimized_queries):
+            api_name = api_names[i % len(api_names)]
+            yield {"type": "debug", "message": f"   {i+1}. [{api_name}] {q}"}
+
+        # 2. Web-Suche mit Multi-Query
         log_message("=" * 60)
-        log_message("🔍 Web-Suche mit optimierter Query")
+        log_message("🔍 Multi-Query Web-Suche")
         log_message("=" * 60)
 
-        search_result = search_web(optimized_query)
+        search_result = search_web_multi(optimized_queries)
         tool_results.append(search_result)
 
-    # Console Log: Welche API wurde benutzt?
+    # Log Multi-Query Stats (File-Log + UI)
     api_source = search_result.get('source', 'Unbekannt')
     stats = search_result.get('stats', {})
     apis_used = search_result.get('apis_used', [])
+    query_results = search_result.get('query_results', [])
 
     if stats and apis_used:
         # Multi-API Search mit Stats
@@ -343,14 +365,22 @@ async def process_query_and_search(
         unique_urls = stats.get('unique_urls', 0)
         duplicates = stats.get('duplicates_removed', 0)
 
-        yield {"type": "debug", "message": f"🌐 Web-Suche: {', '.join(apis_used)} ({len(apis_used)} APIs)"}
-        if duplicates > 0:
-            yield {"type": "debug", "message": f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)"}
+        # File-Log: Detaillierte Query→API Zuordnung
+        log_message(f"📋 Query → API Zuordnung:")
+        for qr in query_results:
+            status = "✅" if qr.get('success') else "❌"
+            log_message(f"   {status} {qr.get('api')}: \"{qr.get('query', '')[:50]}...\" → {qr.get('urls_found', 0)} URLs")
+        log_message(f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)")
+
+        # UI Debug-Konsole
+        yield {"type": "debug", "message": f"🌐 Multi-Query Search: {', '.join(apis_used)} ({len(apis_used)} APIs)"}
+        yield {"type": "debug", "message": f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)"}
     else:
+        log_message(f"🌐 Web-Suche mit: {api_source}")
         yield {"type": "debug", "message": f"🌐 Web-Suche mit: {api_source}"}
 
     # Extract URLs
     related_urls = search_result.get('related_urls', [])
 
-    # Return results as last yield (includes query_reasoning for debug accordion)
-    yield {"type": "query_result", "data": (optimized_query, query_reasoning, query_opt_time, related_urls, tool_results)}
+    # Return results as last yield (first query for display, all queries in search_result)
+    yield {"type": "query_result", "data": (optimized_queries[0], query_reasoning, query_opt_time, related_urls, tool_results)}

@@ -39,6 +39,7 @@ from .tools import (
     ToolRegistry,
     get_tool_registry,
     search_web,
+    search_web_multi,
     scrape_webpage,
 )
 
@@ -63,5 +64,6 @@ __all__ = [
     'ToolRegistry',
     'get_tool_registry',
     'search_web',
+    'search_web_multi',
     'scrape_webpage',
 ]

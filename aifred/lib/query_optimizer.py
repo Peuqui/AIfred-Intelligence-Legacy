@@ -27,7 +27,7 @@ async def optimize_search_query(
     automatik_llm_context_limit: int,
     llm_options: Optional[Dict] = None,
     vision_json_context: Optional[Dict] = None
-) -> Tuple[str, Optional[str]]:
+) -> Tuple[List[str], Optional[str]]:
     """
     Extrahiert optimierte Suchbegriffe aus User-Frage
 
@@ -41,7 +41,8 @@ async def optimize_search_query(
         vision_json_context: Optional Vision JSON from image extraction (for query context)
 
     Returns:
-        tuple: (optimized_query, reasoning_content)
+        tuple: (list_of_optimized_queries, reasoning_content)
+               Multiple queries for distribution across search APIs
     """
     # Spracherkennung für Nutzereingabe
     from .prompt_loader import detect_language
@@ -123,28 +124,29 @@ async def optimize_search_query(
         # Remove closing tags (orphaned): </think>
         optimized_query = re.sub(r'</think>', '', optimized_query, flags=re.IGNORECASE)
 
-        # NEW: Handle multi-line output (prompt can return 1-3 queries)
-        # Take the FIRST non-empty line as primary query
+        # ============================================================
+        # MULTI-QUERY: Parse all lines (prompt returns 1-3 queries)
+        # ============================================================
         query_lines = [line.strip() for line in optimized_query.split('\n') if line.strip()]
-        if query_lines:
-            optimized_query = query_lines[0]  # Use first query
-            if len(query_lines) > 1:
-                log_message(f"   📋 {len(query_lines)} Queries generiert, nutze erste")
 
-        # Entferne Anführungszeichen und Sonderzeichen
-        optimized_query = re.sub(r'["\']', '', optimized_query)
-        optimized_query = ' '.join(optimized_query.split())  # Normalize whitespace
+        # Clean each query: remove quotes and normalize whitespace
+        cleaned_queries = []
+        for query in query_lines:
+            query = re.sub(r'["\']', '', query)
+            query = ' '.join(query.split())  # Normalize whitespace
+            if query:  # Only add non-empty queries
+                cleaned_queries.append(query)
 
         # ============================================================
-        # FALLBACK: Empty Query (Thinking Models fail to produce keywords)
+        # FALLBACK: Empty Query List (Thinking Models fail to produce keywords)
         # ============================================================
-        if not optimized_query or len(optimized_query.strip()) == 0:
-            log_message("⚠️ Query-Optimierung ergab leeren String (Thinking-Model?)")
+        if not cleaned_queries:
+            log_message("⚠️ Query-Optimierung ergab leere Liste (Thinking-Model?)")
             log_message("   → Fallback zu Original-Query")
-            optimized_query = user_text  # Use full user question as-is
+            cleaned_queries = [user_text]  # Use full user question as-is
 
         # ============================================================
-        # POST-PROCESSING: Temporale Kontext-Erkennung
+        # POST-PROCESSING: Temporale Kontext-Erkennung (für ALLE Queries)
         # ============================================================
         # Garantiert aktuelles Jahr bei zeitlich relevanten Queries, auch wenn LLM es vergisst
 
@@ -164,26 +166,33 @@ async def optimize_search_query(
             'oder', 'or', 'vs.', 'gegen', 'statt', 'instead'
         ]
 
-        query_lower = optimized_query.lower()
+        # Apply temporal post-processing to each query
+        processed_queries = []
+        for query in cleaned_queries:
+            query_lower = query.lower()
 
-        # Regel 1: "beste/neueste X" → + aktuelles Jahr (falls nicht schon vorhanden)
-        if any(kw in query_lower for kw in temporal_keywords) and current_year not in optimized_query:
-            optimized_query += f" {current_year}"
-            log_message(f"   ⏰ Temporaler Kontext ergänzt: {current_year}")
+            # Regel 1: "beste/neueste X" → + aktuelles Jahr (falls nicht schon vorhanden)
+            if any(kw in query_lower for kw in temporal_keywords) and current_year not in query:
+                query += f" {current_year}"
+                log_message(f"   ⏰ Temporaler Kontext ergänzt: {current_year}")
 
-        # Regel 2: "X vs Y" → + aktuelles Jahr (falls nicht schon vorhanden)
-        elif any(kw in query_lower for kw in comparison_keywords) and current_year not in optimized_query:
-            optimized_query += f" {current_year}"
-            log_message(f"   ⚖️ Vergleichs-Kontext ergänzt: {current_year}")
+            # Regel 2: "X vs Y" → + aktuelles Jahr (falls nicht schon vorhanden)
+            elif any(kw in query_lower for kw in comparison_keywords) and current_year not in query:
+                query += f" {current_year}"
+                log_message(f"   ⚖️ Vergleichs-Kontext ergänzt: {current_year}")
+
+            processed_queries.append(query)
 
         log_message("🔍 Query-Optimierung:")
         log_message(f"   Original: {user_text[:80]}{'...' if len(user_text) > 80 else ''}")
-        log_message(f"   Optimiert: {optimized_query}")
+        log_message(f"   📋 {len(processed_queries)} Queries generiert:")
+        for i, q in enumerate(processed_queries, 1):
+            log_message(f"      {i}. {q}")
 
-        # Return: Tuple (optimized_query, reasoning)
-        return (optimized_query, think_content)
+        # Return: Tuple (list_of_queries, reasoning)
+        return (processed_queries, think_content)
 
     except Exception as e:
         log_message(f"⚠️ Fehler bei Query-Optimierung: {e}")
         log_message("   Fallback zu Original-Query")
-        return (user_text, None)
+        return ([user_text], None)  # Return as list for consistency

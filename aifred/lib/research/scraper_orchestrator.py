@@ -151,6 +151,28 @@ async def orchestrate_scraping(
 
     log_message(f"✅ Parallel Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} erfolgreich")
 
+    # ============================================================
+    # COLLECT FAILED URLs for UI Display
+    # ============================================================
+    failed_sources = []
+    for future in future_to_url:
+        url = future_to_url[future]
+        try:
+            result = future.result(timeout=0)  # Already completed
+            if not result.get('success'):
+                failed_sources.append({
+                    'url': url,
+                    'error': result.get('error', 'Unknown error'),
+                    'method': result.get('method', 'unknown')
+                })
+        except Exception:
+            pass  # Already handled above
+
+    # Emit failed_sources for UI display (before AI response)
+    if failed_sources:
+        yield {"type": "failed_sources", "data": failed_sources}
+        log_message(f"⚠️ {len(failed_sources)} URLs nicht scrapebar")
+
     # Wait for preload task to complete if not done yet
     if not preload_message_sent and preload_task:
         try:

@@ -982,11 +982,8 @@ async def chat_interactive_mode(
                     cache_time_ms = cache_result.get('query_time_ms', 0) / 1000
                     timing_suffix = f" (Cache-Hit: {format_number(cache_time_ms, 2)}s, Age: {age_formatted}, Quelle: Vector Cache)"
 
-                    # Create user_with_time for history
-                    user_with_time = f"[{datetime.now().strftime('%H:%M')}] {user_text}"
-
-                    # Add to history with timing suffix
-                    history.append((user_with_time, answer + timing_suffix))
+                    # Add to history with timing suffix (no timestamp prefix)
+                    history.append((user_text, answer + timing_suffix))
 
                     # Return result in same format as perform_agent_research
                     yield {
@@ -1042,18 +1039,27 @@ async def chat_interactive_mode(
                 confidence = cache_result['confidence']
                 distance = cache_result['distance']
                 answer = cache_result['answer']
+                cached_sources = cache_result.get('cached_sources', [])
+                cached_failed_sources = cache_result.get('failed_sources', [])
 
                 log_message(f"✅ Vector DB HIT! Confidence: {confidence.upper()}, Distance: {format_number(distance, 3)}")
                 yield {"type": "debug", "message": f"✅ Cache HIT ({confidence}, d={format_number(distance, 3)})"}
+
+                # Log cached sources info
+                if cached_sources:
+                    log_message(f"📚 Cache contains {len(cached_sources)} sources")
+
+                # Emit failed_sources event if any were cached
+                if cached_failed_sources:
+                    yield {"type": "failed_sources", "data": cached_failed_sources}
+                    log_message(f"⚠️ Cache contains {len(cached_failed_sources)} failed sources")
 
                 # Return cached answer with timing info
                 cache_time = cache_result.get('query_time_ms', 0) / 1000  # Convert to seconds
                 timing_suffix = f" (Cache-Hit: {format_number(cache_time, 2)}s, Quelle: Vector DB)"
 
-                # Add to history
-                from datetime import datetime
-                user_with_time = f"[{datetime.now().strftime('%H:%M')}] {user_text}"
-                history.append((user_with_time, answer + timing_suffix))
+                # Add to history (no timestamp prefix)
+                history.append((user_text, answer + timing_suffix))
 
                 # Return result in same format as perform_agent_research
                 yield {
