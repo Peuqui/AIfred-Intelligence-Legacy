@@ -8,110 +8,53 @@
 
 AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web-Recherche, Multi-Model-Support und History-Kompression für unbegrenzte Konversationen.
 
----
-
-## 📋 Neuigkeiten
-
-**Aktuelle Version:** v2.7.4 (2025-12-13)
-
-### 🔧 Multi-Session Deadlock Fix (v2.7.4)
-
-**Stabiles Multi-Session ohne Python asyncio.Lock.** Root Cause für Deadlocks identifiziert und behoben.
-
-Wichtigste Highlights:
-- 🔓 **Python Lock entfernt**: asyncio.Lock verursachte Deadlocks mit nicht-konsumierten async generators
-- 🔄 **Nur Native Queue**: KoboldCPP's `--multiuser 5` übernimmt allein die Request-Serialisierung
-- 📊 **QuantKV=1 Default**: Q4 Quantisierung hatte Hardware-Bug auf Multi-GPU mit FlashAttention
-- 🔍 **Native API Monitoring**: GPU Inactivity Monitor fragt jetzt `/api/extra/perf` ab statt Python Lock
-- ✅ **Getestet**: 5 parallele Requests erfolgreich ohne Hänger
-
-### 📷 Sequentielle Bildverarbeitung + Session Persistenz (v2.6.0)
-
-**Stabilere Vision-Ergebnisse:** Multi-Image wird jetzt sequentiell verarbeitet. Mobile Sessions bleiben erhalten.
-
-Wichtigste Highlights:
-- 📷 **Sequentielle Verarbeitung**: Bilder werden nacheinander für konsistentere Ergebnisse verarbeitet
-- 💾 **Session Persistenz**: Chat-Verlauf überlebt Mobile-Browser-Hintergrund/Neustart
-- 🍪 **Cookie-basierte Device-ID**: 128-bit ID im Browser-Cookie gespeichert (1 Jahr gültig)
-- 📁 **Server-seitige Speicherung**: Sessions in `~/.config/aifred/sessions/`
-- 🔧 **Bug-Fix**: Fast Path überschreibt nicht mehr settings.json Modell-Auswahl
-
-### 🎯 Dynamische Vision-Kontext-Berechnung (v2.5.3)
-
-**Optimierte VRAM-Nutzung:** Vision-Kontext wird jetzt dynamisch berechnet wie beim Haupt-LLM - basierend auf tatsächlich benötigten Tokens, VRAM-Kapazität und Model-Limits.
-
-Wichtigste Highlights:
-- 🎯 **Dynamische Berechnung**: Vision-Kontext nutzt jetzt `min(benötigt, VRAM-max, Model-max)`
-- 💾 **VRAM-Ersparnis**: Kürzere Anfragen nutzen weniger VRAM statt fixem 16K-Kontext
-- 🧹 **Code-Aufräumen**: Toter Code entfernt (`VISION_CONTEXT_LIMIT`, doppelte Funktionen)
-- 🔧 **Bug-Fixes**: Doppelte Log-Zeilen behoben, Mypy Type-Fehler gefixt
-
-### 📷 Multi-Image Vision Pipeline (v2.5.2)
-
-**Verbesserte Multi-Bild-Analyse:** JSON-zu-Text Konvertierung gefixt, Log-Formatierung verbessert, besseres Markdown-Rendering.
-
-Wichtigste Highlights:
-- 📷 **Multi-Image Handler**: Neuer `multi_image` Typ in `_json_to_readable()` für korrekte Formatierung
-- 📝 **Markdown Zeilenumbrüche**: Einzelne `\n` werden jetzt als Zeilenumbrüche gerendert (ohne Absatzabstand)
-- 🎨 **Formatiertes JSON**: Collapsible "Strukturierte Daten" zeigt jetzt formatiertes JSON
-- 🔧 **Log-Ausrichtung**: Bild-Aufzählungspunkte korrekt mit "Vision-LLM" ausgerichtet
-
-### 📱 Mobile UX Verbesserungen (v2.5.1)
-
-**Verbesserte Mobile-Erfahrung:** Vollbild-Crop-Modal, optimiertes Thumbnail-Layout und intelligente Bildnamen.
-
-Wichtigste Highlights:
-- 📱 **Vollbild-Crop-Modal**: Positionierungsprobleme auf Mobile behoben - Modal jetzt immer zentriert
-- 🖐️ **Touch-freundlich**: Snap-to-Grid-Verhalten deaktiviert, größere Touch-Targets (80px Thumbnails)
-- 📝 **Intelligente Bildnamen**: Lange Kamera-Dateinamen werden zu "Bild_001.jpg" gekürzt
-- 🔧 **Backend-Dropdown Fix**: Jetzt auch auf Mobile im geschlossenen Zustand sichtbar
-- ⬅️ **Linksbündiges Layout**: Buttons und Thumbnails korrekt ausgerichtet
-
-### ✂️ Bild-Zuschnitt & 4K Auto-Resize (v2.5.0)
-
-**Neues Feature:** Bilder vor dem Senden an Vision-LLM zuschneiden, mit automatischer 4K-Auflösungsbegrenzung.
-
-Wichtigste Highlights:
-- ✂️ **Interaktives Crop-Tool**: Bilder direkt in der UI vor OCR/Analyse zuschneiden
-- 🎯 **8-Punkt Drag-Handles**: 4 Ecken + 4 Kanten für präzises Zuschneiden
-- 📐 **Freies Seitenverhältnis**: Kein festes Verhältnis - beliebigen rechteckigen Bereich zuschneiden
-- 📷 **4K Auto-Resize**: Bilder automatisch auf max 3840px skaliert (vorher 2048px)
-- 🔄 **EXIF-Rotations-Fix**: Mobile Fotos werden jetzt korrekt ausgerichtet
-- 🎨 **RGBA→RGB Konvertierung**: PNG-Screenshots mit Transparenz funktionieren korrekt
-
-### 🔧 Generische XML-Tag-Verarbeitung (v2.4.1)
-
-**Großes Refactoring:** Hardcodierte XML-Tag-Verarbeitung durch config-gesteuerte, generische Verarbeitung ersetzt.
-
-### 🔗 Vision + Research Integration (v2.4.0)
-
-**Game Changer:** Bild hochladen, nach dem Inhalt fragen, und AIfred recherchiert automatisch im Web mit Kontext aus dem Bild!
-
-**Beispiel:** Medikamentenplan hochladen → Fragen *"Recherchiere die Nebenwirkungen des ersten Medikaments"* → AIfred extrahiert "Acetylsalicylsäure" aus dem Bild → Recherchiert im Web nach Nebenwirkungen → Liefert umfassende Antwort mit Quellen.
-
-Für detaillierte Änderungen und Versionshistorie siehe [CHANGELOG.md](CHANGELOG.md).
+Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
 ## ✨ Features
 
 ### 🎯 Kern-Features
-- **Multi-Backend-Unterstützung**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2)
+- **Multi-Backend-Unterstützung**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), KoboldCPP (GGUF mit erweitertem Kontext)
+- **Vision/OCR-Unterstützung**: Bildanalyse mit multimodalen LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
+- **Bild-Zuschnitt-Tool**: Interaktiver Crop vor OCR/Analyse (8-Punkt-Handles, 4K Auto-Resize)
+- **3-Modell-Architektur**: Spezialisiertes Vision-LLM für OCR, Haupt-LLM für Interpretation
 - **Qwen3-Denkmodus**: Chain-of-Thought-Reasoning für komplexe Aufgaben (Ollama + vLLM)
 - **Automatische Web-Recherche**: KI entscheidet selbst, wann Recherche nötig ist
 - **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung
 - **Sprachschnittstelle**: Speech-to-Text und Text-to-Speech Integration
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
-- **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle
+- **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
+- **Session-Persistenz**: Mobile Chat-History überlebt Browser-Hintergrund/Neustart (Cookie-basiert)
+- **Chat teilen**: Gesamte Konversation als formatierten Text in die Zwischenablage kopieren (🔗 Button)
+- **HTML-Vorschau**: KI-generierter HTML-Code öffnet direkt im Browser (neuer Tab)
 
 ### 🔧 Technische Highlights
 - **Reflex-Framework**: React-Frontend aus Python generiert
 - **WebSocket-Streaming**: Echtzeit-Updates ohne Polling
 - **Adaptive Temperatur**: KI wählt Temperatur basierend auf Fragetyp
 - **Token-Management**: Dynamische Context-Window-Berechnung
+- **VRAM-bewusster Kontext**: Automatische Kontext-Größe basierend auf verfügbarem GPU-Speicher
 - **Debug-Konsole**: Umfangreiches Logging und Monitoring
 - **ChromaDB-Server-Modus**: Thread-sichere Vector-DB via Docker (0.0 Distance für exakte Matches)
 - **GPU-Erkennung**: Automatische Erkennung und Warnung bei inkompatiblen Backend-GPU-Kombinationen ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
+- **KoboldCPP Dynamic RoPE**: Intelligente VRAM-basierte Kontext-Optimierung mit automatischem RoPE-Scaling
+- **Multi-User-Queue**: KoboldCPP Request-Queuing für gleichzeitige Benutzer (bis zu 5 Clients)
+
+### ⚠️ Modell-Empfehlungen
+- **Vision-LLM (OCR/Bildanalyse)**: **Spezialisierte Vision-Modelle** verwenden
+  - **Empfohlen**: Ministral-3:8b (beste Balance: 14s, detaillierter Output)
+  - **Schnell**: Ministral-3:3b (10s, gut für einfache Extraktionen)
+  - **Nicht empfohlen**: DeepSeek-OCR:3b (ignoriert System-Prompts, gibt HTML statt JSON aus)
+  - **Langsam**: Qwen3-VL:30b (60s+), Qwen3-VL:8b (56s, leerer Output)
+- **Automatik-LLM (Entscheidung/Intent/Query-Opt)**: **Nur Instruct-Modelle** verwenden
+  - Thinking-Modelle (QwQ-32B, DeepSeek-R1, etc.) sind inkompatibel mit Automatik-Tasks
+  - Diese Modelle ignorieren `enable_thinking` Flags und erzeugen ausführliches Reasoning
+  - Dies führt zu leerer Query-Optimierung und fehlgeschlagenen Entscheidungen
+  - **Fallbacks sind vorhanden**, aber Performance ist suboptimal
+- **Haupt-LLM**: Sowohl Instruct- als auch Thinking-Modelle funktionieren perfekt
+  - Thinking-Modelle glänzen bei komplexem Reasoning und mehrstufigen Aufgaben
+  - "Denkmodus"-Toggle für Chain-of-Thought-Reasoning aktivieren
 
 ---
 
@@ -1182,8 +1125,3 @@ Pull Requests sind willkommen! Für größere Änderungen bitte erst ein Issue �
 ## 📄 License
 
 MIT License - siehe [LICENSE](LICENSE) file
-
----
-
-**Version**: 2.6.0 (Dezember 2025)
-**Status**: Production-Ready 🚀
