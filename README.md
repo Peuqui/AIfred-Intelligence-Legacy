@@ -8,133 +8,16 @@
 
 AIfred Intelligence is an advanced AI assistant with automatic web research, multi-model support, and history compression for unlimited conversations.
 
----
-
-## 📋 What's New
-
-**Latest Version:** v2.7.4 (2025-12-13)
-
-### 🔧 Multi-Session Deadlock Fix (v2.7.4)
-
-**Stable multi-session without Python asyncio.Lock.** Root cause for deadlocks identified and fixed.
-
-Key highlights:
-- 🔓 **Python Lock Removed**: asyncio.Lock caused deadlocks with unconsumed async generators
-- 🔄 **Native Queue Only**: KoboldCPP's `--multiuser 5` handles all request serialization
-- 📊 **QuantKV=1 Default**: Q4 quantization had hardware bug on multi-GPU with FlashAttention
-- 🔍 **Native API Monitoring**: GPU inactivity monitor now queries `/api/extra/perf` instead of Python lock
-- ✅ **Tested**: 5 parallel requests completed successfully without hanging
-
-### 👥 Multi-User Support + Package Updates (v2.7.2)
-
-**Multi-user concurrent requests now properly queued.** Python dependencies updated to latest versions.
-
-Key highlights:
-- 👥 **KoboldCPP Multi-User Mode**: `--multiuser 5` parameter added for proper request queuing
-- 📦 **Package Updates**: reflex 0.8.22, openai 2.11.0, chromadb 1.3.7, fastapi 0.124.4, transformers 4.57.3
-- 🐳 **ChromaDB Docker**: Updated to latest image
-- 🔧 **huggingface-hub Compatibility**: Fixed version conflict with transformers
-- 🐛 **GGUF Auto-Scan**: Models now auto-scanned on service restart (fixes "model not found" error)
-
-### 🌐 HTML Preview Button (v2.7.1)
-
-**AI-generated HTML code can now be opened directly in the browser.**
-
-Key highlights:
-- 🌐 **Browser Preview**: `html` code blocks get automatic "Open in Browser" link
-- 🧹 **Auto-Cleanup**: HTML preview files older than 24h are automatically deleted
-
-### 📷 Sequential Image Processing + Session Persistence (v2.6.0)
-
-**More stable vision results:** Multi-image is now processed sequentially. Mobile sessions persist across app restarts.
-
-Key highlights:
-- 📷 **Sequential Processing**: Images processed one at a time for more consistent results
-- 💾 **Session Persistence**: Chat history survives mobile browser background/restart
-- 🍪 **Cookie-based Device ID**: 128-bit ID stored in browser cookie (1 year validity)
-- 📁 **Server-side Storage**: Sessions stored in `~/.config/aifred/sessions/`
-- 🔧 **Bug Fix**: Fast Path no longer overrides settings.json model selection
-
-### 🎯 Dynamic Vision Context Calculation (v2.5.3)
-
-**Optimized VRAM usage:** Vision context is now calculated dynamically like the Main-LLM - based on actually needed tokens, VRAM capacity, and model limits.
-
-Key highlights:
-- 🎯 **Dynamic Calculation**: Vision context now uses `min(needed, VRAM-max, model-limit)`
-- 💾 **VRAM Savings**: Shorter queries use less VRAM instead of fixed 16K context
-- 🧹 **Code Cleanup**: Removed dead code (`VISION_CONTEXT_LIMIT`, duplicate functions)
-- 🔧 **Bug Fixes**: Fixed duplicate log lines, mypy type errors
-
-### 📷 Multi-Image Vision Pipeline (v2.5.2)
-
-**Enhanced multi-image analysis:** Fixed JSON-to-readable conversion, improved log formatting, and better Markdown rendering.
-
-Key highlights:
-- 📷 **Multi-Image Handler**: New `multi_image` type in `_json_to_readable()` for proper formatting
-- 📝 **Markdown Line Breaks**: Single `\n` now renders as proper line breaks (not paragraph spacing)
-- 🎨 **Pretty-Printed JSON**: Collapsible "Strukturierte Daten" now shows formatted JSON
-- 🔧 **Log Alignment**: Image bullet points properly aligned with "Vision-LLM" text
-
-### 📱 Mobile UX Improvements (v2.5.1)
-
-**Enhanced mobile experience:** Fullscreen crop modal, improved thumbnail layout, and smarter image naming.
-
-Key highlights:
-- 📱 **Fullscreen Crop Modal**: Fixed positioning issues on mobile - modal now always centered
-- 🖐️ **Touch-Friendly**: Disabled snap-to-grid behavior, larger touch targets (80px thumbnails)
-- 📝 **Smart Image Names**: Long camera filenames shortened to "Bild_001.jpg"
-- 🔧 **Backend Dropdown Fix**: Now visible on mobile in closed state
-- ⬅️ **Left-Aligned Layout**: Buttons and thumbnails properly aligned
-
-### ✂️ Image Crop & 4K Auto-Resize (v2.5.0)
-
-**New feature:** Crop images before sending to Vision-LLM, with automatic 4K resolution limit.
-
-Key highlights:
-- ✂️ **Interactive Crop Tool**: Crop images directly in the UI before OCR/analysis
-- 🎯 **8-Point Drag Handles**: 4 corners + 4 edges for precise cropping
-- 📐 **Free Aspect Ratio**: No fixed ratio - crop any rectangular area
-- 📷 **4K Auto-Resize**: Images automatically resized to max 3840px (up from 2048px)
-- 🔄 **EXIF Rotation Fix**: Mobile photos now correctly oriented (ImageOps.exif_transpose)
-- 🎨 **RGBA→RGB Conversion**: PNG screenshots with transparency work correctly (white background)
-- 📊 **Detailed Logging**: Shows original size, crop percentage, and final dimensions
-
-### 🔧 Generic XML-Tag Processing (v2.4.1)
-
-**Major refactor:** Replaced hardcoded XML-tag handling with config-driven, generic processing.
-
-Key highlights:
-- 🔧 **Fixed Double Collapsible Bug**: Vision-LLM with `<think>` tags (qwen3-vl:30b) no longer shows thinking process twice
-- 🏷️ **Generic XML Detection**: Any `<tagname>content</tagname>` pattern automatically converted to collapsible
-- ⚙️ **Config-Driven Tags**: `XML_TAG_CONFIG` in config.py defines icons/labels (💭 think, 📊 data, 🐍 python, etc.)
-- 📄 **Auto-Fallback**: Unknown tags get automatic "📄 Tagname" collapsible - no code changes needed!
-- 🔗 **Nested Tags Preserved**: Inner tags like `<function>` inside `<code>` stay intact
-- 🚫 **HTML Tag Blacklist**: 96 HTML5 tags excluded from XML processing (new file: `html_tags.py`)
-- 🎨 **Metadata Formatting**: Changed from HTML to Markdown italic, displays on own line without extra spacing
-
-### 🔗 Vision + Research Integration (v2.4.0)
-
-**Game Changer:** Upload an image, ask about its content, and AIfred automatically researches the web with context from the image!
-
-**Example:** Upload a medication plan → Ask *"Recherchiere die Nebenwirkungen des ersten Medikaments"* → AIfred extracts "Acetylsalicylsäure" from the image → Researches web for side effects → Provides comprehensive answer with sources.
-
-Key highlights:
-- 🔗 **Vision JSON Context Propagation**: Structured data from images flows through entire research pipeline
-- 🧠 **Intelligent Query Resolution**: Query Optimizer resolves references like "first medication" using Vision JSON
-- 🎯 **4-Phase Architecture**: Vision-LLM → Automatik-LLM (with Vision context) → Web Research → Main-LLM
-- 🚀 **Clean Two-Phase Flow**: No race conditions, no duplicate messages
-- ⚡ **Performance**: ~40s for complete Vision + Research flow (10s OCR + 2s query opt + 5s scraping + 23s LLM)
-- 📷 **Camera Button for Mobile**: Browser-based camera detection - button only visible if device has camera
-
-For detailed changes and version history, see [CHANGELOG.md](CHANGELOG.md).
+For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
 ## ✨ Features
 
 ### 🎯 Core Features
-- **Multi-Backend Support**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2)
+- **Multi-Backend Support**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), KoboldCPP (GGUF with extended context)
 - **Vision/OCR Support**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
+- **Image Crop Tool**: Interactive crop before OCR/analysis (8-point handles, 4K auto-resize)
 - **3-Model Architecture**: Specialized Vision-LLM for OCR, Main-LLM for interpretation
 - **Qwen3 Thinking Mode**: Chain-of-Thought reasoning for complex tasks (Ollama + vLLM)
 - **Automatic Web Research**: AI decides autonomously when research is needed
@@ -142,17 +25,21 @@ For detailed changes and version history, see [CHANGELOG.md](CHANGELOG.md).
 - **Voice Interface**: Speech-to-Text and Text-to-Speech integration
 - **Vector Cache**: ChromaDB-based semantic cache for web research (Docker)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
+- **Session Persistence**: Mobile chat history survives browser background/restart (cookie-based)
 - **Share Chat**: Copy entire conversation to clipboard as formatted text (🔗 button)
+- **HTML Preview**: AI-generated HTML code opens directly in browser (new tab)
 
 ### 🔧 Technical Highlights
 - **Reflex Framework**: React frontend generated from Python
 - **WebSocket Streaming**: Real-time updates without polling
 - **Adaptive Temperature**: AI selects temperature based on question type
 - **Token Management**: Dynamic context window calculation
+- **VRAM-Aware Context**: Automatic context sizing based on available GPU memory
 - **Debug Console**: Comprehensive logging and monitoring
 - **ChromaDB Server Mode**: Thread-safe vector DB via Docker (0.0 distance for exact matches)
 - **GPU Detection**: Automatic detection and warnings for incompatible backend-GPU combinations ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
 - **KoboldCPP Dynamic RoPE**: Intelligent VRAM-based context optimization with automatic RoPE scaling
+- **Multi-User Queue**: KoboldCPP request queuing for concurrent users (up to 5 clients)
 
 ### ⚠️ Model Recommendations
 - **Vision-LLM (OCR/Image Analysis)**: Use **specialized vision models**
@@ -1285,8 +1172,3 @@ Pull requests are welcome! For major changes, please open an issue first.
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file
-
----
-
-**Version**: 2.7.4 (December 2025)
-**Status**: Production-Ready 🚀
