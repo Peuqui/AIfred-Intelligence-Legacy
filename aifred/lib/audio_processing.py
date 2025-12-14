@@ -10,6 +10,7 @@ import re
 import time
 import subprocess
 import asyncio
+import atexit
 import edge_tts
 from .config import VOICES, PIPER_MODEL_PATH, PROJECT_ROOT
 from .logging_utils import log_message
@@ -20,6 +21,10 @@ if os.name == 'nt':  # Windows
     PIPER_BIN = PROJECT_ROOT / "venv" / "Scripts" / "piper.exe"
 else:  # Linux/Mac
     PIPER_BIN = PROJECT_ROOT / "venv" / "bin" / "piper"
+
+# TTS Audio output directory (served by Reflex via assets/)
+TTS_AUDIO_DIR = PROJECT_ROOT / "assets" / "tts_audio"
+TTS_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 
 async def generate_speech_edge(text, voice, rate="+0%"):
@@ -32,19 +37,23 @@ async def generate_speech_edge(text, voice, rate="+0%"):
         rate: Speed adjustment (e.g. "+25%" for 25% faster)
 
     Returns:
-        str: Path to generated MP3 file
+        str: Path to generated MP3 file (relative URL for Reflex frontend)
     """
     # Edge TTS rate Format: +X% oder -X% (z.B. "+25%" für 25% schneller)
     log_message(f"🎤 Edge TTS: voice={voice}, rate={rate}, text_length={len(text)}")
     tts = edge_tts.Communicate(text, voice, rate=rate)
-    output_file = f"/tmp/audio_{int(time.time())}.mp3"
+
+    # Save to assets/tts_audio/ (served by Reflex)
+    filename = f"audio_{int(time.time() * 1000)}.mp3"
+    output_file = str(TTS_AUDIO_DIR / filename)
 
     # Speichern mit detailliertem Debug
     await tts.save(output_file)
 
     log_message(f"✅ Edge TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
 
-    return output_file
+    # Return URL path for frontend (Reflex serves assets/ under /)
+    return f"/tts_audio/{filename}"
 
 
 def generate_speech_piper(text, speed=1.0):
@@ -56,9 +65,11 @@ def generate_speech_piper(text, speed=1.0):
         speed: Speed multiplier (1.0 = normal, 1.25 = 25% faster)
 
     Returns:
-        str: Path to generated WAV file, or None on error
+        str: Path to generated WAV file (relative URL for Reflex frontend), or None on error
     """
-    output_file = f"/tmp/audio_{int(time.time())}.wav"
+    # Save to assets/tts_audio/ (served by Reflex)
+    filename = f"audio_{int(time.time() * 1000)}.wav"
+    output_file = str(TTS_AUDIO_DIR / filename)
 
     try:
         # Piper via subprocess aufrufen
@@ -75,7 +86,8 @@ def generate_speech_piper(text, speed=1.0):
 
         if result.returncode == 0 and os.path.exists(output_file):
             log_message(f"✅ Piper TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
-            return output_file
+            # Return URL path for frontend (Reflex serves assets/ under /)
+            return f"/tts_audio/{filename}"
         else:
             log_message(f"❌ Piper TTS Error: {result.stderr.decode()}")
             return None
@@ -142,13 +154,52 @@ def clean_text_for_tts(text):
     return clean_text
 
 
-def transcribe_audio(audio_path, whisper_model):
+def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
+    """
+    Löscht alte TTS-Audio-Dateien aus assets/tts_audio/.
+
+    Args:
+        max_age_hours: Maximales Alter in Stunden (default: 24)
+
+    Returns:
+        int: Anzahl gelöschter Dateien
+    """
+    import time
+    from pathlib import Path
+
+    if not TTS_AUDIO_DIR.exists():
+        return 0
+
+    max_age_seconds = max_age_hours * 3600
+    current_time = time.time()
+    deleted = 0
+
+    try:
+        for file_path in TTS_AUDIO_DIR.glob("audio_*"):
+            if file_path.is_file():
+                file_age = current_time - file_path.stat().st_mtime
+                if file_age > max_age_seconds:
+                    file_path.unlink()
+                    deleted += 1
+                    log_message(f"🗑️ Deleted old TTS audio: {file_path.name} (age: {file_age / 3600:.1f}h)")
+
+        if deleted > 0:
+            log_message(f"🧹 TTS Audio Cleanup: {deleted} old files deleted")
+
+    except Exception as e:
+        log_message(f"❌ TTS cleanup error: {e}")
+
+    return deleted
+
+
+def transcribe_audio(audio_path, whisper_model, language="de"):
     """
     Transkribiert Audio zu Text mit Whisper.
 
     Args:
         audio_path: Pfad zur Audio-Datei
         whisper_model: Geladenes WhisperModel Objekt
+        language: Language code ("de" or "en")
 
     Returns:
         tuple: (transkribierter_text, zeit_in_sekunden)
@@ -157,7 +208,8 @@ def transcribe_audio(audio_path, whisper_model):
         return "", 0.0
 
     start_time = time.time()
-    segments, _ = whisper_model.transcribe(audio_path)
+    # Use specified language for better accuracy
+    segments, _ = whisper_model.transcribe(audio_path, language=language)
     stt_time = time.time() - start_time
 
     user_text = " ".join([s.text for s in segments])
@@ -166,7 +218,7 @@ def transcribe_audio(audio_path, whisper_model):
     return user_text, stt_time
 
 
-def generate_tts(text, voice_choice, speed_choice, tts_engine):
+async def generate_tts(text, voice_choice, speed_choice, tts_engine):
     """
     Generiert TTS-Audio aus Text (Edge oder Piper).
 
@@ -181,13 +233,34 @@ def generate_tts(text, voice_choice, speed_choice, tts_engine):
     """
     try:
         if "Piper" in tts_engine:
-            # Piper TTS (lokal)
+            # Piper TTS (lokal) - synchronous subprocess call
             return generate_speech_piper(text, speed_choice)
         else:
-            # Edge TTS (Cloud)
+            # Edge TTS (Cloud) - async API call
             rate = f"+{int((speed_choice - 1.0) * 100)}%"
             voice_id = VOICES.get(voice_choice, "de-DE-KatjaNeural")
-            return asyncio.run(generate_speech_edge(text, voice_id, rate))
+            return await generate_speech_edge(text, voice_id, rate)
     except Exception as e:
         log_message(f"❌ TTS Fehler: {e}")
+        import traceback
+        log_message(f"Traceback: {traceback.format_exc()}")
         return None
+
+
+# ============================================================
+# CLEANUP: Delete old TTS audio files on app startup/shutdown
+# ============================================================
+
+@atexit.register
+def _cleanup_tts_on_exit():
+    """Cleanup old TTS audio files on app exit"""
+    try:
+        cleanup_old_tts_audio(max_age_hours=24)
+    except Exception:
+        pass
+
+# Run cleanup on module import (app startup)
+try:
+    cleanup_old_tts_audio(max_age_hours=24)
+except Exception:
+    pass

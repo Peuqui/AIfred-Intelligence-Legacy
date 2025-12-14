@@ -1299,7 +1299,7 @@ async def chat_interactive_mode(
                     if not first_token_received:
                         ttft = time.time() - inference_start
                         first_token_received = True
-                        log_message(f"⚡ TTFT (Time-to-First-Token): {format_number(ttft, 2)}s")
+                        log_message(f"⚡ TTFT: {format_number(ttft, 2)}s")
                         yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
 
                         # VRAM Monitoring: Measure after first token (KV cache allocated)
@@ -1688,7 +1688,7 @@ async def chat_interactive_mode(
 
                 async for chunk in stream_llm_response(
                     llm_client, model_choice, llm_messages_no_rag, main_llm_options,
-                    ttft_label="TTFT (Time-to-First-Token)"
+                    ttft_label="TTFT"
                 ):
                     if chunk["type"] == "content":
                         yield chunk
