@@ -211,7 +211,7 @@ async def handle_cache_hit(
 
     async for chunk in stream_llm_response(
         llm_client, model_choice, messages, cache_llm_options,
-        ttft_label="TTFT (Time-to-First-Token)"
+        ttft_label="TTFT"
     ):
         if chunk["type"] == "content":
             yield chunk

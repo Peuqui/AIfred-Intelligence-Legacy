@@ -235,40 +235,12 @@ def native_select_model(value_var, on_change_handler, disabled_condition=False, 
 # ============================================================
 
 def audio_input_section() -> rx.Component:
-    """Audio input section (placeholder for STT)"""
-    return rx.vstack(
-        rx.heading(t("voice_input"), size="3"),
-        rx.box(
-            rx.text(
-                t("audio_input_placeholder"),
-                color=COLORS["text_muted"],
-                font_size="12px",
-            ),
-            rx.text(
-                t("stt_not_ported"),
-                color=COLORS["accent_warning"],
-                font_weight="bold",
-                font_size="12px",
-            ),
-            padding="4",
-            background_color=COLORS["warning_bg"],  # Dunkles Orange wie Text senden Button
-            border_radius="8px",
-            border=f"1px solid {COLORS['accent_warning']}",  # Orange Border
-            width="100%",
-        ),
-        rx.text(
-            t("tip_automatic_transcription"),
-            font_size="12px",
-            color=COLORS["text_secondary"],
-        ),
-        rx.divider(margin_y="4"),
-        spacing="3",
-        width="100%",
-    )
+    """Placeholder - audio button is now integrated in image_upload_section"""
+    return rx.box()  # Empty - no longer needed
 
 
 def image_upload_section() -> rx.Component:
-    """Image upload component with preview"""
+    """Image and Audio upload components with preview"""
     return rx.vstack(
         # Warning box (if model doesn't support vision)
         rx.cond(
@@ -283,8 +255,21 @@ def image_upload_section() -> rx.Component:
             )
         ),
 
-        # Row 1: Buttons (Camera, Upload, Clear) - rechtsbündig
+        # Row 1: Buttons (Aufnahme, Camera, Upload, Audio, Clear) - linksbündig
         rx.hstack(
+            # Live Audio Recording Button (LEFTMOST - MediaRecorder)
+            rx.button(
+                rx.icon("mic", size=20),
+                rx.text("Aufnahme", font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
+                id="recording-button",
+                size="4",
+                variant="soft",
+                color_scheme="green",
+                padding_y="24px",
+                on_click=AIState.toggle_audio_recording,  # Trigger JavaScript via State handler
+                disabled=AIState.is_generating,
+            ),
+
             # Camera button (only visible if browser supports camera)
             rx.cond(
                 AIState.camera_available,
@@ -329,6 +314,38 @@ def image_upload_section() -> rx.Component:
                 padding="0",
             ),
 
+            # Audio File Upload Button (rightmost - next to image upload)
+            rx.upload(
+                rx.button(
+                    rx.icon("file-audio", size=20),
+                    rx.text("🎤 Audio", font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
+                    size="4",
+                    variant="soft",
+                    color_scheme="blue",
+                    padding_y="24px",
+                    disabled=AIState.is_generating,
+                ),
+                id="audio-upload",
+                accept={"audio/*": [".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm"]},
+                max_files=1,
+                on_drop=AIState.handle_audio_upload,
+                multiple=False,
+                border="none",
+                padding="0",
+            ),
+
+            # Hidden upload for MediaRecorder (JavaScript will populate this)
+            rx.upload(
+                rx.box(display="none"),  # Hidden, only for JS interaction
+                id="audio-recording-upload",
+                accept={"audio/*": [".webm"]},
+                max_files=1,
+                on_drop=AIState.handle_audio_upload,
+                multiple=False,
+                border="none",
+                padding="0",
+            ),
+
             # Clear button (only show if images present)
             rx.cond(
                 AIState.pending_images.length() > 0,
@@ -348,14 +365,40 @@ def image_upload_section() -> rx.Component:
             justify_content="flex-start",  # Buttons linksbündig
         ),
 
-        # Row 2: Hint text - linksbündig
+        # Row 2: Transkription bearbeiten Toggle (direkt unter Aufnahme-Button)
+        rx.hstack(
+            rx.text("Transkription bearbeiten:", font_size="11px", font_weight="500"),
+            rx.switch(
+                checked=AIState.show_transcription,
+                on_change=AIState.toggle_show_transcription,
+                size="1",
+            ),
+            rx.text(
+                rx.cond(
+                    AIState.show_transcription,
+                    "✏️ Text editieren",
+                    "🚀 Direkt senden"
+                ),
+                font_size="10px",
+                color=rx.cond(
+                    AIState.show_transcription,
+                    "#4CAF50",
+                    "#999"
+                ),
+            ),
+            spacing="2",
+            align="center",
+            margin_top="8px",
+            margin_bottom="4px",
+        ),
+
+        # Row 3: Hint text - linksbündig
         rx.text(
             "💡 Ziehe Bilder auf den Button oder klicke zum Auswählen",
             font_size="11px",
             color=COLORS["text_muted"],
             width="100%",
             text_align="left",  # Linksbündig
-            margin_top="4px",
         ),
 
         # Row 3: Image previews (only if images present) - linksbündig
@@ -609,9 +652,6 @@ def text_input_section() -> rx.Component:
             spacing="2",
             width="100%",
         ),
-
-        # TTS Section (zwischen Senden-Button und LLM-Parametern platzieren)
-        tts_section(),
 
         spacing="3",
         width="100%",
@@ -912,67 +952,7 @@ def processing_progress_banner() -> rx.Component:
     )
 
 
-def tts_section() -> rx.Component:
-    """TTS controls section (placeholder)"""
-    return rx.vstack(
-        rx.heading(
-            rx.cond(
-                AIState.ui_language == "de",
-                "🔊 Sprachausgabe (AI-Antwort)",
-                "🔊 Text-to-Speech (AI Answer)"
-            ),
-            size="3"
-        ),
-        rx.hstack(
-            rx.switch(
-                checked=AIState.enable_tts,
-                on_change=AIState.toggle_tts,
-                color_scheme="orange",
-                high_contrast=True,
-            ),
-            rx.text(
-                rx.cond(
-                    AIState.ui_language == "de",
-                    "Sprachausgabe aktiviert",
-                    "Text-to-Speech enabled"
-                ),
-                font_size="12px"
-            ),
-            rx.spacer(),
-            rx.button(
-                rx.cond(
-                    AIState.ui_language == "de",
-                    "🔄 Neu generieren",
-                    "🔄 Regenerate"
-                ),
-                variant="soft",
-                size="2",
-                disabled=True,  # Not yet implemented
-            ),
-            spacing="3",
-            align="center",
-            width="100%",
-        ),
-        rx.box(
-            rx.text(
-                rx.cond(
-                    AIState.ui_language == "de",
-                    "⚠️ TTS noch nicht portiert - Coming Soon!",
-                    "⚠️ TTS not yet ported - Coming Soon!"
-                ),
-                color=COLORS["accent_warning"],
-                font_weight="bold",
-                font_size="12px",
-            ),
-            padding="4",
-            background_color=COLORS["warning_bg"],
-            border_radius="8px",
-            border=f"1px solid {COLORS['accent_warning']}",
-            width="100%",
-        ),
-        spacing="3",
-        width="100%",
-    )
+# NOTE: tts_section() removed - TTS controls are now in Settings Accordion
 
 
 def parse_thinking(ai_response: str) -> tuple[str, str]:
@@ -1919,6 +1899,146 @@ def settings_accordion() -> rx.Component:
                     rx.box(),  # Empty box when not vLLM
                 ),
 
+                # TTS/STT Settings
+                rx.divider(margin_top="12px", margin_bottom="12px"),
+
+                # TTS (Text-to-Speech) Section
+                rx.vstack(
+                    rx.hstack(
+                        rx.text("🔊 Sprachausgabe (TTS):", font_weight="bold", font_size="12px"),
+                        rx.switch(
+                            checked=AIState.enable_tts,
+                            on_change=AIState.toggle_tts,
+                            size="1",
+                        ),
+                        rx.text(
+                            rx.cond(
+                                AIState.enable_tts,
+                                "ON",
+                                "OFF"
+                            ),
+                            font_size="11px",
+                            color=rx.cond(
+                                AIState.enable_tts,
+                                "#4CAF50",
+                                "#999"
+                            ),
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.cond(
+                        AIState.enable_tts,
+                        rx.vstack(
+                            # TTS Engine Selection
+                            rx.hstack(
+                                rx.text("Engine:", font_size="11px", font_weight="500", width="80px"),
+                                rx.select(
+                                    ["Edge TTS (Cloud, beste Qualität)", "Piper TTS (Lokal, Offline)"],
+                                    value=AIState.tts_engine,
+                                    on_change=AIState.set_tts_engine,
+                                    size="1",
+                                    width="100%",
+                                ),
+                                spacing="2",
+                                align="center",
+                                width="100%",
+                            ),
+                            # Voice Selection
+                            rx.hstack(
+                                rx.text("Stimme:", font_size="11px", font_weight="500", width="80px"),
+                                rx.select(
+                                    ["Deutsch (Katja)", "Deutsch (Conrad)", "Englisch (Jenny)", "Englisch (Guy)", "Französisch (Denise)", "Spanisch (Elvira)"],
+                                    value=AIState.tts_voice,
+                                    on_change=AIState.set_tts_voice,
+                                    size="1",
+                                    width="100%",
+                                ),
+                                spacing="2",
+                                align="center",
+                                width="100%",
+                            ),
+                            # Speed Slider
+                            rx.hstack(
+                                rx.text("Geschw.:", font_size="11px", font_weight="500", width="80px"),
+                                rx.slider(
+                                    default_value=[AIState.tts_speed],
+                                    min=0.5,
+                                    max=2.0,
+                                    step=0.05,
+                                    on_change=AIState.set_tts_speed,
+                                    size="1",
+                                    width="100%",
+                                ),
+                                rx.text(
+                                    f"{AIState.tts_speed:.2f}x",
+                                    font_size="10px",
+                                    color="#999",
+                                    width="50px",
+                                ),
+                                spacing="2",
+                                align="center",
+                                width="100%",
+                            ),
+                            # Auto-Play Toggle
+                            rx.hstack(
+                                rx.text("Auto-Play:", font_size="11px", font_weight="500", width="80px"),
+                                rx.switch(
+                                    checked=AIState.tts_autoplay,
+                                    on_change=AIState.toggle_tts_autoplay,
+                                    size="1",
+                                ),
+                                rx.text(
+                                    rx.cond(
+                                        AIState.tts_autoplay,
+                                        "ON",
+                                        "OFF"
+                                    ),
+                                    font_size="10px",
+                                    color=rx.cond(
+                                        AIState.tts_autoplay,
+                                        "#4CAF50",
+                                        "#999"
+                                    ),
+                                ),
+                                spacing="2",
+                                align="center",
+                                width="100%",
+                            ),
+                            spacing="3",
+                            width="100%",
+                        ),
+                        rx.box(),  # Empty when TTS disabled
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+
+                # STT (Speech-to-Text) Section
+                rx.divider(margin_top="12px", margin_bottom="12px"),
+                rx.vstack(
+                    rx.text("🎤 Spracheingabe (STT):", font_weight="bold", font_size="12px"),
+                    # Whisper Model Selection
+                    rx.hstack(
+                        rx.text("Modell:", font_size="11px", font_weight="500", width="80px"),
+                        rx.select(
+                            ["tiny (39MB, schnell, englisch)", "base (74MB, schneller, multilingual)", "small (466MB, bessere Qualität, multilingual)", "medium (1.5GB, hohe Qualität, multilingual)", "large-v3 (2.9GB, beste Qualität, multilingual)"],
+                            value=AIState.whisper_model_name,
+                            on_change=AIState.set_whisper_model,
+                            size="1",
+                            width="100%",
+                        ),
+                        spacing="2",
+                        align="center",
+                        width="100%",
+                    ),
+                    # Device is now fixed to CPU (configured in config.py)
+                    # GPU would use precious VRAM needed for LLM inference
+                    # REMOVED: Show Transcription Toggle (moved to top, near recording buttons)
+                    spacing="3",
+                    width="100%",
+                ),
+
                 # Restart Buttons
                 rx.divider(),
                 rx.text(t("system_control"), font_weight="bold", font_size="12px"),
@@ -2689,6 +2809,9 @@ console.log('✂️ Crop handler loaded');
         rx.script(paste_handler_js),
         rx.script(crop_js),
 
+        # Load custom.js for MediaRecorder and other features (cache-busting version)
+        rx.script(src="/custom.js?v=4"),
+
         # Crop Modal (rendered but hidden until open)
         crop_modal(),
 
@@ -2763,6 +2886,45 @@ console.log('✂️ Crop handler loaded');
             # Chat History (top - read conversation first)
             # NOTE: Failed sources are now displayed inline within each message (persistent)
             chat_history_display(),
+
+            # TTS Audio Player (only visible if TTS enabled and audio exists)
+            rx.cond(
+                AIState.enable_tts & (AIState.tts_audio_path != ""),
+                rx.box(
+                    rx.vstack(
+                        rx.hstack(
+                            rx.text("🔊 Sprachausgabe:", font_weight="bold", font_size="13px", color=COLORS["accent_blue"]),
+                            rx.text(
+                                f"{AIState.tts_voice} • {AIState.tts_speed:.2f}x",
+                                font_size="11px",
+                                color=COLORS["text_muted"],
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.cond(
+                            AIState.tts_autoplay,
+                            rx.html(
+                                f'<audio id="tts-player" controls autoplay style="width: 100%; height: 40px;"><source src="{AIState.tts_audio_path}" type="audio/mpeg"></audio>',
+                                width="100%",
+                            ),
+                            rx.html(
+                                f'<audio id="tts-player" controls style="width: 100%; height: 40px;"><source src="{AIState.tts_audio_path}" type="audio/mpeg"></audio>',
+                                width="100%",
+                            ),
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    padding="3",
+                    background_color="rgba(66, 135, 245, 0.08)",
+                    border_radius="8px",
+                    border=f"1px solid {COLORS['accent_blue']}",
+                    width="100%",
+                    margin_top="4",
+                    margin_bottom="4",
+                ),
+            ),
 
             # Input controls (below chat history for easy access after reading)
             rx.box(

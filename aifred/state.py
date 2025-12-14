@@ -147,6 +147,21 @@ _backend_init_lock = asyncio.Lock()
 _whisper_model = None  # Shared WhisperModel instance
 
 
+def unload_whisper_model():
+    """Unload Whisper model from memory (free GPU/RAM)"""
+    global _whisper_model
+    if _whisper_model is not None:
+        _whisper_model = None
+        import gc
+        import torch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        log_message("🗑️ Whisper: Model unloaded from memory")
+    else:
+        log_message("⚠️ Whisper: No model loaded")
+
+
 def initialize_whisper_model(model_name: str = "small"):
     """
     Initialize Whisper STT model (module-level, shared across sessions)
@@ -165,24 +180,25 @@ def initialize_whisper_model(model_name: str = "small"):
 
     try:
         from faster_whisper import WhisperModel
-        from .lib.config import WHISPER_MODELS, ENABLE_GPU
+        from .lib.config import WHISPER_MODELS, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
 
         # Extract model ID from display name (e.g., "small (466MB, ...)" -> "small")
         model_id = WHISPER_MODELS.get(model_name, model_name)
 
         log_message(f"🎤 Whisper: Loading model '{model_id}'...")
 
-        # Use GPU if available, otherwise CPU
-        device = "cuda" if ENABLE_GPU else "cpu"
-        compute_type = "float16" if device == "cuda" else "int8"
+        # Use device and compute type from config.py
+        # Default: CPU to preserve GPU VRAM for LLM inference
+        device = WHISPER_DEVICE
+        compute_type = WHISPER_COMPUTE_TYPE
 
         _whisper_model = WhisperModel(model_id, device=device, compute_type=compute_type)
 
         log_message(f"✅ Whisper: Model '{model_id}' loaded on {device} ({compute_type})")
         return _whisper_model
 
-    except ImportError:
-        log_message("⚠️ Whisper: faster-whisper not installed (pip install faster-whisper)")
+    except ImportError as e:
+        log_message(f"⚠️ Whisper: Import failed - {str(e)}")
         return None
     except Exception as e:
         log_message(f"❌ Whisper: Failed to load model: {e}")
@@ -304,7 +320,10 @@ class AIState(rx.State):
     tts_voice: str = "Deutsch (Katja)"  # Voice selection (from VOICES dict)
     tts_speed: float = 1.25  # Speed multiplier (1.0 = normal)
     tts_engine: str = "Edge TTS (Cloud, beste Qualität)"  # TTS engine selection
+    tts_autoplay: bool = True  # Auto-play TTS audio after generation
     whisper_model_name: str = "small (466MB, bessere Qualität, multilingual)"  # Whisper model display name
+    # whisper_device removed - now configured in config.py (WHISPER_DEVICE)
+    show_transcription: bool = False  # Show transcribed text for editing before sending
     _whisper_model = None  # Loaded WhisperModel instance (module-level, shared across sessions)
     tts_audio_path: str = ""  # Path to generated TTS audio file (for UI playback)
 
@@ -683,7 +702,10 @@ class AIState(rx.State):
                 self.tts_voice = saved_settings.get("voice", self.tts_voice)  # Legacy key: "voice"
                 self.tts_speed = saved_settings.get("tts_speed", self.tts_speed)
                 self.tts_engine = saved_settings.get("tts_engine", self.tts_engine)
+                self.tts_autoplay = saved_settings.get("tts_autoplay", self.tts_autoplay)
                 self.whisper_model_name = saved_settings.get("whisper_model", self.whisper_model_name)
+                # whisper_device removed - now in config.py (backwards compatibility: ignore old saved value)
+                self.show_transcription = saved_settings.get("show_transcription", self.show_transcription)
 
                 # Load vLLM YaRN Settings (only enable/disable, factor always starts at 1.0)
                 self.enable_yarn = saved_settings.get("enable_yarn", self.enable_yarn)
@@ -1202,7 +1224,10 @@ class AIState(rx.State):
             "voice": self.tts_voice,  # Legacy key name for backward compatibility
             "tts_speed": self.tts_speed,
             "tts_engine": self.tts_engine,
+            "tts_autoplay": self.tts_autoplay,
             "whisper_model": self.whisper_model_name,
+            # whisper_device removed - now in config.py
+            "show_transcription": self.show_transcription,
         }
         save_settings(settings)
 
@@ -2101,7 +2126,13 @@ class AIState(rx.State):
         self.is_generating = True
         self.current_ai_response = ""
         self.failed_sources = []  # Clear failed sources from previous request
-        yield  # Update UI sofort (Eingabefeld leeren + Spinner zeigen + Eingabe anzeigen)
+
+        # Add user message to chat history IMMEDIATELY (before any pipeline processing)
+        # This ensures the user sees their message right away, even during STT transcription
+        temp_history_index = len(self.chat_history)
+        self.chat_history.append((user_msg, ""))
+
+        yield  # Update UI sofort (Eingabefeld leeren + Spinner zeigen + User-Nachricht anzeigen)
 
         # Debug message wird von agent_core.py geloggt, nicht hier!
 
@@ -2142,9 +2173,11 @@ class AIState(rx.State):
                 # Import vision pipeline
                 from .lib.conversation_handler import chat_with_vision_pipeline
 
-                # Initialize temporary history entry for real-time display (use display_user_msg for history)
-                temp_history_index = len(self.chat_history)
-                self.chat_history.append((display_user_msg, self.current_ai_response))
+                # Update history entry with display_user_msg (may differ from user_msg for images)
+                # History entry was already created at the start of send_message()
+                if display_user_msg != user_msg:
+                    # Update the user message part (e.g., for image-only uploads)
+                    self.chat_history[temp_history_index] = (display_user_msg, self.current_ai_response)
 
                 # Build LLM options (include enable_thinking toggle)
                 llm_options = {
@@ -2381,10 +2414,9 @@ class AIState(rx.State):
                 # Import chat_interactive_mode
                 from .lib.conversation_handler import chat_interactive_mode
 
-                # Initialize temporary history entry for real-time display
-                temp_history_index = len(self.chat_history)
-                self.chat_history.append((user_msg, self.current_ai_response))
-                
+                # History entry was already created at the start of send_message()
+                # No need to append again - temp_history_index already points to it
+
                 # Build LLM options (include enable_thinking toggle)
                 llm_options = {
                     'enable_thinking': self.enable_thinking
@@ -2491,9 +2523,8 @@ class AIState(rx.State):
                     async for _ in self._ensure_koboldcpp_running():
                         yield  # Forward yields from _ensure_koboldcpp_running() to UI
 
-                # Initialize temporary history entry for real-time display
-                temp_history_index = len(self.chat_history)
-                self.chat_history.append((user_msg, self.current_ai_response))
+                # History entry was already created at the start of send_message()
+                # No need to append again - temp_history_index already points to it
 
                 # Build LLM options (include enable_thinking toggle)
                 llm_options = {
@@ -2596,9 +2627,8 @@ class AIState(rx.State):
                 # No research mode: Direct LLM inference without web search
                 self.add_debug("🧠 Eigenes Wissen (keine Websuche)")
 
-                # Initialize temporary history entry for real-time display
-                temp_history_index = len(self.chat_history)
-                self.chat_history.append((user_msg, self.current_ai_response))
+                # History entry was already created at the start of send_message()
+                # No need to append again - temp_history_index already points to it
 
                 # Start timing for preload phase (preparation + actual model loading)
                 import time
@@ -2885,8 +2915,21 @@ class AIState(rx.State):
                 self.clear_pending_images()
 
             # TTS: Generate audio for AI response if enabled
-            if self.enable_tts and self.current_ai_response:
-                await self._generate_tts_for_response(self.current_ai_response)
+            if self.enable_tts:
+                try:
+                    # Get AI response from chat history (current_ai_response may be cleared)
+                    if 'temp_history_index' in locals() and temp_history_index < len(self.chat_history):
+                        _, ai_response = self.chat_history[temp_history_index]
+                        if ai_response and ai_response.strip():
+                            await self._generate_tts_for_response(ai_response)
+                        else:
+                            self.add_debug("⚠️ TTS: Aktiviert aber keine AI-Antwort zum Konvertieren")
+                    else:
+                        self.add_debug("⚠️ TTS: Aktiviert aber Chat-History-Eintrag fehlt")
+                except Exception as tts_error:
+                    self.add_debug(f"⚠️ TTS generation failed: {tts_error}")
+                    from .lib.logging_utils import log_message
+                    log_message(f"❌ TTS error in finally block: {tts_error}")
 
             # Auto-Save: Session nach jeder Chat-Nachricht speichern
             self._save_current_session()
@@ -3258,10 +3301,13 @@ class AIState(rx.State):
         """Handle audio file uploads and transcribe with Whisper STT"""
         global _whisper_model
 
-        # Validate Whisper model is loaded
+        # Lazy load Whisper model if not already loaded
         if _whisper_model is None:
-            self.add_debug("⚠️ Audio upload blocked: Whisper model not loaded")
-            return
+            self.add_debug("🎤 Loading Whisper model...")
+            initialize_whisper_model(self.whisper_model_name)
+            if _whisper_model is None:
+                self.add_debug("❌ Failed to load Whisper model")
+                return
 
         # Validate file
         if not files or len(files) == 0:
@@ -3283,7 +3329,8 @@ class AIState(rx.State):
 
         # Size limit: 25 MB (Whisper can handle longer files)
         if file_size_mb > 25:
-            self.add_debug(f"⚠️ Audio file too large: {file_size_mb:.1f} MB (max 25 MB)")
+            from .lib.formatting import format_number
+            self.add_debug(f"⚠️ Audio file too large: {format_number(file_size_mb, 1)} MB (max 25 MB)")
             return
 
         # Save to temporary file for Whisper processing
@@ -3295,14 +3342,36 @@ class AIState(rx.State):
         try:
             # Transcribe with Whisper
             from .lib.audio_processing import transcribe_audio
-            self.add_debug(f"🎤 Transcribing audio: {file.filename} ({file_size_mb:.1f} MB)...")
+            from .lib.formatting import format_number
 
-            user_text, stt_time = transcribe_audio(tmp_path, _whisper_model)
+            # Show KB for small files, MB for larger files (German number format)
+            if file_size_mb < 1:
+                file_size_kb = len(content) / 1024
+                size_display = f"{format_number(file_size_kb, 0)} KB"
+            else:
+                size_display = f"{format_number(file_size_mb, 1)} MB"
+
+            self.add_debug(f"🎤 Transcribing audio: {file.filename} ({size_display})...")
+
+            user_text, stt_time = transcribe_audio(tmp_path, _whisper_model, self.ui_language)
 
             if user_text:
                 # Set transcribed text as user input
                 self.current_user_input = user_text
-                self.add_debug(f"✅ Transcription complete ({stt_time:.1f}s): {user_text[:100]}{'...' if len(user_text) > 100 else ''}")
+                # German number format: 0,2s instead of 0.2s
+                from .lib.formatting import format_number
+                self.add_debug(f"✅ Transcription complete ({format_number(stt_time, 1)}s)")
+
+                # Show Transcription Workflow
+                if self.show_transcription:
+                    # Mode: Text editieren → Manuell senden
+                    self.add_debug("✏️ Text im Eingabefeld → Zum Editieren bereit")
+                else:
+                    # Mode: Direkt zur AI
+                    self.add_debug("🚀 Sende Text direkt zur AI...")
+                    # Forward yields from send_message() to update UI in real-time
+                    async for _ in self.send_message():
+                        yield  # Forward to UI for real-time updates
             else:
                 self.add_debug("⚠️ Transcription returned empty text")
 
@@ -3320,6 +3389,7 @@ class AIState(rx.State):
         """Generate TTS audio for AI response and store path for playback"""
         try:
             from .lib.audio_processing import clean_text_for_tts, generate_tts
+            from .lib.config import PROJECT_ROOT
 
             # Clean text: Remove <think> tags, emojis, markdown, URLs, timing info
             clean_text = clean_text_for_tts(ai_response)
@@ -3330,19 +3400,28 @@ class AIState(rx.State):
 
             self.add_debug(f"🔊 TTS: Generating audio ({len(clean_text)} chars)...")
 
-            # Generate TTS audio
-            audio_path = generate_tts(
+            # Generate TTS audio (returns URL path like "/tts_audio/audio_123.mp3")
+            audio_url = await generate_tts(
                 text=clean_text,
                 voice_choice=self.tts_voice,
                 speed_choice=self.tts_speed,
                 tts_engine=self.tts_engine
             )
 
-            if audio_path and os.path.exists(audio_path):
-                # Store audio path for playback (UI will handle playback via HTML <audio> tag)
-                self.tts_audio_path = audio_path
-                file_size_kb = os.path.getsize(audio_path) / 1024
-                self.add_debug(f"✅ TTS: Audio generated ({file_size_kb:.1f} KB) → {audio_path}")
+            if audio_url:
+                # Verify file exists on disk (convert URL to filesystem path)
+                # URL: /tts_audio/audio_123.mp3 -> assets/tts_audio/audio_123.mp3
+                filename = audio_url.split("/")[-1]
+                file_path = PROJECT_ROOT / "assets" / "tts_audio" / filename
+
+                if os.path.exists(file_path):
+                    # Store audio URL for playback (UI will handle playback via HTML <audio> tag)
+                    self.tts_audio_path = audio_url
+                    file_size_kb = os.path.getsize(file_path) / 1024
+                    self.add_debug(f"✅ TTS: Audio generated ({file_size_kb:.1f} KB) → {audio_url}")
+                else:
+                    self.tts_audio_path = ""
+                    self.add_debug(f"⚠️ TTS: Audio file not found at {file_path}")
             else:
                 self.tts_audio_path = ""
                 self.add_debug("⚠️ TTS: Audio generation failed")
@@ -3992,6 +4071,56 @@ class AIState(rx.State):
         """Toggle TTS on/off"""
         self.enable_tts = not self.enable_tts
         self.add_debug(f"🔊 TTS: {'enabled' if self.enable_tts else 'disabled'}")
+        self._save_settings()
+
+    def set_tts_engine(self, engine: str):
+        """Set TTS engine"""
+        self.tts_engine = engine
+        self.add_debug(f"🔊 TTS Engine: {engine}")
+        self._save_settings()
+
+    def set_tts_voice(self, voice: str):
+        """Set TTS voice"""
+        self.tts_voice = voice
+        self.add_debug(f"🔊 TTS Voice: {voice}")
+        self._save_settings()
+
+    def set_tts_speed(self, speed: list):
+        """Set TTS speed (from slider, receives list)"""
+        if isinstance(speed, list) and len(speed) > 0:
+            self.tts_speed = float(speed[0])
+            self.add_debug(f"🔊 TTS Speed: {self.tts_speed:.2f}x")
+            self._save_settings()
+
+    def toggle_tts_autoplay(self):
+        """Toggle TTS auto-play"""
+        self.tts_autoplay = not self.tts_autoplay
+        self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")
+        self._save_settings()
+
+    def set_whisper_model(self, model_name: str):
+        """Set Whisper model and reload"""
+        global _whisper_model
+        self.whisper_model_name = model_name
+        self.add_debug(f"🎤 Whisper Model: {model_name} (reload required)")
+        # Reload Whisper model with new selection
+        _whisper_model = None  # Clear old model
+        initialize_whisper_model(model_name)
+        self._save_settings()
+
+    # REMOVED: toggle_whisper_device - Device is now configured in config.py
+    # Whisper always runs on CPU to preserve GPU VRAM for LLM inference
+
+    def toggle_show_transcription(self):
+        """Toggle show transcription mode"""
+        self.show_transcription = not self.show_transcription
+        mode = "Text editieren" if self.show_transcription else "Direkt senden"
+        self.add_debug(f"🎤 Transkription: {mode}")
+        self._save_settings()
+
+    def toggle_audio_recording(self):
+        """Toggle audio recording (calls JavaScript MediaRecorder)"""
+        return rx.call_script("toggleRecording()")
 
     def set_ui_language(self, lang: str):
         """Set UI language"""
