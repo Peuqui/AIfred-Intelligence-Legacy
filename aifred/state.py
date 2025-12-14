@@ -141,6 +141,54 @@ import asyncio
 _backend_init_lock = asyncio.Lock()
 
 
+# ============================================================
+# Module-Level Whisper Model (Global across all sessions)
+# ============================================================
+_whisper_model = None  # Shared WhisperModel instance
+
+
+def initialize_whisper_model(model_name: str = "small"):
+    """
+    Initialize Whisper STT model (module-level, shared across sessions)
+
+    Args:
+        model_name: Whisper model size (tiny, base, small, medium, large)
+
+    Returns:
+        WhisperModel instance or None on failure
+    """
+    global _whisper_model
+
+    if _whisper_model is not None:
+        log_message(f"✅ Whisper: Model already loaded ({model_name})")
+        return _whisper_model
+
+    try:
+        from faster_whisper import WhisperModel
+        from .lib.config import WHISPER_MODELS, ENABLE_GPU
+
+        # Extract model ID from display name (e.g., "small (466MB, ...)" -> "small")
+        model_id = WHISPER_MODELS.get(model_name, model_name)
+
+        log_message(f"🎤 Whisper: Loading model '{model_id}'...")
+
+        # Use GPU if available, otherwise CPU
+        device = "cuda" if ENABLE_GPU else "cpu"
+        compute_type = "float16" if device == "cuda" else "int8"
+
+        _whisper_model = WhisperModel(model_id, device=device, compute_type=compute_type)
+
+        log_message(f"✅ Whisper: Model '{model_id}' loaded on {device} ({compute_type})")
+        return _whisper_model
+
+    except ImportError:
+        log_message("⚠️ Whisper: faster-whisper not installed (pip install faster-whisper)")
+        return None
+    except Exception as e:
+        log_message(f"❌ Whisper: Failed to load model: {e}")
+        return None
+
+
 class ChatMessage(BaseModel):
     """Single chat message"""
     role: str  # "user" or "assistant"
@@ -251,8 +299,14 @@ class AIState(rx.State):
     # Wird für History-Kompression genutzt (verhindert erneute Berechnung)
     last_vram_limit: int = 0  # min(VRAM-Limit, Model-Limit) - praktisches Maximum
 
-    # TTS Settings
+    # TTS/STT Settings
     enable_tts: bool = False
+    tts_voice: str = "Deutsch (Katja)"  # Voice selection (from VOICES dict)
+    tts_speed: float = 1.25  # Speed multiplier (1.0 = normal)
+    tts_engine: str = "Edge TTS (Cloud, beste Qualität)"  # TTS engine selection
+    whisper_model_name: str = "small (466MB, bessere Qualität, multilingual)"  # Whisper model display name
+    _whisper_model = None  # Loaded WhisperModel instance (module-level, shared across sessions)
+    tts_audio_path: str = ""  # Path to generated TTS audio file (for UI playback)
 
     # Session Management
     session_id: str = ""
@@ -563,6 +617,11 @@ class AIState(rx.State):
             initialize_vector_cache()
             log_message("💾 Vector Cache: Connected")
 
+            # Initialize Whisper STT Model (once per server)
+            from .lib.config import DEFAULT_SETTINGS
+            whisper_model_display = DEFAULT_SETTINGS.get("whisper_model", "small (466MB, bessere Qualität, multilingual)")
+            initialize_whisper_model(whisper_model_display)
+
             # GPU Detection (once per server)
             log_message("🔍 Detecting GPU capabilities...")
             try:
@@ -618,6 +677,13 @@ class AIState(rx.State):
                 self.temperature = saved_settings.get("temperature", self.temperature)
                 self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)
                 self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
+
+                # Load TTS/STT Settings
+                self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)
+                self.tts_voice = saved_settings.get("voice", self.tts_voice)  # Legacy key: "voice"
+                self.tts_speed = saved_settings.get("tts_speed", self.tts_speed)
+                self.tts_engine = saved_settings.get("tts_engine", self.tts_engine)
+                self.whisper_model_name = saved_settings.get("whisper_model", self.whisper_model_name)
 
                 # Load vLLM YaRN Settings (only enable/disable, factor always starts at 1.0)
                 self.enable_yarn = saved_settings.get("enable_yarn", self.enable_yarn)
@@ -1131,6 +1197,12 @@ class AIState(rx.State):
             # NOTE: yarn_factor is NOT saved - always starts at 1.0, system calibrates maximum
             # NOTE: vllm_max_tokens and vllm_native_context are NEVER saved!
             # They are calculated dynamically on every vLLM startup based on VRAM
+            # TTS/STT Settings
+            "enable_tts": self.enable_tts,
+            "voice": self.tts_voice,  # Legacy key name for backward compatibility
+            "tts_speed": self.tts_speed,
+            "tts_engine": self.tts_engine,
+            "whisper_model": self.whisper_model_name,
         }
         save_settings(settings)
 
@@ -2812,6 +2884,10 @@ class AIState(rx.State):
             if len(self.pending_images) > 0:
                 self.clear_pending_images()
 
+            # TTS: Generate audio for AI response if enabled
+            if self.enable_tts and self.current_ai_response:
+                await self._generate_tts_for_response(self.current_ai_response)
+
             # Auto-Save: Session nach jeder Chat-Nachricht speichern
             self._save_current_session()
 
@@ -2848,14 +2924,16 @@ class AIState(rx.State):
 
         chat_text = "\n".join(lines)
 
-        # Escape special characters for JavaScript
-        escaped_text = chat_text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+        # Sicheres Escaping via JSON (verhindert XSS)
+        import json
+        escaped_text = json.dumps(chat_text)
 
         # Copy to clipboard via JavaScript
+        # JSON-escaped string ist sicher gegen XSS (kein Template Literal nötig)
         js_script = f"""
         (async () => {{
             try {{
-                await navigator.clipboard.writeText(`{escaped_text}`);
+                await navigator.clipboard.writeText({escaped_text});
                 console.log('Chat copied to clipboard');
             }} catch (err) {{
                 console.error('Failed to copy:', err);
@@ -3171,6 +3249,107 @@ class AIState(rx.State):
 
         device_type = "📱 Mobile" if is_mobile else "🖥️ Desktop"
         self.add_debug(f"{device_type} device detected")
+
+    # ============================================================
+    # AUDIO UPLOAD HANDLER (STT)
+    # ============================================================
+
+    async def handle_audio_upload(self, files: List[rx.UploadFile]):
+        """Handle audio file uploads and transcribe with Whisper STT"""
+        global _whisper_model
+
+        # Validate Whisper model is loaded
+        if _whisper_model is None:
+            self.add_debug("⚠️ Audio upload blocked: Whisper model not loaded")
+            return
+
+        # Validate file
+        if not files or len(files) == 0:
+            self.add_debug("⚠️ No audio file provided")
+            return
+
+        file = files[0]  # Only process first file
+
+        # Validate audio file type
+        allowed_extensions = [".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm"]
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            self.add_debug(f"⚠️ Unsupported audio format: {file_ext}")
+            return
+
+        # Read file content
+        content = await file.read()
+        file_size_mb = len(content) / (1024 * 1024)
+
+        # Size limit: 25 MB (Whisper can handle longer files)
+        if file_size_mb > 25:
+            self.add_debug(f"⚠️ Audio file too large: {file_size_mb:.1f} MB (max 25 MB)")
+            return
+
+        # Save to temporary file for Whisper processing
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp_file:
+            tmp_file.write(content)
+            tmp_path = tmp_file.name
+
+        try:
+            # Transcribe with Whisper
+            from .lib.audio_processing import transcribe_audio
+            self.add_debug(f"🎤 Transcribing audio: {file.filename} ({file_size_mb:.1f} MB)...")
+
+            user_text, stt_time = transcribe_audio(tmp_path, _whisper_model)
+
+            if user_text:
+                # Set transcribed text as user input
+                self.current_user_input = user_text
+                self.add_debug(f"✅ Transcription complete ({stt_time:.1f}s): {user_text[:100]}{'...' if len(user_text) > 100 else ''}")
+            else:
+                self.add_debug("⚠️ Transcription returned empty text")
+
+        except Exception as e:
+            self.add_debug(f"❌ Audio transcription failed: {e}")
+            log_message(f"❌ Audio transcription error: {e}")
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+    async def _generate_tts_for_response(self, ai_response: str):
+        """Generate TTS audio for AI response and store path for playback"""
+        try:
+            from .lib.audio_processing import clean_text_for_tts, generate_tts
+
+            # Clean text: Remove <think> tags, emojis, markdown, URLs, timing info
+            clean_text = clean_text_for_tts(ai_response)
+
+            if not clean_text or len(clean_text.strip()) < 5:
+                self.add_debug("🔇 TTS: Text zu kurz nach Bereinigung")
+                return
+
+            self.add_debug(f"🔊 TTS: Generating audio ({len(clean_text)} chars)...")
+
+            # Generate TTS audio
+            audio_path = generate_tts(
+                text=clean_text,
+                voice_choice=self.tts_voice,
+                speed_choice=self.tts_speed,
+                tts_engine=self.tts_engine
+            )
+
+            if audio_path and os.path.exists(audio_path):
+                # Store audio path for playback (UI will handle playback via HTML <audio> tag)
+                self.tts_audio_path = audio_path
+                file_size_kb = os.path.getsize(audio_path) / 1024
+                self.add_debug(f"✅ TTS: Audio generated ({file_size_kb:.1f} KB) → {audio_path}")
+            else:
+                self.tts_audio_path = ""
+                self.add_debug("⚠️ TTS: Audio generation failed")
+
+        except Exception as e:
+            self.add_debug(f"❌ TTS Error: {e}")
+            log_message(f"❌ TTS generation error: {e}")
 
     async def load_default_settings(self):
         """Load default settings from config.py and apply them to state"""

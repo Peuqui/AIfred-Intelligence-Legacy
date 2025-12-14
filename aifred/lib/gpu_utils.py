@@ -27,6 +27,40 @@ logger = logging.getLogger(__name__)
 # - TabbyAPI: Always True (model fixed at server start)
 
 
+def get_free_vram_for_single_gpu(gpu_index: int = 0) -> Optional[int]:
+    """
+    Query free VRAM for a specific GPU using pynvml
+
+    Args:
+        gpu_index: GPU index (0 for first GPU, 1 for second, etc.)
+
+    Returns:
+        int: Free VRAM in MB for the specified GPU, or None if GPU unavailable
+
+    Example:
+        >>> vram = get_free_vram_for_single_gpu(0)  # First GPU
+        >>> print(f"GPU 0 has {vram}MB free")
+    """
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+
+        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
+        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        free_mb = mem_info.free / (1024 * 1024)
+
+        pynvml.nvmlShutdown()
+
+        return int(free_mb)
+
+    except ImportError:
+        logger.warning("pynvml not installed - install via: pip install pynvml")
+        return None
+    except Exception as e:
+        logger.debug(f"Could not query GPU {gpu_index} via pynvml: {e}")
+        return None
+
+
 def get_free_vram_mb() -> Optional[int]:
     """
     Query free VRAM using pynvml (NVIDIA Management Library)

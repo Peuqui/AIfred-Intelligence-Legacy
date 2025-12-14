@@ -12,7 +12,7 @@ import subprocess
 import asyncio
 import edge_tts
 from .config import VOICES, PIPER_MODEL_PATH, PROJECT_ROOT
-from .logging_utils import debug_print
+from .logging_utils import log_message
 
 
 # Determine platform-specific Piper binary path
@@ -35,14 +35,14 @@ async def generate_speech_edge(text, voice, rate="+0%"):
         str: Path to generated MP3 file
     """
     # Edge TTS rate Format: +X% oder -X% (z.B. "+25%" für 25% schneller)
-    debug_print(f"Edge TTS DEBUG: voice={voice}, rate={rate}, text_length={len(text)}")
+    log_message(f"🎤 Edge TTS: voice={voice}, rate={rate}, text_length={len(text)}")
     tts = edge_tts.Communicate(text, voice, rate=rate)
     output_file = f"/tmp/audio_{int(time.time())}.mp3"
 
     # Speichern mit detailliertem Debug
     await tts.save(output_file)
 
-    debug_print(f"Edge TTS: Audio saved to: {output_file}, size: {os.path.getsize(output_file)} bytes")
+    log_message(f"✅ Edge TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
 
     return output_file
 
@@ -64,7 +64,7 @@ def generate_speech_piper(text, speed=1.0):
         # Piper via subprocess aufrufen
         # length_scale: höher = langsamer (1.0 = normal, 0.8 = 1.25x schneller, 0.5 = 2x schneller)
         length_scale = 1.0 / speed
-        debug_print(f"Piper TTS: speed={speed}, length_scale={length_scale}")
+        log_message(f"🎤 Piper TTS: speed={speed}, length_scale={length_scale}")
 
         result = subprocess.run(
             [PIPER_BIN, "--model", PIPER_MODEL_PATH, "--output_file", output_file, "--length_scale", str(length_scale)],
@@ -74,14 +74,14 @@ def generate_speech_piper(text, speed=1.0):
         )
 
         if result.returncode == 0 and os.path.exists(output_file):
-            debug_print(f"Piper TTS: Audio saved to: {output_file}, size: {os.path.getsize(output_file)} bytes")
+            log_message(f"✅ Piper TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
             return output_file
         else:
-            debug_print(f"Piper TTS Error: {result.stderr.decode()}")
+            log_message(f"❌ Piper TTS Error: {result.stderr.decode()}")
             return None
 
     except Exception as e:
-        debug_print(f"Piper TTS Exception: {e}")
+        log_message(f"❌ Piper TTS Exception: {e}")
         return None
 
 
@@ -161,7 +161,7 @@ def transcribe_audio(audio_path, whisper_model):
     stt_time = time.time() - start_time
 
     user_text = " ".join([s.text for s in segments])
-    debug_print(f"✅ Transkription: {user_text[:100]}{'...' if len(user_text) > 100 else ''} (STT: {stt_time:.1f}s)")
+    log_message(f"✅ STT Transkription: {user_text[:100]}{'...' if len(user_text) > 100 else ''} (Time: {stt_time:.1f}s)")
 
     return user_text, stt_time
 
@@ -189,5 +189,5 @@ def generate_tts(text, voice_choice, speed_choice, tts_engine):
             voice_id = VOICES.get(voice_choice, "de-DE-KatjaNeural")
             return asyncio.run(generate_speech_edge(text, voice_id, rate))
     except Exception as e:
-        debug_print(f"❌ TTS Fehler: {e}")
+        log_message(f"❌ TTS Fehler: {e}")
         return None
