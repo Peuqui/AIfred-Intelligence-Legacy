@@ -32,35 +32,61 @@ def generate_device_id() -> str:
     Generiert neue eindeutige Device-ID.
 
     Returns:
-        16 Zeichen hex string (128 bit Entropie)
+        32 Zeichen hex string (128 bit Entropie)
     """
-    return secrets.token_hex(8)
+    return secrets.token_hex(16)  # 128 bits für sichere Session-IDs
 
 
 def _sanitize_device_id(device_id: str) -> str:
     """
-    Bereinigt Device-ID für Dateinamen.
+    Validiert Device-ID Format (Hex-String mit 32 Zeichen).
 
-    Entfernt alle nicht-alphanumerischen Zeichen und begrenzt auf 32 Zeichen.
-    Verhindert Path Traversal Angriffe.
+    Erlaubt nur lowercase hex-Zeichen (a-f0-9) genau 32 Zeichen lang.
+    Verhindert Path Traversal Angriffe durch strikte Format-Prüfung.
+
+    Args:
+        device_id: Device-ID zum Validieren
+
+    Returns:
+        Validierte Device-ID
+
+    Raises:
+        ValueError: Wenn Format ungültig ist
     """
-    return "".join(c for c in device_id if c.isalnum())[:32]
+    import re
+
+    # Nur lowercase hex erlauben: 32 Zeichen lang
+    if not re.match(r'^[a-f0-9]{32}$', device_id):
+        raise ValueError(
+            f"Invalid device_id format: Expected 32 hex chars, got '{device_id[:50]}'"
+        )
+
+    return device_id
 
 
 def get_session_path(device_id: str) -> Path:
     """
-    Gibt Pfad zur Session-Datei zurück.
+    Gibt Pfad zur Session-Datei zurück mit Path Traversal Protection.
 
     Args:
         device_id: Geräte-Identifikator
 
     Returns:
         Path zur Session-JSON-Datei
+
+    Raises:
+        ValueError: Bei ungültiger device_id oder Path Traversal Versuch
     """
     safe_id = _sanitize_device_id(device_id)
-    if not safe_id:
-        raise ValueError("Invalid device_id")
-    return SESSION_DIR / f"{safe_id}.json"
+    path = (SESSION_DIR / f"{safe_id}.json").resolve()
+
+    # Sicherstellen dass Pfad innerhalb SESSION_DIR liegt
+    try:
+        path.relative_to(SESSION_DIR.resolve())
+    except ValueError:
+        raise ValueError(f"Path traversal attempt detected: {device_id}")
+
+    return path
 
 
 def load_session(device_id: str) -> Optional[Dict[str, Any]]:

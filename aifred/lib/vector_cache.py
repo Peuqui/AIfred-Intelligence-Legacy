@@ -690,17 +690,26 @@ class VectorCache:
         return await asyncio.to_thread(self._delete_expired_sync)
 
     def _delete_expired_sync(self) -> int:
-        """Synchronous implementation of delete_expired_entries"""
+        """
+        Synchronous implementation of delete_expired_entries.
+
+        Note: ChromaDB doesn't support WHERE clause with time comparison in get(),
+        so we must fetch all entries and filter manually. Performance is O(n) but
+        acceptable for <10,000 entries (~100-500ms).
+
+        Future optimization: If ChromaDB adds indexed metadata queries, use:
+        expired = self.collection.get(where={"expires_at": {"$lt": now.isoformat()}})
+        """
         try:
-            # Get all entries with metadata
+            # Get all entries with metadata (only IDs + metadata, no embeddings/documents)
             all_results = self.collection.get(
-                include=['metadatas']
+                include=['metadatas']  # Minimal data transfer
             )
 
             if not all_results or not all_results['ids']:
                 return 0
 
-            # Find expired entries
+            # Find expired entries (linear scan)
             now = datetime.now()
             expired_ids = []
 
@@ -719,10 +728,10 @@ class VectorCache:
                     # Invalid format, skip
                     continue
 
-            # Delete expired entries
+            # Batch delete (efficient)
             if expired_ids:
                 self.collection.delete(ids=expired_ids)
-                log_message(f"🗑️ Deleted {len(expired_ids)} expired cache entries")
+                log_message(f"🗑️ Deleted {len(expired_ids)} expired cache entries (scanned {len(all_results['ids'])} total)")
 
             return len(expired_ids)
 

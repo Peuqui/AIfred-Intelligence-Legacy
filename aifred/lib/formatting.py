@@ -7,7 +7,10 @@ and thinking processes in the Reflex UI.
 
 import re
 import uuid
+import atexit
+import threading
 from pathlib import Path
+from collections import OrderedDict
 from .logging_utils import log_message
 from .config import XML_TAG_CONFIG  # Import from central config
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
@@ -17,6 +20,11 @@ from datetime import datetime
 # Reflex serviert assets/ unter / - also /html_preview/dateiname.html
 _ASSETS_DIR = Path(__file__).parent.parent.parent / "assets"
 _HTML_PREVIEW_DIR = _ASSETS_DIR / "html_preview"
+
+# LRU Cache für HTML-Preview-Dateien (max 50 Dateien)
+_html_file_cache: OrderedDict[str, Path] = OrderedDict()
+_html_cache_lock = threading.Lock()
+MAX_HTML_FILES = 50
 
 
 def format_number(n: int | float, decimals: int = 0) -> str:
@@ -133,6 +141,8 @@ def _save_html_to_assets(html_code: str) -> str:
     """
     Speichert HTML-Code als Datei in assets/html_preview/ und gibt URL zurück.
 
+    Implementiert LRU Cache: Maximal 50 Dateien werden behalten, älteste werden gelöscht.
+
     Args:
         html_code: Der HTML-Code zum Speichern
 
@@ -150,10 +160,35 @@ def _save_html_to_assets(html_code: str) -> str:
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(html_code)
 
-    log_message(f"🌐 HTML Preview: Datei gespeichert → {filepath}")
+    # LRU Cache Management (thread-safe)
+    with _html_cache_lock:
+        _html_file_cache[filename] = filepath
+
+        # Wenn Cache voll, lösche älteste Datei
+        if len(_html_file_cache) > MAX_HTML_FILES:
+            oldest_filename, oldest_path = _html_file_cache.popitem(last=False)
+            try:
+                oldest_path.unlink()
+                log_message(f"🗑️ HTML Preview: LRU evicted {oldest_filename} (Cache-Limit: {MAX_HTML_FILES})")
+            except OSError as e:
+                log_message(f"⚠️ HTML Preview: Konnte {oldest_filename} nicht löschen: {e}")
+
+    log_message(f"🌐 HTML Preview: Datei gespeichert → {filepath} (Cache: {len(_html_file_cache)}/{MAX_HTML_FILES})")
 
     # Reflex serviert assets/ unter / - also /html_preview/dateiname.html
     return f"/html_preview/{filename}"
+
+
+@atexit.register
+def _cleanup_html_cache():
+    """Cleanup bei Programm-Exit: Lösche alle HTML-Preview-Dateien aus Cache"""
+    with _html_cache_lock:
+        for filepath in _html_file_cache.values():
+            try:
+                filepath.unlink()
+            except OSError:
+                pass
+        _html_file_cache.clear()
 
 
 def cleanup_old_html_previews(max_age_hours: int = 24) -> int:

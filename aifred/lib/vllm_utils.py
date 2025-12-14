@@ -31,17 +31,12 @@ def check_vram_change_for_vllm(model_id: str) -> Optional[Tuple[int, int, int, O
             vram_diff, current_vram, cached_vram, potential_tokens, current_tokens = result
             print(f"VRAM increased by {vram_diff}MB")
     """
-    try:
-        # Query current free VRAM
-        import pynvml
-        pynvml.nvmlInit()
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        current_vram_mb = mem_info.free / (1024 * 1024)
-        pynvml.nvmlShutdown()
+    # Query current free VRAM using centralized gpu_utils function
+    from .gpu_utils import get_free_vram_for_single_gpu
 
-    except Exception as e:
-        logger.warning(f"Could not query GPU VRAM: {e}")
+    current_vram_mb = get_free_vram_for_single_gpu(gpu_index=0)
+    if current_vram_mb is None:
+        logger.warning("Could not query GPU VRAM")
         return None
 
     # Get cached calibration points for this model

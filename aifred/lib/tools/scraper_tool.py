@@ -226,35 +226,36 @@ class WebScraperTool(BaseTool):
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
+                try:
+                    page = browser.new_page()
 
-                # Navigiere zur Seite und warte auf Netzwerk-Idle
-                page.goto(url, wait_until='networkidle', timeout=10000)
+                    # Navigiere zur Seite und warte auf Netzwerk-Idle
+                    page.goto(url, wait_until='networkidle', timeout=10000)
 
-                # Warte noch 2s für lazy-loaded Content
-                page.wait_for_timeout(2000)
+                    # Warte noch 2s für lazy-loaded Content
+                    page.wait_for_timeout(2000)
 
-                # Titel
-                title = page.title()
+                    # Titel
+                    title = page.title()
 
-                # Extrahiere Text (nur sichtbarer Content)
-                text = page.inner_text('body')
-                text = self._clean_text(text)
+                    # Extrahiere Text (nur sichtbarer Content)
+                    text = page.inner_text('body')
+                    text = self._clean_text(text)
 
-                word_count = len(text.split())
+                    word_count = len(text.split())
 
-                browser.close()
-
-                return {
-                    'success': True,
-                    'source': url,
-                    'title': title,
-                    'content': text,
-                    'url': url,
-                    'word_count': word_count,
-                    'truncated': False,
-                    'method': 'playwright'
-                }
+                    return {
+                        'success': True,
+                        'source': url,
+                        'title': title,
+                        'content': text,
+                        'url': url,
+                        'word_count': word_count,
+                        'truncated': False,
+                        'method': 'playwright'
+                    }
+                finally:
+                    browser.close()  # Wird IMMER ausgeführt, auch bei Exception
 
         except Exception as e:
             error_msg = self._classify_error(str(e))

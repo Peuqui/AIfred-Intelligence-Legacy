@@ -9,6 +9,7 @@ Handles caching of research results including:
 
 import time
 import threading
+from collections import OrderedDict
 from typing import Dict, List, Optional
 from .logging_utils import log_message
 
@@ -18,8 +19,11 @@ from .logging_utils import log_message
 # ============================================================
 # WICHTIG: Initialisiere Cache direkt beim Module-Import!
 # Dies verhindert "Cache nicht initialisiert" Fehler bei Hot-Reloads.
-_research_cache: Dict = {}
+#
+# OrderedDict statt Dict für LRU Cache (älteste Einträge werden zuerst gelöscht)
+_research_cache: OrderedDict = OrderedDict()
 _research_cache_lock: threading.Lock = threading.Lock()
+MAX_CACHE_ENTRIES = 100  # Maximale Anzahl Sessions im RAM
 
 
 def set_research_cache(cache_dict: Dict, lock: threading.Lock) -> None:
@@ -133,10 +137,20 @@ def save_cached_research(
             'mode': mode,
             'metadata_summary': metadata_summary
         }
+
+        # LRU Eviction: Wenn Cache voll, lösche ältesten Eintrag
+        if len(_research_cache) > MAX_CACHE_ENTRIES:
+            oldest_session = next(iter(_research_cache))  # Erstes Item = ältestes
+            evicted_entry = _research_cache.pop(oldest_session)
+            log_message(
+                f"🗑️ Research-Cache LRU evicted: Session {oldest_session[:8]}... "
+                f"(Question: '{evicted_entry['user_text'][:50]}...')"
+            )
+
         # DEBUG: Zeige Cache-Status nach Speichern
         cache_size = len(_research_cache)
         log_message(f"💾 Research-Cache gespeichert für Session {session_id[:8]}...")
-        log_message(f"   Cache enthält jetzt {cache_size} Einträge: {[k[:8] + '...' for k in _research_cache.keys()]}")
+        log_message(f"   Cache enthält jetzt {cache_size}/{MAX_CACHE_ENTRIES} Einträge: {[k[:8] + '...' for k in list(_research_cache.keys())[-5:]]}")
         log_message(f"   Gespeichert: {len(scraped_sources)} Quellen, user_text: '{user_text[:50]}...'")
 
         # DEBUG: Zeige KOMPLETTEN Cache-Inhalt
