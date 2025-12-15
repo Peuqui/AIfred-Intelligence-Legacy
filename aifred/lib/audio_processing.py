@@ -27,6 +27,33 @@ TTS_AUDIO_DIR = PROJECT_ROOT / "assets" / "tts_audio"
 TTS_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> bool:
+    """
+    Synchronous Edge TTS wrapper - runs in separate event loop.
+
+    This is needed because edge_tts uses aiohttp which can conflict with
+    Reflex's event loop, causing crashes. Running in a fresh event loop
+    in a thread avoids this issue.
+    """
+    import asyncio
+
+    async def _do_tts():
+        tts = edge_tts.Communicate(text, voice, rate=rate)
+        await tts.save(output_file)
+
+    # Create fresh event loop for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_do_tts())
+        return True
+    except Exception as e:
+        log_message(f"❌ Edge TTS sync error: {type(e).__name__}: {e}")
+        return False
+    finally:
+        loop.close()
+
+
 async def generate_speech_edge(text, voice, rate="+0%"):
     """
     Edge TTS - Cloud-based Text-to-Speech
@@ -37,48 +64,96 @@ async def generate_speech_edge(text, voice, rate="+0%"):
         rate: Speed adjustment (e.g. "+25%" for 25% faster)
 
     Returns:
-        str: Path to generated MP3 file (relative URL for Reflex frontend)
+        str: Path to generated MP3 file (relative URL for Reflex frontend), or None on error
     """
-    # Edge TTS rate Format: +X% oder -X% (z.B. "+25%" für 25% schneller)
-    log_message(f"🎤 Edge TTS: voice={voice}, rate={rate}, text_length={len(text)}")
-    tts = edge_tts.Communicate(text, voice, rate=rate)
+    import concurrent.futures
 
-    # Save to assets/tts_audio/ (served by Reflex)
-    filename = f"audio_{int(time.time() * 1000)}.mp3"
-    output_file = str(TTS_AUDIO_DIR / filename)
+    try:
+        # Edge TTS rate Format: +X% oder -X% (z.B. "+25%" für 25% schneller)
+        log_message(f"🎤 Edge TTS: voice={voice}, rate={rate}, text_length={len(text)}")
 
-    # Speichern mit detailliertem Debug
-    await tts.save(output_file)
+        # Validate inputs
+        if not text or len(text.strip()) < 1:
+            log_message("⚠️ Edge TTS: Empty text, skipping")
+            return None
 
-    log_message(f"✅ Edge TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
+        # Save to assets/tts_audio/ (served by Reflex)
+        filename = f"audio_{int(time.time() * 1000)}.mp3"
+        output_file = str(TTS_AUDIO_DIR / filename)
 
-    # Return URL path for frontend (Reflex serves assets/ under /)
-    return f"/tts_audio/{filename}"
+        # Run Edge TTS in separate thread with its own event loop
+        # This avoids conflicts with Reflex's event loop
+        log_message(f"🔄 Edge TTS: Starting in thread → {output_file}")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_edge_tts_sync, text, voice, rate, output_file)
+            success = future.result(timeout=30)  # 30 second timeout
+
+        if not success:
+            log_message("❌ Edge TTS: Thread execution failed")
+            return None
+
+        # Verify file was created
+        if os.path.exists(output_file):
+            file_size = os.path.getsize(output_file)
+            log_message(f"✅ Edge TTS: Audio saved → {output_file} ({file_size} bytes)")
+
+            if file_size < 100:
+                log_message(f"⚠️ Edge TTS: File suspiciously small ({file_size} bytes)")
+                return None
+
+            # Return URL path for frontend (Reflex serves assets/ under /)
+            return f"/tts_audio/{filename}"
+        else:
+            log_message(f"❌ Edge TTS: File not created at {output_file}")
+            return None
+
+    except concurrent.futures.TimeoutError:
+        log_message("❌ Edge TTS: Timeout after 30 seconds")
+        return None
+    except Exception as e:
+        log_message(f"❌ Edge TTS Exception: {type(e).__name__}: {e}")
+        import traceback
+        log_message(f"Edge TTS Traceback: {traceback.format_exc()}")
+        return None
 
 
-def generate_speech_piper(text, speed=1.0):
+def generate_speech_piper(text, speed=1.0, voice_choice="Deutsch (Thorsten)"):
     """
     Piper TTS - Local, fast Text-to-Speech
 
     Args:
         text: Text to synthesize
         speed: Speed multiplier (1.0 = normal, 1.25 = 25% faster)
+        voice_choice: Voice display name (e.g., "Deutsch (Thorsten)")
 
     Returns:
         str: Path to generated WAV file (relative URL for Reflex frontend), or None on error
     """
+    from .config import PIPER_VOICES, PROJECT_ROOT
+
     # Save to assets/tts_audio/ (served by Reflex)
     filename = f"audio_{int(time.time() * 1000)}.wav"
     output_file = str(TTS_AUDIO_DIR / filename)
 
     try:
+        # Get model path from PIPER_VOICES config
+        voice_config = PIPER_VOICES.get(voice_choice)
+        if voice_config:
+            model_filename, _ = voice_config
+            model_path = PROJECT_ROOT / "piper_models" / model_filename
+        else:
+            # Fallback to default Thorsten model
+            model_path = PIPER_MODEL_PATH
+            log_message(f"⚠️ Piper: Voice '{voice_choice}' not found, using default")
+
         # Piper via subprocess aufrufen
         # length_scale: höher = langsamer (1.0 = normal, 0.8 = 1.25x schneller, 0.5 = 2x schneller)
         length_scale = 1.0 / speed
-        log_message(f"🎤 Piper TTS: speed={speed}, length_scale={length_scale}")
+        log_message(f"🎤 Piper TTS: voice={voice_choice}, speed={speed}, length_scale={length_scale}")
 
         result = subprocess.run(
-            [PIPER_BIN, "--model", PIPER_MODEL_PATH, "--output_file", output_file, "--length_scale", str(length_scale)],
+            [PIPER_BIN, "--model", str(model_path), "--output_file", output_file, "--length_scale", str(length_scale)],
             input=text.encode('utf-8'),
             capture_output=True,
             timeout=30
@@ -94,6 +169,75 @@ def generate_speech_piper(text, speed=1.0):
 
     except Exception as e:
         log_message(f"❌ Piper TTS Exception: {e}")
+        return None
+
+
+def generate_speech_espeak(text, speed=1.0, voice_choice="Deutsch (Roboter)"):
+    """
+    eSpeak TTS - Local, robotic Text-to-Speech
+
+    Args:
+        text: Text to synthesize
+        speed: Speed multiplier (1.0 = normal, 1.25 = 25% faster)
+        voice_choice: Voice display name (e.g., "Deutsch (Roboter)")
+
+    Returns:
+        str: Path to generated WAV file (relative URL for Reflex frontend), or None on error
+    """
+    from .config import ESPEAK_VOICES
+
+    # Save to assets/tts_audio/ (served by Reflex)
+    filename = f"audio_{int(time.time() * 1000)}.wav"
+    output_file = str(TTS_AUDIO_DIR / filename)
+
+    try:
+        # Get voice from ESPEAK_VOICES config
+        voice_config = ESPEAK_VOICES.get(voice_choice)
+        if voice_config:
+            voice_lang, _ = voice_config
+        else:
+            voice_lang = "de"
+            log_message(f"⚠️ eSpeak: Voice '{voice_choice}' not found, using 'de'")
+
+        # eSpeak speed: words per minute (default ~175, range 80-500)
+        # speed 1.0 = 175 wpm, 1.25 = 220 wpm, 2.0 = 350 wpm
+        wpm = int(175 * speed)
+        log_message(f"🎤 eSpeak TTS: voice={voice_lang}, speed={speed}, wpm={wpm}")
+
+        # Try espeak-ng first, fallback to espeak
+        espeak_cmd = "espeak"  # Default
+        try:
+            result_check = subprocess.run(
+                ["espeak-ng", "--version"],
+                capture_output=True,
+                timeout=5
+            )
+            if result_check.returncode == 0:
+                espeak_cmd = "espeak-ng"
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+            pass  # Stick with espeak
+
+        log_message(f"🔊 eSpeak: Using command '{espeak_cmd}'")
+
+        result = subprocess.run(
+            [espeak_cmd, "-v", voice_lang, "-s", str(wpm), "-w", output_file, text],
+            capture_output=True,
+            timeout=30
+        )
+
+        if result.returncode == 0 and os.path.exists(output_file):
+            log_message(f"✅ eSpeak TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
+            return f"/tts_audio/{filename}"
+        else:
+            error_msg = result.stderr.decode() if result.stderr else "Unknown error"
+            log_message(f"❌ eSpeak TTS Error: {error_msg}")
+            return None
+
+    except FileNotFoundError:
+        log_message("❌ eSpeak TTS: espeak/espeak-ng not installed. Run: sudo apt install espeak-ng")
+        return None
+    except Exception as e:
+        log_message(f"❌ eSpeak TTS Exception: {e}")
         return None
 
 
@@ -220,25 +364,38 @@ def transcribe_audio(audio_path, whisper_model, language="de"):
 
 async def generate_tts(text, voice_choice, speed_choice, tts_engine):
     """
-    Generiert TTS-Audio aus Text (Edge oder Piper).
+    Generiert TTS-Audio aus Text (Edge, Piper oder eSpeak).
 
     Args:
         text: Text für TTS (bereits bereinigt)
-        voice_choice: Voice display name (z.B. "Deutsch (Katja)")
+        voice_choice: Voice display name (z.B. "Deutsch (Katja)" für Edge, "Deutsch (Thorsten)" für Piper)
         speed_choice: Speed multiplier (z.B. 1.25)
         tts_engine: Engine name (z.B. "Edge TTS (Cloud, beste Qualität)")
 
     Returns:
         str: Pfad zur generierten Audio-Datei, oder None
     """
+    from .config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
+
     try:
         if "Piper" in tts_engine:
             # Piper TTS (lokal) - synchronous subprocess call
-            return generate_speech_piper(text, speed_choice)
+            # Use Piper-specific voice, fallback to first available if not found
+            if voice_choice not in PIPER_VOICES:
+                voice_choice = list(PIPER_VOICES.keys())[0] if PIPER_VOICES else "Deutsch (Thorsten)"
+                log_message(f"⚠️ TTS: Voice not available for Piper, using: {voice_choice}")
+            return generate_speech_piper(text, speed_choice, voice_choice)
+        elif "eSpeak" in tts_engine:
+            # eSpeak TTS (lokal, roboterhaft) - synchronous subprocess call
+            if voice_choice not in ESPEAK_VOICES:
+                voice_choice = list(ESPEAK_VOICES.keys())[0] if ESPEAK_VOICES else "Deutsch (Roboter)"
+                log_message(f"⚠️ TTS: Voice not available for eSpeak, using: {voice_choice}")
+            return generate_speech_espeak(text, speed_choice, voice_choice)
         else:
             # Edge TTS (Cloud) - async API call
             rate = f"+{int((speed_choice - 1.0) * 100)}%"
-            voice_id = VOICES.get(voice_choice, "de-DE-KatjaNeural")
+            # Use Edge-specific voice, fallback if not found
+            voice_id = EDGE_TTS_VOICES.get(voice_choice, "de-DE-KatjaNeural")
             return await generate_speech_edge(text, voice_id, rate)
     except Exception as e:
         log_message(f"❌ TTS Fehler: {e}")

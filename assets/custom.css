@@ -418,6 +418,16 @@ div em {
     display: grid !important;
     grid-template-columns: 1fr minmax(380px, 460px) !important;
     gap: 1rem !important;
+    align-items: start !important;  /* Top-aligned */
+}
+
+/* Debug Console Box: Fixed height matching Settings panel */
+#debug-console-box {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    height: 935px !important;  /* Desktop: Match Settings panel height */
 }
 
 /* Mobile: Stack layout (1 Spalte) */
@@ -425,14 +435,10 @@ div em {
     .debug-settings-grid {
         grid-template-columns: 1fr !important;
     }
-}
 
-/* Debug Console: Volle Breite im Container + Zeilenumbruch */
-#debug-console-box {
-    min-width: 0;
-    width: 100%;
-    max-width: 100%;
-    overflow-x: hidden;
+    #debug-console-box {
+        height: 300px !important;
+    }
 }
 
 /* Debug Console Inhalt: Zeilenumbruch mit Hanging Indent

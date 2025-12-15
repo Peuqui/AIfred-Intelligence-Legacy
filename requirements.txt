@@ -23,7 +23,7 @@ pymupdf>=1.26.0         # PDF text extraction (AWMF guidelines, PubMed PDFs)
 chromadb>=0.4.24        # Vector database for semantic caching
 
 # Audio Processing (STT/TTS)
-edge-tts>=6.1.0         # Text-to-Speech
+edge-tts==7.2.1         # Text-to-Speech (7.2.3 has NoAudioReceived bug)
 openai-whisper>=20231117 # Speech-to-Text
 
 # Configuration & Environment
