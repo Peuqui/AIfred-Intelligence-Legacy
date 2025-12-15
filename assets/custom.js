@@ -289,64 +289,65 @@ let currentTtsAudio = null;
 let lastPlayedTtsUrl = '';
 
 /**
- * Play TTS audio from URL - called directly from Python backend via rx.call_script()
- * This is much more reliable than DOM observers because:
- * 1. No race conditions with React DOM updates
- * 2. Backend knows exactly when file is ready
- * 3. Audio element is created fresh each time
+ * Play TTS audio from URL - uses the VISIBLE HTML5 player for full user control
+ *
+ * The visible player (`#tts-audio-player`) is the single source of truth.
+ * This allows the user to control playback with native HTML5 controls (pause, seek, volume).
  *
  * @param {string} audioUrl - URL path like '/tts_audio/audio_123.mp3'
  */
 function playTtsFromUrl(audioUrl) {
     console.log('🔊 TTS: playTtsFromUrl called with', audioUrl);
 
-    // Skip if same URL (avoid double-play)
-    if (audioUrl === lastPlayedTtsUrl && currentTtsAudio && !currentTtsAudio.ended) {
-        console.log('⚠️ TTS: Same audio already playing, skipping');
-        return;
-    }
-
-    // Stop any currently playing audio
+    // Stop any old hidden audio (cleanup from previous implementation)
     if (currentTtsAudio) {
-        console.log('⏹️ TTS: Stopping previous audio');
+        console.log('⏹️ TTS: Stopping old hidden audio');
         currentTtsAudio.pause();
         currentTtsAudio.src = '';
         currentTtsAudio = null;
     }
 
-    // Create new audio element (not attached to DOM - more reliable)
-    const audio = new Audio();
-    currentTtsAudio = audio;
-    lastPlayedTtsUrl = audioUrl;
+    // Skip if same URL already playing on visible player
+    const player = document.getElementById('tts-audio-player');
+    if (player) {
+        // Check if same audio already playing
+        if (player.src === audioUrl || player.src.endsWith(audioUrl.split('/').pop())) {
+            if (!player.paused && !player.ended) {
+                console.log('⚠️ TTS: Same audio already playing on visible player, skipping');
+                return;
+            }
+        }
 
-    // Set up event handlers
-    audio.addEventListener('canplaythrough', () => {
-        console.log('🔊 TTS: Audio ready, playing...');
-        audio.play()
+        // Apply playback rate
+        player.playbackRate = ttsPlaybackRate;
+        console.log('🔊 TTS: Applied playback rate', ttsPlaybackRate);
+
+        // Set source if different
+        if (!player.src.endsWith(audioUrl.split('/').pop())) {
+            player.src = audioUrl;
+            player.load();
+        }
+
+        // Play the visible player
+        player.play()
             .then(() => {
-                console.log('✅ TTS: Playback started');
+                console.log('✅ TTS: Playback started on visible player');
             })
             .catch(err => {
                 console.warn('⚠️ TTS: Autoplay blocked:', err.message);
-                // Update the visible player so user can click play manually
-                updateVisiblePlayer(audioUrl);
+                console.log('ℹ️ TTS: User can click play on the visible player');
             });
-    });
+    } else {
+        console.warn('⚠️ TTS: Visible player not found, creating fallback audio');
+        // Fallback: Create hidden audio only if visible player doesn't exist
+        const audio = new Audio();
+        currentTtsAudio = audio;
+        audio.playbackRate = ttsPlaybackRate;
+        audio.src = audioUrl;
+        audio.play().catch(err => console.warn('⚠️ TTS fallback autoplay blocked:', err.message));
+    }
 
-    audio.addEventListener('ended', () => {
-        console.log('✅ TTS: Playback finished');
-        currentTtsAudio = null;
-    });
-
-    audio.addEventListener('error', (e) => {
-        console.error('❌ TTS: Audio load error', e);
-        console.error('❌ TTS: Error code:', audio.error?.code, 'message:', audio.error?.message);
-        currentTtsAudio = null;
-    });
-
-    // Start loading
-    audio.src = audioUrl;
-    audio.load();
+    lastPlayedTtsUrl = audioUrl;
 }
 
 /**
@@ -362,14 +363,23 @@ function updateVisiblePlayer(audioUrl) {
 }
 
 /**
- * Stop TTS playback
+ * Stop TTS playback - stops both visible player and any hidden fallback audio
  */
 function stopTts() {
+    // Stop visible player
+    const player = document.getElementById('tts-audio-player');
+    if (player) {
+        player.pause();
+        player.currentTime = 0;
+        console.log('⏹️ TTS: Stopped visible player');
+    }
+
+    // Stop hidden fallback audio (if any)
     if (currentTtsAudio) {
         currentTtsAudio.pause();
         currentTtsAudio.src = '';
         currentTtsAudio = null;
-        console.log('⏹️ TTS: Stopped');
+        console.log('⏹️ TTS: Stopped hidden fallback audio');
     }
 }
 
@@ -381,10 +391,50 @@ function playTtsAudio() {
     }
 }
 
+// ============================================================
+// TTS PLAYBACK RATE (Persistent browser-side speed setting)
+// ============================================================
+
+// Store current playback rate (persisted via backend)
+let ttsPlaybackRate = 1.25;  // Default
+
+/**
+ * Set TTS playback rate - called from Python backend via rx.call_script()
+ * Also applies to any currently playing audio
+ * @param {number} rate - Playback rate (0.5, 0.75, 1, 1.25, 1.5, 2)
+ */
+function setTtsPlaybackRate(rate) {
+    ttsPlaybackRate = parseFloat(rate);
+    console.log('🔊 TTS: Playback rate set to', ttsPlaybackRate);
+
+    // Apply to currently playing audio
+    if (currentTtsAudio) {
+        currentTtsAudio.playbackRate = ttsPlaybackRate;
+        console.log('🔊 TTS: Applied rate to current audio');
+    }
+
+    // Apply to visible HTML5 player
+    const player = document.getElementById('tts-audio-player');
+    if (player) {
+        player.playbackRate = ttsPlaybackRate;
+        console.log('🔊 TTS: Applied rate to visible player');
+    }
+}
+
+/**
+ * Get current playback rate
+ * @returns {number} Current playback rate
+ */
+function getTtsPlaybackRate() {
+    return ttsPlaybackRate;
+}
+
 // Make available globally
 window.playTtsFromUrl = playTtsFromUrl;
 window.playTtsAudio = playTtsAudio;
 window.stopTts = stopTts;
+window.setTtsPlaybackRate = setTtsPlaybackRate;
+window.getTtsPlaybackRate = getTtsPlaybackRate;
 
 // ============================================================
 // TTS AUDIO OBSERVER - Watch for NEW audio elements (React re-mounts)
@@ -407,25 +457,45 @@ function setupTtsAudioObserver() {
     }
 
     // Function to handle a found audio player
+    // When a NEW audio element is detected (React re-mounts with new key), we:
+    // 1. Apply the saved playback rate
+    // 2. Trigger play() on the VISIBLE player after a short delay
+    // The HTML5 player has autoPlay=True, but browsers may block it. This is a backup.
     const handleAudioPlayer = (player) => {
         if (!player || !player.src) return;
 
         const src = player.src;
-        console.log('🔊 TTS Observer: Checking audio player, src =', src);
+        console.log('🔊 TTS Observer: Detected audio player, src =', src);
 
-        // Only play if src contains tts_audio and is different from last played
-        if (src.includes('/tts_audio/') && src !== lastObservedTtsSrc) {
-            console.log('🔊 TTS Observer: NEW audio detected, will trigger playback after delay');
-            lastObservedTtsSrc = src;
-            // Longer delay (500ms) to ensure:
-            // 1. Element is fully mounted in React
-            // 2. File is completely written to disk by Edge TTS
-            // 3. Server has time to serve the complete file
-            setTimeout(() => {
-                console.log('🔊 TTS Observer: Delay complete, triggering playback');
-                playTtsFromUrl(src);
-            }, 500);
+        // Only process TTS audio URLs
+        if (!src.includes('/tts_audio/')) return;
+
+        // Apply playback rate immediately
+        player.playbackRate = ttsPlaybackRate;
+        console.log('🔊 TTS Observer: Applied playback rate', ttsPlaybackRate);
+
+        // Check if this is a NEW audio (different from last observed)
+        if (src === lastObservedTtsSrc) {
+            console.log('🔊 TTS Observer: Same audio URL, skipping play trigger');
+            return;
         }
+
+        // NEW audio detected - this is a fresh player (React re-mounted it)
+        lastObservedTtsSrc = src;
+        console.log('🔊 TTS Observer: NEW audio detected');
+
+        // Small delay to ensure audio is fully loaded, then ensure it plays
+        // The autoPlay attribute should work, but this is a backup in case browser blocks it
+        setTimeout(() => {
+            if (player.paused && player.readyState >= 2) {
+                console.log('🔊 TTS Observer: AutoPlay may have been blocked, triggering play()');
+                player.play()
+                    .then(() => console.log('✅ TTS Observer: Playback started via backup'))
+                    .catch(err => console.warn('⚠️ TTS Observer: Play blocked:', err.message));
+            } else if (!player.paused) {
+                console.log('🔊 TTS Observer: Already playing (autoPlay worked)');
+            }
+        }, 200);
     };
 
     // Create document-level observer to watch for added nodes

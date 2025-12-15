@@ -1958,7 +1958,21 @@ def settings_accordion() -> rx.Component:
                                 align="center",
                                 width="100%",
                             ),
-                            # Auto-Play Toggle (Speed control available in HTML5 audio player's 3-dot menu)
+                            # Playback Speed Selection (browser playback rate, persisted)
+                            rx.hstack(
+                                rx.text("Tempo:", font_size="11px", font_weight="500", width="80px"),
+                                rx.select(
+                                    ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"],
+                                    value=AIState.tts_playback_rate,
+                                    on_change=AIState.set_tts_playback_rate,
+                                    size="1",
+                                    width="100%",
+                                ),
+                                spacing="2",
+                                align="center",
+                                width="100%",
+                            ),
+                            # Auto-Play Toggle
                             rx.hstack(
                                 rx.text("Auto-Play:", font_size="11px", font_weight="500", width="80px"),
                                 rx.switch(
@@ -2915,27 +2929,46 @@ console.log('✂️ Crop handler loaded');
             # NOTE: Failed sources are now displayed inline within each message (persistent)
             chat_history_display(),
 
-            # TTS Audio Player - einfacher HTML5 Player
+            # TTS Audio Player - shows when TTS enabled AND chat history exists
+            # This allows "Neu generieren" after app restart (before any audio generated)
             rx.cond(
-                AIState.enable_tts & (AIState.tts_audio_path != ""),
+                AIState.enable_tts & (AIState.chat_history.length() > 0),
                 rx.box(
                     rx.hstack(
                         rx.text("🔊", font_size="18px"),
                         rx.text("Sprachausgabe", font_weight="bold", font_size="13px", color=COLORS["accent_blue"]),
                         rx.spacer(),
+                        # Regenerate TTS Button - re-synthesize with current voice settings
+                        rx.button(
+                            t("tts_regenerate"),
+                            on_click=AIState.resynthesize_tts,
+                            size="1",
+                            variant="soft",
+                            color_scheme="blue",
+                            cursor="pointer",
+                        ),
                         spacing="2",
                         align="center",
                     ),
-                    # HTML5 Audio Element - src wird über State reaktiv gesetzt
-                    # Key changes when tts_trigger_counter changes → React re-mounts audio element
-                    # autoPlay=True triggers playback on mount
-                    rx.el.audio(
-                        src=AIState.tts_audio_path,
-                        id="tts-audio-player",
-                        controls=True,
-                        autoPlay=True,  # Auto-play when audio element is mounted
-                        key="tts-audio-" + AIState.tts_trigger_counter.to(str),  # Force remount on new audio
-                        style={"width": "100%", "height": "40px", "margin_top": "8px"},
+                    # HTML5 Audio Element - only show when audio exists
+                    rx.cond(
+                        AIState.tts_audio_path != "",
+                        rx.el.audio(
+                            src=AIState.tts_audio_path,
+                            id="tts-audio-player",
+                            controls=True,
+                            autoPlay=True,  # Auto-play when audio element is mounted
+                            key="tts-audio-" + AIState.tts_trigger_counter.to(str),  # Force remount on new audio
+                            style={"width": "100%", "height": "40px", "margin_top": "8px"},
+                        ),
+                        # Placeholder when no audio yet - shows hint
+                        rx.text(
+                            "Klicke 'Neu generieren' um die letzte Antwort vorzulesen",
+                            font_size="11px",
+                            color="#888",
+                            margin_top="8px",
+                            font_style="italic",
+                        ),
                     ),
                     padding="3",
                     background_color="rgba(66, 135, 245, 0.08)",
