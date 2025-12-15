@@ -321,12 +321,12 @@ class AIState(rx.State):
     tts_speed: float = 1.25  # Speed multiplier (1.0 = normal)
     tts_engine: str = "Edge TTS (Cloud, beste Qualität)"  # TTS engine selection
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
-    tts_should_autoplay: bool = False  # Internal flag: True only when NEW audio is ready
+    # tts_should_autoplay entfernt - UI Playback wird neu implementiert
     whisper_model_name: str = "small (466MB, bessere Qualität, multilingual)"  # Whisper model display name
     # whisper_device removed - now configured in config.py (WHISPER_DEVICE)
     show_transcription: bool = False  # Show transcribed text for editing before sending
     _whisper_model = None  # Loaded WhisperModel instance (module-level, shared across sessions)
-    tts_audio_path: str = ""  # Path to generated TTS audio file (for UI playback)
+    tts_audio_path: str = ""  # Path to generated TTS audio file (TODO: UI Player fehlt)
 
     # Session Management
     session_id: str = ""
@@ -3457,23 +3457,16 @@ class AIState(rx.State):
                 file_path = PROJECT_ROOT / "assets" / "tts_audio" / filename
 
                 if os.path.exists(file_path):
-                    # Store audio URL for playback (UI will handle playback via HTML <audio> tag)
+                    # Store audio URL for playback
                     self.tts_audio_path = audio_url
                     file_size_kb = os.path.getsize(file_path) / 1024
                     self.add_debug(f"✅ TTS: Audio generated ({file_size_kb:.1f} KB) → {audio_url}")
-
-                    # Set autoplay flag if enabled (user setting)
-                    should_autoplay = autoplay and self.tts_autoplay
-                    if should_autoplay:
-                        self.tts_should_autoplay = True
-                        self.add_debug("🔊 TTS: Autoplay triggered")
+                    # TODO: Autoplay-Logik neu implementieren (UI Player fehlt noch)
                 else:
                     self.tts_audio_path = ""
-                    self.tts_should_autoplay = False
                     self.add_debug(f"⚠️ TTS: Audio file not found at {file_path}")
             else:
                 self.tts_audio_path = ""
-                self.tts_should_autoplay = False
                 self.add_debug("⚠️ TTS: Audio generation failed")
 
         except Exception as e:
@@ -4170,18 +4163,7 @@ class AIState(rx.State):
         # Generate TTS for last response (with autoplay if user setting enabled)
         await self._generate_tts_for_response(last_ai_response, autoplay=True)
 
-    async def clear_tts_autoplay(self):
-        """Reset autoplay flag after audio element has mounted and started playing.
-
-        Called via on_mount from the autoplay audio box. Uses a delay to ensure
-        the audio has time to start playing before the flag is cleared (which
-        triggers a re-render to the non-autoplay version).
-        """
-        if self.tts_should_autoplay:
-            import asyncio
-            await asyncio.sleep(0.3)  # Wait for audio to start
-            self.tts_should_autoplay = False
-            self.add_debug("🔇 TTS Autoplay: Flag cleared after mount")
+    # TODO: clear_tts_autoplay entfernt - TTS Playback wird neu implementiert
 
     def set_whisper_model(self, model_name: str):
         """Set Whisper model and reload"""

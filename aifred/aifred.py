@@ -2915,80 +2915,8 @@ console.log('✂️ Crop handler loaded');
             # NOTE: Failed sources are now displayed inline within each message (persistent)
             chat_history_display(),
 
-            # TTS Audio Player (only visible if TTS enabled and audio exists)
-            rx.cond(
-                AIState.enable_tts & (AIState.tts_audio_path != ""),
-                rx.box(
-                    rx.vstack(
-                        rx.hstack(
-                            rx.text("🔊 Sprachausgabe:", font_weight="bold", font_size="13px", color=COLORS["accent_blue"]),
-                            rx.text(
-                                f"{AIState.tts_voice} • {AIState.tts_speed:.2f}x",
-                                font_size="11px",
-                                color=COLORS["text_muted"],
-                            ),
-                            rx.spacer(),
-                            # Re-Synth Button (regenerate TTS for last response)
-                            rx.button(
-                                rx.hstack(
-                                    rx.text("🔄", font_size="14px"),
-                                    rx.text("Resynth", font_size="12px", font_weight="500"),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                on_click=AIState.resynthesize_tts,
-                                disabled=AIState.is_generating,
-                                size="1",
-                                variant="soft",
-                                color_scheme="blue",
-                                title="Sprachausgabe neu generieren",
-                                style={
-                                    "min_width": "85px",
-                                    "padding": "6px 12px",
-                                    "cursor": "pointer",
-                                    "&:hover:not([disabled])": {
-                                        "background": "rgba(66, 135, 245, 0.3)",
-                                    },
-                                },
-                            ),
-                            spacing="2",
-                            align="center",
-                            width="100%",
-                        ),
-                        # Audio Player - simple player with autoPlay attribute
-                        # Using rx.cond to switch between autoplay and non-autoplay versions
-                        rx.cond(
-                            AIState.tts_should_autoplay,
-                            # Autoplay version - only rendered briefly when TTS completes
-                            rx.el.audio(
-                                src=AIState.tts_audio_path,
-                                key=f"autoplay-{AIState.tts_audio_path}",  # Different key forces remount
-                                id="tts-player",
-                                controls=True,
-                                autoPlay=True,  # HTML5 autoplay attribute
-                                style={"width": "100%", "height": "40px"},
-                            ),
-                            # Normal version - no autoplay
-                            rx.el.audio(
-                                src=AIState.tts_audio_path,
-                                key=AIState.tts_audio_path,
-                                id="tts-player",
-                                controls=True,
-                                style={"width": "100%", "height": "40px"},
-                            ),
-                        ),
-                        spacing="2",
-                        width="100%",
-                    ),
-                    padding="3",
-                    background_color="rgba(66, 135, 245, 0.08)",
-                    border_radius="8px",
-                    border=f"1px solid {COLORS['accent_blue']}",
-                    width="100%",
-                    margin_top="4",
-                    margin_bottom="4",
-                ),
-            ),
+            # TODO: TTS Audio Player - wird neu implementiert
+            # (alter Code entfernt wegen f-string Reaktivitätsproblem)
 
             # Input controls (below chat history for easy access after reading)
             rx.box(
