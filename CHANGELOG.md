@@ -5,6 +5,42 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.9] - 2025-12-15
+
+### 🔊 TTS: Audio Overlap Fix & Regenerate Button
+
+**Fixed audio overlap bug when using "Neu generieren" and improved TTS controls.**
+
+#### Added
+
+- **TTS Regenerate Button** ([aifred.py:2942-2949](aifred/aifred.py#L2942-L2949)):
+  - New "Neu generieren" button to re-synthesize TTS for the last AI response
+  - Works with current voice/speed/engine settings without re-running LLM
+  - Stops any currently playing audio before generating new audio
+
+- **Persistent Playback Rate** ([state.py:4190-4197](aifred/state.py#L4190-L4197)):
+  - Browser playback speed (0.5x - 2x) now saved to settings.json
+  - Dropdown selector replaces browser's native 3-dot menu
+  - Rate persists across page reloads and app restarts
+
+- **TTS Widget Always Visible** ([aifred.py:2935](aifred/aifred.py#L2935)):
+  - TTS widget shows when chat history exists (not just when audio exists)
+  - Allows using "Neu generieren" after app restart to hear last response
+
+#### Fixed
+
+- **Audio Overlap Bug** ([custom.js:299-351](assets/custom.js#L299-L351), [custom.js:458-493](assets/custom.js#L458-L493)):
+  - Previously: Clicking pause after "Neu generieren" started a second audio overlapping with the first
+  - Root cause: Two separate audio elements (hidden `new Audio()` + visible HTML5 player) were not synchronized
+  - Solution: All playback now uses only the visible HTML5 player - no hidden audio element
+  - Pause/Play/Volume/Mute controls now work correctly
+
+- **stopTts() Before Regenerate** ([state.py:4211-4212](aifred/state.py#L4211-L4212)):
+  - `resynthesize_tts()` now calls `stopTts()` before generating new audio
+  - Prevents overlap when clicking "Neu generieren" while audio is playing
+
+---
+
 ## [2.7.8] - 2025-12-13
 
 ### 🎯 Context Management: Kalibrierte VRAM-Limits & Erhöhte Output-Reserve

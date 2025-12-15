@@ -321,7 +321,7 @@ class AIState(rx.State):
     tts_speed: float = 1.25  # Speed multiplier (1.0 = normal)
     tts_engine: str = "Edge TTS (Cloud, beste Qualität)"  # TTS engine selection
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
-    # tts_should_autoplay entfernt - UI Playback wird neu implementiert
+    tts_playback_rate: str = "1.25x"  # Browser playback rate (persisted)
     whisper_model_name: str = "small (466MB, bessere Qualität, multilingual)"  # Whisper model display name
     # whisper_device removed - now configured in config.py (WHISPER_DEVICE)
     show_transcription: bool = False  # Show transcribed text for editing before sending
@@ -719,6 +719,7 @@ class AIState(rx.State):
                 self.tts_speed = saved_settings.get("tts_speed", self.tts_speed)
                 self.tts_engine = saved_settings.get("tts_engine", self.tts_engine)
                 self.tts_autoplay = saved_settings.get("tts_autoplay", self.tts_autoplay)
+                self.tts_playback_rate = saved_settings.get("tts_playback_rate", self.tts_playback_rate)
                 self.whisper_model_name = saved_settings.get("whisper_model", self.whisper_model_name)
                 # whisper_device removed - now in config.py (backwards compatibility: ignore old saved value)
                 self.show_transcription = saved_settings.get("show_transcription", self.show_transcription)
@@ -773,6 +774,10 @@ class AIState(rx.State):
                     self.vision_model = vision_raw
 
                 self.add_debug(f"⚙️ Settings loaded (backend: {self.backend_type})")
+
+                # Send TTS playback rate to JavaScript (after settings loaded)
+                rate_value = self.tts_playback_rate.replace("x", "")
+                yield rx.call_script(f"setTtsPlaybackRate({rate_value})")
 
             # Apply config.py defaults as final fallback (only if settings.json didn't provide values)
             backend_defaults = config.BACKEND_DEFAULT_MODELS.get(self.backend_type, {})
@@ -1250,6 +1255,7 @@ class AIState(rx.State):
             "tts_speed": self.tts_speed,
             "tts_engine": self.tts_engine,
             "tts_autoplay": self.tts_autoplay,
+            "tts_playback_rate": self.tts_playback_rate,
             "whisper_model": self.whisper_model_name,
             # whisper_device removed - now in config.py
             "show_transcription": self.show_transcription,
@@ -4181,6 +4187,15 @@ class AIState(rx.State):
         self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")
         self._save_settings()
 
+    def set_tts_playback_rate(self, rate: str):
+        """Set TTS playback rate (browser-side) and persist"""
+        self.tts_playback_rate = rate
+        self.add_debug(f"🔊 TTS Playback Rate: {rate}")
+        self._save_settings()
+        # Apply rate to current audio player via JavaScript
+        rate_value = rate.replace("x", "")
+        return rx.call_script(f"setTtsPlaybackRate({rate_value})")
+
     async def resynthesize_tts(self):
         """Re-synthesize TTS for the last AI response"""
         if not self.chat_history:
@@ -4192,6 +4207,9 @@ class AIState(rx.State):
         if not last_ai_response or not last_ai_response.strip():
             self.add_debug("⚠️ TTS Re-Synth: Letzte Antwort ist leer")
             return
+
+        # FIRST: Stop any currently playing audio to avoid overlap
+        yield rx.call_script("stopTts()")
 
         self.add_debug("🔄 TTS Re-Synth: Generiere Audio neu...")
 
