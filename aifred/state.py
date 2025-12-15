@@ -810,10 +810,9 @@ class AIState(rx.State):
                     self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.selected_model} for both Main and Automatik")
                     self.automatik_model = self.selected_model
 
-            # Generate session ID
+            # Generate internal session ID (for Reflex, not displayed)
             if not self.session_id:
                 self.session_id = str(uuid.uuid4())
-                self.add_debug(f"🆔 Session: {self.session_id[:8]}...")
 
             # Restore GPU info from global state
             gpu_info = _global_backend_state.get("gpu_info")
@@ -3071,11 +3070,17 @@ class AIState(rx.State):
         from .lib.session_storage import load_session, generate_device_id
         from .lib.browser_storage import set_device_id_script
 
-        if device_id == "NEW" or not device_id:
-            # Neues Gerät - generiere Device-ID und setze Cookie
+        # Validiere device_id Format (muss 32 hex chars sein)
+        import re
+        is_valid_id = device_id and re.match(r'^[a-f0-9]{32}$', device_id)
+
+        if device_id == "NEW" or not device_id or not is_valid_id:
+            # Neues Gerät oder ungültige ID - generiere neue Device-ID
+            if device_id and not is_valid_id:
+                self.add_debug(f"⚠️ Ungültige Device-ID ({device_id[:8]}...), generiere neue")
             self.device_id = generate_device_id()
             self.session_restored = False
-            self.add_debug(f"🆕 Neue Session ({self.device_id[:8]}...)")
+            self.add_debug(f"🆕 Neue Session: {self.device_id[:8]}...")
             return rx.call_script(set_device_id_script(self.device_id))
 
         # Bekanntes Gerät - versuche Session zu laden
@@ -3086,10 +3091,10 @@ class AIState(rx.State):
             self._restore_session(session)
             self.session_restored = True
             msg_count = len(self.chat_history)
-            self.add_debug(f"✅ Session wiederhergestellt ({device_id[:8]}..., {msg_count} Messages)")
+            self.add_debug(f"✅ Session geladen: {device_id[:8]}... ({msg_count} Messages)")
         else:
             self.session_restored = False
-            self.add_debug(f"🆕 Leere Session ({device_id[:8]}...)")
+            self.add_debug(f"🆕 Leere Session: {device_id[:8]}...")
 
     def handle_tts_callback(self, result: str):
         """
