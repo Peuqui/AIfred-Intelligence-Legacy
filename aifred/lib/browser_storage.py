@@ -58,7 +58,7 @@ def set_device_id_script(device_id: str) -> str:
     - SameSite=Lax: Verhindert CSRF, erlaubt aber normale Navigation
 
     Args:
-        device_id: Die zu speichernde Device-ID (16 hex chars)
+        device_id: Die zu speichernde Device-ID (32 hex chars)
 
     Returns:
         JavaScript-Code als String

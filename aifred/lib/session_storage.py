@@ -55,7 +55,7 @@ def _sanitize_device_id(device_id: str) -> str:
     """
     import re
 
-    # Nur lowercase hex erlauben: 32 Zeichen lang
+    # Nur lowercase hex erlauben: exakt 32 Zeichen (128 bit)
     if not re.match(r'^[a-f0-9]{32}$', device_id):
         raise ValueError(
             f"Invalid device_id format: Expected 32 hex chars, got '{device_id[:50]}'"
