@@ -22,8 +22,11 @@ if os.name == 'nt':  # Windows
 else:  # Linux/Mac
     PIPER_BIN = PROJECT_ROOT / "venv" / "bin" / "piper"
 
-# TTS Audio output directory (served by Reflex via assets/)
-TTS_AUDIO_DIR = PROJECT_ROOT / "assets" / "tts_audio"
+# TTS Audio output directory
+# IMPORTANT: Use uploaded_files/ instead of assets/ to avoid hot-reload!
+# Reflex watches assets/ and restarts the server when files change.
+# uploaded_files/ is served via /_upload/ endpoint and is NOT watched.
+TTS_AUDIO_DIR = PROJECT_ROOT / "uploaded_files" / "tts_audio"
 TTS_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -77,7 +80,7 @@ async def generate_speech_edge(text, voice, rate="+0%"):
             log_message("⚠️ Edge TTS: Empty text, skipping")
             return None
 
-        # Save to assets/tts_audio/ (served by Reflex)
+        # Save to uploaded_files/tts_audio/ (served via /_upload/)
         filename = f"audio_{int(time.time() * 1000)}.mp3"
         output_file = str(TTS_AUDIO_DIR / filename)
 
@@ -102,8 +105,9 @@ async def generate_speech_edge(text, voice, rate="+0%"):
                 log_message(f"⚠️ Edge TTS: File suspiciously small ({file_size} bytes)")
                 return None
 
-            # Return URL path for frontend (Reflex serves assets/ under /)
-            return f"/tts_audio/{filename}"
+            # Return FULL URL with backend host (frontend doesn't serve /_upload/)
+            from .config import BACKEND_API_URL
+            return f"{BACKEND_API_URL}/_upload/tts_audio/{filename}"
         else:
             log_message(f"❌ Edge TTS: File not created at {output_file}")
             return None
@@ -132,7 +136,7 @@ def generate_speech_piper(text, speed=1.0, voice_choice="Deutsch (Thorsten)"):
     """
     from .config import PIPER_VOICES, PROJECT_ROOT
 
-    # Save to assets/tts_audio/ (served by Reflex)
+    # Save to uploaded_files/tts_audio/ (served via /_upload/)
     filename = f"audio_{int(time.time() * 1000)}.wav"
     output_file = str(TTS_AUDIO_DIR / filename)
 
@@ -161,8 +165,9 @@ def generate_speech_piper(text, speed=1.0, voice_choice="Deutsch (Thorsten)"):
 
         if result.returncode == 0 and os.path.exists(output_file):
             log_message(f"✅ Piper TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
-            # Return URL path for frontend (Reflex serves assets/ under /)
-            return f"/tts_audio/{filename}"
+            # Return FULL URL with backend host (frontend doesn't serve /_upload/)
+            from .config import BACKEND_API_URL
+            return f"{BACKEND_API_URL}/_upload/tts_audio/{filename}"
         else:
             log_message(f"❌ Piper TTS Error: {result.stderr.decode()}")
             return None
@@ -186,7 +191,7 @@ def generate_speech_espeak(text, speed=1.0, voice_choice="Deutsch (Roboter)"):
     """
     from .config import ESPEAK_VOICES
 
-    # Save to assets/tts_audio/ (served by Reflex)
+    # Save to uploaded_files/tts_audio/ (served via /_upload/)
     filename = f"audio_{int(time.time() * 1000)}.wav"
     output_file = str(TTS_AUDIO_DIR / filename)
 
@@ -227,7 +232,9 @@ def generate_speech_espeak(text, speed=1.0, voice_choice="Deutsch (Roboter)"):
 
         if result.returncode == 0 and os.path.exists(output_file):
             log_message(f"✅ eSpeak TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
-            return f"/tts_audio/{filename}"
+            # Return FULL URL with backend host (frontend doesn't serve /_upload/)
+            from .config import BACKEND_API_URL
+            return f"{BACKEND_API_URL}/_upload/tts_audio/{filename}"
         else:
             error_msg = result.stderr.decode() if result.stderr else "Unknown error"
             log_message(f"❌ eSpeak TTS Error: {error_msg}")
@@ -300,7 +307,7 @@ def clean_text_for_tts(text):
 
 def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
     """
-    Löscht alte TTS-Audio-Dateien aus assets/tts_audio/.
+    Löscht alte TTS-Audio-Dateien aus uploaded_files/tts_audio/.
 
     Args:
         max_age_hours: Maximales Alter in Stunden (default: 24)
