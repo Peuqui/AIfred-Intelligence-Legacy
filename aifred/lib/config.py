@@ -17,6 +17,15 @@ SSL_KEYFILE = PROJECT_ROOT / "ssl" / "privkey.pem"
 SSL_CERTFILE = PROJECT_ROOT / "ssl" / "fullchain.pem"
 
 # ============================================================
+# BACKEND API URL (for TTS audio URLs)
+# ============================================================
+# Get API URL from rxconfig for TTS audio URLs
+# The /_upload/ endpoint is only served by the backend, not frontend
+import os
+_is_prod = os.getenv("AIFRED_ENV", "dev") == "prod"
+BACKEND_API_URL = "https://narnia.spdns.de:8443" if _is_prod else "http://172.30.8.72:8002"
+
+# ============================================================
 # DEBUG CONFIGURATION
 # ============================================================
 DEBUG_ENABLED = True  # Set to False to disable debug output

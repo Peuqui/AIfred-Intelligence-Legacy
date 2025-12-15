@@ -327,6 +327,7 @@ class AIState(rx.State):
     show_transcription: bool = False  # Show transcribed text for editing before sending
     _whisper_model = None  # Loaded WhisperModel instance (module-level, shared across sessions)
     tts_audio_path: str = ""  # Path to generated TTS audio file (TODO: UI Player fehlt)
+    tts_trigger_counter: int = 0  # Incremented to trigger TTS playback in frontend
 
     # Session Management
     session_id: str = ""
@@ -2951,11 +2952,13 @@ class AIState(rx.State):
             # TTS: Generate audio for AI response if enabled
             if self.enable_tts:
                 try:
+                    self.add_debug("🔊 TTS: Starting TTS generation in finally block...")
                     # Get AI response from chat history (current_ai_response may be cleared)
                     if 'temp_history_index' in locals() and temp_history_index < len(self.chat_history):
                         _, ai_response = self.chat_history[temp_history_index]
                         if ai_response and ai_response.strip():
-                            # Simple async call - no generator
+                            # Generate TTS (sets tts_audio_path and increments tts_trigger_counter)
+                            # State changes automatically propagate to frontend → audio plays via autoPlay
                             await self._generate_tts_for_response(ai_response)
                         else:
                             self.add_debug("⚠️ TTS: Aktiviert aber keine AI-Antwort zum Konvertieren")
@@ -2971,12 +2974,33 @@ class AIState(rx.State):
 
 
     def clear_chat(self):
-        """Clear chat history"""
+        """Clear chat history and TTS audio files"""
         self.chat_history = []
         self.current_ai_response = ""
         self.current_user_message = ""
+        self.tts_audio_path = ""  # Clear TTS player
         self.debug_messages = []  # Debug Console auch leeren!
-        self.add_debug("🗑️ Chat cleared")
+
+        # TTS Audio-Dateien aufräumen
+        from .lib.audio_processing import cleanup_old_tts_audio
+        try:
+            cleanup_old_tts_audio(max_age_hours=0)  # 0 = alle löschen
+        except Exception as e:
+            self.add_debug(f"⚠️ TTS cleanup failed: {e}")
+
+        # HTML Preview Dateien aufräumen
+        import os
+        html_preview_dir = os.path.join(os.path.dirname(__file__), "..", "assets", "html_preview")
+        try:
+            if os.path.exists(html_preview_dir):
+                for f in os.listdir(html_preview_dir):
+                    file_path = os.path.join(html_preview_dir, f)
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+        except Exception as e:
+            self.add_debug(f"⚠️ HTML preview cleanup failed: {e}")
+
+        self.add_debug("🗑️ Chat + Audio + HTML Preview cleared")
 
         # Session speichern (leerer Chat)
         self._save_current_session()
@@ -3060,6 +3084,15 @@ class AIState(rx.State):
         else:
             self.session_restored = False
             self.add_debug(f"🆕 Leere Session ({device_id[:8]}...)")
+
+    def handle_tts_callback(self, result: str):
+        """
+        Callback nach TTS rx.call_script() Ausführung.
+
+        Wird aufgerufen wenn das JavaScript das TTS-Script ausgeführt hat.
+        Dient hauptsächlich zum Debugging.
+        """
+        self.add_debug(f"🔊 TTS callback received: {result}")
 
     def _restore_session(self, session: dict):
         """
@@ -3452,16 +3485,18 @@ class AIState(rx.State):
 
             if audio_url:
                 # Verify file exists on disk (convert URL to filesystem path)
-                # URL: /tts_audio/audio_123.mp3 -> assets/tts_audio/audio_123.mp3
+                # URL: /_upload/tts_audio/audio_123.mp3 -> uploaded_files/tts_audio/audio_123.mp3
                 filename = audio_url.split("/")[-1]
-                file_path = PROJECT_ROOT / "assets" / "tts_audio" / filename
+                file_path = PROJECT_ROOT / "uploaded_files" / "tts_audio" / filename
 
                 if os.path.exists(file_path):
                     # Store audio URL for playback
                     self.tts_audio_path = audio_url
+                    # Increment counter to trigger frontend playback via rx.use_effect
+                    self.tts_trigger_counter += 1
                     file_size_kb = os.path.getsize(file_path) / 1024
                     self.add_debug(f"✅ TTS: Audio generated ({file_size_kb:.1f} KB) → {audio_url}")
-                    # TODO: Autoplay-Logik neu implementieren (UI Player fehlt noch)
+                    self.add_debug(f"🔊 TTS: Trigger counter incremented to {self.tts_trigger_counter}")
                 else:
                     self.tts_audio_path = ""
                     self.add_debug(f"⚠️ TTS: Audio file not found at {file_path}")
@@ -4160,7 +4195,8 @@ class AIState(rx.State):
 
         self.add_debug("🔄 TTS Re-Synth: Generiere Audio neu...")
 
-        # Generate TTS for last response (with autoplay if user setting enabled)
+        # Generate TTS for last response
+        # State changes (tts_audio_path, tts_trigger_counter) auto-propagate to frontend
         await self._generate_tts_for_response(last_ai_response, autoplay=True)
 
     # TODO: clear_tts_autoplay entfernt - TTS Playback wird neu implementiert

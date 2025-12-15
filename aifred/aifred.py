@@ -2915,8 +2915,37 @@ console.log('✂️ Crop handler loaded');
             # NOTE: Failed sources are now displayed inline within each message (persistent)
             chat_history_display(),
 
-            # TODO: TTS Audio Player - wird neu implementiert
-            # (alter Code entfernt wegen f-string Reaktivitätsproblem)
+            # TTS Audio Player - einfacher HTML5 Player
+            rx.cond(
+                AIState.enable_tts & (AIState.tts_audio_path != ""),
+                rx.box(
+                    rx.hstack(
+                        rx.text("🔊", font_size="18px"),
+                        rx.text("Sprachausgabe", font_weight="bold", font_size="13px", color=COLORS["accent_blue"]),
+                        rx.spacer(),
+                        spacing="2",
+                        align="center",
+                    ),
+                    # HTML5 Audio Element - src wird über State reaktiv gesetzt
+                    # Key changes when tts_trigger_counter changes → React re-mounts audio element
+                    # autoPlay=True triggers playback on mount
+                    rx.el.audio(
+                        src=AIState.tts_audio_path,
+                        id="tts-audio-player",
+                        controls=True,
+                        autoPlay=True,  # Auto-play when audio element is mounted
+                        key="tts-audio-" + AIState.tts_trigger_counter.to(str),  # Force remount on new audio
+                        style={"width": "100%", "height": "40px", "margin_top": "8px"},
+                    ),
+                    padding="3",
+                    background_color="rgba(66, 135, 245, 0.08)",
+                    border_radius="8px",
+                    border=f"1px solid {COLORS['accent_blue']}",
+                    width="100%",
+                    margin_top="4",
+                    margin_bottom="4",
+                ),
+            ),
 
             # Input controls (below chat history for easy access after reading)
             rx.box(
