@@ -509,3 +509,29 @@ div em {
     margin: 0 !important;
     padding: 0 !important;
 }
+
+/* ============================================================
+   TTS/STT SELECT DROPDOWNS - Prevent Overflow
+   ============================================================ */
+
+/* TTS/STT Select Trigger: Begrenzte Breite, Text abschneiden */
+.tts-stt-select .rt-SelectTrigger {
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+/* Das innere Span mit dem Text */
+.tts-stt-select .rt-SelectTrigger span {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    display: block !important;
+}
+
+/* Dropdown Content: Darf breiter sein als Trigger */
+.tts-stt-select .rt-SelectContent {
+    min-width: 280px !important;
+    max-width: 400px !important;
+}

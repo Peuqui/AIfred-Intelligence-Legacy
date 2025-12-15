@@ -168,19 +168,37 @@ BACKEND_ORDER = ["ollama", "koboldcpp", "tabbyapi", "vllm"]
 # ============================================================
 # Edge TTS Voices (Cloud - Microsoft Neural Voices)
 EDGE_TTS_VOICES = {
+    # Deutschland (de-DE)
     "Deutsch (Katja)": "de-DE-KatjaNeural",
-    "Deutsch (Conrad)": "de-DE-ConradNeural",
+    "Deutsch (Amala)": "de-DE-AmalaNeural",
     "Deutsch (Seraphina)": "de-DE-SeraphinaMultilingualNeural",
+    "Deutsch (Conrad)": "de-DE-ConradNeural",
+    "Deutsch (Killian)": "de-DE-KillianNeural",
+    "Deutsch (Florian)": "de-DE-FlorianMultilingualNeural",
+    # Österreich (de-AT)
+    "Österreich (Ingrid)": "de-AT-IngridNeural",
+    "Österreich (Jonas)": "de-AT-JonasNeural",
+    # Schweiz (de-CH)
+    "Schweiz (Leni)": "de-CH-LeniNeural",
+    "Schweiz (Jan)": "de-CH-JanNeural",
+    # Englisch
     "Englisch (Jenny)": "en-US-JennyNeural",
     "Englisch (Guy)": "en-US-GuyNeural",
+    # Weitere Sprachen
     "Französisch (Denise)": "fr-FR-DeniseNeural",
-    "Spanisch (Elvira)": "es-ES-ElviraNeural"
+    "Spanisch (Elvira)": "es-ES-ElviraNeural",
 }
 
 # Piper TTS Voices (Local - ONNX models)
 # Format: Display Name -> (model_filename, language_code)
+# Models stored in ~/.local/share/piper/
 PIPER_VOICES = {
-    "Deutsch (Thorsten)": ("de_DE-thorsten-medium.onnx", "de"),
+    # Deutsch
+    "Deutsch (Thorsten)": ("de_DE-thorsten-high.onnx", "de"),
+    "Deutsch (Ramona)": ("de_DE-ramona-low.onnx", "de"),
+    # Englisch (British)
+    "English (Alba)": ("en_GB-alba-medium.onnx", "en"),
+    "English (Alan)": ("en_GB-alan-medium.onnx", "en"),
 }
 
 # Legacy compatibility - defaults to Edge TTS voices
