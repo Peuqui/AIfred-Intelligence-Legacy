@@ -318,7 +318,7 @@ class AIState(rx.State):
     # TTS/STT Settings
     enable_tts: bool = False
     tts_voice: str = "Deutsch (Katja)"  # Voice selection (from VOICES dict)
-    tts_speed: float = 1.25  # Speed multiplier (1.0 = normal)
+    tts_speed: float = 1.0  # Speed multiplier (1.0 = normal, browser playback handles tempo)
     tts_engine: str = "Edge TTS (Cloud, beste Qualität)"  # TTS engine selection
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
     tts_playback_rate: str = "1.25x"  # Browser playback rate (persisted)
@@ -333,7 +333,7 @@ class AIState(rx.State):
     session_id: str = ""
 
     # Session Persistence (Cookie-based device identification)
-    device_id: str = ""  # Device-ID aus Cookie (16 hex chars)
+    device_id: str = ""  # Device-ID aus Cookie (32 hex chars)
     session_restored: bool = False  # True wenn Chat-History aus Session geladen wurde
     _session_initialized: bool = False  # Guard gegen mehrfache on_load() Hydration
 
@@ -4188,9 +4188,9 @@ class AIState(rx.State):
         self._save_settings()
 
     def set_tts_playback_rate(self, rate: str):
-        """Set TTS playback rate (browser-side) and persist"""
+        """Set TTS playback rate (browser-side only, TTS generation stays at 1.0)"""
         self.tts_playback_rate = rate
-        self.add_debug(f"🔊 TTS Playback Rate: {rate}")
+        self.add_debug(f"🔊 TTS Tempo: {rate}")
         self._save_settings()
         # Apply rate to current audio player via JavaScript
         rate_value = rate.replace("x", "")
