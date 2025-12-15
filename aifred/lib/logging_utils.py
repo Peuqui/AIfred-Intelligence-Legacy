@@ -64,10 +64,12 @@ def initialize_debug_log(force_reset: bool = False) -> None:
                 os.rename(DEBUG_LOG_FILE, old_file)
                 print(f"🔄 Debug-Log rotiert: {file_size_mb:.1f} MB → {old_file}", flush=True)
 
-        # Neue Session: Datei überschreiben oder neu erstellen
-        with open(DEBUG_LOG_FILE, 'w', encoding='utf-8') as f:
-            f.write("=== AIfred Intelligence Debug Log ===\n")
-            f.write(f"=== Service gestartet: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n\n")
+        # Neue Session: Ans File ANHÄNGEN (nicht überschreiben!)
+        # So bleiben Logs über Restarts hinweg erhalten
+        with open(DEBUG_LOG_FILE, 'a', encoding='utf-8') as f:
+            f.write("\n" + "=" * 60 + "\n")
+            f.write(f"=== AIfred Intelligence - Service gestartet: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            f.write("=" * 60 + "\n\n")
 
         _debug_log_initialized = True
         print(f"✅ Debug-Log initialisiert: {DEBUG_LOG_FILE}", flush=True)

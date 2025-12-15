@@ -1,6 +1,6 @@
 # AIfred Intelligence - Dokumentations-Index
 
-**Letzte Aktualisierung:** 2025-12-02
+**Letzte Aktualisierung:** 2025-12-15
 
 ---
 
@@ -9,6 +9,7 @@
 ```
 docs/
 ├── INDEX.md (diese Datei)
+├── INSTALLATION.md            # Installationsanleitung
 ├── ARCHITECTURE.md            # Vollständige System-Architektur
 ├── GPU_COMPATIBILITY.md       # GPU Kompatibilitäts-Matrix
 ├── CONFIGURATION_TEMPLATE.md  # Config.py Referenz
@@ -27,6 +28,20 @@ docs/
 ---
 
 ## 🚀 Schnellstart
+
+### Erste Installation
+
+📖 **Vollständige Anleitung:** [INSTALLATION.md](INSTALLATION.md)
+
+```bash
+# Kurzversion
+git clone https://github.com/Peuqui/AIfred-Intelligence.git
+cd AIfred-Intelligence
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+sudo apt install espeak-ng ffmpeg
+reflex run
+```
 
 ### Ollama GPU-Beschleunigung (AMD Radeon 780M)
 

@@ -1376,7 +1376,7 @@ def debug_console() -> rx.Component:
         ),
         id="debug-console-box",
         width="100%",
-        height="500px",  # Initial height, will be synced via JavaScript
+        height="935px",  # Fixed height - matches Settings panel when fully expanded
         overflow_y="auto",
         padding="3",
         background_color=COLORS["debug_bg"],
@@ -1934,7 +1934,7 @@ def settings_accordion() -> rx.Component:
                             rx.hstack(
                                 rx.text("Engine:", font_size="11px", font_weight="500", width="80px"),
                                 rx.select(
-                                    ["Edge TTS (Cloud, beste Qualität)", "Piper TTS (Lokal, Offline)"],
+                                    ["Edge TTS (Cloud, beste Qualität)", "Piper TTS (Lokal, Offline)", "eSpeak (Roboter, Offline)"],
                                     value=AIState.tts_engine,
                                     on_change=AIState.set_tts_engine,
                                     size="1",
@@ -1944,11 +1944,11 @@ def settings_accordion() -> rx.Component:
                                 align="center",
                                 width="100%",
                             ),
-                            # Voice Selection
+                            # Voice Selection (dynamic based on engine)
                             rx.hstack(
                                 rx.text("Stimme:", font_size="11px", font_weight="500", width="80px"),
                                 rx.select(
-                                    ["Deutsch (Katja)", "Deutsch (Conrad)", "Englisch (Jenny)", "Englisch (Guy)", "Französisch (Denise)", "Spanisch (Elvira)"],
+                                    AIState.available_tts_voices,
                                     value=AIState.tts_voice,
                                     on_change=AIState.set_tts_voice,
                                     size="1",
@@ -1958,29 +1958,7 @@ def settings_accordion() -> rx.Component:
                                 align="center",
                                 width="100%",
                             ),
-                            # Speed Slider
-                            rx.hstack(
-                                rx.text("Geschw.:", font_size="11px", font_weight="500", width="80px"),
-                                rx.slider(
-                                    default_value=[AIState.tts_speed],
-                                    min=0.5,
-                                    max=2.0,
-                                    step=0.05,
-                                    on_change=AIState.set_tts_speed,
-                                    size="1",
-                                    width="100%",
-                                ),
-                                rx.text(
-                                    f"{AIState.tts_speed:.2f}x",
-                                    font_size="10px",
-                                    color="#999",
-                                    width="50px",
-                                ),
-                                spacing="2",
-                                align="center",
-                                width="100%",
-                            ),
-                            # Auto-Play Toggle
+                            # Auto-Play Toggle (Speed control available in HTML5 audio player's 3-dot menu)
                             rx.hstack(
                                 rx.text("Auto-Play:", font_size="11px", font_weight="500", width="80px"),
                                 rx.switch(
@@ -2423,34 +2401,60 @@ const callback = function(mutationsList, observer) {
 };
 
 function syncDebugConsoleHeight() {
-    // Find Settings Accordion (try multiple selectors)
+    // Find Settings Accordion using multiple strategies
     let settingsElement = null;
+    let settingsAccordion = null;
 
-    // Try finding by accordion region role
-    const accordionRegions = document.querySelectorAll('[role="region"]');
-    for (let region of accordionRegions) {
-        const header = region.previousElementSibling;
-        if (header && header.textContent.includes('Einstellungen')) {
-            settingsElement = region;
-            break;
+    // Strategy 1: Find the AccordionRoot in the grid container
+    const gridContainer = document.querySelector('.debug-settings-grid');
+    if (gridContainer) {
+        // Settings accordion is the second child in the grid
+        const accordions = gridContainer.querySelectorAll('.rt-AccordionRoot');
+        if (accordions.length >= 1) {
+            // The settings accordion is the one NOT containing debug console
+            for (let acc of accordions) {
+                if (!acc.querySelector('#debug-console-box')) {
+                    settingsAccordion = acc;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Strategy 2: Fallback - find by accordion region role
+    if (!settingsAccordion) {
+        const accordionRegions = document.querySelectorAll('[role="region"]');
+        for (let region of accordionRegions) {
+            const header = region.previousElementSibling;
+            if (header && (header.textContent.includes('Einstellungen') || header.textContent.includes('Settings'))) {
+                settingsElement = region;
+                settingsAccordion = region.closest('.rt-AccordionRoot');
+                break;
+            }
         }
     }
 
     const debugBox = document.getElementById('debug-console-box');
 
-    if (settingsElement && debugBox) {
-        // Measure Settings Accordion content height (use scrollHeight for full content)
-        const settingsHeight = settingsElement.scrollHeight;
+    if (settingsAccordion && debugBox) {
+        // Get the full height of the settings accordion (including all expanded sections)
+        const settingsRect = settingsAccordion.getBoundingClientRect();
+        const settingsHeight = settingsAccordion.scrollHeight || settingsRect.height;
 
-        // Set Debug Console to match (minimum 500px)
-        const targetHeight = Math.max(500, settingsHeight);
+        // Set Debug Console to match (minimum 500px, maximum 1200px)
+        const targetHeight = Math.min(1200, Math.max(500, settingsHeight));
         debugBox.style.height = targetHeight + 'px';
 
-        console.log('📏 Synced heights - Settings:', settingsHeight, 'Target:', targetHeight);
+        // Log only if height changed significantly
+        const currentHeight = parseInt(debugBox.style.height) || 500;
+        if (Math.abs(currentHeight - targetHeight) > 10) {
+            console.log('📏 Synced heights - Settings:', settingsHeight, 'Target:', targetHeight);
+        }
     } else {
-        console.warn('⚠️ Could not find settings element or debug box');
-        if (!settingsElement) console.warn('  - Settings element not found');
-        if (!debugBox) console.warn('  - Debug box not found');
+        // Fallback: set a reasonable default
+        if (debugBox) {
+            debugBox.style.height = '500px';
+        }
     }
 }
 
@@ -2475,18 +2479,42 @@ function setupObservers() {
         console.warn('❌ chat-history-box not found');
     }
 
-    // Sync heights on accordion open/close
-    const accordionRegions = document.querySelectorAll('[role="region"]');
-    for (let region of accordionRegions) {
-        const header = region.previousElementSibling;
-        if (header && header.textContent.includes('Einstellungen')) {
+    // Sync heights on accordion open/close - observe the entire settings grid
+    const gridContainer = document.querySelector('.debug-settings-grid');
+    if (gridContainer) {
+        // Observe all accordion changes in the grid
+        const accordions = gridContainer.querySelectorAll('.rt-AccordionRoot');
+        for (let acc of accordions) {
+            // Skip the debug console accordion
+            if (acc.querySelector('#debug-console-box')) continue;
+
+            // ResizeObserver for the entire accordion
             const resizeObserver = new ResizeObserver(() => {
                 syncDebugConsoleHeight();
             });
-            resizeObserver.observe(region);
-            console.log('✅ Height sync observer attached to settings accordion');
-            break;
+            resizeObserver.observe(acc);
+
+            // Also observe mutations (for accordion open/close)
+            const mutationObserver = new MutationObserver(() => {
+                // Delay to allow animation to complete
+                setTimeout(syncDebugConsoleHeight, 100);
+                setTimeout(syncDebugConsoleHeight, 300);
+            });
+            mutationObserver.observe(acc, { childList: true, subtree: true, attributes: true });
+
+            console.log('✅ Height sync observers attached to settings accordion');
         }
+
+        // Also observe all accordion triggers for click events
+        const triggers = gridContainer.querySelectorAll('.rt-AccordionTrigger');
+        triggers.forEach(trigger => {
+            trigger.addEventListener('click', () => {
+                // Sync after accordion animation (multiple times for smooth transition)
+                setTimeout(syncDebugConsoleHeight, 50);
+                setTimeout(syncDebugConsoleHeight, 150);
+                setTimeout(syncDebugConsoleHeight, 350);
+            });
+        });
     }
 
     // Also observe on window resize
@@ -2899,18 +2927,54 @@ console.log('✂️ Crop handler loaded');
                                 font_size="11px",
                                 color=COLORS["text_muted"],
                             ),
+                            rx.spacer(),
+                            # Re-Synth Button (regenerate TTS for last response)
+                            rx.button(
+                                rx.hstack(
+                                    rx.text("🔄", font_size="14px"),
+                                    rx.text("Resynth", font_size="12px", font_weight="500"),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                on_click=AIState.resynthesize_tts,
+                                disabled=AIState.is_generating,
+                                size="1",
+                                variant="soft",
+                                color_scheme="blue",
+                                title="Sprachausgabe neu generieren",
+                                style={
+                                    "min_width": "85px",
+                                    "padding": "6px 12px",
+                                    "cursor": "pointer",
+                                    "&:hover:not([disabled])": {
+                                        "background": "rgba(66, 135, 245, 0.3)",
+                                    },
+                                },
+                            ),
                             spacing="2",
                             align="center",
+                            width="100%",
                         ),
+                        # Audio Player - simple player with autoPlay attribute
+                        # Using rx.cond to switch between autoplay and non-autoplay versions
                         rx.cond(
-                            AIState.tts_autoplay,
-                            rx.html(
-                                f'<audio id="tts-player" controls autoplay style="width: 100%; height: 40px;"><source src="{AIState.tts_audio_path}" type="audio/mpeg"></audio>',
-                                width="100%",
+                            AIState.tts_should_autoplay,
+                            # Autoplay version - only rendered briefly when TTS completes
+                            rx.el.audio(
+                                src=AIState.tts_audio_path,
+                                key=f"autoplay-{AIState.tts_audio_path}",  # Different key forces remount
+                                id="tts-player",
+                                controls=True,
+                                autoPlay=True,  # HTML5 autoplay attribute
+                                style={"width": "100%", "height": "40px"},
                             ),
-                            rx.html(
-                                f'<audio id="tts-player" controls style="width: 100%; height: 40px;"><source src="{AIState.tts_audio_path}" type="audio/mpeg"></audio>',
-                                width="100%",
+                            # Normal version - no autoplay
+                            rx.el.audio(
+                                src=AIState.tts_audio_path,
+                                key=AIState.tts_audio_path,
+                                id="tts-player",
+                                controls=True,
+                                style={"width": "100%", "height": "40px"},
                             ),
                         ),
                         spacing="2",

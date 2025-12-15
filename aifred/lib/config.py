@@ -155,16 +155,27 @@ BACKEND_NON_SELECTABLE = ["header_universal", "separator", "header_modern"]
 BACKEND_ORDER = ["ollama", "koboldcpp", "tabbyapi", "vllm"]
 
 # ============================================================
-# AVAILABLE VOICES
+# AVAILABLE VOICES (Engine-specific)
 # ============================================================
-VOICES = {
+# Edge TTS Voices (Cloud - Microsoft Neural Voices)
+EDGE_TTS_VOICES = {
     "Deutsch (Katja)": "de-DE-KatjaNeural",
     "Deutsch (Conrad)": "de-DE-ConradNeural",
+    "Deutsch (Seraphina)": "de-DE-SeraphinaMultilingualNeural",
     "Englisch (Jenny)": "en-US-JennyNeural",
     "Englisch (Guy)": "en-US-GuyNeural",
     "Französisch (Denise)": "fr-FR-DeniseNeural",
     "Spanisch (Elvira)": "es-ES-ElviraNeural"
 }
+
+# Piper TTS Voices (Local - ONNX models)
+# Format: Display Name -> (model_filename, language_code)
+PIPER_VOICES = {
+    "Deutsch (Thorsten)": ("de_DE-thorsten-medium.onnx", "de"),
+}
+
+# Legacy compatibility - defaults to Edge TTS voices
+VOICES = EDGE_TTS_VOICES
 
 # ============================================================
 # RESEARCH MODES
@@ -181,8 +192,115 @@ RESEARCH_MODES = [
 # ============================================================
 TTS_ENGINES = [
     "Edge TTS (Cloud, beste Qualität)",
-    "Piper TTS (Lokal, Offline)"
+    "Piper TTS (Lokal, Offline)",
+    "eSpeak (Roboter, Offline)"
 ]
+
+# eSpeak Voices (Local - system package)
+# Install: sudo apt install espeak-ng (or espeak)
+# Format: "Display Name": ("voice_id", "language_code")
+# Voice variants: +m1/+m2 = male, +f1/+f2 = female
+# mbrola voices: mb/mb-deX (more natural, requires mbrola package)
+
+# All known eSpeak voices (will be filtered by get_available_espeak_voices())
+_ESPEAK_VOICES_ALL = {
+    # Deutsch - Standard eSpeak (roboterhaft, always available)
+    "Deutsch Standard": ("de", "de"),
+    "Deutsch Männlich 1": ("de+m1", "de"),
+    "Deutsch Männlich 2": ("de+m2", "de"),
+    "Deutsch Weiblich 1": ("de+f1", "de"),
+    "Deutsch Weiblich 2": ("de+f2", "de"),
+    # Deutsch - mbrola Stimmen (natürlicher, requires mbrola + mbrola-deX packages)
+    "Deutsch mbrola-2 (M)": ("mb/mb-de2", "de"),
+    "Deutsch mbrola-3 (F)": ("mb/mb-de3", "de"),
+    "Deutsch mbrola-4 (M)": ("mb/mb-de4", "de"),
+    "Deutsch mbrola-5 (F)": ("mb/mb-de5", "de"),
+    "Deutsch mbrola-6 (M)": ("mb/mb-de6", "de"),
+    "Deutsch mbrola-7 (F)": ("mb/mb-de7", "de"),
+    # Englisch - Standard eSpeak (always available)
+    "Englisch Standard": ("en", "en"),
+    "Englisch US": ("en-us", "en"),
+    "Englisch UK": ("en-gb", "en"),
+    # Englisch - mbrola Stimmen (requires mbrola + mbrola-en1/us1-3 packages)
+    "Englisch mbrola UK (M)": ("mb/mb-en1", "en"),
+    "Englisch mbrola US-1 (F)": ("mb/mb-us1", "en"),
+    "Englisch mbrola US-2 (M)": ("mb/mb-us2", "en"),
+    "Englisch mbrola US-3 (M)": ("mb/mb-us3", "en"),
+}
+
+def get_available_espeak_voices() -> dict:
+    """
+    Detect available eSpeak voices at runtime.
+
+    Standard eSpeak voices (de, en, etc.) are always available.
+    mbrola voices require: sudo apt install mbrola mbrola-deX mbrola-en1 etc.
+
+    Returns:
+        dict: Filtered ESPEAK_VOICES with only available voices
+    """
+    import subprocess
+
+    available = {}
+
+    # Get list of available mbrola voices from espeak-ng (or espeak fallback)
+    mbrola_available = set()
+    try:
+        # Try espeak-ng first (modern), fallback to espeak (legacy)
+        espeak_cmd = "espeak-ng"
+        try:
+            subprocess.run([espeak_cmd, "--version"], capture_output=True, timeout=2)
+        except (FileNotFoundError, OSError):
+            espeak_cmd = "espeak"
+
+        result = subprocess.run(
+            [espeak_cmd, "--voices=mb"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            for line in result.stdout.split('\n')[1:]:  # Skip header
+                parts = line.split()
+                if len(parts) >= 5:
+                    # File column contains voice ID like "mb/mb-de2"
+                    voice_file = parts[4] if len(parts) > 4 else ""
+                    if voice_file.startswith("mb/"):
+                        mbrola_available.add(voice_file)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass  # espeak not installed or timeout
+
+    # Filter voices: include standard voices, only include available mbrola voices
+    for name, (voice_id, lang) in _ESPEAK_VOICES_ALL.items():
+        if voice_id.startswith("mb/"):
+            # mbrola voice - check if available
+            if voice_id in mbrola_available:
+                available[name] = (voice_id, lang)
+        else:
+            # Standard eSpeak voice - always available
+            available[name] = (voice_id, lang)
+
+    return available
+
+# Initialize ESPEAK_VOICES with available voices (cached at module load)
+ESPEAK_VOICES = get_available_espeak_voices()
+
+# ============================================================
+# DEFAULT TTS VOICES PER LANGUAGE
+# ============================================================
+# When UI language changes, these voices are selected as defaults.
+# User can override in Settings → saved per language in assistant_settings.json
+TTS_DEFAULT_VOICES = {
+    "edge": {
+        "de": "Deutsch (Katja)",
+        "en": "Englisch (Jenny)",
+    },
+    "piper": {
+        "de": "Deutsch (Thorsten)",
+        "en": "Deutsch (Thorsten)",  # No English Piper model yet
+    },
+    "espeak": {
+        "de": "Deutsch Standard",
+        "en": "Englisch mbrola UK (M)",  # User preference: en1
+    },
+}
 
 # ============================================================
 # CONTEXT MANAGEMENT

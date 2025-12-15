@@ -320,7 +320,8 @@ class AIState(rx.State):
     tts_voice: str = "Deutsch (Katja)"  # Voice selection (from VOICES dict)
     tts_speed: float = 1.25  # Speed multiplier (1.0 = normal)
     tts_engine: str = "Edge TTS (Cloud, beste Qualität)"  # TTS engine selection
-    tts_autoplay: bool = True  # Auto-play TTS audio after generation
+    tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
+    tts_should_autoplay: bool = False  # Internal flag: True only when NEW audio is ready
     whisper_model_name: str = "small (466MB, bessere Qualität, multilingual)"  # Whisper model display name
     # whisper_device removed - now configured in config.py (WHISPER_DEVICE)
     show_transcription: bool = False  # Show transcribed text for editing before sending
@@ -559,6 +560,21 @@ class AIState(rx.State):
                 if mid in self.available_models_dict]
 
     @rx.var
+    def available_tts_voices(self) -> List[str]:
+        """
+        Returns list of available TTS voices for the current engine.
+        Edge TTS, Piper and eSpeak have different voice sets.
+        """
+        from .lib.config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
+
+        if "Piper" in self.tts_engine:
+            return list(PIPER_VOICES.keys())
+        elif "eSpeak" in self.tts_engine:
+            return list(ESPEAK_VOICES.keys())
+        else:
+            return list(EDGE_TTS_VOICES.keys())
+
+    @rx.var
     def chat_history_parsed(self) -> List[ChatMessageParsed]:
         """
         Parse chat_history and extract embedded failed_sources from AI messages.
@@ -699,13 +715,21 @@ class AIState(rx.State):
 
                 # Load TTS/STT Settings
                 self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)
-                self.tts_voice = saved_settings.get("voice", self.tts_voice)  # Legacy key: "voice"
                 self.tts_speed = saved_settings.get("tts_speed", self.tts_speed)
                 self.tts_engine = saved_settings.get("tts_engine", self.tts_engine)
                 self.tts_autoplay = saved_settings.get("tts_autoplay", self.tts_autoplay)
                 self.whisper_model_name = saved_settings.get("whisper_model", self.whisper_model_name)
                 # whisper_device removed - now in config.py (backwards compatibility: ignore old saved value)
                 self.show_transcription = saved_settings.get("show_transcription", self.show_transcription)
+
+                # Load TTS voice: Try engine-specific saved voice first, fallback to legacy "voice" key
+                user_voices = saved_settings.get("tts_voices_per_language", {})
+                engine_key = self._get_engine_key()
+                saved_voice = user_voices.get(engine_key, {}).get(self.ui_language)
+                if saved_voice:
+                    self.tts_voice = saved_voice
+                else:
+                    self.tts_voice = saved_settings.get("voice", self.tts_voice)  # Legacy key
 
                 # Load vLLM YaRN Settings (only enable/disable, factor always starts at 1.0)
                 self.enable_yarn = saved_settings.get("enable_yarn", self.enable_yarn)
@@ -1228,7 +1252,17 @@ class AIState(rx.State):
             "whisper_model": self.whisper_model_name,
             # whisper_device removed - now in config.py
             "show_transcription": self.show_transcription,
+            # Language-specific TTS voices (user preferences per engine/language)
+            "tts_voices_per_language": existing.get("tts_voices_per_language", {}),
         }
+        # Update tts_voices_per_language with current voice selection
+        engine_key = self._get_engine_key()
+        lang = self.ui_language
+        if "tts_voices_per_language" not in settings:
+            settings["tts_voices_per_language"] = {}
+        if engine_key not in settings["tts_voices_per_language"]:
+            settings["tts_voices_per_language"][engine_key] = {}
+        settings["tts_voices_per_language"][engine_key][lang] = self.tts_voice
         save_settings(settings)
 
     async def switch_backend_by_label(self, label: str):
@@ -2921,6 +2955,7 @@ class AIState(rx.State):
                     if 'temp_history_index' in locals() and temp_history_index < len(self.chat_history):
                         _, ai_response = self.chat_history[temp_history_index]
                         if ai_response and ai_response.strip():
+                            # Simple async call - no generator
                             await self._generate_tts_for_response(ai_response)
                         else:
                             self.add_debug("⚠️ TTS: Aktiviert aber keine AI-Antwort zum Konvertieren")
@@ -3385,8 +3420,15 @@ class AIState(rx.State):
             except Exception:
                 pass
 
-    async def _generate_tts_for_response(self, ai_response: str):
-        """Generate TTS audio for AI response and store path for playback"""
+    async def _generate_tts_for_response(self, ai_response: str, autoplay: bool = True):
+        """Generate TTS audio for AI response and store path for playback
+
+        Args:
+            ai_response: The AI response text to convert to speech
+            autoplay: If True, set autoplay flag (respects user setting). If False, never autoplay.
+
+        Note: This is a simple async function, NOT a generator. State updates happen directly.
+        """
         try:
             from .lib.audio_processing import clean_text_for_tts, generate_tts
             from .lib.config import PROJECT_ROOT
@@ -3419,11 +3461,19 @@ class AIState(rx.State):
                     self.tts_audio_path = audio_url
                     file_size_kb = os.path.getsize(file_path) / 1024
                     self.add_debug(f"✅ TTS: Audio generated ({file_size_kb:.1f} KB) → {audio_url}")
+
+                    # Set autoplay flag if enabled (user setting)
+                    should_autoplay = autoplay and self.tts_autoplay
+                    if should_autoplay:
+                        self.tts_should_autoplay = True
+                        self.add_debug("🔊 TTS: Autoplay triggered")
                 else:
                     self.tts_audio_path = ""
+                    self.tts_should_autoplay = False
                     self.add_debug(f"⚠️ TTS: Audio file not found at {file_path}")
             else:
                 self.tts_audio_path = ""
+                self.tts_should_autoplay = False
                 self.add_debug("⚠️ TTS: Audio generation failed")
 
         except Exception as e:
@@ -4074,9 +4124,14 @@ class AIState(rx.State):
         self._save_settings()
 
     def set_tts_engine(self, engine: str):
-        """Set TTS engine"""
+        """Set TTS engine and restore saved voice for this engine"""
         self.tts_engine = engine
         self.add_debug(f"🔊 TTS Engine: {engine}")
+
+        # Restore user's saved voice preference for this engine (calls _switch_tts_voice_for_language)
+        # This will either restore the saved voice or fallback to defaults
+        self._switch_tts_voice_for_language(self.ui_language)
+
         self._save_settings()
 
     def set_tts_voice(self, voice: str):
@@ -4097,6 +4152,36 @@ class AIState(rx.State):
         self.tts_autoplay = not self.tts_autoplay
         self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")
         self._save_settings()
+
+    async def resynthesize_tts(self):
+        """Re-synthesize TTS for the last AI response"""
+        if not self.chat_history:
+            self.add_debug("⚠️ TTS Re-Synth: Keine Antwort vorhanden")
+            return
+
+        # Get last AI response from chat history
+        _, last_ai_response = self.chat_history[-1]
+        if not last_ai_response or not last_ai_response.strip():
+            self.add_debug("⚠️ TTS Re-Synth: Letzte Antwort ist leer")
+            return
+
+        self.add_debug("🔄 TTS Re-Synth: Generiere Audio neu...")
+
+        # Generate TTS for last response (with autoplay if user setting enabled)
+        await self._generate_tts_for_response(last_ai_response, autoplay=True)
+
+    async def clear_tts_autoplay(self):
+        """Reset autoplay flag after audio element has mounted and started playing.
+
+        Called via on_mount from the autoplay audio box. Uses a delay to ensure
+        the audio has time to start playing before the flag is cleared (which
+        triggers a re-render to the non-autoplay version).
+        """
+        if self.tts_should_autoplay:
+            import asyncio
+            await asyncio.sleep(0.3)  # Wait for audio to start
+            self.tts_should_autoplay = False
+            self.add_debug("🔇 TTS Autoplay: Flag cleared after mount")
 
     def set_whisper_model(self, model_name: str):
         """Set Whisper model and reload"""
@@ -4123,15 +4208,69 @@ class AIState(rx.State):
         return rx.call_script("toggleRecording()")
 
     def set_ui_language(self, lang: str):
-        """Set UI language"""
+        """Set UI language and switch TTS voice to matching language"""
         if lang in ["de", "en"]:
             self.ui_language = lang
             # Update research_mode_display to match new language
             from .lib import TranslationManager
             self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode, lang)
             self.add_debug(f"🌐 UI Language changed to: {lang}")
+
+            # Auto-switch TTS voice to matching language
+            self._switch_tts_voice_for_language(lang)
         else:
             self.add_debug(f"❌ Invalid language: {lang}. Use 'de' or 'en'")
+
+    def _get_engine_key(self) -> str:
+        """Get engine key for config lookup (edge, piper, espeak)"""
+        if "Piper" in self.tts_engine:
+            return "piper"
+        elif "eSpeak" in self.tts_engine:
+            return "espeak"
+        else:
+            return "edge"
+
+    def _switch_tts_voice_for_language(self, lang: str):
+        """Switch TTS voice to appropriate language voice for current engine.
+
+        Priority:
+        1. User's saved preference for this engine/language (from assistant_settings.json)
+        2. Default voice from TTS_DEFAULT_VOICES config
+        """
+        from .lib.config import TTS_DEFAULT_VOICES, EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
+        from .lib.settings import load_settings
+
+        engine_key = self._get_engine_key()
+
+        # Get voice dictionary for current engine
+        if engine_key == "piper":
+            voice_dict = PIPER_VOICES
+        elif engine_key == "espeak":
+            voice_dict = ESPEAK_VOICES
+        else:
+            voice_dict = EDGE_TTS_VOICES
+
+        # Priority 1: Check for user's saved preference
+        saved_settings = load_settings() or {}
+        user_voices = saved_settings.get("tts_voices_per_language", {})
+        user_voice = user_voices.get(engine_key, {}).get(lang)
+
+        if user_voice and user_voice in voice_dict:
+            old_voice = self.tts_voice
+            self.tts_voice = user_voice
+            self.add_debug(f"🔊 TTS Voice restored (user pref): {old_voice} → {user_voice}")
+            return
+
+        # Priority 2: Use default voice from config
+        default_voice = TTS_DEFAULT_VOICES.get(engine_key, {}).get(lang)
+
+        if default_voice and default_voice in voice_dict:
+            old_voice = self.tts_voice
+            self.tts_voice = default_voice
+            self.add_debug(f"🔊 TTS Voice auto-switched: {old_voice} → {default_voice}")
+            self._save_settings()
+        else:
+            self.add_debug(f"⚠️ No default {lang} voice found for {engine_key}")
 
     def get_text(self, key: str):
         """Get translated text based on current UI language"""
