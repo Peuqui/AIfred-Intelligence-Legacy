@@ -230,6 +230,66 @@ def native_select_model(value_var, on_change_handler, disabled_condition=False, 
     )
 
 
+def native_select_tts(value_var, on_change_handler, options_list) -> rx.Component:
+    """Native HTML <select> for TTS Settings (Mobile)
+
+    Same styling as backend/model selects for consistent mobile experience.
+    """
+    return rx.el.select(
+        rx.foreach(
+            options_list,
+            lambda option: rx.el.option(option, value=option),
+        ),
+        value=value_var,
+        on_change=on_change_handler,
+        style={
+            "width": "100%",
+            "flex": "1",
+            "padding": "8px 12px",
+            "font_size": "12px",
+            "color": COLORS["text_primary"],
+            "background": COLORS["input_bg"],
+            "border": f"1px solid {COLORS['border']}",
+            "border_radius": "6px",
+            "min_height": "48px",
+            "cursor": "pointer",
+            "white_space": "nowrap",
+            "overflow": "hidden",
+            "text_overflow": "ellipsis",
+        },
+    )
+
+
+def native_select_stt(value_var, on_change_handler, options_list) -> rx.Component:
+    """Native HTML <select> for STT Settings (Mobile)
+
+    Same styling as backend/model selects for consistent mobile experience.
+    """
+    return rx.el.select(
+        rx.foreach(
+            options_list,
+            lambda option: rx.el.option(option, value=option),
+        ),
+        value=value_var,
+        on_change=on_change_handler,
+        style={
+            "width": "100%",
+            "flex": "1",
+            "padding": "8px 12px",
+            "font_size": "12px",
+            "color": COLORS["text_primary"],
+            "background": COLORS["input_bg"],
+            "border": f"1px solid {COLORS['border']}",
+            "border_radius": "6px",
+            "min_height": "48px",
+            "cursor": "pointer",
+            "white_space": "nowrap",
+            "overflow": "hidden",
+            "text_overflow": "ellipsis",
+        },
+    )
+
+
 # ============================================================
 # LEFT COLUMN: Input Controls
 # ============================================================
@@ -1933,12 +1993,21 @@ def settings_accordion() -> rx.Component:
                             # TTS Engine Selection
                             rx.hstack(
                                 rx.text("Engine:", font_size="11px", font_weight="500", width="80px"),
-                                rx.select(
-                                    ["Edge TTS (Cloud)", "Piper TTS (Offline)", "eSpeak (Roboter, Offline)"],
-                                    value=AIState.tts_engine,
-                                    on_change=AIState.set_tts_engine,
-                                    size="1",
-                                    class_name="tts-stt-select",
+                                rx.cond(
+                                    AIState.is_mobile,
+                                    # Mobile: Native select
+                                    native_select_tts(
+                                        AIState.tts_engine,
+                                        AIState.set_tts_engine,
+                                        ["Edge TTS (Cloud)", "Piper TTS (Offline)", "eSpeak (Roboter, Offline)"],
+                                    ),
+                                    # Desktop: Radix UI select
+                                    rx.select(
+                                        ["Edge TTS (Cloud)", "Piper TTS (Offline)", "eSpeak (Roboter, Offline)"],
+                                        value=AIState.tts_engine,
+                                        on_change=AIState.set_tts_engine,
+                                        size="2",
+                                    ),
                                 ),
                                 spacing="2",
                                 align="center",
@@ -1947,12 +2016,21 @@ def settings_accordion() -> rx.Component:
                             # Voice Selection (dynamic based on engine)
                             rx.hstack(
                                 rx.text("Stimme:", font_size="11px", font_weight="500", width="80px"),
-                                rx.select(
-                                    AIState.available_tts_voices,
-                                    value=AIState.tts_voice,
-                                    on_change=AIState.set_tts_voice,
-                                    size="1",
-                                    class_name="tts-stt-select",
+                                rx.cond(
+                                    AIState.is_mobile,
+                                    # Mobile: Native select
+                                    native_select_tts(
+                                        AIState.tts_voice,
+                                        AIState.set_tts_voice,
+                                        AIState.available_tts_voices,
+                                    ),
+                                    # Desktop: Radix UI select
+                                    rx.select(
+                                        AIState.available_tts_voices,
+                                        value=AIState.tts_voice,
+                                        on_change=AIState.set_tts_voice,
+                                        size="2",
+                                    ),
                                 ),
                                 spacing="2",
                                 align="center",
@@ -1961,12 +2039,21 @@ def settings_accordion() -> rx.Component:
                             # Playback Speed Selection (browser playback rate, persisted)
                             rx.hstack(
                                 rx.text("Tempo:", font_size="11px", font_weight="500", width="80px"),
-                                rx.select(
-                                    ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"],
-                                    value=AIState.tts_playback_rate,
-                                    on_change=AIState.set_tts_playback_rate,
-                                    size="1",
-                                    class_name="tts-stt-select",
+                                rx.cond(
+                                    AIState.is_mobile,
+                                    # Mobile: Native select
+                                    native_select_tts(
+                                        AIState.tts_playback_rate,
+                                        AIState.set_tts_playback_rate,
+                                        ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"],
+                                    ),
+                                    # Desktop: Radix UI select
+                                    rx.select(
+                                        ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"],
+                                        value=AIState.tts_playback_rate,
+                                        on_change=AIState.set_tts_playback_rate,
+                                        size="2",
+                                    ),
                                 ),
                                 spacing="2",
                                 align="center",
@@ -2013,12 +2100,21 @@ def settings_accordion() -> rx.Component:
                     # Whisper Model Selection
                     rx.hstack(
                         rx.text("Modell:", font_size="11px", font_weight="500", width="80px"),
-                        rx.select(
-                            ["tiny (39MB, schnell, englisch)", "base (74MB, schneller, multilingual)", "small (466MB, bessere Qualität, multilingual)", "medium (1.5GB, hohe Qualität, multilingual)", "large-v3 (2.9GB, beste Qualität, multilingual)"],
-                            value=AIState.whisper_model_name,
-                            on_change=AIState.set_whisper_model,
-                            size="1",
-                            class_name="tts-stt-select",
+                        rx.cond(
+                            AIState.is_mobile,
+                            # Mobile: Native select
+                            native_select_stt(
+                                AIState.whisper_model_name,
+                                AIState.set_whisper_model,
+                                ["tiny (39MB, schnell, englisch)", "base (74MB, schneller, multilingual)", "small (466MB, bessere Qualität, multilingual)", "medium (1.5GB, hohe Qualität, multilingual)", "large-v3 (2.9GB, beste Qualität, multilingual)"],
+                            ),
+                            # Desktop: Radix UI select
+                            rx.select(
+                                ["tiny (39MB, schnell, englisch)", "base (74MB, schneller, multilingual)", "small (466MB, bessere Qualität, multilingual)", "medium (1.5GB, hohe Qualität, multilingual)", "large-v3 (2.9GB, beste Qualität, multilingual)"],
+                                value=AIState.whisper_model_name,
+                                on_change=AIState.set_whisper_model,
+                                size="2",
+                            ),
                         ),
                         spacing="2",
                         align="center",
