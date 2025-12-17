@@ -23,18 +23,21 @@ COOKIE_NAME = "aifred_device_id"
 COOKIE_MAX_AGE_DAYS = 365
 
 
-def get_device_id_script() -> str:
+def get_device_id_script(delay_ms: int = 0) -> str:
     """
     Generiert JavaScript zum Lesen der Device-ID aus Cookie.
 
     Das Skript gibt die Device-ID zurück oder "NEW" wenn kein Cookie existiert.
     Der Rückgabewert wird an den Callback übergeben.
 
+    Args:
+        delay_ms: Optional delay in milliseconds before reading cookie.
+                  Use for retry mechanism to handle race conditions.
+
     Returns:
         JavaScript-Code als String
     """
-    return f"""
-(function() {{
+    read_cookie_js = f"""
     const name = "{COOKIE_NAME}=";
     const cookies = document.cookie.split(';');
     for (let c of cookies) {{
@@ -44,6 +47,25 @@ def get_device_id_script() -> str:
         }}
     }}
     return "NEW";
+    """
+
+    if delay_ms > 0:
+        # Delayed version: Returns a Promise that resolves after delay
+        return f"""
+(new Promise((resolve) => {{
+    setTimeout(() => {{
+        const result = (function() {{
+            {read_cookie_js}
+        }})();
+        resolve(result);
+    }}, {delay_ms});
+}}))
+"""
+    else:
+        # Immediate version
+        return f"""
+(function() {{
+    {read_cookie_js}
 }})()
 """
 

@@ -716,7 +716,7 @@ class AIState(rx.State):
 
                 # Load TTS/STT Settings
                 self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)
-                self.tts_speed = saved_settings.get("tts_speed", self.tts_speed)
+                # Note: tts_speed no longer loaded - generation always at 1.0
                 self.tts_engine = saved_settings.get("tts_engine", self.tts_engine)
                 self.tts_autoplay = saved_settings.get("tts_autoplay", self.tts_autoplay)
                 self.tts_playback_rate = saved_settings.get("tts_playback_rate", self.tts_playback_rate)
@@ -890,8 +890,15 @@ class AIState(rx.State):
             # NACH Backend-Init, damit Chat-History Restore nicht mit Loading kollidiert
             if not self._session_initialized:
                 from .lib.browser_storage import get_device_id_script
+                # Erster Versuch: Sofort
                 yield rx.call_script(
                     get_device_id_script(),
+                    callback=AIState.handle_device_id_loaded
+                )
+                # Retry nach 2 Sekunden (falls erster Callback wegen Race Condition nicht durchkam)
+                # Guard _session_initialized verhindert doppelte Verarbeitung
+                yield rx.call_script(
+                    get_device_id_script(delay_ms=2000),
                     callback=AIState.handle_device_id_loaded
                 )
 
@@ -1251,7 +1258,7 @@ class AIState(rx.State):
             # TTS/STT Settings
             "enable_tts": self.enable_tts,
             "voice": self.tts_voice,  # Legacy key name for backward compatibility
-            "tts_speed": self.tts_speed,
+            # Note: tts_speed removed - generation always at 1.0, tempo via tts_playback_rate
             "tts_engine": self.tts_engine,
             "tts_autoplay": self.tts_autoplay,
             "tts_playback_rate": self.tts_playback_rate,
@@ -3487,10 +3494,11 @@ class AIState(rx.State):
             self.add_debug(f"🔊 TTS: Generating audio ({len(clean_text)} chars)...")
 
             # Generate TTS audio (returns URL path like "/tts_audio/audio_123.mp3")
+            # Note: speed_choice is always 1.0 - tempo control happens in browser via tts_playback_rate
             audio_url = await generate_tts(
                 text=clean_text,
                 voice_choice=self.tts_voice,
-                speed_choice=self.tts_speed,
+                speed_choice=1.0,  # Always generate at normal speed
                 tts_engine=self.tts_engine
             )
 
@@ -4179,12 +4187,7 @@ class AIState(rx.State):
         self.add_debug(f"🔊 TTS Voice: {voice}")
         self._save_settings()
 
-    def set_tts_speed(self, speed: list):
-        """Set TTS speed (from slider, receives list)"""
-        if isinstance(speed, list) and len(speed) > 0:
-            self.tts_speed = float(speed[0])
-            self.add_debug(f"🔊 TTS Speed: {self.tts_speed:.2f}x")
-            self._save_settings()
+    # Note: set_tts_speed removed - generation always at 1.0, tempo via browser playback rate
 
     def toggle_tts_autoplay(self):
         """Toggle TTS auto-play"""

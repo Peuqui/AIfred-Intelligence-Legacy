@@ -74,7 +74,7 @@ DEFAULT_SETTINGS = {
     # They will be merged in settings.py get_default_settings()
     "backend_type": "ollama",  # Default backend: "ollama", "vllm", "tabbyapi"
     "voice": "Deutsch (Katja)",
-    "tts_speed": 1.25,
+    "tts_playback_rate": "1.25x",  # Browser playback speed (generation always at 1.0)
     "enable_tts": False,
     "tts_engine": "Edge TTS (Cloud, beste Qualität)",
     "whisper_model": "small (466MB, bessere Qualität, multilingual)",
