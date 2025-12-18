@@ -1436,7 +1436,7 @@ def debug_console() -> rx.Component:
         ),
         id="debug-console-box",
         width="100%",
-        height="935px",  # Fixed height - matches Settings panel when fully expanded
+        min_height="500px",  # Minimum height - CSS Grid stretch handles actual height
         overflow_y="auto",
         padding="3",
         background_color=COLORS["debug_bg"],
@@ -2289,6 +2289,7 @@ def settings_accordion() -> rx.Component:
                 width="100%",
             ),
         ),
+        id="settings-accordion",  # ID for JavaScript height sync
         collapsible=True,  # WICHTIG: Macht Accordion schließbar!
         default_value="settings",  # Standardmäßig geöffnet
         color_scheme="gray",
@@ -2511,59 +2512,30 @@ const callback = function(mutationsList, observer) {
 };
 
 function syncDebugConsoleHeight() {
-    // Find Settings Accordion using multiple strategies
-    let settingsElement = null;
-    let settingsAccordion = null;
-
-    // Strategy 1: Find the AccordionRoot in the grid container
-    const gridContainer = document.querySelector('.debug-settings-grid');
-    if (gridContainer) {
-        // Settings accordion is the second child in the grid
-        const accordions = gridContainer.querySelectorAll('.rt-AccordionRoot');
-        if (accordions.length >= 1) {
-            // The settings accordion is the one NOT containing debug console
-            for (let acc of accordions) {
-                if (!acc.querySelector('#debug-console-box')) {
-                    settingsAccordion = acc;
-                    break;
-                }
-            }
-        }
-    }
-
-    // Strategy 2: Fallback - find by accordion region role
-    if (!settingsAccordion) {
-        const accordionRegions = document.querySelectorAll('[role="region"]');
-        for (let region of accordionRegions) {
-            const header = region.previousElementSibling;
-            if (header && (header.textContent.includes('Einstellungen') || header.textContent.includes('Settings'))) {
-                settingsElement = region;
-                settingsAccordion = region.closest('.rt-AccordionRoot');
-                break;
-            }
-        }
-    }
-
+    // Find elements by ID (simple and reliable)
+    const settingsAccordion = document.getElementById('settings-accordion');
     const debugBox = document.getElementById('debug-console-box');
 
     if (settingsAccordion && debugBox) {
         // Get the full height of the settings accordion (including all expanded sections)
-        const settingsRect = settingsAccordion.getBoundingClientRect();
-        const settingsHeight = settingsAccordion.scrollHeight || settingsRect.height;
+        const settingsHeight = settingsAccordion.scrollHeight || settingsAccordion.getBoundingClientRect().height;
 
-        // Set Debug Console to match (minimum 500px, maximum 1200px)
-        const targetHeight = Math.min(1200, Math.max(500, settingsHeight));
+        // Set Debug Console to match (minimum 900px, maximum 1600px)
+        const targetHeight = Math.min(1600, Math.max(900, settingsHeight));
         debugBox.style.height = targetHeight + 'px';
 
         // Log only if height changed significantly
-        const currentHeight = parseInt(debugBox.style.height) || 500;
+        const currentHeight = parseInt(debugBox.style.height) || 900;
         if (Math.abs(currentHeight - targetHeight) > 10) {
             console.log('📏 Synced heights - Settings:', settingsHeight, 'Target:', targetHeight);
         }
     } else {
-        // Fallback: set a reasonable default
+        // Fallback: set a reasonable default matching Python height
         if (debugBox) {
-            debugBox.style.height = '500px';
+            debugBox.style.height = '955px';
+        }
+        if (!settingsAccordion) {
+            console.warn('⚠️ settings-accordion not found');
         }
     }
 }
@@ -2589,34 +2561,25 @@ function setupObservers() {
         console.warn('❌ chat-history-box not found');
     }
 
-    // Sync heights on accordion open/close - observe the entire settings grid
-    const gridContainer = document.querySelector('.debug-settings-grid');
-    if (gridContainer) {
-        // Observe all accordion changes in the grid
-        const accordions = gridContainer.querySelectorAll('.rt-AccordionRoot');
-        for (let acc of accordions) {
-            // Skip the debug console accordion
-            if (acc.querySelector('#debug-console-box')) continue;
+    // Sync heights on accordion open/close - observe settings-accordion by ID
+    const settingsAccordion = document.getElementById('settings-accordion');
+    if (settingsAccordion) {
+        // ResizeObserver for size changes
+        const resizeObserver = new ResizeObserver(() => {
+            syncDebugConsoleHeight();
+        });
+        resizeObserver.observe(settingsAccordion);
 
-            // ResizeObserver for the entire accordion
-            const resizeObserver = new ResizeObserver(() => {
-                syncDebugConsoleHeight();
-            });
-            resizeObserver.observe(acc);
+        // MutationObserver for accordion open/close
+        const mutationObserver = new MutationObserver(() => {
+            // Delay to allow animation to complete
+            setTimeout(syncDebugConsoleHeight, 100);
+            setTimeout(syncDebugConsoleHeight, 300);
+        });
+        mutationObserver.observe(settingsAccordion, { childList: true, subtree: true, attributes: true });
 
-            // Also observe mutations (for accordion open/close)
-            const mutationObserver = new MutationObserver(() => {
-                // Delay to allow animation to complete
-                setTimeout(syncDebugConsoleHeight, 100);
-                setTimeout(syncDebugConsoleHeight, 300);
-            });
-            mutationObserver.observe(acc, { childList: true, subtree: true, attributes: true });
-
-            console.log('✅ Height sync observers attached to settings accordion');
-        }
-
-        // Also observe all accordion triggers for click events
-        const triggers = gridContainer.querySelectorAll('.rt-AccordionTrigger');
+        // Click handler for accordion triggers
+        const triggers = settingsAccordion.querySelectorAll('.rt-AccordionTrigger');
         triggers.forEach(trigger => {
             trigger.addEventListener('click', () => {
                 // Sync after accordion animation (multiple times for smooth transition)
@@ -2625,6 +2588,10 @@ function setupObservers() {
                 setTimeout(syncDebugConsoleHeight, 350);
             });
         });
+
+        console.log('✅ Height sync observers attached to settings-accordion');
+    } else {
+        console.warn('⚠️ settings-accordion not found for observers');
     }
 
     // Also observe on window resize

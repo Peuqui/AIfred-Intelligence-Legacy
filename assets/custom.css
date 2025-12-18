@@ -413,21 +413,40 @@ div em {
 
 /* Debug Console Grid: Responsive Layout
    Desktop: 2 Spalten (Debug flexibel, Settings 380-460px)
-   Mobile (<700px): 1 Spalte, volle Breite */
+   Mobile (<700px): 1 Spalte, volle Breite
+
+   WICHTIG: Reflex fügt Wrapper-Divs ein, daher:
+   - Grid auf .debug-settings-grid
+   - Direkte Kinder (Reflex-Wrapper) müssen auch stretchen
+   - Die eigentlichen Boxen (#debug-console-box, #settings-accordion) erben height */
 .debug-settings-grid {
     display: grid !important;
     grid-template-columns: 1fr minmax(380px, 460px) !important;
     gap: 1rem !important;
-    align-items: start !important;  /* Top-aligned */
+    align-items: stretch !important;  /* Grid-Kinder gleich hoch */
 }
 
-/* Debug Console Box: Fixed height matching Settings panel */
+/* Reflex Wrapper-Divs müssen auch stretchen (direktes Kind des Grids) */
+.debug-settings-grid > * {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;  /* Volle Grid-Zellen-Höhe */
+}
+
+/* Debug Console Box: Füllt den Wrapper komplett aus */
 #debug-console-box {
     min-width: 0;
     width: 100%;
     max-width: 100%;
     overflow-x: hidden;
-    height: 935px !important;  /* Desktop: Match Settings panel height */
+    min-height: 500px;  /* Minimum für Desktop */
+    flex: 1 1 auto !important;  /* Wächst um Wrapper zu füllen */
+}
+
+/* Settings Accordion: Wächst natürlich mit Content */
+#settings-accordion {
+    height: auto !important;
+    flex: 0 0 auto !important;  /* Nicht stretchen, natürliche Höhe */
 }
 
 /* Mobile: Stack layout (1 Spalte) */
@@ -436,8 +455,14 @@ div em {
         grid-template-columns: 1fr !important;
     }
 
+    .debug-settings-grid > * {
+        height: auto !important;  /* Mobile: keine erzwungene Höhe */
+    }
+
     #debug-console-box {
-        height: 500px !important;
+        height: 400px !important;  /* Mobile: feste Höhe */
+        min-height: 400px !important;
+        flex: none !important;
     }
 }
 

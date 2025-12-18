@@ -157,20 +157,31 @@ async def detect_cache_followup_intent(
 
 def get_temperature_for_intent(intent: str) -> float:
     """
-    Gibt die passende Temperature für einen Intent zurück
+    Gibt die passende Temperature für einen Intent zurück.
+
+    Die Temperature-Werte sind in config.py definiert:
+    - INTENT_TEMPERATURE_FAKTISCH (0.2): präzise, deterministische Antworten
+    - INTENT_TEMPERATURE_GEMISCHT (0.5): allgemeine Konversation
+    - INTENT_TEMPERATURE_KREATIV (1.1): Geschichten, Gedichte, kreatives Schreiben
 
     Args:
         intent: "FAKTISCH", "KREATIV" oder "GEMISCHT"
 
     Returns:
-        float: Temperature (0.2, 0.5 oder 0.8)
+        float: Temperature basierend auf config.py Konstanten
     """
+    from .config import (
+        INTENT_TEMPERATURE_FAKTISCH,
+        INTENT_TEMPERATURE_GEMISCHT,
+        INTENT_TEMPERATURE_KREATIV
+    )
+
     temp_map = {
-        "FAKTISCH": 0.2,
-        "KREATIV": 0.8,
-        "GEMISCHT": 0.5
+        "FAKTISCH": INTENT_TEMPERATURE_FAKTISCH,
+        "KREATIV": INTENT_TEMPERATURE_KREATIV,
+        "GEMISCHT": INTENT_TEMPERATURE_GEMISCHT
     }
-    return temp_map.get(intent, 0.2)  # Fallback: 0.2
+    return temp_map.get(intent, INTENT_TEMPERATURE_FAKTISCH)  # Fallback: faktisch
 
 
 def get_temperature_label(intent: str) -> str:

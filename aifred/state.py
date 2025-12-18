@@ -692,6 +692,12 @@ class AIState(rx.State):
             print("✅ Global initialization complete")
 
         # PER-SESSION INITIALIZATION (every user/tab/reload)
+        # Guard against multiple parallel on_load() calls (ASGI race condition)
+        if self._session_initialized:
+            print("⏭️ Session already initializing, skipping duplicate on_load()")
+            return
+        self._session_initialized = True
+
         if not self._backend_initialized:
             print("📱 Initializing session...")
 
