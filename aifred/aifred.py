@@ -1585,6 +1585,10 @@ def settings_accordion() -> rx.Component:
                                     AIState.available_backends.contains("koboldcpp"),
                                     rx.select.item("KoboldCPP", value="koboldcpp"),
                                 ),
+                                rx.cond(
+                                    AIState.available_backends.contains("llamacpp"),
+                                    rx.select.item("llama.cpp", value="llamacpp"),
+                                ),
                                 # Separator
                                 rx.select.item(
                                     "─────────────────────────────────",

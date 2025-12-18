@@ -130,8 +130,8 @@ BACKEND_DEFAULT_MODELS = {
         "automatik_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",         # KoboldCPP: only 1 model (same as selected)
     },
     "llamacpp": {
-        "selected_model": "Qwen3-30B-A3B-Q8_0.gguf",                      # GGUF Q8_0, ~32GB (from GGUF_MODELS_DIR)
-        "automatik_model": "Qwen3-4B-Q8_0.gguf",                          # GGUF Q8_0, ~4.5GB (for Automatik)
+        "selected_model": "Qwen3-30B-A3B-Thinking-2507-Q4_K_M.gguf",      # GGUF Q4_K_M, ~17.3GB (from ~/models/)
+        "automatik_model": "Qwen3-8B-Q4_K_M.gguf",                        # GGUF Q4_K_M, ~4.7GB (for Automatik)
     },
 }
 
