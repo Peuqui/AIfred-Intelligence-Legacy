@@ -460,8 +460,8 @@ div em {
     }
 
     #debug-console-box {
-        height: 400px !important;  /* Mobile: feste Höhe */
-        min-height: 400px !important;
+        height: 800px !important;  /* Mobile: feste Höhe */
+        min-height: 800px !important;
         flex: none !important;
     }
 }
