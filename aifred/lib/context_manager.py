@@ -570,9 +570,9 @@ async def prepare_main_llm(
     num_ctx_mode: str = "auto_vram",
     num_ctx_manual: int = 4096,
     backend_type: str = "ollama"
-) -> tuple[int, list[str], bool, float]:
+):
     """
-    Zentrale Funktion für Haupt-LLM Vorbereitung.
+    Zentrale Funktion für Haupt-LLM Vorbereitung (AsyncGenerator).
 
     Garantiert korrekte Reihenfolge für Ollama Multi-GPU:
     1. num_ctx berechnen (Ollama auto_vram: mit unload + VRAM-Messung)
@@ -581,6 +581,8 @@ async def prepare_main_llm(
     WICHTIG: Diese Funktion ist NUR für das Haupt-LLM gedacht!
     Automatik-LLMs nutzen Ollama's LRU-Strategie und brauchen kein explizites
     Preloading oder Unloading.
+
+    Yields sofort Debug-Messages für UI, damit der User sieht was passiert.
 
     Args:
         backend: LLM Backend instance
@@ -591,14 +593,11 @@ async def prepare_main_llm(
         num_ctx_manual: Manueller Wert (nur wenn mode="manual")
         backend_type: "ollama", "vllm", etc.
 
-    Returns:
-        tuple[int, list[str], bool, float]:
-            - final_num_ctx: Berechneter/manueller Context
-            - debug_msgs: Debug-Messages für UI
-            - preload_success: Ob Preload erfolgreich
-            - preload_time: Ladezeit in Sekunden
+    Yields:
+        dict: {"type": "debug", "message": "..."} für UI-Konsole
+        dict: {"type": "result", "data": (final_num_ctx, preload_success, preload_time)} als letztes
     """
-    debug_msgs = []
+    from .formatting import format_number
 
     try:
         # 1. num_ctx berechnen (VOR Preload!)
@@ -606,7 +605,7 @@ async def prepare_main_llm(
 
         if num_ctx_mode == "manual":
             final_num_ctx = num_ctx_manual
-            debug_msgs.append(f"🔧 Manual num_ctx: {num_ctx_manual:,}")
+            yield {"type": "debug", "message": f"🔧 Manual num_ctx: {num_ctx_manual:,}"}
             log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
         else:
             enable_vram_limit = (num_ctx_mode == "auto_vram")
@@ -618,7 +617,8 @@ async def prepare_main_llm(
                 # - 2s warten für VRAM-Freigabe
                 # - VRAM-basierte Berechnung
                 final_num_ctx, vram_msgs = await backend.calculate_practical_context(model_name)
-                debug_msgs.extend(vram_msgs)
+                for msg in vram_msgs:
+                    yield {"type": "debug", "message": msg}
                 log_message(f"✅ prepare_main_llm: VRAM-Berechnung fertig → num_ctx={final_num_ctx:,}")
 
                 # Cache setzen für History-Kompression (wie calculate_dynamic_num_ctx() es tut)
@@ -629,7 +629,8 @@ async def prepare_main_llm(
                     llm_client, model_name, messages, None,
                     enable_vram_limit=enable_vram_limit
                 )
-                debug_msgs.extend(vram_msgs)
+                for msg in vram_msgs:
+                    yield {"type": "debug", "message": msg}
                 log_message(f"✅ prepare_main_llm: Context-Berechnung fertig → num_ctx={final_num_ctx:,}")
 
         # 2. Preload mit num_ctx (nur Ollama - andere Backends haben Modell beim Start)
@@ -637,22 +638,27 @@ async def prepare_main_llm(
         preload_time = 0.0
 
         if backend_type == "ollama":
-            from .formatting import format_number
             formatted_ctx = format_number(final_num_ctx)
-            debug_msgs.append(f"🚀 Haupt-LLM ({model_name}) wird vorgeladen (num_ctx={formatted_ctx})...")
+            yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_name}) wird vorgeladen (num_ctx={formatted_ctx})..."}
             log_message(f"🔄 prepare_main_llm: Starte Preload für {model_name} (num_ctx={final_num_ctx:,})...")
+
+            # Give event loop a chance to flush the UI update before blocking preload
+            import asyncio
+            await asyncio.sleep(0)
 
             preload_success, preload_time = await backend.preload_model(model_name, num_ctx=final_num_ctx)
 
             if preload_success:
-                debug_msgs.append(f"✅ Haupt-LLM vorgeladen ({preload_time:.1f}s)")
+                yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({preload_time:.1f}s)"}
                 log_message(f"✅ Haupt-LLM vorgeladen ({preload_time:.1f}s)")
             else:
-                debug_msgs.append(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({preload_time:.1f}s)")
+                yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({preload_time:.1f}s)"}
                 log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({preload_time:.1f}s)")
 
         log_message(f"✅ prepare_main_llm: Fertig (num_ctx={final_num_ctx:,}, preload={preload_success})")
-        return final_num_ctx, debug_msgs, preload_success, preload_time
+
+        # Finales Result als letztes yield
+        yield {"type": "result", "data": (final_num_ctx, preload_success, preload_time)}
 
     except Exception as e:
         import traceback

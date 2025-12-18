@@ -491,7 +491,9 @@ class OllamaBackend(LLMBackend):
             Tuple of (success: bool, load_time: float in seconds)
         """
         try:
+            from ..lib.logging_utils import log_message
             start_time = time.time()
+            log_message(f"⏱️ preload_model: START für {model} (num_ctx={num_ctx})")
 
             # Load the requested model
             # Send minimal request to trigger model loading
@@ -512,6 +514,7 @@ class OllamaBackend(LLMBackend):
                 "options": options
             }
 
+            log_message(f"⏱️ preload_model: Sende Request an Ollama...")
             response = await self.client.post(
                 f"{self.base_url}/api/chat",
                 json=payload
@@ -519,6 +522,7 @@ class OllamaBackend(LLMBackend):
             )
 
             load_time = time.time() - start_time
+            log_message(f"⏱️ preload_model: Response erhalten nach {load_time:.1f}s (status={response.status_code})")
             success = response.status_code == 200
             # Note: VRAM stabilization is handled in calculate_vram_based_context()
             return (success, load_time)

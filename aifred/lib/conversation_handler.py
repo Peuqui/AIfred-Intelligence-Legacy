@@ -1183,8 +1183,9 @@ async def chat_interactive_mode(
             # WICHTIG: prepare_main_llm() garantiert die korrekte Reihenfolge:
             # 1. num_ctx berechnen (Ollama auto_vram: mit unload + VRAM-Messung)
             # 2. Preload mit num_ctx (Ollama lädt Modell + allokiert KV-Cache)
+            # AsyncGenerator yieldet Debug-Messages sofort für UI-Feedback
             backend = llm_client._get_backend()
-            final_num_ctx, vram_debug_msgs, preload_success, preload_time = await prepare_main_llm(
+            async for item in prepare_main_llm(
                 backend=backend,
                 llm_client=llm_client,
                 model_name=model_choice,
@@ -1192,11 +1193,11 @@ async def chat_interactive_mode(
                 num_ctx_mode=num_ctx_mode,
                 num_ctx_manual=num_ctx_manual,
                 backend_type=backend_type
-            )
-
-            # Yield VRAM debug messages to UI console
-            for msg in vram_debug_msgs:
-                yield {"type": "debug", "message": msg}
+            ):
+                if item["type"] == "debug":
+                    yield item
+                elif item["type"] == "result":
+                    final_num_ctx, preload_success, preload_time = item["data"]
 
             # Get model max context for compact display
             model_limit, _ = await llm_client.get_model_context_limit(model_choice)
@@ -1543,8 +1544,9 @@ async def chat_interactive_mode(
                 # WICHTIG: prepare_main_llm() garantiert die korrekte Reihenfolge:
                 # 1. num_ctx berechnen (Ollama auto_vram: mit unload + VRAM-Messung)
                 # 2. Preload mit num_ctx (Ollama lädt Modell + allokiert KV-Cache)
+                # AsyncGenerator yieldet Debug-Messages sofort für UI-Feedback
                 backend = llm_client._get_backend()
-                final_num_ctx, vram_debug_msgs, preload_success, preload_time = await prepare_main_llm(
+                async for item in prepare_main_llm(
                     backend=backend,
                     llm_client=llm_client,
                     model_name=model_choice,
@@ -1552,11 +1554,11 @@ async def chat_interactive_mode(
                     num_ctx_mode=num_ctx_mode,
                     num_ctx_manual=num_ctx_manual,
                     backend_type=backend_type
-                )
-
-                # Yield VRAM debug messages to UI console
-                for msg in vram_debug_msgs:
-                    yield {"type": "debug", "message": msg}
+                ):
+                    if item["type"] == "debug":
+                        yield item
+                    elif item["type"] == "result":
+                        final_num_ctx, preload_success, preload_time = item["data"]
 
                 # Get model max context for compact display
                 model_limit, _ = await llm_client.get_model_context_limit(model_choice)
