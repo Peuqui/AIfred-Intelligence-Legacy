@@ -2951,8 +2951,12 @@ class AIState(rx.State):
                             await self._generate_tts_for_response(ai_response)
                         else:
                             self.add_debug("⚠️ TTS: Aktiviert aber keine AI-Antwort zum Konvertieren")
+                            console_separator()
+                            self.add_debug("────────────────────")
                     else:
                         self.add_debug("⚠️ TTS: Aktiviert aber Chat-History-Eintrag fehlt")
+                        console_separator()
+                        self.add_debug("────────────────────")
                 except Exception as tts_error:
                     self.add_debug(f"⚠️ TTS generation failed: {tts_error}")
                     from .lib.logging_utils import log_message

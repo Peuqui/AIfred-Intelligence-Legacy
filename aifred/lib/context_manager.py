@@ -600,48 +600,64 @@ async def prepare_main_llm(
     """
     debug_msgs = []
 
-    # 1. num_ctx berechnen (VOR Preload!)
-    if num_ctx_mode == "manual":
-        final_num_ctx = num_ctx_manual
-        debug_msgs.append(f"🔧 Manual num_ctx: {num_ctx_manual:,}")
-        log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
-    else:
-        enable_vram_limit = (num_ctx_mode == "auto_vram")
+    try:
+        # 1. num_ctx berechnen (VOR Preload!)
+        log_message(f"🔄 prepare_main_llm: Start für {model_name} (mode={num_ctx_mode})")
 
-        if backend_type == "ollama" and enable_vram_limit:
-            # Ollama auto_vram: calculate_practical_context() macht:
-            # - unload_all_models() intern
-            # - 2s warten für VRAM-Freigabe
-            # - VRAM-basierte Berechnung
-            final_num_ctx, vram_msgs = await backend.calculate_practical_context(model_name)
-            debug_msgs.extend(vram_msgs)
-
-            # Cache setzen für History-Kompression (wie calculate_dynamic_num_ctx() es tut)
-            _last_vram_limit_cache["limit"] = final_num_ctx
+        if num_ctx_mode == "manual":
+            final_num_ctx = num_ctx_manual
+            debug_msgs.append(f"🔧 Manual num_ctx: {num_ctx_manual:,}")
+            log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
         else:
-            # Andere Backends oder auto_max: Standard-Berechnung
-            final_num_ctx, vram_msgs = await calculate_dynamic_num_ctx(
-                llm_client, model_name, messages, None,
-                enable_vram_limit=enable_vram_limit
-            )
-            debug_msgs.extend(vram_msgs)
+            enable_vram_limit = (num_ctx_mode == "auto_vram")
+            log_message(f"🔄 prepare_main_llm: Starte VRAM-Berechnung (enable_vram_limit={enable_vram_limit})")
 
-    # 2. Preload mit num_ctx (nur Ollama - andere Backends haben Modell beim Start)
-    preload_success = True
-    preload_time = 0.0
+            if backend_type == "ollama" and enable_vram_limit:
+                # Ollama auto_vram: calculate_practical_context() macht:
+                # - unload_all_models() intern
+                # - 2s warten für VRAM-Freigabe
+                # - VRAM-basierte Berechnung
+                final_num_ctx, vram_msgs = await backend.calculate_practical_context(model_name)
+                debug_msgs.extend(vram_msgs)
+                log_message(f"✅ prepare_main_llm: VRAM-Berechnung fertig → num_ctx={final_num_ctx:,}")
 
-    if backend_type == "ollama":
-        from .formatting import format_number
-        formatted_ctx = format_number(final_num_ctx)
-        debug_msgs.append(f"🚀 Haupt-LLM ({model_name}) wird vorgeladen (num_ctx={formatted_ctx})...")
-        preload_success, preload_time = await backend.preload_model(model_name, num_ctx=final_num_ctx)
+                # Cache setzen für History-Kompression (wie calculate_dynamic_num_ctx() es tut)
+                _last_vram_limit_cache["limit"] = final_num_ctx
+            else:
+                # Andere Backends oder auto_max: Standard-Berechnung
+                final_num_ctx, vram_msgs = await calculate_dynamic_num_ctx(
+                    llm_client, model_name, messages, None,
+                    enable_vram_limit=enable_vram_limit
+                )
+                debug_msgs.extend(vram_msgs)
+                log_message(f"✅ prepare_main_llm: Context-Berechnung fertig → num_ctx={final_num_ctx:,}")
 
-        if preload_success:
-            debug_msgs.append(f"✅ Haupt-LLM vorgeladen ({preload_time:.1f}s)")
-            log_message(f"✅ Haupt-LLM vorgeladen ({preload_time:.1f}s)")
-        else:
-            debug_msgs.append(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({preload_time:.1f}s)")
-            log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({preload_time:.1f}s)")
+        # 2. Preload mit num_ctx (nur Ollama - andere Backends haben Modell beim Start)
+        preload_success = True
+        preload_time = 0.0
 
-    return final_num_ctx, debug_msgs, preload_success, preload_time
+        if backend_type == "ollama":
+            from .formatting import format_number
+            formatted_ctx = format_number(final_num_ctx)
+            debug_msgs.append(f"🚀 Haupt-LLM ({model_name}) wird vorgeladen (num_ctx={formatted_ctx})...")
+            log_message(f"🔄 prepare_main_llm: Starte Preload für {model_name} (num_ctx={final_num_ctx:,})...")
+
+            preload_success, preload_time = await backend.preload_model(model_name, num_ctx=final_num_ctx)
+
+            if preload_success:
+                debug_msgs.append(f"✅ Haupt-LLM vorgeladen ({preload_time:.1f}s)")
+                log_message(f"✅ Haupt-LLM vorgeladen ({preload_time:.1f}s)")
+            else:
+                debug_msgs.append(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({preload_time:.1f}s)")
+                log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({preload_time:.1f}s)")
+
+        log_message(f"✅ prepare_main_llm: Fertig (num_ctx={final_num_ctx:,}, preload={preload_success})")
+        return final_num_ctx, debug_msgs, preload_success, preload_time
+
+    except Exception as e:
+        import traceback
+        log_message(f"❌ prepare_main_llm EXCEPTION: {e}")
+        log_message(f"   Traceback: {traceback.format_exc()}")
+        # Re-raise damit der Caller auch den Fehler sieht
+        raise
 
