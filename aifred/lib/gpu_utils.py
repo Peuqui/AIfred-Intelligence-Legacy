@@ -110,7 +110,10 @@ async def is_moe_model(model_name: str, ollama_url: str = "http://localhost:1143
     """
     Detect if model is MoE (Mixture of Experts) architecture
 
-    Queries Ollama's /api/show endpoint to read model architecture from config.
+    Uses two detection methods:
+    1. Model name patterns (e.g., "mixtral", "8x7b", "-a3b")
+    2. Ollama API family field (e.g., "qwen3moe", "mixtral")
+
     MoE models have lower VRAM per token (0.10) vs Dense models (0.15).
 
     Args:
@@ -121,9 +124,26 @@ async def is_moe_model(model_name: str, ollama_url: str = "http://localhost:1143
         bool: True if MoE model, False if Dense or unknown
 
     Examples:
-        - MoE: "qwen3moe" family → 0.10 MB/token (48% more context)
-        - Dense: "qwen3", "llama" family → 0.15 MB/token (safe for all)
+        - MoE: "mixtral:8x7b", "qwen3:30b-a3b", "deepseek-moe" → 0.10 MB/token
+        - Dense: "qwen3:32b", "llama3:70b" → 0.15 MB/token
     """
+    model_lower = model_name.lower()
+
+    # Method 1: Check model name for MoE patterns (fast, no API call needed)
+    # These patterns clearly indicate MoE architecture
+    moe_name_patterns = [
+        "mixtral",      # Mixtral 8x7B, 8x22B
+        "8x7b", "8x22b",  # Expert count patterns
+        "-a3b",         # Qwen3 MoE (30B-A3B = 30B params, 3B active)
+        "moe",          # Generic MoE indicator
+        "deepseek-moe", # DeepSeek MoE models
+    ]
+
+    if any(pattern in model_lower for pattern in moe_name_patterns):
+        logger.debug(f"✅ MoE detected (name pattern): {model_name}")
+        return True
+
+    # Method 2: Query Ollama API for family field (fallback)
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
@@ -137,23 +157,23 @@ async def is_moe_model(model_name: str, ollama_url: str = "http://localhost:1143
                 # Check "family" field in details
                 family = data.get("details", {}).get("family", "")
 
-                # MoE indicators: "qwen3moe", "mixtral", "deepseek-moe", etc.
+                # MoE indicators in family field
                 moe_families = ["moe", "mixtral", "qwen3moe", "deepseek-moe"]
 
                 is_moe = any(indicator in family.lower() for indicator in moe_families)
 
                 if is_moe:
-                    logger.debug(f"✅ MoE detected: {model_name} (family: {family})")
+                    logger.debug(f"✅ MoE detected (API family): {model_name} (family: {family})")
                 else:
                     logger.debug(f"📊 Dense model: {model_name} (family: {family})")
 
                 return is_moe
             else:
-                logger.warning(f"Could not query model info for {model_name}: {response.status_code}")
+                logger.debug(f"Could not query model info for {model_name}: {response.status_code}")
                 return False
 
     except Exception as e:
-        logger.debug(f"MoE detection failed for {model_name}: {e}")
+        logger.debug(f"MoE API detection failed for {model_name}: {e}")
         return False  # Default to Dense (safer)
 
 
