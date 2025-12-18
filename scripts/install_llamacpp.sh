@@ -27,6 +27,7 @@ NC='\033[0m' # No Color
 # Parse arguments
 FORCE_COMPILE=false
 FORCE_BINARY=false
+FORCE_REBUILD=false
 for arg in "$@"; do
     case $arg in
         --compile)
@@ -35,12 +36,16 @@ for arg in "$@"; do
         --binary)
             FORCE_BINARY=true
             ;;
+        --rebuild|--force)
+            FORCE_REBUILD=true
+            ;;
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  --compile    Force compilation from source (recommended for CUDA)"
             echo "  --binary     Force binary download (may not have optimal CUDA)"
+            echo "  --rebuild    Force rebuild even if already up to date"
             echo "  --help       Show this help message"
             exit 0
             ;;
@@ -140,7 +145,37 @@ compile_from_source() {
 
     # Get latest release tag
     LATEST_TAG=$(git describe --tags $(git rev-list --tags --max-count=1) 2>/dev/null || echo "master")
-    echo -e "Building version: ${BLUE}$LATEST_TAG${NC}"
+    echo -e "Latest version: ${BLUE}$LATEST_TAG${NC}"
+
+    # Check if already built with this version (skip rebuild if up to date)
+    VERSION_FILE="$INSTALL_DIR/build/.built_version"
+    if [ -f "$VERSION_FILE" ] && [ -f "$INSTALL_DIR/build/bin/llama-server" ] && [ "$FORCE_REBUILD" = false ]; then
+        BUILT_VERSION=$(cat "$VERSION_FILE")
+        if [ "$BUILT_VERSION" = "$LATEST_TAG" ]; then
+            echo -e "${GREEN}Already up to date ($LATEST_TAG)${NC}"
+            echo "Use --rebuild to force recompilation"
+
+            # Still check symlink installation
+            cd "$INSTALL_DIR/build"
+            if [ -L "$BINARY_PATH" ]; then
+                LINK_TARGET=$(readlink -f "$BINARY_PATH")
+                CURRENT_BINARY=$(readlink -f "bin/llama-server")
+                if [ "$LINK_TARGET" = "$CURRENT_BINARY" ]; then
+                    echo -e "${GREEN}Symlink OK: $BINARY_PATH${NC}"
+                    return 0
+                fi
+            fi
+            # Symlink missing or wrong - fix it
+            echo "Fixing symlink..."
+            sudo rm -f "$BINARY_PATH"
+            sudo ln -s "$(readlink -f bin/llama-server)" "$BINARY_PATH"
+            echo -e "${GREEN}Symlink created: $BINARY_PATH${NC}"
+            return 0
+        else
+            echo -e "${YELLOW}New version available: $BUILT_VERSION → $LATEST_TAG${NC}"
+        fi
+    fi
+
     git checkout "$LATEST_TAG" 2>/dev/null || echo "Using master branch"
 
     # Clean previous build
@@ -185,6 +220,9 @@ compile_from_source() {
         echo ""
         echo "Step 3/3: Installing..."
         echo -e "${GREEN}Compilation successful!${NC}"
+
+        # Save built version for future skip-rebuild check
+        echo "$LATEST_TAG" > "$VERSION_FILE"
 
         # Install to /usr/local/bin
         # Check if target is a symlink pointing to our binary (already installed)
