@@ -615,6 +615,9 @@ async def prepare_main_llm(
             # - VRAM-basierte Berechnung
             final_num_ctx, vram_msgs = await backend.calculate_practical_context(model_name)
             debug_msgs.extend(vram_msgs)
+
+            # Cache setzen für History-Kompression (wie calculate_dynamic_num_ctx() es tut)
+            _last_vram_limit_cache["limit"] = final_num_ctx
         else:
             # Andere Backends oder auto_max: Standard-Berechnung
             final_num_ctx, vram_msgs = await calculate_dynamic_num_ctx(
@@ -628,7 +631,9 @@ async def prepare_main_llm(
     preload_time = 0.0
 
     if backend_type == "ollama":
-        debug_msgs.append(f"🚀 Haupt-LLM ({model_name}) wird vorgeladen (num_ctx={final_num_ctx:,})...")
+        from .formatting import format_number
+        formatted_ctx = format_number(final_num_ctx)
+        debug_msgs.append(f"🚀 Haupt-LLM ({model_name}) wird vorgeladen (num_ctx={formatted_ctx})...")
         preload_success, preload_time = await backend.preload_model(model_name, num_ctx=final_num_ctx)
 
         if preload_success:

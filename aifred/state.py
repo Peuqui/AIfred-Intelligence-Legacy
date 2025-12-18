@@ -335,7 +335,8 @@ class AIState(rx.State):
     # Session Persistence (Cookie-based device identification)
     device_id: str = ""  # Device-ID aus Cookie (32 hex chars)
     session_restored: bool = False  # True wenn Chat-History aus Session geladen wurde
-    _session_initialized: bool = False  # Guard gegen mehrfache on_load() Hydration
+    _session_initialized: bool = False  # Guard gegen mehrfache Session-Restore Callbacks
+    _on_load_running: bool = False  # Guard gegen mehrfache on_load() Aufrufe
 
     # Backend Status
     backend_healthy: bool = False
@@ -693,10 +694,10 @@ class AIState(rx.State):
 
         # PER-SESSION INITIALIZATION (every user/tab/reload)
         # Guard against multiple parallel on_load() calls (ASGI race condition)
-        if self._session_initialized:
-            print("⏭️ Session already initializing, skipping duplicate on_load()")
+        if self._on_load_running:
+            print("⏭️ on_load already running, skipping duplicate call")
             return
-        self._session_initialized = True
+        self._on_load_running = True
 
         if not self._backend_initialized:
             print("📱 Initializing session...")
@@ -2861,12 +2862,12 @@ class AIState(rx.State):
                     if self.num_ctx_mode == "manual":
                         context_limit = self.num_ctx_manual
                     elif _last_vram_limit_cache["limit"] > 0:
-                        # Nutze gespeichertes VRAM-Limit (aus calculate_dynamic_num_ctx)
+                        # Nutze gespeichertes Context-Limit (aus letzter Inferenz)
                         context_limit = _last_vram_limit_cache["limit"]
                     else:
-                        # Fallback: 8K (nur beim allerersten Aufruf vor erster Inferenz)
+                        # Fallback: 8K (noch keine Inferenz gelaufen, Limit wird bei erster Inferenz berechnet)
                         context_limit = 8192
-                        self.add_debug("⚠️ Kein VRAM-Limit gespeichert, nutze Fallback 8K")
+                        self.add_debug("ℹ️ Context-Limit wird bei erster Inferenz berechnet (Fallback: 8K)")
 
                     # Setze Kompression-Flag (disabled Input-Felder)
                     self.is_compressing = True
@@ -3045,9 +3046,9 @@ class AIState(rx.State):
         Wird aufgerufen wenn das JavaScript die Device-ID aus dem Cookie gelesen hat.
         Lädt bestehende Session oder erstellt neue.
         """
-        # Guard: Nur einmal ausführen (Reflex ruft on_load mehrfach auf!)
+        # Guard: Nur einmal ausführen (Retry-Callback nach 2s überspringen)
         if self._session_initialized:
-            return
+            return  # Kein Debug-Log für Retry-Callback
         self._session_initialized = True
 
         from .lib.session_storage import load_session, generate_device_id
@@ -3064,6 +3065,8 @@ class AIState(rx.State):
             self.device_id = generate_device_id()
             self.session_restored = False
             self.add_debug(f"🆕 Neue Session: {self.device_id[:8]}...")
+            console_separator()  # File log
+            self.debug_messages.append("────────────────────")  # UI
             return rx.call_script(set_device_id_script(self.device_id))
 
         # Bekanntes Gerät - versuche Session zu laden
@@ -3078,6 +3081,10 @@ class AIState(rx.State):
         else:
             self.session_restored = False
             self.add_debug(f"🆕 Leere Session: {device_id[:8]}...")
+
+        # Separator nach Session-Restore
+        console_separator()  # File log
+        self.debug_messages.append("────────────────────")  # UI
 
     def handle_tts_callback(self, result: str):
         """

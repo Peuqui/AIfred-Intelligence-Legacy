@@ -1447,7 +1447,8 @@ async def chat_interactive_mode(
                 )
 
                 decision = response.text.strip().lower()
-                decision_time = response.inference_time
+                # Measure actual elapsed time instead of relying on backend's inference_time
+                decision_time = time.time() - decision_start
 
                 # Parse decision result for user-friendly display
                 decision_label = "Web-Recherche JA" if ('<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision)) else "Web-Recherche NEIN"
