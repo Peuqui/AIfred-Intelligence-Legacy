@@ -29,7 +29,7 @@ from .message_builder import (
 )
 from .formatting import format_thinking_process, format_metadata, format_number, format_age
 # Cache system removed - will be replaced with Vector DB
-from .context_manager import estimate_tokens, calculate_dynamic_num_ctx
+from .context_manager import estimate_tokens, calculate_dynamic_num_ctx, prepare_main_llm
 from .streaming_utils import stream_llm_response, log_llm_completion
 from .config import (
     DYNAMIC_NUM_PREDICT_SAFETY_MARGIN,
@@ -1179,57 +1179,24 @@ async def chat_interactive_mode(
                 for msg in messages
             ]
 
-            # Determine enable_vram_limit based on num_ctx_mode
-            # Actual model preloading (only for Ollama - vLLM/TabbyAPI keep models in VRAM)
-            # WICHTIG: Preload ZUERST, dann VRAM-Berechnung (sonst model_is_loaded=False!)
-            # Get model max context for compact display (needed for preload log)
-            if backend_type == "ollama":
-                backend = llm_client._get_backend()
+            # Haupt-LLM vorbereiten: num_ctx berechnen + Preload (zentrale Funktion!)
+            # WICHTIG: prepare_main_llm() garantiert die korrekte Reihenfolge:
+            # 1. num_ctx berechnen (Ollama auto_vram: mit unload + VRAM-Messung)
+            # 2. Preload mit num_ctx (Ollama lädt Modell + allokiert KV-Cache)
+            backend = llm_client._get_backend()
+            final_num_ctx, vram_debug_msgs, preload_success, preload_time = await prepare_main_llm(
+                backend=backend,
+                llm_client=llm_client,
+                model_name=model_choice,
+                messages=messages,
+                num_ctx_mode=num_ctx_mode,
+                num_ctx_manual=num_ctx_manual,
+                backend_type=backend_type
+            )
 
-                # STEP 1: Unload all models (DISABLED - let Ollama manage VRAM automatically)
-                # Ollama's LRU strategy handles multi-model loading efficiently with 48GB VRAM
-                # unload_success, unloaded_models = await backend.unload_all_models()
-                # if unloaded_models:
-                #     models_str = ", ".join(unloaded_models)
-                #     yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
-                #     log_message(f"🗑️ Entladene Modelle: {models_str}")
-
-                # STEP 2: Load Haupt-LLM (Ollama loads on-demand if not already in VRAM)
-                # Runs parallel to web scraping - model ready when scraping finishes
-                yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
-                success, load_time = await backend.preload_model(model_choice)
-                if success:
-                    yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)"}
-                    log_message(f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)")
-                else:
-                    yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)"}
-                    log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)")
-            else:
-                # vLLM/TabbyAPI/KoboldCPP: Model bereits in VRAM beim Systemstart
-                # Kein Preload nötig - Backend lädt Modelle bei Server-Start
-                pass
-
-            # JETZT VRAM berechnen (NACH Preload, damit model_is_loaded=True!)
-            if num_ctx_mode == "manual":
-                # Manual mode: Use user-specified value directly in llm_options
-                if llm_options is None:
-                    llm_options = {}
-                llm_options['num_ctx'] = num_ctx_manual
-                final_num_ctx = num_ctx_manual
-                log_message(f"🔧 Manual num_ctx: {format_number(num_ctx_manual)} (VRAM calculation skipped)")
-            else:
-                # Auto mode: Determine VRAM limiting
-                enable_vram_limit = (num_ctx_mode == "auto_vram")
-
-                # Dynamische num_ctx Berechnung für RAG Bypass (Haupt-LLM)
-                # WICHTIG: Model ist jetzt geladen → model_is_loaded=True!
-                final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
-                    llm_client, model_choice, messages, llm_options,
-                    enable_vram_limit=enable_vram_limit
-                )
-                # Yield VRAM debug messages to UI console
-                for msg in vram_debug_msgs:
-                    yield {"type": "debug", "message": msg}
+            # Yield VRAM debug messages to UI console
+            for msg in vram_debug_msgs:
+                yield {"type": "debug", "message": msg}
 
             # Get model max context for compact display
             model_limit, _ = await llm_client.get_model_context_limit(model_choice)
@@ -1571,55 +1538,27 @@ async def chat_interactive_mode(
                     for msg in messages
                 ]
 
-                # Determine enable_vram_limit based on num_ctx_mode
-                if num_ctx_mode == "manual":
-                    # Manual mode: Use user-specified value directly in llm_options
-                    if llm_options is None:
-                        llm_options = {}
-                    llm_options['num_ctx'] = num_ctx_manual
-                    final_num_ctx = num_ctx_manual
-                    log_message(f"🔧 Manual num_ctx: {format_number(num_ctx_manual)} (VRAM calculation skipped)")
-                else:
-                    # Auto mode: Determine VRAM limiting
-                    enable_vram_limit = (num_ctx_mode == "auto_vram")
+                # Haupt-LLM vorbereiten: num_ctx berechnen + Preload (zentrale Funktion!)
+                # WICHTIG: prepare_main_llm() garantiert die korrekte Reihenfolge:
+                # 1. num_ctx berechnen (Ollama auto_vram: mit unload + VRAM-Messung)
+                # 2. Preload mit num_ctx (Ollama lädt Modell + allokiert KV-Cache)
+                backend = llm_client._get_backend()
+                final_num_ctx, vram_debug_msgs, preload_success, preload_time = await prepare_main_llm(
+                    backend=backend,
+                    llm_client=llm_client,
+                    model_name=model_choice,
+                    messages=messages,
+                    num_ctx_mode=num_ctx_mode,
+                    num_ctx_manual=num_ctx_manual,
+                    backend_type=backend_type
+                )
 
-                    # Dynamische num_ctx Berechnung für Eigenes Wissen (Haupt-LLM)
-                    final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
-                        llm_client, model_choice, messages, llm_options,
-                        enable_vram_limit=enable_vram_limit
-                    )
-                    # Yield VRAM debug messages to UI console
-                    for msg in vram_debug_msgs:
-                        yield {"type": "debug", "message": msg}
+                # Yield VRAM debug messages to UI console
+                for msg in vram_debug_msgs:
+                    yield {"type": "debug", "message": msg}
 
                 # Get model max context for compact display
                 model_limit, _ = await llm_client.get_model_context_limit(model_choice)
-
-                # DISABLED: Manual model management - let Ollama handle everything
-                if backend_type == "ollama":
-                    backend = llm_client._get_backend()
-
-                    # STEP 1: Unload all models (DISABLED - let Ollama manage VRAM automatically)
-                    # Ollama's LRU strategy handles multi-model loading efficiently with 48GB VRAM
-                    # unload_success, unloaded_models = await backend.unload_all_models()
-                    # if unloaded_models:
-                    #     models_str = ", ".join(unloaded_models)
-                    #     yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
-                    #     log_message(f"🗑️ Entladene Modelle: {models_str}")
-
-                    # STEP 2: Load Haupt-LLM (Ollama loads on-demand if not already in VRAM)
-                    yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
-                    success, load_time = await backend.preload_model(model_choice)
-                    if success:
-                        yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)"}
-                        log_message(f"✅ Haupt-LLM vorgeladen ({format_number(load_time, 1)}s)")
-                    else:
-                        yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)"}
-                        log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({format_number(load_time, 1)}s)")
-                else:
-                    # vLLM/TabbyAPI/KoboldCPP: Model bereits in VRAM beim Systemstart
-                    # Kein Preload nötig - Backend lädt Modelle bei Server-Start
-                    pass
 
                 yield {"type": "debug", "message": "✅ System-Prompt erstellt"}
 
