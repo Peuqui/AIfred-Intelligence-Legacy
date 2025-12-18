@@ -116,6 +116,11 @@ compile_from_source() {
     command -v g++ &> /dev/null || MISSING_DEPS+=("g++")
     command -v make &> /dev/null || MISSING_DEPS+=("build-essential")
 
+    # libcurl is required for llama.cpp's download features
+    if ! pkg-config --exists libcurl 2>/dev/null; then
+        MISSING_DEPS+=("libcurl4-openssl-dev")
+    fi
+
     if [ "$GPU_SUPPORT" = true ]; then
         # Check for CUDA toolkit
         if ! command -v nvcc &> /dev/null; then
