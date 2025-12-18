@@ -129,6 +129,10 @@ BACKEND_DEFAULT_MODELS = {
         "selected_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",          # GGUF Q4_K_M, ~17.3GB (from ~/models/)
         "automatik_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",         # KoboldCPP: only 1 model (same as selected)
     },
+    "llamacpp": {
+        "selected_model": "Qwen3-30B-A3B-Q8_0.gguf",                      # GGUF Q8_0, ~32GB (from GGUF_MODELS_DIR)
+        "automatik_model": "Qwen3-4B-Q8_0.gguf",                          # GGUF Q8_0, ~4.5GB (for Automatik)
+    },
 }
 
 # ============================================================
@@ -140,12 +144,14 @@ BACKEND_URLS = {
     "vllm": "http://localhost:8001/v1",      # Port 8001 for dev (8000 on production MiniPC)
     "tabbyapi": "http://localhost:5000/v1",
     "koboldcpp": "http://localhost:5001/v1",
+    "llamacpp": "http://localhost:8080",     # llama.cpp Server (Router Mode) default port
 }
 
 # Backend display labels (for UI dropdowns)
 BACKEND_LABELS = {
     "ollama": "Ollama",
     "koboldcpp": "KoboldCPP",
+    "llamacpp": "llama.cpp",
     "tabbyapi": "TabbyAPI",
     "vllm": "vLLM",
 }
@@ -161,7 +167,7 @@ BACKEND_DROPDOWN_ITEMS = {
 BACKEND_NON_SELECTABLE = ["header_universal", "separator", "header_modern"]
 
 # Default backend ordering (for dropdowns)
-BACKEND_ORDER = ["ollama", "koboldcpp", "tabbyapi", "vllm"]
+BACKEND_ORDER = ["ollama", "koboldcpp", "llamacpp", "tabbyapi", "vllm"]
 
 # ============================================================
 # AVAILABLE VOICES (Engine-specific)
