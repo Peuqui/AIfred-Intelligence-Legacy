@@ -187,9 +187,26 @@ compile_from_source() {
         echo -e "${GREEN}Compilation successful!${NC}"
 
         # Install to /usr/local/bin
-        if sudo cp "bin/llama-server" "$BINARY_PATH"; then
-            sudo chmod +x "$BINARY_PATH"
-            echo -e "${GREEN}Installed to: $BINARY_PATH${NC}"
+        # Check if target is a symlink pointing to our binary (already installed)
+        if [ -L "$BINARY_PATH" ]; then
+            LINK_TARGET=$(readlink -f "$BINARY_PATH")
+            CURRENT_BINARY=$(readlink -f "bin/llama-server")
+            if [ "$LINK_TARGET" = "$CURRENT_BINARY" ]; then
+                echo -e "${GREEN}Already installed as symlink to: $LINK_TARGET${NC}"
+                return 0
+            fi
+            # Different symlink - remove and reinstall
+            sudo rm "$BINARY_PATH"
+        fi
+
+        # Remove existing file if present (not a symlink to us)
+        if [ -f "$BINARY_PATH" ]; then
+            sudo rm "$BINARY_PATH"
+        fi
+
+        # Create symlink (better than copy - auto-updates on rebuild)
+        if sudo ln -s "$(readlink -f bin/llama-server)" "$BINARY_PATH"; then
+            echo -e "${GREEN}Installed symlink: $BINARY_PATH → $(readlink -f bin/llama-server)${NC}"
             return 0
         else
             echo -e "${RED}Failed to install to $BINARY_PATH${NC}"
