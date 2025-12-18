@@ -15,7 +15,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 ## ✨ Features
 
 ### 🎯 Core Features
-- **Multi-Backend Support**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), KoboldCPP (GGUF), llama.cpp (Router Mode)
+- **Multi-Backend Support**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), KoboldCPP (GGUF)
 - **Vision/OCR Support**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
 - **Image Crop Tool**: Interactive crop before OCR/analysis (8-point handles, 4K auto-resize)
 - **3-Model Architecture**: Specialized Vision-LLM for OCR, Main-LLM for interpretation
@@ -733,7 +733,6 @@ AIfred supports different LLM backends that can be switched dynamically in the U
 - **vLLM**: AWQ models (4-bit), best performance with AWQ Marlin kernel
 - **TabbyAPI**: EXL2 models (ExLlamaV2/V3), experimental
 - **KoboldCPP**: GGUF models with dynamic RoPE scaling and VRAM optimization
-- **llama.cpp**: GGUF models with Router Mode (dynamic model loading) and MoE Expert Offloading
 
 ### GPU Compatibility Detection
 
@@ -811,8 +810,7 @@ AIfred-Intelligence/
 │   │   ├── ollama.py         # Ollama Backend (GGUF)
 │   │   ├── vllm.py           # vLLM Backend (AWQ)
 │   │   ├── tabbyapi.py       # TabbyAPI Backend (EXL2)
-│   │   ├── koboldcpp.py      # KoboldCPP Backend (GGUF)
-│   │   └── llamacpp.py       # llama.cpp Backend (Router Mode)
+│   │   └── koboldcpp.py      # KoboldCPP Backend (GGUF)
 │   ├── components/        # Reflex UI Components
 │   ├── lib/              # Core Libraries
 │   │   ├── agent_core.py     # Main agent logic
@@ -826,7 +824,6 @@ AIfred-Intelligence/
 │   ├── download_all_models.sh     # Multi-Backend Model Downloader
 │   ├── download_ollama_models.sh  # Ollama GGUF Models
 │   ├── download_vllm_models.sh    # vLLM AWQ Models
-│   ├── install_llamacpp.sh        # llama.cpp Installation (CUDA)
 │   ├── run_aifred.sh              # Development Runner
 │   └── chroma_maintenance.py      # Vector Cache Maintenance
 ├── docs/                 # Documentation
