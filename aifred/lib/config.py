@@ -421,6 +421,21 @@ HISTORY_SUMMARY_TARGET_WORDS = 750
 # Temperature für Summary-Generierung (niedriger = faktischer)
 HISTORY_SUMMARY_TEMPERATURE = 0.3
 
+# ============================================================
+# INTENT-BASED TEMPERATURE (Auto-Temperature Mode)
+# ============================================================
+# Temperature values for automatic intent-based temperature selection.
+# Used when temperature_mode="auto" in settings.
+
+# Factual queries: precise, deterministic answers (research, facts, code)
+INTENT_TEMPERATURE_FAKTISCH = 0.2
+
+# Mixed queries: general conversation, explanations
+INTENT_TEMPERATURE_GEMISCHT = 0.5
+
+# Creative queries: stories, poems, brainstorming (higher = more creative)
+INTENT_TEMPERATURE_KREATIV = 1.1
+
 # Context-Limit für Summary-LLM (sollte nicht zu groß sein)
 HISTORY_SUMMARY_CONTEXT_LIMIT = 4096
 
