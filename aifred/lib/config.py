@@ -144,14 +144,12 @@ BACKEND_URLS = {
     "vllm": "http://localhost:8001/v1",      # Port 8001 for dev (8000 on production MiniPC)
     "tabbyapi": "http://localhost:5000/v1",
     "koboldcpp": "http://localhost:5001/v1",
-    "llamacpp": "http://localhost:8080",     # llama.cpp Server (Router Mode) default port
 }
 
 # Backend display labels (for UI dropdowns)
 BACKEND_LABELS = {
     "ollama": "Ollama",
     "koboldcpp": "KoboldCPP",
-    "llamacpp": "llama.cpp",
     "tabbyapi": "TabbyAPI",
     "vllm": "vLLM",
 }
