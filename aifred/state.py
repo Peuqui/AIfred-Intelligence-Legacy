@@ -254,6 +254,7 @@ class AIState(rx.State):
     available_backends_dict: Dict[str, str] = {
         "ollama": "Ollama",
         "koboldcpp": "KoboldCPP",
+        "llamacpp": "llama.cpp",
         "tabbyapi": "TabbyAPI",
         "vllm": "vLLM"
     }
@@ -386,8 +387,8 @@ class AIState(rx.State):
     gpu_warnings: List[str] = []
     gpu_count: int = 1
     gpu_vram_gb: int = 0
-    available_backends: List[str] = ["ollama", "koboldcpp", "tabbyapi", "vllm"]  # Filtered by GPU compatibility (P40-compatible first)
-    available_backends_list: List[str] = ["Ollama", "KoboldCPP", "TabbyAPI", "vLLM"]  # NEW: Display names (synced with available_backends)
+    available_backends: List[str] = ["ollama", "koboldcpp", "llamacpp", "tabbyapi", "vllm"]  # Filtered by GPU compatibility (P40-compatible first)
+    available_backends_list: List[str] = ["Ollama", "KoboldCPP", "llama.cpp", "TabbyAPI", "vLLM"]  # NEW: Display names (synced with available_backends)
 
     @rx.var
     def gpu_display_text(self) -> str:
@@ -420,17 +421,19 @@ class AIState(rx.State):
         """
         grouped = []
 
-        # P40-compatible backends
+        # P40-compatible backends (GGUF)
         grouped.append("header_universal")  # Will be styled as header
         if "ollama" in self.available_backends:
             grouped.append("ollama")
         if "koboldcpp" in self.available_backends:
             grouped.append("koboldcpp")
+        if "llamacpp" in self.available_backends:
+            grouped.append("llamacpp")
 
         # Separator
         grouped.append("separator")
 
-        # Modern GPU backends
+        # Modern GPU backends (FP16)
         grouped.append("header_modern")
         if "tabbyapi" in self.available_backends:
             grouped.append("tabbyapi")

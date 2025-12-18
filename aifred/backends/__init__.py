@@ -10,6 +10,7 @@ from .ollama import OllamaBackend
 from .vllm import vLLMBackend
 from .tabbyapi import TabbyAPIBackend
 from .koboldcpp import KoboldCPPBackend
+from .llamacpp import LlamaCppBackend
 
 
 class BackendFactory:
@@ -27,6 +28,7 @@ class BackendFactory:
         "vllm": vLLMBackend,
         "tabbyapi": TabbyAPIBackend,  # ExLlamaV2 (V3 noch experimentell)
         "koboldcpp": KoboldCPPBackend,  # llama.cpp-based (GGUF support)
+        "llamacpp": LlamaCppBackend,  # llama.cpp Server (Router Mode)
         # "openai": OpenAIBackend,      # TODO
     }
 
@@ -68,13 +70,14 @@ class BackendFactory:
             "vllm": "http://localhost:8000/v1",
             "tabbyapi": "http://localhost:5000/v1",
             "koboldcpp": "http://localhost:5001/v1",
+            "llamacpp": "http://localhost:8080",
         }
 
         if base_url is None:
             base_url = default_urls.get(backend_type, "http://localhost:8000")
 
         # Create instance
-        if backend_type in ["vllm", "tabbyapi", "koboldcpp", "openai"]:
+        if backend_type in ["vllm", "tabbyapi", "koboldcpp", "llamacpp", "openai"]:
             # OpenAI-compatible backends need api_key (even if dummy)
             api_key = api_key or "dummy"
             return backend_class(base_url=base_url, api_key=api_key)
@@ -98,4 +101,5 @@ __all__ = [
     "vLLMBackend",
     "TabbyAPIBackend",
     "KoboldCPPBackend",
+    "LlamaCppBackend",
 ]
