@@ -473,7 +473,7 @@ class OllamaBackend(LLMBackend):
             logger.warning(f"Failed to unload models: {e}")
             return (False, [])
 
-    async def preload_model(self, model: str) -> tuple[bool, float]:
+    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal chat request.
         This warms up the model so future requests are faster.
@@ -483,6 +483,9 @@ class OllamaBackend(LLMBackend):
 
         Args:
             model: Model name to preload (e.g., 'qwen3:8b')
+            num_ctx: Context window size to use. IMPORTANT: Ollama uses this to
+                     allocate KV cache and potentially split model across multiple
+                     GPUs if the model + KV cache doesn't fit on a single GPU.
 
         Returns:
             Tuple of (success: bool, load_time: float in seconds)
@@ -492,14 +495,21 @@ class OllamaBackend(LLMBackend):
 
             # Load the requested model
             # Send minimal request to trigger model loading
+            options = {
+                "num_predict": 1,  # Only generate 1 token
+                "temperature": 0.0
+            }
+            # WICHTIG: num_ctx beim Preload setzen, damit Ollama das Modell
+            # mit dem richtigen KV-Cache lädt und ggf. auf mehrere GPUs verteilt
+            if num_ctx is not None:
+                options["num_ctx"] = num_ctx
+                logger.info(f"🎯 Preload with num_ctx={num_ctx:,} for multi-GPU distribution")
+
             payload = {
                 "model": model,
                 "messages": [{"role": "user", "content": "hi"}],
                 "stream": False,
-                "options": {
-                    "num_predict": 1,  # Only generate 1 token
-                    "temperature": 0.0
-                }
+                "options": options
             }
 
             response = await self.client.post(
@@ -590,18 +600,13 @@ class OllamaBackend(LLMBackend):
 
             context_limit = None
 
-            # PRIORITÄT 1: Suche nach original_context_length (für RoPE-Scaling Modelle)
+            # Suche nach .context_length (tatsächliches nutzbares Kontextfenster)
+            # WICHTIG: original_context_length ist nur für RoPE-Scaling intern relevant
+            # und repräsentiert NICHT das nutzbare Kontextfenster!
             for key, value in model_details.items():
-                if 'original_context' in key.lower():
+                if key.endswith('.context_length') and 'original' not in key.lower():
                     context_limit = int(value)
                     break
-
-            # PRIORITÄT 2: Suche nach .context_length (Standard)
-            if context_limit is None:
-                for key, value in model_details.items():
-                    if key.endswith('.context_length'):
-                        context_limit = int(value)
-                        break
 
             # Kein Context-Limit gefunden
             if context_limit is None:
