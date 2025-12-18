@@ -2271,6 +2271,7 @@ class AIState(rx.State):
                         msg = item.get("content") or item.get("message", "")
                         if msg:
                             self.add_debug(msg)
+                        yield  # Update UI immediately for each debug message
 
                     elif item["type"] == "thinking":
                         # Vision-LLM structured data → sammle für Collapsible
@@ -2400,6 +2401,7 @@ class AIState(rx.State):
                             self.debug_messages.append(format_debug_message(item["message"]))
                             if len(self.debug_messages) > 500:
                                 self.debug_messages = self.debug_messages[-500:]
+                            yield  # Update UI immediately for each debug message
 
                         elif item["type"] == "content":
                             self.current_ai_response += item["text"]
@@ -2498,6 +2500,7 @@ class AIState(rx.State):
                         self.debug_messages.append(format_debug_message(item["message"]))
                         if len(self.debug_messages) > 500:
                             self.debug_messages = self.debug_messages[-500:]
+                        yield  # IMPORTANT: Update UI immediately for each debug message
                     elif item["type"] == "content":
                         self.current_ai_response += item["text"]
                         # Update the temporary entry in chat history with the new content
@@ -2607,6 +2610,7 @@ class AIState(rx.State):
                         # Limit debug messages
                         if len(self.debug_messages) > 500:
                             self.debug_messages = self.debug_messages[-500:]
+                        yield  # Update UI immediately for each debug message
                     elif item["type"] == "content":
                         # REAL-TIME streaming to UI!
                         self.current_ai_response += item["text"]
@@ -2726,7 +2730,8 @@ class AIState(rx.State):
                 # WICHTIG: prepare_main_llm() garantiert die korrekte Reihenfolge:
                 # 1. num_ctx berechnen (Ollama auto_vram: mit unload + VRAM-Messung)
                 # 2. Preload mit num_ctx (Ollama lädt Modell + allokiert KV-Cache)
-                final_num_ctx, vram_debug_msgs, preload_success, preload_time = await prepare_main_llm(
+                # AsyncGenerator yieldet Debug-Messages sofort für UI-Feedback
+                async for item in prepare_main_llm(
                     backend=backend,
                     llm_client=llm_client,
                     model_name=pure_model_name,
@@ -2734,12 +2739,12 @@ class AIState(rx.State):
                     num_ctx_mode=self.num_ctx_mode,
                     num_ctx_manual=self.num_ctx_manual,
                     backend_type=self.backend_type
-                )
-
-                # Show VRAM debug messages
-                for msg in vram_debug_msgs:
-                    self.add_debug(msg)
-                    yield
+                ):
+                    if item["type"] == "debug":
+                        self.add_debug(item["message"])
+                        yield
+                    elif item["type"] == "result":
+                        final_num_ctx, preload_success, preload_time = item["data"]
 
                 # Get model context limit for display
                 model_limit, _ = await llm_client.get_model_context_limit(pure_model_name)
