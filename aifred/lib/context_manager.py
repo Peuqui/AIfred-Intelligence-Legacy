@@ -561,3 +561,82 @@ async def summarize_history_if_needed(
     yield {"type": "history_update", "data": new_history}
     yield {"type": "debug", "message": f"📦 History komprimiert: {int(utilization)}% → {int(new_utilization)}% ({format_number(estimated_tokens)} → {format_number(new_tokens)} tok, {len(messages_to_summarize)}→1 messages, {summaries_count} Summaries total)"}
 
+
+async def prepare_main_llm(
+    backend,
+    llm_client,
+    model_name: str,
+    messages: list,
+    num_ctx_mode: str = "auto_vram",
+    num_ctx_manual: int = 4096,
+    backend_type: str = "ollama"
+) -> tuple[int, list[str], bool, float]:
+    """
+    Zentrale Funktion für Haupt-LLM Vorbereitung.
+
+    Garantiert korrekte Reihenfolge für Ollama Multi-GPU:
+    1. num_ctx berechnen (Ollama auto_vram: mit unload + VRAM-Messung)
+    2. Preload mit num_ctx (Ollama lädt Modell + allokiert KV-Cache)
+
+    WICHTIG: Diese Funktion ist NUR für das Haupt-LLM gedacht!
+    Automatik-LLMs nutzen Ollama's LRU-Strategie und brauchen kein explizites
+    Preloading oder Unloading.
+
+    Args:
+        backend: LLM Backend instance
+        llm_client: LLMClient für Context-Limit Abfrage
+        model_name: Modell-Name (pure ID ohne Suffix)
+        messages: Message-Liste für Token-Schätzung
+        num_ctx_mode: "manual", "auto_vram", "auto_max"
+        num_ctx_manual: Manueller Wert (nur wenn mode="manual")
+        backend_type: "ollama", "vllm", etc.
+
+    Returns:
+        tuple[int, list[str], bool, float]:
+            - final_num_ctx: Berechneter/manueller Context
+            - debug_msgs: Debug-Messages für UI
+            - preload_success: Ob Preload erfolgreich
+            - preload_time: Ladezeit in Sekunden
+    """
+    debug_msgs = []
+
+    # 1. num_ctx berechnen (VOR Preload!)
+    if num_ctx_mode == "manual":
+        final_num_ctx = num_ctx_manual
+        debug_msgs.append(f"🔧 Manual num_ctx: {num_ctx_manual:,}")
+        log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
+    else:
+        enable_vram_limit = (num_ctx_mode == "auto_vram")
+
+        if backend_type == "ollama" and enable_vram_limit:
+            # Ollama auto_vram: calculate_practical_context() macht:
+            # - unload_all_models() intern
+            # - 2s warten für VRAM-Freigabe
+            # - VRAM-basierte Berechnung
+            final_num_ctx, vram_msgs = await backend.calculate_practical_context(model_name)
+            debug_msgs.extend(vram_msgs)
+        else:
+            # Andere Backends oder auto_max: Standard-Berechnung
+            final_num_ctx, vram_msgs = await calculate_dynamic_num_ctx(
+                llm_client, model_name, messages, None,
+                enable_vram_limit=enable_vram_limit
+            )
+            debug_msgs.extend(vram_msgs)
+
+    # 2. Preload mit num_ctx (nur Ollama - andere Backends haben Modell beim Start)
+    preload_success = True
+    preload_time = 0.0
+
+    if backend_type == "ollama":
+        debug_msgs.append(f"🚀 Haupt-LLM ({model_name}) wird vorgeladen (num_ctx={final_num_ctx:,})...")
+        preload_success, preload_time = await backend.preload_model(model_name, num_ctx=final_num_ctx)
+
+        if preload_success:
+            debug_msgs.append(f"✅ Haupt-LLM vorgeladen ({preload_time:.1f}s)")
+            log_message(f"✅ Haupt-LLM vorgeladen ({preload_time:.1f}s)")
+        else:
+            debug_msgs.append(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({preload_time:.1f}s)")
+            log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({preload_time:.1f}s)")
+
+    return final_num_ctx, debug_msgs, preload_success, preload_time
+

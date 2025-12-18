@@ -285,7 +285,7 @@ class AIState(rx.State):
 
     # Context Window Control (NICHT in settings.json gespeichert - Reset bei jedem Start)
     num_ctx_mode: str = "auto_vram"  # "auto_vram" | "auto_max" | "manual"
-    num_ctx_manual: int = 16384  # Manueller Wert (nur wenn mode="manual")
+    num_ctx_manual: int = 4096  # Manueller Wert (nur wenn mode="manual") - Ollama Default
 
     # Cached Model Metadata (to avoid repeated API calls)
     _automatik_model_context_limit: int = 0  # Cached context limit for automatik model
@@ -2711,61 +2711,31 @@ class AIState(rx.State):
                 # Extract pure model name (remove size suffix)
                 pure_model_name = self.selected_model_id  # Pure ID
 
-                # Get model context limit
-                model_limit, _ = await llm_client.get_model_context_limit(pure_model_name)
-
                 # Count actual input tokens (using real tokenizer)
-                from .lib.context_manager import estimate_tokens
+                from .lib.context_manager import estimate_tokens, prepare_main_llm
                 input_tokens = estimate_tokens(messages, model_name=pure_model_name)
 
-                # Determine num_ctx BEFORE preload (wichtig für Multi-GPU bei Ollama!)
-                if self.num_ctx_mode == "manual":
-                    # Manual mode: Use user-specified value directly (skip VRAM calculation)
-                    final_num_ctx = self.num_ctx_manual
-                    from .lib.logging_utils import log_message
-                    log_message(f"🔧 Manual num_ctx: {self.num_ctx_manual:,} (VRAM calculation skipped)")
-                    vram_debug_msgs = []
-                else:
-                    # Auto mode: Calculate num_ctx based on VRAM BEFORE preload
-                    # Dies ist wichtig, damit Ollama das Modell mit dem richtigen KV-Cache
-                    # lädt und ggf. auf mehrere GPUs verteilt
-                    enable_vram_limit = (self.num_ctx_mode == "auto_vram")
+                # Haupt-LLM vorbereiten: num_ctx berechnen + Preload (zentrale Funktion!)
+                # WICHTIG: prepare_main_llm() garantiert die korrekte Reihenfolge:
+                # 1. num_ctx berechnen (Ollama auto_vram: mit unload + VRAM-Messung)
+                # 2. Preload mit num_ctx (Ollama lädt Modell + allokiert KV-Cache)
+                final_num_ctx, vram_debug_msgs, preload_success, preload_time = await prepare_main_llm(
+                    backend=backend,
+                    llm_client=llm_client,
+                    model_name=pure_model_name,
+                    messages=messages,
+                    num_ctx_mode=self.num_ctx_mode,
+                    num_ctx_manual=self.num_ctx_manual,
+                    backend_type=self.backend_type
+                )
 
-                    if self.backend_type == "ollama" and enable_vram_limit:
-                        # Ollama: Use calculate_practical_context (entlädt Modelle, berechnet VRAM)
-                        final_num_ctx, vram_debug_msgs = await backend.calculate_practical_context(pure_model_name)
-                        # Clip to model limit
-                        final_num_ctx = min(final_num_ctx, model_limit)
-                    else:
-                        # Andere Backends oder auto_max: Standard-Berechnung
-                        from .lib.context_manager import calculate_dynamic_num_ctx
-                        final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
-                            llm_client, self.selected_model_id, messages, None,
-                            enable_vram_limit=enable_vram_limit
-                        )
-
-                # Show VRAM debug messages BEFORE preload (so user sees what's happening)
+                # Show VRAM debug messages
                 for msg in vram_debug_msgs:
                     self.add_debug(msg)
                     yield
 
-                # Preload model with calculated num_ctx
-                if self.backend_type == "ollama":
-                    # WICHTIG: num_ctx beim Preload mitgeben, damit Ollama das Modell
-                    # mit dem richtigen KV-Cache lädt und ggf. auf mehrere GPUs verteilt
-                    self.add_debug(f"🚀 Haupt-LLM ({pure_model_name}) wird vorgeladen (num_ctx={final_num_ctx:,})...")
-                    yield
-
-                    success, load_time = await backend.preload_model(pure_model_name, num_ctx=final_num_ctx)
-
-                    if success:
-                        self.add_debug(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
-                    else:
-                        self.add_debug(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)")
-                else:
-                    # vLLM/TabbyAPI/KoboldCPP: Model bereits in VRAM beim Systemstart
-                    # Kein Preload nötig - Backend lädt Modelle bei Server-Start
-                    pass
+                # Get model context limit for display
+                model_limit, _ = await llm_client.get_model_context_limit(pure_model_name)
 
                 self.add_debug("✅ System-Prompt erstellt")
                 yield

@@ -191,16 +191,22 @@ class LLMBackend(ABC):
         pass
 
     @abstractmethod
-    async def preload_model(self, model: str) -> tuple[bool, float]:
+    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal request.
         This warms up the model so future requests are faster.
 
-        NOTE: Caller should explicitly call unload_all_models() BEFORE this
-        to ensure proper model loading order.
+        WICHTIG für Ollama Multi-GPU:
+        num_ctx MUSS beim Preload übergeben werden, damit Ollama das Modell
+        mit dem korrekten KV-Cache lädt und ggf. auf mehrere GPUs verteilt.
+
+        Korrekte Reihenfolge (siehe prepare_main_llm() in context_manager.py):
+        1. calculate_practical_context() oder calculate_dynamic_num_ctx() → num_ctx
+        2. preload_model(model, num_ctx=num_ctx) → Modell mit KV-Cache laden
 
         Args:
             model: Model name to preload
+            num_ctx: Optional context size for KV-cache allocation (Ollama-spezifisch)
 
         Returns:
             Tuple of (success: bool, load_time: float in seconds)
