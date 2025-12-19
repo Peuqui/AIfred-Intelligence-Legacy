@@ -1538,14 +1538,24 @@ def settings_accordion() -> rx.Component:
                 padding_y="2",  # Kompakter Header
             ),
             content=rx.vstack(
-                # UI Language Selection
+                # UI Language Selection - Mobile: Native select, Desktop: Radix UI
                 rx.hstack(
                     rx.text(t("ui_language"), font_weight="bold", font_size="12px"),
-                    rx.select(
-                        ["de", "en"],
-                        value=AIState.ui_language,
-                        on_change=AIState.set_ui_language,
-                        size="2",
+                    rx.cond(
+                        AIState.is_mobile,
+                        # MOBILE: Native HTML <select>
+                        native_select_tts(
+                            AIState.ui_language,
+                            AIState.set_ui_language,
+                            ["de", "en"],
+                        ),
+                        # DESKTOP: Radix UI Select
+                        rx.select(
+                            ["de", "en"],
+                            value=AIState.ui_language,
+                            on_change=AIState.set_ui_language,
+                            size="2",
+                        ),
                     ),
                     spacing="3",
                     align="center",
