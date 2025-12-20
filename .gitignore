@@ -76,3 +76,6 @@ assets/html_preview/
 # ChromaDB Vector Cache (Docker volume data)
 aifred_vector_cache/
 Mathematik_Loesungen.html
+
+# TTS Audio Cache
+assets/tts_audio/
