@@ -319,7 +319,7 @@ class AIState(rx.State):
     enable_tts: bool = False
     tts_voice: str = "Deutsch (Katja)"  # Voice selection (from VOICES dict)
     tts_speed: float = 1.0  # Speed multiplier (1.0 = normal, browser playback handles tempo)
-    tts_engine: str = "Edge TTS (Cloud, beste Qualität)"  # TTS engine selection
+    tts_engine: str = "Edge TTS (Cloud, best quality)"  # TTS engine selection
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
     tts_playback_rate: str = "1.25x"  # Browser playback rate (persisted)
     whisper_model_name: str = "small (466MB, better quality, multilingual)"  # Whisper model display name

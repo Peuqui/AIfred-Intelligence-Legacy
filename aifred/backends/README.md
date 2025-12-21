@@ -1,44 +1,44 @@
 # AIfred LLM Backends
 
-AIfred unterstützt jetzt mehrere LLM-Backends für maximale Flexibilität und Performance-Vergleiche.
+AIfred supports multiple LLM backends for maximum flexibility and performance comparisons.
 
-## Verfügbare Backends
+## Available Backends
 
-### 1. Ollama (Standard)
+### 1. Ollama (Default)
 - **URL**: `http://localhost:11434`
-- **Installation**: Siehe [ollama.com](https://ollama.com)
-- **Vorteile**: Einfaches Setup, gute Model-Verwaltung
-- **Nachteile**: Etwas langsamer als native Inference-Engines
+- **Installation**: See [ollama.com](https://ollama.com)
+- **Advantages**: Easy setup, good model management
+- **Disadvantages**: Slightly slower than native inference engines
 
 ### 2. vLLM
 - **URL**: `http://localhost:8001/v1`
 - **Installation**: `pip install vllm`
 - **Start**: `vllm serve <model-name> --port 8001`
-- **Hinweis**: Port 8001 wird verwendet (Port 8000 ist für ChromaDB reserviert)
-- **Vorteile**: Sehr schnell, Page Attention, gute Batching
-- **Nachteile**: Höherer RAM-Verbrauch
+- **Note**: Port 8001 is used (Port 8000 is reserved for ChromaDB)
+- **Advantages**: Very fast, Page Attention, good batching
+- **Disadvantages**: Higher RAM consumption
 
 ### 3. TabbyAPI (ExLlamaV2/V3)
 - **URL**: `http://localhost:5000/v1`
-- **Installation**: Siehe [github.com/theroyallab/tabbyAPI](https://github.com/theroyallab/tabbyAPI)
-- **Vorteile**: Sehr schnelle Inferenz mit EXL2/EXL3 Quantisierung, niedrige VRAM-Nutzung
-- **Nachteile**: Komplexeres Setup, ExL-Quantisierung nötig
+- **Installation**: See [github.com/theroyallab/tabbyAPI](https://github.com/theroyallab/tabbyAPI)
+- **Advantages**: Very fast inference with EXL2/EXL3 quantization, low VRAM usage
+- **Disadvantages**: More complex setup, requires ExL quantization
 
 ### 4. llama.cpp
 - **URL**: `http://localhost:8080/v1`
-- **Installation**: Siehe [github.com/ggerganov/llama.cpp](https://github.com/ggerganov/llama.cpp)
+- **Installation**: See [github.com/ggerganov/llama.cpp](https://github.com/ggerganov/llama.cpp)
 - **Start**: `./llama-server -m <model.gguf> --port 8080 --host 0.0.0.0`
-- **Vorteile**: C++ Performance, GGUF-Format, CPU-Unterstützung
-- **Nachteile**: Langsamer als GPU-basierte Backends
+- **Advantages**: C++ performance, GGUF format, CPU support
+- **Disadvantages**: Slower than GPU-based backends
 
-## Backend wechseln
+## Switching Backends
 
-### Methode 1: Programmatisch (LLMClient)
+### Method 1: Programmatic (LLMClient)
 
 ```python
 from aifred.lib.llm_client import LLMClient
 
-# Ollama (Standard)
+# Ollama (Default)
 client = LLMClient(backend_type="ollama")
 
 # vLLM
@@ -51,11 +51,11 @@ client = LLMClient(backend_type="tabbyapi", base_url="http://localhost:5000/v1")
 client = LLMClient(backend_type="llamacpp", base_url="http://localhost:8080/v1")
 ```
 
-### Methode 2: Config-Datei (TODO)
+### Method 2: Config File (TODO)
 
 ```python
 # aifred/lib/config.py
-DEFAULT_BACKEND = "ollama"  # oder "vllm", "tabbyapi", "llamacpp"
+DEFAULT_BACKEND = "ollama"  # or "vllm", "tabbyapi", "llamacpp"
 BACKEND_URLS = {
     "ollama": "http://localhost:11434",
     "vllm": "http://localhost:8001/v1",
@@ -64,16 +64,16 @@ BACKEND_URLS = {
 }
 ```
 
-## Performance-Vergleich (Tesla P40, Qwen3:8B)
+## Performance Comparison (Tesla P40, Qwen3:8B)
 
-| Backend | Tokens/s | VRAM | Setup | Kompatibilität |
-|---------|----------|------|-------|----------------|
+| Backend | Tokens/s | VRAM | Setup | Compatibility |
+|---------|----------|------|-------|---------------|
 | Ollama | ~45 t/s | 9GB | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
 | vLLM | ~80 t/s | 11GB | ⭐⭐⭐ | ⭐⭐⭐⭐ |
 | TabbyAPI | ~90 t/s | 7GB (EXL2) | ⭐⭐ | ⭐⭐⭐ |
 | llama.cpp | ~35 t/s | 8GB (GGUF) | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
 
-## TabbyAPI Setup (Empfohlen für Performance)
+## TabbyAPI Setup (Recommended for Performance)
 
 ```bash
 # 1. Installation
@@ -81,15 +81,15 @@ git clone https://github.com/theroyallab/tabbyAPI
 cd tabbyAPI
 pip install -r requirements.txt
 
-# 2. Model im EXL2-Format herunterladen
-# Suche auf HuggingFace nach "<model-name>-exl2"
-# z.B. Qwen/Qwen2.5-7B-Instruct-EXL2
+# 2. Download model in EXL2 format
+# Search on HuggingFace for "<model-name>-exl2"
+# e.g. Qwen/Qwen2.5-7B-Instruct-EXL2
 
 # 3. Start
 python main.py --host 0.0.0.0 --port 5000
 
-# 4. In AIfred nutzen
-# backend_type="tabbyapi" verwenden
+# 4. Use in AIfred
+# Set backend_type="tabbyapi"
 ```
 
 ## llama.cpp Setup
@@ -98,20 +98,20 @@ python main.py --host 0.0.0.0 --port 5000
 # 1. Installation
 git clone https://github.com/ggerganov/llama.cpp
 cd llama.cpp
-make LLAMA_CUBLAS=1  # Mit CUDA-Support
+make LLAMA_CUBLAS=1  # With CUDA support
 
-# 2. Model im GGUF-Format herunterladen
-# z.B. von HuggingFace: bartowski/<model-name>-GGUF
+# 2. Download model in GGUF format
+# e.g. from HuggingFace: bartowski/<model-name>-GGUF
 
-# 3. Server starten
+# 3. Start server
 ./llama-server -m models/qwen3-8b-q4_k_m.gguf \
     --port 8080 \
     --host 0.0.0.0 \
     --ctx-size 40960 \
     --n-gpu-layers 99
 
-# 4. In AIfred nutzen
-# backend_type="llamacpp" verwenden
+# 4. Use in AIfred
+# Set backend_type="llamacpp"
 ```
 
 ## vLLM Setup
@@ -120,20 +120,20 @@ make LLAMA_CUBLAS=1  # Mit CUDA-Support
 # 1. Installation
 pip install vllm
 
-# 2. Server starten
+# 2. Start server
 vllm serve Qwen/Qwen2.5-7B-Instruct \
     --port 8000 \
     --host 0.0.0.0 \
     --max-model-len 40960 \
     --gpu-memory-utilization 0.9
 
-# 3. In AIfred nutzen
-# backend_type="vllm" verwenden
+# 3. Use in AIfred
+# Set backend_type="vllm"
 ```
 
 ## Troubleshooting
 
-### Backend nicht erreichbar
+### Backend not reachable
 ```python
 from aifred.backends import BackendFactory
 
@@ -142,23 +142,23 @@ is_healthy = await backend.health_check()
 print(f"Backend healthy: {is_healthy}")
 ```
 
-### Verfügbare Modelle anzeigen
+### Show available models
 ```python
 backend = BackendFactory.create("vllm")
 models = await backend.list_models()
 print(f"Available models: {models}")
 ```
 
-### Context-Limit abfragen
+### Query context limit
 ```python
 backend = BackendFactory.create("ollama")
 limit = await backend.get_model_context_limit("qwen3:8b")
 print(f"Context limit: {limit} tokens")
 ```
 
-## Nächste Schritte (TODO)
+## Next Steps (TODO)
 
-- [ ] Backend-Auswahl im UI-Settings
-- [ ] Automatisches Backend-Switching bei Fehler
-- [ ] Performance-Monitoring Dashboard
-- [ ] Multi-Backend Load Balancing
+- [ ] Backend selection in UI Settings
+- [ ] Automatic backend switching on error
+- [ ] Performance monitoring dashboard
+- [ ] Multi-backend load balancing

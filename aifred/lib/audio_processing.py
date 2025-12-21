@@ -377,7 +377,7 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine):
         text: Text for TTS (already cleaned)
         voice_choice: Voice display name (e.g. "Deutsch (Katja)" for Edge, "Deutsch (Thorsten)" for Piper)
         speed_choice: Speed multiplier (e.g. 1.25)
-        tts_engine: Engine name (e.g. "Edge TTS (Cloud, beste Qualität)")
+        tts_engine: Engine name (e.g. "Edge TTS (Cloud, best quality)")
 
     Returns:
         str: Path to generated audio file, or None
