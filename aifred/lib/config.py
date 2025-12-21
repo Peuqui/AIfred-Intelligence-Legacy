@@ -212,19 +212,19 @@ VOICES = EDGE_TTS_VOICES
 # RESEARCH MODES
 # ============================================================
 RESEARCH_MODES = [
-    "🤖 Automatik (variabel, KI entscheidet)",
-    "❌ Aus (nur eigenes Wissen)",
-    "🔍 Web-Suche Schnell (3 Quellen)",
-    "📚 Web-Suche Ausführlich (5 Quellen)"
+    "🤖 Automatic (AI decides)",
+    "❌ Off (own knowledge only)",
+    "🔍 Web Search Quick (3 sources)",
+    "📚 Web Search Detailed (5 sources)"
 ]
 
 # ============================================================
 # TTS ENGINES
 # ============================================================
 TTS_ENGINES = [
-    "Edge TTS (Cloud, beste Qualität)",
-    "Piper TTS (Lokal, Offline)",
-    "eSpeak (Roboter, Offline)"
+    "Edge TTS (Cloud, best quality)",
+    "Piper TTS (Local, Offline)",
+    "eSpeak (Robot, Offline)"
 ]
 
 # eSpeak Voices (Local - system package)
