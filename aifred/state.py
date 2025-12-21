@@ -2779,17 +2779,45 @@ class AIState(rx.State):
                 self.add_debug("✅ System-Prompt erstellt")
                 yield
 
+                # Import format_number for locale-aware number formatting
+                from .lib.formatting import format_number
+
                 # Show compact context info (matching Automatik mode style)
-                self.add_debug(f"📊 Haupt-LLM: {input_tokens} / {final_num_ctx} Tokens (max: {model_limit})")
+                self.add_debug(f"📊 Haupt-LLM: {format_number(input_tokens, locale=self.ui_language)} / {format_number(final_num_ctx, locale=self.ui_language)} Tokens (max: {format_number(model_limit, locale=self.ui_language)})")
                 yield
 
-                # Temperature (matching Automatik mode style)
-                self.add_debug(f"🌡️ Temperature: {self.temperature} (manual)")
+                # Temperature decision: Manual Override or Auto (Intent-Detection)
+                if self.temperature_mode == 'manual':
+                    final_temperature = self.temperature
+                    self.add_debug(f"🌡️ Temperature: {final_temperature} (manual)")
+                else:
+                    # Auto: Intent-Detection for own knowledge mode
+                    from .lib.intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
+                    from .lib.llm_client import LLMClient
+
+                    # Use automatik model for intent detection
+                    automatik_llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)
+
+                    self.add_debug("🎯 Intent detection running...")
+                    yield
+
+                    intent_start = time.time()
+                    own_knowledge_intent = await detect_query_intent(
+                        user_query=user_msg,
+                        automatik_model=self.automatik_model_id,
+                        llm_client=automatik_llm_client,
+                        llm_options={'temperature': 0.2, 'num_predict': 64}
+                    )
+                    intent_time = time.time() - intent_start
+
+                    final_temperature = get_temperature_for_intent(own_knowledge_intent)
+                    temp_label = get_temperature_label(own_knowledge_intent)
+                    self.add_debug(f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1, locale=self.ui_language)}s)")
                 yield
 
                 # Build LLM options
                 llm_options = LLMOptions(
-                    temperature=self.temperature,
+                    temperature=final_temperature,
                     num_ctx=final_num_ctx,  # Use dynamically calculated context (or manual override)
                     enable_thinking=self.enable_thinking
                 )
@@ -2815,7 +2843,7 @@ class AIState(rx.State):
                         if not first_token_received:
                             ttft = time.time() - inference_start
                             first_token_received = True
-                            self.add_debug(f"⚡ TTFT: {ttft:.2f}s")
+                            self.add_debug(f"⚡ TTFT: {format_number(ttft, 2, locale=self.ui_language)}s")
                             yield
 
                         # Stream content to UI in real-time
@@ -2833,7 +2861,7 @@ class AIState(rx.State):
 
                 # Console: LLM finished (matching Automatik mode)
                 tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0
-                self.add_debug(f"✅ Main-LLM done ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
+                self.add_debug(f"✅ Main-LLM done ({format_number(inference_time, 1, locale=self.ui_language)}s, {format_number(tokens_generated, locale=self.ui_language)} tokens, {format_number(tokens_per_sec, 1, locale=self.ui_language)} tok/s)")
                 yield
 
                 # Separator after Main-LLM (matching other modes)
@@ -2842,7 +2870,7 @@ class AIState(rx.State):
                 yield
 
                 # Format <think> tags as collapsible (if present)
-                from .lib.formatting import format_thinking_process, format_metadata, format_number
+                from .lib.formatting import format_thinking_process, format_metadata
                 thinking_html = format_thinking_process(
                     full_response,
                     model_name=self.selected_model,
@@ -2852,7 +2880,7 @@ class AIState(rx.State):
 
                 # Add metadata footer (Inferenz + Tok/s + Quelle) like other modes
                 metadata = format_metadata(
-                    f"Inferenz: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Quelle: Trainingsdaten"
+                    f"Inferenz: {format_number(inference_time, 1, locale=self.ui_language)}s    {format_number(tokens_per_sec, 1, locale=self.ui_language)} tok/s    Quelle: Trainingsdaten"
                 )
                 formatted_response = f"{thinking_html}  \n{metadata}"
 
