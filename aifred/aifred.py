@@ -1251,9 +1251,19 @@ def render_history_thumbnail(img_url: str) -> rx.Component:
         on_click=AIState.open_lightbox(img_url),
         style={
             "transition": "transform 0.2s ease, box-shadow 0.2s ease",
+            # Mobile touch handling - prevent native context menu
+            "touch_action": "manipulation",
+            "user_select": "none",
+            "-webkit_touch_callout": "none",
+            "-webkit_user_select": "none",
             "&:hover": {
                 "transform": "scale(1.05)",
                 "box_shadow": "0 2px 8px rgba(0,0,0,0.3)",
+            },
+            # Mobile active state (visual feedback on tap)
+            "&:active": {
+                "transform": "scale(0.95)",
+                "opacity": "0.8",
             },
         },
     )
