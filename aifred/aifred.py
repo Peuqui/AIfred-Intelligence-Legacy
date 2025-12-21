@@ -1162,10 +1162,10 @@ def render_failed_sources_inline(failed_sources) -> rx.Component:
                         rx.hstack(
                             rx.text("⚠", font_size="13px", line_height="1"),
                             rx.text(
-                                f"{failed_sources.length()} Quellen nicht verfügbar",
+                                f"{failed_sources.length()} sources unavailable",
                                 font_weight="500",
                                 font_size="13px",
-                                color="#cc6a00",  # Dunkleres Orange
+                                color="#cc6a00",  # Darker orange
                                 line_height="1",
                             ),
                             spacing="1",

@@ -2200,12 +2200,12 @@ class AIState(rx.State):
                 # Deep copy ensures we keep the image data even if self.pending_images gets cleared.
                 import copy
                 local_images = copy.deepcopy(self.pending_images)
-                local_image_names = ", ".join([img.get("name", "unbekannt") for img in local_images])
+                local_image_names = ", ".join([img.get("name", "unknown") for img in local_images])
 
                 # Log Vision-LLM header + each image on separate line (like Main/Automatik)
-                self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analysiert:")
+                self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analyzing:")
                 for img in local_images:
-                    self.add_debug(f"   • {img.get('name', 'unbekannt')}")
+                    self.add_debug(f"   • {img.get('name', 'unknown')}")
                 yield  # Update UI immediately to show Vision Pipeline start
 
                 # Save original user text (for Vision pipeline - may be empty!)
@@ -2215,9 +2215,9 @@ class AIState(rx.State):
                 display_user_msg = user_msg
                 if not user_msg or user_msg.strip() == "":
                     if len(local_images) == 1:
-                        display_user_msg = f"📷 {local_images[0].get('name', 'Bild')}"
+                        display_user_msg = f"📷 {local_images[0].get('name', 'Image')}"
                     else:
-                        display_user_msg = f"📷 {len(local_images)} Bilder: {local_image_names}"
+                        display_user_msg = f"📷 {len(local_images)} images: {local_image_names}"
 
                 # CRITICAL: Ensure KoboldCPP is running before LLM call
                 if self.backend_type == "koboldcpp":
@@ -2341,15 +2341,15 @@ class AIState(rx.State):
                             )
                             formatted_response = f"{vision_readable_text}\n\n{metadata}"
                         else:
-                            # Weder JSON noch Text - Fehler
-                            formatted_response = "⚠️ Vision-LLM konnte kein Ergebnis liefern. Siehe Debug-Log."
+                            # Neither JSON nor text - error
+                            formatted_response = "⚠️ Vision-LLM could not produce a result. See debug log."
 
                         # ALWAYS update current response and history (even if empty/error)
                         # Use display_user_msg (with image name) for history display
                         self.current_ai_response = formatted_response
                         self.chat_history[temp_history_index] = (display_user_msg, formatted_response)
 
-                        self.add_debug(f"✅ Vision-LLM fertig ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
+                        self.add_debug(f"✅ Vision-LLM done ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
                         self.add_debug("────────────────────")
                         yield
 
@@ -2553,7 +2553,7 @@ class AIState(rx.State):
                         # Store failed sources for UI display AND persistent history
                         self.failed_sources = item["data"]
                         self._pending_failed_sources = item["data"]  # Will be embedded in message
-                        self.add_debug(f"⚠️ {len(item['data'])} Quellen nicht verfügbar")
+                        self.add_debug(f"⚠️ {len(item['data'])} sources unavailable")
                     elif item["type"] == "error":
                         # Handle error (e.g., context overflow, backend error)
                         error_msg = item.get("message", "Unknown error")
@@ -2566,9 +2566,9 @@ class AIState(rx.State):
 
                     yield  # Update UI after each item
 
-                # Separator wird bereits von conversation_handler gesendet
-                # console_separator()  # Schreibt in Log-File
-                # self.add_debug("────────────────────")  # Zeigt in Debug-Console
+                # Separator is already sent by conversation_handler
+                # console_separator()  # Writes to log file
+                # self.add_debug("────────────────────")  # Shows in debug console
                 # yield
 
             elif self.research_mode in ["quick", "deep"]:
@@ -2663,7 +2663,7 @@ class AIState(rx.State):
                         # Store failed sources for UI display AND persistent history
                         self.failed_sources = item["data"]
                         self._pending_failed_sources = item["data"]  # Will be embedded in message
-                        self.add_debug(f"⚠️ {len(item['data'])} Quellen nicht verfügbar")
+                        self.add_debug(f"⚠️ {len(item['data'])} sources unavailable")
                     elif item["type"] == "error":
                         # Handle error (e.g., context overflow, backend error)
                         error_msg = item.get("message", "Unknown error")
@@ -2806,10 +2806,10 @@ class AIState(rx.State):
 
                 # Console: LLM finished (matching Automatik mode)
                 tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0
-                self.add_debug(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
+                self.add_debug(f"✅ Main-LLM done ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
                 yield
 
-                # Separator nach Haupt-LLM (matching other modes)
+                # Separator after Main-LLM (matching other modes)
                 console_separator()
                 self.add_debug("────────────────────")
                 yield
@@ -2903,12 +2903,12 @@ class AIState(rx.State):
                         self.clear_progress()
                         yield
 
-                    # Kompression fertig - Input-Felder wieder enablen
+                    # Compression done - re-enable input fields
                     self.is_compressing = False
                     yield
 
             except Exception as e:
-                # Nicht kritisch - einfach weitermachen
+                # Not critical - just continue
                 import traceback
                 self.add_debug(f"⚠️ History compression check failed: {e}")
                 self.add_debug(f"Traceback: {traceback.format_exc()}")
@@ -3161,14 +3161,14 @@ class AIState(rx.State):
 
         # Check if vision model selected
         if not self.vision_model:
-            self.image_upload_warning = "⚠️ Bitte wähle zuerst ein Vision-Modell in den Einstellungen."
+            self.image_upload_warning = "⚠️ Please select a Vision model in settings first."
             self.add_debug("⚠️ Image upload blocked: No vision model selected")
             return
 
         # Check if vision_model is in the vision models cache (metadata-validated)
         # Compare IDs, not display names
         if self.vision_model_id not in self.vision_models_cache:
-            self.image_upload_warning = "⚠️ Gewähltes Vision-Modell unterstützt keine Bilder. Bitte wähle ein anderes Vision-Modell aus der Dropdown-Liste."
+            self.image_upload_warning = "⚠️ Selected Vision model doesn't support images. Please choose a different Vision model from the dropdown."
             self.add_debug("⚠️ Image upload blocked: Non-vision model selected")
             return
 
@@ -3177,7 +3177,7 @@ class AIState(rx.State):
 
         # Check max images limit
         if len(self.pending_images) + len(files) > self.max_images_per_message:
-            self.image_upload_warning = f"⚠️ Maximal {self.max_images_per_message} Bilder pro Nachricht"
+            self.image_upload_warning = f"⚠️ Maximum {self.max_images_per_message} images per message"
             return
 
         for file in files:
@@ -3199,15 +3199,15 @@ class AIState(rx.State):
             # Create data URL for preview
             data_url = f"data:image/jpeg;base64,{base64_data}"
 
-            # Kamera-Fotos: Kürze auf "Bild_001.jpg" (Browser-Namen sind unlesbar lang)
-            # Datei-Uploads: Behalte Original-Dateinamen
+            # Camera photos: Shorten to "Image_001.jpg" (browser names are unreadably long)
+            # File uploads: Keep original filename
             if from_camera:
                 name_parts = file.filename.rsplit(".", 1)
                 if len(name_parts) == 2:
                     _, ext = name_parts
-                    display_name = f"Bild_{len(self.pending_images) + 1:03d}.{ext}"
+                    display_name = f"Image_{len(self.pending_images) + 1:03d}.{ext}"
                 else:
-                    display_name = f"Bild_{len(self.pending_images) + 1:03d}.jpg"
+                    display_name = f"Image_{len(self.pending_images) + 1:03d}.jpg"
             else:
                 display_name = file.filename
 
@@ -3228,7 +3228,7 @@ class AIState(rx.State):
             self.add_debug(f"🗑️ Image removed: {removed['name']}")
 
             # Clear warning if it was about model compatibility
-            if self.image_upload_warning.startswith("⚠️ Gewähltes Modell"):
+            if self.image_upload_warning.startswith("⚠️ Selected model"):
                 self.image_upload_warning = ""
 
     def clear_pending_images(self):
@@ -3237,18 +3237,18 @@ class AIState(rx.State):
         self.pending_images = []
         self.image_upload_warning = ""
         if count > 0:
-            self.add_debug(f"🗑️ {count} Bild(er) gelöscht")
+            self.add_debug(f"🗑️ {count} image(s) deleted")
 
     # ============================================================
     # IMAGE CROP HANDLERS
     # ============================================================
 
     def open_crop_modal(self, index: int):
-        """Öffnet Crop-Modal für Bild an Index"""
+        """Opens crop modal for image at index"""
         if 0 <= index < len(self.pending_images):
             self.crop_image_index = index
             self.crop_preview_url = self.pending_images[index]["url"]
-            # Reset Crop-Box auf ganzes Bild
+            # Reset crop box to full image
             self.crop_box_x = 0.0
             self.crop_box_y = 0.0
             self.crop_box_width = 100.0
@@ -3323,7 +3323,7 @@ class AIState(rx.State):
             }
             cropped_bytes = crop_and_resize_image(original_bytes, crop_box=crop_box)
 
-            # Pixel-Größe aus dem gecropten Bild auslesen
+            # Get pixel size from cropped image
             cropped_img = Image.open(io.BytesIO(cropped_bytes))
             px_width, px_height = cropped_img.size
 
@@ -3338,11 +3338,11 @@ class AIState(rx.State):
                 "size_kb": len(cropped_bytes) // 1024
             }
 
-            self.add_debug(f"✂️ Bild zugeschnitten: {width:.0f}% x {height:.0f}% → {px_width} x {px_height} px")
+            self.add_debug(f"✂️ Image cropped: {width:.0f}% x {height:.0f}% → {px_width} x {px_height} px")
         else:
-            self.add_debug(f"ℹ️ Kein Zuschnitt nötig: {image_data['name']}")
+            self.add_debug(f"ℹ️ No crop needed: {image_data['name']}")
 
-        # Modal schließen
+        # Close modal
         self.cancel_crop()
 
     def set_camera_available(self, available: bool):
@@ -3894,7 +3894,7 @@ class AIState(rx.State):
         if len(self.pending_images) > 0:
             # Use ID directly - extract_model_name() not needed anymore
             if not await is_vision_model(self, self.selected_model_id):
-                self.image_upload_warning = "⚠️ Gewähltes Modell unterstützt keine Bilder. Bilder werden beim Senden ignoriert."
+                self.image_upload_warning = "⚠️ Selected model doesn't support images. Images will be ignored when sending."
             else:
                 self.image_upload_warning = ""  # Clear warning
 

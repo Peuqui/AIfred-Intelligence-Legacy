@@ -768,10 +768,10 @@ class OllamaBackend(LLMBackend):
         # This ensures we measure truly free VRAM, not VRAM minus Automatik-LLM
         success, unloaded = await self.unload_all_models()
         if success and unloaded:
-            debug_msgs.append(f"🔄 Modelle entladen: {', '.join(unloaded)}")
+            debug_msgs.append(f"🔄 Models unloaded: {', '.join(unloaded)}")
             # Wait for VRAM to be fully released by GPU driver
             await asyncio.sleep(2.0)
-            debug_msgs.append("✅ VRAM freigegeben")
+            debug_msgs.append("✅ VRAM released")
 
         # After unloading, model is definitely NOT loaded
         model_is_loaded = False
