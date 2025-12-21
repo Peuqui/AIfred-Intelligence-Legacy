@@ -345,7 +345,6 @@ def image_upload_section() -> rx.Component:
                     ),
                     id="camera-upload",
                     accept={"image/*": []},  # Accept images from camera
-                    capture="environment",  # Use rear camera (change to "user" for front camera)
                     max_files=1,  # Camera captures one photo at a time
                     on_drop=AIState.handle_camera_upload,  # Kamera-Handler kürzt Dateinamen
                     multiple=False,
