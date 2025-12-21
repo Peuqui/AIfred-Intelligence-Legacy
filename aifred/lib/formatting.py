@@ -26,8 +26,23 @@ _html_file_cache: OrderedDict[str, Path] = OrderedDict()
 _html_cache_lock = threading.Lock()
 MAX_HTML_FILES = 50
 
+# Global UI locale for number formatting (set by AIState on language change)
+_ui_locale: str = "de"
 
-def format_number(n: int | float, decimals: int = 0, locale: str = "de") -> str:
+
+def set_ui_locale(locale: str):
+    """Set the global UI locale for number formatting (called by AIState)"""
+    global _ui_locale
+    if locale in ["de", "en"]:
+        _ui_locale = locale
+
+
+def get_ui_locale() -> str:
+    """Get the current UI locale"""
+    return _ui_locale
+
+
+def format_number(n: int | float, decimals: int = 0, locale: str = None) -> str:
     """
     Format number with locale-aware separators.
 
@@ -35,6 +50,7 @@ def format_number(n: int | float, decimals: int = 0, locale: str = "de") -> str:
         n: Number to format (int or float)
         decimals: Number of decimal places (default: 0 for integer formatting)
         locale: Locale for formatting - "de" (German) or "en" (English)
+                If None, uses the global UI locale set by set_ui_locale()
                 German: dot for thousands, comma for decimals (1.234,56)
                 English: comma for thousands, dot for decimals (1,234.56)
 
@@ -51,6 +67,10 @@ def format_number(n: int | float, decimals: int = 0, locale: str = "de") -> str:
         >>> format_number(10.84, 2, locale="en")
         '10.84'
     """
+    # Use global UI locale if not specified
+    if locale is None:
+        locale = _ui_locale
+
     if locale == "en":
         # English: comma for thousands, dot for decimals (Python default)
         if decimals == 0:

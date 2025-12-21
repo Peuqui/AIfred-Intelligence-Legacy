@@ -331,10 +331,10 @@ async def calculate_vram_based_context(
             measurement_count = get_measurement_count(model_name)
             if measurement_count > 0:
                 model_type = "MoE (calibrated)" if is_moe else "Dense (calibrated)"
-                debug_msgs.append(f"🔍 {model_type} → {vram_context_ratio:.4f} MB/token ({measurement_count} measurements)")
+                debug_msgs.append(f"🔍 {model_type} → {format_number(vram_context_ratio, 4)} MB/token ({measurement_count} measurements)")
             else:
                 model_type = "MoE" if is_moe else "Dense"
-                debug_msgs.append(f"🔍 {model_type} detected → {vram_context_ratio:.2f} MB/token")
+                debug_msgs.append(f"🔍 {model_type} detected → {format_number(vram_context_ratio, 2)} MB/token")
         else:
             # For vLLM/TabbyAPI: Default to Dense (safer)
             vram_context_ratio = VRAM_CONTEXT_RATIO_DENSE
