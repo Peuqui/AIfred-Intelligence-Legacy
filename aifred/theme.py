@@ -4,46 +4,46 @@ Dark Theme Configuration for AIfred Intelligence (Gradio-Style)
 
 # Hybrid Dark Theme - GitHub Professional + Matrix Debug Console
 COLORS = {
-    # === BACKGROUNDS (3-Stufen Hierarchie) ===
-    "page_bg": "#0d1117",        # GitHub Dark (dunkelster)
-    "card_bg": "#161b22",        # GitHub Cards (mittel)
-    "input_bg": "#21262d",       # GitHub Inputs (hellster)
-    "readonly_bg": "#161b22",    # Wie Cards
+    # === BACKGROUNDS (3-level hierarchy) ===
+    "page_bg": "#0d1117",        # GitHub Dark (darkest)
+    "card_bg": "#161b22",        # GitHub Cards (medium)
+    "input_bg": "#21262d",       # GitHub Inputs (lightest)
+    "readonly_bg": "#161b22",    # Same as cards
 
-    # === TEXT (Hoher Kontrast) ===
-    "text_primary": "#e6edf3",   # GitHub Text (fast weiß)
-    "text_secondary": "#7d8590",  # GitHub Gray (Labels)
-    "text_muted": "#484f58",     # GitHub Muted (Hilfstext)
+    # === TEXT (high contrast) ===
+    "text_primary": "#e6edf3",   # GitHub Text (almost white)
+    "text_secondary": "#7d8590",  # GitHub Gray (labels)
+    "text_muted": "#484f58",     # GitHub Muted (helper text)
 
     # === ACCENT COLORS ===
-    "primary": "#e67700",        # Abgeschwächtes Orange (professioneller)
-    "primary_hover": "#ff9500",  # Helleres Orange beim Hover
-    "primary_active": "#cc6a00",  # Dunkler beim Klick
-    "primary_bg": "rgba(230, 119, 0, 0.15)",  # Semi-transparent Orange Background (15% Opacity)
-    "accent_blue": "#58a6ff",    # GitHub Blau (für Links)
-    "accent_success": "#3fb950", # GitHub Grün (Erfolg)
-    "accent_warning": "#d29922", # GitHub Gelb (Warnung)
-    "danger": "#f85149",         # GitHub Rot (Fehler/Löschen)
+    "primary": "#e67700",        # Muted orange (more professional)
+    "primary_hover": "#ff9500",  # Brighter orange on hover
+    "primary_active": "#cc6a00",  # Darker on click
+    "primary_bg": "rgba(230, 119, 0, 0.15)",  # Semi-transparent orange background (15% opacity)
+    "accent_blue": "#58a6ff",    # GitHub Blue (for links)
+    "accent_success": "#3fb950", # GitHub Green (success)
+    "accent_warning": "#d29922", # GitHub Yellow (warning)
+    "danger": "#f85149",         # GitHub Red (error/delete)
 
-    # === CHAT BUBBLES (Subtile Unterscheidung) ===
-    "user_msg": "#21262d",       # Dunkles Blaugrau - User
-    "user_text": "#d1d5db",      # Softeres Grau (nicht grell)
-    "ai_msg": "#161b22",         # Noch dunkler - AI
-    "ai_text": "#e6edf3",        # Leicht gedimmt
+    # === CHAT BUBBLES (subtle distinction) ===
+    "user_msg": "#21262d",       # Dark blue-gray - User
+    "user_text": "#d1d5db",      # Softer gray (not harsh)
+    "ai_msg": "#161b22",         # Even darker - AI
+    "ai_text": "#e6edf3",        # Slightly dimmed
 
     # === BORDERS (GitHub Style) ===
-    "border": "#30363d",         # GitHub Border (subtil aber sichtbar)
-    "border_light": "#484f58",   # Etwas heller
+    "border": "#30363d",         # GitHub Border (subtle but visible)
+    "border_light": "#484f58",   # Slightly lighter
 
     # === DEBUG CONSOLE (Matrix/Hacker Terminal) ===
-    "debug_bg": "#0d1117",       # Sehr dunkel (fast schwarz)
-    "debug_text": "#00ff41",     # Matrix Neon-Grün
-    "debug_border": "#1a4d1a",   # Dunkles Grün (subtil)
-    "debug_accent": "#00aa00",   # Mittel-Grün (für Header)
+    "debug_bg": "#0d1117",       # Very dark (almost black)
+    "debug_text": "#00ff41",     # Matrix neon green
+    "debug_border": "#1a4d1a",   # Dark green (subtle)
+    "debug_accent": "#00aa00",   # Medium green (for header)
 
     # === WARNING/INFO ===
-    "warning_bg": "#2d1f00",     # Noch dunkleres Braun (dunkler als Text senden Button)
-    "warning_text": "#d29922",   # GitHub Gelb
+    "warning_bg": "#2d1f00",     # Even darker brown (darker than send text button)
+    "warning_text": "#d29922",   # GitHub Yellow
 }
 
 # Custom CSS for Reflex components
@@ -82,15 +82,15 @@ body {
 
 /* Switch Styling - Orange Warning Colors */
 .rt-SwitchRoot[data-state="checked"] {
-    background-color: #2d1f00 !important;  /* Dunkles Orange Hintergrund */
+    background-color: #2d1f00 !important;  /* Dark orange background */
 }
 
 .rt-SwitchRoot[data-state="unchecked"] {
-    background-color: #30363d !important;  /* Grau wenn aus */
+    background-color: #30363d !important;  /* Gray when off */
 }
 
 .rt-SwitchThumb {
-    background-color: #d29922 !important;  /* Helles Orange für Kreis */
+    background-color: #d29922 !important;  /* Bright orange for circle */
 }
 
 /* Scrollbar styling for dark theme */
@@ -112,17 +112,17 @@ body {
     background: #718096;
 }
 
-/* Chat Verlauf Accordion - Orange statt Blau */
+/* Chat History Accordion - Orange instead of Blue */
 .rt-AccordionTrigger[data-state="open"],
 .rt-AccordionTrigger[data-state="closed"] {
-    background-color: #161b22 !important;  /* Dunkles Grau */
+    background-color: #161b22 !important;  /* Dark gray */
 }
 
 .rt-AccordionTrigger:hover {
-    background-color: rgba(230, 119, 0, 0.15) !important;  /* Orange beim Hover */
+    background-color: rgba(230, 119, 0, 0.15) !important;  /* Orange on hover */
 }
 
-/* Thinking Process Collapsible - Kompaktere Absätze */
+/* Thinking Process Collapsible - More compact paragraphs */
 .thinking-compact {
     color: #aaa !important;
 }

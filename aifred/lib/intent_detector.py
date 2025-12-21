@@ -14,18 +14,18 @@ from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prom
 
 def parse_intent_from_response(intent_raw: str, context: str = "general") -> str:
     """
-    Extrahiert Intent aus LLM-Antwort (auch wenn LLM mehr Text schreibt)
+    Extract intent from LLM response (even if LLM writes more text)
 
     Args:
-        intent_raw: Rohe LLM-Antwort
-        context: Kontext für Logging ("general" oder "cache_followup")
+        intent_raw: Raw LLM response
+        context: Context for logging ("general" or "cache_followup")
 
     Returns:
-        str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
+        str: "FAKTISCH", "KREATIV" or "GEMISCHT"
     """
     intent_upper = intent_raw.strip().upper()
 
-    # Extrahiere Intent (Priorisierung)
+    # Extract intent (prioritization)
     if "FAKTISCH" in intent_upper:
         return "FAKTISCH"
     elif "KREATIV" in intent_upper:
@@ -35,7 +35,7 @@ def parse_intent_from_response(intent_raw: str, context: str = "general") -> str
     else:
         # Fallback
         prefix = "Cache-Intent" if context == "cache_followup" else "Intent"
-        log_message(f"⚠️ {prefix} unbekannt: '{intent_raw}' → Default: FAKTISCH")
+        log_message(f"⚠️ {prefix} unknown: '{intent_raw}' → Default: FAKTISCH")
         return "FAKTISCH"
 
 
@@ -46,36 +46,36 @@ async def detect_query_intent(
     llm_options: Optional[Dict] = None
 ) -> str:
     """
-    Erkennt die Intent einer User-Anfrage für adaptive Temperature-Wahl
+    Detect intent of user query for adaptive temperature selection
 
     Args:
-        user_query: User-Frage
-        automatik_model: LLM für Intent-Detection
+        user_query: User question
+        automatik_model: LLM for intent detection
         llm_client: LLMClient instance
-        llm_options: Optional Dict mit enable_thinking toggle
+        llm_options: Optional Dict with enable_thinking toggle
 
     Returns:
-        str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
+        str: "FAKTISCH", "KREATIV" or "GEMISCHT"
     """
-    # Spracherkennung für Nutzereingabe
+    # Language detection for user input
     from .prompt_loader import detect_language
     detected_user_language = detect_language(user_query)
-    log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
+    log_message(f"🌐 Language detection: User input is probably '{detected_user_language.upper()}' (for prompt selection)")
 
     prompt = get_intent_detection_prompt(user_query=user_query, lang=detected_user_language)
 
     try:
-        log_message(f"🎯 Intent-Detection für Query: {user_query[:60]}...")
+        log_message(f"🎯 Intent detection for query: {user_query[:60]}...")
 
         # Build options
         intent_options = {
-            'temperature': 0.2,  # Niedrig für konsistente Intent-Detection
-            'num_ctx': 4096,  # Standard Context für Intent-Detection
+            'temperature': 0.2,  # Low for consistent intent detection
+            'num_ctx': 4096,  # Standard context for intent detection
             'num_predict': 32,  # Short: "FAKTISCH" / "KREATIV" = ~10 tokens (3x buffer)
             'enable_thinking': False  # Default: Fast intent detection without reasoning
         }
 
-        # Automatik-Tasks: Thinking ist IMMER aus (unabhängig vom User-Toggle)
+        # Automatik tasks: Thinking is ALWAYS off (independent of user toggle)
         log_message("🧠 Intent enable_thinking: False (Automatik-Task)")
 
         response = await llm_client.chat(
@@ -86,11 +86,11 @@ async def detect_query_intent(
         intent_raw = response.text
 
         intent = parse_intent_from_response(intent_raw, context="general")
-        log_message(f"✅ Intent erkannt: {intent}")
+        log_message(f"✅ Intent detected: {intent}")
         return intent
 
     except Exception as e:
-        log_message(f"❌ Intent-Detection Fehler: {e} → Fallback: FAKTISCH")
+        log_message(f"❌ Intent detection error: {e} → Fallback: FAKTISCH")
         return "FAKTISCH"  # Safe Fallback
 
 
@@ -102,22 +102,22 @@ async def detect_cache_followup_intent(
     llm_options: Optional[Dict] = None
 ) -> str:
     """
-    Erkennt die Intent einer Nachfrage zu einer gecachten Recherche
+    Detect intent of follow-up question to cached research
 
     Args:
-        original_query: Ursprüngliche Recherche-Frage
-        followup_query: Nachfrage des Users
-        automatik_model: LLM für Intent-Detection
+        original_query: Original research question
+        followup_query: User's follow-up question
+        automatik_model: LLM for intent detection
         llm_client: LLMClient instance
-        llm_options: Optional Dict mit enable_thinking toggle
+        llm_options: Optional Dict with enable_thinking toggle
 
     Returns:
-        str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
+        str: "FAKTISCH", "KREATIV" or "GEMISCHT"
     """
-    # Spracherkennung für Nachfrage
+    # Language detection for follow-up
     from .prompt_loader import detect_language
     detected_user_language = detect_language(followup_query)
-    log_message(f"🌐 Spracherkennung: Nachfrage ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
+    log_message(f"🌐 Language detection: Follow-up is probably '{detected_user_language.upper()}' (for prompt selection)")
 
     prompt = get_followup_intent_prompt(
         original_query=original_query,
@@ -136,7 +136,7 @@ async def detect_cache_followup_intent(
             'enable_thinking': False  # Default: Fast intent detection without reasoning
         }
 
-        # Automatik-Tasks: Thinking ist IMMER aus (unabhängig vom User-Toggle)
+        # Automatik tasks: Thinking is ALWAYS off (independent of user toggle)
         log_message("🧠 Followup Intent enable_thinking: False (Automatik-Task)")
 
         response = await llm_client.chat(
@@ -151,24 +151,24 @@ async def detect_cache_followup_intent(
         return intent
 
     except Exception as e:
-        log_message(f"❌ Cache-Followup Intent-Detection Fehler: {e} → Fallback: FAKTISCH")
+        log_message(f"❌ Cache-Followup Intent-Detection Error: {e} → Fallback: FAKTISCH")
         return "FAKTISCH"
 
 
 def get_temperature_for_intent(intent: str) -> float:
     """
-    Gibt die passende Temperature für einen Intent zurück.
+    Returns the appropriate temperature for an intent.
 
-    Die Temperature-Werte sind in config.py definiert:
-    - INTENT_TEMPERATURE_FAKTISCH (0.2): präzise, deterministische Antworten
-    - INTENT_TEMPERATURE_GEMISCHT (0.5): allgemeine Konversation
-    - INTENT_TEMPERATURE_KREATIV (1.1): Geschichten, Gedichte, kreatives Schreiben
+    Temperature values are defined in config.py:
+    - INTENT_TEMPERATURE_FAKTISCH (0.2): precise, deterministic answers
+    - INTENT_TEMPERATURE_GEMISCHT (0.5): general conversation
+    - INTENT_TEMPERATURE_KREATIV (1.1): stories, poems, creative writing
 
     Args:
-        intent: "FAKTISCH", "KREATIV" oder "GEMISCHT"
+        intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
 
     Returns:
-        float: Temperature basierend auf config.py Konstanten
+        float: Temperature based on config.py constants
     """
     from .config import (
         INTENT_TEMPERATURE_FAKTISCH,
@@ -181,22 +181,22 @@ def get_temperature_for_intent(intent: str) -> float:
         "KREATIV": INTENT_TEMPERATURE_KREATIV,
         "GEMISCHT": INTENT_TEMPERATURE_GEMISCHT
     }
-    return temp_map.get(intent, INTENT_TEMPERATURE_FAKTISCH)  # Fallback: faktisch
+    return temp_map.get(intent, INTENT_TEMPERATURE_FAKTISCH)  # Fallback: factual
 
 
 def get_temperature_label(intent: str) -> str:
     """
-    Gibt das deutsche Label für einen Intent zurück (für UI-Anzeige)
+    Returns the label for an intent (for UI display)
 
     Args:
-        intent: "FAKTISCH", "KREATIV" oder "GEMISCHT"
+        intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
 
     Returns:
-        str: "faktisch", "kreativ" oder "gemischt"
+        str: "factual", "creative" or "mixed"
     """
     label_map = {
-        "FAKTISCH": "faktisch",
-        "KREATIV": "kreativ",
-        "GEMISCHT": "gemischt"
+        "FAKTISCH": "factual",
+        "KREATIV": "creative",
+        "GEMISCHT": "mixed"
     }
-    return label_map.get(intent, "faktisch")  # Fallback: faktisch
+    return label_map.get(intent, "factual")  # Fallback: factual

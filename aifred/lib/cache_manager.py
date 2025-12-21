@@ -17,13 +17,13 @@ from .logging_utils import log_message
 # ============================================================
 # GLOBAL CACHE STATE (Dependency Injection)
 # ============================================================
-# WICHTIG: Initialisiere Cache direkt beim Module-Import!
-# Dies verhindert "Cache nicht initialisiert" Fehler bei Hot-Reloads.
+# IMPORTANT: Initialize cache directly at module import!
+# This prevents "Cache not initialized" errors during hot-reloads.
 #
-# OrderedDict statt Dict für LRU Cache (älteste Einträge werden zuerst gelöscht)
+# OrderedDict instead of Dict for LRU Cache (oldest entries are deleted first)
 _research_cache: OrderedDict = OrderedDict()
 _research_cache_lock: threading.Lock = threading.Lock()
-MAX_CACHE_ENTRIES = 100  # Maximale Anzahl Sessions im RAM
+MAX_CACHE_ENTRIES = 100  # Maximum number of sessions in RAM
 
 
 def set_research_cache(cache_dict: Dict, lock: threading.Lock) -> None:
@@ -49,49 +49,49 @@ def get_cached_research(session_id: Optional[str]) -> Optional[Dict]:
     Returns:
         Cached research data or None if not found
     """
-    # WICHTIG: Ein leeres Dictionary {} ist ein gültiger (aber leerer) Cache-State!
+    # IMPORTANT: An empty dictionary {} is a valid (but empty) cache state!
     if not session_id:
-        log_message("🔍 DEBUG Cache-Lookup: Keine session_id")
+        log_message("🔍 DEBUG Cache-Lookup: No session_id")
         return None
 
     with _research_cache_lock:
-        # DEBUG: Zeige Cache-Inhalt (Keys) für Diagnose
+        # DEBUG: Show cache contents (keys) for diagnosis
         cache_keys = list(_research_cache.keys())
-        log_message(f"🔍 DEBUG Cache-Lookup: Suche session_id = {session_id[:8]}...")
-        log_message(f"   Cache enthält {len(cache_keys)} Einträge: {[k[:8] + '...' for k in cache_keys]}")
+        log_message(f"🔍 DEBUG Cache-Lookup: Searching session_id = {session_id[:8]}...")
+        log_message(f"   Cache contains {len(cache_keys)} entries: {[k[:8] + '...' for k in cache_keys]}")
 
         if session_id in _research_cache:
             cache_entry = _research_cache[session_id]
-            log_message(f"   ✅ Cache-Hit! Eintrag gefunden mit {len(cache_entry.get('scraped_sources', []))} Quellen")
+            log_message(f"   ✅ Cache-Hit! Entry found with {len(cache_entry.get('scraped_sources', []))} sources")
             return cache_entry.copy()
         else:
-            log_message(f"   ❌ Cache-Miss! session_id '{session_id[:8]}...' nicht in Cache")
+            log_message(f"   ❌ Cache-Miss! session_id '{session_id[:8]}...' not in cache")
     return None
 
 
 def get_all_metadata_summaries(exclude_session_id: Optional[str] = None, max_entries: int = 10) -> List[Dict]:
     """
-    Holt ALLE Metadata-Zusammenfassungen aus dem Cache (außer der aktuellen Session).
+    Gets ALL metadata summaries from the cache (except the current session).
 
-    Diese Funktion wird verwendet, um der Haupt-LLM Kontext aus früheren Recherchen zu geben,
-    OHNE die vollständigen Quellen zu übergeben (spart Context-Tokens).
+    This function is used to give the main LLM context from previous research,
+    WITHOUT passing the full sources (saves context tokens).
 
     Args:
-        exclude_session_id: Session ID, die NICHT zurückgegeben werden soll (aktuelle Recherche)
-        max_entries: Maximale Anzahl alter Recherchen (Standard: 10)
+        exclude_session_id: Session ID that should NOT be returned (current research)
+        max_entries: Maximum number of old research entries (default: 10)
 
     Returns:
-        Liste von Dicts mit {session_id, user_text, metadata_summary, timestamp}
-        Sortiert nach Timestamp (neueste zuerst), max. max_entries Einträge
+        List of dicts with {session_id, user_text, metadata_summary, timestamp}
+        Sorted by timestamp (newest first), max. max_entries entries
     """
     result = []
     with _research_cache_lock:
         for session_id, cache_entry in _research_cache.items():
-            # Aktuelle Session ausschließen
+            # Exclude current session
             if session_id == exclude_session_id:
                 continue
 
-            # Nur Einträge MIT Metadata-Zusammenfassung
+            # Only entries WITH metadata summary
             metadata_summary = cache_entry.get('metadata_summary')
             if not metadata_summary:
                 continue
@@ -103,7 +103,7 @@ def get_all_metadata_summaries(exclude_session_id: Optional[str] = None, max_ent
                 'timestamp': cache_entry.get('timestamp', 0)
             })
 
-    # Sortiere nach Timestamp (neueste zuerst) und limitiere auf max_entries
+    # Sort by timestamp (newest first) and limit to max_entries
     result.sort(key=lambda x: x['timestamp'], reverse=True)
     return result[:max_entries]
 
@@ -126,7 +126,7 @@ def save_cached_research(
         metadata_summary: Optional KI-generated semantic summary of sources
     """
     if not session_id:
-        log_message("⚠️ DEBUG Cache-Speicherung fehlgeschlagen: Keine session_id")
+        log_message("⚠️ DEBUG Cache save failed: No session_id")
         return
 
     with _research_cache_lock:
@@ -138,24 +138,24 @@ def save_cached_research(
             'metadata_summary': metadata_summary
         }
 
-        # LRU Eviction: Wenn Cache voll, lösche ältesten Eintrag
+        # LRU Eviction: If cache is full, delete oldest entry
         if len(_research_cache) > MAX_CACHE_ENTRIES:
-            oldest_session = next(iter(_research_cache))  # Erstes Item = ältestes
+            oldest_session = next(iter(_research_cache))  # First item = oldest
             evicted_entry = _research_cache.pop(oldest_session)
             log_message(
                 f"🗑️ Research-Cache LRU evicted: Session {oldest_session[:8]}... "
                 f"(Question: '{evicted_entry['user_text'][:50]}...')"
             )
 
-        # DEBUG: Zeige Cache-Status nach Speichern
+        # DEBUG: Show cache status after saving
         cache_size = len(_research_cache)
-        log_message(f"💾 Research-Cache gespeichert für Session {session_id[:8]}...")
-        log_message(f"   Cache enthält jetzt {cache_size}/{MAX_CACHE_ENTRIES} Einträge: {[k[:8] + '...' for k in list(_research_cache.keys())[-5:]]}")
-        log_message(f"   Gespeichert: {len(scraped_sources)} Quellen, user_text: '{user_text[:50]}...'")
+        log_message(f"💾 Research-Cache saved for Session {session_id[:8]}...")
+        log_message(f"   Cache now contains {cache_size}/{MAX_CACHE_ENTRIES} entries: {[k[:8] + '...' for k in list(_research_cache.keys())[-5:]]}")
+        log_message(f"   Saved: {len(scraped_sources)} sources, user_text: '{user_text[:50]}...'")
 
-        # DEBUG: Zeige KOMPLETTEN Cache-Inhalt
+        # DEBUG: Show COMPLETE cache contents
         log_message("=" * 80)
-        log_message("📦 KOMPLETTER CACHE-INHALT:")
+        log_message("📦 COMPLETE CACHE CONTENTS:")
         log_message("=" * 80)
         for cache_key, cache_value in _research_cache.items():
             source_urls = [s.get('url', 'N/A') for s in cache_value.get('scraped_sources', [])]
@@ -163,7 +163,7 @@ def save_cached_research(
             log_message(f"  User-Text: {cache_value.get('user_text', 'N/A')}")
             log_message(f"  Timestamp: {cache_value.get('timestamp', 0)}")
             log_message(f"  Mode: {cache_value.get('mode', 'N/A')}")
-            log_message(f"  Quellen ({len(source_urls)}):")
+            log_message(f"  Sources ({len(source_urls)}):")
             for i, url in enumerate(source_urls, 1):
                 log_message(f"    {i}. {url[:80]}{'...' if len(url) > 80 else ''}")
             log_message("-" * 80)
@@ -183,7 +183,7 @@ def delete_cached_research(session_id: Optional[str]) -> None:
     with _research_cache_lock:
         if session_id in _research_cache:
             del _research_cache[session_id]
-            log_message(f"🗑️ Cache gelöscht für Session {session_id[:8]}...")
+            log_message(f"🗑️ Cache deleted for Session {session_id[:8]}...")
 
 
 async def generate_cache_metadata(
@@ -193,65 +193,65 @@ async def generate_cache_metadata(
     haupt_llm_context_limit: int
 ):
     """
-    Generiert KI-basierte Metadata für gecachte Research-Daten (synchron nach Haupt-LLM).
+    Generates AI-based metadata for cached research data (synchronous after main LLM).
 
-    Diese Funktion wird NACH der Haupt-LLM-Antwort aufgerufen und yieldet Messages
-    für die Debug-Console.
+    This function is called AFTER the main LLM response and yields messages
+    for the debug console.
 
     Args:
-        session_id: Session ID für Cache-Lookup
-        metadata_model: LLM-Modell für Metadata-Generierung (z.B. Automatik-LLM)
+        session_id: Session ID for cache lookup
+        metadata_model: LLM model for metadata generation (e.g., automatik LLM)
         llm_client: LLMClient instance for inference
-        haupt_llm_context_limit: Context limit for main LLM (für num_ctx Berechnung)
+        haupt_llm_context_limit: Context limit for main LLM (for num_ctx calculation)
 
     Yields:
-        Debug messages für UI
+        Debug messages for UI
     """
     if not session_id:
         return
 
     try:
-        # Hole Cache-Daten
+        # Get cache data
         cache_entry = get_cached_research(session_id)
         if not cache_entry:
-            log_message("⚠️ Metadata-Generierung: Kein Cache gefunden")
+            log_message("⚠️ Metadata generation: No cache found")
             return
 
         scraped_sources = cache_entry.get('scraped_sources', [])
         if not scraped_sources:
-            log_message("⚠️ Metadata-Generierung: Keine Quellen im Cache")
+            log_message("⚠️ Metadata generation: No sources in cache")
             return
 
         # UI-Message: Start
-        yield {"type": "debug", "message": "📝 Starte Cache-Metadata Generierung..."}
-        log_message("📝 Generiere KI-basierte Cache-Metadata...")
-        log_message("📝 Erstelle Cache-Zusammenfassung...")
+        yield {"type": "debug", "message": "📝 Starting cache metadata generation..."}
+        log_message("📝 Generating AI-based cache metadata...")
+        log_message("📝 Creating cache summary...")
 
-        # Baue Preview der Quellen (erste 3 Quellen, 500 Zeichen pro Quelle)
+        # Build preview of sources (first 3 sources, 500 chars per source)
         sources_preview = "\n\n".join([
-            f"Quelle {i+1}: {s.get('title', 'N/A')}\nURL: {s.get('url', 'N/A')}\nInhalt: {s.get('content', '')[:500]}..."
-            for i, s in enumerate(scraped_sources[:3])  # Erste 3 Quellen für Kontext
+            f"Source {i+1}: {s.get('title', 'N/A')}\nURL: {s.get('url', 'N/A')}\nContent: {s.get('content', '')[:500]}..."
+            for i, s in enumerate(scraped_sources[:3])  # First 3 sources for context
         ])
 
-        # Lade Prompt aus externer Datei (prompts/cache_metadata.txt)
+        # Load prompt from external file (prompts/cache_metadata.txt)
         from .prompt_loader import get_cache_metadata_prompt
         metadata_prompt = get_cache_metadata_prompt(sources_preview=sources_preview)
 
-        # DEBUG: Zeige Metadata-Generierung Prompt vollständig
+        # DEBUG: Show metadata generation prompt completely
         log_message("=" * 60)
         log_message("📋 METADATA GENERATION PROMPT:")
         log_message("-" * 60)
         log_message(metadata_prompt)
         log_message("-" * 60)
-        log_message(f"Prompt-Länge: {len(metadata_prompt)} Zeichen, ~{len(metadata_prompt.split())} Wörter")
+        log_message(f"Prompt length: {len(metadata_prompt)} chars, ~{len(metadata_prompt.split())} words")
         log_message("=" * 60)
 
         messages = [{'role': 'user', 'content': metadata_prompt}]
 
-        # Dynamisches num_ctx basierend auf Haupt-LLM-Limit (50% für Metadata, kurzer Output)
-        metadata_num_ctx = min(2048, haupt_llm_context_limit // 2)  # Max 2048 oder 50% des Limits
+        # Dynamic num_ctx based on main LLM limit (50% for metadata, short output)
+        metadata_num_ctx = min(2048, haupt_llm_context_limit // 2)  # Max 2048 or 50% of limit
 
-        log_message(f"Total Messages: {len(messages)}, Temperature: 0.1, num_ctx: {metadata_num_ctx} (Haupt-LLM-Limit: {haupt_llm_context_limit}), num_predict: 100")
+        log_message(f"Total Messages: {len(messages)}, Temperature: 0.1, num_ctx: {metadata_num_ctx} (Main-LLM-Limit: {haupt_llm_context_limit}), num_predict: 100")
         log_message("=" * 60)
 
         metadata_start = time.time()
@@ -273,24 +273,24 @@ async def generate_cache_metadata(
         metadata_summary = response.text.strip()
         metadata_time = time.time() - metadata_start
 
-        # LLM folgt den Anweisungen im Prompt (max 60 Wörter)
-        # Kein Hardcoded-Limit im Code - das LLM steuert die Länge selbst
+        # LLM follows the instructions in the prompt (max 60 words)
+        # No hardcoded limit in code - the LLM controls the length itself
 
-        # Update Cache mit Metadata
+        # Update cache with metadata
         with _research_cache_lock:
             if session_id in _research_cache:
                 _research_cache[session_id]['metadata_summary'] = metadata_summary
 
         tokens_per_second = response.tokens_per_second
 
-        # UI-Message: Completion mit tokens/sec
-        yield {"type": "debug", "message": f"✅ Cache-Metadata fertig ({metadata_time:.1f}s, {tokens_per_second:.1f} t/s)"}
+        # UI-Message: Completion with tokens/sec
+        yield {"type": "debug", "message": f"✅ Cache metadata done ({metadata_time:.1f}s, {tokens_per_second:.1f} t/s)"}
 
-        # Log-File Messages (detailliert)
-        log_message(f"✅ Cache-Metadata generiert ({metadata_time:.1f}s, {tokens_per_second:.1f} t/s): {metadata_summary}")
-        log_message(f"✅ Zusammenfassung erstellt: {metadata_summary[:80]}{'...' if len(metadata_summary) > 80 else ''}")
+        # Log-File Messages (detailed)
+        log_message(f"✅ Cache metadata generated ({metadata_time:.1f}s, {tokens_per_second:.1f} t/s): {metadata_summary}")
+        log_message(f"✅ Summary created: {metadata_summary[:80]}{'...' if len(metadata_summary) > 80 else ''}")
 
     except Exception as e:
-        log_message(f"⚠️ Fehler bei Metadata-Generierung: {e}")
-        log_message("⚠️ Metadata-Generierung fehlgeschlagen")
-        yield {"type": "debug", "message": "⚠️ Cache-Metadata Generierung fehlgeschlagen"}
+        log_message(f"⚠️ Error in metadata generation: {e}")
+        log_message("⚠️ Metadata generation failed")
+        yield {"type": "debug", "message": "⚠️ Cache metadata generation failed"}

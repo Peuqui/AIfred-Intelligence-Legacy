@@ -335,7 +335,7 @@ def validate_image_file(filename: str, size_bytes: int) -> Tuple[bool, Optional[
     ext = Path(filename).suffix.lower()
 
     if ext not in valid_extensions:
-        return False, f"⚠️ Dateiformat nicht unterstützt. Erlaubt: {', '.join(valid_extensions)}"
+        return False, f"⚠️ File format not supported. Allowed: {', '.join(valid_extensions)}"
 
     return True, None
 
@@ -466,15 +466,15 @@ def resize_image_if_needed(image_bytes: bytes, max_dimension: int = None) -> byt
 
     img = Image.open(io.BytesIO(image_bytes))
 
-    # EXIF-Rotation korrigieren (wichtig für Handy-Fotos!)
-    # Handys speichern Rotation oft nur als EXIF-Metadaten, nicht physisch im Bild
-    # Ohne das kann ein Querformat-Bild um 90° gedreht ankommen
+    # Fix EXIF rotation (important for phone photos!)
+    # Phones often store rotation only as EXIF metadata, not physically in the image
+    # Without this, a landscape photo may arrive rotated 90°
     img = ImageOps.exif_transpose(img)
 
     # Check if resize needed
     if img.width <= max_dimension and img.height <= max_dimension:
-        # Auch wenn kein Resize nötig, müssen wir bei EXIF-Korrektur neu encodieren
-        # (nur wenn das Bild tatsächlich transponiert wurde)
+        # Even if no resize needed, we must re-encode on EXIF correction
+        # (only if image was actually transposed)
         if img.getexif():
             output = io.BytesIO()
             format_to_use = img.format if img.format in ['JPEG', 'PNG', 'GIF', 'WEBP', 'BMP'] else 'JPEG'
@@ -509,16 +509,16 @@ def crop_and_resize_image(
 
     Args:
         image_bytes: Raw image data
-        crop_box: {"x": 10, "y": 5, "width": 80, "height": 90} in Prozent (0-100)
-                  x, y = obere linke Ecke des Crop-Bereichs
-                  width, height = Größe des Crop-Bereichs
+        crop_box: {"x": 10, "y": 5, "width": 80, "height": 90} in percent (0-100)
+                  x, y = top left corner of crop area
+                  width, height = size of crop area
         max_dimension: Maximum width or height in pixels (defaults to config.VISION_MAX_IMAGE_DIMENSION)
 
     Returns:
         Cropped and resized image bytes
 
     Notes:
-        - EXIF-Rotation wird automatisch korrigiert
+        - EXIF rotation is automatically corrected
         - Preserves aspect ratio during resize
         - Uses LANCZOS resampling for quality
         - Re-encodes as JPEG with quality=90
@@ -532,20 +532,20 @@ def crop_and_resize_image(
 
     img = Image.open(io.BytesIO(image_bytes))
 
-    # EXIF-Rotation korrigieren (wichtig für Handy-Fotos!)
+    # Fix EXIF rotation (important for phone photos!)
     img = ImageOps.exif_transpose(img)
 
     original_width, original_height = img.size
 
-    # STEP 1: Crop (wenn crop_box vorhanden)
+    # STEP 1: Crop (if crop_box present)
     if crop_box:
-        # Koordinaten von Prozent zu Pixel umrechnen
+        # Convert coordinates from percent to pixels
         x = int(original_width * crop_box["x"] / 100)
         y = int(original_height * crop_box["y"] / 100)
         w = int(original_width * crop_box["width"] / 100)
         h = int(original_height * crop_box["height"] / 100)
 
-        # Sicherstellen dass Crop-Box innerhalb des Bildes liegt
+        # Ensure crop box is within image bounds
         x = max(0, min(x, original_width - 1))
         y = max(0, min(y, original_height - 1))
         w = min(w, original_width - x)
@@ -555,17 +555,17 @@ def crop_and_resize_image(
             img = img.crop((x, y, x + w, y + h))
             logger.info(f"✂️ Image cropped: {original_width}x{original_height} → {w}x{h}")
 
-    # STEP 2: Resize (wenn nötig)
+    # STEP 2: Resize (if needed)
     if img.width > max_dimension or img.height > max_dimension:
         ratio = min(max_dimension / img.width, max_dimension / img.height)
         new_size = (int(img.width * ratio), int(img.height * ratio))
         img = img.resize(new_size, Image.Resampling.LANCZOS)
         logger.info(f"📐 Image resized: {img.width}x{img.height} → {new_size[0]}x{new_size[1]}")
 
-    # STEP 3: Re-encode als JPEG
-    # RGBA (PNG mit Transparenz) → RGB konvertieren (JPEG unterstützt kein Alpha)
+    # STEP 3: Re-encode as JPEG
+    # RGBA (PNG with transparency) → Convert to RGB (JPEG doesn't support alpha)
     if img.mode in ('RGBA', 'LA', 'P'):
-        # Weißer Hintergrund für transparente Bereiche
+        # White background for transparent areas
         background = Image.new('RGB', img.size, (255, 255, 255))
         if img.mode == 'P':
             img = img.convert('RGBA')

@@ -60,20 +60,20 @@ async def handle_cache_hit(
     if not cached_sources or not cache_entry:
         # No cache hit
         if session_id:
-            log_message(f"⚠️ Kein Cache für Session {session_id[:8]}... gefunden → Normale Web-Recherche")
+            log_message(f"⚠️ No cache found for session {session_id[:8]}... → Normal web research")
         return
 
     # Cache-Hit! (cache_entry is guaranteed not None here)
-    log_message(f"💾 Cache-Hit! Nutze gecachte Recherche (Session {session_id[:8]}...)")
-    log_message(f"   Ursprüngliche Frage: {cache_entry.get('user_text', 'N/A')[:80]}...")
-    log_message(f"   Cache enthält {len(cached_sources)} Quellen")
+    log_message(f"💾 Cache-Hit! Using cached research (Session {session_id[:8]}...)")
+    log_message(f"   Original question: {cache_entry.get('user_text', 'N/A')[:80]}...")
+    log_message(f"   Cache contains {len(cached_sources)} sources")
 
-    # Console-Output für Cache-Hit
-    yield {"type": "debug", "message": f"💾 Cache-Hit! Nutze gecachte Daten ({len(cached_sources)} Quellen)"}
+    # Console output for cache hit
+    yield {"type": "debug", "message": f"💾 Cache-Hit! Using cached data ({len(cached_sources)} sources)"}
     original_q = cache_entry.get('user_text', 'N/A')
-    yield {"type": "debug", "message": f"📋 Ursprüngliche Frage: {original_q[:60]}{'...' if len(original_q) > 60 else ''}"}
+    yield {"type": "debug", "message": f"📋 Original question: {original_q[:60]}{'...' if len(original_q) > 60 else ''}"}
 
-    # Nutze ALLE Quellen aus dem Cache
+    # Use ALL sources from the cache
     scraped_only = cached_sources
 
     # ============================================================
@@ -88,14 +88,14 @@ async def handle_cache_hit(
         user_text=user_text
     )
 
-    # 6. Context mit dynamischem Limit bauen
+    # 6. Build context with dynamic limit
     context = build_context(user_text, scraped_only, max_context_tokens=max_rag_tokens)
 
-    # Spracherkennung für User-Text
+    # Language detection for user text
     from ..prompt_loader import detect_language
     detected_user_language = detect_language(user_text)
 
-    # System-Prompt für Cache-Hit: Nutze separate Prompt-Datei
+    # System prompt for cache hit: Use separate prompt file
     system_prompt = load_prompt(
         'system_rag_cache_hit',
         lang=detected_user_language,
@@ -106,10 +106,10 @@ async def handle_cache_hit(
         context=context
     )
 
-    # Generiere Antwort mit Cache-Daten
+    # Generate response with cache data
     messages = []
 
-    # History hinzufügen (falls vorhanden) - LLM sieht vorherige Konversation
+    # Add history (if available) - LLM sees previous conversation
     for h in history:
         user_msg = h[0].split(" (STT:")[0].split(" (Agent:")[0] if " (STT:" in h[0] or " (Agent:" in h[0] else h[0]
         ai_msg = h[1].split(" (Inferenz:")[0] if " (Inferenz:" in h[1] else h[1]
@@ -118,15 +118,15 @@ async def handle_cache_hit(
             {'role': 'assistant', 'content': ai_msg}
         ])
 
-    # System-Prompt + aktuelle User-Frage
+    # System prompt + current user question
     messages.insert(0, {'role': 'system', 'content': system_prompt})
     messages.append({'role': 'user', 'content': user_text})
 
-    # Query Haupt-Model Context Limit (falls nicht manuell gesetzt)
+    # Query main model context limit (if not manually set)
     if not (llm_options and llm_options.get('num_ctx')):
         model_limit, _ = await llm_client.get_model_context_limit(model_choice)
-        log_message(f"📊 Haupt-LLM ({model_choice}): Max. Context = {format_number(model_limit)} tok (Modell-Parameter von Ollama)")
-        yield {"type": "debug", "message": f"📊 Haupt-LLM ({model_choice}): Max. Context = {format_number(model_limit)} tok"}
+        log_message(f"📊 Main-LLM ({model_choice}): Max. Context = {format_number(model_limit)} tok (Model parameter from Ollama)")
+        yield {"type": "debug", "message": f"📊 Main-LLM ({model_choice}): Max. Context = {format_number(model_limit)} tok"}
 
     # Count actual input tokens (using real tokenizer)
     input_tokens = estimate_tokens(messages, model_name=model_choice)
@@ -153,19 +153,19 @@ async def handle_cache_hit(
     # Show both: actual input and context limit
     yield {"type": "debug", "message": f"📊 Input Context: ~{format_number(input_tokens)} tok"}
     if llm_options and llm_options.get('num_ctx'):
-        log_message(f"🎯 Cache-Hit Context Window: {format_number(final_num_ctx)} tok (manuell)")
+        log_message(f"🎯 Cache-Hit Context Window: {format_number(final_num_ctx)} tok (manual)")
         yield {"type": "debug", "message": f"🪟 num_ctx (Limit): {format_number(final_num_ctx)} tok (manual)"}
     else:
-        log_message(f"🎯 Cache-Hit Context Window: {format_number(final_num_ctx)} tok (dynamisch, ~{format_number(input_tokens)} tok benötigt)")
+        log_message(f"🎯 Cache-Hit Context Window: {format_number(final_num_ctx)} tok (dynamic, ~{format_number(input_tokens)} tok needed)")
         yield {"type": "debug", "message": f"🪟 num_ctx (Limit): {format_number(final_num_ctx)} tok"}
 
-    # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
+    # Temperature decision: Manual override or Auto (intent detection)
     if temperature_mode == 'manual':
         final_temperature = temperature
         log_message(f"🌡️ Cache-Hit Temperature: {final_temperature} (MANUAL OVERRIDE)")
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
     else:
-        # Auto: Intent-Detection für Cache-Followup
+        # Auto: Intent detection for cache followup
         followup_intent = await detect_cache_followup_intent(
             original_query=cache_entry.get('user_text', ''),
             followup_query=user_text,
@@ -179,7 +179,7 @@ async def handle_cache_hit(
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
     # Console: LLM starts
-    yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice} (Cache-Daten)"}
+    yield {"type": "debug", "message": f"🤖 Main-LLM starting: {model_choice} (cache data)"}
 
     # Show LLM generation phase
     yield {"type": "progress", "phase": "llm"}
@@ -194,8 +194,8 @@ async def handle_cache_hit(
 
     # Build LLM options (include enable_thinking from user settings)
     cache_llm_options = {
-        'temperature': final_temperature,  # Adaptive oder Manual Temperature!
-        'num_ctx': final_num_ctx,  # Dynamisch berechnet oder User-Vorgabe
+        'temperature': final_temperature,  # Adaptive or manual temperature!
+        'num_ctx': final_num_ctx,  # Dynamically calculated or user-specified
         'num_predict': available_output  # Dynamic: Full available output space
     }
 
@@ -230,26 +230,26 @@ async def handle_cache_hit(
 
     # Console: LLM finished (Cache-specific with total time)
     tokens_generated = metrics.get("tokens_generated", 0)
-    yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({format_number(llm_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s, Cache-Total: {format_number(total_time, 1)}s)"}
+    yield {"type": "debug", "message": f"✅ Main-LLM done ({format_number(llm_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s, Cache-Total: {format_number(total_time, 1)}s)"}
 
-    # Formatiere <think> Tags als Collapsible (falls vorhanden)
+    # Format <think> tags as collapsible (if present)
     final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time, tokens_per_sec=tokens_per_sec)
 
-    # Zeitmessung-Text
-    timing_text = format_metadata(f"Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Quelle: Session Cache")
+    # Timing text
+    timing_text = format_metadata(f"Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Session Cache")
     ai_text_with_timing = final_answer_formatted + "\n\n" + timing_text
 
     # Update History
-    user_display = f"{user_text}\n{format_metadata(f'Agent: Cache-Hit    {len(cached_sources)} Quellen')}"
+    user_display = f"{user_text}\n{format_metadata(f'Agent: Cache-Hit    {len(cached_sources)} sources')}"
     ai_display = ai_text_with_timing
     history.append((user_display, ai_display))
 
-    log_message(f"✅ Cache-basierte Antwort fertig in {format_number(total_time, 1)}s")
+    log_message(f"✅ Cache-based response done in {format_number(total_time, 1)}s")
 
     # Clear progress before final result
     yield {"type": "progress", "clear": True}
 
-    # Separator nach Cache-Hit (Log-File + Debug-Konsole)
+    # Separator after cache hit (log file + debug console)
     console_separator()
     yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 

@@ -31,100 +31,100 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# WEB SCRAPER TOOL (unverändert)
+# WEB SCRAPER TOOL
 # ============================================================
 
 class WebScraperTool(BaseTool):
     """
-    Web-Scraper mit trafilatura + Playwright Fallback
+    Web Scraper with trafilatura + Playwright Fallback
 
-    Extrahiert sauberen Text-Content von Webseiten.
-    trafilatura filtert automatisch Werbung, Navigation und Cookie-Banner.
+    Extracts clean text content from web pages.
+    trafilatura automatically filters ads, navigation and cookie banners.
     """
 
-    # Konstanten
-    # PLAYWRIGHT_FALLBACK_THRESHOLD aus config.py importiert (Modul-Level)
+    # Constants
+    # PLAYWRIGHT_FALLBACK_THRESHOLD imported from config.py (module level)
     MAX_RETRY_ATTEMPTS = 2  # Maximum retry attempts for Cloudflare/rate-limit blocks
     RETRY_DELAY = 3.0  # Seconds to wait before retry
 
     def __init__(self):
         super().__init__()
         self.name = "Web Scraper"
-        self.description = "Extrahiert Text-Content von Webseiten"
+        self.description = "Extracts text content from web pages"
         self.min_call_interval = 1.0
 
-        # trafilatura Config mit 10s Timeout (statt default 30s)
+        # trafilatura config with 10s timeout (instead of default 30s)
         self.trafilatura_config = deepcopy(DEFAULT_CONFIG)
         self.trafilatura_config.set('DEFAULT', 'DOWNLOAD_TIMEOUT', '10')
-        self.trafilatura_config.set('DEFAULT', 'MAX_REDIRECTS', '2')  # Max 2 Redirects (default ist mehr)
+        self.trafilatura_config.set('DEFAULT', 'MAX_REDIRECTS', '2')  # Max 2 redirects (default is more)
     def execute(self, query: str, **kwargs) -> Dict:
         """
-        Scraped eine Webseite komplett ohne Längenlimit
+        Scrape a web page completely without length limit
 
         Args:
-            query: URL der Webseite (umbenennung von 'url' zu 'query' für BaseTool-Kompatibilität)
+            query: URL of the web page (renamed from 'url' to 'query' for BaseTool compatibility)
 
-        Strategie (3-Stufen):
-        0. PDF-Erkennung: Content-Type prüfen → PyMuPDF
-        1. trafilatura (sauberster Content, filtert Werbung/Navigation/Cookies automatisch)
-        2. Falls < threshold ODER fehlgeschlagen → Playwright (JavaScript-Rendering)
+        Strategy (3-tier):
+        0. PDF detection: Check Content-Type → PyMuPDF
+        1. trafilatura (cleanest content, automatically filters ads/navigation/cookies)
+        2. If < threshold OR failed → Playwright (JavaScript rendering)
 
-        trafilatura funktioniert für 95% aller Websites (News, Blogs, Wetter).
-        Playwright nur für JavaScript-heavy Single-Page-Apps (React, Vue, etc.).
-        PyMuPDF für PDFs (AWMF Leitlinien, Orphananesthesia, etc.)
+        trafilatura works for 95% of all websites (news, blogs, weather).
+        Playwright only for JavaScript-heavy single-page apps (React, Vue, etc.).
+        PyMuPDF for PDFs (AWMF guidelines, Orphananesthesia, etc.)
 
-        Ollama's dynamisches num_ctx übernimmt die Context-Größen-Kontrolle!
+        Ollama's dynamic num_ctx handles context size control!
         """
         self._rate_limit_check()
 
-        # Intern verwenden wir 'url' für Klarheit
+        # Internally we use 'url' for clarity
         url = query
 
         # ============================================================
-        # STEP 0: PDF-Erkennung (Content-Type Header Check)
+        # STEP 0: PDF detection (Content-Type header check)
         # ============================================================
         is_pdf = self._is_pdf_url(url)
         if is_pdf:
-            logger.info(f"📄 PDF erkannt: {url}")
-            log_message(f"📄 PDF erkannt: {url}")
+            logger.info(f"📄 PDF detected: {url}")
+            log_message(f"📄 PDF detected: {url}")
             return self._scrape_pdf(url)
 
         # ============================================================
-        # STEP 1: trafilatura (schnell + sauber für HTML)
+        # STEP 1: trafilatura (fast + clean for HTML)
         # ============================================================
         result = self._scrape_with_trafilatura(url)
 
-        # Intelligente Playwright-Fallback-Strategie:
-        # 1. Download failed (404, timeout, bot-protection) → KEIN Playwright (sinnlos!)
-        # 2. Zu wenig Content (< threshold) → Playwright (JS-heavy Site!)
+        # Intelligent Playwright fallback strategy:
+        # 1. Download failed (404, timeout, bot-protection) → NO Playwright (pointless!)
+        # 2. Too little content (< threshold) → Playwright (JS-heavy site!)
 
         if not result['success']:
-            # Download failed → Site blockiert/down → Playwright bringt nichts!
-            log_message("⚠️ trafilatura Download failed → SKIP Playwright (Site blockiert/down)")
+            # Download failed → Site blocked/down → Playwright won't help!
+            log_message("⚠️ trafilatura Download failed → SKIP Playwright (site blocked/down)")
             return result
 
-        # Trafilatura erfolgreich, aber zu wenig Content? → JS-heavy Site!
+        # Trafilatura successful but too little content? → JS-heavy Site!
         if result.get('word_count', 0) < PLAYWRIGHT_FALLBACK_THRESHOLD:
-            log_message(f"⚠️ trafilatura nur {result['word_count']} Wörter → Retry mit Playwright (JavaScript)")
+            log_message(f"⚠️ trafilatura only {result['word_count']} words → Retry with Playwright (JavaScript)")
             playwright_result = self._scrape_with_playwright(url)
             if playwright_result['success']:
-                log_message(f"✅ Playwright: {playwright_result['word_count']} Wörter (trafilatura: {result.get('word_count', 0)})")
+                log_message(f"✅ Playwright: {playwright_result['word_count']} words (trafilatura: {result.get('word_count', 0)})")
                 return playwright_result
 
         return result
 
     def _scrape_with_trafilatura(self, url: str, retry_attempt: int = 1) -> Dict:
         """
-        Scraped mit trafilatura (sauberster Content)
+        Scrape with trafilatura (cleanest content)
 
-        trafilatura ist spezialisiert auf Content-Extraktion und filtert automatisch:
-        - Werbung und Tracking-Code
-        - Navigation und Menüs
-        - Cookie-Banner
-        - Footer/Header Content
-        - Social Media Widgets
+        trafilatura specializes in content extraction and automatically filters:
+        - Ads and tracking code
+        - Navigation and menus
+        - Cookie banners
+        - Footer/Header content
+        - Social media widgets
 
-        Perfekt für News-Artikel, Blog-Posts, Wetter-Seiten!
+        Perfect for news articles, blog posts, weather pages!
 
         Args:
             url: URL to scrape
@@ -133,11 +133,11 @@ class WebScraperTool(BaseTool):
         try:
             if retry_attempt == 1:
                 logger.info(f"🌐 Web Scraping: {url}")
-                logger.debug("   Methode: trafilatura (Content-Extraktion)")
+                logger.debug("   Method: trafilatura (content extraction)")
             else:
                 logger.info(f"🔄 Retry {retry_attempt}/{self.MAX_RETRY_ATTEMPTS}: {url}")
 
-            # Download HTML mit 10s Timeout (via config)
+            # Download HTML with 10s timeout (via config)
             downloaded = trafilatura.fetch_url(url, config=self.trafilatura_config)
 
             if not downloaded:
@@ -158,18 +158,18 @@ class WebScraperTool(BaseTool):
                     'retry_attempts': retry_attempt
                 }
 
-            # Extract sauberen Content
+            # Extract clean content
             text = trafilatura.extract(
                 downloaded,
-                include_comments=False,  # Keine Kommentare
-                include_tables=True,     # Tabellen behalten (wichtig für Wetter!)
-                no_fallback=False,       # Fallback auf basic extraction wenn nötig
-                favor_precision=True,    # Weniger Content, aber präziser (filtert mehr Werbung)
-                output_format='txt'      # Plain text (nicht JSON/XML)
+                include_comments=False,  # No comments
+                include_tables=True,     # Keep tables (important for weather!)
+                no_fallback=False,       # Fallback to basic extraction if needed
+                favor_precision=True,    # Less content, but more precise (filters more ads)
+                output_format='txt'      # Plain text (not JSON/XML)
             )
 
             if not text:
-                logger.warning("⚠️ trafilatura: Kein Content extrahiert")
+                logger.warning("⚠️ trafilatura: No content extracted")
                 return {
                     'success': False,
                     'method': 'trafilatura',
@@ -177,15 +177,15 @@ class WebScraperTool(BaseTool):
                     'error': 'No content extracted'
                 }
 
-            # Titel extrahieren (optional, trafilatura kann das auch)
+            # Extract title (optional, trafilatura can do this too)
             metadata = trafilatura.extract_metadata(downloaded)
             title = metadata.title if metadata and metadata.title else ''
 
-            # Text bereinigen
+            # Clean text
             text = self._clean_text(text)
             word_count = len(text.split())
 
-            logger.info(f"  ✅ {word_count} Wörter extrahiert")
+            logger.info(f"  ✅ {word_count} words extracted")
 
             return {
                 'success': True,
@@ -200,7 +200,7 @@ class WebScraperTool(BaseTool):
 
         except Exception as e:
             error_msg = self._classify_error(str(e))
-            logger.error(f"❌ trafilatura Fehler bei {url}: {error_msg}")
+            logger.error(f"❌ trafilatura error at {url}: {error_msg}")
 
             # Retry Logic for transient errors (timeout, connection)
             if retry_attempt < self.MAX_RETRY_ATTEMPTS and any(keyword in str(e).lower() for keyword in ['timeout', 'connection', 'refused']):
@@ -217,28 +217,28 @@ class WebScraperTool(BaseTool):
             }
 
     def _scrape_with_playwright(self, url: str) -> Dict:
-        """Scraped mit Playwright (langsamer, aber JavaScript-fähig)"""
+        """Scrape with Playwright (slower, but JavaScript-capable)"""
         try:
             from playwright.sync_api import sync_playwright
 
             logger.info(f"🌐 Web Scraping: {url}")
-            logger.debug("   Methode: Playwright (JavaScript-Rendering)")
+            logger.debug("   Method: Playwright (JavaScript rendering)")
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 try:
                     page = browser.new_page()
 
-                    # Navigiere zur Seite und warte auf Netzwerk-Idle
+                    # Navigate to page and wait for network idle
                     page.goto(url, wait_until='networkidle', timeout=10000)
 
-                    # Warte noch 2s für lazy-loaded Content
+                    # Wait 2s more for lazy-loaded content
                     page.wait_for_timeout(2000)
 
-                    # Titel
+                    # Title
                     title = page.title()
 
-                    # Extrahiere Text (nur sichtbarer Content)
+                    # Extract text (only visible content)
                     text = page.inner_text('body')
                     text = self._clean_text(text)
 
@@ -255,11 +255,11 @@ class WebScraperTool(BaseTool):
                         'method': 'playwright'
                     }
                 finally:
-                    browser.close()  # Wird IMMER ausgeführt, auch bei Exception
+                    browser.close()  # ALWAYS executed, even on exception
 
         except Exception as e:
             error_msg = self._classify_error(str(e))
-            logger.error(f"❌ Playwright Fehler bei {url}: {error_msg}")
+            logger.error(f"❌ Playwright error at {url}: {error_msg}")
             return {
                 'success': False,
                 'method': 'playwright',
@@ -269,14 +269,14 @@ class WebScraperTool(BaseTool):
             }
 
     def _clean_text(self, text: str) -> str:
-        """Säubert Text"""
+        """Clean text"""
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'\n+', '\n', text)
         return text.strip()
 
     def _classify_error(self, error_msg: str, downloaded_content: str = None) -> str:
         """
-        Klassifiziert Fehler und gibt aussagekräftige Nachricht zurück
+        Classify error and return meaningful message
 
         Args:
             error_msg: Original error message
@@ -305,7 +305,7 @@ class WebScraperTool(BaseTool):
 
         # Timeout
         if 'timeout' in error_lower or 'timed out' in error_lower:
-            return "Timeout (Server zu langsam)"
+            return "Timeout (Server too slow)"
 
         # Connection Issues
         if 'connection' in error_lower or 'refused' in error_lower:
@@ -320,23 +320,23 @@ class WebScraperTool(BaseTool):
 
     def _is_pdf_url(self, url: str) -> bool:
         """
-        Erkennt ob eine URL auf ein PDF zeigt.
+        Detect if a URL points to a PDF.
 
-        Prüft:
-        1. URL-Endung (.pdf)
-        2. HEAD-Request Content-Type Header
+        Checks:
+        1. URL ending (.pdf)
+        2. HEAD request Content-Type header
 
         Args:
-            url: URL zu prüfen
+            url: URL to check
 
         Returns:
-            True wenn PDF, False sonst
+            True if PDF, False otherwise
         """
-        # Schnelle Prüfung: URL endet mit .pdf
+        # Fast check: URL ends with .pdf
         if url.lower().endswith('.pdf'):
             return True
 
-        # Langsame Prüfung: HEAD-Request für Content-Type
+        # Slow check: HEAD request for Content-Type
         try:
             response = requests.head(url, timeout=5, allow_redirects=True, headers={
                 'User-Agent': 'Mozilla/5.0 (compatible; AIfred/1.0)'
@@ -344,27 +344,27 @@ class WebScraperTool(BaseTool):
             content_type = response.headers.get('Content-Type', '').lower()
             return 'application/pdf' in content_type
         except Exception:
-            # Bei Fehlern: Kein PDF annehmen (trafilatura wird es versuchen)
+            # On error: Assume not PDF (trafilatura will try)
             return False
 
     def _scrape_pdf(self, url: str) -> Dict:
         """
-        Extrahiert Text aus PDF-Dokumenten mit PyMuPDF.
+        Extract text from PDF documents with PyMuPDF.
 
-        PyMuPDF (fitz) bietet:
-        - Schnellste Text-Extraktion
-        - Beste Qualität
-        - Gute Tabellen-Erkennung
-        - Metadaten-Extraktion (Titel, Autor)
+        PyMuPDF (fitz) offers:
+        - Fastest text extraction
+        - Best quality
+        - Good table recognition
+        - Metadata extraction (title, author)
 
         Args:
-            url: URL des PDF-Dokuments
+            url: URL of the PDF document
 
         Returns:
-            Dict mit extrahiertem Content oder Fehler
+            Dict with extracted content or error
         """
         if not PYMUPDF_AVAILABLE:
-            logger.warning("⚠️ PyMuPDF nicht installiert → PDF-Support deaktiviert")
+            logger.warning("⚠️ PyMuPDF not installed → PDF support disabled")
             return {
                 'success': False,
                 'method': 'pdf',
@@ -391,8 +391,8 @@ class WebScraperTool(BaseTool):
             # Verify it's actually a PDF
             content_type = response.headers.get('Content-Type', '').lower()
             if 'application/pdf' not in content_type and not url.lower().endswith('.pdf'):
-                logger.warning(f"⚠️ Kein PDF: Content-Type={content_type}")
-                # Fallback zu trafilatura
+                logger.warning(f"⚠️ Not a PDF: Content-Type={content_type}")
+                # Fallback to trafilatura
                 return self._scrape_with_trafilatura(url)
 
             # Open PDF from memory
@@ -422,7 +422,7 @@ class WebScraperTool(BaseTool):
             word_count = len(full_text.split())
 
             if not full_text:
-                logger.warning("⚠️ PDF: Kein Text extrahiert (möglicherweise Scan/Bild-PDF)")
+                logger.warning("⚠️ PDF: No text extracted (possibly scanned/image PDF)")
                 return {
                     'success': False,
                     'method': 'pdf',
@@ -430,8 +430,8 @@ class WebScraperTool(BaseTool):
                     'error': 'No text extracted (possibly scanned PDF)'
                 }
 
-            logger.info(f"  ✅ PDF: {word_count} Wörter, {page_count} Seiten")
-            log_message(f"  ✅ PDF: {word_count} Wörter extrahiert")
+            logger.info(f"  ✅ PDF: {word_count} words, {page_count} pages")
+            log_message(f"  ✅ PDF: {word_count} words extracted")
 
             return {
                 'success': True,
@@ -467,7 +467,7 @@ class WebScraperTool(BaseTool):
 
         except Exception as e:
             error_msg = str(e)[:100]
-            logger.error(f"❌ PDF-Fehler bei {url}: {error_msg}")
+            logger.error(f"❌ PDF error at {url}: {error_msg}")
             return {
                 'success': False,
                 'method': 'pdf',

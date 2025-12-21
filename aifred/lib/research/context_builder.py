@@ -86,16 +86,16 @@ async def build_and_generate_response(
     # DEBUG logging (can be removed in production)
     for i, result in enumerate(tool_results, 1):
         if result.get('success'):
-            log_message(f"  Quelle {i}: {result.get('word_count', 0)} Wörter von {result.get('url', 'N/A')[:50]}")
+            log_message(f"  Source {i}: {result.get('word_count', 0)} words from {result.get('url', 'N/A')[:50]}")
 
     if scraped_only:
         for i, src in enumerate(scraped_only[:3], 1):
             content_preview = src.get('content', '')[:200].replace('\n', ' ')
-            log_message(f"  📄 Quelle {i} Preview: {content_preview}...")
+            log_message(f"  📄 Source {i} Preview: {content_preview}...")
 
     # ============================================================
     # VRAM-AWARE Context Building (via context_utils.py)
-    # Berechne max verfügbaren Context BEVOR build_context() läuft
+    # Calculate max available context BEFORE build_context() runs
     # ============================================================
     max_rag_tokens, actual_reserve, max_ctx = await get_rag_context_budget(
         llm_client=llm_client,
@@ -106,19 +106,19 @@ async def build_and_generate_response(
         user_text=user_text
     )
 
-    # 6. Context mit dynamischem Limit bauen
+    # 6. Build context with dynamic limit
     context = build_context(user_text, scraped_only, max_context_tokens=max_rag_tokens)
 
     # Estimate tokens
     est_tokens = len(context) // CHARS_PER_TOKEN
-    log_message(f"📊 Context gebaut: ~{format_number(est_tokens)} tok")
+    log_message(f"📊 Context built: ~{format_number(est_tokens)} tok")
 
     # Show context preview
     if len(context) > 800:
         preview = context[:800] + "..."
-        log_message(f"📝 Context Preview (erste 800 Zeichen):\n{preview}")
+        log_message(f"📝 Context Preview (first 800 chars):\n{preview}")
 
-    # Spracherkennung für User-Text
+    # Language detection for user text
     from ..prompt_loader import detect_language
     detected_user_language = detect_language(user_text)
 
@@ -130,7 +130,7 @@ async def build_and_generate_response(
         context=context
     )
 
-    yield {"type": "debug", "message": "✅ System-Prompt erstellt"}
+    yield {"type": "debug", "message": "✅ System prompt created"}
 
     # Build messages with history
     messages = build_messages_from_history(history, user_text)
@@ -142,7 +142,7 @@ async def build_and_generate_response(
     for i, msg in enumerate(messages):
         role = msg['role']
         content_len = len(msg['content'])
-        log_message(f"  Message {i+1} ({role}): {content_len} Zeichen")
+        log_message(f"  Message {i+1} ({role}): {content_len} chars")
 
     # Count actual input tokens (using real tokenizer)
     input_tokens = estimate_tokens(messages, model_name=model_choice)
@@ -171,7 +171,7 @@ async def build_and_generate_response(
     model_limit, _ = await llm_client.get_model_context_limit(model_choice)
 
     # Show compact context info (like Automatik-LLM)
-    yield {"type": "debug", "message": f"📊 Haupt-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
+    yield {"type": "debug", "message": f"📊 Main-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
 
     # VRAM Warning: Check if VRAM change detected AND content doesn't fit
     vram_warning = llm_options.get('_vram_warning') if llm_options else None
@@ -181,9 +181,9 @@ async def build_and_generate_response(
         potential_tokens = vram_warning.get("potential_tokens")
 
         warning_msg = (
-            f"⚠️ VRAM-Änderung erkannt: {vram_diff:+.0f}MB zusätzlicher Speicher verfügbar!\n\n"
-            f"💡 **Empfehlung:** Gehe zu **Systemsteuerung → vLLM Neustart**, um das "
-            f"erweiterte Context-Fenster zu nutzen"
+            f"⚠️ VRAM change detected: {vram_diff:+.0f}MB additional memory available!\n\n"
+            f"💡 **Recommendation:** Go to **Control Panel → vLLM Restart** to use the "
+            f"extended context window"
         )
 
         if potential_tokens:
@@ -200,9 +200,9 @@ async def build_and_generate_response(
     # SAFEGUARD: Check if input already exceeds context limit
     if input_tokens > final_num_ctx:
         error_msg = (
-            f"❌ Eingabe zu groß: {format_number(input_tokens)} Tokens > "
-            f"Context-Limit {format_number(final_num_ctx)} Tokens\n"
-            f"   Bitte kürze deine Anfrage oder aktiviere 'Manual Context' mit höherem Wert."
+            f"❌ Input too large: {format_number(input_tokens)} Tokens > "
+            f"Context limit {format_number(final_num_ctx)} Tokens\n"
+            f"   Please shorten your request or enable 'Manual Context' with a higher value."
         )
         # Only yield - UI will handle logging via add_debug() which calls log_message()
         yield {"type": "debug", "message": error_msg}
@@ -219,7 +219,7 @@ async def build_and_generate_response(
         final_temperature = temperature
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
     else:
-        # Auto: Intent-Detection für RAG-Recherche (faktisch/gemischt/kreativ)
+        # Auto: Intent detection for RAG research (factual/mixed/creative)
         rag_intent = await detect_query_intent(
             user_query=user_text,
             automatik_model=automatik_model,
@@ -232,7 +232,7 @@ async def build_and_generate_response(
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
     # LLM Inference
-    yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
+    yield {"type": "debug", "message": f"🤖 Main-LLM starting: {model_choice}"}
     yield {"type": "progress", "phase": "llm"}
 
     # Calculate dynamic num_predict: Available output space after input tokens
@@ -288,14 +288,14 @@ async def build_and_generate_response(
         extracted = volatility_match.group(1).strip().upper()
         if extracted in TTL_HOURS:
             volatility = extracted
-            log_message(f"✅ Haupt-LLM Volatility: {volatility}")
+            log_message(f"✅ Main-LLM Volatility: {volatility}")
             yield {"type": "debug", "message": f"✅ Volatility: {volatility}"}
         else:
-            log_message(f"⚠️ Unbekannte Volatility '{extracted}', fallback zu DAILY")
-            yield {"type": "debug", "message": "⚠️ Unbekannte Volatility, fallback zu DAILY"}
+            log_message(f"⚠️ Unknown volatility '{extracted}', fallback to DAILY")
+            yield {"type": "debug", "message": "⚠️ Unknown volatility, fallback to DAILY"}
     else:
-        log_message("⚠️ Kein Volatility-Tag gefunden, fallback zu DAILY")
-        yield {"type": "debug", "message": "⚠️ Kein Volatility-Tag, fallback zu DAILY"}
+        log_message("⚠️ No volatility tag found, fallback to DAILY")
+        yield {"type": "debug", "message": "⚠️ No volatility tag, fallback to DAILY"}
 
     # Remove volatility tag from answer before displaying to user
     ai_text = re.sub(r'<volatility>.*?</volatility>', '', ai_text, flags=re.IGNORECASE | re.DOTALL).strip()
@@ -304,7 +304,7 @@ async def build_and_generate_response(
     # The thinking process is unnecessary overhead in the cache
     ai_text_for_cache = re.sub(r'<think>.*?</think>', '', ai_text, flags=re.IGNORECASE | re.DOTALL).strip()
 
-    # Separator nach LLM-Antwort-Block (Ende der Einheit)
+    # Separator after LLM response block (end of unit)
     from ..logging_utils import console_separator, CONSOLE_SEPARATOR
     console_separator()
     yield {"type": "debug", "message": CONSOLE_SEPARATOR}
@@ -324,18 +324,18 @@ async def build_and_generate_response(
 
     # Update history
     total_time = time.time() - agent_start
-    metadata = format_metadata(f"Inferenz: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Quelle: Web-Recherche")
+    metadata = format_metadata(f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Web Research")
 
     if stt_time > 0:
-        user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s    Agent: {mode}    {len(scraped_only)} Quellen")
+        user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s    Agent: {mode}    {len(scraped_only)} sources")
         user_with_time = f"{user_text}  \n{user_metadata}"
     else:
-        user_metadata = format_metadata(f"Agent: {mode}    {len(scraped_only)} Quellen")
+        user_metadata = format_metadata(f"Agent: {mode}    {len(scraped_only)} sources")
         user_with_time = f"{user_text}  \n{user_metadata}"
 
     history.append((user_with_time, thinking_html + "  \n" + metadata))
 
-    log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {format_number(inference_time, 1)}s)")
+    log_message(f"✅ AI response generated ({len(ai_text)} chars, inference: {format_number(inference_time, 1)}s)")
 
     # ============================================================
     # Vector DB Auto-Learning: Save successful research to cache with TTL
@@ -353,7 +353,7 @@ async def build_and_generate_response(
             failed_sources=failed_sources,  # URLs that couldn't be scraped
             metadata={
                 'mode': mode,
-                'volatility': volatility  # Haupt-LLM decision
+                'volatility': volatility  # Main-LLM decision
             }
         )
 
@@ -376,32 +376,32 @@ async def build_and_generate_response(
     except Exception as e:
         log_message(f"⚠️ Vector Cache auto-learning failed: {e}")
 
-    # Dezente VRAM-Info (nur wenn Content gepasst hat)
+    # Subtle VRAM info (only when content fits)
     if vram_warning and input_tokens <= final_num_ctx:
         vram_diff = vram_warning["vram_diff"]
         potential_tokens = vram_warning.get("potential_tokens")
 
-        info_msg = f"ℹ️ VRAM-Info: {vram_diff:+.0f}MB zusätzlicher Speicher erkannt"
+        info_msg = f"ℹ️ VRAM info: {vram_diff:+.0f}MB additional memory detected"
 
         if potential_tokens:
             info_msg += (
-                f" (Context-Potential: {format_number(vram_warning['current_tokens'])} → "
-                f"~{format_number(potential_tokens)} Tokens). "
+                f" (Context potential: {format_number(vram_warning['current_tokens'])} → "
+                f"~{format_number(potential_tokens)} tokens). "
             )
         else:
             info_msg += ". "
 
-        info_msg += "Für erweiterte Kapazität: Systemsteuerung → vLLM Neustart"
+        info_msg += "For extended capacity: Control Panel → vLLM Restart"
 
         log_message(info_msg)
         yield {"type": "debug", "message": info_msg}
 
-    # Separator nach Cache-Decision-Block (Ende der Einheit)
+    # Separator after cache decision block (end of unit)
     from ..logging_utils import console_separator, CONSOLE_SEPARATOR
     console_separator()
     yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
-    log_message(f"✅ Agent fertig: {format_number(total_time, 1)}s gesamt, {len(ai_text)} Zeichen")
+    log_message(f"✅ Agent done: {format_number(total_time, 1)}s total, {len(ai_text)} chars")
     log_message("=" * 60)
 
     # Clear progress

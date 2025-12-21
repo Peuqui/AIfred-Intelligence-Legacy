@@ -1,7 +1,7 @@
 """
 AIfred Intelligence - Shared Libraries
 
-Portiert von Gradio-Legacy für Reflex
+Ported from Gradio-Legacy for Reflex
 """
 
 from .logging_utils import (

@@ -70,8 +70,61 @@ def t(key: str) -> rx.Var:
         "aifred_restart_warning": "⚠️ AIfred-Neustart: Löscht ALLE Chats, Caches und Debug-Logs komplett!",
         "aifred_intelligence": "🎩 AIfred Intelligence",
         "subtitle": "AI at your service • Benannt nach Alfred (Großvater) und Wolfgang Alfred (Vater)",
+        # Input Controls (Phase 1)
+        "recording": "Aufnahme",
+        "camera": "Kamera",
+        "upload_image": "Bild hochladen",
+        "audio": "🎤 Audio",
+        "clear_all": "Alle löschen",
+        "transcription_edit": "Transkription bearbeiten:",
+        "text_edit": "✏️ Text editieren",
+        "text_direct": "🚀 Direkt senden",
+        "image_hint": "💡 Ziehe Bilder auf den Button oder klicke zum Auswählen",
+        "crop_tooltip": "Zuschneiden",
+        # Text Input (Phase 2)
+        "text_input_heading": "📝 Texteingabe",
+        "text_input_placeholder": "Schreibe hier deine Frage...",
+        "temperature_label": "🌡️ Temperature:",
+        "temp_mode_manual": "✋ Manual",
+        "temp_mode_auto": "🤖 Auto",
+        "temp_info_manual": "Slider-Wert wird verwendet",
+        "temp_info_auto": "Intent-Detection wählt optimale Temperature",
+        # TTS/STT Settings (Phase 3)
+        "tts_heading": "🔊 Sprachausgabe (TTS):",
+        "tts_engine_label": "Engine:",
+        "tts_engine_edge": "Edge TTS (Cloud)",
+        "tts_engine_piper": "Piper TTS (Offline)",
+        "tts_engine_espeak": "eSpeak (Roboter, Offline)",
+        "tts_voice_label": "Stimme:",
+        "tts_speed_label": "Tempo:",
+        "tts_autoplay_label": "Auto-Play:",
+        "stt_heading": "🎤 Spracheingabe (STT):",
+        "stt_model_label": "Modell:",
+        "stt_model_tiny": "tiny (39MB, schnell, englisch)",
+        "stt_model_base": "base (74MB, schneller, multilingual)",
+        "stt_model_small": "small (466MB, bessere Qualität, multilingual)",
+        "stt_model_medium": "medium (1.5GB, hohe Qualität, multilingual)",
+        "stt_model_large": "large-v3 (2.9GB, beste Qualität, multilingual)",
+        "tts_player_label": "Sprachausgabe",
+        "tts_regenerate_hint": "Klicke 'Neu generieren' um die letzte Antwort vorzulesen",
+        # Vision & Advanced Settings (Phase 4)
+        "thinking_mode_label": "🧠 Thinking Mode:",
+        "thinking_mode_info": "ℹ️ Chain-of-Thought Reasoning für komplexe Aufgaben",
+        "thinking_mode_unavailable": "⚠️ Nicht verfügbar für",
+        "yarn_heading": "📏 YaRN Context Extension:",
+        "yarn_factor_label": "Faktor:",
+        "yarn_autodetect_hint": "(auto-detect erst nach Start)",
+        "yarn_apply_button": "Apply YaRN",
+        "yarn_max_tested": "📏 Maximum: ~{factor}x (aus Test ermittelt)",
+        "yarn_max_unknown": "📏 Maximum: Unbekannt (wird beim Start getestet)",
+        "yarn_context_info": "ℹ️ Context-Limits werden beim ersten vLLM-Start automatisch erkannt",
+        # Image Crop Modal (Phase 5)
+        "crop_modal_title": "Bild zuschneiden",
+        "crop_modal_hint": "Ziehe die Ecken oder Kanten",
+        "crop_cancel": "Abbrechen",
+        "crop_apply": "Zuschneiden",
     }
-    
+
     en_text = {
         "voice_input": "🎙️ Voice Input",
         "audio_input_placeholder": "Audio Input (Microphone Recording)",
@@ -128,8 +181,61 @@ def t(key: str) -> rx.Var:
         "aifred_restart_warning": "⚠️ AIfred restart: Deletes ALL chats, caches and debug logs completely!",
         "aifred_intelligence": "🎩 AIfred Intelligence",
         "subtitle": "AI at your service • Named after Alfred (grandfather) and Wolfgang Alfred (father)",
+        # Input Controls (Phase 1)
+        "recording": "Recording",
+        "camera": "Camera",
+        "upload_image": "Upload Image",
+        "audio": "🎤 Audio",
+        "clear_all": "Clear All",
+        "transcription_edit": "Edit transcription:",
+        "text_edit": "✏️ Edit text",
+        "text_direct": "🚀 Send directly",
+        "image_hint": "💡 Drag images to the button or click to select",
+        "crop_tooltip": "Crop",
+        # Text Input (Phase 2)
+        "text_input_heading": "📝 Text Input",
+        "text_input_placeholder": "Write your question here...",
+        "temperature_label": "🌡️ Temperature:",
+        "temp_mode_manual": "✋ Manual",
+        "temp_mode_auto": "🤖 Auto",
+        "temp_info_manual": "Slider value is used",
+        "temp_info_auto": "Intent-Detection chooses optimal temperature",
+        # TTS/STT Settings (Phase 3)
+        "tts_heading": "🔊 Text-to-Speech (TTS):",
+        "tts_engine_label": "Engine:",
+        "tts_engine_edge": "Edge TTS (Cloud)",
+        "tts_engine_piper": "Piper TTS (Offline)",
+        "tts_engine_espeak": "eSpeak (Robot, Offline)",
+        "tts_voice_label": "Voice:",
+        "tts_speed_label": "Speed:",
+        "tts_autoplay_label": "Auto-Play:",
+        "stt_heading": "🎤 Speech-to-Text (STT):",
+        "stt_model_label": "Model:",
+        "stt_model_tiny": "tiny (39MB, fast, english)",
+        "stt_model_base": "base (74MB, faster, multilingual)",
+        "stt_model_small": "small (466MB, better quality, multilingual)",
+        "stt_model_medium": "medium (1.5GB, high quality, multilingual)",
+        "stt_model_large": "large-v3 (2.9GB, best quality, multilingual)",
+        "tts_player_label": "Text-to-Speech",
+        "tts_regenerate_hint": "Click 'Regenerate' to read the last response aloud",
+        # Vision & Advanced Settings (Phase 4)
+        "thinking_mode_label": "🧠 Thinking Mode:",
+        "thinking_mode_info": "ℹ️ Chain-of-Thought Reasoning for complex tasks",
+        "thinking_mode_unavailable": "⚠️ Not available for",
+        "yarn_heading": "📏 YaRN Context Extension:",
+        "yarn_factor_label": "Factor:",
+        "yarn_autodetect_hint": "(auto-detect after first start)",
+        "yarn_apply_button": "Apply YaRN",
+        "yarn_max_tested": "📏 Maximum: ~{factor}x (determined from test)",
+        "yarn_max_unknown": "📏 Maximum: Unknown (tested at startup)",
+        "yarn_context_info": "ℹ️ Context limits are auto-detected at first vLLM start",
+        # Image Crop Modal (Phase 5)
+        "crop_modal_title": "Crop Image",
+        "crop_modal_hint": "Drag corners or edges",
+        "crop_cancel": "Cancel",
+        "crop_apply": "Crop",
     }
-    
+
     return rx.cond(
         AIState.ui_language == "de",
         de_text.get(key, key),  # Fallback to key if not found
@@ -320,7 +426,7 @@ def image_upload_section() -> rx.Component:
             # Live Audio Recording Button (LEFTMOST - MediaRecorder)
             rx.button(
                 rx.icon("mic", size=20),
-                rx.text("Aufnahme", font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
+                rx.text(t("recording"), font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
                 id="recording-button",
                 size="4",
                 variant="soft",
@@ -336,7 +442,7 @@ def image_upload_section() -> rx.Component:
                 rx.upload(
                     rx.button(
                         rx.icon("camera", size=20),
-                        rx.text("Kamera", font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
+                        rx.text(t("camera"), font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
                         size="4",
                         variant="soft",
                         color_scheme="red",
@@ -357,7 +463,7 @@ def image_upload_section() -> rx.Component:
             rx.upload(
                 rx.button(
                     rx.icon("image", size=20),
-                    rx.text("Bild hochladen", font_size="16px"),
+                    rx.text(t("upload_image"), font_size="16px"),
                     size="4",
                     variant="soft",
                     color_scheme="red",
@@ -377,7 +483,7 @@ def image_upload_section() -> rx.Component:
             rx.upload(
                 rx.button(
                     rx.icon("file-audio", size=20),
-                    rx.text("🎤 Audio", font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
+                    rx.text(t("audio"), font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
                     size="4",
                     variant="soft",
                     color_scheme="blue",
@@ -410,7 +516,7 @@ def image_upload_section() -> rx.Component:
                 AIState.pending_images.length() > 0,
                 rx.button(
                     rx.icon("trash-2", size=20),
-                    rx.text("Alle löschen", font_size="16px"),
+                    rx.text(t("clear_all"), font_size="16px"),
                     size="4",
                     variant="soft",
                     color_scheme="red",
@@ -426,7 +532,7 @@ def image_upload_section() -> rx.Component:
 
         # Row 2: Transkription bearbeiten Toggle (direkt unter Aufnahme-Button)
         rx.hstack(
-            rx.text("Transkription bearbeiten:", font_size="11px", font_weight="500"),
+            rx.text(t("transcription_edit"), font_size="11px", font_weight="500"),
             rx.switch(
                 checked=AIState.show_transcription,
                 on_change=AIState.toggle_show_transcription,
@@ -435,8 +541,8 @@ def image_upload_section() -> rx.Component:
             rx.text(
                 rx.cond(
                     AIState.show_transcription,
-                    "✏️ Text editieren",
-                    "🚀 Direkt senden"
+                    t("text_edit"),
+                    t("text_direct")
                 ),
                 font_size="10px",
                 color=rx.cond(
@@ -453,7 +559,7 @@ def image_upload_section() -> rx.Component:
 
         # Row 3: Hint text - linksbündig
         rx.text(
-            "💡 Ziehe Bilder auf den Button oder klicke zum Auswählen",
+            t("image_hint"),
             font_size="11px",
             color=COLORS["text_muted"],
             width="100%",
@@ -486,7 +592,7 @@ def image_upload_section() -> rx.Component:
                             top="4px",
                             left="4px",
                             on_click=AIState.open_crop_modal(idx),
-                            title="Zuschneiden",
+                            title=t("crop_tooltip"),
                         ),
                         # Remove-Button (rechts oben) - größer für Touch
                         rx.icon_button(
@@ -524,19 +630,11 @@ def text_input_section() -> rx.Component:
 
         # Text Input
         rx.heading(
-            rx.cond(
-                AIState.ui_language == "de",
-                "📝 Texteingabe",
-                "📝 Text Input"
-            ),
+            t("text_input_heading"),
             size="2"
         ),
         rx.text_area(
-            placeholder=rx.cond(
-                AIState.ui_language == "de",
-                "Schreibe hier deine Frage...",
-                "Write your question here..."
-            ),
+            placeholder=t("text_input_placeholder"),
             value=AIState.current_user_input,
             on_change=AIState.set_user_input,
             width="100%",
@@ -579,7 +677,7 @@ def text_input_section() -> rx.Component:
                 # Slider
                 rx.vstack(
                     rx.hstack(
-                        rx.text("🌡️ Temperature:", font_weight="bold", font_size="12px"),
+                        rx.text(t("temperature_label"), font_weight="bold", font_size="12px"),
                         rx.text(
                             f"{AIState.temperature:.1f}",
                             font_size="11px",
@@ -603,8 +701,8 @@ def text_input_section() -> rx.Component:
                     rx.text(
                         rx.cond(
                             AIState.temperature_mode == "manual",
-                            "✋ Manual",
-                            "🤖 Auto"
+                            t("temp_mode_manual"),
+                            t("temp_mode_auto")
                         ),
                         font_weight="bold",
                         font_size="11px",
@@ -628,8 +726,8 @@ def text_input_section() -> rx.Component:
         rx.text(
             rx.cond(
                 AIState.temperature_mode == "manual",
-                rx.cond(AIState.ui_language == "de", "Slider-Wert wird verwendet", "Slider value is used"),
-                rx.cond(AIState.ui_language == "de", "Intent-Detection wählt optimale Temperature", "Intent-Detection chooses optimal temperature"),
+                t("temp_info_manual"),
+                t("temp_info_auto"),
             ),
             font_size="11px",
             color=COLORS["text_secondary"],
@@ -1810,7 +1908,7 @@ def settings_accordion() -> rx.Component:
                 rx.divider(margin_top="12px", margin_bottom="12px"),
                 rx.vstack(
                     rx.hstack(
-                        rx.text("🧠 Thinking Mode:", font_weight="bold", font_size="12px"),
+                        rx.text(t("thinking_mode_label"), font_weight="bold", font_size="12px"),
                         rx.switch(
                             checked=AIState.enable_thinking,
                             on_change=AIState.toggle_thinking_mode,
@@ -1833,7 +1931,7 @@ def settings_accordion() -> rx.Component:
                         align="center",
                     ),
                     rx.text(
-                        "ℹ️ Chain-of-Thought Reasoning für komplexe Aufgaben",
+                        t("thinking_mode_info"),
                         font_size="10px",
                         color="#999",
                         line_height="1.3",
@@ -1846,7 +1944,7 @@ def settings_accordion() -> rx.Component:
                     AIState.thinking_mode_warning != "",
                     rx.box(
                         rx.text(
-                            f"⚠️ Nicht verfügbar für {AIState.thinking_mode_warning}",
+                            t("thinking_mode_unavailable") + " " + AIState.thinking_mode_warning,
                             font_size="11px",
                             font_weight="bold",
                             color="#ff9800",
@@ -1867,7 +1965,7 @@ def settings_accordion() -> rx.Component:
                     rx.vstack(
                         rx.divider(margin="0px 0px 12px 0px"),
                         rx.hstack(
-                            rx.text("📏 YaRN Context Extension:", font_weight="bold", font_size="12px"),
+                            rx.text(t("yarn_heading"), font_weight="bold", font_size="12px"),
                             rx.switch(
                                 checked=AIState.enable_yarn,
                                 on_change=AIState.toggle_yarn,
@@ -1893,7 +1991,7 @@ def settings_accordion() -> rx.Component:
                             AIState.enable_yarn,
                             rx.vstack(
                                 rx.hstack(
-                                    rx.text("Faktor:", font_size="11px", font_weight="500"),
+                                    rx.text(t("yarn_factor_label"), font_size="11px", font_weight="500"),
                                     rx.input(
                                         value=AIState.yarn_factor_input,
                                         on_change=AIState.set_yarn_factor_input,
@@ -1908,13 +2006,13 @@ def settings_accordion() -> rx.Component:
                                         rx.cond(
                                             AIState.vllm_max_tokens > 0,
                                             f"(~{(AIState.vllm_max_tokens * AIState.yarn_factor).to(int)} tokens)",
-                                            "(auto-detect erst nach Start)"
+                                            t("yarn_autodetect_hint")
                                         ),
                                         font_size="10px",
                                         color="#999",
                                     ),
                                     rx.button(
-                                        "Apply YaRN",
+                                        t("yarn_apply_button"),
                                         on_click=AIState.apply_yarn_factor,
                                         size="1",
                                         variant="soft",
@@ -1928,7 +2026,7 @@ def settings_accordion() -> rx.Component:
                                     AIState.yarn_max_tested,
                                     # Maximum was tested (from VRAM crash)
                                     rx.text(
-                                        f"📏 Maximum: ~{AIState.yarn_max_factor:.1f}x (aus Test ermittelt)",
+                                        "📏 Maximum: ~" + AIState.yarn_max_factor.to(str) + "x",
                                         font_size="10px",
                                         color="#ff9800",  # Orange for better visibility
                                         font_weight="500",
@@ -1936,7 +2034,7 @@ def settings_accordion() -> rx.Component:
                                     ),
                                     # Maximum unknown (not tested yet)
                                     rx.text(
-                                        "📏 Maximum: Unbekannt (wird beim Start getestet)",
+                                        t("yarn_max_unknown"),
                                         font_size="10px",
                                         color="#999",  # Gray for unknown
                                         font_weight="400",
@@ -1950,13 +2048,13 @@ def settings_accordion() -> rx.Component:
                         rx.cond(
                             AIState.vllm_max_tokens > 0,
                             rx.text(
-                                f"ℹ️ Modell: {(AIState.vllm_native_context / 1000).to(int)}K nativ | HW-Limit: {(AIState.vllm_max_tokens / 1000).to(int)}K. Benötigt Backend-Neustart!",
+                                "ℹ️ " + (AIState.vllm_native_context / 1000).to(int).to(str) + "K nativ | HW: " + (AIState.vllm_max_tokens / 1000).to(int).to(str) + "K",
                                 font_size="10px",
                                 color="#999",
                                 line_height="1.3",
                             ),
                             rx.text(
-                                "ℹ️ Context-Limits werden beim ersten vLLM-Start automatisch erkannt",
+                                t("yarn_context_info"),
                                 font_size="10px",
                                 color="#999",
                                 line_height="1.3",
@@ -1974,7 +2072,7 @@ def settings_accordion() -> rx.Component:
                 # TTS (Text-to-Speech) Section
                 rx.vstack(
                     rx.hstack(
-                        rx.text("🔊 Sprachausgabe (TTS):", font_weight="bold", font_size="12px"),
+                        rx.text(t("tts_heading"), font_weight="bold", font_size="12px"),
                         rx.switch(
                             checked=AIState.enable_tts,
                             on_change=AIState.toggle_tts,
@@ -2001,7 +2099,7 @@ def settings_accordion() -> rx.Component:
                         rx.vstack(
                             # TTS Engine Selection
                             rx.hstack(
-                                rx.text("Engine:", font_size="11px", font_weight="500", width="80px"),
+                                rx.text(t("tts_engine_label"), font_size="11px", font_weight="500", width="80px"),
                                 rx.cond(
                                     AIState.is_mobile,
                                     # Mobile: Native select
@@ -2024,7 +2122,7 @@ def settings_accordion() -> rx.Component:
                             ),
                             # Voice Selection (dynamic based on engine)
                             rx.hstack(
-                                rx.text("Stimme:", font_size="11px", font_weight="500", width="80px"),
+                                rx.text(t("tts_voice_label"), font_size="11px", font_weight="500", width="80px"),
                                 rx.cond(
                                     AIState.is_mobile,
                                     # Mobile: Native select
@@ -2047,7 +2145,7 @@ def settings_accordion() -> rx.Component:
                             ),
                             # Playback Speed Selection (browser playback rate, persisted)
                             rx.hstack(
-                                rx.text("Tempo:", font_size="11px", font_weight="500", width="80px"),
+                                rx.text(t("tts_speed_label"), font_size="11px", font_weight="500", width="80px"),
                                 rx.cond(
                                     AIState.is_mobile,
                                     # Mobile: Native select
@@ -2070,7 +2168,7 @@ def settings_accordion() -> rx.Component:
                             ),
                             # Auto-Play Toggle
                             rx.hstack(
-                                rx.text("Auto-Play:", font_size="11px", font_weight="500", width="80px"),
+                                rx.text(t("tts_autoplay_label"), font_size="11px", font_weight="500", width="80px"),
                                 rx.switch(
                                     checked=AIState.tts_autoplay,
                                     on_change=AIState.toggle_tts_autoplay,
@@ -2105,21 +2203,21 @@ def settings_accordion() -> rx.Component:
                 # STT (Speech-to-Text) Section
                 rx.divider(margin_top="12px", margin_bottom="12px"),
                 rx.vstack(
-                    rx.text("🎤 Spracheingabe (STT):", font_weight="bold", font_size="12px"),
+                    rx.text(t("stt_heading"), font_weight="bold", font_size="12px"),
                     # Whisper Model Selection
                     rx.hstack(
-                        rx.text("Modell:", font_size="11px", font_weight="500", width="80px"),
+                        rx.text(t("stt_model_label"), font_size="11px", font_weight="500", width="80px"),
                         rx.cond(
                             AIState.is_mobile,
                             # Mobile: Native select
                             native_select_stt(
                                 AIState.whisper_model_name,
                                 AIState.set_whisper_model,
-                                ["tiny (39MB, schnell, englisch)", "base (74MB, schneller, multilingual)", "small (466MB, bessere Qualität, multilingual)", "medium (1.5GB, hohe Qualität, multilingual)", "large-v3 (2.9GB, beste Qualität, multilingual)"],
+                                [t("stt_model_tiny"), t("stt_model_base"), t("stt_model_small"), t("stt_model_medium"), t("stt_model_large")],
                             ),
                             # Desktop: Radix UI select
                             rx.select(
-                                ["tiny (39MB, schnell, englisch)", "base (74MB, schneller, multilingual)", "small (466MB, bessere Qualität, multilingual)", "medium (1.5GB, hohe Qualität, multilingual)", "large-v3 (2.9GB, beste Qualität, multilingual)"],
+                                [t("stt_model_tiny"), t("stt_model_base"), t("stt_model_small"), t("stt_model_medium"), t("stt_model_large")],
                                 value=AIState.whisper_model_name,
                                 on_change=AIState.set_whisper_model,
                                 size="2",
@@ -2335,7 +2433,7 @@ def crop_modal() -> rx.Component:
                 # Header
                 rx.hstack(
                     rx.icon("crop", size=20, color="white"),
-                    rx.text("Bild zuschneiden", color="white", font_weight="bold"),
+                    rx.text(t("crop_modal_title"), color="white", font_weight="bold"),
                     spacing="2",
                     align="center",
                 ),
@@ -2378,7 +2476,7 @@ def crop_modal() -> rx.Component:
 
                 # Info-Text
                 rx.text(
-                    "Ziehe die Ecken oder Kanten",
+                    t("crop_modal_hint"),
                     font_size="12px",
                     color="#888",
                     text_align="center",
@@ -2387,7 +2485,7 @@ def crop_modal() -> rx.Component:
                 # Buttons
                 rx.hstack(
                     rx.button(
-                        "Abbrechen",
+                        t("crop_cancel"),
                         on_click=AIState.cancel_crop,
                         variant="soft",
                         color_scheme="gray",
@@ -2396,7 +2494,7 @@ def crop_modal() -> rx.Component:
                     rx.button(
                         rx.hstack(
                             rx.icon("check", size=16),
-                            rx.text("Zuschneiden"),
+                            rx.text(t("crop_apply")),
                             spacing="1",
                         ),
                         on_click=rx.call_script(
@@ -3008,7 +3106,7 @@ console.log('✂️ Crop handler loaded');
                 rx.box(
                     rx.hstack(
                         rx.text("🔊", font_size="18px"),
-                        rx.text("Sprachausgabe", font_weight="bold", font_size="13px", color=COLORS["accent_blue"]),
+                        rx.text(t("tts_player_label"), font_weight="bold", font_size="13px", color=COLORS["accent_blue"]),
                         rx.spacer(),
                         # Regenerate TTS Button - re-synthesize with current voice settings
                         rx.button(
@@ -3035,7 +3133,7 @@ console.log('✂️ Crop handler loaded');
                         ),
                         # Placeholder when no audio yet - shows hint
                         rx.text(
-                            "Klicke 'Neu generieren' um die letzte Antwort vorzulesen",
+                            t("tts_regenerate_hint"),
                             font_size="11px",
                             color="#888",
                             margin_top="8px",

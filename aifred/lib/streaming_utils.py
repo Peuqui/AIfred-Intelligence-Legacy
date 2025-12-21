@@ -122,7 +122,7 @@ async def stream_llm_response(
 def log_llm_completion(
     inference_time: float,
     metrics: Dict[str, Any],
-    prefix: str = "Haupt-LLM"
+    prefix: str = "Main-LLM"
 ) -> Dict[str, Any]:
     """
     Create debug message for LLM completion.
@@ -130,7 +130,7 @@ def log_llm_completion(
     Args:
         inference_time: Total inference time in seconds
         metrics: Metrics dict from stream_result
-        prefix: Label prefix (e.g., "Haupt-LLM", "Cache-Hit")
+        prefix: Label prefix (e.g., "Main-LLM", "Cache-Hit")
 
     Returns:
         Debug chunk dict ready to yield
@@ -142,7 +142,7 @@ def log_llm_completion(
     tokens_per_sec = metrics.get("tokens_per_second", 0)
 
     message = (
-        f"✅ {prefix} fertig "
+        f"✅ {prefix} done "
         f"({format_number(inference_time, 1)}s, "
         f"{format_number(tokens_generated)} tok, "
         f"{format_number(tokens_per_sec, 1)} tok/s)"

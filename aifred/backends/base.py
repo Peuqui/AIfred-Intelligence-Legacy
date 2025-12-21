@@ -196,17 +196,17 @@ class LLMBackend(ABC):
         Preload a model into VRAM by sending a minimal request.
         This warms up the model so future requests are faster.
 
-        WICHTIG für Ollama Multi-GPU:
-        num_ctx MUSS beim Preload übergeben werden, damit Ollama das Modell
-        mit dem korrekten KV-Cache lädt und ggf. auf mehrere GPUs verteilt.
+        IMPORTANT for Ollama Multi-GPU:
+        num_ctx MUST be passed during preload so Ollama loads the model
+        with the correct KV-Cache and distributes across multiple GPUs if needed.
 
-        Korrekte Reihenfolge (siehe prepare_main_llm() in context_manager.py):
-        1. calculate_practical_context() oder calculate_dynamic_num_ctx() → num_ctx
-        2. preload_model(model, num_ctx=num_ctx) → Modell mit KV-Cache laden
+        Correct order (see prepare_main_llm() in context_manager.py):
+        1. calculate_practical_context() or calculate_dynamic_num_ctx() → num_ctx
+        2. preload_model(model, num_ctx=num_ctx) → Load model with KV-Cache
 
         Args:
             model: Model name to preload
-            num_ctx: Optional context size for KV-cache allocation (Ollama-spezifisch)
+            num_ctx: Optional context size for KV-cache allocation (Ollama-specific)
 
         Returns:
             Tuple of (success: bool, load_time: float in seconds)

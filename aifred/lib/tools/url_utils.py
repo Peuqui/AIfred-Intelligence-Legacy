@@ -18,35 +18,35 @@ logger = logging.getLogger(__name__)
 
 def normalize_url(url: str) -> str:
     """
-    Normalisiert URL für Deduplizierung
+    Normalize URL for deduplication
 
-    Behandelt:
+    Handles:
     - www. vs non-www
     - http vs https
     - Trailing slashes
     - URL fragments (#)
-    - Query parameters (?) [optional - aktuell NICHT entfernt!]
+    - Query parameters (?) [optional - currently NOT removed!]
 
     Args:
-        url: URL zum Normalisieren
+        url: URL to normalize
 
     Returns:
-        Normalisierte URL
+        Normalized URL
     """
     try:
         parsed = urlparse(url.lower().strip())
 
-        # Normalisiere Domain (entferne www.)
+        # Normalize domain (remove www.)
         domain = parsed.netloc.replace('www.', '')
 
-        # Normalisiere Path (entferne trailing slash)
+        # Normalize path (remove trailing slash)
         path = parsed.path.rstrip('/')
 
-        # Behalte Query-Params (können wichtig sein, z.B. ?id=123)
-        # Ignoriere Fragments (# Anker)
+        # Keep query params (can be important, e.g., ?id=123)
+        # Ignore fragments (# anchors)
         query = parsed.query
 
-        # Baue normalisierte URL
+        # Build normalized URL
         normalized = f"{domain}{path}"
         if query:
             normalized += f"?{query}"
@@ -54,24 +54,24 @@ def normalize_url(url: str) -> str:
         return normalized
 
     except Exception as e:
-        logger.warning(f"⚠️ URL-Normalisierung fehlgeschlagen für {url}: {e}")
-        return url  # Fallback: Original-URL
+        logger.warning(f"⚠️ URL normalization failed for {url}: {e}")
+        return url  # Fallback: Original URL
 
 
 def deduplicate_urls(urls: List[str]) -> List[str]:
     """
-    Entfernt doppelte URLs aus Liste
+    Remove duplicate URLs from list
 
-    Nutzt Normalisierung um auch ähnliche URLs zu erkennen:
+    Uses normalization to also detect similar URLs:
     - https://www.example.com/path/
     - https://example.com/path
-    → Beide zählen als gleich!
+    → Both count as equal!
 
     Args:
-        urls: Liste von URL-Strings
+        urls: List of URL strings
 
     Returns:
-        Deduplizierte Liste (behält Reihenfolge)
+        Deduplicated list (preserves order)
     """
     seen = set()
     unique = []
@@ -81,10 +81,10 @@ def deduplicate_urls(urls: List[str]) -> List[str]:
 
         if normalized not in seen:
             seen.add(normalized)
-            unique.append(url)  # Original-URL behalten, nicht normalisierte!
+            unique.append(url)  # Keep original URL, not normalized!
 
     duplicates_removed = len(urls) - len(unique)
     if duplicates_removed > 0:
-        logger.info(f"🔄 Deduplizierung: {len(urls)} URLs → {len(unique)} unique ({duplicates_removed} Duplikate entfernt)")
+        logger.info(f"🔄 Deduplication: {len(urls)} URLs → {len(unique)} unique ({duplicates_removed} duplicates removed)")
 
     return unique

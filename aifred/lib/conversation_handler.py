@@ -97,7 +97,7 @@ async def _process_single_image_vision(
     from ..backends.base import LLMMessage
 
     img_name = image.get("name", f"image_{image_index + 1}")
-    log_message(f"📷 [{image_index + 1}] Verarbeite: {img_name}")
+    log_message(f"📷 [{image_index + 1}] Processing: {img_name}")
 
     # Build content parts for single image
     content_parts = []
@@ -154,7 +154,7 @@ async def _process_single_image_vision(
                 metrics = chunk.get("metrics", {})
 
         elapsed = time.time() - start_time
-        log_message(f"✅ [{image_index + 1}] {img_name} fertig ({elapsed:.1f}s)")
+        log_message(f"✅ [{image_index + 1}] {img_name} done ({elapsed:.1f}s)")
 
         # Try to parse JSON
         try:
@@ -188,7 +188,7 @@ async def _process_single_image_vision(
 
     except Exception as e:
         elapsed = time.time() - start_time
-        log_message(f"❌ [{image_index + 1}] {img_name} Fehler: {e}")
+        log_message(f"❌ [{image_index + 1}] {img_name} Error: {e}")
         return {
             "success": False,
             "json": None,
@@ -202,13 +202,13 @@ async def _process_single_image_vision(
 
 def _html_table_to_markdown(html_content: str) -> str:
     """
-    Konvertiert HTML-Tabelle zu Markdown (Fallback für Modelle wie DeepSeek-OCR).
+    Convert HTML table to Markdown (fallback for models like DeepSeek-OCR).
 
     Args:
-        html_content: HTML-String mit <table> Tags
+        html_content: HTML string with <table> tags
 
     Returns:
-        Markdown-formatierte Tabelle
+        Markdown-formatted table
     """
     from html.parser import HTMLParser
 
@@ -253,11 +253,11 @@ def _html_table_to_markdown(html_content: str) -> str:
     if not parser.rows or len(parser.rows) < 2:
         raise ValueError("No valid HTML table found")
 
-    # Erste Zeile als Header
+    # First row as header
     headers = parser.rows[0]
     data_rows = parser.rows[1:]
 
-    # Baue Markdown-Tabelle
+    # Build Markdown table
     markdown = "| " + " | ".join(headers) + " |\n"
     markdown += "| " + " | ".join(["---"] * len(headers)) + " |\n"
 
@@ -271,13 +271,13 @@ def _html_table_to_markdown(html_content: str) -> str:
 
 def _sanitize_json_string(json_str: str) -> str:
     """
-    Entfernt ungültige JSON-Kommentare (// ...) die manche Vision-LLMs hinzufügen.
+    Remove invalid JSON comments (// ...) that some Vision-LLMs add.
 
     Args:
-        json_str: JSON-String möglicherweise mit Kommentaren
+        json_str: JSON string possibly containing comments
 
     Returns:
-        Bereinigter JSON-String ohne Kommentare
+        Sanitized JSON string without comments
     """
     # Remove single-line comments (// ...) but preserve URLs (http://, https://)
     # Use negative lookbehind to avoid removing // in URLs
@@ -287,39 +287,39 @@ def _sanitize_json_string(json_str: str) -> str:
 
 def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
     """
-    Konvertiert geparsten JSON in menschenlesbaren Text und gibt korrigiertes JSON zurück.
+    Convert parsed JSON to human-readable text and return corrected JSON.
 
     Args:
-        parsed_json: Geparster JSON vom Vision-LLM (evtl. mit Fehlern)
-        lang: Sprache ("de" oder "en")
+        parsed_json: Parsed JSON from Vision-LLM (possibly with errors)
+        lang: Language ("de" or "en")
 
     Returns:
         Tuple of (readable_text, corrected_json)
-        - readable_text: Lesbarer Markdown-formatierter Text
-        - corrected_json: Korrigiertes JSON (mit Fehlerkorrekturen)
+        - readable_text: Human-readable Markdown-formatted text
+        - corrected_json: Corrected JSON (with error corrections)
     """
     # Create a copy to avoid modifying the original
     corrected_json = parsed_json.copy()
     doc_type = corrected_json.get("type", "unknown")
 
     if doc_type == "table":
-        # Tabelle → Markdown Table
+        # Table → Markdown Table
         columns = corrected_json.get("columns", [])
         rows = corrected_json.get("rows", [])
 
-        # FEHLERKORREKTUR: Ministral-3 packt manchmal ALLES in "columns" als nested array
+        # ERROR CORRECTION: Ministral-3 sometimes packs EVERYTHING in "columns" as nested array
         # Format 1: {"columns": [["H1", "H2"]], "rows": [[...]]}  → len == 1
         # Format 2: {"columns": [["H1", "H2"], ["R1C1", "R1C2"], ...], "rows": [...]} → len > 1
         if columns and isinstance(columns[0], list):
             if len(columns) == 1:
-                # Nur Header in nested array, rows separat
+                # Only header in nested array, rows separate
                 columns = columns[0]
-                log_message("⚠️ Vision-LLM Format-Fehler: columns ist nested array (len=1). Korrigiert.")
+                log_message("⚠️ Vision-LLM format error: columns is nested array (len=1). Corrected.")
             else:
-                # Header + Daten in columns, ignoriere rows (wahrscheinlich leer oder alt)
-                rows = columns[1:]  # Rest sind die echten rows
-                columns = columns[0]  # Erstes Element ist Header
-                log_message(f"⚠️ Vision-LLM Format-Fehler: columns enthält {len(columns)-1} rows. Korrigiert.")
+                # Header + data in columns, ignore rows (probably empty or old)
+                rows = columns[1:]  # Rest are the actual rows
+                columns = columns[0]  # First element is header
+                log_message(f"⚠️ Vision-LLM format error: columns contains {len(columns)-1} rows. Corrected.")
 
             # Update corrected_json with fixed structure
             corrected_json["columns"] = columns
@@ -328,23 +328,23 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
         if not columns:
             return ("⚠️ Leere Tabelle" if lang == "de" else "⚠️ Empty table", corrected_json)
 
-        # Falls rows leer ist, aber columns nested ist
+        # If rows is empty but columns is nested
         if not rows and columns:
             return ("⚠️ Tabelle ohne Daten" if lang == "de" else "⚠️ Table without data", corrected_json)
 
-        # Markdown-Tabelle erstellen
+        # Create Markdown table
         table = "| " + " | ".join(str(col) for col in columns) + " |\n"
         table += "| " + " | ".join(["---"] * len(columns)) + " |\n"
 
         for row in rows:
-            # Sicherstellen, dass row die gleiche Länge wie columns hat
+            # Ensure row has the same length as columns
             row_padded = row + [""] * (len(columns) - len(row))
             table += "| " + " | ".join(str(cell) for cell in row_padded[:len(columns)]) + " |\n"
 
         return (table, corrected_json)
 
     elif doc_type == "list":
-        # Liste → Markdown List
+        # List → Markdown List
         items = corrected_json.get("items", [])
         if not items:
             return ("⚠️ Leere Liste" if lang == "de" else "⚠️ Empty list", corrected_json)
@@ -352,7 +352,7 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
         return ("\n".join(f"- {item}" for item in items), corrected_json)
 
     elif doc_type == "form":
-        # Formular → Key-Value Liste (mit Unterfelder-Unterstützung)
+        # Form → Key-Value list (with subfield support)
         fields = corrected_json.get("fields", [])
         if not fields:
             return ("⚠️ Leeres Formular" if lang == "de" else "⚠️ Empty form", corrected_json)
@@ -365,29 +365,29 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
             subfields = field.get('subfields', []) or field.get('fields', [])
 
             if subfields:
-                # Feld hat Unterfelder → Rekursiv verarbeiten
+                # Field has subfields → Process recursively
                 result.append(f"**{label}**")
                 for subfield in subfields:
                     sub_label = subfield.get('label', '')
                     sub_value = subfield.get('value', '')
                     result.append(f"  - {sub_label} {sub_value}")
             else:
-                # Normales Key-Value Feld
+                # Normal Key-Value field
                 result.append(f"**{label}:** {value}")
 
         return ("\n".join(result), corrected_json)
 
     elif doc_type == "text":
-        # Reiner Text - Newlines zu Markdown-Zeilenumbrüchen (2 Leerzeichen + \n)
+        # Plain text - Newlines to Markdown line breaks (2 spaces + \n)
         content = corrected_json.get("content", "")
-        # In Markdown wird \n ignoriert - "  \n" macht harten Zeilenumbruch ohne Absatzabstand
+        # In Markdown \n is ignored - "  \n" creates hard line break without paragraph spacing
         if content:
-            content = re.sub(r'\n{2,}', '\n\n', content)  # Mehrfache Newlines → ein Absatz
+            content = re.sub(r'\n{2,}', '\n\n', content)  # Multiple newlines → one paragraph
             content = re.sub(r'(?<!\n)\n(?!\n)', '  \n', content)  # Single \n → Markdown line break
         return (content, corrected_json)
 
     elif doc_type == "mixed" or doc_type == "document":
-        # Gemischtes/Vollständiges Dokument → rekursiv verarbeiten alle Sections
+        # Mixed/complete document → recursively process all sections
         sections = corrected_json.get("sections", [])
         if not sections:
             return ("⚠️ Leeres Dokument" if lang == "de" else "⚠️ Empty document", corrected_json)
@@ -399,12 +399,12 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
                 result.append(f"## {heading}\n")
             readable_text, _ = _json_to_readable(section, lang)  # Recursive call
             result.append(readable_text)
-            result.append("")  # Leerzeile zwischen Sections
+            result.append("")  # Empty line between sections
 
         return ("\n".join(result), corrected_json)
 
     elif doc_type == "multi_image":
-        # Multi-Image Analyse → Jedes Bild einzeln formatieren
+        # Multi-Image analysis → Format each image individually
         images = corrected_json.get("images", [])
         if not images:
             return ("⚠️ Keine Bilder analysiert" if lang == "de" else "⚠️ No images analyzed", corrected_json)
@@ -415,13 +415,13 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
             description = img.get("description", "")
             content = img.get("content", {})
 
-            # Header für jedes Bild
+            # Header for each image
             header = f"📷 **Bild {img_index}**" if lang == "de" else f"📷 **Image {img_index}**"
             if description:
                 header += f": {description}"
             result.append(header)
 
-            # Content rekursiv verarbeiten
+            # Process content recursively
             if isinstance(content, dict):
                 readable_text, _ = _json_to_readable(content, lang)
                 if readable_text and readable_text.strip():
@@ -429,48 +429,48 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
             elif isinstance(content, str) and content.strip():
                 result.append(content)
 
-            result.append("")  # Leerzeile zwischen Bildern
+            result.append("")  # Empty line between images
 
         return ("\n".join(result).strip(), corrected_json)
 
     else:
-        # Universeller Fallback: Versuche Inhalt aus bekannten Feldern zu extrahieren
-        # Das ermöglicht Vision-LLMs kreative/unbekannte Typen zu verwenden
+        # Universal fallback: Try to extract content from known fields
+        # This allows Vision-LLMs to use creative/unknown types
         result_parts = []
 
-        # Helper für Newline-Konvertierung (Markdown: "  \n" = harter Zeilenumbruch)
+        # Helper for newline conversion (Markdown: "  \n" = hard line break)
         def _fix_newlines(text: str) -> str:
-            text = re.sub(r'\n{2,}', '\n\n', text)  # Mehrfache Newlines → ein Absatz
+            text = re.sub(r'\n{2,}', '\n\n', text)  # Multiple newlines → one paragraph
             text = re.sub(r'(?<!\n)\n(?!\n)', '  \n', text)  # Single \n → Markdown line break
             return text
 
-        # Versuche "content" (häufigstes Feld)
+        # Try "content" (most common field)
         content = corrected_json.get("content")
         if content:
             if isinstance(content, dict):
-                # Nested content (z.B. {"description": "..."})
+                # Nested content (e.g., {"description": "..."})
                 for key, value in content.items():
                     if isinstance(value, str) and value.strip():
                         result_parts.append(_fix_newlines(value))
             elif isinstance(content, str) and content.strip():
                 result_parts.append(_fix_newlines(content))
 
-        # Versuche "description"
+        # Try "description"
         description = corrected_json.get("description")
         if description and isinstance(description, str) and description.strip():
             result_parts.append(_fix_newlines(description))
 
-        # Versuche "text"
+        # Try "text"
         text = corrected_json.get("text")
         if text and isinstance(text, str) and text.strip():
             result_parts.append(_fix_newlines(text))
 
-        # Versuche "items" (Liste)
+        # Try "items" (list)
         items = corrected_json.get("items")
         if items and isinstance(items, list):
             result_parts.append("\n".join(f"- {item}" for item in items if item))
 
-        # Versuche "sections" rekursiv
+        # Try "sections" recursively
         sections = corrected_json.get("sections")
         if sections and isinstance(sections, list):
             for section in sections:
@@ -482,7 +482,7 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
         if result_parts:
             return ("\n\n".join(result_parts), corrected_json)
 
-        # Letzter Fallback: JSON als String zurückgeben
+        # Last fallback: Return JSON as string
         return (json.dumps(corrected_json, indent=2, ensure_ascii=False), corrected_json)
 
 
@@ -490,7 +490,7 @@ async def chat_with_vision_pipeline(
     user_text: str,
     images: List[Dict[str, str]],
     vision_model: str,
-    haupt_model: str,
+    main_model: str,
     backend_type: str = "ollama",
     backend_url: Optional[str] = None,
     num_ctx_mode: str = "auto_vram",
@@ -499,19 +499,19 @@ async def chat_with_vision_pipeline(
     state=None  # AIState object (for Automatik routing if user_text present)
 ) -> AsyncIterator[Dict]:
     """
-    3-Model Architecture: Vision-LLM extracts structured data, Haupt-LLM optionally formats it.
+    3-Model Architecture: Vision-LLM extracts structured data, Main-LLM optionally formats it.
 
     Pipeline:
     1. Vision-LLM analyzes image(s) with OCR system prompt → JSON output
     2. If user query contains formatting keywords ("formatiere", "tabelle", "markdown", etc.):
-       → Haupt-LLM post-processes JSON → formatted output
+       → Main-LLM post-processes JSON → formatted output
     3. Otherwise: Return JSON directly
 
     Args:
         user_text: User query text
         images: List of image dicts with "name" and "base64" keys
         vision_model: Vision-LLM model name (e.g., "qwen3-vl:8b")
-        haupt_model: Main LLM for post-processing (e.g., "qwen3:30b")
+        main_model: Main LLM for post-processing (e.g., "qwen3:30b")
         backend_type: "ollama", "koboldcpp", "vllm", "tabbyapi"
         backend_url: Backend URL (optional, uses default if None)
         num_ctx_mode: "auto_vram", "auto_dynamic", "manual"
@@ -524,7 +524,7 @@ async def chat_with_vision_pipeline(
     from .prompt_loader import detect_language, get_language
 
     # === DEBUG: Log entry point with image count ===
-    log_message(f"🚀 Vision Pipeline gestartet: {len(images)} Bild(er)")
+    log_message(f"🚀 Vision Pipeline started: {len(images)} image(s)")
     for i, img in enumerate(images):
         img_name = img.get("name", "unknown")
         img_size = len(img.get("base64", "")) // 1024  # KB
@@ -560,11 +560,11 @@ async def chat_with_vision_pipeline(
     if not lang:
         lang = "de"
 
-    # Bildnamen für Anzeige sammeln
-    image_names = ", ".join([img.get("name", "unbekannt") for img in images])
-    log_message(f"📷 Analysiere Bilder: {image_names}")
+    # Collect image names for display
+    image_names = ", ".join([img.get("name", "unknown") for img in images])
+    log_message(f"📷 Analyzing images: {image_names}")
 
-    # === PHASE 1: Vision-LLM OCR-Extraktion ===
+    # === PHASE 1: Vision-LLM OCR extraction ===
     # Note: Status message now shown in state.py for immediate feedback
 
     # === Get model capabilities (chat template + context window) in single API call ===
@@ -635,7 +635,7 @@ async def chat_with_vision_pipeline(
     model_limit = intrinsic_num_ctx or 131072
 
     # CRITICAL: Minimum for Vision (image embedding needs at least this)
-    from .config import VISION_MINIMUM_CONTEXT  # Zentrale Konstante
+    from .config import VISION_MINIMUM_CONTEXT  # Central constant
 
     if vram_num_ctx < VISION_MINIMUM_CONTEXT:
         msg = f"⚠️ VRAM context {vram_num_ctx} too small for Vision → Using minimum {VISION_MINIMUM_CONTEXT} tokens"
@@ -650,7 +650,7 @@ async def chat_with_vision_pipeline(
 
     # Log detailed calculation (same style as Main-LLM)
     ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok"
-    ctx_msg2 = f"   (benötigt: {format_number(needed_tokens)}, VRAM-max: {format_number(vram_num_ctx)}, Model-max: {format_number(model_limit)})"
+    ctx_msg2 = f"   (needed: {format_number(needed_tokens)}, VRAM-max: {format_number(vram_num_ctx)}, Model-max: {format_number(model_limit)})"
     yield {"type": "debug", "message": ctx_msg1}
     yield {"type": "debug", "message": ctx_msg2}
 
@@ -695,11 +695,11 @@ async def chat_with_vision_pipeline(
             parsed_json = result["json"]
             vision_time = result["time"]
 
-            log_message(f"✅ JSON erfolgreich geparst: {parsed_json.get('type', 'unknown')} ({vision_time:.1f}s)")
+            log_message(f"✅ JSON successfully parsed: {parsed_json.get('type', 'unknown')} ({vision_time:.1f}s)")
 
             human_readable, corrected_json = _json_to_readable(parsed_json, lang)
 
-            yield {"type": "thinking", "content": json.dumps(corrected_json, indent=2, ensure_ascii=False), "label": "📊 Strukturierte Daten"}
+            yield {"type": "thinking", "content": json.dumps(corrected_json, indent=2, ensure_ascii=False), "label": "📊 Structured Data"}
             yield {"type": "response", "content": human_readable}
 
             if vision_metrics:
@@ -725,11 +725,11 @@ async def chat_with_vision_pipeline(
     else:
         # === MULTI-IMAGE: Sequential processing ===
         log_message(f"📷 Sequential mode: Processing {num_images} images one at a time")
-        yield {"type": "debug", "message": f"📷 Sequentielle Verarbeitung: {num_images} Bilder nacheinander"}
+        yield {"type": "debug", "message": f"📷 Sequential processing: {num_images} images one at a time"}
 
         for i, img in enumerate(images):
             img_name = img.get("name", f"image_{i + 1}")
-            yield {"type": "debug", "message": f"🔄 [{i + 1}/{num_images}] Verarbeite: {img_name}"}
+            yield {"type": "debug", "message": f"🔄 [{i + 1}/{num_images}] Processing: {img_name}"}
 
             result = await _process_single_image_vision(
                 image=img,
@@ -746,9 +746,9 @@ async def chat_with_vision_pipeline(
             all_results.append(result)
 
             if result["success"]:
-                yield {"type": "debug", "message": f"✅ [{i + 1}/{num_images}] {img_name} fertig ({result['time']:.1f}s)"}
+                yield {"type": "debug", "message": f"✅ [{i + 1}/{num_images}] {img_name} done ({result['time']:.1f}s)"}
             else:
-                yield {"type": "debug", "message": f"⚠️ [{i + 1}/{num_images}] {img_name} Fehler: {result.get('error', 'Unknown')}"}
+                yield {"type": "debug", "message": f"⚠️ [{i + 1}/{num_images}] {img_name} error: {result.get('error', 'Unknown')}"}
 
         # Capture metrics from last successful result
         for r in reversed(all_results):
@@ -757,7 +757,7 @@ async def chat_with_vision_pipeline(
                 break
 
         total_time = time.time() - vision_start_time
-        log_message(f"✅ Alle {num_images} Bilder verarbeitet ({total_time:.1f}s gesamt)")
+        log_message(f"✅ All {num_images} images processed ({total_time:.1f}s total)")
 
         # === Combine results into multi_image JSON format ===
         combined_images = []
@@ -789,13 +789,13 @@ async def chat_with_vision_pipeline(
 
             else:
                 # Failed
-                error_msg = result.get("error", "Verarbeitung fehlgeschlagen")
+                error_msg = result.get("error", "Processing failed")
                 combined_images.append({
                     "image_name": img_name,
                     "type": "error",
                     "error": error_msg
                 })
-                combined_readable_parts.append(f"### 📷 {img_name}\n\n❌ Fehler: {error_msg}")
+                combined_readable_parts.append(f"### 📷 {img_name}\n\n❌ Error: {error_msg}")
 
         # Build final combined JSON
         corrected_json = {
@@ -810,7 +810,7 @@ async def chat_with_vision_pipeline(
         human_readable = "\n\n---\n\n".join(combined_readable_parts)
 
         # Yield results
-        yield {"type": "thinking", "content": json.dumps(corrected_json, indent=2, ensure_ascii=False), "label": f"📊 Strukturierte Daten ({num_images} Bilder)"}
+        yield {"type": "thinking", "content": json.dumps(corrected_json, indent=2, ensure_ascii=False), "label": f"📊 Structured Data ({num_images} images)"}
         yield {"type": "response", "content": human_readable}
 
         if vision_metrics:
@@ -827,9 +827,9 @@ async def chat_with_vision_pipeline(
     }
 
     if user_text and user_text.strip():
-        log_message("📋 Vision fertig - weiter zu Automatik/Research")
+        log_message("📋 Vision done - continuing to Automatik/Research")
     else:
-        log_message("✅ Vision-Extraktion abgeschlossen (keine Folgefrage)")
+        log_message("✅ Vision extraction complete (no follow-up question)")
 
 
 async def chat_interactive_mode(
@@ -850,19 +850,19 @@ async def chat_interactive_mode(
     vision_json_context: Optional[dict] = None
 ) -> AsyncIterator[Dict]:
     """
-    Automatik-Modus: KI entscheidet selbst, ob Web-Recherche nötig ist
+    Automatik mode: AI decides whether web research is needed
 
     Args:
-        user_text: User-Frage
-        stt_time: STT-Zeit (0.0 bei Text-Eingabe)
-        model_choice: Haupt-LLM für finale Antwort
-        automatik_model: Automatik-LLM für Entscheidung
-        history: Chat History
-        session_id: Session-ID für Research-Cache (optional)
-        temperature_mode: 'auto' (Intent-Detection) oder 'manual' (fixer Wert)
-        temperature: Temperature-Wert (0.0-2.0) - nur bei mode='manual'
-        llm_options: Dict mit Ollama-Optionen (num_ctx, etc.) - Optional
-        backend_type: LLM Backend ("ollama", "vllm", "tabbyapi")
+        user_text: User question
+        stt_time: STT time (0.0 for text input)
+        model_choice: Main LLM for final response
+        automatik_model: Automatik-LLM for decision
+        history: Chat history
+        session_id: Session ID for research cache (optional)
+        temperature_mode: 'auto' (intent detection) or 'manual' (fixed value)
+        temperature: Temperature value (0.0-2.0) - only used if mode='manual'
+        llm_options: Dict with Ollama options (num_ctx, etc.) - optional
+        backend_type: LLM backend ("ollama", "vllm", "tabbyapi")
         backend_url: Backend URL (optional, uses default if not provided)
         num_ctx_mode: Context mode ("auto_vram", "auto_max", "manual")
         num_ctx_manual: Manual num_ctx value (only used if mode="manual")
@@ -882,7 +882,7 @@ async def chat_interactive_mode(
             })
         # Override user_text with multimodal structure (will be used to build LLMMessage later)
         multimodal_user_content = user_content
-        yield {"type": "debug", "message": f"📷 Nachricht mit {len(pending_images)} Bild(ern) vorbereitet"}
+        yield {"type": "debug", "message": f"📷 Message prepared with {len(pending_images)} image(s)"}
     else:
         multimodal_user_content = None  # Text-only mode
 
@@ -900,7 +900,7 @@ async def chat_interactive_mode(
         # KoboldCPP, vLLM, TabbyAPI: Same model, same client (no model switching)
         automatik_llm_client = llm_client
 
-    # VRAM Change Detection (nur für vLLM Backend)
+    # VRAM Change Detection (only for vLLM backend)
     vram_warning = None
     if backend_type == "vllm":
         from .vllm_utils import check_vram_change_for_vllm
@@ -915,7 +915,7 @@ async def chat_interactive_mode(
                 "potential_tokens": potential_tokens,
                 "current_tokens": current_tokens
             }
-            log_message(f"📊 VRAM-Änderung erkannt: {vram_diff:+.0f}MB ({cached_vram:.0f}MB → {current_vram:.0f}MB)")
+            log_message(f"📊 VRAM change detected: {vram_diff:+.0f}MB ({cached_vram:.0f}MB → {current_vram:.0f}MB)")
 
     # Pass vram_warning through llm_options (create dict if None)
     if llm_options is None:
@@ -924,23 +924,23 @@ async def chat_interactive_mode(
         llm_options['_vram_warning'] = vram_warning
 
     try:
-        log_message("🤖 Automatik-Modus: KI prüft, ob Recherche nötig...")
-        yield {"type": "debug", "message": "📨 User Request empfangen"}
+        log_message("🤖 Automatik mode: AI checking if research needed...")
+        yield {"type": "debug", "message": "📨 User request received"}
 
         # ============================================================
-        # CODE-OVERRIDE: Explizite Recherche-Aufforderung (Trigger-Wörter + URLs)
+        # CODE-OVERRIDE: Explicit research request (Trigger words + URLs)
         # ============================================================
-        # Diese Keywords/URLs triggern SOFORT neue Recherche ohne KI-Entscheidung!
+        # These keywords/URLs trigger IMMEDIATE new research without AI decision!
 
         # URL Detection (skip Decision-Making for URL requests)
         from .research.query_processor import detect_urls_in_text
         detected_urls = detect_urls_in_text(user_text, max_urls=7)
 
         explicit_keywords = [
-            'recherchiere', 'recherchier',  # "recherchiere!", "recherchier mal"
+            'recherchiere', 'recherchier',  # German: "recherchiere!", "recherchier mal"
             'suche im internet', 'such im internet',
             'schau nach', 'schau mal nach',
-            'google', 'googel', 'google mal',  # Auch Tippfehler
+            'google', 'googel', 'google mal',  # Also typos
             'finde heraus', 'find heraus',
             'check das', 'prüfe das'
         ]
@@ -950,11 +950,11 @@ async def chat_interactive_mode(
         # Check for explicit keywords OR URLs
         if detected_urls or any(keyword in user_lower for keyword in explicit_keywords):
             if detected_urls:
-                log_message(f"⚡ CODE-OVERRIDE: {len(detected_urls)} URL(s) erkannt → Skip Decision")
-                yield {"type": "debug", "message": f"⚡ {len(detected_urls)} URL(s) erkannt → Direct Research"}
+                log_message(f"⚡ CODE-OVERRIDE: {len(detected_urls)} URL(s) detected → Skip Decision")
+                yield {"type": "debug", "message": f"⚡ {len(detected_urls)} URL(s) detected → Direct Research"}
             else:
-                log_message("⚡ CODE-OVERRIDE: Explizite Recherche-Aufforderung erkannt")
-                yield {"type": "debug", "message": "⚡ Explizite Recherche erkannt"}
+                log_message("⚡ CODE-OVERRIDE: Explicit research request detected")
+                yield {"type": "debug", "message": "⚡ Explicit research request detected"}
 
             # Check cache first for exact duplicates (semantic distance < 0.05)
             # This avoids redundant web research for identical queries
@@ -980,7 +980,7 @@ async def chat_interactive_mode(
 
                     answer = cache_result['answer']
                     cache_time_ms = cache_result.get('query_time_ms', 0) / 1000
-                    timing_suffix = f" (Cache-Hit: {format_number(cache_time_ms, 2)}s, Age: {age_formatted}, Quelle: Vector Cache)"
+                    timing_suffix = f" (Cache-Hit: {format_number(cache_time_ms, 2)}s, Age: {age_formatted}, Source: Vector Cache)"
 
                     # Emit failed_sources from cache for UI display (if any)
                     cached_failed_sources = cache_result.get('failed_sources', [])
@@ -1062,7 +1062,7 @@ async def chat_interactive_mode(
 
                 # Return cached answer with timing info
                 cache_time = cache_result.get('query_time_ms', 0) / 1000  # Convert to seconds
-                timing_suffix = f" (Cache-Hit: {format_number(cache_time, 2)}s, Quelle: Vector DB)"
+                timing_suffix = f" (Cache-Hit: {format_number(cache_time, 2)}s, Source: Vector DB)"
 
                 # Add to history (no timestamp prefix)
                 history.append((user_text, answer + timing_suffix))
@@ -1130,18 +1130,18 @@ async def chat_interactive_mode(
         # RAG BYPASS: Skip Automatik-LLM if RAG context found
         # ============================================================
         if rag_context:
-            log_message(f"✅ RAG Context verfügbar ({num_sources} relevante Einträge) → Bypass Automatik-LLM, direkt zu Haupt-LLM")
-            yield {"type": "debug", "message": f"⚡ RAG Bypass: {num_sources}/{num_checked} relevante Einträge → Skip Automatik-LLM"}
+            log_message(f"✅ RAG context available ({num_sources} relevant entries) → Bypass Automatik-LLM, direct to main LLM")
+            yield {"type": "debug", "message": f"⚡ RAG Bypass: {num_sources}/{num_checked} relevant entries → Skip Automatik-LLM"}
 
-            # Spracherkennung für Nutzereingabe
+            # Language detection for user input
             from .prompt_loader import detect_language
             detected_user_language = detect_language(user_text)
-            log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
+            log_message(f"🌐 Language detection: User input is probably '{detected_user_language.upper()}' (for prompt selection)")
 
-            # Clear progress - keine Web-Recherche nötig, zeige LLM-Phase
+            # Clear progress - no web research needed, show LLM phase
             yield {"type": "progress", "phase": "llm"}
 
-            # Jetzt normale Inferenz MIT Zeitmessung
+            # Now normal inference WITH timing
             # Build messages from history (all turns)
             messages = build_messages_from_history(history, user_text)
 
@@ -1179,11 +1179,11 @@ async def chat_interactive_mode(
                 for msg in messages
             ]
 
-            # Haupt-LLM vorbereiten: num_ctx berechnen + Preload (zentrale Funktion!)
-            # WICHTIG: prepare_main_llm() garantiert die korrekte Reihenfolge:
-            # 1. num_ctx berechnen (Ollama auto_vram: mit unload + VRAM-Messung)
-            # 2. Preload mit num_ctx (Ollama lädt Modell + allokiert KV-Cache)
-            # AsyncGenerator yieldet Debug-Messages sofort für UI-Feedback
+            # Prepare Main-LLM: calculate num_ctx + preload (centralized function!)
+            # IMPORTANT: prepare_main_llm() guarantees the correct order:
+            # 1. Calculate num_ctx (Ollama auto_vram: with unload + VRAM measurement)
+            # 2. Preload with num_ctx (Ollama loads model + allocates KV cache)
+            # AsyncGenerator yields debug messages immediately for UI feedback
             backend = llm_client._get_backend()
             async for item in prepare_main_llm(
                 backend=backend,
@@ -1202,22 +1202,22 @@ async def chat_interactive_mode(
             # Get model max context for compact display
             model_limit, _ = await llm_client.get_model_context_limit(model_choice)
 
-            yield {"type": "debug", "message": "✅ System-Prompt erstellt"}
+            yield {"type": "debug", "message": "✅ System prompt created"}
 
-            # Show compact context info (like Automatik-LLM and Web-Recherche)
-            yield {"type": "debug", "message": f"📊 Haupt-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
-            log_message(f"📊 Haupt-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
+            # Show compact context info (like Automatik-LLM and Web-Research)
+            yield {"type": "debug", "message": f"📊 Main-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
+            log_message(f"📊 Main-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
 
-            # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
+            # Temperature decision: Manual Override or Auto (Intent-Detection)
             if temperature_mode == 'manual':
                 final_temperature = temperature
                 log_message(f"🌡️ RAG Bypass Temperature: {final_temperature} (MANUAL OVERRIDE)")
                 yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
             else:
-                # Auto: Intent-Detection für RAG Bypass
+                # Auto: Intent-Detection for RAG Bypass
                 intent_start = time.time()
                 log_message("🎯 Starting Intent-Detection...")
-                yield {"type": "debug", "message": "🎯 Intent-Detection läuft..."}
+                yield {"type": "debug", "message": "🎯 Intent detection running..."}
 
                 rag_intent = await detect_query_intent(
                     user_query=user_text,
@@ -1233,12 +1233,12 @@ async def chat_interactive_mode(
                 yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)"}
 
             # Console: LLM starts
-            yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
+            yield {"type": "debug", "message": f"🤖 Main-LLM starting: {model_choice}"}
 
             # Build main LLM options (include enable_thinking from user settings)
             main_llm_options = {
-                'temperature': final_temperature,  # Adaptive oder Manual Temperature!
-                'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
+                'temperature': final_temperature,  # Adaptive or manual temperature!
+                'num_ctx': final_num_ctx  # Dynamically calculated or user-specified
             }
 
             # Add enable_thinking if provided in llm_options (user toggle)
@@ -1249,7 +1249,7 @@ async def chat_interactive_mode(
             from aifred.lib.gpu_utils import get_free_vram_mb
             vram_before_inference = get_free_vram_mb()
 
-            # Zeit messen für finale Inferenz - STREAM response
+            # Time measurement for final inference - STREAM response
             inference_start = time.time()
             ai_text = ""
             metrics = {}
@@ -1294,7 +1294,7 @@ async def chat_interactive_mode(
             # Console: LLM finished
             tokens_generated = metrics.get("tokens_generated", 0)
             tokens_per_sec = metrics.get("tokens_per_second", 0)
-            yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s)"}
+            yield {"type": "debug", "message": f"✅ Main-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s)"}
 
             # VRAM Monitoring: Log and save measurement
             if vram_measurement is not None:
@@ -1326,27 +1326,27 @@ async def chat_interactive_mode(
                 )
                 yield {"type": "debug", "message": f"📊 VRAM: {measured_ratio:.4f} MB/tok (Free: {format_number(vram_during)} MB)"}
 
-            # Separator als letztes Element in der Debug Console
+            # Separator as last element in debug console
 
-            # Formatiere <think> Tags als Collapsible für Chat History (sichtbar als Collapsible!)
+            # Format <think> tags as collapsible for chat history (visible as collapsible!)
             thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time, tokens_per_sec=tokens_per_sec)
 
-            # User-Text mit Timing (RAG Bypass - keine Entscheidungszeit)
+            # User text with timing (RAG Bypass - no decision time)
             if stt_time > 0:
                 user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s")
                 user_with_time = f"{user_text}  \n{user_metadata}"
             else:
                 user_with_time = user_text
 
-            # AI-Antwort mit Timing + Quelle (RAG)
+            # AI response with timing + source (RAG)
             source_label = "Cache+LLM RAG"
-            metadata = format_metadata(f"Inferenz: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Quelle: {source_label}")
+            metadata = format_metadata(f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
             ai_with_source = f"{thinking_html}  \n{metadata}"
 
-            # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
+            # Add to history (WITH thinking collapsible + source!)
             history.append((user_with_time, ai_with_source))
 
-            # Separator nach LLM-Antwort-Block (Ende der Einheit)
+            # Separator after LLM response block (end of unit)
             from .logging_utils import console_separator
             console_separator()
             yield {"type": "debug", "message": CONSOLE_SEPARATOR}
@@ -1367,12 +1367,12 @@ async def chat_interactive_mode(
         # No RAG context - proceed with normal Automatik-LLM decision
         # ============================================================
 
-        # Spracherkennung für Nutzereingabe
+        # Language detection for user input
         from .prompt_loader import detect_language
         detected_user_language = detect_language(user_text)
-        log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
+        log_message(f"🌐 Language detection: User input is probably '{detected_user_language.upper()}' (for prompt selection)")
 
-        # Schritt 1: KI fragen, ob Recherche nötig ist (mit Zeitmessung!)
+        # Step 1: Ask AI if research is needed (with timing!)
         # Check if images are present OR if Vision JSON context exists
         has_images = (pending_images is not None and len(pending_images) > 0) or (vision_json_context is not None)
 
@@ -1383,21 +1383,21 @@ async def chat_interactive_mode(
             lang=detected_user_language
         )
 
-        # DEBUG: Zeige kompletten Prompt für Diagnose (nur in Log, nicht in UI)
+        # DEBUG: Show complete prompt for diagnosis (only in log, not in UI)
         log_message("=" * 60)
         log_message("📋 DECISION PROMPT:")
         log_message("-" * 60)
         log_message(decision_prompt)
         log_message("-" * 60)
-        log_message(f"Prompt-Länge: {len(decision_prompt)} Zeichen, ~{len(decision_prompt.split())} Wörter")
+        log_message(f"Prompt length: {len(decision_prompt)} chars, ~{len(decision_prompt.split())} words")
         log_message("=" * 60)
 
         try:
-            # Zeit messen für Entscheidung
-            log_message(f"🤖 Automatik-Entscheidung mit {automatik_model}")
+            # Measure time for decision
+            log_message(f"🤖 Automatik decision with {automatik_model}")
             yield {"type": "progress", "phase": "automatik"}
 
-            # ⚠️ WICHTIG: KEINE History für Decision-Making!
+            # IMPORTANT: NO History for Decision-Making!
             decision_messages_dict = [{'role': 'user', 'content': decision_prompt}]
 
             # Get model context limit (use RoPE-scaled value from KoboldCPP if available)
@@ -1412,7 +1412,7 @@ async def chat_interactive_mode(
                 # Fallback: Query model (returns native limit without RoPE)
                 automatik_limit, _ = await automatik_llm_client.get_model_context_limit(automatik_model)
 
-            decision_num_ctx = min(2048, automatik_limit // 2)  # Max 2048 oder 50% des Limits
+            decision_num_ctx = min(2048, automatik_limit // 2)  # Max 2048 or 50% of limit
 
             # Count input tokens (using real tokenizer)
             input_tokens = estimate_tokens(decision_messages_dict, model_name=automatik_model)
@@ -1425,13 +1425,13 @@ async def chat_interactive_mode(
             try:
                 # Build automatik options
                 automatik_options = {
-                    'temperature': 0.2,  # Niedrig für konsistente yes/no Entscheidungen
-                    'num_ctx': decision_num_ctx,  # Dynamisch basierend auf Model
+                    'temperature': 0.2,  # Low for consistent yes/no decisions
+                    'num_ctx': decision_num_ctx,  # Dynamic based on model
                     'num_predict': 64,  # Short: "<search>yes</search>" = ~20 tokens (3x buffer)
                     'enable_thinking': False  # Default: Fast decisions without reasoning
                 }
 
-                # Automatik-Tasks: Thinking ist IMMER aus (unabhängig vom User-Toggle)
+                # Automatik tasks: Thinking is ALWAYS off (independent of user toggle)
                 log_message("🧠 Decision enable_thinking: False (Automatik-Task)")
 
                 # Convert decision messages to LLMMessage objects
@@ -1452,23 +1452,23 @@ async def chat_interactive_mode(
                 decision_time = time.time() - decision_start
 
                 # Parse decision result for user-friendly display
-                decision_label = "Web-Recherche JA" if ('<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision)) else "Web-Recherche NEIN"
+                decision_label = "Web Research YES" if ('<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision)) else "Web Research NO"
 
                 yield {"type": "debug", "message": f"🤖 Decision: {decision_label} ({format_number(decision_time, 1)}s)"}
-                log_message(f"🤖 KI-Entscheidung: {decision_label} ({format_number(decision_time, 1)}s, raw: {decision[:50]}...)")
+                log_message(f"🤖 AI decision: {decision_label} ({format_number(decision_time, 1)}s, raw: {decision[:50]}...)")
             except Exception as e:
                 decision_time = time.time() - decision_start
-                log_message(f"⚠️ Automatik-Entscheidung fehlgeschlagen: {e}")
-                log_message("   Fallback: Direkte Antwort ohne Recherche")
+                log_message(f"⚠️ Automatik decision failed: {e}")
+                log_message("   Fallback: Direct answer without research")
                 yield {"type": "debug", "message": "⚠️ Decision failed, using fallback (direct answer)"}
                 # Fallback: Assume no research needed, proceed with direct LLM answer
                 decision = "no"
 
             # ============================================================
-            # Parse Entscheidung UND respektiere sie!
+            # Parse decision AND respect it!
             # ============================================================
             if '<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision):
-                log_message("✅ KI entscheidet: NEUE Web-Recherche nötig")
+                log_message("✅ AI decides: NEW web research needed")
                 # Debug message already yielded above (line 153)
 
                 # Start web research - Forward all yields
@@ -1495,13 +1495,13 @@ async def chat_interactive_mode(
             # Note: 'context' decision removed - cache system will be replaced with Vector DB
 
             else:
-                log_message("❌ KI entscheidet: Eigenes Wissen ausreichend → Kein Agent")
+                log_message("❌ AI decides: Own knowledge sufficient → No agent")
                 # Debug message already yielded above (line 153)
 
-                # Clear progress - keine Web-Recherche nötig, zeige LLM-Phase
+                # Clear progress - no web research needed, show LLM phase
                 yield {"type": "progress", "phase": "llm"}
 
-                # Jetzt normale Inferenz MIT Zeitmessung
+                # Now normal inference WITH time measurement
                 # Build messages from history (all turns)
                 messages = build_messages_from_history(history, user_text)
 
@@ -1540,11 +1540,11 @@ async def chat_interactive_mode(
                     for msg in messages
                 ]
 
-                # Haupt-LLM vorbereiten: num_ctx berechnen + Preload (zentrale Funktion!)
-                # WICHTIG: prepare_main_llm() garantiert die korrekte Reihenfolge:
-                # 1. num_ctx berechnen (Ollama auto_vram: mit unload + VRAM-Messung)
-                # 2. Preload mit num_ctx (Ollama lädt Modell + allokiert KV-Cache)
-                # AsyncGenerator yieldet Debug-Messages sofort für UI-Feedback
+                # Prepare Main-LLM: calculate num_ctx + Preload (centralized function!)
+                # IMPORTANT: prepare_main_llm() guarantees correct order:
+                # 1. Calculate num_ctx (Ollama auto_vram: with unload + VRAM measurement)
+                # 2. Preload with num_ctx (Ollama loads model + allocates KV-Cache)
+                # AsyncGenerator yields debug messages immediately for UI feedback
                 backend = llm_client._get_backend()
                 async for item in prepare_main_llm(
                     backend=backend,
@@ -1563,22 +1563,22 @@ async def chat_interactive_mode(
                 # Get model max context for compact display
                 model_limit, _ = await llm_client.get_model_context_limit(model_choice)
 
-                yield {"type": "debug", "message": "✅ System-Prompt erstellt"}
+                yield {"type": "debug", "message": "✅ System prompt created"}
 
-                # Show compact context info (like Automatik-LLM and Web-Recherche)
-                yield {"type": "debug", "message": f"📊 Haupt-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
-                log_message(f"📊 Haupt-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
+                # Show compact context info (like Automatik-LLM and Web-Research)
+                yield {"type": "debug", "message": f"📊 Main-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
+                log_message(f"📊 Main-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
 
-                # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
+                # Temperature decision: Manual Override or Auto (Intent-Detection)
                 if temperature_mode == 'manual':
                     final_temperature = temperature
-                    log_message(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (MANUAL OVERRIDE)")
+                    log_message(f"🌡️ Own knowledge Temperature: {final_temperature} (MANUAL OVERRIDE)")
                     yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
                 else:
-                    # Auto: Intent-Detection für Eigenes Wissen
+                    # Auto: Intent-Detection for own knowledge
                     intent_start = time.time()
                     log_message("🎯 Starting Intent-Detection...")
-                    yield {"type": "debug", "message": "🎯 Intent-Detection läuft..."}
+                    yield {"type": "debug", "message": "🎯 Intent detection running..."}
 
                     own_knowledge_intent = await detect_query_intent(
                         user_query=user_text,
@@ -1590,11 +1590,11 @@ async def chat_interactive_mode(
 
                     final_temperature = get_temperature_for_intent(own_knowledge_intent)
                     temp_label = get_temperature_label(own_knowledge_intent)
-                    log_message(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (Intent: {own_knowledge_intent}, {format_number(intent_time, 1)}s)")
+                    log_message(f"🌡️ Own knowledge Temperature: {final_temperature} (Intent: {own_knowledge_intent}, {format_number(intent_time, 1)}s)")
                     yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)"}
 
                 # Console: LLM starts
-                yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
+                yield {"type": "debug", "message": f"🤖 Main-LLM starting: {model_choice}"}
 
                 # Calculate dynamic num_predict: Available output space after input tokens
                 available_output = max(
@@ -1613,8 +1613,8 @@ async def chat_interactive_mode(
 
                 # Build main LLM options (include enable_thinking from user settings)
                 main_llm_options = {
-                    'temperature': final_temperature,  # Adaptive oder Manual Temperature!
-                    'num_ctx': final_num_ctx,  # Dynamisch berechnet oder User-Vorgabe
+                    'temperature': final_temperature,  # Adaptive or Manual Temperature!
+                    'num_ctx': final_num_ctx,  # Dynamically calculated or user setting
                     'num_predict': available_output  # Dynamic: Full available output space (capped at 4096)
                 }
 
@@ -1648,54 +1648,54 @@ async def chat_interactive_mode(
                 # Console: LLM finished
                 yield log_llm_completion(inference_time, metrics)
 
-                # Separator als letztes Element in der Debug Console
+                # Separator as last element in the Debug Console
 
-                # Formatiere <think> Tags als Collapsible für Chat History (sichtbar als Collapsible!)
+                # Format <think> tags as collapsible for chat history (visible as collapsible!)
                 thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time, tokens_per_sec=tokens_per_sec)
 
-                # User-Text mit Timing (Entscheidungszeit + Inferenzzeit)
+                # User text with timing (decision time + inference time)
                 if stt_time > 0:
-                    user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s    Entscheidung: {format_number(decision_time, 1)}s")
+                    user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s    Decision: {format_number(decision_time, 1)}s")
                     user_with_time = f"{user_text}  \n{user_metadata}"
                 else:
-                    user_metadata = format_metadata(f"Entscheidung: {format_number(decision_time, 1)}s")
+                    user_metadata = format_metadata(f"Decision: {format_number(decision_time, 1)}s")
                     user_with_time = f"{user_text}  \n{user_metadata}"
 
-                # AI-Antwort mit Timing + Quelle (dynamisch basierend auf RAG/History)
+                # AI response with timing + source (dynamic based on RAG/History)
                 if rag_context:
                     source_label = "Cache+LLM RAG"
                 elif len(history) > 0:
-                    source_label = "LLM mit History"
+                    source_label = "LLM with History"
                 else:
                     source_label = "LLM"
 
-                metadata = format_metadata(f"Inferenz: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Quelle: {source_label}")
+                metadata = format_metadata(f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
                 ai_with_source = f"{thinking_html}  \n{metadata}"
 
-                # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
+                # Add to history (WITH Thinking Collapsible + Source!)
                 history.append((user_with_time, ai_with_source))
 
-                log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {format_number(inference_time, 1)}s)")
+                log_message(f"✅ AI response generated ({len(ai_text)} chars, Inference: {format_number(inference_time, 1)}s)")
 
                 # Clear progress before final result
                 yield {"type": "progress", "clear": True}
 
-                # Separator direkt yielden
+                # Yield separator directly
                 yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
-                # Yield final result: ai_with_source für AI-Antwort + History (mit Quelle!)
+                # Yield final result: ai_with_source for AI response + History (with source!)
                 yield {"type": "result", "data": (ai_with_source, history, inference_time)}
 
         except Exception as e:
-            log_message(f"⚠️ Fehler bei Automatik-Modus Entscheidung: {e}")
-            log_message("   Fallback zu Eigenes Wissen")
-            # Fallback: Verwende standard chat function (muss importiert werden in main)
+            log_message(f"⚠️ Error in Automatik mode decision: {e}")
+            log_message("   Fallback to own knowledge")
+            # Fallback: Use standard chat function (must be imported in main)
             raise  # Re-raise to be handled by caller
 
     except Exception as e:
-        log_message(f"⚠️ Fehler bei Automatik-Modus Entscheidung: {e}")
-        log_message("   Fallback zu Eigenes Wissen")
-        # Fallback: Verwende standard chat function (muss importiert werden in main)
+        log_message(f"⚠️ Error in Automatik mode decision: {e}")
+        log_message("   Fallback to own knowledge")
+        # Fallback: Use standard chat function (must be imported in main)
         raise  # Re-raise to be handled by caller
     finally:
         # Cleanup: Close LLM clients to free resources

@@ -1,11 +1,11 @@
 """
-Server-side Session Storage für AIfred
+Server-side Session Storage for AIfred
 
-Speichert Chat-History und Session-Daten pro Gerät.
-Verwendet device_id aus Cookie zur Identifikation.
+Stores chat history and session data per device.
+Uses device_id from cookie for identification.
 
-Sessions werden als JSON-Dateien in ~/.config/aifred/sessions/ gespeichert.
-Jedes Gerät hat eine eigene Session-Datei (device_id.json).
+Sessions are saved as JSON files in ~/.config/aifred/sessions/.
+Each device has its own session file (device_id.json).
 """
 
 import json
@@ -18,44 +18,44 @@ from typing import Optional, Dict, Any, List, Tuple
 from .settings import SETTINGS_DIR
 
 
-# Session-Verzeichnis (Unterordner von Settings)
+# Session directory (subdirectory of Settings)
 SESSION_DIR = SETTINGS_DIR / "sessions"
 
 
 def _ensure_session_dir() -> None:
-    """Erstellt Session-Verzeichnis falls nicht vorhanden."""
+    """Create session directory if it doesn't exist."""
     SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def generate_device_id() -> str:
     """
-    Generiert neue eindeutige Device-ID.
+    Generate new unique Device-ID.
 
     Returns:
-        32 Zeichen hex string (128 bit Entropie)
+        32 character hex string (128 bit entropy)
     """
-    return secrets.token_hex(16)  # 128 bits für sichere Session-IDs
+    return secrets.token_hex(16)  # 128 bits for secure session IDs
 
 
 def _sanitize_device_id(device_id: str) -> str:
     """
-    Validiert Device-ID Format (Hex-String mit 32 Zeichen).
+    Validate Device-ID format (hex string with 32 characters).
 
-    Erlaubt nur lowercase hex-Zeichen (a-f0-9) genau 32 Zeichen lang.
-    Verhindert Path Traversal Angriffe durch strikte Format-Prüfung.
+    Only allows lowercase hex characters (a-f0-9) exactly 32 characters long.
+    Prevents path traversal attacks through strict format checking.
 
     Args:
-        device_id: Device-ID zum Validieren
+        device_id: Device-ID to validate
 
     Returns:
-        Validierte Device-ID
+        Validated Device-ID
 
     Raises:
-        ValueError: Wenn Format ungültig ist
+        ValueError: If format is invalid
     """
     import re
 
-    # Nur lowercase hex erlauben: exakt 32 Zeichen (128 bit)
+    # Only allow lowercase hex: exactly 32 characters (128 bit)
     if not re.match(r'^[a-f0-9]{32}$', device_id):
         raise ValueError(
             f"Invalid device_id format: Expected 32 hex chars, got '{device_id[:50]}'"
@@ -66,21 +66,21 @@ def _sanitize_device_id(device_id: str) -> str:
 
 def get_session_path(device_id: str) -> Path:
     """
-    Gibt Pfad zur Session-Datei zurück mit Path Traversal Protection.
+    Return path to session file with path traversal protection.
 
     Args:
-        device_id: Geräte-Identifikator
+        device_id: Device identifier
 
     Returns:
-        Path zur Session-JSON-Datei
+        Path to session JSON file
 
     Raises:
-        ValueError: Bei ungültiger device_id oder Path Traversal Versuch
+        ValueError: On invalid device_id or path traversal attempt
     """
     safe_id = _sanitize_device_id(device_id)
     path = (SESSION_DIR / f"{safe_id}.json").resolve()
 
-    # Sicherstellen dass Pfad innerhalb SESSION_DIR liegt
+    # Ensure path is within SESSION_DIR
     try:
         path.relative_to(SESSION_DIR.resolve())
     except ValueError:
@@ -91,15 +91,15 @@ def get_session_path(device_id: str) -> Path:
 
 def load_session(device_id: str) -> Optional[Dict[str, Any]]:
     """
-    Lädt Session für Device-ID.
+    Load session for Device-ID.
 
-    Aktualisiert automatisch last_seen Timestamp.
+    Automatically updates last_seen timestamp.
 
     Args:
-        device_id: Geräte-Identifikator
+        device_id: Device identifier
 
     Returns:
-        Session-Dict oder None wenn nicht gefunden
+        Session dict or None if not found
     """
     _ensure_session_dir()
 
@@ -127,14 +127,14 @@ def load_session(device_id: str) -> Optional[Dict[str, Any]]:
 
 def _write_session_file(path: Path, session: Dict[str, Any]) -> bool:
     """
-    Schreibt Session-Dict in Datei (interner Helper).
+    Write session dict to file (internal helper).
 
     Args:
-        path: Pfad zur Session-Datei
-        session: Session-Dict
+        path: Path to session file
+        session: Session dict
 
     Returns:
-        True bei Erfolg
+        True on success
     """
     try:
         with open(path, "w", encoding="utf-8") as f:
@@ -146,14 +146,14 @@ def _write_session_file(path: Path, session: Dict[str, Any]) -> bool:
 
 def save_session(device_id: str, session_data: Dict[str, Any]) -> bool:
     """
-    Speichert Session für Device-ID.
+    Save session for Device-ID.
 
     Args:
-        device_id: Geräte-Identifikator
-        session_data: Vollständiges Session-Dict
+        device_id: Device identifier
+        session_data: Complete session dict
 
     Returns:
-        True bei Erfolg, False bei Fehler
+        True on success, False on error
     """
     _ensure_session_dir()
 
@@ -162,7 +162,7 @@ def save_session(device_id: str, session_data: Dict[str, Any]) -> bool:
     except ValueError:
         return False
 
-    # Timestamps sicherstellen
+    # Ensure timestamps
     now = datetime.now().isoformat()
     if "created_at" not in session_data:
         session_data["created_at"] = now
@@ -178,20 +178,20 @@ def update_chat_data(
     chat_summaries: Optional[List[str]] = None
 ) -> bool:
     """
-    Aktualisiert Chat-Daten einer Session.
+    Update chat data of a session.
 
-    Erstellt neue Session falls nicht vorhanden.
-    Effizienter als save_session() wenn nur Chat-Daten geändert werden.
+    Creates new session if not present.
+    More efficient than save_session() when only chat data changes.
 
     Args:
-        device_id: Geräte-Identifikator
-        chat_history: Liste von (user, assistant) Tupeln
-        chat_summaries: Optional - Liste von Summary-Strings
+        device_id: Device identifier
+        chat_history: List of (user, assistant) tuples
+        chat_summaries: Optional - List of summary strings
 
     Returns:
-        True bei Erfolg
+        True on success
     """
-    # Bestehende Session laden oder neue erstellen
+    # Load existing session or create new one
     session = load_session(device_id)
 
     if session is None:
@@ -201,8 +201,8 @@ def update_chat_data(
             "data": {}
         }
 
-    # Chat-Daten aktualisieren
-    # WICHTIG: Tuples werden als Listen serialisiert, beim Laden zurückkonvertieren!
+    # Update chat data
+    # IMPORTANT: Tuples are serialized as lists, convert back when loading!
     session["data"]["chat_history"] = [list(msg) for msg in chat_history]
 
     if chat_summaries is not None:
@@ -213,13 +213,13 @@ def update_chat_data(
 
 def delete_session(device_id: str) -> bool:
     """
-    Löscht Session komplett.
+    Delete session completely.
 
     Args:
-        device_id: Geräte-Identifikator
+        device_id: Device identifier
 
     Returns:
-        True bei Erfolg
+        True on success
     """
     try:
         session_path = get_session_path(device_id)
@@ -231,32 +231,32 @@ def delete_session(device_id: str) -> bool:
 
 
 # ============================================================
-# PIN-Funktionen (Phase 2 - für Cross-Device Access)
+# PIN Functions (Phase 2 - for Cross-Device Access)
 # ============================================================
 
 def hash_pin(pin: str) -> str:
     """
-    Hasht PIN mit SHA-256.
+    Hash PIN with SHA-256.
 
     Args:
-        pin: Klartext-PIN
+        pin: Plaintext PIN
 
     Returns:
-        Hash-String im Format "sha256:..."
+        Hash string in format "sha256:..."
     """
     return f"sha256:{hashlib.sha256(pin.encode()).hexdigest()}"
 
 
 def verify_pin(pin: str, pin_hash: str) -> bool:
     """
-    Verifiziert PIN gegen gespeicherten Hash.
+    Verify PIN against stored hash.
 
     Args:
-        pin: Klartext-PIN zum Prüfen
-        pin_hash: Gespeicherter Hash
+        pin: Plaintext PIN to check
+        pin_hash: Stored hash
 
     Returns:
-        True wenn PIN korrekt
+        True if PIN is correct
     """
     if not pin_hash or not pin_hash.startswith("sha256:"):
         return False
@@ -265,14 +265,14 @@ def verify_pin(pin: str, pin_hash: str) -> bool:
 
 def set_session_pin(device_id: str, pin: str) -> bool:
     """
-    Setzt oder aktualisiert PIN für Session.
+    Set or update PIN for session.
 
     Args:
-        device_id: Geräte-Identifikator
-        pin: Neuer PIN (Klartext, wird gehasht)
+        device_id: Device identifier
+        pin: New PIN (plaintext, will be hashed)
 
     Returns:
-        True bei Erfolg
+        True on success
     """
     session = load_session(device_id)
     if not session:
@@ -284,13 +284,13 @@ def set_session_pin(device_id: str, pin: str) -> bool:
 
 def clear_session_pin(device_id: str) -> bool:
     """
-    Entfernt PIN von Session.
+    Remove PIN from session.
 
     Args:
-        device_id: Geräte-Identifikator
+        device_id: Device identifier
 
     Returns:
-        True bei Erfolg
+        True on success
     """
     session = load_session(device_id)
     if not session:
@@ -302,16 +302,16 @@ def clear_session_pin(device_id: str) -> bool:
 
 def get_session_with_pin(device_id: str, pin: str) -> Optional[Dict[str, Any]]:
     """
-    Lädt Session nur wenn PIN korrekt ist.
+    Load session only if PIN is correct.
 
-    Für Cross-Device Zugriff: User gibt fremde device_id + PIN ein.
+    For cross-device access: User enters foreign device_id + PIN.
 
     Args:
-        device_id: Geräte-Identifikator
-        pin: PIN zum Verifizieren
+        device_id: Device identifier
+        pin: PIN to verify
 
     Returns:
-        Session-Dict wenn PIN korrekt, sonst None
+        Session dict if PIN correct, else None
     """
     session = load_session(device_id)
     if not session:
@@ -319,7 +319,7 @@ def get_session_with_pin(device_id: str, pin: str) -> Optional[Dict[str, Any]]:
 
     pin_hash = session.get("pin_hash")
     if not pin_hash:
-        # Session hat keinen PIN - Zugriff verweigern
+        # Session has no PIN - deny access
         return None
 
     if not verify_pin(pin, pin_hash):
@@ -329,21 +329,21 @@ def get_session_with_pin(device_id: str, pin: str) -> Optional[Dict[str, Any]]:
 
 
 # ============================================================
-# Cleanup (für Hintergrund-Task)
+# Cleanup (for background task)
 # ============================================================
 
 def cleanup_old_sessions(max_age_days: int = 30) -> int:
     """
-    Löscht Sessions die älter als max_age_days sind.
+    Delete sessions older than max_age_days.
 
-    Basiert auf Datei-Änderungszeit (nicht last_seen im JSON),
-    da das effizienter ist als jede Datei zu parsen.
+    Based on file modification time (not last_seen in JSON),
+    as this is more efficient than parsing every file.
 
     Args:
-        max_age_days: Maximales Alter in Tagen
+        max_age_days: Maximum age in days
 
     Returns:
-        Anzahl gelöschter Sessions
+        Number of deleted sessions
     """
     _ensure_session_dir()
     cutoff_timestamp = datetime.now().timestamp() - (max_age_days * 24 * 60 * 60)

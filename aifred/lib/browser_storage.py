@@ -1,10 +1,10 @@
 """
-Browser Storage Integration für AIfred
+Browser Storage Integration for AIfred
 
-Handhabt Cookie-Lesen/Schreiben für Device-ID via rx.call_script().
+Handles cookie reading/writing for Device-ID via rx.call_script().
 
-Reflex hat keine native Cookie-Unterstützung, daher werden JavaScript-Snippets
-generiert die via rx.call_script() ausgeführt werden.
+Reflex has no native cookie support, so JavaScript snippets are
+generated and executed via rx.call_script().
 
 Usage:
     # In State.on_load():
@@ -13,29 +13,29 @@ Usage:
         callback=AIState.handle_device_id_loaded
     )
 
-    # Im Callback wenn device_id == "NEW":
+    # In callback when device_id == "NEW":
     return rx.call_script(set_device_id_script(new_id))
 """
 
 
-# Cookie-Konfiguration
+# Cookie configuration
 COOKIE_NAME = "aifred_device_id"
 COOKIE_MAX_AGE_DAYS = 365
 
 
 def get_device_id_script(delay_ms: int = 0) -> str:
     """
-    Generiert JavaScript zum Lesen der Device-ID aus Cookie.
+    Generate JavaScript to read Device-ID from cookie.
 
-    Das Skript gibt die Device-ID zurück oder "NEW" wenn kein Cookie existiert.
-    Der Rückgabewert wird an den Callback übergeben.
+    The script returns the Device-ID or "NEW" if no cookie exists.
+    The return value is passed to the callback.
 
     Args:
         delay_ms: Optional delay in milliseconds before reading cookie.
                   Use for retry mechanism to handle race conditions.
 
     Returns:
-        JavaScript-Code als String
+        JavaScript code as string
     """
     read_cookie_js = f"""
     const name = "{COOKIE_NAME}=";
@@ -72,20 +72,20 @@ def get_device_id_script(delay_ms: int = 0) -> str:
 
 def set_device_id_script(device_id: str) -> str:
     """
-    Generiert JavaScript zum Setzen der Device-ID als Cookie.
+    Generate JavaScript to set Device-ID as cookie.
 
-    Cookie-Attribute:
-    - path=/: Gilt für gesamte Domain
-    - max-age: 1 Jahr in Sekunden
-    - SameSite=Lax: Verhindert CSRF, erlaubt aber normale Navigation
+    Cookie attributes:
+    - path=/: Applies to entire domain
+    - max-age: 1 year in seconds
+    - SameSite=Lax: Prevents CSRF, but allows normal navigation
 
     Args:
-        device_id: Die zu speichernde Device-ID (32 hex chars)
+        device_id: Device-ID to store (32 hex chars)
 
     Returns:
-        JavaScript-Code als String
+        JavaScript code as string
     """
-    # Validierung: Nur alphanumerische Zeichen erlauben
+    # Validation: Only allow alphanumeric characters
     safe_id = "".join(c for c in device_id if c.isalnum())[:32]
     if not safe_id:
         raise ValueError("Invalid device_id for cookie")
@@ -97,11 +97,11 @@ def set_device_id_script(device_id: str) -> str:
 
 def clear_device_id_script() -> str:
     """
-    Generiert JavaScript zum Löschen des Device-ID Cookies.
+    Generate JavaScript to delete Device-ID cookie.
 
-    Setzt max-age=0 um Cookie sofort zu invalidieren.
+    Sets max-age=0 to immediately invalidate cookie.
 
     Returns:
-        JavaScript-Code als String
+        JavaScript code as string
     """
     return f'document.cookie = "{COOKIE_NAME}=; path=/; max-age=0";'

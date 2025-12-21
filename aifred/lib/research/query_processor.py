@@ -155,7 +155,7 @@ async def process_query_and_search(
         history: Chat history for context
         automatik_model: Automatik LLM model name
         automatik_llm_client: Automatik LLM client
-        llm_options: Optional Dict mit enable_thinking toggle
+        llm_options: Optional Dict with enable_thinking toggle
         vision_json_context: Optional Vision JSON from image extraction (for query context)
 
     Yields:
@@ -178,28 +178,28 @@ async def process_query_and_search(
 
     # Determine processing mode
     if detected_urls and not has_search_intent:
-        # MODE A: Direct-URL-Modus (keine Web-Search)
+        # MODE A: Direct-URL mode (no web search)
         mode = "direct"
     elif detected_urls and has_search_intent:
-        # MODE B: Hybrid-Modus (URL + Web-Search)
+        # MODE B: Hybrid mode (URL + web search)
         mode = "hybrid"
     else:
-        # MODE C: Normal-Modus (nur Web-Search)
+        # MODE C: Normal mode (web search only)
         mode = "normal"
 
     # ============================================================
-    # MODE A: DIRECT-URL-MODUS (Skip Query-Opt & Search)
+    # MODE A: DIRECT-URL MODE (Skip Query-Opt & Search)
     # ============================================================
     if mode == "direct":
         log_message("=" * 60)
-        log_message("⚡ Direct-Scraping-Modus aktiviert")
+        log_message("⚡ Direct-Scraping mode activated")
         log_message("=" * 60)
 
-        yield {"type": "debug", "message": f"🔗 {len(detected_urls)} URL(s) erkannt → Direct-Scraping"}
+        yield {"type": "debug", "message": f"🔗 {len(detected_urls)} URL(s) detected → Direct-Scraping"}
         for i, url in enumerate(detected_urls, 1):
             yield {"type": "debug", "message": f"   {i}. {url}"}
 
-        yield {"type": "debug", "message": "⚡ Direct-Scraping-Modus (Skip Query-Opt & Search)"}
+        yield {"type": "debug", "message": "⚡ Direct-Scraping mode (Skip Query-Opt & Search)"}
 
         # Set results directly
         optimized_query = detected_urls[0] if len(detected_urls) == 1 else f"{len(detected_urls)} URLs"
@@ -212,25 +212,25 @@ async def process_query_and_search(
         return
 
     # ============================================================
-    # MODE B: HYBRID-MODUS (URL + Web-Search)
+    # MODE B: HYBRID MODE (URL + Web-Search)
     # ============================================================
     elif mode == "hybrid":
         log_message("=" * 60)
-        log_message("🔀 Hybrid-Modus aktiviert (URL + Web-Search)")
+        log_message("🔀 Hybrid mode activated (URL + Web-Search)")
         log_message("=" * 60)
 
-        yield {"type": "debug", "message": f"🔗 {len(detected_urls)} URL(s) erkannt"}
+        yield {"type": "debug", "message": f"🔗 {len(detected_urls)} URL(s) detected"}
         for i, url in enumerate(detected_urls, 1):
             yield {"type": "debug", "message": f"   {i}. {url}"}
-        yield {"type": "debug", "message": "🔍 Such-Intent erkannt → Hybrid-Modus"}
+        yield {"type": "debug", "message": "🔍 Search intent detected → Hybrid mode"}
 
         # Remove URLs from text for query optimization
         text_without_urls = remove_urls_from_text(user_text, detected_urls)
 
         if not text_without_urls:
             # Edge case: Only URLs in text, no search keywords
-            log_message("⚠️ Kein Text nach URL-Entfernung, fallback zu Direct-Modus")
-            yield {"type": "debug", "message": "⚠️ Nur URLs im Text, fallback zu Direct-Scraping"}
+            log_message("⚠️ No text after URL removal, fallback to direct mode")
+            yield {"type": "debug", "message": "⚠️ Only URLs in text, fallback to Direct-Scraping"}
 
             optimized_query = detected_urls[0] if len(detected_urls) == 1 else f"{len(detected_urls)} URLs"
             query_reasoning = "Only URLs in text, no additional search terms"
@@ -241,7 +241,7 @@ async def process_query_and_search(
             return
 
         # Query Optimization for text without URLs
-        yield {"type": "debug", "message": "🔍 Query-Optimierung (für Such-Keywords)..."}
+        yield {"type": "debug", "message": "🔍 Query optimization (for search keywords)..."}
 
         query_opt_start = time.time()
         automatik_limit, _ = await automatik_llm_client.get_model_context_limit(automatik_model)
@@ -257,25 +257,25 @@ async def process_query_and_search(
         )
         query_opt_time = max(0, time.time() - query_opt_start)
 
-        yield {"type": "debug", "message": f"✅ Query-Optimierung fertig ({format_number(query_opt_time, 1)}s)"}
-        yield {"type": "debug", "message": f"🔎 {len(optimized_queries)} Queries generiert:"}
+        yield {"type": "debug", "message": f"✅ Query optimization done ({format_number(query_opt_time, 1)}s)"}
+        yield {"type": "debug", "message": f"🔎 {len(optimized_queries)} queries generated:"}
 
-        # API-Namen für Round-Robin Vorschau (Reihenfolge wie in MultiAPISearchTool)
+        # API names for round-robin preview (order like in MultiAPISearchTool)
         api_names = ["Tavily", "Brave", "SearXNG"]
         for i, q in enumerate(optimized_queries):
             api_name = api_names[i % len(api_names)]
             yield {"type": "debug", "message": f"   {i+1}. [{api_name}] {q}"}
 
-        # Web-Suche mit Multi-Query (verteilt auf verschiedene APIs)
+        # Web search with multi-query (distributed across different APIs)
         log_message("=" * 60)
-        log_message("🔍 Multi-Query Web-Suche (Hybrid)")
+        log_message("🔍 Multi-Query Web Search (Hybrid)")
         log_message("=" * 60)
 
         search_result = search_web_multi(optimized_queries)
         tool_results.append(search_result)
 
         # Log Multi-Query Stats (File-Log + UI)
-        api_source = search_result.get('source', 'Unbekannt')
+        api_source = search_result.get('source', 'Unknown')
         stats = search_result.get('stats', {})
         apis_used = search_result.get('apis_used', [])
         query_results = search_result.get('query_results', [])
@@ -285,19 +285,19 @@ async def process_query_and_search(
             unique_urls = stats.get('unique_urls', 0)
             duplicates = stats.get('duplicates_removed', 0)
 
-            # File-Log: Detaillierte Query→API Zuordnung
-            log_message(f"📋 Query → API Zuordnung:")
+            # File-Log: Detailed Query→API mapping
+            log_message(f"📋 Query → API mapping:")
             for qr in query_results:
                 status = "✅" if qr.get('success') else "❌"
                 log_message(f"   {status} {qr.get('api')}: \"{qr.get('query', '')[:50]}...\" → {qr.get('urls_found', 0)} URLs")
-            log_message(f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)")
+            log_message(f"🔄 Deduplication: {total_urls} URLs → {unique_urls} unique ({duplicates} duplicates)")
 
-            # UI Debug-Konsole
+            # UI Debug console
             yield {"type": "debug", "message": f"🌐 Multi-Query Search: {', '.join(apis_used)} ({len(apis_used)} APIs)"}
-            yield {"type": "debug", "message": f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)"}
+            yield {"type": "debug", "message": f"🔄 Deduplication: {total_urls} URLs → {unique_urls} unique ({duplicates} duplicates)"}
         else:
-            log_message(f"🌐 Web-Suche mit: {api_source}")
-            yield {"type": "debug", "message": f"🌐 Web-Suche mit: {api_source}"}
+            log_message(f"🌐 Web search with: {api_source}")
+            yield {"type": "debug", "message": f"🌐 Web search with: {api_source}"}
 
         # Combine detected URLs with search results
         search_urls = search_result.get('related_urls', [])
@@ -306,18 +306,18 @@ async def process_query_and_search(
         # Deduplicate combined list
         related_urls = deduplicate_urls(related_urls)
 
-        yield {"type": "debug", "message": f"🔀 Gesamt: {len(related_urls)} URLs (direkt + Search)"}
+        yield {"type": "debug", "message": f"🔀 Total: {len(related_urls)} URLs (direct + search)"}
 
         # Return results (first query for display, all queries in search_result)
         yield {"type": "query_result", "data": (optimized_queries[0], query_reasoning, query_opt_time, related_urls, tool_results)}
         return
 
     # ============================================================
-    # MODE C: NORMAL-MODUS (nur Web-Search, wie bisher)
+    # MODE C: NORMAL MODE (web search only, as before)
     # ============================================================
     else:  # mode == "normal"
         # 1. Query Optimization
-        yield {"type": "debug", "message": "🔍 Query-Optimierung läuft..."}
+        yield {"type": "debug", "message": "🔍 Query optimization running..."}
 
         query_opt_start = time.time()
 
@@ -336,48 +336,48 @@ async def process_query_and_search(
         query_opt_time = max(0, time.time() - query_opt_start)
 
         # Show query optimization completion AND all queries with API assignment
-        yield {"type": "debug", "message": f"✅ Query-Optimierung fertig ({format_number(query_opt_time, 1)}s)"}
-        yield {"type": "debug", "message": f"🔎 {len(optimized_queries)} Queries generiert:"}
+        yield {"type": "debug", "message": f"✅ Query optimization done ({format_number(query_opt_time, 1)}s)"}
+        yield {"type": "debug", "message": f"🔎 {len(optimized_queries)} queries generated:"}
 
-        # API-Namen für Round-Robin Vorschau (Reihenfolge wie in MultiAPISearchTool)
+        # API names for round-robin preview (order like in MultiAPISearchTool)
         api_names = ["Tavily", "Brave", "SearXNG"]
         for i, q in enumerate(optimized_queries):
             api_name = api_names[i % len(api_names)]
             yield {"type": "debug", "message": f"   {i+1}. [{api_name}] {q}"}
 
-        # 2. Web-Suche mit Multi-Query
+        # 2. Web search with multi-query
         log_message("=" * 60)
-        log_message("🔍 Multi-Query Web-Suche")
+        log_message("🔍 Multi-Query Web Search")
         log_message("=" * 60)
 
         search_result = search_web_multi(optimized_queries)
         tool_results.append(search_result)
 
     # Log Multi-Query Stats (File-Log + UI)
-    api_source = search_result.get('source', 'Unbekannt')
+    api_source = search_result.get('source', 'Unknown')
     stats = search_result.get('stats', {})
     apis_used = search_result.get('apis_used', [])
     query_results = search_result.get('query_results', [])
 
     if stats and apis_used:
-        # Multi-API Search mit Stats
+        # Multi-API Search with Stats
         total_urls = stats.get('total_urls', 0)
         unique_urls = stats.get('unique_urls', 0)
         duplicates = stats.get('duplicates_removed', 0)
 
-        # File-Log: Detaillierte Query→API Zuordnung
-        log_message(f"📋 Query → API Zuordnung:")
+        # File-Log: Detailed Query→API mapping
+        log_message(f"📋 Query → API mapping:")
         for qr in query_results:
             status = "✅" if qr.get('success') else "❌"
             log_message(f"   {status} {qr.get('api')}: \"{qr.get('query', '')[:50]}...\" → {qr.get('urls_found', 0)} URLs")
-        log_message(f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)")
+        log_message(f"🔄 Deduplication: {total_urls} URLs → {unique_urls} unique ({duplicates} duplicates)")
 
-        # UI Debug-Konsole
+        # UI Debug console
         yield {"type": "debug", "message": f"🌐 Multi-Query Search: {', '.join(apis_used)} ({len(apis_used)} APIs)"}
-        yield {"type": "debug", "message": f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)"}
+        yield {"type": "debug", "message": f"🔄 Deduplication: {total_urls} URLs → {unique_urls} unique ({duplicates} duplicates)"}
     else:
-        log_message(f"🌐 Web-Suche mit: {api_source}")
-        yield {"type": "debug", "message": f"🌐 Web-Suche mit: {api_source}"}
+        log_message(f"🌐 Web search with: {api_source}")
+        yield {"type": "debug", "message": f"🌐 Web search with: {api_source}"}
 
     # Extract URLs
     related_urls = search_result.get('related_urls', [])

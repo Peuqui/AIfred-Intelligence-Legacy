@@ -20,8 +20,8 @@ from .formatting import format_number
 logger = logging.getLogger(__name__)
 
 
-# NOTE: is_model_loaded() wurde nach backends/base.py verschoben als abstractmethod
-# Jedes Backend implementiert seine eigene Logik:
+# NOTE: is_model_loaded() was moved to backends/base.py as abstractmethod
+# Each backend implements its own logic:
 # - Ollama: Query /api/ps endpoint
 # - vLLM: Always True (model fixed at server start)
 # - TabbyAPI: Always True (model fixed at server start)
@@ -382,14 +382,14 @@ async def calculate_vram_based_context(
         # This is a FALLBACK - normally models are unloaded in calculate_practical_context()
         # before this function is called. This code path should rarely execute.
         if vram_for_context_calc < 0:
-            msg = "⚠️ Anderes Modell noch geladen → Entlade alle Modelle..."
+            msg = "⚠️ Another model still loaded → Unloading all models..."
             debug_msgs.append(msg)
 
             # Unload all models if backend available (Ollama only)
             if backend and hasattr(backend, 'unload_all_models'):
                 success, unloaded = await backend.unload_all_models()
                 if success and unloaded:
-                    msg = f"✅ Entladen: {', '.join(unloaded)}"
+                    msg = f"✅ Unloaded: {', '.join(unloaded)}"
                     debug_msgs.append(msg)
 
                     # Wait 2 seconds for VRAM to be released
@@ -398,7 +398,7 @@ async def calculate_vram_based_context(
 
                     free_vram_mb = get_free_vram_mb()
                     if free_vram_mb is None:
-                        msg = "⚠️ VRAM-Abfrage fehlgeschlagen → Minimaler Fallback"
+                        msg = "⚠️ VRAM query failed → Minimal fallback"
                         debug_msgs.append(msg)
                         return 2048, debug_msgs
                     usable_vram = free_vram_mb - safety_margin_mb
@@ -409,11 +409,11 @@ async def calculate_vram_based_context(
                     debug_msgs.append(msg1)
                     debug_msgs.append(msg2)
                 else:
-                    msg = "⚠️ Entladen fehlgeschlagen → Minimaler Fallback"
+                    msg = "⚠️ Unload failed → Minimal fallback"
                     debug_msgs.append(msg)
                     return 2048, debug_msgs
             else:
-                msg = "⚠️ Kein Backend verfügbar → Minimaler Fallback"
+                msg = "⚠️ No backend available → Minimal fallback"
                 debug_msgs.append(msg)
                 return 2048, debug_msgs
         else:

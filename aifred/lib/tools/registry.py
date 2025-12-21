@@ -15,40 +15,40 @@ from .scraper_tool import WebScraperTool
 logger = logging.getLogger(__name__)
 
 class ToolRegistry:
-    """Verwaltet alle verfügbaren Tools"""
+    """Manages all available tools"""
 
     def __init__(self):
         self.tools = {}
         self._register_default_tools()
 
     def _register_default_tools(self):
-        """Registriert Standard-Tools"""
-        # Multi-API Search als Primary
+        """Register default tools"""
+        # Multi-API Search as primary
         self.register(MultiAPISearchTool())
         self.register(WebScraperTool())
 
     def register(self, tool: BaseTool):
-        """Registriert ein Tool"""
+        """Register a tool"""
         self.tools[tool.name] = tool
-        logger.info(f"Tool registriert: {tool.name}")
+        logger.info(f"Tool registered: {tool.name}")
 
     def get(self, name: str) -> Optional[BaseTool]:
-        """Holt ein Tool nach Name"""
+        """Get a tool by name"""
         return self.tools.get(name)
 
     def list_tools(self) -> List[str]:
-        """Listet alle Tools"""
+        """List all tools"""
         return list(self.tools.keys())
 
 
 # ============================================================
-# GLOBALE TOOL REGISTRY
+# GLOBAL TOOL REGISTRY
 # ============================================================
 
 _tool_registry = None
 
 def get_tool_registry() -> ToolRegistry:
-    """Holt globale Tool Registry (Singleton)"""
+    """Get global tool registry (singleton)"""
     global _tool_registry
     if _tool_registry is None:
         _tool_registry = ToolRegistry()
@@ -61,8 +61,8 @@ def get_tool_registry() -> ToolRegistry:
 
 def search_web(query: str) -> Dict:
     """
-    Convenience-Funktion für Web-Suche mit Multi-API Fallback
-    (Legacy: Einzelne Query an ALLE APIs parallel)
+    Convenience function for web search with multi-API fallback
+    (Legacy: Single query to ALL APIs in parallel)
     """
     registry = get_tool_registry()
     search_tool = registry.get("Multi-API Search")
@@ -71,18 +71,18 @@ def search_web(query: str) -> Dict:
 
 def search_web_multi(queries: List[str]) -> Dict:
     """
-    Multi-Query Web-Suche: Verteilt Queries auf verschiedene APIs
+    Multi-query web search: Distributes queries across different APIs
 
-    Jede Query wird an eine andere API gesendet (1:1 Mapping):
+    Each query is sent to a different API (1:1 mapping):
     - Query 1 → Tavily (Primary)
     - Query 2 → Brave
     - Query 3 → SearXNG
 
     Args:
-        queries: Liste von optimierten Suchanfragen
+        queries: List of optimized search queries
 
     Returns:
-        Dict mit aggregierten URLs von allen Queries
+        Dict with aggregated URLs from all queries
     """
     registry = get_tool_registry()
     search_tool = registry.get("Multi-API Search")
@@ -91,10 +91,10 @@ def search_web_multi(queries: List[str]) -> Dict:
 
 def scrape_webpage(url: str) -> Dict:
     """
-    Convenience-Funktion für Web-Scraping
+    Convenience function for web scraping
 
-    Scraped komplette Artikel ohne Längenlimit.
-    Ollama's dynamisches num_ctx übernimmt die Context-Größen-Kontrolle!
+    Scrapes complete articles without length limit.
+    Ollama's dynamic num_ctx handles context size control!
     """
     registry = get_tool_registry()
     scraper_tool = registry.get("Web Scraper")

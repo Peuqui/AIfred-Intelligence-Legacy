@@ -1,11 +1,11 @@
 """
 Message Builder - Centralized History-to-Messages Conversion
 
-Konvertiert Gradio Chat History zu Ollama Messages Format und
-entfernt Timing-Informationen aus den Anzeigen.
+Converts Gradio Chat History to Ollama Messages format and
+removes timing information from displays.
 
-Vorher: 6+ duplizierte Code-Stellen mit jeweils 10-15 Zeilen
-Nachher: 1 zentrale Funktion mit robustem Pattern Matching
+Before: 6+ duplicated code locations with 10-15 lines each
+After: 1 central function with robust pattern matching
 """
 
 import re
@@ -20,98 +20,98 @@ def build_messages_from_history(
     include_summaries: bool = True
 ) -> List[Dict[str, str]]:
     """
-    Konvertiert Gradio-History zu Ollama-Messages Format
+    Convert Gradio History to Ollama Messages format
 
-    Entfernt Timing-Info, HTML-Tags und Metadata aus User- und AI-Nachrichten:
-    - Timing-Patterns: "(STT: 2.5s)", "(Inferenz: 1.3s)", "(Agent: 45.2s)"
-    - HTML-Metadata: <span style="...">( Inferenz: ... )</span>
-    - Thinking-Collapsibles: <details>...</details>
+    Removes timing info, HTML tags and metadata from User and AI messages:
+    - Timing patterns: "(STT: 2.5s)", "(Inference: 1.3s)", "(Agent: 45.2s)"
+    - HTML metadata: <span style="...">( Inference: ... )</span>
+    - Thinking collapsibles: <details>...</details>
 
-    Behandelt History-Summaries als System-Messages:
-    - Summary-Format: ("", "[📊 Komprimiert: X Messages]\\n{summary}")
-    - Wird zu: {'role': 'system', 'content': summary}
+    Treats history summaries as system messages:
+    - Summary format: ("", "[📊 Compressed: X Messages]\\n{summary}")
+    - Becomes: {'role': 'system', 'content': summary}
 
     Args:
         history: Gradio Chat History [[user_msg, ai_msg], ...]
-        current_user_text: Aktuelle User-Nachricht
-        max_turns: Optional - Nur letzte N Turns verwenden (None = alle)
-        include_summaries: Summaries als System-Messages einbinden (default: True)
+        current_user_text: Current user message
+        max_turns: Optional - Only use last N turns (None = all)
+        include_summaries: Include summaries as system messages (default: True)
 
     Returns:
-        list: Ollama Messages Format [{'role': 'user', 'content': '...'}, ...]
+        list: Ollama Messages format [{'role': 'user', 'content': '...'}, ...]
 
     Examples:
         >>> history = [
-        ...     ["", "[📊 Komprimiert: 6 Messages]\\nUser fragte nach Wetter..."],
-        ...     ["Hallo (STT: 2.5s)", "Hi! (Inferenz: 1.3s)"],
-        ...     ["Was ist 2+2? (Agent: 45.2s)", "4 (Inferenz: 0.8s)"]
+        ...     ["", "[📊 Compressed: 6 Messages]\\nUser asked about weather..."],
+        ...     ["Hello (STT: 2.5s)", "Hi! (Inference: 1.3s)"],
+        ...     ["What is 2+2? (Agent: 45.2s)", "4 (Inference: 0.8s)"]
         ... ]
-        >>> msgs = build_messages_from_history(history, "Danke!")
+        >>> msgs = build_messages_from_history(history, "Thanks!")
         >>> msgs[0]
-        {'role': 'system', 'content': '[📊 Komprimiert: 6 Messages]\\nUser fragte nach Wetter...'}
+        {'role': 'system', 'content': '[📊 Compressed: 6 Messages]\\nUser asked about weather...'}
     """
     messages = []
 
-    # Liste aller bekannten Timing-Patterns (robust gegen neue Patterns)
-    # Format: "*( Label: Zeit    tok/s    Quelle: ... )*" (kursiv, in Klammern)
+    # List of all known timing patterns (robust against new patterns)
+    # Format: "*( Label: Time    tok/s    Source: ... )*" (italic, in parentheses)
     timing_patterns = [
-        "*( STT:",           # Speech-to-Text Zeit
-        "*( Agent:",         # Agent Research Zeit
-        "*( Inferenz:",      # LLM Inference Zeit
-        "*( Vision:",        # Vision-LLM Zeit
-        "*( TTS:",           # Text-to-Speech Zeit
-        "*( Entscheidung:",  # Automatik Decision Zeit
-        "*( Cache-Hit:",     # Cache Hit Zeit
+        "*( STT:",           # Speech-to-Text time
+        "*( Agent:",         # Agent Research time
+        "*( Inference:",     # LLM Inference time
+        "*( Vision:",        # Vision-LLM time
+        "*( TTS:",           # Text-to-Speech time
+        "*( Decision:",      # Automatik Decision time
+        "*( Cache-Hit:",     # Cache Hit time
     ]
 
-    # Begrenze History falls gewünscht (z.B. nur letzte 3 Turns)
+    # Limit history if desired (e.g., only last 3 turns)
     history_to_process = history[-max_turns:] if max_turns else history
 
-    # Verarbeite History
+    # Process history
     for user_turn, ai_turn in history_to_process:
-        # Erkenne Summary-Einträge: ("", "[📊 Komprimiert: ...")
+        # Detect summary entries: ("", "[📊 Compressed: ...")
         is_summary = (user_turn == "" and
-                     ai_turn.startswith("[📊 Komprimiert:") and
+                     ai_turn.startswith("[📊 Compressed:") and
                      include_summaries)
 
         if is_summary:
-            # Summary als System-Message hinzufügen
+            # Add summary as system message
             messages.append({'role': 'system', 'content': ai_turn})
             continue
 
-        # Normale User/AI Messages bereinigen
-        # Bereinige User-Nachricht
+        # Clean normal User/AI messages
+        # Clean user message
         clean_user = user_turn
         for pattern in timing_patterns:
             if pattern in clean_user:
-                # Schneide alles ab dem ersten Timing-Pattern ab
+                # Cut everything from the first timing pattern
                 clean_user = clean_user.split(pattern)[0]
 
-        # Bereinige AI-Nachricht (entferne HTML-Tags UND Text-Metadata)
+        # Clean AI message (remove HTML tags AND text metadata)
         clean_ai = ai_turn
 
-        # 1. Entferne Thinking-Collapsibles (<details>...</details>)
+        # 1. Remove thinking collapsibles (<details>...</details>)
         clean_ai = re.sub(r'<details[^>]*>.*?</details>', '', clean_ai, flags=re.DOTALL)
 
-        # 2. Entferne Metadata-Spans (<span style="...">( Inferenz: ... )</span>)
+        # 2. Remove metadata spans (<span style="...">( Inference: ... )</span>)
         clean_ai = re.sub(r'<span[^>]*>\s*\([^)]+\)\s*</span>', '', clean_ai, flags=re.DOTALL)
 
-        # 3. Fallback: Entferne verbleibende Text-Metadata (falls HTML-Tags fehlen)
+        # 3. Fallback: Remove remaining text metadata (if HTML tags missing)
         for pattern in timing_patterns:
             if pattern in clean_ai:
-                # Schneide alles ab dem ersten Timing-Pattern ab
+                # Cut everything from the first timing pattern
                 clean_ai = clean_ai.split(pattern)[0]
 
-        # 4. Cleanup: Entferne mehrfache Leerzeilen und Whitespace
+        # 4. Cleanup: Remove multiple blank lines and whitespace
         clean_ai = re.sub(r'\n\n+', '\n\n', clean_ai.strip())
 
-        # Füge bereinigte Messages hinzu
+        # Add cleaned messages
         messages.extend([
             {'role': 'user', 'content': clean_user},
             {'role': 'assistant', 'content': clean_ai}
         ])
 
-    # Füge aktuelle User-Nachricht hinzu
+    # Add current user message
     messages.append({'role': 'user', 'content': current_user_text})
 
     return messages
@@ -201,11 +201,11 @@ def inject_rag_context(
     rag_system_message = {
         'role': 'system',
         'content': f"""
-ZUSÄTZLICHER KONTEXT AUS VORHERIGEN RECHERCHEN:
+ADDITIONAL CONTEXT FROM PREVIOUS RESEARCH:
 
 {rag_context}
 
-Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für die aktuelle Frage relevant sind.
+Use this information IN ADDITION to your training knowledge when relevant to the current question.
 """
     }
     messages.insert(position, rag_system_message)
@@ -237,12 +237,12 @@ def inject_vision_json_context(
 
     vision_system_message = {
         'role': 'system',
-        'content': f"""VORHERIGE BILDEXTRAKTION (STRUKTURIERTE DATEN):
+        'content': f"""PREVIOUS IMAGE EXTRACTION (STRUCTURED DATA):
 
 ```json
 {json.dumps(vision_json, ensure_ascii=False, indent=2)}
 ```
 
-Diese Daten wurden aus einem Bild extrahiert. Nutze sie für deine Antwort."""
+This data was extracted from an image. Use it for your answer."""
     }
     messages.insert(position, vision_system_message)

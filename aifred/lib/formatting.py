@@ -16,47 +16,54 @@ from .config import XML_TAG_CONFIG  # Import from central config
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
 
-# HTML Preview: Pfad zum assets/html_preview Verzeichnis
-# Reflex serviert assets/ unter / - also /html_preview/dateiname.html
+# HTML Preview: Path to assets/html_preview directory
+# Reflex serves assets/ under / - so /html_preview/filename.html
 _ASSETS_DIR = Path(__file__).parent.parent.parent / "assets"
 _HTML_PREVIEW_DIR = _ASSETS_DIR / "html_preview"
 
-# LRU Cache für HTML-Preview-Dateien (max 50 Dateien)
+# LRU Cache for HTML preview files (max 50 files)
 _html_file_cache: OrderedDict[str, Path] = OrderedDict()
 _html_cache_lock = threading.Lock()
 MAX_HTML_FILES = 50
 
 
-def format_number(n: int | float, decimals: int = 0) -> str:
+def format_number(n: int | float, decimals: int = 0, locale: str = "de") -> str:
     """
-    Format number with German locale (dot for thousands, comma for decimals).
+    Format number with locale-aware separators.
 
     Args:
         n: Number to format (int or float)
         decimals: Number of decimal places (default: 0 for integer formatting)
+        locale: Locale for formatting - "de" (German) or "en" (English)
+                German: dot for thousands, comma for decimals (1.234,56)
+                English: comma for thousands, dot for decimals (1,234.56)
 
     Returns:
-        Formatted string with German number formatting
+        Formatted string with locale-aware number formatting
 
     Examples:
         >>> format_number(40960)
         '40.960'
+        >>> format_number(40960, locale="en")
+        '40,960'
         >>> format_number(10.84, 2)
         '10,84'
-        >>> format_number(1234567)
-        '1.234.567'
-        >>> format_number(46.7, 1)
-        '46,7'
+        >>> format_number(10.84, 2, locale="en")
+        '10.84'
     """
-    if decimals == 0:
-        # Integer formatting with thousands separator
-        return f"{int(n):,}".replace(",", ".")
+    if locale == "en":
+        # English: comma for thousands, dot for decimals (Python default)
+        if decimals == 0:
+            return f"{int(n):,}"
+        else:
+            return f"{n:,.{decimals}f}"
     else:
-        # Float formatting: swap separators
-        # Python uses comma for thousands, dot for decimals
-        # We want: dot for thousands, comma for decimals (German)
-        formatted = f"{n:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        return formatted
+        # German (default): dot for thousands, comma for decimals
+        if decimals == 0:
+            return f"{int(n):,}".replace(",", ".")
+        else:
+            formatted = f"{n:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            return formatted
 
 
 def format_age(seconds: float) -> str:
@@ -100,63 +107,63 @@ def format_age(seconds: float) -> str:
 
 def format_metadata(metadata_text: str) -> str:
     """
-    Formatiert Metadaten (Inferenzzeiten, Quellen, etc.) als kursiven Text in Klammern.
+    Format metadata (inference times, sources, etc.) as italic text in parentheses.
 
     Args:
-        metadata_text: Metadaten-Text, z.B. "Inferenz: 1.3s    Quelle: Web-Recherche"
-                       (4 Leerzeichen als Trenner zwischen Werten)
+        metadata_text: Metadata text, e.g., "Inference: 1.3s    Source: Web Research"
+                       (4 spaces as separator between values)
 
     Returns:
-        Markdown-formatierter Text (kursiv, in Klammern) mit geschützten Leerzeichen
+        Markdown-formatted text (italic, in parentheses) with non-breaking spaces
 
     Example:
-        >>> format_metadata("Inferenz: 1.3s    61,1 tok/s    Quelle: LLM")
-        '*( Inferenz: 1.3s    61,1 tok/s    Quelle: LLM )*'  # mit non-breaking spaces
+        >>> format_metadata("Inference: 1.3s    61.1 tok/s    Source: LLM")
+        '*( Inference: 1.3s    61.1 tok/s    Source: LLM )*'  # with non-breaking spaces
 
     Note:
-        Verwendet Markdown statt HTML, da rx.markdown() inline HTML escapet.
-        Die Kursiv-Formatierung (*...*) signalisiert Meta-Information.
-        4 normale Leerzeichen werden zu 4 Non-Breaking Spaces konvertiert.
+        Uses Markdown instead of HTML since rx.markdown() escapes inline HTML.
+        Italic formatting (*...*) signals meta-information.
+        4 normal spaces are converted to 4 non-breaking spaces.
     """
     if not metadata_text:
         return metadata_text
 
     text = metadata_text.strip()
-    # Ersetze 4 normale Leerzeichen durch 4 Non-Breaking Spaces (werden nicht zusammengekürzt)
+    # Replace 4 normal spaces with 4 non-breaking spaces (won't collapse)
     text = text.replace("    ", "\u00A0\u00A0\u00A0\u00A0")
     return f'*( {text} )*'
 
 
 def get_timestamp() -> str:
     """
-    Gibt aktuellen Timestamp im Format HH:MM:SS zurück (wie Legacy-Version).
+    Returns current timestamp in HH:MM:SS format (like legacy version).
 
     Returns:
-        Formatted timestamp string (z.B. "18:32:33")
+        Formatted timestamp string (e.g., "18:32:33")
     """
     return datetime.now().strftime("%H:%M:%S")
 
 
 def _save_html_to_assets(html_code: str) -> str:
     """
-    Speichert HTML-Code als Datei in assets/html_preview/ und gibt URL zurück.
+    Save HTML code as file in assets/html_preview/ and return URL.
 
-    Implementiert LRU Cache: Maximal 50 Dateien werden behalten, älteste werden gelöscht.
+    Implements LRU Cache: Maximum 50 files are kept, oldest are deleted.
 
     Args:
-        html_code: Der HTML-Code zum Speichern
+        html_code: The HTML code to save
 
     Returns:
-        URL-Pfad zur gespeicherten Datei (z.B. "/html_preview/abc123.html")
+        URL path to saved file (e.g., "/html_preview/abc123.html")
     """
-    # Stelle sicher dass das Verzeichnis existiert
+    # Ensure directory exists
     _HTML_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Generiere eindeutigen Dateinamen
+    # Generate unique filename
     filename = f"{uuid.uuid4().hex[:8]}.html"
     filepath = _HTML_PREVIEW_DIR / filename
 
-    # Speichere HTML-Code
+    # Save HTML code
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(html_code)
 
@@ -164,24 +171,24 @@ def _save_html_to_assets(html_code: str) -> str:
     with _html_cache_lock:
         _html_file_cache[filename] = filepath
 
-        # Wenn Cache voll, lösche älteste Datei
+        # If cache is full, delete oldest file
         if len(_html_file_cache) > MAX_HTML_FILES:
             oldest_filename, oldest_path = _html_file_cache.popitem(last=False)
             try:
                 oldest_path.unlink()
-                log_message(f"🗑️ HTML Preview: LRU evicted {oldest_filename} (Cache-Limit: {MAX_HTML_FILES})")
+                log_message(f"🗑️ HTML Preview: LRU evicted {oldest_filename} (Cache limit: {MAX_HTML_FILES})")
             except OSError as e:
-                log_message(f"⚠️ HTML Preview: Konnte {oldest_filename} nicht löschen: {e}")
+                log_message(f"⚠️ HTML Preview: Could not delete {oldest_filename}: {e}")
 
-    log_message(f"🌐 HTML Preview: Datei gespeichert → {filepath} (Cache: {len(_html_file_cache)}/{MAX_HTML_FILES})")
+    log_message(f"🌐 HTML Preview: File saved → {filepath} (Cache: {len(_html_file_cache)}/{MAX_HTML_FILES})")
 
-    # Reflex serviert assets/ unter / - also /html_preview/dateiname.html
+    # Reflex serves assets/ under / - so /html_preview/filename.html
     return f"/html_preview/{filename}"
 
 
 @atexit.register
 def _cleanup_html_cache():
-    """Cleanup bei Programm-Exit: Lösche alle HTML-Preview-Dateien aus Cache"""
+    """Cleanup on program exit: Delete all HTML preview files from cache"""
     with _html_cache_lock:
         for filepath in _html_file_cache.values():
             try:
@@ -193,13 +200,13 @@ def _cleanup_html_cache():
 
 def cleanup_old_html_previews(max_age_hours: int = 24) -> int:
     """
-    Löscht alte HTML-Preview-Dateien aus assets/html_preview/.
+    Deletes old HTML preview files from assets/html_preview/.
 
     Args:
-        max_age_hours: Maximales Alter in Stunden (default: 24)
+        max_age_hours: Maximum age in hours (default: 24)
 
     Returns:
-        Anzahl gelöschter Dateien
+        Number of deleted files
     """
     import time
 
@@ -217,48 +224,48 @@ def cleanup_old_html_previews(max_age_hours: int = 24) -> int:
                 filepath.unlink()
                 deleted += 1
         except OSError:
-            pass  # Ignoriere Fehler beim Löschen
+            pass  # Ignore errors during deletion
 
     if deleted > 0:
-        log_message(f"🧹 HTML Preview: {deleted} alte Datei(en) gelöscht")
+        log_message(f"🧹 HTML Preview: {deleted} old file(s) deleted")
 
     return deleted
 
 
 def format_html_preview(text: str) -> str:
     """
-    Erkennt ```html Code-Blöcke, speichert sie als Dateien und generiert Preview-Buttons.
+    Detect ```html code blocks, save them as files and generate preview buttons.
 
-    Die HTML-Dateien werden in assets/html_preview/ gespeichert und können
-    über einen Link im neuen Browser-Tab geöffnet werden.
+    HTML files are saved in assets/html_preview/ and can be opened
+    via link in a new browser tab.
 
     Args:
-        text: Text mit optionalen ```html Code-Blöcken
+        text: Text with optional ```html code blocks
 
     Returns:
-        Text mit HTML-Preview-Buttons und Collapsible Code
+        Text with HTML preview buttons and collapsible code
 
     Example:
-        Input:  "Hier ist HTML:\n```html\n<h1>Hello</h1>\n```\nFertig!"
-        Output: "Hier ist HTML:\n[🌐 Im Browser öffnen](/html_preview/abc123.html)\n<details>...</details>\nFertig!"
+        Input:  "Here is HTML:\n```html\n<h1>Hello</h1>\n```\nDone!"
+        Output: "Here is HTML:\n[🌐 Open in Browser](/html_preview/abc123.html)\n<details>...</details>\nDone!"
     """
-    # Pattern für ```html Code-Blöcke (mit optionalem Whitespace)
+    # Pattern for ```html code blocks (with optional whitespace)
     html_block_pattern = r'```html\s*\n([\s\S]*?)```'
 
     def replace_html_block(match):
         html_code = match.group(1).strip()
 
-        # Speichere HTML-Code und erhalte URL
+        # Save HTML code and get URL
         preview_url = _save_html_to_assets(html_code)
 
-        # Button-Link mit target="_blank" direkt im HTML (nicht Markdown!)
-        # + Collapsible mit dem Code zum Ansehen/Kopieren
+        # Button link with target="_blank" directly in HTML (not Markdown!)
+        # + Collapsible with code for viewing/copying
         code_collapsible = f"""<div style="margin-bottom: 1em; margin-top: 0.5em;">
 
-<a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="font-weight: bold; color: #58a6ff; text-decoration: none;">🌐 Im Browser öffnen</a> <em>(Neuer Tab)</em>
+<a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="font-weight: bold; color: #58a6ff; text-decoration: none;">🌐 Open in Browser</a> <em>(New Tab)</em>
 
 <details style="font-size: 0.9em; border: 1px solid #30363d; border-radius: 6px;">
-<summary style="cursor: pointer; font-weight: bold; color: #58a6ff; padding: 0.5em;">📄 HTML Code anzeigen</summary>
+<summary style="cursor: pointer; font-weight: bold; color: #58a6ff; padding: 0.5em;">📄 Show HTML Code</summary>
 <div style="padding: 0.5em;">
 
 ```html
@@ -271,94 +278,94 @@ def format_html_preview(text: str) -> str:
 
         return code_collapsible
 
-    # Ersetze alle ```html Blöcke
+    # Replace all ```html blocks
     result = re.sub(html_block_pattern, replace_html_block, text)
 
-    # Log wenn HTML-Blöcke gefunden wurden
+    # Log when HTML blocks were found
     if result != text:
-        log_message("🌐 HTML Code: Preview-Button(s) generiert")
+        log_message("🌐 HTML Code: Preview button(s) generated")
 
     return result
 
 
 def fix_orphan_closing_think_tag(text: str) -> str:
     """
-    Repariert verwaiste schließende </think> Tags (ohne öffnenden Tag).
+    Repair orphaned closing </think> tags (without opening tag).
 
-    Manche Modelle (z.B. Qwen3 mit enable_thinking=false) geben den Denkprozess
-    ohne öffnenden <think> Tag aus, aber mit schließendem </think> Tag.
+    Some models (e.g., Qwen3 with enable_thinking=false) output the thinking process
+    without opening <think> tag, but with closing </think> tag.
 
-    LOGIK:
-    - Wenn <think> UND </think> vorhanden → Nichts tun (korrekte Tags)
-    - Wenn NUR </think> vorhanden (ohne <think>) → <think> am Anfang einfügen
+    LOGIC:
+    - If <think> AND </think> present → Do nothing (correct tags)
+    - If ONLY </think> present (without <think>) → Insert <think> at beginning
 
     Args:
-        text: Text mit potentiell fehlendem öffnenden Tag
+        text: Text with potentially missing opening tag
 
     Returns:
-        Text mit repariertem Tag (falls nötig)
+        Text with repaired tag (if needed)
 
     Example:
         Input:  "Okay, let me think...\\n</think>\\nAnswer here"
         Output: "<think>Okay, let me think...\\n</think>\\nAnswer here"
 
-        Input:  "<think>normal</think> text"  # Bleibt unverändert
+        Input:  "<think>normal</think> text"  # Remains unchanged
         Output: "<think>normal</think> text"
     """
     has_opening = '<think>' in text
     has_closing = '</think>' in text
 
-    # Nur reparieren wenn schließender Tag da ist, aber kein öffnender
+    # Only repair if closing tag exists but no opening tag
     if has_closing and not has_opening:
         text = '<think>' + text
-        log_message("🔧 Fehlender <think> Tag repariert (öffnender Tag hinzugefügt)")
+        log_message("🔧 Missing <think> tag repaired (opening tag added)")
 
     return text
 
 
 def extract_xml_tags(text: str) -> list[tuple[str, str]]:
     """
-    Extrahiert ALLE XML-Tags aus Text (generisch, nicht hardcoded).
+    Extract ALL XML tags from text (generic, not hardcoded).
 
-    WICHTIG:
-    1. HTML-Tags werden IGNORIERT (Blacklist in html_tags.py)
-    2. Tags innerhalb von Markdown Code-Blocks werden IGNORIERT!
-       (``` ... ``` Blöcke enthalten oft HTML/XML Code-Beispiele)
-    3. Verwaiste schließende </think> Tags werden automatisch repariert!
+    IMPORTANT:
+    1. HTML tags are IGNORED (blacklist in html_tags.py)
+    2. Tags inside Markdown code blocks are IGNORED!
+       (``` ... ``` blocks often contain HTML/XML code examples)
+    3. Orphaned closing </think> tags are automatically repaired!
 
     Args:
-        text: Text mit optionalen XML-Tags
+        text: Text with optional XML tags
 
     Returns:
-        Liste von (tag_name, content) Tuples (ohne HTML-Tags, ohne Code-Block-Tags!)
+        List of (tag_name, content) tuples (without HTML tags, without code-block tags!)
 
     Example:
         >>> extract_xml_tags("<think>foo</think> bar <python>code</python>")
         [("think", "foo"), ("python", "code")]
 
-        >>> extract_xml_tags("<span style='...'>text</span>")  # HTML ignoriert!
+        >>> extract_xml_tags("<span style='...'>text</span>")  # HTML ignored!
         []
 
-        >>> extract_xml_tags("```html\\n<head>...</head>\\n```")  # Code-Block ignoriert!
+        >>> extract_xml_tags("```html\\n<head>...</head>\\n```")  # Code block ignored!
         []
 
-        >>> extract_xml_tags("Thinking...\\n</think>\\nAnswer")  # Verwaister Tag repariert!
+        >>> extract_xml_tags("Thinking...\\n</think>\\nAnswer")  # Orphaned tag repaired!
         [("think", "Thinking...")]
 
     Note:
-        Die Reparatur verwaister </think> Tags erfolgt in den aufrufenden Funktionen
-        (format_thinking_process, build_debug_accordion), BEVOR extract_xml_tags aufgerufen wird.
-        Dies ist notwendig, damit clean_response korrekt funktioniert.
+        Repair of orphaned </think> tags happens in calling functions
+        (format_thinking_process, build_debug_accordion), BEFORE extract_xml_tags is called.
+        This is necessary for clean_response to work correctly.
     """
-    # STEP 1: Entferne Markdown Code-Blocks BEVOR wir nach XML-Tags suchen
-    # Code-Blocks können HTML/XML Code-Beispiele enthalten, die NICHT verarbeitet werden sollen
+    # STEP 1: Remove Markdown code blocks BEFORE searching for XML tags
+    # Code blocks can contain HTML/XML code examples that should NOT be processed
     text_without_codeblocks = re.sub(r'```[\s\S]*?```', '', text)
 
     # STEP 2: Generic XML pattern: <tagname>content</tagname>
     pattern = r'<(\w+)>(.*?)</\1>'
     matches = re.findall(pattern, text_without_codeblocks, re.DOTALL)
 
-    # STEP 3: Filter: Nur Non-HTML Tags zurückgeben (Blacklist aus html_tags.py)
+    # STEP 3: Filter: Only return non-HTML tags (blacklist from html_tags.py)
     return [
         (tag_name, content.strip())
         for tag_name, content in matches
@@ -382,41 +389,41 @@ def format_debug_message(message: str) -> str:
 
 def format_thinking_process(ai_response, model_name=None, inference_time=None, tokens_per_sec=None):
     """
-    Formatiert XML-Tags als Collapsible Accordions (GENERISCH).
+    Format XML tags as collapsible accordions (GENERIC).
 
-    Unterstützt ALLE in XML_TAG_CONFIG definierten Tags dynamisch.
-    Keine Hardcodierung mehr - neue Tags können via Config hinzugefügt werden!
+    Supports ALL tags defined in XML_TAG_CONFIG dynamically.
+    No more hardcoding - new tags can be added via config!
 
     Args:
-        ai_response: Die AI-Antwort mit optionalen XML-Tags
-        model_name: Name des verwendeten Modells (z.B. "qwen3:1.7b")
-        inference_time: Inferenz-Zeit in Sekunden
-        tokens_per_sec: Tokens pro Sekunde (optional)
+        ai_response: The AI response with optional XML tags
+        model_name: Name of the model used (e.g., "qwen3:1.7b")
+        inference_time: Inference time in seconds
+        tokens_per_sec: Tokens per second (optional)
 
     Returns:
-        Formatted string mit Collapsibles für alle erkannten XML-Tags
+        Formatted string with collapsibles for all detected XML tags
 
     Supported Tags (via XML_TAG_CONFIG):
-        <think>: Denkprozess (DeepSeek Reasoning)
-        <data>: Strukturierte Daten (Vision-LLM JSON)
+        <think>: Thinking process (DeepSeek Reasoning)
+        <data>: Structured data (Vision-LLM JSON)
         <python>: Python Code
         <code>: Generic Code
         <sql>: SQL Query
-        <json>: JSON Daten
+        <json>: JSON Data
 
     Example:
         Input: "<think>reasoning</think> Answer <python>code</python>"
-        Output: 2 Collapsibles (Denkprozess + Python Code) + "Answer"
+        Output: 2 collapsibles (Thinking Process + Python Code) + "Answer"
     """
 
-    # DEBUG: Logge KOMPLETTE RAW Response
+    # DEBUG: Log COMPLETE RAW Response
     log_message("=" * 80)
-    log_message("🔍 RAW AI RESPONSE (KOMPLETT):")
+    log_message("🔍 RAW AI RESPONSE (COMPLETE):")
     log_message(ai_response)
     log_message("=" * 80)
 
-    # STEP 0: Repariere verwaiste </think> Tags BEVOR wir extrahieren
-    # (Wichtig: Muss auf ai_response angewendet werden, damit clean_response später funktioniert)
+    # STEP 0: Repair orphaned </think> tags BEFORE extraction
+    # (Important: Must be applied to ai_response so clean_response works later)
     ai_response = fix_orphan_closing_think_tag(ai_response)
 
     # Extract ALL XML tags generically
@@ -428,22 +435,22 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
         config = XML_TAG_CONFIG.get(tag_name)
 
         if config:
-            # Known tag → Use config (schönes Icon + Label)
+            # Known tag → Use config (nice icon + label)
             icon = config['icon']
             label = config['label']
             css_class = config['class']
         else:
-            # Unknown tag → SKIP (nicht als Collapsible formatieren!)
-            # Kleine Modelle geben oft Tags wie <result>, <function> aus,
-            # die nicht als Collapsibles gedacht sind
-            log_message(f"ℹ️ Überspringe unbekanntes XML-Tag: <{tag_name}> (nicht in XML_TAG_CONFIG)")
+            # Unknown tag → SKIP (don't format as collapsible!)
+            # Smaller models often output tags like <result>, <function>,
+            # which are not intended to be collapsibles
+            log_message(f"ℹ️ Skipping unknown XML tag: <{tag_name}> (not in XML_TAG_CONFIG)")
             continue
 
         # Build summary with icon + label
         summary_parts = [f"{icon} {label}"]
         if model_name:
             summary_parts.append(f"({model_name})")
-        if inference_time and tag_name == "think":  # Nur für <think> Zeit zeigen
+        if inference_time and tag_name == "think":  # Only show time for <think>
             summary_parts.append(f"• {inference_time:.1f}s")
         summary_text = " ".join(summary_parts)
 
@@ -458,11 +465,11 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
 </details>"""
         collapsibles.append(collapsible)
 
-    # Remove nur BEKANNTE Tags (die zu Collapsibles wurden) aus dem Response
-    # Unbekannte Tags bleiben im Text stehen!
+    # Remove only KNOWN tags (that became collapsibles) from response
+    # Unknown tags stay in the text!
     clean_response = ai_response
     for tag_name, _ in xml_tags:
-        # Nur entfernen wenn Tag in Config ist (also ein Collapsible erstellt wurde)
+        # Only remove if tag is in config (i.e., a collapsible was created)
         if tag_name in XML_TAG_CONFIG:
             pattern = rf'<{tag_name}>.*?</{tag_name}>'
             clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
@@ -482,38 +489,38 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
 
 def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model, query_time=None, final_time=None):
     """
-    Baut Debug-Accordion für Agent-Recherche mit allen KI-Denkprozessen.
+    Build debug accordion for agent research with all AI thinking processes.
 
-    Nutzt jetzt extract_xml_tags() für generische XML-Verarbeitung!
+    Now uses extract_xml_tags() for generic XML processing!
 
     Args:
         query_reasoning: <think> Content from Query Optimization
         ai_text: Final AI response with optional XML tags
-        automatik_model: Name des Automatik-Modells (für Query-Opt)
-        main_model: Name des Haupt-Modells (für finale Antwort)
-        query_time: Inferenz-Zeit für Query Optimization (optional)
-        final_time: Inferenz-Zeit für finale Antwort (optional)
+        automatik_model: Name of Automatik model (for Query-Opt)
+        main_model: Name of Main model (for final answer)
+        query_time: Inference time for Query Optimization (optional)
+        final_time: Inference time for final answer (optional)
 
     Returns:
         Formatted AI response with debug accordion prepended
     """
 
-    # DEBUG: Logge KOMPLETTE RAW Response
+    # DEBUG: Log COMPLETE RAW Response
     log_message("=" * 80)
-    log_message("🔍 RAW AI RESPONSE (KOMPLETT):")
+    log_message("🔍 RAW AI RESPONSE (COMPLETE):")
     log_message(ai_text)
     log_message("=" * 80)
 
-    # STEP 0: Repariere verwaiste </think> Tags BEVOR wir extrahieren
+    # STEP 0: Repair orphaned </think> tags BEFORE extraction
     ai_text = fix_orphan_closing_think_tag(ai_text)
 
     debug_sections = []
 
-    # 1. Query Optimization Reasoning (falls vorhanden)
+    # 1. Query Optimization Reasoning (if present)
     if query_reasoning:
         time_suffix = f" • {query_time:.1f}s" if query_time else ""
         debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">🔍 Query-Optimierung ({automatik_model}){time_suffix}</summary>
+<summary style="cursor: pointer; font-weight: bold; color: #aaa;">🔍 Query Optimization ({automatik_model}){time_suffix}</summary>
 <div class="thinking-compact">
 
 {query_reasoning}
@@ -529,7 +536,7 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
             # <think> tag → Add as debug collapsible
             time_suffix = f" • {final_time:.1f}s" if final_time else ""
             debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">💭 Finale Antwort Denkprozess ({main_model}){time_suffix}</summary>
+<summary style="cursor: pointer; font-weight: bold; color: #aaa;">💭 Final Answer Thinking Process ({main_model}){time_suffix}</summary>
 <div class="thinking-compact">
 
 {content}
@@ -537,14 +544,14 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
 </div>
 </details>""")
 
-    # Kombiniere alle Debug-Sections
+    # Combine all debug sections
     debug_accordion = "\n".join(debug_sections)
 
-    # Entferne nur BEKANNTE Tags (think) aus dem Response
-    # In build_debug_accordion wird nur <think> verarbeitet
+    # Remove only KNOWN tags (think) from response
+    # In build_debug_accordion only <think> is processed
     clean_response = ai_text
     for tag_name, _ in xml_tags:
-        # Nur <think> Tag entfernen (das einzige was hier als Debug-Section verwendet wird)
+        # Only remove <think> tag (the only one used as debug section here)
         if tag_name == "think":
             pattern = rf'<{tag_name}>.*?</{tag_name}>'
             clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)

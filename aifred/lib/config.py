@@ -33,21 +33,21 @@ DEBUG_ENABLED = True  # Set to False to disable debug output
 # ============================================================
 # LOGGING CONFIGURATION (Unified System)
 # ============================================================
-# Console Debug: Messages ins UI Debug-Console senden
+# Console Debug: Send messages to UI debug console
 CONSOLE_DEBUG_ENABLED = True
 
-# File Debug: Messages ins Log-File schreiben
+# File Debug: Write messages to log file
 FILE_DEBUG_ENABLED = True
 
 # ============================================================
 # WHISPER MODELS CONFIGURATION
 # ============================================================
 WHISPER_MODELS = {
-    "tiny (39MB, schnell, englisch)": "tiny",
-    "base (74MB, schneller, multilingual)": "base",
-    "small (466MB, bessere Qualität, multilingual)": "small",
-    "medium (1.5GB, hohe Qualität, multilingual)": "medium",
-    "large-v3 (2.9GB, beste Qualität, multilingual)": "large-v3"
+    "tiny (39MB, fast, english)": "tiny",
+    "base (74MB, faster, multilingual)": "base",
+    "small (466MB, better quality, multilingual)": "small",
+    "medium (1.5GB, high quality, multilingual)": "medium",
+    "large-v3 (2.9GB, best quality, multilingual)": "large-v3"
 }
 
 # Whisper Device Configuration
@@ -76,8 +76,8 @@ DEFAULT_SETTINGS = {
     "voice": "Deutsch (Katja)",
     "tts_playback_rate": "1.25x",  # Browser playback speed (generation always at 1.0)
     "enable_tts": False,
-    "tts_engine": "Edge TTS (Cloud, beste Qualität)",
-    "whisper_model": "small (466MB, bessere Qualität, multilingual)",
+    "tts_engine": "Edge TTS (Cloud, best quality)",
+    "whisper_model": "small (466MB, better quality, multilingual)",
     "research_mode": "automatik",  # Internal value: "automatik", "quick", "deep", "none"
     "show_transcription": False,
     "enable_gpu": True,
@@ -109,8 +109,8 @@ DEFAULT_SETTINGS = {
 # ============================================================
 # BACKEND-SPECIFIC DEFAULT MODELS
 # ============================================================
-# Für Performance-Vergleiche: Alle Backends nutzen die gleichen Modell-Größen
-# - Main LLM: Qwen3-30B-A3B-Instruct-2507 (~18GB, MoE mit 3B aktiv)
+# For performance comparisons: All backends use the same model sizes
+# - Main LLM: Qwen3-30B-A3B-Instruct-2507 (~18GB, MoE with 3B active)
 # - Automatik: Qwen3-4B-Instruct-2507 (~2.6GB)
 BACKEND_DEFAULT_MODELS = {
     "ollama": {
@@ -156,9 +156,9 @@ BACKEND_LABELS = {
 
 # Backend dropdown special items (headers, separators)
 BACKEND_DROPDOWN_ITEMS = {
-    "header_universal": "─── Universelle Kompatibilität (GGUF) ───",
+    "header_universal": "─── Universal Compatibility (GGUF) ───",
     "separator": "─────────────────────────────────",
-    "header_modern": "─── Moderne GPUs (FP16) ───",
+    "header_modern": "─── Modern GPUs (FP16) ───",
 }
 
 # Non-selectable backend items (headers and separators)
@@ -336,93 +336,93 @@ TTS_DEFAULT_VOICES = {
 # ============================================================
 # CONTEXT MANAGEMENT
 # ============================================================
-# Maximale Tokens für RAG-Context (Recherche-Ergebnisse)
-# Hinweis: Total Context = RAG_CONTEXT + System-Prompt + History + User-Message
-# Bei 40k Model-Limit → empfohlen: 20k RAG Context (50% Reserve)
-# Bei größeren Models (z.B. mit Tesla P40) kann dieser Wert erhöht werden
+# Maximum tokens for RAG context (research results)
+# Note: Total Context = RAG_CONTEXT + System-Prompt + History + User-Message
+# For 40k model limit → recommended: 20k RAG context (50% reserve)
+# For larger models (e.g., with Tesla P40) this value can be increased
 MAX_RAG_CONTEXT_TOKENS = 20000
 
-# Maximale Wörter pro einzelner Quelle (Wikipedia, News-Artikel, etc.)
-# Verhindert, dass eine einzelne Quelle den gesamten Context dominiert
+# Maximum words per single source (Wikipedia, news articles, etc.)
+# Prevents a single source from dominating the entire context
 MAX_WORDS_PER_SOURCE = 2000
 
-# Maximale Wörter für Single-Source Research (Direct URL)
-# Bei nur 1 Quelle (z.B. PDF-Analyse, wissenschaftliches Paper) brauchen wir das volle Dokument
-# Typisches wissenschaftliches Paper: 4000-8000 Wörter
-# Längere Reviews/Guidelines: bis zu 15000 Wörter
+# Maximum words for single-source research (Direct URL)
+# For only 1 source (e.g., PDF analysis, scientific paper) we need the full document
+# Typical scientific paper: 4000-8000 words
+# Longer reviews/guidelines: up to 15000 words
 MAX_WORDS_SINGLE_SOURCE = 12000
 
-# Token-zu-Zeichen Ratio für Context-Berechnung
-# Deutsch/Englisch Mix: ~3 Zeichen pro Token
+# Token-to-character ratio for context calculation
+# German/English mix: ~3 characters per token
 CHARS_PER_TOKEN = 3
 
 # ============================================================
 # CONTEXT ESTIMATION CONSTANTS
 # ============================================================
-# Token-Schätzungen für System-Prompt, History und User-Input
-# Verwendet für VRAM-basierte Context-Berechnung
+# Token estimates for system prompt, history and user input
+# Used for VRAM-based context calculation
 
-# System-Prompt Token-Schätzung (RAG-Mode)
-SYSTEM_PROMPT_ESTIMATE_RAG = 2000  # RAG System-Prompt ist ~2K Tokens
+# System prompt token estimate (RAG mode)
+SYSTEM_PROMPT_ESTIMATE_RAG = 2000  # RAG system prompt is ~2K tokens
 
-# System-Prompt Token-Schätzung (Cache-Hit Mode - etwas größer)
-SYSTEM_PROMPT_ESTIMATE_CACHE = 2500  # Cache-Hit Prompt mit extra Context
+# System prompt token estimate (Cache-Hit mode - slightly larger)
+SYSTEM_PROMPT_ESTIMATE_CACHE = 2500  # Cache-Hit prompt with extra context
 
-# Token-Schätzung pro History-Turn (Frage + Antwort)
-TOKENS_PER_HISTORY_TURN = 500  # Grobe Schätzung: 500 tok/turn
+# Token estimate per history turn (question + answer)
+TOKENS_PER_HISTORY_TURN = 500  # Rough estimate: 500 tok/turn
 
 # ============================================================
 # DYNAMIC OUTPUT GENERATION CONSTANTS
 # ============================================================
-# Für dynamische num_predict-Berechnung (verfügbare Output-Tokens)
+# For dynamic num_predict calculation (available output tokens)
 
-# Safety Margin: Puffer für Tokenizer-Ungenauigkeiten
-# Wird von num_ctx abgezogen bevor Output-Space berechnet wird
+# Safety margin: buffer for tokenizer inaccuracies
+# Subtracted from num_ctx before output space is calculated
 DYNAMIC_NUM_PREDICT_SAFETY_MARGIN = 2048  # tokens
 
-# Minimum Output-Tokens (verhindert zu kleine Antworten)
+# Minimum output tokens (prevents too small answers)
 DYNAMIC_NUM_PREDICT_MINIMUM = 512  # tokens
 
-# Maximum Output-Tokens (verhindert KV-Cache-Overflow bei großen Kontexten)
-# ~10-20 Seiten Text - realistisches Maximum für eine Antwort
+# Maximum output tokens (prevents KV cache overflow with large contexts)
+# ~10-20 pages of text - realistic maximum for a response
 DYNAMIC_NUM_PREDICT_HARD_LIMIT = 4096  # tokens
 
 # ============================================================
 # VISION/OCR CONTEXT CONSTANTS
 # ============================================================
-# Minimum Context für Vision-LLM (OCR, Bildanalyse)
-# Unter diesem Wert funktioniert Vision-Processing nicht zuverlässig
-VISION_MINIMUM_CONTEXT = 4096  # 4K Minimum für Vision-LLM
+# Minimum context for Vision-LLM (OCR, image analysis)
+# Below this value, vision processing does not work reliably
+VISION_MINIMUM_CONTEXT = 4096  # 4K minimum for Vision-LLM
 
 # ============================================================
 # WEB SCRAPING CONSTANTS
 # ============================================================
-# Playwright-Fallback Threshold für Web-Scraping
-# Wenn trafilatura weniger als diese Wort-Anzahl extrahiert,
-# wird Playwright (headless browser) als Fallback versucht
-PLAYWRIGHT_FALLBACK_THRESHOLD = 800  # Wörter - unter diesem Wert wird Playwright versucht
+# Playwright fallback threshold for web scraping
+# When trafilatura extracts fewer words than this,
+# Playwright (headless browser) is tried as fallback
+PLAYWRIGHT_FALLBACK_THRESHOLD = 800  # words - below this value Playwright is tried
 
 # ============================================================
 # HISTORY SUMMARIZATION CONFIGURATION
 # ============================================================
-# Trigger-Punkt: Bei welchem Prozentsatz des Context-Limits soll komprimiert werden?
-HISTORY_COMPRESSION_THRESHOLD = 0.7  # 70% des Context-Limits (Produktiv-Wert)
+# Trigger point: At what percentage of context limit should compression occur?
+HISTORY_COMPRESSION_THRESHOLD = 0.7  # 70% of context limit (production value)
 
-# Anzahl der Messages die auf einmal komprimiert werden
-# (6 Messages = 3 Frage-Antwort-Paare)
-HISTORY_MESSAGES_TO_COMPRESS = 6  # 3 Frage-Antwort-Paare
+# Number of messages compressed at once
+# (6 messages = 3 question-answer pairs)
+HISTORY_MESSAGES_TO_COMPRESS = 6  # 3 question-answer pairs
 
-# Maximale Anzahl von Summaries die gespeichert werden
-# Bei mehr wird die älteste gelöscht (FIFO)
+# Maximum number of summaries stored
+# When exceeded, oldest is deleted (FIFO)
 HISTORY_MAX_SUMMARIES = 10
 
-# Target-Größe für eine Summary in Tokens
+# Target size for a summary in tokens
 HISTORY_SUMMARY_TARGET_TOKENS = 1000
 
-# Target-Größe für eine Summary in Wörtern (für Prompt)
+# Target size for a summary in words (for prompt)
 HISTORY_SUMMARY_TARGET_WORDS = 750
 
-# Temperature für Summary-Generierung (niedriger = faktischer)
+# Temperature for summary generation (lower = more factual)
 HISTORY_SUMMARY_TEMPERATURE = 0.3
 
 # ============================================================
@@ -440,7 +440,7 @@ INTENT_TEMPERATURE_GEMISCHT = 0.5
 # Creative queries: stories, poems, brainstorming (higher = more creative)
 INTENT_TEMPERATURE_KREATIV = 1.1
 
-# Context-Limit für Summary-LLM (sollte nicht zu groß sein)
+# Context limit for Summary-LLM (should not be too large)
 HISTORY_SUMMARY_CONTEXT_LIMIT = 4096
 
 # ============================================================
@@ -544,10 +544,10 @@ KOBOLDCPP_INACTIVITY_CHECK_INTERVAL = 60  # Check GPU utilization every 60 secon
 # ============================================================
 # VECTOR CACHE CONFIGURATION (ChromaDB Similarity Thresholds)
 # ============================================================
-# Distance-Thresholds für semantische Ähnlichkeit (Cosine Distance)
-# 0.0 = identisch, 2.0 = komplett verschieden
+# Distance thresholds for semantic similarity (Cosine Distance)
+# 0.0 = identical, 2.0 = completely different
 
-# Normale Cache-Abfrage (ohne explizite Keywords wie "recherchiere")
+# Normal cache query (without explicit keywords like "research")
 CACHE_DISTANCE_HIGH = 0.5      # < 0.5 = HIGH confidence Cache-Hit (direct answer)
 
 # ============================================================
@@ -568,19 +568,19 @@ CACHE_STARTUP_CLEANUP = True        # Delete expired entries on server startup
 
 CACHE_DISTANCE_MEDIUM = 0.5    # >= 0.5 = Trigger RAG check (not direct cache hit)
 
-# Explizite Recherche-Keywords ("recherchiere", "google", etc.)
-# Semantische Duplikat-Erkennung (zeitunabhängig)
-CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Sehr ähnlich (semantisches Duplikat, wird immer gemerged)
-                                # Beispiele:
-                                # - "recherchiere Python" vs "recherchiere Python Tutorial" = ~0.15
-                                # - "recherchiere Wetter Berlin" vs "recherchiere Wetter Hamburg" = ~0.25
-                                # - "recherchiere Python" vs "recherchiere Java" = ~0.6
+# Explicit research keywords ("research", "google", etc.)
+# Semantic duplicate detection (time-independent)
+CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Very similar (semantic duplicate, always merged)
+                                # Examples:
+                                # - "research Python" vs "research Python Tutorial" = ~0.15
+                                # - "research weather Berlin" vs "research weather Hamburg" = ~0.25
+                                # - "research Python" vs "research Java" = ~0.6
 
 # RAG-Mode Distance Threshold
-CACHE_DISTANCE_RAG = 1.2  # < 1.2 = Ähnlich genug für RAG-Kontext (später implementiert)
+CACHE_DISTANCE_RAG = 1.2  # < 1.2 = Similar enough for RAG context (implemented later)
 
 # Volatile Keywords - Loaded from prompts/cache_volatile_keywords.txt
-# Diese Keywords triggern eine LLM-Entscheidung, ob trotzdem gecacht werden soll
+# These keywords trigger an LLM decision whether to cache anyway
 def _load_volatile_keywords():
     """
     Load volatile keywords from file (multilingual).
@@ -607,10 +607,10 @@ CACHE_EXCLUDE_VOLATILE = _load_volatile_keywords()
 # ============================================================
 # XML TAG FORMATTING CONFIGURATION
 # ============================================================
-# Collapsible-Formatierung für XML-Tags in AI-Responses
-# Config-Dictionary definiert Icon, Label und CSS-Class pro Tag
-# ALLE XML-Tags werden erkannt - diese Liste ist nur für schöne Icons!
-# Unknown Tags bekommen automatisch "📄 Tagname" als Fallback
+# Collapsible formatting for XML tags in AI responses
+# Config dictionary defines icon, label and CSS class per tag
+# ALL XML tags are recognized - this list is only for nice icons!
+# Unknown tags automatically get "📄 Tagname" as fallback
 XML_TAG_CONFIG = {
     "think": {"icon": "💭", "label": "Denkprozess", "class": "thinking-compact"},
     "data": {"icon": "📊", "label": "Strukturierte Daten", "class": "thinking-compact"},

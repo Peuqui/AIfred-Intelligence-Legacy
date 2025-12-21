@@ -46,7 +46,7 @@ async def calculate_vram_aware_rag_budget(
     Returns:
         Tuple of (max_rag_tokens, actual_reserve, max_ctx)
     """
-    # 1. VRAM-Limit vorab ermitteln (wenn auto_vram aktiv)
+    # 1. Determine VRAM limit upfront (if auto_vram is active)
     if num_ctx_mode == "auto_vram":
         max_ctx, model_limit = await get_max_available_context(
             llm_client, model_choice,
@@ -56,21 +56,21 @@ async def calculate_vram_aware_rag_budget(
         max_ctx = num_ctx_manual
         model_limit = num_ctx_manual
     else:
-        # auto_unlimited: Kein VRAM-Limit
+        # auto_unlimited: No VRAM limit
         max_ctx, model_limit = await get_max_available_context(
             llm_client, model_choice,
             enable_vram_limit=False
         )
 
-    # 2. Fixe Overhead-Schätzung (System-Prompt, History, User-Message)
+    # 2. Fixed overhead estimate (system prompt, history, user message)
     history_estimate = len(history) * TOKENS_PER_HISTORY_TURN
     user_message_estimate = len(user_text) // CHARS_PER_TOKEN
 
-    # 3. Base Input ohne RAG-Context
+    # 3. Base input without RAG context
     base_input = system_prompt_estimate + history_estimate + user_message_estimate
 
-    # 4. Adaptive Reserve-Berechnung
-    # Priorität: Maximiere RAG-Content, reduziere Reserve stufenweise (8K → 6K → 4K)
+    # 4. Adaptive reserve calculation
+    # Priority: Maximize RAG content, reduce reserve gradually (8K → 6K → 4K)
     actual_reserve, max_rag_tokens = calculate_adaptive_reserve(
         available_context=max_ctx,
         base_input=base_input,

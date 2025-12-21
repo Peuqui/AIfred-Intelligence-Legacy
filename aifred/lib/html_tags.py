@@ -1,12 +1,12 @@
 """
 HTML Tag Blacklist for XML-Tag Processing
 
-Diese Datei definiert HTML-Tags, die von der generischen XML-Tag-Erkennung
-AUSGESCHLOSSEN werden sollen. Das verhindert, dass HTML-Elemente wie <span>
-oder <div> versehentlich als Collapsibles formatiert werden.
+This file defines HTML tags that should be EXCLUDED from generic XML-tag detection.
+This prevents HTML elements like <span> or <div> from being accidentally formatted
+as collapsibles.
 
-Die Liste basiert auf dem HTML5-Standard und sollte selten angepasst werden.
-Neue Tags können bei Bedarf hinzugefügt werden (z.B. für Custom Elements).
+The list is based on the HTML5 standard and should rarely need modification.
+New tags can be added as needed (e.g., for Custom Elements).
 
 Usage:
     from aifred.lib.html_tags import HTML_TAG_BLACKLIST
@@ -16,11 +16,11 @@ Usage:
         ...
 """
 
-# HTML-Tags die NICHT als Collapsibles verarbeitet werden sollen
-# Diese Tags werden von extract_xml_tags() ignoriert
+# HTML tags that should NOT be processed as collapsibles
+# These tags are ignored by extract_xml_tags()
 HTML_TAG_BLACKLIST = {
     # ============================================================
-    # INLINE-ELEMENTE
+    # INLINE ELEMENTS
     # ============================================================
     'span',      # Inline container
     'a',         # Hyperlink
@@ -47,7 +47,7 @@ HTML_TAG_BLACKLIST = {
     'wbr',       # Word break opportunity
 
     # ============================================================
-    # BLOCK-ELEMENTE
+    # BLOCK ELEMENTS
     # ============================================================
     'div',       # Block container
     'p',         # Paragraph
@@ -73,7 +73,7 @@ HTML_TAG_BLACKLIST = {
     'address',   # Address/contact info
 
     # ============================================================
-    # TABELLEN
+    # TABLES
     # ============================================================
     'table',     # Table
     'thead',     # Table head
@@ -87,7 +87,7 @@ HTML_TAG_BLACKLIST = {
     'col',       # Column
 
     # ============================================================
-    # FORMULARE
+    # FORMS
     # ============================================================
     'form',      # Form
     'input',     # Input field
@@ -105,7 +105,7 @@ HTML_TAG_BLACKLIST = {
     'meter',     # Meter
 
     # ============================================================
-    # MEDIEN
+    # MEDIA
     # ============================================================
     'img',       # Image
     'audio',     # Audio
@@ -118,25 +118,25 @@ HTML_TAG_BLACKLIST = {
     'iframe',    # Inline frame
 
     # ============================================================
-    # INTERAKTIVE ELEMENTE (inkl. unsere eigenen Collapsibles!)
+    # INTERACTIVE ELEMENTS (incl. our own collapsibles!)
     # ============================================================
-    'details',   # Collapsible details (WIR NUTZEN DAS!)
+    'details',   # Collapsible details (WE USE THIS!)
     'summary',   # Details summary
     'dialog',    # Dialog/modal
     'menu',      # Menu
     'menuitem',  # Menu item (deprecated)
 
     # ============================================================
-    # DOKUMENT-STRUKTUR (HTML-Dokument-Tags)
+    # DOCUMENT STRUCTURE (HTML document tags)
     # ============================================================
     'html',      # Root element
     'head',      # Document head
     'body',      # Document body
     'title',     # Page title
-    'doctype',   # DOCTYPE declaration (als Tag erkannt)
+    'doctype',   # DOCTYPE declaration (detected as tag)
 
     # ============================================================
-    # SONSTIGE / META
+    # MISCELLANEOUS / META
     # ============================================================
     'script',    # JavaScript
     'style',     # CSS
