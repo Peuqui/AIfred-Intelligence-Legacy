@@ -433,7 +433,7 @@ def image_upload_section() -> rx.Component:
                 color_scheme="green",
                 padding_y="24px",
                 on_click=AIState.toggle_audio_recording,  # Trigger JavaScript via State handler
-                disabled=AIState.is_generating,
+                disabled=AIState.is_generating | AIState.is_uploading_image,
             ),
 
             # Camera button (only visible if browser supports camera)
@@ -447,12 +447,12 @@ def image_upload_section() -> rx.Component:
                         variant="soft",
                         color_scheme="red",
                         padding_y="24px",
-                        disabled=AIState.is_generating | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                        disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
                     ),
                     id="camera-upload",
                     accept={"image/*": []},  # Accept images from camera
                     max_files=1,  # Camera captures one photo at a time
-                    on_drop=AIState.handle_camera_upload,  # Kamera-Handler kürzt Dateinamen
+                    on_drop=AIState.handle_camera_upload,  # Camera handler shortens filenames
                     multiple=False,
                     border="none",
                     padding="0",
@@ -468,7 +468,7 @@ def image_upload_section() -> rx.Component:
                     variant="soft",
                     color_scheme="red",
                     padding_y="24px",
-                    disabled=AIState.is_generating | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                    disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
                 ),
                 id="image-upload",
                 accept={"image/*": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]},
@@ -488,7 +488,7 @@ def image_upload_section() -> rx.Component:
                     variant="soft",
                     color_scheme="blue",
                     padding_y="24px",
-                    disabled=AIState.is_generating,
+                    disabled=AIState.is_generating | AIState.is_uploading_image,
                 ),
                 id="audio-upload",
                 accept={"audio/*": [".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm"]},
@@ -639,7 +639,7 @@ def text_input_section() -> rx.Component:
             on_change=AIState.set_user_input,
             width="100%",
             rows="5",
-            disabled=AIState.is_generating | AIState.is_compressing,
+            disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
             style={
                 "border": f"1px solid {COLORS['border']}",
                 "&:focus": {
@@ -744,8 +744,8 @@ def text_input_section() -> rx.Component:
                 on_click=AIState.send_message,
                 size="2",
                 variant="solid",  # Explizit solid, ohne color_scheme
-                loading=AIState.is_generating | AIState.is_compressing,
-                disabled=AIState.is_generating | AIState.is_compressing,
+                loading=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
+                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
                 flex="1",  # Nimmt mehr Platz
                 style={
                     "background": "#3d2a00 !important",  # Dunkles Orange (wichtig!)
@@ -767,7 +767,7 @@ def text_input_section() -> rx.Component:
             rx.button(
                 t("clear_chat"),
                 on_click=AIState.clear_chat,
-                disabled=AIState.is_generating | AIState.is_compressing,  # Deaktiviert während Inferenz und Kompression
+                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,  # Deaktiviert während Inferenz und Kompression
                 size="2",
                 variant="outline",
                 color_scheme="orange",
@@ -788,7 +788,7 @@ def text_input_section() -> rx.Component:
             rx.button(
                 t("share_chat"),
                 on_click=AIState.share_chat,
-                disabled=AIState.is_generating | AIState.is_compressing,
+                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
                 size="2",
                 variant="outline",
                 color_scheme="blue",
@@ -940,68 +940,81 @@ def processing_progress_banner() -> rx.Component:
 
     # Icon und Text basierend auf Phase
     phase_icon = rx.cond(
-        AIState.progress_active,
+        AIState.is_uploading_image,
+        "📤",  # Upload icon
         rx.cond(
-            AIState.progress_phase == "automatik",
-            "🤖",
+            AIState.progress_active,
             rx.cond(
-                AIState.progress_phase == "scraping",
-                "🔍",
+                AIState.progress_phase == "automatik",
+                "🤖",
                 rx.cond(
-                    AIState.progress_phase == "compress",
-                    "🗜️",
-                    "🧠"  # llm
+                    AIState.progress_phase == "scraping",
+                    "🔍",
+                    rx.cond(
+                        AIState.progress_phase == "compress",
+                        "🗜️",
+                        "🧠"  # llm
+                    )
                 )
-            )
-        ),
-        "💤"  # Idle icon - sleeping/waiting
+            ),
+            "💤"  # Idle icon - sleeping/waiting
+        )
     )
 
     phase_text = rx.cond(
-        AIState.progress_active,
+        AIState.is_uploading_image,
+        # Upload state - highest priority
         rx.cond(
-            AIState.progress_phase == "automatik",
+            AIState.ui_language == "de",
+            "Bild wird hochgeladen ...",
+            "Uploading image ..."
+        ),
+        rx.cond(
+            AIState.progress_active,
             rx.cond(
-                AIState.ui_language == "de",
-                "Automatik-Entscheidung ...",
-                "Automatic decision ..."
-            ),
-            rx.cond(
-                AIState.progress_phase == "scraping",
+                AIState.progress_phase == "automatik",
                 rx.cond(
                     AIState.ui_language == "de",
-                    "Web-Scraping",
-                    "Web Scraping"
+                    "Automatik-Entscheidung ...",
+                    "Automatic decision ..."
                 ),
                 rx.cond(
-                    AIState.progress_phase == "compress",
+                    AIState.progress_phase == "scraping",
                     rx.cond(
                         AIState.ui_language == "de",
-                        "Komprimiere Kontext ...",
-                        "Compressing Context ..."
+                        "Web-Scraping",
+                        "Web Scraping"
                     ),
                     rx.cond(
-                        AIState.ui_language == "de",
-                        "Generiere Antwort ...",
-                        "Generating Answer ..."
+                        AIState.progress_phase == "compress",
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "Komprimiere Kontext ...",
+                            "Compressing Context ..."
+                        ),
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "Generiere Antwort ...",
+                            "Generating Answer ..."
+                        )
                     )
                 )
-            )
-        ),
-        # Idle state text - aber zeige "Generiere Antwort" wenn is_generating=True
-        rx.cond(
-            AIState.is_generating,
-            # Während Generierung (ohne Research)
-            rx.cond(
-                AIState.ui_language == "de",
-                "Generiere Antwort ...",
-                "Generating Answer ..."
             ),
-            # Wirklich idle
+            # Idle state text - aber zeige "Generiere Antwort" wenn is_generating=True
             rx.cond(
-                AIState.ui_language == "de",
-                "Warte auf Eingabe ...",
-                "Waiting for input ..."
+                AIState.is_generating,
+                # Während Generierung (ohne Research)
+                rx.cond(
+                    AIState.ui_language == "de",
+                    "Generiere Antwort ...",
+                    "Generating Answer ..."
+                ),
+                # Wirklich idle
+                rx.cond(
+                    AIState.ui_language == "de",
+                    "Warte auf Eingabe ...",
+                    "Waiting for input ..."
+                )
             )
         )
     )
@@ -1225,6 +1238,41 @@ def render_failed_sources_inline(failed_sources) -> rx.Component:
     )
 
 
+def render_history_thumbnail(img_url: str) -> rx.Component:
+    """Render clickable thumbnail that opens lightbox on click"""
+    return rx.image(
+        src=img_url,
+        width="50px",
+        height="50px",
+        object_fit="cover",
+        border_radius="4px",
+        cursor="pointer",
+        border=f"1px solid {COLORS['border']}",
+        on_click=AIState.open_lightbox(img_url),
+        style={
+            "transition": "transform 0.2s ease, box-shadow 0.2s ease",
+            "&:hover": {
+                "transform": "scale(1.05)",
+                "box_shadow": "0 2px 8px rgba(0,0,0,0.3)",
+            },
+        },
+    )
+
+
+def render_image_thumbnails(images) -> rx.Component:
+    """Render row of clickable image thumbnails"""
+    return rx.cond(
+        images.length() > 0,
+        rx.hstack(
+            rx.foreach(images, render_history_thumbnail),
+            spacing="2",
+            margin_bottom="2",
+            flex_wrap="wrap",
+        ),
+        rx.fragment(),  # Empty component when no images
+    )
+
+
 def render_chat_message(msg: dict) -> rx.Component:
     """
     Rendert eine einzelne Chat-Message (User+AI oder Summary).
@@ -1300,6 +1348,9 @@ def render_chat_message(msg: dict) -> rx.Component:
                 rx.hstack(
                     rx.spacer(),
                     rx.box(
+                        # Image thumbnails (if present) above the text
+                        render_image_thumbnails(msg["images"]),
+                        # User text
                         rx.markdown(msg["user_msg"], color=COLORS["user_text"], font_size="13px"),
                         background_color=COLORS["user_msg"],
                         padding="3",
@@ -2545,6 +2596,75 @@ def crop_modal() -> rx.Component:
     )
 
 
+def image_lightbox_modal() -> rx.Component:
+    """
+    Fullscreen Overlay for viewing chat history images full-size.
+    Click anywhere to close.
+    """
+    return rx.cond(
+        AIState.lightbox_open,
+        # Fullscreen Overlay
+        rx.box(
+            # Backdrop (click to close)
+            rx.box(
+                position="absolute",
+                top="0",
+                left="0",
+                width="100%",
+                height="100%",
+                background_color="rgba(0, 0, 0, 0.92)",
+                on_click=AIState.close_lightbox,
+                cursor="pointer",
+            ),
+
+            # Close button (top-right corner)
+            rx.box(
+                rx.icon("x", size=28, color="white"),
+                position="absolute",
+                top="20px",
+                right="20px",
+                cursor="pointer",
+                padding="8px",
+                border_radius="50%",
+                background_color="rgba(255, 255, 255, 0.1)",
+                on_click=AIState.close_lightbox,
+                z_index="1002",
+                style={
+                    "transition": "background-color 0.2s ease",
+                    "&:hover": {
+                        "background_color": "rgba(255, 255, 255, 0.2)",
+                    },
+                },
+            ),
+
+            # Image - centered, click to close
+            rx.image(
+                src=AIState.lightbox_image_url,
+                max_width="90vw",
+                max_height="85vh",
+                object_fit="contain",
+                border_radius="8px",
+                on_click=AIState.close_lightbox,
+                cursor="pointer",
+                position="relative",
+                z_index="1001",
+            ),
+
+            # Fullscreen container
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index="1000",
+            display="flex",
+            justify_content="center",
+            align_items="center",
+            style={"touch_action": "none"},  # Prevent browser scroll
+        ),
+    )
+
+
 # ============================================================
 # MAIN PAGE
 # ============================================================
@@ -3026,6 +3146,9 @@ console.log('✂️ Crop handler loaded');
 
         # Crop Modal (rendered but hidden until open)
         crop_modal(),
+
+        # Image Lightbox Modal (for viewing history images full-size)
+        image_lightbox_modal(),
 
         # Hidden element to trigger camera detection on mount
         rx.box(

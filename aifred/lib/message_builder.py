@@ -87,6 +87,10 @@ def build_messages_from_history(
                 # Cut everything from the first timing pattern
                 clean_user = clean_user.split(pattern)[0]
 
+        # Remove [IMG:...] markers from user messages (images already sent to Vision-LLM)
+        # These markers are stored in history for UI thumbnail display, not for LLM context
+        clean_user = re.sub(r'\[IMG:[^\]]*\]', '', clean_user).strip()
+
         # Clean AI message (remove HTML tags AND text metadata)
         clean_ai = ai_turn
 
