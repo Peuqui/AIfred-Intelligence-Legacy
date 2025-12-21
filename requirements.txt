@@ -36,3 +36,4 @@ platformdirs>=4.5.0
 # Development
 pytest>=8.0.0
 black>=24.0.0
+Pillow>=10.0.0
