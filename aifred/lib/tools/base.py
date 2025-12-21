@@ -17,12 +17,12 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 class RateLimitError(Exception):
-    """Wird geworfen wenn API Rate Limit erreicht ist"""
+    """Raised when API rate limit is reached"""
     pass
 
 
 class APIKeyMissingError(Exception):
-    """Wird geworfen wenn API Key fehlt"""
+    """Raised when API key is missing"""
     pass
 
 
@@ -31,55 +31,55 @@ class APIKeyMissingError(Exception):
 # ============================================================
 
 class BaseTool:
-    """Basis-Klasse für alle Agent-Tools"""
+    """Base class for all agent tools"""
 
-    # Class-level attributes (müssen von Subclasses gesetzt werden)
+    # Class-level attributes (must be set by subclasses)
     name: str
     description: str
     min_call_interval: float
 
     def __init__(self):
-        # Subclasses müssen name, description und min_call_interval setzen
+        # Subclasses must set name, description and min_call_interval
         self.last_call_time = 0
 
     def execute(self, query: str, **kwargs) -> Dict:
         """
-        Führt Tool aus und gibt Ergebnis zurück
+        Execute tool and return result
 
         Args:
-            query: Such-Query oder URL
-            **kwargs: Zusätzliche Parameter
+            query: Search query or URL
+            **kwargs: Additional parameters
 
         Returns:
-            Dict mit Tool-Ergebnis
+            Dict with tool result
         """
         raise NotImplementedError
 
     def _rate_limit_check(self):
-        """Einfaches Rate-Limiting"""
+        """Simple rate limiting"""
         now = time.time()
         time_since_last_call = now - self.last_call_time
 
         if time_since_last_call < self.min_call_interval:
             wait_time = self.min_call_interval - time_since_last_call
-            logger.debug(f"{self.name}: Rate limit, warte {wait_time:.1f}s")
+            logger.debug(f"{self.name}: Rate limit, waiting {wait_time:.1f}s")
             time.sleep(wait_time)
 
         self.last_call_time = time.time()
 
     def _extract_urls_from_results(self, results: List[Dict], url_key='url', title_key='title', content_key='description', max_results=10) -> tuple:
         """
-        Extrahiert URLs, Titel und Snippets aus Suchergebnissen
+        Extract URLs, titles and snippets from search results
 
         Args:
-            results: Liste von Suchergebnis-Dictionaries
-            url_key: Key für URL in Result-Dict
-            title_key: Key für Titel in Result-Dict
-            content_key: Key für Content/Description in Result-Dict
-            max_results: Maximale Anzahl an Ergebnissen
+            results: List of search result dictionaries
+            url_key: Key for URL in result dict
+            title_key: Key for title in result dict
+            content_key: Key for content/description in result dict
+            max_results: Maximum number of results
 
         Returns:
-            (related_urls, titles, snippets, content): Tuple mit extrahierten Daten
+            (related_urls, titles, snippets, content): Tuple with extracted data
         """
         related_urls = []
         titles = []
@@ -95,7 +95,7 @@ class BaseTool:
                 titles.append(title)
                 snippets.append(snippet)
 
-        # Baue Content für Context (erste 5 Ergebnisse)
+        # Build content for context (first 5 results)
         content_parts = []
         for i, (title, snippet) in enumerate(zip(titles[:5], snippets[:5]), 1):
             content_parts.append(f"{i}. **{title}**: {snippet}")

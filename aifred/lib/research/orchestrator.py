@@ -33,26 +33,26 @@ async def perform_agent_research(
     vision_json_context: Optional[dict] = None
 ) -> AsyncIterator[Dict]:
     """
-    Agent-Recherche mit Query-Optimierung und parallelemWeb-Scraping
+    Agent research with query optimization and parallel web scraping
 
-    REFACTORED: Diese Funktion ist jetzt ein schlanker Orchestrator,
-    der die eigentliche Arbeit an spezialisierte Module delegiert:
-    - cache_handler: Cache-Hit Handling
-    - query_processor: Query-Optimization + Web-Search
-    - scraper_orchestrator: Parallel Web-Scraping
-    - context_builder: Context-Building + LLM-Inference
+    REFACTORED: This function is now a lean orchestrator that delegates
+    the actual work to specialized modules:
+    - cache_handler: Cache hit handling
+    - query_processor: Query optimization + web search
+    - scraper_orchestrator: Parallel web scraping
+    - context_builder: Context building + LLM inference
 
     Args:
-        user_text: User-Frage
-        stt_time: STT-Zeit
-        mode: "quick" oder "deep"
-        model_choice: Haupt-LLM für finale Antwort
-        automatik_model: Automatik-LLM für Query-Optimierung
-        llm_options: Dict mit Ollama-Optionen (num_ctx, etc.) - Optional
-        history: Chat History
-        session_id: Session-ID für Research-Cache (optional)
-        temperature_mode: 'auto' (Intent-Detection) oder 'manual' (fixer Wert)
-        temperature: Temperature-Wert (0.0-2.0) - nur bei mode='manual'
+        user_text: User question
+        stt_time: STT time
+        mode: "quick" or "deep"
+        model_choice: Main LLM for final answer
+        automatik_model: Automatik LLM for query optimization
+        llm_options: Dict with Ollama options (num_ctx, etc.) - Optional
+        history: Chat history
+        session_id: Session ID for research cache (optional)
+        temperature_mode: 'auto' (intent detection) or 'manual' (fixed value)
+        temperature: Temperature value (0.0-2.0) - only for mode='manual'
         backend_type: LLM Backend ("ollama", "vllm", "tabbyapi")
         backend_url: Backend URL (optional, uses default if not provided)
 
@@ -155,14 +155,14 @@ async def perform_agent_research(
     if len(scraped_results) == 0 and related_urls:
         # All scraping attempts failed (Cloudflare, 404, Timeout, etc.)
         # Fallback: Use optimized query for web search
-        yield {"type": "debug", "message": "⚠️ Scraping fehlgeschlagen (0 Quellen) → Fallback zu Web-Search"}
+        yield {"type": "debug", "message": "⚠️ Scraping failed (0 sources) → Fallback to web search"}
         log_message("=" * 60)
         log_message("⚠️ FALLBACK: Scraping failed (0 sources) → Web-Search")
         log_message("=" * 60)
 
         # Show optimized query being used for fallback
-        yield {"type": "debug", "message": f"🔎 Fallback-Query: {optimized_query}"}
-        log_message(f"🔎 Fallback-Query: {optimized_query}")
+        yield {"type": "debug", "message": f"🔎 Fallback query: {optimized_query}"}
+        log_message(f"🔎 Fallback query: {optimized_query}")
 
         # Use optimized query for fallback search
         fallback_search = search_web(optimized_query)
@@ -172,8 +172,8 @@ async def perform_agent_research(
         fallback_urls = fallback_search.get('related_urls', [])
 
         if fallback_urls:
-            yield {"type": "debug", "message": f"🔄 {len(fallback_urls)} URLs von Fallback-Suche gefunden"}
-            log_message(f"🔄 Fallback-Suche: {len(fallback_urls)} URLs gefunden")
+            yield {"type": "debug", "message": f"🔄 {len(fallback_urls)} URLs found from fallback search"}
+            log_message(f"🔄 Fallback search: {len(fallback_urls)} URLs found")
 
             # Retry scraping with new URLs
             async for item in orchestrate_scraping(
@@ -192,14 +192,14 @@ async def perform_agent_research(
                     yield item
 
             if scraped_results:
-                yield {"type": "debug", "message": f"✅ Fallback erfolgreich: {len(scraped_results)} Quellen"}
-                log_message(f"✅ Fallback erfolgreich: {len(scraped_results)} Quellen gescraped")
+                yield {"type": "debug", "message": f"✅ Fallback successful: {len(scraped_results)} sources"}
+                log_message(f"✅ Fallback successful: {len(scraped_results)} sources scraped")
             else:
-                yield {"type": "debug", "message": "⚠️ Fallback fehlgeschlagen: Keine Quellen"}
-                log_message("⚠️ Fallback auch fehlgeschlagen")
+                yield {"type": "debug", "message": "⚠️ Fallback failed: No sources"}
+                log_message("⚠️ Fallback also failed")
         else:
-            yield {"type": "debug", "message": "⚠️ Fallback-Suche: Keine URLs gefunden"}
-            log_message("⚠️ Fallback-Suche: Keine URLs gefunden")
+            yield {"type": "debug", "message": "⚠️ Fallback search: No URLs found"}
+            log_message("⚠️ Fallback search: No URLs found")
 
     # ==============================================================
     # PHASE 4: Context Building + LLM Response Generation

@@ -72,7 +72,7 @@ def get_gguf_layer_count(gguf_path: Path) -> Optional[int]:
         48
     """
     if not gguf_path.exists():
-        logger.warning(f"GGUF Datei nicht gefunden: {gguf_path}")
+        logger.warning(f"GGUF file not found: {gguf_path}")
         return None
 
     try:
@@ -100,21 +100,21 @@ def get_gguf_layer_count(gguf_path: Path) -> Optional[int]:
                             value_array = field.parts[-1]
                             layer_count = int(value_array[0]) if len(value_array) > 0 else None
                             if layer_count:
-                                logger.info(f"✅ Layer Count aus GGUF Metadata ({key}): {layer_count}")
+                                logger.info(f"✅ Layer count from GGUF metadata ({key}): {layer_count}")
                                 return layer_count
 
-                logger.warning("Kein block_count key in GGUF Metadata gefunden")
+                logger.warning("No block_count key found in GGUF metadata")
                 return None
 
             except Exception as e:
-                logger.error(f"Fehler beim Parsen der GGUF Metadaten: {e}")
+                logger.error(f"Error parsing GGUF metadata: {e}")
                 return None
 
     except ImportError:
-        logger.warning("gguf-py Bibliothek nicht installiert")
+        logger.warning("gguf-py library not installed")
         return None
     except Exception as e:
-        logger.error(f"Fehler beim Lesen der GGUF Datei {gguf_path}: {e}")
+        logger.error(f"Error reading GGUF file {gguf_path}: {e}")
         return None
 
 
@@ -138,7 +138,7 @@ def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
         32768
     """
     if not gguf_path.exists():
-        logger.warning(f"GGUF Datei nicht gefunden: {gguf_path}")
+        logger.warning(f"GGUF file not found: {gguf_path}")
         return None
 
     try:
@@ -165,7 +165,7 @@ def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
                             value_array = field.parts[-1]
                             context = int(value_array[0]) if len(value_array) > 0 else None
                             if context and context > 0:
-                                logger.info(f"✅ Native Context aus GGUF Metadata ({field.name}): {context:,} tokens")
+                                logger.info(f"✅ Native context from GGUF metadata ({field.name}): {context:,} tokens")
                                 return context
                         except (IndexError, ValueError, TypeError) as e:
                             logger.debug(f"Failed to parse {field.name}: {e}")
@@ -174,21 +174,21 @@ def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
                 # Log available keys for debugging
                 all_keys = [f.name for f in reader.fields.values()]
                 context_related_keys = [k for k in all_keys if 'context' in k.lower() or 'length' in k.lower()]
-                logger.warning("Kein context_length key in GGUF Metadata gefunden")
-                logger.warning(f"Verfügbare context-bezogene Keys: {context_related_keys}")
-                logger.debug(f"Alle Metadaten-Keys (first 30): {all_keys[:30]}")
+                logger.warning("No context_length key found in GGUF metadata")
+                logger.warning(f"Available context-related keys: {context_related_keys}")
+                logger.debug(f"All metadata keys (first 30): {all_keys[:30]}")
                 return None
 
             except Exception as e:
-                logger.error(f"Fehler beim Parsen der GGUF Metadaten: {e}")
+                logger.error(f"Error parsing GGUF metadata: {e}")
                 return None
 
     except ImportError:
-        logger.warning("gguf-py Bibliothek nicht installiert - kann nativen Context nicht lesen")
-        logger.info("Installieren mit: pip install gguf")
+        logger.warning("gguf-py library not installed - cannot read native context")
+        logger.info("Install with: pip install gguf")
         return None
     except Exception as e:
-        logger.error(f"Fehler beim Lesen der GGUF Datei {gguf_path}: {e}")
+        logger.error(f"Error reading GGUF file {gguf_path}: {e}")
         return None
 
 

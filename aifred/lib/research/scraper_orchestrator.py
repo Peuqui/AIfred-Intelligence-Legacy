@@ -41,21 +41,21 @@ async def orchestrate_scraping(
     tool_results: List[Dict] = []
 
     if not related_urls:
-        log_message("⚠️ Keine URLs gefunden, nur Abstract")
+        log_message("⚠️ No URLs found, only abstract")
         yield {"type": "scraping_result", "data": (scraped_results, tool_results)}
         return
 
-    log_message(f"📋 {len(related_urls)} URLs von Search-Engine gefunden")
+    log_message(f"📋 {len(related_urls)} URLs found from search engine")
 
     # Determine scraping strategy
     if mode == "quick":
         target_sources = 3
         initial_scrape_count = 3
-        log_message("⚡ Schnell-Modus: Scrape Top 3 URLs")
+        log_message("⚡ Quick mode: Scrape top 3 URLs")
     elif mode == "deep":
         target_sources = 5
         initial_scrape_count = 7
-        log_message(f"🔍 Ausführlich-Modus: Scrape Top {initial_scrape_count} URLs (Ziel: {target_sources} erfolgreiche)")
+        log_message(f"🔍 Deep mode: Scrape top {initial_scrape_count} URLs (target: {target_sources} successful)")
     else:
         target_sources = 3
         initial_scrape_count = 3
@@ -63,7 +63,7 @@ async def orchestrate_scraping(
     scrape_limit = initial_scrape_count if mode == "deep" else target_sources
     urls_to_scrape = related_urls[:scrape_limit]
 
-    yield {"type": "debug", "message": "🌐 Web-Scraping startet (parallel)"}
+    yield {"type": "debug", "message": "🌐 Web scraping starting (parallel)"}
 
     # PERFORMANCE: Preload Main LLM during scraping (only for backends that need it)
     # vLLM, TabbyAPI and KoboldCPP keep models loaded in VRAM, so preloading is unnecessary
@@ -77,21 +77,21 @@ async def orchestrate_scraping(
         backend = llm_client._get_backend()
 
         async def unload_and_preload():
-            """Preload Haupt-LLM (unload disabled - Ollama manages VRAM automatically)"""
+            """Preload main LLM (unload disabled - Ollama manages VRAM automatically)"""
             # unload_success, models = await backend.unload_all_models()  # DISABLED
             success, load_time = await backend.preload_model(model_choice)
             return (success, load_time, [])
 
         preload_task = asyncio.create_task(unload_and_preload())
-        log_message(f"🚀 Haupt-LLM ({model_choice}) wird parallel vorgeladen...")
-        yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
+        log_message(f"🚀 Main-LLM ({model_choice}) preloading in parallel...")
+        yield {"type": "debug", "message": f"🚀 Main-LLM ({model_choice}) preloading..."}
     else:
-        log_message(f"ℹ️ Haupt-LLM ({model_choice}) bereits geladen (Backend: {llm_client.backend_type})")
-        yield {"type": "debug", "message": f"ℹ️ Haupt-LLM ({model_choice}) bereits geladen"}
+        log_message(f"ℹ️ Main-LLM ({model_choice}) already loaded (Backend: {llm_client.backend_type})")
+        yield {"type": "debug", "message": f"ℹ️ Main-LLM ({model_choice}) already loaded"}
         preload_message_sent = True  # Skip preload messages
 
     # Parallel Scraping
-    log_message(f"🚀 Parallel Scraping: {len(urls_to_scrape)} URLs gleichzeitig")
+    log_message(f"🚀 Parallel Scraping: {len(urls_to_scrape)} URLs simultaneously")
 
     # Start scraping progress
     yield {"type": "progress", "phase": "scraping", "current": 0, "total": len(urls_to_scrape), "failed": 0}
@@ -114,7 +114,7 @@ async def orchestrate_scraping(
                 if scrape_result['success']:
                     tool_results.append(scrape_result)
                     scraped_results.append(scrape_result)
-                    log_message(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter")
+                    log_message(f"  ✅ {url_short}: {scrape_result['word_count']} words")
                 else:
                     log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')}")
 
@@ -129,19 +129,19 @@ async def orchestrate_scraping(
                     # Show unloaded models first
                     if unloaded_models:
                         models_str = ", ".join(unloaded_models)
-                        yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
-                        log_message(f"🗑️ Entladene Modelle: {models_str}")
+                        yield {"type": "debug", "message": f"🗑️ Unloaded models: {models_str}"}
+                        log_message(f"🗑️ Unloaded models: {models_str}")
 
                     # Then show preload result
                     if success:
-                        log_message(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
-                        yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)"}
+                        log_message(f"✅ Main-LLM preloaded ({load_time:.1f}s)")
+                        yield {"type": "debug", "message": f"✅ Main-LLM preloaded ({load_time:.1f}s)"}
                     else:
-                        log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)")
-                        yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)"}
+                        log_message(f"⚠️ Main-LLM preload failed ({load_time:.1f}s)")
+                        yield {"type": "debug", "message": f"⚠️ Main-LLM preload failed ({load_time:.1f}s)"}
                     preload_message_sent = True
                 except Exception as e:
-                    log_message(f"⚠️ Haupt-LLM Preload Exception: {e}")
+                    log_message(f"⚠️ Main-LLM preload exception: {e}")
                     preload_message_sent = True
 
             # Update progress
@@ -149,7 +149,7 @@ async def orchestrate_scraping(
             failed = completed - len(scraped_results)
             yield {"type": "progress", "phase": "scraping", "current": len(scraped_results), "total": len(urls_to_scrape), "failed": failed}
 
-    log_message(f"✅ Parallel Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} erfolgreich")
+    log_message(f"✅ Parallel Scraping done: {len(scraped_results)}/{len(urls_to_scrape)} successful")
 
     # ============================================================
     # COLLECT FAILED URLs for UI Display
@@ -171,7 +171,7 @@ async def orchestrate_scraping(
     # Emit failed_sources for UI display (before AI response)
     if failed_sources:
         yield {"type": "failed_sources", "data": failed_sources}
-        log_message(f"⚠️ {len(failed_sources)} URLs nicht scrapebar")
+        log_message(f"⚠️ {len(failed_sources)} URLs not scrapeable")
 
     # Wait for preload task to complete if not done yet
     if not preload_message_sent and preload_task:
@@ -179,17 +179,17 @@ async def orchestrate_scraping(
             success, load_time, unloaded_models = await preload_task
             if unloaded_models:
                 models_str = ", ".join(unloaded_models)
-                log_message(f"🗑️ Entladene Modelle: {models_str}")
-                yield {"type": "debug", "message": f"🗑️ Entladene Modelle: {models_str}"}
+                log_message(f"🗑️ Unloaded models: {models_str}")
+                yield {"type": "debug", "message": f"🗑️ Unloaded models: {models_str}"}
 
             if success:
-                log_message(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
-                yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)"}
+                log_message(f"✅ Main-LLM preloaded ({load_time:.1f}s)")
+                yield {"type": "debug", "message": f"✅ Main-LLM preloaded ({load_time:.1f}s)"}
             else:
-                log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)")
-                yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)"}
+                log_message(f"⚠️ Main-LLM preload failed ({load_time:.1f}s)")
+                yield {"type": "debug", "message": f"⚠️ Main-LLM preload failed ({load_time:.1f}s)"}
         except Exception as e:
-            log_message(f"⚠️ Haupt-LLM Preload Exception: {e}")
+            log_message(f"⚠️ Main-LLM preload exception: {e}")
 
     # Return results
     yield {"type": "scraping_result", "data": (scraped_results, tool_results)}

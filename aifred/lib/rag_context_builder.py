@@ -139,9 +139,9 @@ async def build_rag_context(
     context_parts = []
     for i, entry in enumerate(relevant_entries, 1):
         context_parts.append(f"""
-## Gecachte Information {i}
-**Ursprüngliche Frage:** {entry['query']}
-**Antwort:** {entry['answer']}
+## Cached Information {i}
+**Original Question:** {entry['query']}
+**Answer:** {entry['answer']}
 """)
 
     formatted_context = "\n".join(context_parts)

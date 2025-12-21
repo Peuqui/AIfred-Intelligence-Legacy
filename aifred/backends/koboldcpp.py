@@ -48,7 +48,7 @@ class KoboldCPPBackend(LLMBackend):
         self.client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,  # KoboldCPP doesn't need real API key
-            timeout=300.0  # 300s (5min) Timeout - absolutes Maximum für normale Nutzung
+            timeout=300.0  # 300s (5min) Timeout - absolute maximum for normal usage
         )
         # Track if we're in the middle of restarting (prevent recursive restart attempts)
         self._restarting = False

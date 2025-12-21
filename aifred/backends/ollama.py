@@ -28,8 +28,8 @@ class OllamaBackend(LLMBackend):
     def __init__(self, base_url: str = "http://localhost:11434"):
         super().__init__(base_url=base_url)
         # Timeout: None = UNLIMITED (Reflex will handle timeouts, not httpx)
-        # Limits: Erhöhe Connection-Limits um Pooling-Probleme zu vermeiden
-        # History: Was 300s fixed, jetzt unlimited für bessere Flexibilität
+        # Limits: Increase connection limits to avoid pooling issues
+        # History: Was 300s fixed, now unlimited for better flexibility
         limits = httpx.Limits(max_keepalive_connections=10, max_connections=20, keepalive_expiry=300.0)
         timeout = httpx.Timeout(None)  # UNLIMITED - let Reflex/asyncio handle timeouts
         self.client = httpx.AsyncClient(timeout=timeout, limits=limits)
@@ -373,7 +373,7 @@ class OllamaBackend(LLMBackend):
                                     # Show retry message and warning before first content (only on attempt 1)
                                     if not first_content_sent and attempt == 1 and not retry_message_shown:
                                         yield {"type": "thinking_warning", "model": model}
-                                        yield {"type": "debug", "message": f"⚠️ Modell '{model}' unterstützt kein Reasoning - läuft ohne Think-Modus"}
+                                        yield {"type": "debug", "message": f"⚠️ Model '{model}' doesn't support reasoning - running without think mode"}
                                         retry_message_shown = True
                                         first_content_sent = True
 
@@ -493,7 +493,7 @@ class OllamaBackend(LLMBackend):
         try:
             from ..lib.logging_utils import log_message
             start_time = time.time()
-            log_message(f"⏱️ preload_model: START für {model} (num_ctx={num_ctx})")
+            log_message(f"⏱️ preload_model: START for {model} (num_ctx={num_ctx})")
 
             # Load the requested model
             # Send minimal request to trigger model loading
@@ -501,8 +501,8 @@ class OllamaBackend(LLMBackend):
                 "num_predict": 1,  # Only generate 1 token
                 "temperature": 0.0
             }
-            # WICHTIG: num_ctx beim Preload setzen, damit Ollama das Modell
-            # mit dem richtigen KV-Cache lädt und ggf. auf mehrere GPUs verteilt
+            # IMPORTANT: Set num_ctx during preload so Ollama loads the model
+            # with the correct KV-Cache and distributes across multiple GPUs if needed
             if num_ctx is not None:
                 options["num_ctx"] = num_ctx
                 logger.info(f"🎯 Preload with num_ctx={num_ctx:,} for multi-GPU distribution")
@@ -514,15 +514,15 @@ class OllamaBackend(LLMBackend):
                 "options": options
             }
 
-            log_message(f"⏱️ preload_model: Sende Request an Ollama...")
+            log_message(f"⏱️ preload_model: Sending request to Ollama...")
             response = await self.client.post(
                 f"{self.base_url}/api/chat",
                 json=payload
-                # Kein Timeout: Ollama queued Requests automatisch, auch während Modell lädt
+                # No timeout: Ollama queues requests automatically, even while model is loading
             )
 
             load_time = time.time() - start_time
-            log_message(f"⏱️ preload_model: Response erhalten nach {load_time:.1f}s (status={response.status_code})")
+            log_message(f"⏱️ preload_model: Response received after {load_time:.1f}s (status={response.status_code})")
             success = response.status_code == 200
             # Note: VRAM stabilization is handled in calculate_vram_based_context()
             return (success, load_time)
@@ -612,7 +612,7 @@ class OllamaBackend(LLMBackend):
                     context_limit = int(value)
                     break
 
-            # Kein Context-Limit gefunden
+            # No context limit found
             if context_limit is None:
                 available_keys = list(model_details.keys())[:10]
                 raise RuntimeError(

@@ -72,7 +72,7 @@ async def generate_speech_edge(text, voice, rate="+0%"):
     import concurrent.futures
 
     try:
-        # Edge TTS rate Format: +X% oder -X% (z.B. "+25%" für 25% schneller)
+        # Edge TTS rate format: +X% or -X% (e.g., "+25%" for 25% faster)
         log_message(f"🎤 Edge TTS: voice={voice}, rate={rate}, text_length={len(text)}")
 
         # Validate inputs
@@ -151,8 +151,8 @@ def generate_speech_piper(text, speed=1.0, voice_choice="Deutsch (Thorsten)"):
             model_path = PIPER_MODEL_PATH
             log_message(f"⚠️ Piper: Voice '{voice_choice}' not found, using default")
 
-        # Piper via subprocess aufrufen
-        # length_scale: höher = langsamer (1.0 = normal, 0.8 = 1.25x schneller, 0.5 = 2x schneller)
+        # Call Piper via subprocess
+        # length_scale: higher = slower (1.0 = normal, 0.8 = 1.25x faster, 0.5 = 2x faster)
         length_scale = 1.0 / speed
         log_message(f"🎤 Piper TTS: voice={voice_choice}, speed={speed}, length_scale={length_scale}")
 
@@ -250,34 +250,34 @@ def generate_speech_espeak(text, speed=1.0, voice_choice="Deutsch (Roboter)"):
 
 def clean_text_for_tts(text):
     """
-    Bereitet Text für TTS-Ausgabe vor: Entfernt <think> Tags, Emojis,
-    Markdown, URLs und andere störende Elemente.
+    Prepare text for TTS output: Remove <think> tags, emojis,
+    markdown, URLs and other disruptive elements.
 
     Args:
-        text: Roh-Text von AI-Antwort
+        text: Raw text from AI response
 
     Returns:
-        str: Bereinigter Text für TTS
+        str: Cleaned text for TTS
     """
-    # Entferne <think> Tags und Inhalt
+    # Remove <think> tags and content
     clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
-    # Entferne ALLE Emojis (umfassende Unicode-Bereiche)
+    # Remove ALL emojis (comprehensive Unicode ranges)
     emoji_pattern = re.compile(
         "["
         "\U0001F600-\U0001F64F"  # Emoticons
-        "\U0001F300-\U0001F5FF"  # Symbole & Piktogramme (inkl. Uhrzeiten 🕐-🕧)
-        "\U0001F680-\U0001F6FF"  # Transport & Karten
-        "\U0001F700-\U0001F77F"  # Alchemie Symbole
-        "\U0001F780-\U0001F7FF"  # Geometrische Formen Extended
+        "\U0001F300-\U0001F5FF"  # Symbols & Pictographs (incl. clock faces 🕐-🕧)
+        "\U0001F680-\U0001F6FF"  # Transport & Maps
+        "\U0001F700-\U0001F77F"  # Alchemy Symbols
+        "\U0001F780-\U0001F7FF"  # Geometric Shapes Extended
         "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
         "\U0001F900-\U0001F9FF"  # Supplemental Symbols & Pictographs
         "\U0001FA00-\U0001FA6F"  # Chess Symbols
         "\U0001FA70-\U0001FAFF"  # Symbols & Pictographs Extended-A
-        "\U0001F1E0-\U0001F1FF"  # Flaggen
-        "\U00002600-\U000027BF"  # Misc Symbole (☀️⭐)
+        "\U0001F1E0-\U0001F1FF"  # Flags
+        "\U00002600-\U000027BF"  # Misc Symbols (☀️⭐)
         "\U0000FE00-\U0000FE0F"  # Variation Selectors
-        "\U0001F018-\U0001F270"  # Weitere Symbole
+        "\U0001F018-\U0001F270"  # Additional symbols
         "\U0000238C-\U00002454"  # Misc Technical
         "\u200d"                  # Zero Width Joiner
         "\ufe0f"                  # Variation Selector
@@ -287,33 +287,33 @@ def clean_text_for_tts(text):
     )
     clean_text = emoji_pattern.sub(r'', clean_text).strip()
 
-    # Entferne Markdown-Formatierung und Sonderzeichen
+    # Remove markdown formatting and special characters
     clean_text = re.sub(r'\*\*', '', clean_text)  # Bold **text**
-    clean_text = re.sub(r'\*', '', clean_text)    # Italic *text* oder Bullet-Points
+    clean_text = re.sub(r'\*', '', clean_text)    # Italic *text* or bullet points
     clean_text = re.sub(r'`', '', clean_text)     # Code `text`
     clean_text = re.sub(r'#+\s', '', clean_text)  # Markdown Headers ### Text
 
-    # Entferne URLs (http://, https://, www.)
-    clean_text = re.sub(r'https?://\S+', '', clean_text)  # http:// und https://
-    clean_text = re.sub(r'www\.\S+', '', clean_text)      # www.beispiel.de
+    # Remove URLs (http://, https://, www.)
+    clean_text = re.sub(r'https?://\S+', '', clean_text)  # http:// and https://
+    clean_text = re.sub(r'www\.\S+', '', clean_text)      # www.example.com
 
-    # Entferne Timing-Informationen in Klammern (TTS soll diese nicht vorlesen!)
-    # Beispiele: "(STT: 2.5s)", "(Inferenz: 1.3s)", "(Agent: 45.2s, Schnell, 5 Quellen)",
-    #            "(Cache-Hit: 2.5s = LLM 2.3s)", "(Entscheidung: 2.5s, Inferenz: 1.3s)"
-    clean_text = re.sub(r'\s*\([^)]*\b(STT|Inferenz|Agent|Cache-Hit|Entscheidung|TTS)[^)]*\)', '', clean_text)
+    # Remove timing information in parentheses (TTS should not read these!)
+    # Examples: "(STT: 2.5s)", "(Inference: 1.3s)", "(Agent: 45.2s, Quick, 5 sources)",
+    #           "(Cache-Hit: 2.5s = LLM 2.3s)", "(Decision: 2.5s, Inference: 1.3s)"
+    clean_text = re.sub(r'\s*\([^)]*\b(STT|Inference|Inferenz|Agent|Cache-Hit|Decision|Entscheidung|TTS)[^)]*\)', '', clean_text)
 
     return clean_text
 
 
 def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
     """
-    Löscht alte TTS-Audio-Dateien aus uploaded_files/tts_audio/.
+    Delete old TTS audio files from uploaded_files/tts_audio/.
 
     Args:
-        max_age_hours: Maximales Alter in Stunden (default: 24)
+        max_age_hours: Maximum age in hours (default: 24)
 
     Returns:
-        int: Anzahl gelöschter Dateien
+        int: Number of deleted files
     """
     import time
     from pathlib import Path
@@ -345,15 +345,15 @@ def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
 
 def transcribe_audio(audio_path, whisper_model, language="de"):
     """
-    Transkribiert Audio zu Text mit Whisper.
+    Transcribe audio to text with Whisper.
 
     Args:
-        audio_path: Pfad zur Audio-Datei
-        whisper_model: Geladenes WhisperModel Objekt
+        audio_path: Path to audio file
+        whisper_model: Loaded WhisperModel object
         language: Language code ("de" or "en")
 
     Returns:
-        tuple: (transkribierter_text, zeit_in_sekunden)
+        tuple: (transcribed_text, time_in_seconds)
     """
     if audio_path is None or audio_path == "":
         return "", 0.0
@@ -364,36 +364,36 @@ def transcribe_audio(audio_path, whisper_model, language="de"):
     stt_time = time.time() - start_time
 
     user_text = " ".join([s.text for s in segments])
-    log_message(f"✅ STT Transkription: {user_text[:100]}{'...' if len(user_text) > 100 else ''} (Time: {stt_time:.1f}s)")
+    log_message(f"✅ STT Transcription: {user_text[:100]}{'...' if len(user_text) > 100 else ''} (Time: {stt_time:.1f}s)")
 
     return user_text, stt_time
 
 
 async def generate_tts(text, voice_choice, speed_choice, tts_engine):
     """
-    Generiert TTS-Audio aus Text (Edge, Piper oder eSpeak).
+    Generate TTS audio from text (Edge, Piper or eSpeak).
 
     Args:
-        text: Text für TTS (bereits bereinigt)
-        voice_choice: Voice display name (z.B. "Deutsch (Katja)" für Edge, "Deutsch (Thorsten)" für Piper)
-        speed_choice: Speed multiplier (z.B. 1.25)
-        tts_engine: Engine name (z.B. "Edge TTS (Cloud, beste Qualität)")
+        text: Text for TTS (already cleaned)
+        voice_choice: Voice display name (e.g. "Deutsch (Katja)" for Edge, "Deutsch (Thorsten)" for Piper)
+        speed_choice: Speed multiplier (e.g. 1.25)
+        tts_engine: Engine name (e.g. "Edge TTS (Cloud, beste Qualität)")
 
     Returns:
-        str: Pfad zur generierten Audio-Datei, oder None
+        str: Path to generated audio file, or None
     """
     from .config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
 
     try:
         if "Piper" in tts_engine:
-            # Piper TTS (lokal) - synchronous subprocess call
+            # Piper TTS (local) - synchronous subprocess call
             # Use Piper-specific voice, fallback to first available if not found
             if voice_choice not in PIPER_VOICES:
                 voice_choice = list(PIPER_VOICES.keys())[0] if PIPER_VOICES else "Deutsch (Thorsten)"
                 log_message(f"⚠️ TTS: Voice not available for Piper, using: {voice_choice}")
             return generate_speech_piper(text, speed_choice, voice_choice)
         elif "eSpeak" in tts_engine:
-            # eSpeak TTS (lokal, roboterhaft) - synchronous subprocess call
+            # eSpeak TTS (local, robotic) - synchronous subprocess call
             if voice_choice not in ESPEAK_VOICES:
                 voice_choice = list(ESPEAK_VOICES.keys())[0] if ESPEAK_VOICES else "Deutsch (Roboter)"
                 log_message(f"⚠️ TTS: Voice not available for eSpeak, using: {voice_choice}")
@@ -405,7 +405,7 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine):
             voice_id = EDGE_TTS_VOICES.get(voice_choice, "de-DE-KatjaNeural")
             return await generate_speech_edge(text, voice_id, rate)
     except Exception as e:
-        log_message(f"❌ TTS Fehler: {e}")
+        log_message(f"❌ TTS Error: {e}")
         import traceback
         log_message(f"Traceback: {traceback.format_exc()}")
         return None

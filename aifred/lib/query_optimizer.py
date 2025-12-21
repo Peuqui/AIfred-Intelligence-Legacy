@@ -29,25 +29,25 @@ async def optimize_search_query(
     vision_json_context: Optional[Dict] = None
 ) -> Tuple[List[str], Optional[str]]:
     """
-    Extrahiert optimierte Suchbegriffe aus User-Frage
+    Extract optimized search terms from user question
 
     Args:
-        user_text: Volle User-Frage (kann lang sein)
-        automatik_model: Automatik-LLM für Query-Optimierung
-        history: Chat History (für Kontext bei Nachfragen)
+        user_text: Full user question (can be long)
+        automatik_model: Automatik-LLM for query optimization
+        history: Chat history (for context on follow-up questions)
         llm_client: LLMClient instance
         automatik_llm_context_limit: Context limit for automatik LLM
-        llm_options: Optional Dict mit enable_thinking toggle
+        llm_options: Optional Dict with enable_thinking toggle
         vision_json_context: Optional Vision JSON from image extraction (for query context)
 
     Returns:
         tuple: (list_of_optimized_queries, reasoning_content)
                Multiple queries for distribution across search APIs
     """
-    # Spracherkennung für Nutzereingabe
+    # Language detection for user input
     from .prompt_loader import detect_language
     detected_user_language = detect_language(user_text)
-    log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
+    log_message(f"🌐 Language detection: User input is probably '{detected_user_language.upper()}' (for prompt selection)")
 
     prompt = get_query_optimization_prompt(
         user_text=user_text,
@@ -55,25 +55,25 @@ async def optimize_search_query(
         vision_json=vision_json_context
     )
 
-    # DEBUG: Zeige Query Optimization Prompt
+    # DEBUG: Show Query Optimization Prompt
     log_message("=" * 60)
     log_message("📋 QUERY OPTIMIZATION PROMPT:")
     log_message("-" * 60)
     log_message(prompt)
     log_message("-" * 60)
-    log_message(f"Prompt-Länge: {len(prompt)} Zeichen, ~{len(prompt.split())} Wörter")
+    log_message(f"Prompt length: {len(prompt)} chars, ~{len(prompt.split())} words")
     log_message("=" * 60)
 
     try:
-        log_message(f"🔍 Query-Optimierung mit {automatik_model}")
-        log_message("🔧 Query-Optimierung startet")
+        log_message(f"🔍 Query optimization with {automatik_model}")
+        log_message("🔧 Query optimization starting")
 
-        # Baue Messages mit History (letzte 2-3 Turns für Kontext bei Nachfragen)
+        # Build messages with history (last 2-3 turns for context on follow-up questions)
         messages = build_messages_from_history(history, prompt, max_turns=3)
 
-        # DEBUG: Zeige Messages-Array vollständig
+        # DEBUG: Show complete Messages array
         log_message("=" * 60)
-        log_message(f"📨 MESSAGES an {automatik_model} (Query-Opt):")
+        log_message(f"📨 MESSAGES to {automatik_model} (Query-Opt):")
         log_message("-" * 60)
         for i, msg in enumerate(messages):
             log_message(f"Message {i+1} - Role: {msg['role']}")
@@ -82,13 +82,13 @@ async def optimize_search_query(
 
         # Build options (temperature + thinking control)
         options = {
-            'temperature': 0.3,  # Leicht kreativ für Keywords, aber stabil
+            'temperature': 0.3,  # Slightly creative for keywords, but stable
             'num_predict': 128,  # Keywords: "weather London tomorrow 2025" = ~30 tokens (4x buffer)
             'enable_thinking': False  # Default: Fast keyword extraction without reasoning
         }
 
-        # Automatik-Tasks: Thinking ist IMMER aus (unabhängig vom User-Toggle)
-        # User-Toggle gilt nur für Haupt-LLM, nicht für Query-Optimierung
+        # Automatik tasks: Thinking is ALWAYS off (independent of user toggle)
+        # User toggle only applies to Main-LLM, not query optimization
         log_message("🧠 Query-Opt enable_thinking: False (Automatik-Task)")
 
         log_message(f"Total Messages: {len(messages)}, Temperature: 0.3")
@@ -111,11 +111,11 @@ async def optimize_search_query(
         log_message(f"Response length: {len(raw_response)} chars")
         log_message("=" * 60)
 
-        # Extrahiere <think> Inhalt BEVOR wir ihn entfernen (für Debug-Output)
+        # Extract <think> content BEFORE removing it (for debug output)
         think_match = THINK_TAG_PATTERN.search(raw_response)
         think_content = think_match.group(1).strip() if think_match else None
 
-        # Säubern: Entferne <think> Tags und deren Inhalt
+        # Clean: Remove <think> tags and their content
         optimized_query = THINK_TAG_PATTERN.sub('', raw_response)
 
         # CRITICAL: Also remove incomplete or orphaned tags
@@ -141,16 +141,16 @@ async def optimize_search_query(
         # FALLBACK: Empty Query List (Thinking Models fail to produce keywords)
         # ============================================================
         if not cleaned_queries:
-            log_message("⚠️ Query-Optimierung ergab leere Liste (Thinking-Model?)")
-            log_message("   → Fallback zu Original-Query")
+            log_message("⚠️ Query optimization returned empty list (Thinking model?)")
+            log_message("   → Fallback to original query")
             cleaned_queries = [user_text]  # Use full user question as-is
 
         # ============================================================
-        # POST-PROCESSING: Temporale Kontext-Erkennung (für ALLE Queries)
+        # POST-PROCESSING: Temporal context detection (for ALL queries)
         # ============================================================
-        # Garantiert aktuelles Jahr bei zeitlich relevanten Queries, auch wenn LLM es vergisst
+        # Guarantees current year for time-relevant queries, even if LLM forgets it
 
-        # Dynamisches Jahr (nicht hardcoded!)
+        # Dynamic year (not hardcoded!)
         current_year = str(datetime.now().year)
 
         temporal_keywords = [
@@ -171,21 +171,21 @@ async def optimize_search_query(
         for query in cleaned_queries:
             query_lower = query.lower()
 
-            # Regel 1: "beste/neueste X" → + aktuelles Jahr (falls nicht schon vorhanden)
+            # Rule 1: "best/latest X" → + current year (if not already present)
             if any(kw in query_lower for kw in temporal_keywords) and current_year not in query:
                 query += f" {current_year}"
-                log_message(f"   ⏰ Temporaler Kontext ergänzt: {current_year}")
+                log_message(f"   ⏰ Temporal context added: {current_year}")
 
-            # Regel 2: "X vs Y" → + aktuelles Jahr (falls nicht schon vorhanden)
+            # Rule 2: "X vs Y" → + current year (if not already present)
             elif any(kw in query_lower for kw in comparison_keywords) and current_year not in query:
                 query += f" {current_year}"
-                log_message(f"   ⚖️ Vergleichs-Kontext ergänzt: {current_year}")
+                log_message(f"   ⚖️ Comparison context added: {current_year}")
 
             processed_queries.append(query)
 
-        log_message("🔍 Query-Optimierung:")
+        log_message("🔍 Query optimization:")
         log_message(f"   Original: {user_text[:80]}{'...' if len(user_text) > 80 else ''}")
-        log_message(f"   📋 {len(processed_queries)} Queries generiert:")
+        log_message(f"   📋 {len(processed_queries)} queries generated:")
         for i, q in enumerate(processed_queries, 1):
             log_message(f"      {i}. {q}")
 
@@ -193,6 +193,6 @@ async def optimize_search_query(
         return (processed_queries, think_content)
 
     except Exception as e:
-        log_message(f"⚠️ Fehler bei Query-Optimierung: {e}")
-        log_message("   Fallback zu Original-Query")
+        log_message(f"⚠️ Error during query optimization: {e}")
+        log_message("   Fallback to original query")
         return ([user_text], None)  # Return as list for consistency

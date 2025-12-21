@@ -1,12 +1,12 @@
 """
 Research Module - Modular Research Pipeline
 
-Dieses Modul teilt die große perform_agent_research() Funktion auf in:
+This module splits the large perform_agent_research() function into:
 - orchestrator: Top-Level Research Orchestration (perform_agent_research)
-- cache_handler: Cache-Check und Metadata-Handling
-- query_processor: Query-Optimization und Web-Search
-- scraper_orchestrator: Parallel Web-Scraping
-- context_builder: Context-Building und LLM-Inference
+- cache_handler: Cache check and metadata handling
+- query_processor: Query optimization and web search
+- scraper_orchestrator: Parallel web scraping
+- context_builder: Context building and LLM inference
 """
 
 from .orchestrator import perform_agent_research

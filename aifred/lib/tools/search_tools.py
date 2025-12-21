@@ -25,9 +25,9 @@ class BraveSearchTool(BaseTool):
     """
     Brave Search API - Primary Search Engine
 
-    - 2.000 kostenlose Queries/Monat
-    - Privacy-focused, eigener Index (30B+ Seiten)
-    - Beste Qualität für News/aktuelle Events
+    - 2,000 free queries/month
+    - Privacy-focused, own index (30B+ pages)
+    - Best quality for news/current events
     - API Key: https://brave.com/search/api/
     """
 
@@ -41,7 +41,7 @@ class BraveSearchTool(BaseTool):
 
     def execute(self, query: str, **kwargs) -> Dict:
         """
-        Führt Brave Search durch
+        Execute Brave Search
 
         Returns:
             {
@@ -56,7 +56,7 @@ class BraveSearchTool(BaseTool):
             }
         """
         if not self.api_key:
-            raise APIKeyMissingError("Brave API Key fehlt! Setze BRAVE_API_KEY env variable.")
+            raise APIKeyMissingError("Brave API Key missing! Set BRAVE_API_KEY env variable.")
 
         self._rate_limit_check()
 
@@ -75,13 +75,13 @@ class BraveSearchTool(BaseTool):
 
             # Check rate limit
             if response.status_code == 429:
-                logger.warning("Brave Search: Rate Limit erreicht!")
+                logger.warning("Brave Search: Rate limit reached!")
                 raise RateLimitError("Brave Search API rate limit exceeded")
 
             response.raise_for_status()
             data = response.json()
 
-            # Extrahiere Ergebnisse
+            # Extract results
             web_results = data.get('web', {}).get('results', [])
             related_urls, titles, snippets, content = self._extract_urls_from_results(
                 web_results, url_key='url', title_key='title', content_key='description', max_results=10
@@ -98,10 +98,10 @@ class BraveSearchTool(BaseTool):
                 'url': related_urls[0] if related_urls else ''
             }
 
-            logger.info(f"✅ Brave Search: {len(related_urls)} URLs gefunden")
+            logger.info(f"✅ Brave Search: {len(related_urls)} URLs found")
 
-            # DEBUG: Logge alle gefundenen URLs mit Titeln
-            logger.info("📋 Brave Search Rohdaten (alle URLs vor KI-Bewertung):")
+            # DEBUG: Log all found URLs with titles
+            logger.info("📋 Brave Search raw data (all URLs before AI ranking):")
             for i, (url, title) in enumerate(zip(related_urls, titles), 1):
                 logger.info(f"   {i}. {title}")
                 logger.info(f"      URL: {url}")
@@ -109,10 +109,10 @@ class BraveSearchTool(BaseTool):
             return result
 
         except RateLimitError:
-            raise  # Re-raise für Fallback
+            raise  # Re-raise for fallback
 
         except Exception as e:
-            logger.error(f"❌ Brave Search Fehler: {e}")
+            logger.error(f"❌ Brave Search error: {e}")
             return {
                 'success': False,
                 'source': 'Brave Search',
@@ -128,11 +128,11 @@ class BraveSearchTool(BaseTool):
 
 class TavilySearchTool(BaseTool):
     """
-    Tavily AI - RAG-optimierte Suche
+    Tavily AI - RAG-optimized Search
 
-    - 1.000 kostenlose Queries/Monat
-    - Speziell für AI/LLM gebaut
-    - News-Filter eingebaut
+    - 1,000 free queries/month
+    - Built specifically for AI/LLM
+    - Built-in news filter
     - API Key: https://www.tavily.com/
     """
 
@@ -145,9 +145,9 @@ class TavilySearchTool(BaseTool):
         self.min_call_interval = 1.0
 
     def execute(self, query: str, **kwargs) -> Dict:
-        """Führt Tavily Search durch"""
+        """Execute Tavily Search"""
         if not self.api_key:
-            raise APIKeyMissingError("Tavily API Key fehlt! Setze TAVILY_API_KEY env variable.")
+            raise APIKeyMissingError("Tavily API Key missing! Set TAVILY_API_KEY env variable.")
 
         self._rate_limit_check()
 
@@ -172,13 +172,13 @@ class TavilySearchTool(BaseTool):
             )
 
             if response.status_code == 429:
-                logger.warning("Tavily: Rate Limit erreicht!")
+                logger.warning("Tavily: Rate limit reached!")
                 raise RateLimitError("Tavily API rate limit exceeded")
 
             response.raise_for_status()
             data = response.json()
 
-            # Extrahiere Ergebnisse
+            # Extract results
             results = data.get('results', [])
             related_urls, titles, snippets, content = self._extract_urls_from_results(
                 results, url_key='url', title_key='title', content_key='content', max_results=10
@@ -195,10 +195,10 @@ class TavilySearchTool(BaseTool):
                 'url': related_urls[0] if related_urls else ''
             }
 
-            logger.info(f"✅ Tavily AI: {len(related_urls)} URLs gefunden")
+            logger.info(f"✅ Tavily AI: {len(related_urls)} URLs found")
 
-            # DEBUG: Logge alle gefundenen URLs mit Titeln
-            logger.info("📋 Tavily AI Rohdaten (alle URLs vor KI-Bewertung):")
+            # DEBUG: Log all found URLs with titles
+            logger.info("📋 Tavily AI raw data (all URLs before AI ranking):")
             for i, (url, title) in enumerate(zip(related_urls, titles), 1):
                 logger.info(f"   {i}. {title}")
                 logger.info(f"      URL: {url}")
@@ -209,7 +209,7 @@ class TavilySearchTool(BaseTool):
             raise
 
         except Exception as e:
-            logger.error(f"❌ Tavily AI Fehler: {e}")
+            logger.error(f"❌ Tavily AI error: {e}")
             return {
                 'success': False,
                 'source': 'Tavily AI',
@@ -228,8 +228,8 @@ class SearXNGSearchTool(BaseTool):
     SearXNG - Self-Hosted Meta-Search
 
     - Unlimited (self-hosted)
-    - Privacy-focused (keine Tracking)
-    - Meta-Search (fragt Google/Bing/DDG ab)
+    - Privacy-focused (no tracking)
+    - Meta-Search (queries Google/Bing/DDG)
     - Setup: docker run -p 8888:8080 searxng/searxng
     """
 
@@ -238,10 +238,10 @@ class SearXNGSearchTool(BaseTool):
         self.name = "SearXNG"
         self.description = "Self-Hosted Meta-Search (Unlimited)"
         self.base_url = base_url.rstrip('/')
-        self.min_call_interval = 0.5  # Lokal, kann schneller sein
+        self.min_call_interval = 0.5  # Local, can be faster
 
     def execute(self, query: str, **kwargs) -> Dict:
-        """Führt SearXNG Search durch"""
+        """Execute SearXNG Search"""
         self._rate_limit_check()
 
         try:
@@ -263,7 +263,7 @@ class SearXNGSearchTool(BaseTool):
             response.raise_for_status()
             data = response.json()
 
-            # Extrahiere Ergebnisse
+            # Extract results
             results = data.get('results', [])
             related_urls, titles, snippets, content = self._extract_urls_from_results(
                 results, url_key='url', title_key='title', content_key='content', max_results=10
@@ -280,10 +280,10 @@ class SearXNGSearchTool(BaseTool):
                 'url': related_urls[0] if related_urls else ''
             }
 
-            logger.info(f"✅ SearXNG: {len(related_urls)} URLs gefunden")
+            logger.info(f"✅ SearXNG: {len(related_urls)} URLs found")
 
-            # DEBUG: Logge alle gefundenen URLs mit Titeln
-            logger.info("📋 SearXNG Rohdaten (alle URLs vor KI-Bewertung):")
+            # DEBUG: Log all found URLs with titles
+            logger.info("📋 SearXNG raw data (all URLs before AI ranking):")
             for i, (url, title) in enumerate(zip(related_urls, titles), 1):
                 logger.info(f"   {i}. {title}")
                 logger.info(f"      URL: {url}")
@@ -291,7 +291,7 @@ class SearXNGSearchTool(BaseTool):
             return result
 
         except Exception as e:
-            logger.error(f"❌ SearXNG Fehler: {e}")
+            logger.error(f"❌ SearXNG error: {e}")
             return {
                 'success': False,
                 'source': 'SearXNG',
@@ -307,12 +307,12 @@ class SearXNGSearchTool(BaseTool):
 
 class MultiAPISearchTool(BaseTool):
     """
-    Meta-Tool: Nutzt alle Search APIs mit automatischem Fallback
+    Meta-Tool: Uses all Search APIs with automatic fallback
 
-    Reihenfolge:
-    1. Tavily AI (1.000/Monat) - AI-optimiert für RAG, aktuellste Artikel
-    2. Brave Search (2.000/Monat) - Privacy-focused, gute Qualität
-    3. SearXNG (unlimited) - Self-hosted, immer verfügbar
+    Order:
+    1. Tavily AI (1,000/month) - AI-optimized for RAG, most current articles
+    2. Brave Search (2,000/month) - Privacy-focused, good quality
+    3. SearXNG (unlimited) - Self-hosted, always available
     """
 
     def __init__(self,
@@ -321,78 +321,78 @@ class MultiAPISearchTool(BaseTool):
                  searxng_url: str = "http://localhost:8888"):
         super().__init__()
         self.name = "Multi-API Search"
-        self.description = "3-Stufen Fallback Search"
+        self.description = "3-Tier Fallback Search"
 
-        # Initialisiere alle APIs mit explizitem Typ
+        # Initialize all APIs with explicit type
         self.apis: List[BaseTool] = []
 
-        # Tavily (Primary) - AI-optimiert, bessere Aktualität
+        # Tavily (Primary) - AI-optimized, better actuality
         if tavily_key or os.getenv('TAVILY_API_KEY'):
             try:
                 self.apis.append(TavilySearchTool(tavily_key))
-                logger.info("✅ Tavily AI aktiviert (Primary)")
+                logger.info("✅ Tavily AI enabled (Primary)")
             except (APIKeyMissingError, ValueError, RuntimeError) as e:
-                logger.warning(f"⚠️ Tavily AI konnte nicht initialisiert werden: {e}")
+                logger.warning(f"⚠️ Tavily AI could not be initialized: {e}")
 
         # Brave (Fallback 1)
         if brave_key or os.getenv('BRAVE_API_KEY'):
             try:
                 self.apis.append(BraveSearchTool(brave_key))
-                logger.info("✅ Brave Search API aktiviert (Fallback 1)")
+                logger.info("✅ Brave Search API enabled (Fallback 1)")
             except (APIKeyMissingError, ValueError, RuntimeError) as e:
-                logger.warning(f"⚠️ Brave Search API konnte nicht initialisiert werden: {e}")
+                logger.warning(f"⚠️ Brave Search API could not be initialized: {e}")
 
-        # SearXNG (Last Resort - immer verfügbar wenn Server läuft)
+        # SearXNG (Last Resort - always available if server is running)
         self.apis.append(SearXNGSearchTool(searxng_url))
-        logger.info("✅ SearXNG aktiviert (Last Resort)")
+        logger.info("✅ SearXNG enabled (Last Resort)")
 
     def execute(self, query: str, **kwargs) -> Dict:
         """
-        Führt Suche PARALLEL durch - sammelt URLs von ALLEN APIs!
+        Execute search in PARALLEL - collect URLs from ALL APIs!
 
-        Parallel Execution: Alle APIs starten gleichzeitig.
-        Collect All: Warte auf alle APIs, sammle alle URLs.
-        Deduplizierung: Entferne doppelte URLs (www, trailing slash, etc.)
+        Parallel Execution: All APIs start simultaneously.
+        Collect All: Wait for all APIs, collect all URLs.
+        Deduplication: Remove duplicate URLs (www, trailing slash, etc.)
         """
         if not self.apis:
-            logger.error("❌ Keine Search APIs konfiguriert!")
+            logger.error("❌ No Search APIs configured!")
             return {
                 'success': False,
                 'source': 'Multi-API Search',
                 'query': query,
                 'related_urls': [],
-                'error': 'Keine Search APIs verfügbar'
+                'error': 'No Search APIs available'
             }
 
-        logger.info(f"🚀 Parallel Search: {len(self.apis)} APIs gleichzeitig")
+        logger.info(f"🚀 Parallel Search: {len(self.apis)} APIs simultaneously")
 
-        # Parallel Execution - Sammle ALLE Ergebnisse
+        # Parallel Execution - Collect ALL results
         all_urls = []
         successful_apis = []
         failed_apis = []
 
         with ThreadPoolExecutor(max_workers=len(self.apis)) as executor:
-            # Starte alle APIs parallel
+            # Start all APIs in parallel
             future_to_api = {
                 executor.submit(api.execute, query, **kwargs): api
                 for api in self.apis
             }
 
-            # Sammle Ergebnisse von ALLEN APIs
+            # Collect results from ALL APIs
             for future in as_completed(future_to_api):
                 api = future_to_api[future]
                 try:
-                    result = future.result(timeout=15)  # Max 15s pro API
+                    result = future.result(timeout=15)  # Max 15s per API
 
-                    # Erfolgreiche Antwort mit URLs?
+                    # Successful response with URLs?
                     if result.get('success') and result.get('related_urls'):
                         urls = result['related_urls']
-                        logger.info(f"✅ {api.name}: {len(urls)} URLs gefunden")
+                        logger.info(f"✅ {api.name}: {len(urls)} URLs found")
                         all_urls.extend(urls)
                         successful_apis.append(api.name)
                     else:
-                        logger.warning(f"⚠️ {api.name}: Keine URLs gefunden")
-                        failed_apis.append((api.name, "Keine URLs"))
+                        logger.warning(f"⚠️ {api.name}: No URLs found")
+                        failed_apis.append((api.name, "No URLs"))
 
                 except (RateLimitError, APIKeyMissingError) as e:
                     logger.warning(f"⚠️ {api.name}: {e}")
@@ -402,22 +402,22 @@ class MultiAPISearchTool(BaseTool):
                     logger.error(f"❌ {api.name}: {e}")
                     failed_apis.append((api.name, str(e)))
 
-        # Mindestens eine API erfolgreich?
+        # At least one API successful?
         if not all_urls:
-            logger.error("❌ Alle Search APIs fehlgeschlagen!")
+            logger.error("❌ All Search APIs failed!")
             error_summary = ", ".join([f"{name}: {err}" for name, err in failed_apis])
             return {
                 'success': False,
                 'source': 'Multi-API Search',
                 'query': query,
                 'related_urls': [],
-                'error': f'Alle APIs fehlgeschlagen. Details: {error_summary}'
+                'error': f'All APIs failed. Details: {error_summary}'
             }
 
-        # Deduplizierung
+        # Deduplication
         unique_urls = deduplicate_urls(all_urls)
 
-        logger.info(f"🔄 Gesammelt: {len(all_urls)} URLs von {len(successful_apis)} APIs → {len(unique_urls)} unique URLs")
+        logger.info(f"🔄 Collected: {len(all_urls)} URLs from {len(successful_apis)} APIs → {len(unique_urls)} unique URLs")
 
         return {
             'success': True,
@@ -436,39 +436,39 @@ class MultiAPISearchTool(BaseTool):
 
     def execute_multi_query(self, queries: List[str], **kwargs) -> Dict:
         """
-        Verteilt mehrere Queries auf verfügbare APIs (1:1 Mapping)
+        Distribute multiple queries across available APIs (1:1 mapping)
 
         Query 1 → API 1 (Tavily)
         Query 2 → API 2 (Brave)
         Query 3 → API 3 (SearXNG)
 
-        Falls mehr Queries als APIs: Round-Robin (Query 4 → API 1, etc.)
-        Falls weniger Queries als APIs: Nur die ersten N APIs werden genutzt
+        If more queries than APIs: Round-Robin (Query 4 → API 1, etc.)
+        If fewer queries than APIs: Only the first N APIs are used
 
         Args:
-            queries: Liste von Such-Queries (1-3 typischerweise)
+            queries: List of search queries (typically 1-3)
 
         Returns:
-            Dict mit aggregierten Ergebnissen und detaillierten Stats
+            Dict with aggregated results and detailed stats
         """
         if not queries:
-            logger.error("❌ Keine Queries übergeben!")
+            logger.error("❌ No queries provided!")
             return {
                 'success': False,
                 'source': 'Multi-API Search (Multi-Query)',
                 'queries': [],
                 'related_urls': [],
-                'error': 'Keine Queries übergeben'
+                'error': 'No queries provided'
             }
 
         if not self.apis:
-            logger.error("❌ Keine Search APIs konfiguriert!")
+            logger.error("❌ No Search APIs configured!")
             return {
                 'success': False,
                 'source': 'Multi-API Search (Multi-Query)',
                 'queries': queries,
                 'related_urls': [],
-                'error': 'Keine Search APIs verfügbar'
+                'error': 'No Search APIs available'
             }
 
         num_queries = len(queries)
@@ -476,7 +476,7 @@ class MultiAPISearchTool(BaseTool):
 
         logger.info(f"🚀 Multi-Query Search: {num_queries} Queries → {num_apis} APIs")
 
-        # Erstelle Query-API Zuordnung (Round-Robin bei mehr Queries als APIs)
+        # Create Query-API mapping (Round-Robin when more queries than APIs)
         query_api_pairs = []
         for i, query in enumerate(queries):
             api = self.apis[i % num_apis]  # Round-Robin
@@ -487,16 +487,16 @@ class MultiAPISearchTool(BaseTool):
         all_urls = []
         successful_apis = []
         failed_apis = []
-        query_results = []  # Detaillierte Ergebnisse pro Query
+        query_results = []  # Detailed results per query
 
         with ThreadPoolExecutor(max_workers=len(query_api_pairs)) as executor:
-            # Starte alle Query-API Kombinationen parallel
+            # Start all Query-API combinations in parallel
             future_to_pair = {
                 executor.submit(api.execute, query, **kwargs): (query, api)
                 for query, api in query_api_pairs
             }
 
-            # Sammle Ergebnisse
+            # Collect results
             for future in as_completed(future_to_pair):
                 query, api = future_to_pair[future]
                 try:
@@ -514,14 +514,14 @@ class MultiAPISearchTool(BaseTool):
                             'success': True
                         })
                     else:
-                        logger.warning(f"⚠️ {api.name} ({query[:30]}...): Keine URLs")
-                        failed_apis.append((api.name, "Keine URLs"))
+                        logger.warning(f"⚠️ {api.name} ({query[:30]}...): No URLs")
+                        failed_apis.append((api.name, "No URLs"))
                         query_results.append({
                             'query': query,
                             'api': api.name,
                             'urls_found': 0,
                             'success': False,
-                            'error': 'Keine URLs gefunden'
+                            'error': 'No URLs found'
                         })
 
                 except (RateLimitError, APIKeyMissingError) as e:
@@ -546,9 +546,9 @@ class MultiAPISearchTool(BaseTool):
                         'error': str(e)
                     })
 
-        # Mindestens eine Query erfolgreich?
+        # At least one query successful?
         if not all_urls:
-            logger.error("❌ Alle Queries fehlgeschlagen!")
+            logger.error("❌ All queries failed!")
             error_summary = ", ".join([f"{name}: {err}" for name, err in failed_apis])
             return {
                 'success': False,
@@ -556,13 +556,13 @@ class MultiAPISearchTool(BaseTool):
                 'queries': queries,
                 'related_urls': [],
                 'query_results': query_results,
-                'error': f'Alle Queries fehlgeschlagen. Details: {error_summary}'
+                'error': f'All queries failed. Details: {error_summary}'
             }
 
-        # Deduplizierung
+        # Deduplication
         unique_urls = deduplicate_urls(all_urls)
 
-        logger.info(f"🔄 Multi-Query Ergebnis: {len(all_urls)} URLs → {len(unique_urls)} unique")
+        logger.info(f"🔄 Multi-Query result: {len(all_urls)} URLs → {len(unique_urls)} unique")
 
         return {
             'success': True,

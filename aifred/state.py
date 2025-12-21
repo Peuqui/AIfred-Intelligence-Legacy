@@ -24,7 +24,7 @@ from .lib.vllm_manager import vLLMProcessManager
 from .lib.model_manager import (
     sort_models_grouped,
     is_backend_compatible
-    # NOTE: backend_supports_dynamic_models nicht importiert - State hat eigene @rx.var Implementierung
+    # NOTE: backend_supports_dynamic_models not imported - State has own @rx.var implementation
 )
 from .lib.gpu_monitor import round_to_nominal_vram
 
@@ -218,10 +218,10 @@ class AIState(rx.State):
     # Chat History
     chat_history: List[Tuple[str, str]] = []  # [(user_msg, ai_msg), ...]
     current_user_input: str = ""
-    current_user_message: str = ""  # Die Nachricht die gerade verarbeitet wird
+    current_user_message: str = ""  # The message currently being processed
     current_ai_response: str = ""
     is_generating: bool = False
-    is_compressing: bool = False  # NEU: Zeigt ob History-Kompression läuft
+    is_compressing: bool = False  # NEW: Shows if history compression is running
 
     # Image Upload State
     pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "base64": "...", "url": "...", "original_bytes": bytes}]
@@ -236,13 +236,13 @@ class AIState(rx.State):
     _pending_failed_sources: List[Dict[str, str]] = []
 
     # Image Crop State
-    crop_modal_open: bool = False  # Crop Modal anzeigen?
-    crop_image_index: int = -1  # Welches Bild wird gecroppt (Index in pending_images)
-    crop_preview_url: str = ""  # Data-URL für Crop-Preview (großes Bild im Modal)
-    crop_box_x: float = 0.0  # Crop-Box Position X in Prozent (0-100)
-    crop_box_y: float = 0.0  # Crop-Box Position Y in Prozent (0-100)
-    crop_box_width: float = 100.0  # Crop-Box Breite in Prozent (0-100)
-    crop_box_height: float = 100.0  # Crop-Box Höhe in Prozent (0-100)
+    crop_modal_open: bool = False  # Show crop modal?
+    crop_image_index: int = -1  # Which image is being cropped (index in pending_images)
+    crop_preview_url: str = ""  # Data URL for crop preview (large image in modal)
+    crop_box_x: float = 0.0  # Crop box position X in percent (0-100)
+    crop_box_y: float = 0.0  # Crop box position Y in percent (0-100)
+    crop_box_width: float = 100.0  # Crop box width in percent (0-100)
+    crop_box_height: float = 100.0  # Crop box height in percent (0-100)
 
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi" [DEPRECATED - use backend_id]
@@ -268,12 +268,12 @@ class AIState(rx.State):
     vision_models_cache: List[str] = []  # Cached list of vision model IDs (populated by initialize_backend)
     available_vision_models_list: List[str] = []  # NEW: Display names for vision models (synced with vision_models_cache)
 
-    # Automatik-LLM (für Decision und Query-Optimierung)
+    # Automatik-LLM (for decision and query optimization)
     # NOTE: Loaded from settings.json first, fallback to config.py only if settings don't exist
     automatik_model: str = ""  # Initialized in on_load() from settings.json or config.py [DEPRECATED]
     automatik_model_id: str = ""  # NEW: Pure model ID (synced with automatik_model)
 
-    # Vision-LLM (für Bildanalyse/OCR - Spezialisiert auf strukturierte Datenextraktion)
+    # Vision-LLM (for image analysis/OCR - specialized for structured data extraction)
     # NOTE: Loaded from settings.json first, fallback to first available vision model
     vision_model: str = ""  # Initialized in on_load() from settings.json or auto-detect [DEPRECATED]
     vision_model_id: str = ""  # NEW: Pure model ID (synced with vision_model)
@@ -283,16 +283,16 @@ class AIState(rx.State):
     temperature_mode: str = "auto"  # "auto" (Intent-Detection) | "manual" (user slider)
     num_ctx: int = 32768
 
-    # Context Window Control (NICHT in settings.json gespeichert - Reset bei jedem Start)
+    # Context Window Control (NOT saved in settings.json - reset on every start)
     num_ctx_mode: str = "auto_vram"  # "auto_vram" | "auto_max" | "manual"
-    num_ctx_manual: int = 4096  # Manueller Wert (nur wenn mode="manual") - Ollama Default
+    num_ctx_manual: int = 4096  # Manual value (only if mode="manual") - Ollama default
 
     # Cached Model Metadata (to avoid repeated API calls)
     _automatik_model_context_limit: int = 0  # Cached context limit for automatik model
 
     # Research Settings
     research_mode: str = "automatik"  # "quick", "deep", "automatik", "none"
-    research_mode_display: str = "🤖 Automatik (KI entscheidet)"  # UI display value
+    research_mode_display: str = "🤖 Automatik (AI decides)"  # UI display value
 
     # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
     enable_thinking: bool = True  # True = Thinking Mode (temp=0.6), False = Non-Thinking (temp=0.7)
@@ -311,9 +311,9 @@ class AIState(rx.State):
     vllm_native_context: int = 0  # Native model context (from config.json)
 
     # VRAM-based Context Limit (Runtime Only - ALL backends)
-    # Das berechnete VRAM-Limit vom letzten calculate_dynamic_num_ctx() Aufruf
-    # Wird für History-Kompression genutzt (verhindert erneute Berechnung)
-    last_vram_limit: int = 0  # min(VRAM-Limit, Model-Limit) - praktisches Maximum
+    # The calculated VRAM limit from the last calculate_dynamic_num_ctx() call
+    # Used for history compression (prevents recalculation)
+    last_vram_limit: int = 0  # min(VRAM-Limit, Model-Limit) - practical maximum
 
     # TTS/STT Settings
     enable_tts: bool = False
@@ -322,29 +322,29 @@ class AIState(rx.State):
     tts_engine: str = "Edge TTS (Cloud, beste Qualität)"  # TTS engine selection
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
     tts_playback_rate: str = "1.25x"  # Browser playback rate (persisted)
-    whisper_model_name: str = "small (466MB, bessere Qualität, multilingual)"  # Whisper model display name
+    whisper_model_name: str = "small (466MB, better quality, multilingual)"  # Whisper model display name
     # whisper_device removed - now configured in config.py (WHISPER_DEVICE)
     show_transcription: bool = False  # Show transcribed text for editing before sending
     _whisper_model = None  # Loaded WhisperModel instance (module-level, shared across sessions)
-    tts_audio_path: str = ""  # Path to generated TTS audio file (TODO: UI Player fehlt)
+    tts_audio_path: str = ""  # Path to generated TTS audio file (TODO: UI player missing)
     tts_trigger_counter: int = 0  # Incremented to trigger TTS playback in frontend
 
     # Session Management
     session_id: str = ""
 
     # Session Persistence (Cookie-based device identification)
-    device_id: str = ""  # Device-ID aus Cookie (32 hex chars)
-    session_restored: bool = False  # True wenn Chat-History aus Session geladen wurde
-    _session_initialized: bool = False  # Guard gegen mehrfache Session-Restore Callbacks
-    _on_load_running: bool = False  # Guard gegen mehrfache on_load() Aufrufe
+    device_id: str = ""  # Device ID from cookie (32 hex chars)
+    session_restored: bool = False  # True if chat history was loaded from session
+    _session_initialized: bool = False  # Guard against multiple session restore callbacks
+    _on_load_running: bool = False  # Guard against multiple on_load() calls
 
     # Backend Status
     backend_healthy: bool = False
     backend_info: str = ""
-    backend_switching: bool = False  # True während Backend-Wechsel (UI wird disabled)
-    backend_initializing: bool = True  # True während erster Initialisierung (zeigt Loading Spinner)
-    vllm_restarting: bool = False  # True während vLLM-Neustart (Modellwechsel/YaRN)
-    koboldcpp_auto_restarting: bool = False  # True während KoboldCPP Auto-Restart nach Inaktivität
+    backend_switching: bool = False  # True during backend switch (UI will be disabled)
+    backend_initializing: bool = True  # True during initial initialization (shows Loading Spinner)
+    vllm_restarting: bool = False  # True during vLLM restart (model switch/YaRN)
+    koboldcpp_auto_restarting: bool = False  # True during KoboldCPP auto-restart after inactivity
 
     # GPU Inactivity Monitoring
     gpu_monitoring_active: bool = False
@@ -357,12 +357,12 @@ class AIState(rx.State):
 
     # Debug Console
     debug_messages: List[str] = []
-    auto_refresh_enabled: bool = True  # Für Debug Console + Chat History + AI Response Area
+    auto_refresh_enabled: bool = True  # For Debug Console + Chat History + AI Response Area
 
     # UI Language Settings
-    ui_language: str = "de"  # "de" or "en" - für UI Sprache
+    ui_language: str = "de"  # "de" or "en" - for UI language
 
-    # Mobile Detection (clientseitig via JavaScript)
+    # Mobile Detection (client-side via JavaScript)
     is_mobile: bool = False  # True if mobile device detected (User-Agent + Touch)
     _mobile_detection_done: bool = False  # Internal flag to prevent duplicate logging from Reflex hydration
 
@@ -371,7 +371,7 @@ class AIState(rx.State):
     progress_phase: str = ""  # "automatik", "scraping", "llm"
     progress_current: int = 0
     progress_total: int = 0
-    progress_failed: int = 0  # Anzahl fehlgeschlagener URLs
+    progress_failed: int = 0  # Number of failed URLs
 
     # Initialization flags
     _backend_initialized: bool = False
@@ -656,7 +656,7 @@ class AIState(rx.State):
 
             # Initialize Whisper STT Model (once per server)
             from .lib.config import DEFAULT_SETTINGS
-            whisper_model_display = DEFAULT_SETTINGS.get("whisper_model", "small (466MB, bessere Qualität, multilingual)")
+            whisper_model_display = DEFAULT_SETTINGS.get("whisper_model", "small (466MB, better quality, multilingual)")
             initialize_whisper_model(whisper_model_display)
 
             # GPU Detection (once per server)
@@ -894,16 +894,16 @@ class AIState(rx.State):
             print("✅ Session initialization complete")
 
             # Session Persistence: Read device_id from cookie (async callback)
-            # NACH Backend-Init, damit Chat-History Restore nicht mit Loading kollidiert
+            # AFTER Backend-Init so chat history restore doesn't collide with loading
             if not self._session_initialized:
                 from .lib.browser_storage import get_device_id_script
-                # Erster Versuch: Sofort
+                # First attempt: immediate
                 yield rx.call_script(
                     get_device_id_script(),
                     callback=AIState.handle_device_id_loaded
                 )
-                # Retry nach 2 Sekunden (falls erster Callback wegen Race Condition nicht durchkam)
-                # Guard _session_initialized verhindert doppelte Verarbeitung
+                # Retry after 2 seconds (in case first callback didn't get through due to race condition)
+                # Guard _session_initialized prevents duplicate processing
                 yield rx.call_script(
                     get_device_id_script(delay_ms=2000),
                     callback=AIState.handle_device_id_loaded
@@ -1168,11 +1168,11 @@ class AIState(rx.State):
                 # For backends without model switching (vLLM, KoboldCPP, TabbyAPI), show only Main model
                 if self.backend_type.lower() in ["vllm", "koboldcpp", "tabbyapi"]:
                     # Compact format for Mobile: Multi-line with indentation
-                    self.add_debug(f"✅ {len(self.available_models)} Models vorhanden")
+                    self.add_debug(f"✅ {len(self.available_models)} models available")
                     self.add_debug(f"   Main: {self.selected_model}")
                 else:
                     # Compact format for Mobile: Multi-line with indentation
-                    self.add_debug(f"✅ {len(self.available_models)} Models vorhanden")
+                    self.add_debug(f"✅ {len(self.available_models)} models available")
                     self.add_debug(f"   Main: {self.selected_model}")
                     self.add_debug(f"   Automatik: {self.automatik_model}")
 
@@ -1447,7 +1447,7 @@ class AIState(rx.State):
         N consecutive checks were idle.
 
         User Use Case:
-            - User finishes inference → has "Bedenkzeit" (thinking time)
+            - User finishes inference → has thinking time
             - If new inference starts within timeout → timer resets automatically
             - Only shutdowns if GPUs idle for full timeout duration
 
@@ -1484,7 +1484,7 @@ class AIState(rx.State):
         # Calculate how many consecutive idle checks needed
         idle_checks_needed = max(1, KOBOLDCPP_INACTIVITY_TIMEOUT // KOBOLDCPP_INACTIVITY_CHECK_INTERVAL)
 
-        # Log startup (zwei Zeilen für bessere Lesbarkeit auf Mobile)
+        # Log startup (two lines for better readability on mobile)
         self.add_debug("🎯 GPU Inactivity Monitor started")
         self.add_debug(
             f"  • Rolling Window: {idle_checks_needed} checks à {KOBOLDCPP_INACTIVITY_CHECK_INTERVAL}s = {KOBOLDCPP_INACTIVITY_TIMEOUT}s timeout"
@@ -1584,24 +1584,24 @@ class AIState(rx.State):
                     # Log shutdown messages (via add_debug for UI propagation)
                     self.debug_messages.append(
                         f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
-                        f"🛑 KoboldCPP wird wegen Inaktivität heruntergefahren "
-                        f"(GPUs waren {idle_duration}s idle, Timeout: {KOBOLDCPP_INACTIVITY_TIMEOUT}s)"
+                        f"🛑 KoboldCPP shutting down due to inactivity "
+                        f"(GPUs were {idle_duration}s idle, Timeout: {KOBOLDCPP_INACTIVITY_TIMEOUT}s)"
                     )
                     self.debug_messages.append(
                         f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
-                        f"   GPU-Statistik: {self.gpu_total_active_checks} aktiv / "
-                        f"{self.gpu_total_idle_checks} idle Checks"
+                        f"   GPU stats: {self.gpu_total_active_checks} active / "
+                        f"{self.gpu_total_idle_checks} idle checks"
                     )
 
                     # Log to file
                     from aifred.lib.logging_utils import log_message
                     log_message(
-                        f"🛑 KoboldCPP wird wegen Inaktivität heruntergefahren "
-                        f"(GPUs waren {idle_duration}s idle, Timeout: {KOBOLDCPP_INACTIVITY_TIMEOUT}s)"
+                        f"🛑 KoboldCPP shutting down due to inactivity "
+                        f"(GPUs were {idle_duration}s idle, Timeout: {KOBOLDCPP_INACTIVITY_TIMEOUT}s)"
                     )
                     log_message(
-                        f"   GPU-Statistik: {self.gpu_total_active_checks} aktiv / "
-                        f"{self.gpu_total_idle_checks} idle Checks"
+                        f"   GPU stats: {self.gpu_total_active_checks} active / "
+                        f"{self.gpu_total_idle_checks} idle checks"
                     )
 
                     # Graceful shutdown
@@ -1610,9 +1610,9 @@ class AIState(rx.State):
 
                         self.debug_messages.append(
                             f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
-                            "✅ KoboldCPP erfolgreich heruntergefahren"
+                            "✅ KoboldCPP successfully shut down"
                         )
-                        log_message("✅ KoboldCPP erfolgreich heruntergefahren")
+                        log_message("✅ KoboldCPP successfully shut down")
 
                         # Add separator
                         console_separator()  # File log
@@ -1624,9 +1624,9 @@ class AIState(rx.State):
                     except Exception as e:
                         self.debug_messages.append(
                             f"{datetime.datetime.now().strftime('%H:%M:%S')} | "
-                            f"❌ Auto-Shutdown fehlgeschlagen: {e}"
+                            f"❌ Auto-Shutdown failed: {e}"
                         )
-                        log_message(f"❌ Auto-Shutdown fehlgeschlagen: {e}")
+                        log_message(f"❌ Auto-Shutdown failed: {e}")
 
                     # Stop monitoring
                     self.gpu_monitoring_active = False
@@ -2545,7 +2545,7 @@ class AIState(rx.State):
                         # Update chat history (e.g. from summarization)
                         updated_history = item["data"]
                         self.chat_history = updated_history
-                        self.add_debug(f"📊 History aktualisiert: {len(updated_history)} Messages")
+                        self.add_debug(f"📊 History updated: {len(updated_history)} messages")
                     elif item["type"] == "thinking_warning":
                         # Show thinking mode warning (model doesn't support reasoning)
                         self.thinking_mode_warning = item["model"]
@@ -2655,7 +2655,7 @@ class AIState(rx.State):
                         # Update chat history (e.g. from summarization)
                         updated_history = item["data"]
                         self.chat_history = updated_history
-                        self.add_debug(f"📊 History aktualisiert: {len(updated_history)} Messages")
+                        self.add_debug(f"📊 History updated: {len(updated_history)} messages")
                     elif item["type"] == "thinking_warning":
                         # Show thinking mode warning (model doesn't support reasoning)
                         self.thinking_mode_warning = item["model"]
@@ -2842,47 +2842,47 @@ class AIState(rx.State):
                 await llm_client.close()
 
             # ============================================================
-            # POST-RESPONSE: History Summarization Check (im Hintergrund)
+            # POST-RESPONSE: History Summarization Check (in background)
             # ============================================================
-            # Kompression läuft NACH der Antwort, während User liest
-            # Eingabefelder werden während Kompression disabled
+            # Compression runs AFTER the response, while user reads
+            # Input fields are disabled during compression
 
             try:
                 from .lib.context_manager import summarize_history_if_needed
                 from .backends import BackendFactory
 
-                # Immer prüfen - token-basiert (keine Message-Count-Prüfung mehr)
-                if True:  # summarize_history_if_needed macht alle Checks intern
+                # Always check - token-based (no message count check anymore)
+                if True:  # summarize_history_if_needed does all checks internally
                     yield
-                    # Backend für Summarization
+                    # Backend for summarization
                     temp_backend = BackendFactory.create(
                         self.backend_type,
                         base_url=self.backend_url
                     )
 
-                    # Context-Limit für History-Kompression:
-                    # Nutze gespeichertes VRAM-Limit aus letzter Inferenz (verhindert Neuberechnung!)
+                    # Context limit for history compression:
+                    # Use saved VRAM limit from last inference (prevents recalculation!)
                     from aifred.lib.context_manager import _last_vram_limit_cache
 
                     if self.num_ctx_mode == "manual":
                         context_limit = self.num_ctx_manual
                     elif _last_vram_limit_cache["limit"] > 0:
-                        # Nutze gespeichertes Context-Limit (aus letzter Inferenz)
+                        # Use saved context limit (from last inference)
                         context_limit = _last_vram_limit_cache["limit"]
                     else:
-                        # Fallback: 8K (noch keine Inferenz gelaufen, Limit wird bei erster Inferenz berechnet)
+                        # Fallback: 8K (no inference run yet, limit will be calculated on first inference)
                         context_limit = 8192
-                        self.add_debug("ℹ️ Context-Limit wird bei erster Inferenz berechnet (Fallback: 8K)")
+                        self.add_debug("ℹ️ Context limit will be calculated on first inference (Fallback: 8K)")
 
-                    # Setze Kompression-Flag (disabled Input-Felder)
+                    # Set compression flag (disables input fields)
                     self.is_compressing = True
                     yield
 
-                    # Summarization check (yields events wenn nötig)
+                    # Summarization check (yields events if needed)
                     async for event in summarize_history_if_needed(
                         history=self.chat_history,
                         llm_client=temp_backend,
-                        model_name=self.automatik_model,  # Schnelles Model
+                        model_name=self.automatik_model,  # Fast model
                         context_limit=context_limit  # Uses only context_limit, not model_size
                     ):
                         if event["type"] == "history_update":
@@ -2898,7 +2898,7 @@ class AIState(rx.State):
 
                     await temp_backend.close()
 
-                    # Progress clearen falls gesetzt
+                    # Clear progress if set
                     if self.progress_phase == "compress":
                         self.clear_progress()
                         yield
@@ -2924,7 +2924,7 @@ class AIState(rx.State):
             self.current_ai_response = ""
             yield  # Final update to clear AI response window
 
-            # Debug-Zeile entfernt - User wollte das nicht sehen
+            # Debug line removed - User didn't want to see this
             # self.add_debug(f"✅ Response complete ({len(full_response)} chars)")
 
         except Exception as e:
@@ -3068,12 +3068,12 @@ class AIState(rx.State):
         is_valid_id = device_id and re.match(r'^[a-f0-9]{32}$', device_id)
 
         if device_id == "NEW" or not device_id or not is_valid_id:
-            # Neues Gerät oder ungültige ID - generiere neue Device-ID
+            # New device or invalid ID - generate new Device-ID
             if device_id and not is_valid_id:
-                self.add_debug(f"⚠️ Ungültige Device-ID ({device_id[:8]}...), generiere neue")
+                self.add_debug(f"⚠️ Invalid Device-ID ({device_id[:8]}...), generating new one")
             self.device_id = generate_device_id()
             self.session_restored = False
-            self.add_debug(f"🆕 Neue Session: {self.device_id[:8]}...")
+            self.add_debug(f"🆕 New session: {self.device_id[:8]}...")
             console_separator()  # File log
             self.debug_messages.append("────────────────────")  # UI
             return rx.call_script(set_device_id_script(self.device_id))
@@ -3086,12 +3086,12 @@ class AIState(rx.State):
             self._restore_session(session)
             self.session_restored = True
             msg_count = len(self.chat_history)
-            self.add_debug(f"✅ Session geladen: {device_id[:8]}... ({msg_count} Messages)")
+            self.add_debug(f"✅ Session loaded: {device_id[:8]}... ({msg_count} messages)")
         else:
             self.session_restored = False
-            self.add_debug(f"🆕 Leere Session: {device_id[:8]}...")
+            self.add_debug(f"🆕 Empty session: {device_id[:8]}...")
 
-        # Separator nach Session-Restore
+        # Separator after session restore
         console_separator()  # File log
         self.debug_messages.append("────────────────────")  # UI
 
@@ -3219,13 +3219,13 @@ class AIState(rx.State):
                 "size_kb": len(resized_content) // 1024
             })
 
-            self.add_debug(f"📷 Bild hochgeladen: {display_name} ({len(resized_content) // 1024} KB)")
+            self.add_debug(f"📷 Image uploaded: {display_name} ({len(resized_content) // 1024} KB)")
 
     def remove_pending_image(self, index: int):
         """Remove image from pending uploads"""
         if 0 <= index < len(self.pending_images):
             removed = self.pending_images.pop(index)
-            self.add_debug(f"🗑️ Bild entfernt: {removed['name']}")
+            self.add_debug(f"🗑️ Image removed: {removed['name']}")
 
             # Clear warning if it was about model compatibility
             if self.image_upload_warning.startswith("⚠️ Gewähltes Modell"):
@@ -3270,11 +3270,11 @@ class AIState(rx.State):
         self.crop_box_height = max(1, min(100 - self.crop_box_y, height))
 
     async def apply_crop(self):
-        """Wendet Crop an und aktualisiert das Bild in pending_images (Legacy, nutzt State-Koordinaten)"""
+        """Applies crop and updates the image in pending_images (Legacy, uses State coordinates)"""
         await self._do_apply_crop(self.crop_box_x, self.crop_box_y, self.crop_box_width, self.crop_box_height)
 
     async def apply_crop_with_coords(self, coords_json: str):
-        """Wendet Crop an mit Koordinaten vom JavaScript (JSON String)"""
+        """Applies crop with coordinates from JavaScript (JSON String)"""
         import json
         try:
             coords = json.loads(coords_json)
@@ -3284,7 +3284,7 @@ class AIState(rx.State):
             height = float(coords.get("height", 100))
             await self._do_apply_crop(x, y, width, height)
         except Exception as e:
-            self.add_debug(f"❌ Crop fehlgeschlagen: {e}")
+            self.add_debug(f"❌ Crop failed: {e}")
             self.cancel_crop()
 
     async def _do_apply_crop(self, x: float, y: float, width: float, height: float):
@@ -3293,7 +3293,7 @@ class AIState(rx.State):
         import base64
 
         if self.crop_image_index < 0 or self.crop_image_index >= len(self.pending_images):
-            self.add_debug("❌ Crop fehlgeschlagen: Ungültiger Bild-Index")
+            self.add_debug("❌ Crop failed: Invalid image index")
             self.cancel_crop()
             return
 
@@ -3303,7 +3303,7 @@ class AIState(rx.State):
         try:
             original_bytes = base64.b64decode(image_data["base64"])
         except Exception as e:
-            self.add_debug(f"❌ Crop fehlgeschlagen: {e}")
+            self.add_debug(f"❌ Crop failed: {e}")
             self.cancel_crop()
             return
 
@@ -3834,7 +3834,7 @@ class AIState(rx.State):
             thread.start()
 
             self.add_debug("✅ AIfred service restart initiated")
-            self.add_debug("🔄 Browser wird in 0.5s neu geladen...")
+            self.add_debug("🔄 Browser will reload in 0.5s...")
 
             # Return the reload script IMMEDIATELY
             # This executes in browser BEFORE systemd kills the service
@@ -3923,7 +3923,7 @@ class AIState(rx.State):
                     self.yarn_max_tested = False
                     self.add_debug(f"🔄 YaRN factor reset: {old_yarn_factor:.1f}x → 1.0x (new model needs recalibration)")
 
-            self.add_debug("🔄 Backend-Neustart für Modell-Wechsel...")
+            self.add_debug("🔄 Backend restart for model switch...")
 
             # Show loading spinner
             self.vllm_restarting = True
@@ -3936,7 +3936,7 @@ class AIState(rx.State):
                     await self._restart_koboldcpp_with_new_model()
                 else:  # tabbyapi
                     await self.initialize_backend()  # TabbyAPI might not need full restart
-                self.add_debug(f"✅ Neues Modell geladen: {model}")
+                self.add_debug(f"✅ New model loaded: {model}")
             finally:
                 # Hide loading spinner
                 self.vllm_restarting = False
@@ -3946,16 +3946,16 @@ class AIState(rx.State):
         """Toggle Qwen3 Thinking Mode"""
         self.enable_thinking = not self.enable_thinking
         mode_name = "Thinking Mode" if self.enable_thinking else "Non-Thinking Mode"
-        self.add_debug(f"🧠 {mode_name} aktiviert")
+        self.add_debug(f"🧠 {mode_name} activated")
         self._save_settings()
 
     def toggle_yarn(self):
         """Toggle YaRN context extension"""
         self.enable_yarn = not self.enable_yarn
-        status = "aktiviert" if self.enable_yarn else "deaktiviert"
-        self.add_debug(f"📏 YaRN Context Extension {status} (Faktor: {self.yarn_factor}x)")
+        status = "enabled" if self.enable_yarn else "disabled"
+        self.add_debug(f"📏 YaRN Context Extension {status} (Factor: {self.yarn_factor}x)")
         if self.enable_yarn:
-            self.add_debug("⚠️ Klicke 'Apply YaRN' um Backend mit neuem Faktor zu starten!")
+            self.add_debug("⚠️ Click 'Apply YaRN' to start backend with new factor!")
         self._save_settings()
 
     def set_yarn_factor_input(self, factor: str):
@@ -3987,16 +3987,16 @@ class AIState(rx.State):
             self._save_settings()
 
             estimated_context = int(self.vllm_max_tokens * factor_float)
-            self.add_debug(f"✅ YaRN-Faktor gesetzt: {old_factor}x → {factor_float}x (~{estimated_context} tokens)")
+            self.add_debug(f"✅ YaRN factor set: {old_factor}x → {factor_float}x (~{estimated_context} tokens)")
 
             # Warn if factor is high (potential VRAM overflow)
             if factor_float > 2.0:
-                self.add_debug(f"⚠️ Hoher YaRN-Faktor ({factor_float}x) kann VRAM überschreiten → möglicher Crash!")
-                self.add_debug("💡 Tipp: Bei VRAM-Problemen Faktor reduzieren oder mehr GPU-RAM nutzen")
+                self.add_debug(f"⚠️ High YaRN factor ({factor_float}x) may exceed VRAM → possible crash!")
+                self.add_debug("💡 Tip: For VRAM issues, reduce factor or use more GPU RAM")
 
             # Force restart backend for YaRN change (vLLM/TabbyAPI)
             if self.backend_type in ["vllm", "tabbyapi"]:
-                self.add_debug("🔄 Backend-Neustart für YaRN-Änderung...")
+                self.add_debug("🔄 Backend restart for YaRN change...")
 
                 # Show loading spinner
                 self.vllm_restarting = True
@@ -4011,9 +4011,9 @@ class AIState(rx.State):
                     # Show actual factor after restart (might have been reduced by auto-calibration)
                     actual_factor = self.yarn_factor
                     if actual_factor != factor_float:
-                        self.add_debug(f"✅ Backend neu gestartet (YaRN: {factor_float}x → {actual_factor}x nach Auto-Kalibrierung)")
+                        self.add_debug(f"✅ Backend restarted (YaRN: {factor_float}x → {actual_factor}x after auto-calibration)")
                     else:
-                        self.add_debug(f"✅ Backend neu gestartet mit YaRN {actual_factor}x")
+                        self.add_debug(f"✅ Backend restarted with YaRN {actual_factor}x")
 
                 finally:
                     # Hide loading spinner
@@ -4021,7 +4021,7 @@ class AIState(rx.State):
                     yield  # Update UI to hide spinner
 
         except ValueError:
-            self.add_debug(f"❌ Ungültiger YaRN-Faktor: {self.yarn_factor_input}")
+            self.add_debug(f"❌ Invalid YaRN factor: {self.yarn_factor_input}")
 
     def set_temperature(self, temp: list[float]):
         """Set temperature (from slider which returns list[float])"""
@@ -4104,9 +4104,9 @@ class AIState(rx.State):
 
         # vLLM/TabbyAPI: Auto-restart backend for model change
         if self.backend_type in ["vllm", "tabbyapi"] and old_model != model:
-            self.add_debug("🔄 Backend-Neustart für Automatik-Modell-Wechsel...")
+            self.add_debug("🔄 Backend restart for Automatik model switch...")
             await self.initialize_backend()
-            self.add_debug("✅ Neues Automatik-Modell geladen")
+            self.add_debug("✅ New Automatik model loaded")
 
         # Note: Models are loaded on-demand during first inference (saves VRAM)
         # Context limit will be queried on first use (fast ~30ms) and cached by httpx
@@ -4221,7 +4221,7 @@ class AIState(rx.State):
         # State changes (tts_audio_path, tts_trigger_counter) auto-propagate to frontend
         await self._generate_tts_for_response(last_ai_response, autoplay=True)
 
-    # TODO: clear_tts_autoplay entfernt - TTS Playback wird neu implementiert
+    # TODO: clear_tts_autoplay removed - TTS Playback will be reimplemented
 
     def set_whisper_model(self, model_name: str):
         """Set Whisper model and reload"""
