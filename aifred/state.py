@@ -720,6 +720,10 @@ class AIState(rx.State):
         if not self._backend_initialized:
             print("📱 Initializing session...")
 
+            # Initialize global UI locale for number formatting
+            from .lib.formatting import set_ui_locale
+            set_ui_locale(self.ui_language)
+
             # Load saved settings
             from .lib.settings import load_settings
             saved_settings = load_settings()
@@ -738,6 +742,12 @@ class AIState(rx.State):
                 self.temperature = saved_settings.get("temperature", self.temperature)
                 self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)
                 self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
+
+                # Load UI language and update global locale
+                saved_ui_lang = saved_settings.get("ui_language", self.ui_language)
+                if saved_ui_lang in ["de", "en"]:
+                    self.ui_language = saved_ui_lang
+                    set_ui_locale(saved_ui_lang)
 
                 # Load TTS/STT Settings
                 self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)
@@ -1274,6 +1284,7 @@ class AIState(rx.State):
             "temperature": self.temperature,
             "temperature_mode": self.temperature_mode,
             "enable_thinking": self.enable_thinking,
+            "ui_language": self.ui_language,  # UI language (de/en)
             "backend_models": backend_models,  # Merged: preserves all backends
             # vLLM YaRN Settings (only enable/disable, factor is calculated dynamically)
             "enable_yarn": self.enable_yarn,
@@ -2710,7 +2721,7 @@ class AIState(rx.State):
 
             elif self.research_mode == "none":
                 # No research mode: Direct LLM inference without web search
-                self.add_debug("🧠 Eigenes Wissen (keine Websuche)")
+                self.add_debug("🧠 Own knowledge (no web search)")
 
                 # History entry was already created at the start of send_message()
                 # No need to append again - temp_history_index already points to it
@@ -2753,11 +2764,11 @@ class AIState(rx.State):
                 from .lib.context_manager import estimate_tokens, prepare_main_llm
                 input_tokens = estimate_tokens(messages, model_name=pure_model_name)
 
-                # Haupt-LLM vorbereiten: num_ctx berechnen + Preload (zentrale Funktion!)
-                # WICHTIG: prepare_main_llm() garantiert die korrekte Reihenfolge:
-                # 1. num_ctx berechnen (Ollama auto_vram: mit unload + VRAM-Messung)
-                # 2. Preload mit num_ctx (Ollama lädt Modell + allokiert KV-Cache)
-                # AsyncGenerator yieldet Debug-Messages sofort für UI-Feedback
+                # Prepare Main-LLM: calculate num_ctx + Preload (central function!)
+                # IMPORTANT: prepare_main_llm() guarantees the correct order:
+                # 1. Calculate num_ctx (Ollama auto_vram: with unload + VRAM measurement)
+                # 2. Preload with num_ctx (Ollama loads model + allocates KV-Cache)
+                # AsyncGenerator yields debug messages immediately for UI feedback
                 async for item in prepare_main_llm(
                     backend=backend,
                     llm_client=llm_client,
@@ -2776,14 +2787,14 @@ class AIState(rx.State):
                 # Get model context limit for display
                 model_limit, _ = await llm_client.get_model_context_limit(pure_model_name)
 
-                self.add_debug("✅ System-Prompt erstellt")
+                self.add_debug("✅ System prompt created")
                 yield
 
-                # Import format_number for locale-aware number formatting
+                # Import format_number for locale-aware number formatting (uses global ui_locale)
                 from .lib.formatting import format_number
 
                 # Show compact context info (matching Automatik mode style)
-                self.add_debug(f"📊 Haupt-LLM: {format_number(input_tokens, locale=self.ui_language)} / {format_number(final_num_ctx, locale=self.ui_language)} Tokens (max: {format_number(model_limit, locale=self.ui_language)})")
+                self.add_debug(f"📊 Main-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})")
                 yield
 
                 # Temperature decision: Manual Override or Auto (Intent-Detection)
@@ -2812,7 +2823,7 @@ class AIState(rx.State):
 
                     final_temperature = get_temperature_for_intent(own_knowledge_intent)
                     temp_label = get_temperature_label(own_knowledge_intent)
-                    self.add_debug(f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1, locale=self.ui_language)}s)")
+                    self.add_debug(f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)")
                 yield
 
                 # Build LLM options
@@ -2823,7 +2834,7 @@ class AIState(rx.State):
                 )
 
                 # Console: LLM starts (matching Automatik mode)
-                self.add_debug(f"🤖 Haupt-LLM startet: {self.selected_model}")
+                self.add_debug(f"🤖 Main-LLM starting: {self.selected_model}")
                 yield
 
                 # Stream response directly from LLM
@@ -2843,7 +2854,7 @@ class AIState(rx.State):
                         if not first_token_received:
                             ttft = time.time() - inference_start
                             first_token_received = True
-                            self.add_debug(f"⚡ TTFT: {format_number(ttft, 2, locale=self.ui_language)}s")
+                            self.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                             yield
 
                         # Stream content to UI in real-time
@@ -2861,7 +2872,7 @@ class AIState(rx.State):
 
                 # Console: LLM finished (matching Automatik mode)
                 tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0
-                self.add_debug(f"✅ Main-LLM done ({format_number(inference_time, 1, locale=self.ui_language)}s, {format_number(tokens_generated, locale=self.ui_language)} tokens, {format_number(tokens_per_sec, 1, locale=self.ui_language)} tok/s)")
+                self.add_debug(f"✅ Main-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tokens, {format_number(tokens_per_sec, 1)} tok/s)")
                 yield
 
                 # Separator after Main-LLM (matching other modes)
@@ -2878,9 +2889,9 @@ class AIState(rx.State):
                     tokens_per_sec=tokens_per_sec
                 )
 
-                # Add metadata footer (Inferenz + Tok/s + Quelle) like other modes
+                # Add metadata footer (Inference + Tok/s + Source) like other modes
                 metadata = format_metadata(
-                    f"Inferenz: {format_number(inference_time, 1, locale=self.ui_language)}s    {format_number(tokens_per_sec, 1, locale=self.ui_language)} tok/s    Quelle: Trainingsdaten"
+                    f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Training data"
                 )
                 formatted_response = f"{thinking_html}  \n{metadata}"
 
@@ -4333,6 +4344,9 @@ class AIState(rx.State):
         """Set UI language and switch TTS voice to matching language"""
         if lang in ["de", "en"]:
             self.ui_language = lang
+            # Update global locale for number formatting
+            from .lib.formatting import set_ui_locale
+            set_ui_locale(lang)
             # Update research_mode_display to match new language
             from .lib import TranslationManager
             self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode, lang)
@@ -4340,6 +4354,9 @@ class AIState(rx.State):
 
             # Auto-switch TTS voice to matching language
             self._switch_tts_voice_for_language(lang)
+
+            # Save to settings
+            self._save_settings()
         else:
             self.add_debug(f"❌ Invalid language: {lang}. Use 'de' or 'en'")
 
