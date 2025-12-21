@@ -1413,48 +1413,65 @@ def render_chat_message(msg: dict) -> rx.Component:
 
 def chat_history_display() -> rx.Component:
     """Full chat history (like Gradio chatbot) - Collapsible"""
-    # Loading spinner während Initialisierung oder Backend-Wechsel
+    # Loading spinner während Initialisierung, Backend-Wechsel oder Bild-Upload
     loading_spinner = rx.vstack(
         rx.spinner(size="3", color="orange"),
         rx.cond(
-            AIState.backend_initializing,
+            AIState.is_uploading_image,
             rx.text(
-                "AIfred wird initialisiert...",
+                rx.cond(
+                    AIState.ui_language == "de",
+                    "Bild wird hochgeladen...",
+                    "Uploading image...",
+                ),
                 font_size="14px",
                 color=COLORS["text_secondary"],
                 margin_top="3",
             ),
             rx.cond(
-                AIState.vllm_restarting,
+                AIState.backend_initializing,
                 rx.text(
-                    "vLLM wird neu gestartet...",
+                    "AIfred wird initialisiert...",
                     font_size="14px",
                     color=COLORS["text_secondary"],
                     margin_top="3",
                 ),
                 rx.cond(
-                    AIState.is_koboldcpp_auto_restarting,
+                    AIState.vllm_restarting,
                     rx.text(
-                        "KoboldCPP startet neu (nach Inaktivität)...",
+                        "vLLM wird neu gestartet...",
                         font_size="14px",
                         color=COLORS["text_secondary"],
                         margin_top="3",
                     ),
-                    rx.text(
-                        "Backend wird gewechselt...",
-                        font_size="14px",
-                        color=COLORS["text_secondary"],
-                        margin_top="3",
+                    rx.cond(
+                        AIState.is_koboldcpp_auto_restarting,
+                        rx.text(
+                            "KoboldCPP startet neu (nach Inaktivität)...",
+                            font_size="14px",
+                            color=COLORS["text_secondary"],
+                            margin_top="3",
+                        ),
+                        rx.text(
+                            "Backend wird gewechselt...",
+                            font_size="14px",
+                            color=COLORS["text_secondary"],
+                            margin_top="3",
+                        ),
                     ),
                 ),
             ),
         ),
-        rx.text(
-            "Bitte warten, Backend startet (~40-70 Sekunden)",
-            font_size="11px",
-            color=COLORS["text_muted"],
-            font_style="italic",
-            margin_top="1",
+        rx.cond(
+            AIState.is_uploading_image,
+            rx.fragment(),  # No subtitle for image upload
+            rx.text(
+                "Bitte warten, Backend startet (~40-70 Sekunden)",
+                font_size="11px",
+                color=COLORS["text_muted"],
+                font_style="italic",
+                margin_top="1",
+            ),
         ),
         align="center",
         justify="center",
@@ -1467,8 +1484,8 @@ def chat_history_display() -> rx.Component:
     )
 
     chat_content = rx.cond(
-        AIState.backend_initializing | AIState.backend_switching | AIState.vllm_restarting | AIState.is_koboldcpp_auto_restarting,
-        loading_spinner,  # Show spinner during initialization, backend switch, vLLM restart, or KoboldCPP auto-restart
+        AIState.backend_initializing | AIState.backend_switching | AIState.vllm_restarting | AIState.is_koboldcpp_auto_restarting | AIState.is_uploading_image,
+        loading_spinner,  # Show spinner during initialization, backend switch, vLLM restart, KoboldCPP auto-restart, or image upload
         rx.cond(
             AIState.auto_refresh_enabled,
             # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
