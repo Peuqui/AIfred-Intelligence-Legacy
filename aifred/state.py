@@ -39,10 +39,11 @@ class FailedSourceDict(TypedDict):
     method: str
 
 class ChatMessageParsed(TypedDict):
-    """Parsed chat message with embedded failed sources"""
+    """Parsed chat message with embedded failed sources and images"""
     user_msg: str
     ai_msg: str
     failed_sources: List[FailedSourceDict]
+    images: List[str]  # List of data URLs for image thumbnails
 
 
 # ============================================================
@@ -221,7 +222,8 @@ class AIState(rx.State):
     current_user_message: str = ""  # The message currently being processed
     current_ai_response: str = ""
     is_generating: bool = False
-    is_compressing: bool = False  # NEW: Shows if history compression is running
+    is_compressing: bool = False  # Shows if history compression is running
+    is_uploading_image: bool = False  # Shows spinner during image upload
 
     # Image Upload State
     pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "base64": "...", "url": "...", "original_bytes": bytes}]
@@ -243,6 +245,10 @@ class AIState(rx.State):
     crop_box_y: float = 0.0  # Crop box position Y in percent (0-100)
     crop_box_width: float = 100.0  # Crop box width in percent (0-100)
     crop_box_height: float = 100.0  # Crop box height in percent (0-100)
+
+    # Image Lightbox State (for viewing images in chat history)
+    lightbox_open: bool = False  # Show lightbox modal?
+    lightbox_image_url: str = ""  # Data URL for lightbox image
 
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi" [DEPRECATED - use backend_id]
@@ -579,48 +585,60 @@ class AIState(rx.State):
     @rx.var
     def chat_history_parsed(self) -> List[ChatMessageParsed]:
         """
-        Parse chat_history and extract embedded failed_sources from AI messages.
+        Parse chat_history and extract embedded failed_sources from AI messages
+        and image URLs from user messages.
 
         Returns list of dicts:
         [
             {
-                "user_msg": "...",
+                "user_msg": "..." (text without [IMG:...] markers),
                 "ai_msg": "..." (cleaned, without comment),
-                "failed_sources": [...] or []
+                "failed_sources": [...] or [],
+                "images": [...] or []  # List of data URLs for thumbnails
             }
         ]
 
-        This computed property allows the UI to render failed_sources per message.
+        This computed property allows the UI to render failed_sources and image thumbnails per message.
         """
         import json
         import re
 
         result = []
-        pattern = r'<!--FAILED_SOURCES:(\[.*?\])-->\n?'
+        failed_sources_pattern = r'<!--FAILED_SOURCES:(\[.*?\])-->\n?'
+        image_pattern = r'\[IMG:(data:image/[^;]+;base64,[^\]]+)\]'
 
         for user_msg, ai_msg in self.chat_history:
-            match = re.search(pattern, ai_msg, re.DOTALL)
+            # Extract images from user message
+            images = re.findall(image_pattern, user_msg)
+            # Remove [IMG:...] markers from user message for clean display
+            clean_user_msg = re.sub(r'\[IMG:[^\]]*\]', '', user_msg).strip()
+
+            # Extract failed sources from AI message
+            match = re.search(failed_sources_pattern, ai_msg, re.DOTALL)
 
             if match:
                 try:
                     failed_sources = json.loads(match.group(1))
-                    clean_msg = re.sub(pattern, '', ai_msg, count=1)
+                    clean_ai_msg = re.sub(failed_sources_pattern, '', ai_msg, count=1)
                     result.append({
-                        "user_msg": user_msg,
-                        "ai_msg": clean_msg,
-                        "failed_sources": failed_sources
+                        "user_msg": clean_user_msg,
+                        "ai_msg": clean_ai_msg,
+                        "failed_sources": failed_sources,
+                        "images": images
                     })
                 except json.JSONDecodeError:
                     result.append({
-                        "user_msg": user_msg,
+                        "user_msg": clean_user_msg,
                         "ai_msg": ai_msg,
-                        "failed_sources": []
+                        "failed_sources": [],
+                        "images": images
                     })
             else:
                 result.append({
-                    "user_msg": user_msg,
+                    "user_msg": clean_user_msg,
                     "ai_msg": ai_msg,
-                    "failed_sources": []
+                    "failed_sources": [],
+                    "images": images
                 })
 
         return result
@@ -2202,6 +2220,10 @@ class AIState(rx.State):
                 local_images = copy.deepcopy(self.pending_images)
                 local_image_names = ", ".join([img.get("name", "unknown") for img in local_images])
 
+                # Generate image markers for embedding in chat history
+                # Format: [IMG:data:image/jpeg;base64,...] - will be rendered as clickable thumbnails
+                image_markers = " ".join([f"[IMG:{img.get('url', '')}]" for img in local_images if img.get('url')])
+
                 # Log Vision-LLM header + each image on separate line (like Main/Automatik)
                 self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analyzing:")
                 for img in local_images:
@@ -2211,13 +2233,18 @@ class AIState(rx.State):
                 # Save original user text (for Vision pipeline - may be empty!)
                 original_user_text = user_msg
 
-                # If user_msg is empty (image-only upload), use image names as user message FOR HISTORY ONLY
+                # Build display_user_msg with embedded image markers for chat history
+                # Image markers are prepended so thumbnails appear before text
                 display_user_msg = user_msg
                 if not user_msg or user_msg.strip() == "":
+                    # Image-only upload: show image names + markers
                     if len(local_images) == 1:
-                        display_user_msg = f"📷 {local_images[0].get('name', 'Image')}"
+                        display_user_msg = f"{image_markers}\n📷 {local_images[0].get('name', 'Image')}"
                     else:
-                        display_user_msg = f"📷 {len(local_images)} images: {local_image_names}"
+                        display_user_msg = f"{image_markers}\n📷 {len(local_images)} images: {local_image_names}"
+                else:
+                    # Text + images: prepend markers to text
+                    display_user_msg = f"{image_markers}\n{user_msg}" if image_markers else user_msg
 
                 # CRITICAL: Ensure KoboldCPP is running before LLM call
                 if self.backend_type == "koboldcpp":
@@ -2254,7 +2281,7 @@ class AIState(rx.State):
                     user_text=original_user_text,  # CRITICAL: Use original (may be empty!), not display_user_msg
                     images=local_images,  # CRITICAL: Use local copy, NOT self.pending_images!
                     vision_model=self.vision_model_id,  # Pure ID
-                    haupt_model=self.selected_model_id,  # Pure ID
+                    main_model=self.selected_model_id,  # Pure ID
                     backend_type=self.backend_type,
                     backend_url=self.backend_url,
                     num_ctx_mode=self.num_ctx_mode,
@@ -3145,81 +3172,94 @@ class AIState(rx.State):
 
     async def handle_image_upload(self, files: List[rx.UploadFile]):
         """Handle image file uploads - keeps original filename"""
-        await self._process_image_upload(files, from_camera=False)
+        async for _ in self._process_image_upload(files, from_camera=False):
+            yield
 
     async def handle_camera_upload(self, files: List[rx.UploadFile]):
-        """Handle camera uploads - shortens filename to Bild_001.jpg"""
-        await self._process_image_upload(files, from_camera=True)
+        """Handle camera uploads - shortens filename to Image_001.jpg"""
+        async for _ in self._process_image_upload(files, from_camera=True):
+            yield
 
     async def _process_image_upload(self, files: List[rx.UploadFile], from_camera: bool = False):
-        """Internal handler for image uploads with validation"""
+        """Internal handler for image uploads with validation (async generator for UI updates)"""
         from .lib.vision_utils import (
             validate_image_file,
             encode_image_to_base64,
             resize_image_if_needed
         )
 
-        # Check if vision model selected
-        if not self.vision_model:
-            self.image_upload_warning = "⚠️ Please select a Vision model in settings first."
-            self.add_debug("⚠️ Image upload blocked: No vision model selected")
-            return
+        # Show loading state immediately
+        self.is_uploading_image = True
+        yield  # Update UI to show spinner
 
-        # Check if vision_model is in the vision models cache (metadata-validated)
-        # Compare IDs, not display names
-        if self.vision_model_id not in self.vision_models_cache:
-            self.image_upload_warning = "⚠️ Selected Vision model doesn't support images. Please choose a different Vision model from the dropdown."
-            self.add_debug("⚠️ Image upload blocked: Non-vision model selected")
-            return
+        try:
+            # Check if vision model selected
+            if not self.vision_model:
+                self.image_upload_warning = "⚠️ Please select a Vision model in settings first."
+                self.add_debug("⚠️ Image upload blocked: No vision model selected")
+                return
 
-        # Clear previous warning
-        self.image_upload_warning = ""
+            # Check if vision_model is in the vision models cache (metadata-validated)
+            # Compare IDs, not display names
+            if self.vision_model_id not in self.vision_models_cache:
+                self.image_upload_warning = "⚠️ Selected Vision model doesn't support images. Please choose a different Vision model from the dropdown."
+                self.add_debug("⚠️ Image upload blocked: Non-vision model selected")
+                return
 
-        # Check max images limit
-        if len(self.pending_images) + len(files) > self.max_images_per_message:
-            self.image_upload_warning = f"⚠️ Maximum {self.max_images_per_message} images per message"
-            return
+            # Clear previous warning
+            self.image_upload_warning = ""
 
-        for file in files:
-            # Read file content
-            content = await file.read()
+            # Check max images limit
+            if len(self.pending_images) + len(files) > self.max_images_per_message:
+                self.image_upload_warning = f"⚠️ Maximum {self.max_images_per_message} images per message"
+                return
 
-            # Validate
-            valid, error = validate_image_file(file.filename, len(content))
-            if not valid:
-                self.image_upload_warning = error
-                continue
+            for file in files:
+                # Read file content
+                content = await file.read()
 
-            # Resize if needed (save bandwidth/VRAM)
-            resized_content = resize_image_if_needed(content)
+                # Validate
+                valid, error = validate_image_file(file.filename, len(content))
+                if not valid:
+                    self.image_upload_warning = error
+                    continue
 
-            # Encode to base64
-            base64_data = encode_image_to_base64(resized_content)
+                # Resize if needed (save bandwidth/VRAM)
+                resized_content = resize_image_if_needed(content)
 
-            # Create data URL for preview
-            data_url = f"data:image/jpeg;base64,{base64_data}"
+                # Encode to base64
+                base64_data = encode_image_to_base64(resized_content)
 
-            # Camera photos: Shorten to "Image_001.jpg" (browser names are unreadably long)
-            # File uploads: Keep original filename
-            if from_camera:
-                name_parts = file.filename.rsplit(".", 1)
-                if len(name_parts) == 2:
-                    _, ext = name_parts
-                    display_name = f"Image_{len(self.pending_images) + 1:03d}.{ext}"
+                # Create data URL for preview
+                data_url = f"data:image/jpeg;base64,{base64_data}"
+
+                # Camera photos: Shorten to "Image_001.jpg" (browser names are unreadably long)
+                # File uploads: Keep original filename
+                if from_camera:
+                    name_parts = file.filename.rsplit(".", 1)
+                    if len(name_parts) == 2:
+                        _, ext = name_parts
+                        display_name = f"Image_{len(self.pending_images) + 1:03d}.{ext}"
+                    else:
+                        display_name = f"Image_{len(self.pending_images) + 1:03d}.jpg"
                 else:
-                    display_name = f"Image_{len(self.pending_images) + 1:03d}.jpg"
-            else:
-                display_name = file.filename
+                    display_name = file.filename
 
-            # Store
-            self.pending_images.append({
-                "name": display_name,
-                "base64": base64_data,
-                "url": data_url,  # For UI preview
-                "size_kb": len(resized_content) // 1024
-            })
+                # Store
+                self.pending_images.append({
+                    "name": display_name,
+                    "base64": base64_data,
+                    "url": data_url,  # For UI preview
+                    "size_kb": len(resized_content) // 1024
+                })
 
-            self.add_debug(f"📷 Image uploaded: {display_name} ({len(resized_content) // 1024} KB)")
+                self.add_debug(f"📷 Image uploaded: {display_name} ({len(resized_content) // 1024} KB)")
+                yield  # Update UI after each image
+
+        finally:
+            # Always hide loading state
+            self.is_uploading_image = False
+            yield  # Update UI to hide spinner
 
     def remove_pending_image(self, index: int):
         """Remove image from pending uploads"""
@@ -3238,6 +3278,20 @@ class AIState(rx.State):
         self.image_upload_warning = ""
         if count > 0:
             self.add_debug(f"🗑️ {count} image(s) deleted")
+
+    # ============================================================
+    # IMAGE LIGHTBOX HANDLERS (for viewing images in chat history)
+    # ============================================================
+
+    def open_lightbox(self, image_url: str):
+        """Opens lightbox to view image in full size"""
+        self.lightbox_image_url = image_url
+        self.lightbox_open = True
+
+    def close_lightbox(self):
+        """Closes the lightbox modal"""
+        self.lightbox_open = False
+        self.lightbox_image_url = ""
 
     # ============================================================
     # IMAGE CROP HANDLERS
