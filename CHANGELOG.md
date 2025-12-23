@@ -5,6 +5,42 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2025-12-23
+
+### 🧠 Vector Cache: Multilingual Embeddings mit Ollama
+
+**ChromaDB nutzt jetzt nomic-embed-text-v2-moe für bessere deutsche semantische Suche.**
+
+#### Changed
+
+- **Ollama Embedding Integration** ([vector_cache.py:84-99](aifred/lib/vector_cache.py#L84-L99)):
+  - Wechsel von internem `all-MiniLM-L6-v2` (nur Englisch) zu `nomic-embed-text-v2-moe`
+  - MoE-Architektur: 305M aktive Parameter, ~100 Sprachen unterstützt
+  - MIRACL Score 65.80 (multilingual retrieval benchmark)
+  - Neue Collection `research_cache_v2` für saubere Trennung
+
+- **Embedding-Konfiguration** ([vector_cache.py:44-46](aifred/lib/vector_cache.py#L44-L46)):
+  - `OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"`
+  - `OLLAMA_EMBEDDING_URL = "http://localhost:11434/api/embeddings"`
+
+#### Added
+
+- **ollama Python-Paket** ([requirements.txt:24](requirements.txt#L24)):
+  - Neue Abhängigkeit für ChromaDB OllamaEmbeddingFunction
+
+#### Removed
+
+- **Lokales ONNX-Embedding-Modell**: `~/.cache/chroma/onnx_models/` (167 MB) nicht mehr benötigt
+- **nomic-embed-text v1**: Altes Ollama-Modell (274 MB) durch v2-moe ersetzt
+
+#### Benefits
+
+- ✅ Deutsche Anfragen werden semantisch korrekt erkannt
+- ✅ "Wie wird das Wetter?" ≈ "Wettervorhersage" (Synonyme)
+- ✅ Bessere Cache-Hit-Rate für nicht-englische Anfragen
+
+---
+
 ## [2.7.9] - 2025-12-15
 
 ### 🔊 TTS: Audio Overlap Fix & Regenerate Button

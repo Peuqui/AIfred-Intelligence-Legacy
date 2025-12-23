@@ -28,6 +28,7 @@ USAGE:
 import time
 import chromadb
 from chromadb.config import Settings
+from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
 import asyncio
 from typing import Dict, List, Optional
 from .logging_utils import log_message
@@ -39,6 +40,10 @@ from .config import (
 )
 from datetime import datetime, timedelta
 import uuid
+
+# Ollama Embedding Configuration
+OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
+OLLAMA_EMBEDDING_URL = "http://localhost:11434/api/embeddings"
 
 
 class VectorCache:
@@ -76,14 +81,25 @@ class VectorCache:
             # Test connection with heartbeat
             self.client.heartbeat()
 
-            # Get or create collection
+            # Configure Ollama embedding function (multilingual, MoE architecture)
+            # nomic-embed-text-v2-moe: 305M active params, ~100 languages, MIRACL 65.80
+            self.embedding_function = OllamaEmbeddingFunction(
+                model_name=OLLAMA_EMBEDDING_MODEL,
+                url=OLLAMA_EMBEDDING_URL
+            )
+
+            # Get or create collection with Ollama embeddings
             self.collection = self.client.get_or_create_collection(
-                name="research_cache",
-                metadata={"description": "AIfred web research results with semantic search"}
+                name="research_cache_v2",  # New name to avoid mixing old/new embeddings
+                metadata={
+                    "description": "AIfred web research results with semantic search",
+                    "embedding_model": OLLAMA_EMBEDDING_MODEL
+                },
+                embedding_function=self.embedding_function
             )
 
             count = self.collection.count()
-            log_message(f"✅ Vector Cache connected to ChromaDB server: {count} entries")
+            log_message(f"✅ Vector Cache connected (Ollama/{OLLAMA_EMBEDDING_MODEL}): {count} entries")
 
         except Exception as e:
             log_message(f"❌ ChromaDB Server connection failed: {e}")
