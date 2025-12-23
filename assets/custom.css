@@ -167,7 +167,7 @@ details summary {
     padding: 0.5em !important;
     white-space: pre-wrap !important;  /* JSON/Code formatiert anzeigen */
     font-family: monospace !important;  /* Monospace für bessere Lesbarkeit */
-    font-size: 0.85em !important;  /* Etwas kleiner */
+    font-size: 0.95em !important;  /* Lesbar, aber dezent kleiner */
 }
 
 .thinking-compact p {
