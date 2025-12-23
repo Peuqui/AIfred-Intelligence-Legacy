@@ -21,6 +21,7 @@ pymupdf>=1.26.0         # PDF text extraction (AWMF guidelines, PubMed PDFs)
 
 # Vector Database & Semantic Search
 chromadb>=0.4.24        # Vector database for semantic caching
+ollama>=0.4.0           # Ollama Python client for embeddings
 
 # Audio Processing (STT/TTS)
 edge-tts==7.2.1         # Text-to-Speech (7.2.3 has NoAudioReceived bug)
