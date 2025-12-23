@@ -5,6 +5,20 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.2] - 2025-12-23
+
+### 🌐 HTML Preview: Robusterer Regex
+
+#### Fixed
+
+- **HTML Code-Block Detection** ([formatting.py:319-321](aifred/lib/formatting.py#L319-L321)):
+  - **Problem**: HTML-Blöcke wurden nicht erkannt wenn kein Newline nach ` ```html ` folgte
+  - **Symptom**: Roher HTML-Code statt Collapsible mit Preview-Button
+  - **Solution**: Regex von `r'```html\s*\n(...)```'` zu `r'```html\s*(...)```'` geändert
+  - **Impact**: Erkennt jetzt alle Varianten: `\n`, Leerzeichen, oder direkter Content nach `html`
+
+---
+
 ## [2.8.1] - 2025-12-23
 
 ### 🎯 Automatik-LLM: Context-Limiting bei Preload

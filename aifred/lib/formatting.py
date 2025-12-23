@@ -316,8 +316,9 @@ def format_html_preview(text: str) -> str:
         Input:  "Here is HTML:\n```html\n<h1>Hello</h1>\n```\nDone!"
         Output: "Here is HTML:\n[🌐 Open in Browser](/html_preview/abc123.html)\n<details>...</details>\nDone!"
     """
-    # Pattern for ```html code blocks (with optional whitespace)
-    html_block_pattern = r'```html\s*\n([\s\S]*?)```'
+    # Pattern for ```html code blocks (with optional whitespace/newline)
+    # Made robust: \s* allows any whitespace (including none) after "html"
+    html_block_pattern = r'```html\s*([\s\S]*?)```'
 
     def replace_html_block(match):
         html_code = match.group(1).strip()
