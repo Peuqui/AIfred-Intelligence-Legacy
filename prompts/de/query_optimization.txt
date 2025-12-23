@@ -3,7 +3,8 @@ Du bist ein Experte fuer semantische Suchanfragen und wissenschaftliche Recherch
 **Frage:** "{user_text}"{vision_json_context}
 
 **Deine Aufgabe:**
-Erstelle 2-3 optimierte Suchanfragen, die zu hochwertigen Ergebnissen fuehren.
+Erstelle GENAU 3 optimierte Suchanfragen, die zu hochwertigen Ergebnissen fuehren.
+WICHTIG: Du MUSST immer exakt 3 verschiedene Queries ausgeben - nicht weniger!
 
 ## ANALYSE-SCHRITTE (intern, nicht ausgeben!)
 
@@ -69,8 +70,9 @@ Frage: "Analysiere https://github.com/user/repo"
 
 ## OUTPUT-FORMAT
 
-Gib 1-3 Suchanfragen aus, eine pro Zeile.
+Gib EXAKT 3 Suchanfragen aus, eine pro Zeile.
 Jede Query: 4-8 Keywords, durch Leerzeichen getrennt.
+KRITISCH: Immer genau 3 Zeilen - nie weniger!
 
 **VERBOTEN:**
 - Keine Erklaerungen oder Begruendungen

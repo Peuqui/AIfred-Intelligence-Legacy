@@ -3,7 +3,8 @@ You are an expert in semantic search queries and scientific research.
 **Question:** "{user_text}"{vision_json_context}
 
 **Your Task:**
-Create 2-3 optimized search queries that will yield high-quality results.
+Create EXACTLY 3 optimized search queries that will yield high-quality results.
+IMPORTANT: You MUST always output exactly 3 different queries - never less!
 
 ## ANALYSIS STEPS (internal, do not output!)
 
@@ -69,8 +70,9 @@ Question: "Analyze https://github.com/user/repo"
 
 ## OUTPUT FORMAT
 
-Output 1-3 search queries, one per line.
+Output EXACTLY 3 search queries, one per line.
 Each query: 4-8 keywords, separated by spaces.
+CRITICAL: Always exactly 3 lines - never less!
 
 **FORBIDDEN:**
 - No explanations or reasoning
