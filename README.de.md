@@ -28,6 +28,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Session-Persistenz**: Mobile Chat-History überlebt Browser-Hintergrund/Neustart (Cookie-basiert)
 - **Chat teilen**: Gesamte Konversation als formatierten Text in die Zwischenablage kopieren (🔗 Button)
 - **HTML-Vorschau**: KI-generierter HTML-Code öffnet direkt im Browser (neuer Tab)
+- **LaTeX & Chemie**: KaTeX für Mathe-Formeln, mhchem-Erweiterung für Chemie (`\ce{H2O}`, Reaktionen, Strukturformeln)
 
 ### 🔧 Technische Highlights
 - **Reflex-Framework**: React-Frontend aus Python generiert

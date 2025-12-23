@@ -42,6 +42,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.7.10] - 2025-12-23
+
+### 🧪 Chemistry Formula Support & HTML Preview Stability
+
+**Added KaTeX mhchem extension for chemistry formulas and fixed HTML Preview hot-reload crash.**
+
+#### Added
+
+- **Chemistry Formula Support** ([custom.js:40-60](assets/custom.js#L40-L60), [katex/mhchem.min.js](assets/katex/mhchem.min.js)):
+  - KaTeX mhchem extension for chemical equations and formulas
+  - Supports `\ce{H2O}`, `\ce{Fe + S -> FeS}`, `\ce{CH3CH2OH}` notation
+  - Locally hosted (no CDN dependency) for privacy and offline use
+  - Dynamic loading: Extension loaded only when needed
+
+- **Structure Formula Generation** (via HTML Preview):
+  - AI can generate SVG structure formulas for organic molecules
+  - Benzol ring, molecular structures rendered as scalable vector graphics
+  - Opens in new browser tab via HTML Preview system
+
+#### Fixed
+
+- **HTML Preview Hot-Reload Crash** ([formatting.py:82-88](aifred/lib/formatting.py#L82-L88), [state.py:cleanup](aifred/state.py)):
+  - Previously: Creating HTML preview in `assets/html_preview/` triggered Reflex hot-reload crash
+  - Root cause: Reflex file watcher monitors `assets/` directory for changes
+  - Solution: Moved HTML previews to `uploaded_files/html_preview/` (not watched)
+  - URL changed to use `BACKEND_API_URL/_upload/html_preview/{filename}`
+
+- **Double Log Messages in debug.log** ([context_manager.py](aifred/lib/context_manager.py), [scraper_orchestrator.py](aifred/lib/research/scraper_orchestrator.py)):
+  - Previously: "✅ Main LLM preloaded" appeared twice in debug.log
+  - Root cause: Both `yield {"type": "debug"}` AND direct `log_message()` were called
+  - The yield handler `add_debug()` already calls `log_message()` internally
+  - Solution: Removed redundant direct `log_message()` calls after yield statements
+
+#### Technical Details
+
+**mhchem Extension Loading:**
+```javascript
+function loadMhchemExtension() {
+    if (mhchemLoaded) return Promise.resolve();
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = '/katex/mhchem.min.js';
+        script.onload = () => {
+            console.log('🧪 KaTeX mhchem extension loaded');
+            mhchemLoaded = true;
+            resolve();
+        };
+        document.head.appendChild(script);
+    });
+}
+```
+
+**HTML Preview Path Change:**
+```python
+# OLD: assets/html_preview/ (triggers hot-reload!)
+# NEW: uploaded_files/html_preview/ (served via /_upload/)
+_HTML_PREVIEW_DIR = PROJECT_ROOT / "uploaded_files" / "html_preview"
+return f"{BACKEND_API_URL}/_upload/html_preview/{filename}"
+```
+
+---
+
 ## [2.7.9] - 2025-12-15
 
 ### 🔊 TTS: Audio Overlap Fix & Regenerate Button

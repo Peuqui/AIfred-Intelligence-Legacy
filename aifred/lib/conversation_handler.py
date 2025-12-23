@@ -1179,6 +1179,33 @@ async def chat_interactive_mode(
                 for msg in messages
             ]
 
+            # Temperature decision: Manual Override or Auto (Intent-Detection)
+            # IMPORTANT: Intent Detection MUST run BEFORE Main-LLM preload!
+            # Otherwise Ollama might unload the Main-LLM to load the Automatik-LLM,
+            # then reload the Main-LLM again (wasting ~10s of loading time).
+            if temperature_mode == 'manual':
+                final_temperature = temperature
+                log_message(f"🌡️ RAG Bypass Temperature: {final_temperature} (MANUAL OVERRIDE)")
+                yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
+            else:
+                # Auto: Intent-Detection for RAG Bypass
+                intent_start = time.time()
+                log_message("🎯 Starting Intent-Detection...")
+                yield {"type": "debug", "message": "🎯 Intent detection running..."}
+
+                rag_intent = await detect_query_intent(
+                    user_query=user_text,
+                    automatik_model=automatik_model,
+                    llm_client=automatik_llm_client,
+                    llm_options=llm_options
+                )
+                intent_time = time.time() - intent_start
+
+                final_temperature = get_temperature_for_intent(rag_intent)
+                temp_label = get_temperature_label(rag_intent)
+                log_message(f"🌡️ RAG Bypass Temperature: {final_temperature} (Intent: {rag_intent}, {format_number(intent_time, 1)}s)")
+                yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)"}
+
             # Prepare Main-LLM: calculate num_ctx + preload (centralized function!)
             # IMPORTANT: prepare_main_llm() guarantees the correct order:
             # 1. Calculate num_ctx (Ollama auto_vram: with unload + VRAM measurement)
@@ -1207,30 +1234,6 @@ async def chat_interactive_mode(
             # Show compact context info (like Automatik-LLM and Web-Research)
             yield {"type": "debug", "message": f"📊 Main-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
             log_message(f"📊 Main-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
-
-            # Temperature decision: Manual Override or Auto (Intent-Detection)
-            if temperature_mode == 'manual':
-                final_temperature = temperature
-                log_message(f"🌡️ RAG Bypass Temperature: {final_temperature} (MANUAL OVERRIDE)")
-                yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
-            else:
-                # Auto: Intent-Detection for RAG Bypass
-                intent_start = time.time()
-                log_message("🎯 Starting Intent-Detection...")
-                yield {"type": "debug", "message": "🎯 Intent detection running..."}
-
-                rag_intent = await detect_query_intent(
-                    user_query=user_text,
-                    automatik_model=automatik_model,
-                    llm_client=automatik_llm_client,
-                    llm_options=llm_options
-                )
-                intent_time = time.time() - intent_start
-
-                final_temperature = get_temperature_for_intent(rag_intent)
-                temp_label = get_temperature_label(rag_intent)
-                log_message(f"🌡️ RAG Bypass Temperature: {final_temperature} (Intent: {rag_intent}, {format_number(intent_time, 1)}s)")
-                yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)"}
 
             # Console: LLM starts
             yield {"type": "debug", "message": f"🤖 Main-LLM starting: {model_choice}"}
@@ -1540,6 +1543,33 @@ async def chat_interactive_mode(
                     for msg in messages
                 ]
 
+                # Temperature decision: Manual Override or Auto (Intent-Detection)
+                # IMPORTANT: Intent Detection MUST run BEFORE Main-LLM preload!
+                # Otherwise Ollama might unload the Main-LLM to load the Automatik-LLM,
+                # then reload the Main-LLM again (wasting ~10s of loading time).
+                if temperature_mode == 'manual':
+                    final_temperature = temperature
+                    log_message(f"🌡️ Own knowledge Temperature: {final_temperature} (MANUAL OVERRIDE)")
+                    yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
+                else:
+                    # Auto: Intent-Detection for own knowledge
+                    intent_start = time.time()
+                    log_message("🎯 Starting Intent-Detection...")
+                    yield {"type": "debug", "message": "🎯 Intent detection running..."}
+
+                    own_knowledge_intent = await detect_query_intent(
+                        user_query=user_text,
+                        automatik_model=automatik_model,
+                        llm_client=automatik_llm_client,
+                        llm_options=llm_options
+                    )
+                    intent_time = time.time() - intent_start
+
+                    final_temperature = get_temperature_for_intent(own_knowledge_intent)
+                    temp_label = get_temperature_label(own_knowledge_intent)
+                    log_message(f"🌡️ Own knowledge Temperature: {final_temperature} (Intent: {own_knowledge_intent}, {format_number(intent_time, 1)}s)")
+                    yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)"}
+
                 # Prepare Main-LLM: calculate num_ctx + Preload (centralized function!)
                 # IMPORTANT: prepare_main_llm() guarantees correct order:
                 # 1. Calculate num_ctx (Ollama auto_vram: with unload + VRAM measurement)
@@ -1568,30 +1598,6 @@ async def chat_interactive_mode(
                 # Show compact context info (like Automatik-LLM and Web-Research)
                 yield {"type": "debug", "message": f"📊 Main-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
                 log_message(f"📊 Main-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
-
-                # Temperature decision: Manual Override or Auto (Intent-Detection)
-                if temperature_mode == 'manual':
-                    final_temperature = temperature
-                    log_message(f"🌡️ Own knowledge Temperature: {final_temperature} (MANUAL OVERRIDE)")
-                    yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
-                else:
-                    # Auto: Intent-Detection for own knowledge
-                    intent_start = time.time()
-                    log_message("🎯 Starting Intent-Detection...")
-                    yield {"type": "debug", "message": "🎯 Intent detection running..."}
-
-                    own_knowledge_intent = await detect_query_intent(
-                        user_query=user_text,
-                        automatik_model=automatik_model,
-                        llm_client=automatik_llm_client,
-                        llm_options=llm_options
-                    )
-                    intent_time = time.time() - intent_start
-
-                    final_temperature = get_temperature_for_intent(own_knowledge_intent)
-                    temp_label = get_temperature_label(own_knowledge_intent)
-                    log_message(f"🌡️ Own knowledge Temperature: {final_temperature} (Intent: {own_knowledge_intent}, {format_number(intent_time, 1)}s)")
-                    yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)"}
 
                 # Console: LLM starts
                 yield {"type": "debug", "message": f"🤖 Main-LLM starting: {model_choice}"}

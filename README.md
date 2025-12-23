@@ -28,6 +28,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Session Persistence**: Mobile chat history survives browser background/restart (cookie-based)
 - **Share Chat**: Copy entire conversation to clipboard as formatted text (🔗 button)
 - **HTML Preview**: AI-generated HTML code opens directly in browser (new tab)
+- **LaTeX & Chemistry**: KaTeX for math formulas, mhchem extension for chemistry (`\ce{H2O}`, reactions, structure formulas)
 
 ### 🔧 Technical Highlights
 - **Reflex Framework**: React frontend generated from Python

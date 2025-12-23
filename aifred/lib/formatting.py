@@ -16,10 +16,11 @@ from .config import XML_TAG_CONFIG  # Import from central config
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
 
-# HTML Preview: Path to assets/html_preview directory
-# Reflex serves assets/ under / - so /html_preview/filename.html
-_ASSETS_DIR = Path(__file__).parent.parent.parent / "assets"
-_HTML_PREVIEW_DIR = _ASSETS_DIR / "html_preview"
+# HTML Preview: Path to uploaded_files/html_preview directory
+# IMPORTANT: Must be outside assets/ to avoid triggering Reflex hot-reload!
+# Reflex serves uploaded_files/ via /_upload/ endpoint (backend only)
+from .config import PROJECT_ROOT, BACKEND_API_URL
+_HTML_PREVIEW_DIR = PROJECT_ROOT / "uploaded_files" / "html_preview"
 
 # LRU Cache for HTML preview files (max 50 files)
 _html_file_cache: OrderedDict[str, Path] = OrderedDict()
@@ -125,6 +126,50 @@ def format_age(seconds: float) -> str:
     return " ".join(parts)
 
 
+def convert_latex_delimiters(text: str) -> str:
+    """
+    Convert various LaTeX delimiter formats to $...$ syntax for rx.markdown.
+
+    Handles common LLM output formats:
+    - \\text{...} → plain text (rx.markdown doesn't support \\text well)
+    - \\[...\\] → $$...$$ (block math)
+    - \\(...\\) → $...$ (inline math)
+
+    Args:
+        text: Text with LaTeX formulas in various formats
+
+    Returns:
+        Text with LaTeX converted to $...$ syntax
+
+    Example:
+        >>> convert_latex_delimiters("\\text{ATP} + \\text{H}_2\\text{O}")
+        'ATP + H_2O'
+    """
+    if not text:
+        return text
+
+    original_text = text
+
+    # 1. Add space before \text{} if missing (after non-space, non-backslash char)
+    # Fixes LLM output like "wobei\text{F}" → "wobei \text{F}" → "wobei F"
+    text = re.sub(r'([^\s\\])\\text\{', r'\1 \\text{', text)
+
+    # 2. Convert \text{...} to plain text (rx.markdown's KaTeX doesn't render it)
+    text = re.sub(r'\\text\{([^}]*)\}', r'\1', text)
+
+    # 3. Convert \[...\] to $$...$$ (LaTeX display mode)
+    text = re.sub(r'\\\[(.*?)\\\]', r'$$\1$$', text, flags=re.DOTALL)
+
+    # 4. Convert \(...\) to $...$ (LaTeX inline mode)
+    text = re.sub(r'\\\((.*?)\\\)', r'$\1$', text, flags=re.DOTALL)
+
+    # Debug: Log if any conversion happened
+    if text != original_text:
+        log_message(f"📐 LaTeX: Converted delimiters ({len(original_text)} → {len(text)} chars)")
+
+    return text
+
+
 def format_metadata(metadata_text: str) -> str:
     """
     Format metadata (inference times, sources, etc.) as italic text in parentheses.
@@ -166,15 +211,16 @@ def get_timestamp() -> str:
 
 def _save_html_to_assets(html_code: str) -> str:
     """
-    Save HTML code as file in assets/html_preview/ and return URL.
+    Save HTML code as file in uploaded_files/html_preview/ and return URL.
 
+    IMPORTANT: Files are saved outside assets/ to avoid Reflex hot-reload!
     Implements LRU Cache: Maximum 50 files are kept, oldest are deleted.
 
     Args:
         html_code: The HTML code to save
 
     Returns:
-        URL path to saved file (e.g., "/html_preview/abc123.html")
+        Full URL to saved file (e.g., "http://host:8002/_upload/html_preview/abc123.html")
     """
     # Ensure directory exists
     _HTML_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
@@ -202,8 +248,9 @@ def _save_html_to_assets(html_code: str) -> str:
 
     log_message(f"🌐 HTML Preview: File saved → {filepath} (Cache: {len(_html_file_cache)}/{MAX_HTML_FILES})")
 
-    # Reflex serves assets/ under / - so /html_preview/filename.html
-    return f"/html_preview/{filename}"
+    # Return FULL URL with backend host (frontend doesn't serve /_upload/)
+    # Same pattern as TTS audio in audio_processing.py
+    return f"{BACKEND_API_URL}/_upload/html_preview/{filename}"
 
 
 @atexit.register
@@ -501,6 +548,9 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
     else:
         result = clean_response
 
+    # STEP: Convert LaTeX delimiters for rx.markdown compatibility
+    result = convert_latex_delimiters(result)
+
     # FINAL STEP: HTML Preview für ```html Code-Blöcke
     result = format_html_preview(result)
 
@@ -582,6 +632,9 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
         result = f"{debug_accordion}\n\n{clean_response}"
     else:
         result = clean_response
+
+    # STEP: Convert LaTeX delimiters for rx.markdown compatibility
+    result = convert_latex_delimiters(result)
 
     # FINAL STEP: HTML Preview für ```html Code-Blöcke
     result = format_html_preview(result)
