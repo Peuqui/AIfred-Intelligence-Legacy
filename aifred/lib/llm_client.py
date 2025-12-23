@@ -66,7 +66,7 @@ class LLMClient:
         self,
         model: str,
         messages: List[Union[Dict, LLMMessage]],
-        options: Optional[Dict] = None
+        options: Optional[Union[Dict, LLMOptions]] = None
     ) -> LLMResponse:
         """
         Async non-streaming chat completion
@@ -89,9 +89,14 @@ class LLMClient:
         else:
             converted_messages = cast(List[LLMMessage], messages)
 
-        # Convert dict to LLMOptions if needed
+        # Convert dict to LLMOptions if needed, or pass through LLMOptions directly
         llm_options: LLMOptions
-        if options and isinstance(options, dict):
+        if options is None:
+            llm_options = LLMOptions()
+        elif isinstance(options, LLMOptions):
+            # Already an LLMOptions object - use directly (preserves num_ctx!)
+            llm_options = options
+        elif isinstance(options, dict):
             llm_options = LLMOptions(
                 temperature=options.get("temperature", 0.2),
                 num_ctx=options.get("num_ctx"),
@@ -103,6 +108,7 @@ class LLMClient:
                 enable_thinking=options.get("enable_thinking")
             )
         else:
+            # Unknown type - use defaults
             llm_options = LLMOptions()
 
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
@@ -114,7 +120,7 @@ class LLMClient:
         self,
         model: str,
         messages: List[Union[Dict, LLMMessage]],
-        options: Optional[Dict] = None
+        options: Optional[Union[Dict, LLMOptions]] = None
     ) -> AsyncIterator[Dict]:
         """
         Async streaming chat completion
@@ -122,7 +128,7 @@ class LLMClient:
         Args:
             model: Model name
             messages: List of messages (dict or LLMMessage)
-            options: Generation options (dict)
+            options: Generation options (dict or LLMOptions)
 
         Yields:
             Dict with either:
@@ -139,9 +145,14 @@ class LLMClient:
         else:
             converted_messages = cast(List[LLMMessage], messages)
 
-        # Convert dict to LLMOptions if needed
+        # Convert dict to LLMOptions if needed, or pass through LLMOptions directly
         llm_options: LLMOptions
-        if options and isinstance(options, dict):
+        if options is None:
+            llm_options = LLMOptions()
+        elif isinstance(options, LLMOptions):
+            # Already an LLMOptions object - use directly (preserves num_ctx!)
+            llm_options = options
+        elif isinstance(options, dict):
             llm_options = LLMOptions(
                 temperature=options.get("temperature", 0.2),
                 num_ctx=options.get("num_ctx"),
@@ -153,6 +164,7 @@ class LLMClient:
                 enable_thinking=options.get("enable_thinking")
             )
         else:
+            # Unknown type - use defaults
             llm_options = LLMOptions()
 
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
