@@ -1239,9 +1239,323 @@ Judge (could be Agent A or B): "Depends on use case..."
 
 ---
 
-## 8. Conclusion & Next Steps
+## 8. AIfred Implementation Patterns
 
-### 8.1 Key Takeaways
+### 8.1 Selected Patterns for AIfred
+
+Based on AIfred's single-model Ollama setup (not dual-GPU KoboldCpp), we've selected three primary patterns for implementation:
+
+#### Pattern A: "User-as-Judge" (Recommended Default)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    User Question                        │
+└─────────────────────┬───────────────────────────────────┘
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│              Agent A (Main-LLM)                         │
+│         "Answer the question"                           │
+└─────────────────────┬───────────────────────────────────┘
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│              Agent B (Same Model, Critic-Role)          │
+│    "Review this answer for errors/gaps"                 │
+└─────────────────────┬───────────────────────────────────┘
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│                 USER SEES:                              │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ 💬 Answer:                                       │   │
+│  │ [Agent A's response]                             │   │
+│  └─────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ 🔍 Critical Review:                              │   │
+│  │ [Agent B's critique/suggestions]                 │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+│  [✅ Accept] [🔄 Improve] [❓ Ask followup]             │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Workflow:**
+1. Agent A generates initial answer
+2. Agent B critiques (same model, different system prompt)
+3. User sees both, decides if improvement needed
+4. If user clicks "Improve" → Agent A revises based on critique
+
+**Pros:**
+- User stays in control (no "AI echo chamber")
+- Transparent decision process
+- Efficient (only 2 LLM calls by default)
+- User can skip critique for simple questions
+
+**Cons:**
+- Requires user decision
+- Sequential (not parallel)
+
+**Implementation:**
+
+```python
+class DebateOrchestrator:
+    async def generate_with_critique(self, query: str, history: List) -> DebateResult:
+        # Agent A: Normal answer
+        answer = await self.llm_client.chat(
+            model=self.main_model,
+            messages=history + [{"role": "user", "content": query}]
+        )
+
+        # Agent B: Critic role (same model, different prompt)
+        critique_prompt = f"""
+You are a critical reviewer. Analyze this answer:
+
+QUESTION: {query}
+ANSWER: {answer.text}
+
+Check for:
+1. Factual errors
+2. Incomplete information
+3. Logical inconsistencies
+4. Improvement potential
+
+If the answer is correct and complete, say "✅ LGTM - Answer is correct."
+Otherwise list specific improvements.
+"""
+
+        critique = await self.llm_client.chat(
+            model=self.main_model,
+            messages=[{"role": "user", "content": critique_prompt}],
+            options={"temperature": 0.3}
+        )
+
+        return DebateResult(
+            answer=answer.text,
+            critique=critique.text,
+            needs_revision="LGTM" not in critique.text
+        )
+```
+
+---
+
+#### Pattern B: "Auto-Consensus" (For Complex Questions)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    User Question                        │
+└─────────────────────┬───────────────────────────────────┘
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│  Round 1: Agent A answers                               │
+│           Agent B critiques                             │
+└─────────────────────┬───────────────────────────────────┘
+                      ▼
+              ┌───────┴───────┐
+              │ LGTM?         │
+              └───────┬───────┘
+           No ↙       ↘ Yes
+┌─────────────────┐  ┌─────────────────────────────────────┐
+│ Round 2:        │  │ Return answer to user               │
+│ A revises       │  └─────────────────────────────────────┘
+│ B re-critiques  │
+└────────┬────────┘
+         ▼
+   (repeat until LGTM or max 3 rounds)
+```
+
+**Workflow:**
+1. Agent A answers
+2. Agent B critiques
+3. If critique says "LGTM" → done
+4. Otherwise: Agent A revises, Agent B re-critiques
+5. Max 3 rounds, then return best answer
+
+**Pros:**
+- Fully automatic
+- Higher quality through iteration
+- No user intervention needed
+
+**Cons:**
+- Longer wait time (2-6 LLM calls)
+- May over-iterate on simple questions
+
+**Implementation:**
+
+```python
+async def auto_consensus(self, query: str, max_rounds: int = 3) -> str:
+    answer = await self.generate_answer(query)
+
+    for round_num in range(max_rounds):
+        critique = await self.generate_critique(query, answer)
+
+        if "LGTM" in critique or "correct" in critique.lower():
+            return answer
+
+        # Revise based on critique
+        answer = await self.revise_answer(query, answer, critique)
+
+    return answer  # Return after max rounds
+```
+
+---
+
+#### Pattern C: "Devil's Advocate" (For Critical Thinking)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    User Question                        │
+└─────────────────────┬───────────────────────────────────┘
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│              Agent A (Proponent)                        │
+│         "Answer and defend your position"               │
+└─────────────────────┬───────────────────────────────────┘
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│              Agent B (Devil's Advocate)                 │
+│    "Find counter-arguments and weaknesses"              │
+└─────────────────────┬───────────────────────────────────┘
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│                 USER SEES:                              │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ ✅ Pro Arguments:                                │   │
+│  │ [Agent A's position]                             │   │
+│  └─────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ ⚠️ Counter-Arguments:                            │   │
+│  │ [Agent B's challenges]                           │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Workflow:**
+1. Agent A provides answer with reasoning
+2. Agent B actively seeks counter-arguments (even if answer is correct)
+3. User sees both perspectives
+
+**Pros:**
+- Encourages critical thinking
+- Shows limitations and edge cases
+- Great for complex/controversial topics
+- User gets balanced view
+
+**Cons:**
+- Can be confusing for clear factual questions
+- Not suitable for simple queries like "What's 2+2?"
+
+**Best for:**
+- Opinion-based questions ("Is Python better than Rust?")
+- Complex decisions ("Should I use microservices?")
+- Learning scenarios ("Explain the pros/cons of X")
+
+**Implementation:**
+
+```python
+async def devils_advocate(self, query: str) -> DebateResult:
+    # Agent A: Proponent
+    proponent_prompt = f"""
+Answer this question and defend your position with strong arguments:
+{query}
+"""
+    pro_answer = await self.llm_client.chat(
+        model=self.main_model,
+        messages=[{"role": "user", "content": proponent_prompt}]
+    )
+
+    # Agent B: Devil's Advocate (ALWAYS finds counter-arguments)
+    devils_prompt = f"""
+You are a Devil's Advocate. Your job is to challenge the following answer.
+
+QUESTION: {query}
+ANSWER: {pro_answer.text}
+
+Find:
+1. Potential weaknesses in the argument
+2. Counter-examples or edge cases
+3. Alternative perspectives
+4. What the answer might be missing
+
+Be constructively critical. Even if the answer is correct,
+explore what could go wrong or what alternatives exist.
+"""
+
+    contra_answer = await self.llm_client.chat(
+        model=self.main_model,
+        messages=[{"role": "user", "content": devils_prompt}],
+        options={"temperature": 0.7}  # Higher for creative challenges
+    )
+
+    return DebateResult(
+        pro_arguments=pro_answer.text,
+        contra_arguments=contra_answer.text
+    )
+```
+
+---
+
+### 8.2 UI Integration: Mode Selection
+
+**Dropdown Menu in Settings or Per-Message:**
+
+```
+┌─────────────────────────────────────┐
+│ 🤖 AI Mode                      ▼   │
+├─────────────────────────────────────┤
+│ ○ Standard (Single Agent)           │
+│ ● User-as-Judge (Review + Approve)  │
+│ ○ Auto-Consensus (Iterate to LGTM)  │
+│ ○ Devil's Advocate (Pro + Contra)   │
+└─────────────────────────────────────┘
+```
+
+**State Variables:**
+
+```python
+class AIState(rx.State):
+    # Multi-Agent Mode Selection
+    multi_agent_mode: str = "standard"  # "standard", "user_judge", "auto_consensus", "devils_advocate"
+
+    # UI State for critique display
+    show_critique_panel: bool = False
+    current_critique: str = ""
+    current_pro_arguments: str = ""
+    current_contra_arguments: str = ""
+```
+
+---
+
+### 8.3 Future Pattern: Parallel Specialists (Low Priority)
+
+For dual-GPU setups with KoboldCpp:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    User Question                        │
+└─────────────────────┬───────────────────────────────────┘
+                      │
+         ┌────────────┴────────────┐
+         ▼                         ▼
+┌─────────────────┐       ┌─────────────────┐
+│   GPU 0         │       │   GPU 1         │
+│   Agent A       │       │   Agent B       │
+│   (Specialist)  │       │   (Specialist)  │
+└────────┬────────┘       └────────┬────────┘
+         │                         │
+         └────────────┬────────────┘
+                      ▼
+              ┌───────────────┐
+              │ Aggregator    │
+              └───────────────┘
+```
+
+**Use Case:** True parallel execution with different specialized models on separate GPUs.
+
+**Status:** Planned for future when dual-GPU KoboldCpp setup is needed.
+
+---
+
+## 9. Conclusion & Next Steps
+
+### 9.1 Key Takeaways
 
 1. **Multi-agent debate is proven** to improve accuracy by 13-91% on complex tasks
 2. **Established frameworks exist** (AutoGen, LangGraph, CrewAI) with production-ready code
@@ -1249,7 +1563,7 @@ Judge (could be Agent A or B): "Depends on use case..."
 4. **Diverse models** collaborating outperform single larger models on many benchmarks
 5. **Your dual-GPU setup is ideal** for multi-agent: hardware isolation + true parallelism
 
-### 8.2 Recommended Implementation Path
+### 9.2 Recommended Implementation Path
 
 **Phase 1: Foundation (Week 1-2)**
 - [ ] Implement `MultiKoboldManager` for GPU-pinned instances
@@ -1271,7 +1585,7 @@ Judge (could be Agent A or B): "Depends on use case..."
 - [ ] Performance metrics (tokens/s, accuracy)
 - [ ] Conflict resolution strategies
 
-### 8.3 Further Reading
+### 9.3 Further Reading
 
 **Academic Papers:**
 - [Improving Factuality and Reasoning in Language Models through Multiagent Debate](https://composable-models.github.io/llm_debate/)
@@ -1324,6 +1638,6 @@ Judge (could be Agent A or B): "Depends on use case..."
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: 2025-11-25
+**Document Version**: 1.1
+**Last Updated**: 2025-12-24
 **Author**: Research compilation for AIfred Intelligence dual-GPU multi-agent implementation
