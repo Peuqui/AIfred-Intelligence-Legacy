@@ -13,15 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Changed
 
-- **Ollama Embedding Integration** ([vector_cache.py:84-99](aifred/lib/vector_cache.py#L84-L99)):
+- **Ollama Embedding Integration** ([vector_cache.py:50-86](aifred/lib/vector_cache.py#L50-L86)):
   - Wechsel von internem `all-MiniLM-L6-v2` (nur Englisch) zu `nomic-embed-text-v2-moe`
   - MoE-Architektur: 305M aktive Parameter, ~100 Sprachen unterstützt
   - MIRACL Score 65.80 (multilingual retrieval benchmark)
   - Neue Collection `research_cache_v2` für saubere Trennung
 
-- **Embedding-Konfiguration** ([vector_cache.py:44-46](aifred/lib/vector_cache.py#L44-L46)):
-  - `OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"`
-  - `OLLAMA_EMBEDDING_URL = "http://localhost:11434/api/embeddings"`
+- **CPU-only Embedding** ([vector_cache.py:50-86](aifred/lib/vector_cache.py#L50-L86)):
+  - Eigene `OllamaCPUEmbeddingFunction` Klasse mit `num_gpu=0`
+  - Embedding läuft auf CPU, VRAM bleibt 100% frei für LLM-Inferenz
+  - Ollama-Server kann parallel zu vLLM/KoboldCPP laufen
 
 #### Added
 
