@@ -10,6 +10,7 @@ Classifies user queries for adaptive temperature selection:
 from typing import Optional, Dict
 from .logging_utils import log_message
 from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prompt
+from .config import AUTOMATIK_LLM_NUM_CTX
 
 
 def parse_intent_from_response(intent_raw: str, context: str = "general") -> str:
@@ -70,7 +71,7 @@ async def detect_query_intent(
         # Build options
         intent_options = {
             'temperature': 0.2,  # Low for consistent intent detection
-            'num_ctx': 4096,  # Standard context for intent detection
+            'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit 4K context (prevents 262K default!)
             'num_predict': 32,  # Short: "FAKTISCH" / "KREATIV" = ~10 tokens (3x buffer)
             'enable_thinking': False  # Default: Fast intent detection without reasoning
         }
@@ -131,7 +132,7 @@ async def detect_cache_followup_intent(
         # Build options
         followup_intent_options = {
             'temperature': 0.2,
-            'num_ctx': 4096,
+            'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit 4K context (prevents 262K default!)
             'num_predict': 32,  # Short: "FAKTISCH" / "KREATIV" = ~10 tokens (3x buffer)
             'enable_thinking': False  # Default: Fast intent detection without reasoning
         }

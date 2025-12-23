@@ -13,6 +13,7 @@ from typing import Optional, Tuple, List, Dict
 from .logging_utils import log_message
 from .prompt_loader import get_query_optimization_prompt
 from .message_builder import build_messages_from_history
+from .config import AUTOMATIK_LLM_NUM_CTX
 
 
 # Compiled Regex Pattern
@@ -83,6 +84,7 @@ async def optimize_search_query(
         # Build options (temperature + thinking control)
         options = {
             'temperature': 0.3,  # Slightly creative for keywords, but stable
+            'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit 4K context (prevents 262K default!)
             'num_predict': 128,  # Keywords: "weather London tomorrow 2025" = ~30 tokens (4x buffer)
             'enable_thinking': False  # Default: Fast keyword extraction without reasoning
         }
