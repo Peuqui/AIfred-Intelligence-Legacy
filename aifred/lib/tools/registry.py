@@ -78,6 +78,9 @@ def search_web_multi(queries: List[str]) -> Dict:
     - Query 2 → Brave
     - Query 3 → SearXNG
 
+    FALLBACK: If fewer than 3 queries, use execute() instead to ensure
+    ALL APIs are used in parallel for the single/few queries.
+
     Args:
         queries: List of optimized search queries
 
@@ -86,6 +89,18 @@ def search_web_multi(queries: List[str]) -> Dict:
     """
     registry = get_tool_registry()
     search_tool = registry.get("Multi-API Search")
+
+    # Fallback: If only 1 query, use execute() for ALL APIs in parallel
+    # This ensures all 3 APIs are used even when LLM returns just one query
+    # For 2 queries: Round-robin works fine (Query1→Tavily, Query2→Brave)
+    if len(queries) == 1:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"⚠️ Only 1 query - using ALL APIs in parallel")
+
+        result = search_tool.execute(queries[0])  # All 3 APIs parallel
+        return result
+
     return search_tool.execute_multi_query(queries)
 
 
