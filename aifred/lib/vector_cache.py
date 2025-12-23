@@ -28,9 +28,10 @@ USAGE:
 import time
 import chromadb
 from chromadb.config import Settings
-from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
+from chromadb.api.types import Documents, Embeddings, EmbeddingFunction
 import asyncio
 from typing import Dict, List, Optional
+import numpy as np
 from .logging_utils import log_message
 from .config import (
     CACHE_DISTANCE_HIGH,
@@ -43,7 +44,46 @@ import uuid
 
 # Ollama Embedding Configuration
 OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
-OLLAMA_EMBEDDING_URL = "http://localhost:11434/api/embeddings"
+OLLAMA_HOST = "http://localhost:11434"
+
+
+class OllamaCPUEmbeddingFunction(EmbeddingFunction[Documents]):
+    """
+    Custom Ollama Embedding Function that runs on CPU only.
+
+    Uses num_gpu=0 to force CPU inference, keeping VRAM free for LLM.
+    Based on nomic-embed-text-v2-moe (768 dimensions, multilingual).
+    """
+
+    def __init__(
+        self,
+        model_name: str = OLLAMA_EMBEDDING_MODEL,
+        host: str = OLLAMA_HOST,
+        timeout: int = 60
+    ):
+        try:
+            from ollama import Client
+        except ImportError:
+            raise ValueError(
+                "The ollama python package is not installed. "
+                "Install with: pip install ollama"
+            )
+
+        self.model_name = model_name
+        self.host = host
+        self._client = Client(host=host, timeout=timeout)
+
+    def __call__(self, input: Documents) -> Embeddings:
+        """Generate embeddings using CPU only (num_gpu=0)."""
+        response = self._client.embed(
+            model=self.model_name,
+            input=input,
+            options={"num_gpu": 0}  # Force CPU inference
+        )
+        return [
+            np.array(embedding, dtype=np.float32)
+            for embedding in response["embeddings"]
+        ]
 
 
 class VectorCache:
@@ -83,9 +123,10 @@ class VectorCache:
 
             # Configure Ollama embedding function (multilingual, MoE architecture)
             # nomic-embed-text-v2-moe: 305M active params, ~100 languages, MIRACL 65.80
-            self.embedding_function = OllamaEmbeddingFunction(
+            # Uses CPU only (num_gpu=0) to keep VRAM free for LLM inference
+            self.embedding_function = OllamaCPUEmbeddingFunction(
                 model_name=OLLAMA_EMBEDDING_MODEL,
-                url=OLLAMA_EMBEDDING_URL
+                host=OLLAMA_HOST
             )
 
             # Get or create collection with Ollama embeddings

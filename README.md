@@ -23,7 +23,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
 - **Voice Interface**: Speech-to-Text and Text-to-Speech integration
-- **Vector Cache**: ChromaDB-based semantic cache for web research (Docker)
+- **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **Session Persistence**: Mobile chat history survives browser background/restart (cookie-based)
 - **Share Chat**: Copy entire conversation to clipboard as formatted text (🔗 button)
