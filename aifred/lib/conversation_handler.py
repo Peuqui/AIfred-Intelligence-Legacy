@@ -34,7 +34,8 @@ from .streaming_utils import stream_llm_response, log_llm_completion
 from .config import (
     DYNAMIC_NUM_PREDICT_SAFETY_MARGIN,
     DYNAMIC_NUM_PREDICT_MINIMUM,
-    DYNAMIC_NUM_PREDICT_HARD_LIMIT
+    DYNAMIC_NUM_PREDICT_HARD_LIMIT,
+    AUTOMATIK_LLM_NUM_CTX
 )
 from .intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
 from .research import perform_agent_research
@@ -1415,7 +1416,7 @@ async def chat_interactive_mode(
                 # Fallback: Query model (returns native limit without RoPE)
                 automatik_limit, _ = await automatik_llm_client.get_model_context_limit(automatik_model)
 
-            decision_num_ctx = min(2048, automatik_limit // 2)  # Max 2048 or 50% of limit
+            decision_num_ctx = min(AUTOMATIK_LLM_NUM_CTX, automatik_limit)  # Use config constant (4K)
 
             # Count input tokens (using real tokenizer)
             input_tokens = estimate_tokens(decision_messages_dict, model_name=automatik_model)

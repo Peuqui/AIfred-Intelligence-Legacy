@@ -11,6 +11,7 @@ import string
 from typing import Dict, Optional
 from .logging_utils import log_message
 from .prompt_loader import load_prompt
+from .config import AUTOMATIK_LLM_NUM_CTX
 
 
 async def build_rag_context(
@@ -106,7 +107,7 @@ async def build_rag_context(
                 messages=[{'role': 'user', 'content': relevance_prompt}],
                 options={
                     'temperature': 0.1,  # Deterministic
-                    'num_ctx': 2048,
+                    'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Use config constant (4K)
                     'enable_thinking': False  # Fast decisions, no reasoning needed
                 }
             )
