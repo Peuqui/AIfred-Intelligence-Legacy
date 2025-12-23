@@ -79,3 +79,6 @@ Mathematik_Loesungen.html
 
 # TTS Audio Cache
 assets/tts_audio/
+
+# Uploaded Files (TTS audio, HTML preview, etc.)
+uploaded_files/

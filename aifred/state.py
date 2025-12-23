@@ -3057,12 +3057,14 @@ class AIState(rx.State):
 
 
     def clear_chat(self):
-        """Clear chat history and TTS audio files"""
+        """Clear chat history, pending images, and temporary files"""
         self.chat_history = []
         self.current_ai_response = ""
         self.current_user_message = ""
         self.tts_audio_path = ""  # Clear TTS player
         self.debug_messages = []  # Debug Console auch leeren!
+        self.pending_images = []  # Clear pending image uploads
+        self.image_upload_warning = ""
 
         # TTS Audio-Dateien aufräumen
         from .lib.audio_processing import cleanup_old_tts_audio
@@ -3072,18 +3074,17 @@ class AIState(rx.State):
             self.add_debug(f"⚠️ TTS cleanup failed: {e}")
 
         # HTML Preview Dateien aufräumen
-        import os
-        html_preview_dir = os.path.join(os.path.dirname(__file__), "..", "uploaded_files", "html_preview")
+        from .lib.config import PROJECT_ROOT
+        html_preview_dir = PROJECT_ROOT / "uploaded_files" / "html_preview"
         try:
-            if os.path.exists(html_preview_dir):
-                for f in os.listdir(html_preview_dir):
-                    file_path = os.path.join(html_preview_dir, f)
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
+            if html_preview_dir.exists():
+                for f in html_preview_dir.iterdir():
+                    if f.is_file():
+                        f.unlink()
         except Exception as e:
             self.add_debug(f"⚠️ HTML preview cleanup failed: {e}")
 
-        self.add_debug("🗑️ Chat + Audio + HTML Preview cleared")
+        self.add_debug("🗑️ Chat + Images + Audio + HTML Preview cleared")
 
         # Session speichern (leerer Chat)
         self._save_current_session()
