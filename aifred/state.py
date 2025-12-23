@@ -1246,8 +1246,22 @@ class AIState(rx.State):
             if self.backend_type == "koboldcpp":
                 await self._start_koboldcpp_server()
 
-            # Note: Models are loaded on-demand during first inference (saves VRAM)
-            # Preloading removed to keep GPU in P8 state until actual usage
+            # Preload Automatik-LLM with SMALL context (Ollama only)
+            # CRITICAL: Models like Qwen3:4B have 262K default context!
+            # Without preloading with explicit num_ctx, Ollama allocates HUGE KV-Cache.
+            # Main-LLM is loaded on-demand with proper context calculation.
+            if self.backend_type == "ollama" and self.automatik_model_id:
+                from .lib.context_manager import prepare_automatik_llm
+                from aifred.backends import BackendFactory
+                auto_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
+                async for item in prepare_automatik_llm(
+                    backend=auto_backend,
+                    model_name=self.automatik_model_id,
+                    backend_type=self.backend_type
+                ):
+                    if item.get("type") == "debug":
+                        self.add_debug(item["message"])
+                    # Ignore result - we don't need to store it
 
             # Store in global state for future page reloads
             # vllm_manager and koboldcpp_manager are already stored in _global_backend_state by their start functions

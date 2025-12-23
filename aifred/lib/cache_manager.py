@@ -12,6 +12,7 @@ import threading
 from collections import OrderedDict
 from typing import Dict, List, Optional
 from .logging_utils import log_message
+from .config import AUTOMATIK_LLM_NUM_CTX
 
 
 # ============================================================
@@ -248,8 +249,8 @@ async def generate_cache_metadata(
 
         messages = [{'role': 'user', 'content': metadata_prompt}]
 
-        # Dynamic num_ctx based on main LLM limit (50% for metadata, short output)
-        metadata_num_ctx = min(2048, haupt_llm_context_limit // 2)  # Max 2048 or 50% of limit
+        # Use config constant for Automatik-LLM context (4K)
+        metadata_num_ctx = min(AUTOMATIK_LLM_NUM_CTX, haupt_llm_context_limit)
 
         log_message(f"Total Messages: {len(messages)}, Temperature: 0.1, num_ctx: {metadata_num_ctx} (Main-LLM-Limit: {haupt_llm_context_limit}), num_predict: 100")
         log_message("=" * 60)

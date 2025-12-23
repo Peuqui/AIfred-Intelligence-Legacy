@@ -579,8 +579,7 @@ async def prepare_main_llm(
     2. Preload with num_ctx (Ollama loads model + allocates KV-Cache)
 
     IMPORTANT: This function is ONLY for the Main-LLM!
-    Automatik-LLMs use Ollama's LRU strategy and don't need explicit
-    preloading or unloading.
+    For Automatik-LLM, use prepare_automatik_llm() instead (small context).
 
     Yields debug messages immediately for UI, so user sees what's happening.
 
@@ -665,5 +664,59 @@ async def prepare_main_llm(
         log_message(f"❌ prepare_main_llm EXCEPTION: {e}")
         log_message(f"   Traceback: {traceback.format_exc()}")
         # Re-raise so caller also sees the error
+        raise
+
+
+async def prepare_automatik_llm(
+    backend,
+    model_name: str,
+    backend_type: str = "ollama"
+):
+    """
+    Preload Automatik-LLM with small context window.
+
+    CRITICAL: Models like Qwen3:4B have 262K default context!
+    Without explicit num_ctx, Ollama allocates HUGE KV-Cache across all GPUs.
+    This function preloads with only 4K context to minimize VRAM usage.
+
+    Args:
+        backend: LLM Backend instance
+        model_name: Model name (pure ID)
+        backend_type: "ollama", "vllm", etc.
+
+    Yields:
+        dict: {"type": "debug", "message": "..."} for UI console
+        dict: {"type": "result", "data": (success, load_time)} as last
+    """
+    from .formatting import format_number
+    from .config import AUTOMATIK_LLM_NUM_CTX
+
+    try:
+        # Only Ollama needs preloading - other backends have models at startup
+        if backend_type != "ollama":
+            yield {"type": "result", "data": (True, 0.0)}
+            return
+
+        formatted_ctx = format_number(AUTOMATIK_LLM_NUM_CTX)
+        yield {"type": "debug", "message": f"🤖 Automatik-LLM ({model_name}) is being preloaded (num_ctx={formatted_ctx})..."}
+        log_message(f"🔄 prepare_automatik_llm: Preloading {model_name} with num_ctx={AUTOMATIK_LLM_NUM_CTX}")
+
+        import asyncio
+        await asyncio.sleep(0)  # Flush UI update
+
+        success, load_time = await backend.preload_model(model_name, num_ctx=AUTOMATIK_LLM_NUM_CTX)
+
+        if success:
+            yield {"type": "debug", "message": f"✅ Automatik-LLM preloaded ({load_time:.1f}s)"}
+        else:
+            yield {"type": "debug", "message": f"⚠️ Automatik-LLM preload failed ({load_time:.1f}s)"}
+
+        log_message(f"✅ prepare_automatik_llm: Done (success={success}, time={load_time:.1f}s)")
+        yield {"type": "result", "data": (success, load_time)}
+
+    except Exception as e:
+        import traceback
+        log_message(f"❌ prepare_automatik_llm EXCEPTION: {e}")
+        log_message(f"   Traceback: {traceback.format_exc()}")
         raise
 

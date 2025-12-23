@@ -5,6 +5,54 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.1] - 2025-12-23
+
+### 🎯 Automatik-LLM: Context-Limiting bei Preload
+
+**Automatik-LLM wird jetzt mit kleinem Context (4K) vorgeladen statt mit 262K Default.**
+
+#### Fixed
+
+- **Automatik-LLM VRAM-Explosion** ([state.py:1249-1264](aifred/state.py#L1249-L1264), [context_manager.py:670-727](aifred/lib/context_manager.py#L670-L727)):
+  - **Problem**: Qwen3:4B hat 262K Default-Context - Ollama allokierte riesigen KV-Cache auf beiden GPUs
+  - **Symptom**: Vor Main-LLM Preload wurde Automatik-LLM mit vollem 262K Context geladen (2x15 GB auf P4s)
+  - **Root Cause**: Ollama verwendet Model-Default wenn kein `num_ctx` explizit gesetzt
+  - **Solution**: Neue Funktion `prepare_automatik_llm()` preloaded mit `AUTOMATIK_LLM_NUM_CTX = 4096`
+  - **Impact**: Automatik-LLM braucht jetzt nur ~500 MB statt mehrere GB VRAM
+
+#### Added
+
+- **`prepare_automatik_llm()`** ([context_manager.py:670-720](aifred/lib/context_manager.py#L670-L720)):
+  - Separate Funktion für Automatik-LLM Preloading
+  - Verwendet `AUTOMATIK_LLM_NUM_CTX` aus config.py
+  - Wird bei Backend-Init aufgerufen (state.py `initialize_backend()`)
+
+- **`AUTOMATIK_LLM_NUM_CTX`** ([config.py:397](aifred/lib/config.py#L397)):
+  - Zentrale Konstante für alle Automatik-LLM Tasks (4096 tokens)
+  - Verwendet in: conversation_handler, cache_manager, rag_context_builder, context_manager
+
+#### Technical Details
+
+**Problemanalyse:**
+```bash
+# Qwen3:4B hat enormen Default-Context:
+curl -s localhost:11434/api/show -d '{"name":"qwen3:4b-instruct"}' | jq '.model_info["qwen3.context_length"]'
+# → 262144  (262K tokens!)
+```
+
+**Lösung:**
+```python
+# config.py - Zentrale Konstante
+AUTOMATIK_LLM_NUM_CTX = 4096  # 4K für alle Automatik-Tasks
+
+# context_manager.py - Preload mit explizitem num_ctx
+async def prepare_automatik_llm(backend, model_name, backend_type):
+    if backend_type == "ollama":
+        await backend.preload_model(model_name, num_ctx=AUTOMATIK_LLM_NUM_CTX)
+```
+
+---
+
 ## [2.8.0] - 2025-12-23
 
 ### 🧠 Vector Cache: Multilingual Embeddings mit Ollama

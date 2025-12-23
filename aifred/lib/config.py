@@ -388,6 +388,15 @@ DYNAMIC_NUM_PREDICT_MINIMUM = 512  # tokens
 DYNAMIC_NUM_PREDICT_HARD_LIMIT = 4096  # tokens
 
 # ============================================================
+# AUTOMATIK-LLM CONTEXT CONSTANTS
+# ============================================================
+# Context window for Automatik-LLM tasks (Decision, Query-Opt, Intent, RAG-Check)
+# CRITICAL: Models like Qwen3:4B have 262K default context!
+# Without explicit num_ctx, Ollama allocates HUGE KV-Cache across all GPUs.
+# 4K is sufficient for all Automatik tasks and keeps VRAM usage minimal.
+AUTOMATIK_LLM_NUM_CTX = 4096  # 4K context for all Automatik tasks
+
+# ============================================================
 # VISION/OCR CONTEXT CONSTANTS
 # ============================================================
 # Minimum context for Vision-LLM (OCR, image analysis)
