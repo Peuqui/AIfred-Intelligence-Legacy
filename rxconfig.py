@@ -22,6 +22,10 @@ config = rx.Config(
     disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
     # Performance-Optimierungen
     compile_timeout=90,  # Timeout für Compilation erhöhen (default: 60s)
+    # KaTeX für LaTeX-Rendering in Markdown (lokal gehostet)
+    stylesheets=[
+        "/katex/katex.min.css",
+    ],
 )
 
 # Für Mini PC (natives Ubuntu, 192.168.0.252):

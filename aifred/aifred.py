@@ -3169,7 +3169,7 @@ console.log('✂️ Crop handler loaded');
         rx.script(crop_js),
 
         # Load custom.js for MediaRecorder and other features (cache-busting version)
-        rx.script(src="/custom.js?v=4"),
+        rx.script(src="/custom.js?v=13"),
 
         # Crop Modal (rendered but hidden until open)
         crop_modal(),

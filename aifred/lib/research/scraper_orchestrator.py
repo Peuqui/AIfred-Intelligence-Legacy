@@ -126,18 +126,15 @@ async def orchestrate_scraping(
                 try:
                     success, load_time, unloaded_models = preload_task.result()
 
-                    # Show unloaded models first
+                    # Show unloaded models first (log_message via add_debug)
                     if unloaded_models:
                         models_str = ", ".join(unloaded_models)
                         yield {"type": "debug", "message": f"🗑️ Unloaded models: {models_str}"}
-                        log_message(f"🗑️ Unloaded models: {models_str}")
 
-                    # Then show preload result
+                    # Then show preload result (log_message via add_debug when yield processed)
                     if success:
-                        log_message(f"✅ Main-LLM preloaded ({load_time:.1f}s)")
                         yield {"type": "debug", "message": f"✅ Main-LLM preloaded ({load_time:.1f}s)"}
                     else:
-                        log_message(f"⚠️ Main-LLM preload failed ({load_time:.1f}s)")
                         yield {"type": "debug", "message": f"⚠️ Main-LLM preload failed ({load_time:.1f}s)"}
                     preload_message_sent = True
                 except Exception as e:
@@ -179,14 +176,12 @@ async def orchestrate_scraping(
             success, load_time, unloaded_models = await preload_task
             if unloaded_models:
                 models_str = ", ".join(unloaded_models)
-                log_message(f"🗑️ Unloaded models: {models_str}")
                 yield {"type": "debug", "message": f"🗑️ Unloaded models: {models_str}"}
 
+            # log_message via add_debug when yield processed
             if success:
-                log_message(f"✅ Main-LLM preloaded ({load_time:.1f}s)")
                 yield {"type": "debug", "message": f"✅ Main-LLM preloaded ({load_time:.1f}s)"}
             else:
-                log_message(f"⚠️ Main-LLM preload failed ({load_time:.1f}s)")
                 yield {"type": "debug", "message": f"⚠️ Main-LLM preload failed ({load_time:.1f}s)"}
         except Exception as e:
             log_message(f"⚠️ Main-LLM preload exception: {e}")

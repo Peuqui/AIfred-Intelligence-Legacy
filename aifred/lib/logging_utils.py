@@ -43,10 +43,10 @@ _message_queue: queue.Queue = queue.Queue(maxsize=500)  # Thread-safe Pipe!
 
 def initialize_debug_log(force_reset: bool = False) -> None:
     """
-    Initialize debug log file (overwrites on service start)
+    Initialize debug log file.
 
-    Args:
-        force_reset: If True, log is always reset (for Reflex start)
+    Mode: 'w' (overwrite) - fresh log on each service start
+    Change to 'a' (append) when debugging across restarts
     """
     global _debug_log_initialized
 
@@ -64,11 +64,10 @@ def initialize_debug_log(force_reset: bool = False) -> None:
                 os.rename(DEBUG_LOG_FILE, old_file)
                 print(f"🔄 Debug log rotated: {file_size_mb:.1f} MB → {old_file}", flush=True)
 
-        # New session: OVERWRITE file (fresh start)
-        # Old logs are saved on rotation (.old)
+        # MODE: 'w' = overwrite (default), 'a' = append (for debugging)
         with open(DEBUG_LOG_FILE, 'w', encoding='utf-8') as f:
             f.write("=" * 60 + "\n")
-            f.write(f"=== AIfred Intelligence - Service started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            f.write(f"=== AIfred Intelligence - Session: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
             f.write("=" * 60 + "\n\n")
 
         _debug_log_initialized = True

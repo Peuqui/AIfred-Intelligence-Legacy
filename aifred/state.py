@@ -20,6 +20,7 @@ from .lib import (
 from .lib.formatting import format_debug_message
 from .lib.conversation_handler import extract_model_name
 from .lib import config
+from .lib.config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
 from .lib.vllm_manager import vLLMProcessManager
 from .lib.model_manager import (
     sort_models_grouped,
@@ -567,14 +568,15 @@ class AIState(rx.State):
                 for mid in self.vision_models_cache
                 if mid in self.available_models_dict]
 
-    @rx.var
+    @rx.var(deps=["tts_engine"], auto_deps=False)
     def available_tts_voices(self) -> List[str]:
         """
         Returns list of available TTS voices for the current engine.
         Edge TTS, Piper and eSpeak have different voice sets.
-        """
-        from .lib.config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
 
+        Note: Uses auto_deps=False with explicit deps to disable automatic
+        dependency detection (Reflex cannot introspect module-level imports).
+        """
         if "Piper" in self.tts_engine:
             return list(PIPER_VOICES.keys())
         elif "eSpeak" in self.tts_engine:
@@ -811,8 +813,9 @@ class AIState(rx.State):
                 self.add_debug(f"⚙️ Settings loaded (backend: {self.backend_type})")
 
                 # Send TTS playback rate to JavaScript (after settings loaded)
+                # Use setTimeout to ensure custom.js is loaded first
                 rate_value = self.tts_playback_rate.replace("x", "")
-                yield rx.call_script(f"setTtsPlaybackRate({rate_value})")
+                yield rx.call_script(f"setTimeout(() => {{ if (typeof setTtsPlaybackRate === 'function') setTtsPlaybackRate({rate_value}); }}, 100)")
 
             # Apply config.py defaults as final fallback (only if settings.json didn't provide values)
             backend_defaults = config.BACKEND_DEFAULT_MODELS.get(self.backend_type, {})
@@ -2760,6 +2763,40 @@ class AIState(rx.State):
                 # Extract pure model name (remove size suffix)
                 pure_model_name = self.selected_model_id  # Pure ID
 
+                # Import format_number for locale-aware number formatting (uses global ui_locale)
+                from .lib.formatting import format_number
+
+                # Temperature decision: Manual Override or Auto (Intent-Detection)
+                # IMPORTANT: Intent Detection MUST run BEFORE Main-LLM preload!
+                # Otherwise Ollama might unload the Main-LLM to load the Automatik-LLM,
+                # then reload the Main-LLM again (wasting ~10s of loading time).
+                if self.temperature_mode == 'manual':
+                    final_temperature = self.temperature
+                    self.add_debug(f"🌡️ Temperature: {final_temperature} (manual)")
+                else:
+                    # Auto: Intent-Detection for own knowledge mode
+                    from .lib.intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
+
+                    # Use automatik model for intent detection
+                    automatik_llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)
+
+                    self.add_debug("🎯 Intent detection running...")
+                    yield
+
+                    intent_start = time.time()
+                    own_knowledge_intent = await detect_query_intent(
+                        user_query=user_msg,
+                        automatik_model=self.automatik_model_id,
+                        llm_client=automatik_llm_client,
+                        llm_options={'temperature': 0.2, 'num_predict': 64}
+                    )
+                    intent_time = time.time() - intent_start
+
+                    final_temperature = get_temperature_for_intent(own_knowledge_intent)
+                    temp_label = get_temperature_label(own_knowledge_intent)
+                    self.add_debug(f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)")
+                yield
+
                 # Count actual input tokens (using real tokenizer)
                 from .lib.context_manager import estimate_tokens, prepare_main_llm
                 input_tokens = estimate_tokens(messages, model_name=pure_model_name)
@@ -2790,40 +2827,8 @@ class AIState(rx.State):
                 self.add_debug("✅ System prompt created")
                 yield
 
-                # Import format_number for locale-aware number formatting (uses global ui_locale)
-                from .lib.formatting import format_number
-
                 # Show compact context info (matching Automatik mode style)
                 self.add_debug(f"📊 Main-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})")
-                yield
-
-                # Temperature decision: Manual Override or Auto (Intent-Detection)
-                if self.temperature_mode == 'manual':
-                    final_temperature = self.temperature
-                    self.add_debug(f"🌡️ Temperature: {final_temperature} (manual)")
-                else:
-                    # Auto: Intent-Detection for own knowledge mode
-                    from .lib.intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
-                    from .lib.llm_client import LLMClient
-
-                    # Use automatik model for intent detection
-                    automatik_llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)
-
-                    self.add_debug("🎯 Intent detection running...")
-                    yield
-
-                    intent_start = time.time()
-                    own_knowledge_intent = await detect_query_intent(
-                        user_query=user_msg,
-                        automatik_model=self.automatik_model_id,
-                        llm_client=automatik_llm_client,
-                        llm_options={'temperature': 0.2, 'num_predict': 64}
-                    )
-                    intent_time = time.time() - intent_start
-
-                    final_temperature = get_temperature_for_intent(own_knowledge_intent)
-                    temp_label = get_temperature_label(own_knowledge_intent)
-                    self.add_debug(f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)")
                 yield
 
                 # Build LLM options
@@ -3054,7 +3059,7 @@ class AIState(rx.State):
 
         # HTML Preview Dateien aufräumen
         import os
-        html_preview_dir = os.path.join(os.path.dirname(__file__), "..", "assets", "html_preview")
+        html_preview_dir = os.path.join(os.path.dirname(__file__), "..", "uploaded_files", "html_preview")
         try:
             if os.path.exists(html_preview_dir):
                 for f in os.listdir(html_preview_dir):

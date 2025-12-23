@@ -589,3 +589,203 @@ if (document.readyState === 'loading') {
     console.log('📄 DOM already ready, initializing immediately');
     initializeAllObservers();
 }
+
+// ============================================================
+// KaTeX LaTeX Rendering
+// ============================================================
+// Renders LaTeX formulas in chat messages using KaTeX
+// Supports: $...$ (inline), $$...$$ (block), and \ce{} (chemistry via mhchem)
+
+let katexLoaded = false;
+let mhchemLoaded = false;
+
+function loadKatexScript() {
+    if (katexLoaded || window.katex) {
+        katexLoaded = true;
+        // Also load mhchem if KaTeX already loaded
+        return loadMhchemExtension();
+    }
+
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = '/katex/katex.min.js';
+        script.onload = () => {
+            console.log('📐 KaTeX script loaded');
+            katexLoaded = true;
+            // Load mhchem extension after KaTeX
+            loadMhchemExtension().then(resolve).catch(resolve); // Don't fail if mhchem fails
+        };
+        script.onerror = () => {
+            console.error('❌ Failed to load KaTeX');
+            reject(new Error('KaTeX load failed'));
+        };
+        document.head.appendChild(script);
+    });
+}
+
+function loadMhchemExtension() {
+    if (mhchemLoaded) {
+        return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = '/katex/mhchem.min.js';
+        script.onload = () => {
+            console.log('🧪 KaTeX mhchem extension loaded (chemistry support)');
+            mhchemLoaded = true;
+            resolve();
+        };
+        script.onerror = () => {
+            console.warn('⚠️ mhchem extension not loaded (chemistry formulas disabled)');
+            resolve(); // Don't fail, just continue without chemistry
+        };
+        document.head.appendChild(script);
+    });
+}
+
+function renderLatexInElement(element) {
+    if (!window.katex) return;
+
+    const walker = document.createTreeWalker(
+        element,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+    );
+
+    const textNodes = [];
+    let node;
+    while (node = walker.nextNode()) {
+        // Skip if already processed or inside code/pre blocks
+        if (node.parentElement.closest('code, pre, .katex')) continue;
+        // Check for $ delimiter (server converts \[...\] and \(...\) to $...$)
+        if (node.textContent.includes('$')) {
+            textNodes.push(node);
+        }
+    }
+
+    textNodes.forEach(textNode => {
+        const text = textNode.textContent;
+        let combined = text;
+        let hasMatch = false;
+
+        // 1. Block math: $$...$$ (server converts \[...\] to this format)
+        combined = combined.replace(/\$\$([^$]+)\$\$/g, (match, formula) => {
+            hasMatch = true;
+            try {
+                return '<span class="katex-block">' +
+                    window.katex.renderToString(formula.trim(), {
+                        displayMode: true,
+                        throwOnError: false
+                    }) + '</span>';
+            } catch (e) {
+                console.warn('KaTeX block $$ error:', e);
+                return match;
+            }
+        });
+
+        // 2. Inline math: $...$ (server converts \(...\) to this format)
+        // Note: \[...\], \(...\), and \text{} are handled server-side in formatting.py
+        combined = combined.replace(/(?<!\$)\$([^$\n]+)\$(?!\$)/g, (match, formula) => {
+            hasMatch = true;
+            try {
+                return window.katex.renderToString(formula.trim(), {
+                    displayMode: false,
+                    throwOnError: false
+                });
+            } catch (e) {
+                console.warn('KaTeX inline $ error:', e);
+                return match;
+            }
+        });
+
+        if (hasMatch) {
+            const span = document.createElement('span');
+            span.innerHTML = combined;
+            textNode.parentNode.replaceChild(span, textNode);
+        }
+    });
+}
+
+function renderLatexInChat() {
+    loadKatexScript().then(() => {
+        // Find the chat history container
+        const chatBox = document.getElementById('chat-history-box');
+        if (!chatBox) {
+            console.log('📐 KaTeX: chat-history-box not found');
+            return;
+        }
+
+        // Find all text containers in chat that might contain LaTeX
+        // Reflex markdown generates nested divs, so we look for any element containing LaTeX patterns
+        const allElements = chatBox.querySelectorAll('div, p, span');
+        let processedCount = 0;
+        allElements.forEach(el => {
+            // Skip if already processed or is a KaTeX element
+            if (el.dataset.katexProcessed || el.classList.contains('katex') || el.closest('.katex')) {
+                return;
+            }
+            // Skip code blocks
+            if (el.closest('code') || el.closest('pre')) {
+                return;
+            }
+            // Check if element contains any LaTeX pattern
+            const text = el.textContent || '';
+
+            // Check for LaTeX indicators: $...$ or $$...$$
+            // Note: Server-side (formatting.py) converts \[...\], \(...\), and \text{} to $...$
+            // So we only need to check for $ here
+            const hasDollar = text.includes('$');
+
+            if (hasDollar) {
+                renderLatexInElement(el);
+                el.dataset.katexProcessed = 'true';
+                processedCount++;
+            }
+        });
+        if (processedCount > 0) {
+            console.log('📐 KaTeX: Processed', processedCount, 'elements');
+        }
+    }).catch(err => {
+        console.warn('KaTeX not available:', err);
+    });
+}
+
+// Setup KaTeX observer
+let katexObserver = null;
+
+function setupKatexObserver() {
+    if (katexObserver) return;
+
+    katexObserver = new MutationObserver((mutations) => {
+        let shouldRender = false;
+        for (const mutation of mutations) {
+            if (mutation.addedNodes.length > 0) {
+                shouldRender = true;
+                break;
+            }
+        }
+        if (shouldRender) {
+            // Debounce rendering
+            clearTimeout(window.katexRenderTimeout);
+            window.katexRenderTimeout = setTimeout(renderLatexInChat, 100);
+        }
+    });
+
+    katexObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
+    // Initial render
+    renderLatexInChat();
+    console.log('📐 KaTeX observer active');
+}
+
+// Initialize KaTeX after DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupKatexObserver);
+} else {
+    setTimeout(setupKatexObserver, 500);
+}
