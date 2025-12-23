@@ -5,6 +5,44 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.3] - 2025-12-23
+
+### 🎯 Automatik-LLM: Fehlende num_ctx Parameter
+
+**Query Optimizer und Intent Detector verwenden jetzt konsistent AUTOMATIK_LLM_NUM_CTX.**
+
+#### Fixed
+
+- **Query Optimizer ohne num_ctx** ([query_optimizer.py:87](aifred/lib/query_optimizer.py#L87)):
+  - **Problem**: `num_ctx` fehlte komplett in den Options
+  - **Symptom**: Bei Websuche verwendete Qwen3:4B seinen 262K Default-Context
+  - **Solution**: `num_ctx: AUTOMATIK_LLM_NUM_CTX` hinzugefügt
+  - **Impact**: Websuche-Modus lädt Automatik-LLM jetzt mit 4K statt 262K Context
+
+- **Intent Detector mit hardcoded 4096** ([intent_detector.py:74,135](aifred/lib/intent_detector.py#L74)):
+  - **Problem**: Hardcoded `4096` statt Config-Konstante
+  - **Symptom**: Inkonsistenz - wenn Konstante geändert wird, bleibt Intent Detector bei 4096
+  - **Solution**: Beide Stellen verwenden jetzt `AUTOMATIK_LLM_NUM_CTX`
+  - **Impact**: Zentrale Steuerung über config.py für alle Automatik-Tasks
+
+#### Technical Details
+
+**Alle Automatik-LLM Aufrufe verwenden jetzt die Konstante:**
+```python
+# config.py
+AUTOMATIK_LLM_NUM_CTX = 4096
+
+# Verwendet in:
+# - query_optimizer.py (NEU GEFIXT)
+# - intent_detector.py (NEU GEFIXT: detect_query_intent + detect_cache_followup_intent)
+# - conversation_handler.py ✓
+# - cache_manager.py ✓
+# - rag_context_builder.py ✓
+# - context_manager.py (prepare_automatik_llm) ✓
+```
+
+---
+
 ## [2.8.2] - 2025-12-23
 
 ### 🌐 HTML Preview: Robusterer Regex
