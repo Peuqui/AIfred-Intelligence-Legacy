@@ -2438,6 +2438,7 @@ class AIState(rx.State):
 
             # Track if Sokrates should be skipped (AIfred direct addressing)
             skip_sokrates_analysis = False
+            use_aifred_direct_prompt = False
 
             if addressed_to == "sokrates":
                 # User directly addresses Sokrates → Sokrates responds directly
@@ -2454,11 +2455,12 @@ class AIState(rx.State):
                 return
 
             elif addressed_to == "alfred":
-                # User directly addresses AIfred → Skip Sokrates analysis after response
+                # User directly addresses AIfred → Skip Sokrates analysis, use special prompt
                 self.add_debug(f"🎩 Direct addressing: AIfred")
                 yield  # Update UI immediately to show debug message
                 skip_sokrates_analysis = True
-                # Continue with normal flow, but skip Sokrates at the end
+                use_aifred_direct_prompt = True
+                # Continue with normal flow, but with AIfred's direct response persona
 
             # ============================================================
             # VISION PIPELINE: Route to Vision-LLM if images present
@@ -2994,11 +2996,17 @@ class AIState(rx.State):
                     current_user_text=user_msg
                 )
 
-                # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
-                from .lib.prompt_loader import load_prompt, detect_language
+                # Inject system prompt with timestamp (from load_prompt - automatically includes date/time)
+                from .lib.prompt_loader import load_prompt, detect_language, get_aifred_direct_prompt
                 detected_language = detect_language(user_msg)
-                system_prompt_minimal = load_prompt('system_minimal', lang=detected_language)
-                messages.insert(0, {"role": "system", "content": system_prompt_minimal})
+
+                # Use AIfred direct prompt if user addressed AIfred directly
+                if use_aifred_direct_prompt:
+                    system_prompt = get_aifred_direct_prompt(lang=detected_language)
+                else:
+                    system_prompt = load_prompt('aifred/system_minimal', lang=detected_language)
+
+                messages.insert(0, {"role": "system", "content": system_prompt})
 
                 # Create backend and LLM client instances
                 from .backends import BackendFactory, LLMOptions
@@ -4833,7 +4841,7 @@ class AIState(rx.State):
         from .lib.formatting import format_metadata, format_number, format_thinking_process
         from .lib.message_builder import build_messages_from_history
         from .lib.context_manager import calculate_dynamic_num_ctx
-        from .lib.prompt_loader import detect_language
+        from .lib.prompt_loader import detect_language, get_sokrates_direct_prompt
 
         try:
             # Create LLM client
@@ -4858,17 +4866,8 @@ class AIState(rx.State):
             # Detect language for response
             detected_lang = detect_language(user_query)
 
-            # Build system prompt for direct dialog
-            if detected_lang == "de":
-                system_prompt = """Du bist Sokrates, ein weiser und kritischer Denker.
-Der Benutzer spricht dich direkt an und stellt dir eine Frage.
-Antworte direkt, nachdenklich und mit der sokratischen Methode - stelle Gegenfragen wenn sinnvoll.
-Sei prägnant aber tiefgründig. Beziehe dich auf den Kontext des bisherigen Gesprächs."""
-            else:
-                system_prompt = """You are Socrates, a wise and critical thinker.
-The user is addressing you directly with a question.
-Respond directly, thoughtfully, and with the Socratic method - ask counter-questions when appropriate.
-Be concise but profound. Consider the context of the previous conversation."""
+            # Load system prompt from file (no hardcoded prompts!)
+            system_prompt = get_sokrates_direct_prompt(lang=detected_lang)
 
             # Build messages from chat history (for context)
             messages = build_messages_from_history(self.chat_history[:-1], user_query)
