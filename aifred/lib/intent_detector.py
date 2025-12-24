@@ -201,3 +201,83 @@ def get_temperature_label(intent: str) -> str:
         "GEMISCHT": "mixed"
     }
     return label_map.get(intent, "factual")  # Fallback: factual
+
+
+def detect_dialog_addressing(user_text: str) -> tuple[Optional[str], str]:
+    """
+    Detect if user is directly addressing Sokrates or AIfred.
+
+    Handles various addressing patterns:
+    - "Sokrates, warum..." / "sokrates:" / "@sokrates"
+    - "AIfred, erkläre..." / "alfred," / "@alfred" / "Eifred," (STT variant)
+    - "Warum, Sokrates, denkst du..."  (embedded addressing)
+
+    Args:
+        user_text: The user's message
+
+    Returns:
+        tuple: (addressed_to, cleaned_text)
+            - addressed_to: "sokrates", "alfred", or None
+            - cleaned_text: User text with addressing prefix removed
+    """
+    import re
+
+    text = user_text.strip()
+    text_lower = text.lower()
+
+    # ============================================================
+    # SOKRATES ADDRESSING PATTERNS
+    # ============================================================
+    sokrates_patterns = [
+        # Start patterns: "Sokrates, ..." / "Sokrates: ..." / "@Sokrates ..."
+        (r'^(?:@)?sokrates[,:\s!]+\s*', True),
+        # "Hey Sokrates, ..."
+        (r'^hey\s+sokrates[,:\s!]+\s*', True),
+        # "An Sokrates: ..."
+        (r'^an\s+sokrates[,:\s!]+\s*', True),
+        # Embedded: "Warum, Sokrates, denkst du..." - keep text, just detect
+        (r',\s*sokrates\s*,', False),
+    ]
+
+    for pattern, remove_prefix in sokrates_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            if remove_prefix:
+                # Remove the addressing prefix from the text
+                cleaned = text[match.end():].strip()
+                # Capitalize first letter if needed
+                if cleaned and cleaned[0].islower():
+                    cleaned = cleaned[0].upper() + cleaned[1:]
+                return ("sokrates", cleaned if cleaned else text)
+            else:
+                # Embedded addressing - keep original text
+                return ("sokrates", text)
+
+    # ============================================================
+    # ALFRED ADDRESSING PATTERNS
+    # ============================================================
+    # Note: "AIfred" is often transcribed as "Eifred", "Alfred", "AI Fred" by STT
+    alfred_patterns = [
+        # Start patterns with various STT transcriptions
+        (r'^(?:@)?(?:ai\s*fred|aifred|alfred|eifred)[,:\s!]+\s*', True),
+        # "Hey AIfred, ..."
+        (r'^hey\s+(?:ai\s*fred|aifred|alfred|eifred)[,:\s!]+\s*', True),
+        # "An AIfred: ..."
+        (r'^an\s+(?:ai\s*fred|aifred|alfred|eifred)[,:\s!]+\s*', True),
+        # Embedded: "Warum, AIfred, denkst du..."
+        (r',\s*(?:ai\s*fred|aifred|alfred|eifred)\s*,', False),
+    ]
+
+    for pattern, remove_prefix in alfred_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            if remove_prefix:
+                cleaned = text[match.end():].strip()
+                if cleaned and cleaned[0].islower():
+                    cleaned = cleaned[0].upper() + cleaned[1:]
+                return ("alfred", cleaned if cleaned else text)
+            else:
+                return ("alfred", text)
+
+    # No addressing detected
+    return (None, text)

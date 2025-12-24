@@ -1497,6 +1497,33 @@ class AIState(rx.State):
         settings["tts_voices_per_language"][engine_key][lang] = self.tts_voice
         save_settings(settings)
 
+    def _show_model_calibration_info(self, model_id: str):
+        """Show calibration info for Ollama models in debug console.
+
+        Displays calibrated context values (Native and/or RoPE 2x) or a warning
+        if the model hasn't been calibrated yet.
+        """
+        if self.backend_id != "ollama" or not model_id:
+            return
+
+        from .lib.model_vram_cache import get_ollama_calibrated_max_context
+        from .lib.formatting import format_number
+
+        native_ctx = get_ollama_calibrated_max_context(model_id, extended=False)
+        extended_ctx = get_ollama_calibrated_max_context(model_id, extended=True)
+
+        if native_ctx is not None or extended_ctx is not None:
+            # Show calibrated values
+            parts = []
+            if native_ctx is not None:
+                parts.append(f"Native: {format_number(native_ctx)}")
+            if extended_ctx is not None:
+                parts.append(f"RoPE 2x: {format_number(extended_ctx)}")
+            self.add_debug(f"   🎯 Calibrated: {', '.join(parts)}")
+        else:
+            # Not calibrated - show warning
+            self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")
+
     async def switch_backend_by_label(self, label: str):
         """Switch backend using display label (for native mobile select)
 
@@ -2404,6 +2431,34 @@ class AIState(rx.State):
 
         try:
             # ============================================================
+            # DIALOG ROUTING: Check for direct addressing (@Sokrates, @AIfred)
+            # ============================================================
+            from .lib.intent_detector import detect_dialog_addressing
+            addressed_to, cleaned_text = detect_dialog_addressing(user_msg)
+
+            # Track if Sokrates should be skipped (AIfred direct addressing)
+            skip_sokrates_analysis = False
+
+            if addressed_to == "sokrates":
+                # User directly addresses Sokrates → Sokrates responds directly
+                self.add_debug(f"🏛️ Direct addressing: Sokrates")
+                async for _ in self._run_sokrates_direct_response(user_msg, temp_history_index):
+                    yield
+                # Clean up and return - Sokrates handled everything
+                self.current_ai_response = ""
+                self.current_user_message = ""
+                self.is_generating = False
+                self._save_current_session()
+                yield
+                return
+
+            elif addressed_to == "alfred":
+                # User directly addresses AIfred → Skip Sokrates analysis after response
+                self.add_debug(f"🎩 Direct addressing: AIfred")
+                skip_sokrates_analysis = True
+                # Continue with normal flow, but skip Sokrates at the end
+
+            # ============================================================
             # VISION PIPELINE: Route to Vision-LLM if images present
             # ============================================================
             if has_pending_images:
@@ -2747,9 +2802,10 @@ class AIState(rx.State):
                         yield  # Update UI to show new history entry
 
                         # ============================================================
-                        # MULTI-AGENT: Sokrates Analysis (if enabled)
+                        # MULTI-AGENT: Sokrates Analysis (if enabled and not skipped)
+                        # skip_sokrates_analysis is set when user directly addresses AIfred
                         # ============================================================
-                        if self.multi_agent_mode != "standard" and ai_text:
+                        if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
                             async for _ in self._run_sokrates_analysis(user_msg, ai_text):
                                 yield  # Forward yields to update Sokrates panel
 
@@ -2865,9 +2921,10 @@ class AIState(rx.State):
                         yield  # Update UI to show new history entry
 
                         # ============================================================
-                        # MULTI-AGENT: Sokrates Analysis (if enabled)
+                        # MULTI-AGENT: Sokrates Analysis (if enabled and not skipped)
+                        # skip_sokrates_analysis is set when user directly addresses AIfred
                         # ============================================================
-                        if self.multi_agent_mode != "standard" and ai_text:
+                        if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
                             async for _ in self._run_sokrates_analysis(user_msg, ai_text):
                                 yield  # Forward yields to update Sokrates panel
 
@@ -4317,6 +4374,9 @@ class AIState(rx.State):
         self.thinking_mode_warning = ""
         self.add_debug(f"📝 Main-LLM: {model}")
 
+        # Show calibration info for Ollama models
+        self._show_model_calibration_info(self.selected_model_id)
+
         # Check if switching to non-vision model with pending images
         if len(self.pending_images) > 0:
             # Use ID directly - extract_model_name() not needed anymore
@@ -4557,6 +4617,8 @@ class AIState(rx.State):
         self._save_settings()
         if model:
             self.add_debug(f"🧠 Sokrates-LLM: {model}")
+            # Show calibration info for Ollama models
+            self._show_model_calibration_info(self.sokrates_model_id)
         else:
             self.add_debug("🧠 Sokrates-LLM: (wie Haupt-LLM)")
 
@@ -4741,6 +4803,145 @@ class AIState(rx.State):
                 "ttft": ttft
             }
         }
+
+    # ============================================================
+    # SOKRATES DIRECT RESPONSE (when user addresses Sokrates directly)
+    # ============================================================
+
+    async def _run_sokrates_direct_response(self, user_query: str, history_index: int):
+        """
+        Sokrates responds directly to user (without AIfred's answer first).
+
+        This is called when user directly addresses Sokrates:
+        - "Sokrates, warum denkst du..."
+        - "@Sokrates erkläre mir..."
+        - "Hey Sokrates, ..."
+
+        Args:
+            user_query: The user's question (with or without addressing prefix)
+            history_index: Index in chat_history where response should be placed
+        """
+        import time
+        from .lib.llm_client import LLMClient
+        from .backends.base import LLMOptions
+        from .lib.formatting import format_metadata, format_number, format_thinking_process
+        from .lib.message_builder import build_messages_from_history
+        from .lib.context_manager import calculate_dynamic_num_ctx
+        from .lib.prompt_loader import detect_language
+
+        try:
+            # Create LLM client
+            llm_client = LLMClient(
+                backend_type=self.backend_type,
+                base_url=self.backend_url
+            )
+
+            # Determine Sokrates model
+            sokrates_model = self.sokrates_model_id if self.sokrates_model_id else self.selected_model_id
+            sokrates_display = self.sokrates_model if self.sokrates_model else self.selected_model
+            self.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
+
+            # Calculate context limit
+            sokrates_num_ctx, sokrates_vram_msgs = await calculate_dynamic_num_ctx(
+                llm_client, sokrates_model, [], None,
+                enable_vram_limit=True
+            )
+            for msg in sokrates_vram_msgs:
+                self.add_debug(f"   {msg}")
+
+            # Detect language for response
+            detected_lang = detect_language(user_query)
+
+            # Build system prompt for direct dialog
+            if detected_lang == "de":
+                system_prompt = """Du bist Sokrates, ein weiser und kritischer Denker.
+Der Benutzer spricht dich direkt an und stellt dir eine Frage.
+Antworte direkt, nachdenklich und mit der sokratischen Methode - stelle Gegenfragen wenn sinnvoll.
+Sei prägnant aber tiefgründig. Beziehe dich auf den Kontext des bisherigen Gesprächs."""
+            else:
+                system_prompt = """You are Socrates, a wise and critical thinker.
+The user is addressing you directly with a question.
+Respond directly, thoughtfully, and with the Socratic method - ask counter-questions when appropriate.
+Be concise but profound. Consider the context of the previous conversation."""
+
+            # Build messages from chat history (for context)
+            messages = build_messages_from_history(self.chat_history[:-1], user_query)
+
+            # Prepend system message
+            messages.insert(0, {"role": "system", "content": system_prompt})
+
+            # LLM options
+            sokrates_options = LLMOptions(
+                temperature=0.4,  # Slightly creative for philosophical responses
+                enable_thinking=self.enable_thinking,
+                num_ctx=sokrates_num_ctx
+            )
+
+            # Get original user message from history (to preserve it)
+            original_user_msg, _ = self.chat_history[history_index]
+
+            # Streaming response
+            full_response = ""
+            token_count = 0
+            start_time = time.time()
+            first_token = False
+            sokrates_marker = "🏛️[Direkte Antwort]" if detected_lang == "de" else "🏛️[Direct Response]"
+
+            async for chunk in llm_client.chat_stream(sokrates_model, messages, sokrates_options):
+                if chunk["type"] == "content":
+                    if not first_token:
+                        ttft = time.time() - start_time
+                        self.add_debug(f"⚡ TTFT: {ttft:.2f}s")
+                        first_token = True
+
+                    content = chunk["content"]
+                    full_response += content
+                    token_count += 1
+
+                    # Update chat history with streaming content (preserve user message!)
+                    self.chat_history[history_index] = (original_user_msg, f"{sokrates_marker}{full_response}")
+                    yield
+
+                elif chunk["type"] == "done":
+                    metrics = chunk.get("metrics", {})
+                    token_count = metrics.get("tokens_generated", token_count)
+
+            # Calculate final metrics
+            inference_time = time.time() - start_time
+            tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
+
+            # Format thinking blocks if present
+            formatted_response = format_thinking_process(
+                full_response,
+                model_name=f"Sokrates ({sokrates_model})",
+                inference_time=inference_time
+            )
+
+            # Build metadata
+            metadata = format_metadata(
+                inference_time=inference_time,
+                tokens_per_sec=tokens_per_sec,
+                source=f"Sokrates ({sokrates_model})"
+            )
+
+            # Final update with metadata (preserve user message!)
+            final_content = f"{sokrates_marker}{formatted_response}\n\n{metadata}"
+            self.chat_history[history_index] = (original_user_msg, final_content)
+
+            self.add_debug(f"🏛️ Sokrates: {len(full_response)} chars, {tokens_per_sec:.1f} tok/s")
+
+            await llm_client.close()
+            yield
+
+        except Exception as e:
+            self.add_debug(f"❌ Sokrates Direct Response Error: {e}")
+            # Put error message in history (try to preserve user message)
+            try:
+                original_user_msg, _ = self.chat_history[history_index]
+            except (IndexError, ValueError):
+                original_user_msg = ""
+            self.chat_history[history_index] = (original_user_msg, f"🏛️[Error] {str(e)}")
+            yield
 
     # ============================================================
     # SOKRATES ANALYSIS
@@ -5119,6 +5320,8 @@ class AIState(rx.State):
         # CRITICAL: Sync automatik_model_id from display label
         self.automatik_model_id = extract_model_name(model)
         self.add_debug(f"⚡ Automatik-LLM: {model}")
+        # Show calibration info for Ollama models
+        self._show_model_calibration_info(self.automatik_model_id)
         self._save_settings()
 
         # vLLM/TabbyAPI: Auto-restart backend for model change
@@ -5136,6 +5339,8 @@ class AIState(rx.State):
         # CRITICAL: Sync vision_model_id from display label (fixes Vision-LLM using wrong model)
         self.vision_model_id = extract_model_name(model)
         self.add_debug(f"👁️ Vision-LLM: {model}")
+        # Show calibration info for Ollama models
+        self._show_model_calibration_info(self.vision_model_id)
         self._save_settings()
 
         # Note: Vision model will be loaded on-demand when image is uploaded

@@ -42,6 +42,11 @@ AIfred unterstützt verschiedene Diskussionsmodi mit einem zweiten LLM (Sokrates
 | **Auto-Konsens** | Iterative Verbesserung bis LGTM oder max Runden | 1-3 |
 | **Advocatus Diaboli** | Pro & Contra Argumente für ausgewogene Analyse | 1 |
 
+**Direkte Agenten-Ansprache** (NEU in v2.10.1):
+- Sokrates direkt ansprechen: "Sokrates, was denkst du über...?" → Sokrates antwortet mit sokratischer Methode
+- AIfred direkt ansprechen: "AIfred, erkläre..." → AIfred antwortet ohne Sokrates-Analyse
+- Unterstützt STT-Transkriptionsvarianten: "Alfred", "Eifred", "AI Fred"
+
 **Workflow (Auto-Konsens):**
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
@@ -88,6 +93,8 @@ AIfred unterstützt verschiedene Diskussionsmodi mit einem zweiten LLM (Sokrates
 - **Debug-Konsole**: Umfangreiches Logging und Monitoring
 - **ChromaDB-Server-Modus**: Thread-sichere Vector-DB via Docker (0.0 Distance für exakte Matches)
 - **GPU-Erkennung**: Automatische Erkennung und Warnung bei inkompatiblen Backend-GPU-Kombinationen ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
+- **Ollama Context-Kalibrierung**: Per-Modell Kalibrierung findet maximalen VRAM-only Kontext via Binary Search
+- **RoPE 2x Erweiterter Kontext**: Optionale erweiterte Kalibrierung bis 2x natives Kontextlimit
 - **KoboldCPP Dynamic RoPE**: Intelligente VRAM-basierte Kontext-Optimierung mit automatischem RoPE-Scaling
 - **Multi-User-Queue**: KoboldCPP Request-Queuing für gleichzeitige Benutzer (bis zu 5 Clients)
 - **Multi-Query Web-Suche**: 2-3 optimierte Suchanfragen auf APIs verteilt (Tavily, Brave, SearXNG)
