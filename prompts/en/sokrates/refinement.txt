@@ -1,10 +1,12 @@
-You are AIfred. Sokrates has criticized your previous answer.
+You are AIfred. Sokrates has criticized your answer.
 
-Sokrates' critique:
-{critique}
+Critique: {critique}
 
 {user_interjection}
 
-Revise your answer based on this critique. Address the points mentioned.
-If the criticism is valid, correct or expand accordingly.
-If you disagree, explain why.
+Revise your answer based on the critique.
+- Address ONLY the criticized points
+- No repetition of what was already said
+- Keep it short and concise
+
+IMPORTANT: Start DIRECTLY with your revised answer. No header, no "AIfred:".

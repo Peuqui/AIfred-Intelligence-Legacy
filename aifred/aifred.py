@@ -434,6 +434,41 @@ def native_select_stt(value_var, on_change_handler, options_list) -> rx.Componen
     )
 
 
+def native_select_generic(value_var, on_change_handler, options_pairs) -> rx.Component:
+    """Native HTML <select> for generic key/value options (Mobile)
+
+    Args:
+        value_var: State variable for current value (the key, e.g., "auto_consensus")
+        on_change_handler: Handler for value changes
+        options_pairs: List of [key, display_label] pairs, e.g., [["standard", "Standard"], ["auto_consensus", "Auto-Konsens"]]
+
+    Same styling as backend/model selects for consistent mobile experience.
+    """
+    return rx.el.select(
+        rx.foreach(
+            options_pairs,
+            lambda pair: rx.el.option(pair[1], value=pair[0]),  # pair[0]=key, pair[1]=label
+        ),
+        value=value_var,
+        on_change=on_change_handler,
+        style={
+            "width": "100%",
+            "flex": "1",
+            "padding": "8px 12px",
+            "font_size": "12px",
+            "color": COLORS["text_primary"],
+            "background": COLORS["input_bg"],
+            "border": f"1px solid {COLORS['border']}",
+            "border_radius": "6px",
+            "min_height": "48px",
+            "cursor": "pointer",
+            "white_space": "nowrap",
+            "overflow": "hidden",
+            "text_overflow": "ellipsis",
+        },
+    )
+
+
 # ============================================================
 # LEFT COLUMN: Input Controls
 # ============================================================
@@ -713,28 +748,38 @@ def text_input_section() -> rx.Component:
         rx.vstack(
             rx.text(t("multi_agent_mode"), font_weight="bold", font_size="12px"),
             rx.hstack(
-                rx.select.root(
-                    rx.select.trigger(placeholder="Modus wählen..."),
-                    rx.select.content(
-                        rx.select.item(
-                            rx.cond(AIState.ui_language == "de", "Standard", "Standard"),
-                            value="standard"
-                        ),
-                        rx.select.item(
-                            rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review"),
-                            value="user_judge"
-                        ),
-                        rx.select.item(
-                            rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto-Consensus"),
-                            value="auto_consensus"
-                        ),
-                        rx.select.item(
-                            rx.cond(AIState.ui_language == "de", "Advocatus Diaboli", "Devil's Advocate"),
-                            value="devils_advocate"
-                        ),
+                rx.cond(
+                    AIState.is_mobile,
+                    # MOBILE: Native HTML <select>
+                    native_select_generic(
+                        AIState.multi_agent_mode,
+                        AIState.set_multi_agent_mode,
+                        AIState.multi_agent_mode_options,
                     ),
-                    value=AIState.multi_agent_mode,
-                    on_change=AIState.set_multi_agent_mode,
+                    # DESKTOP: Radix UI Select
+                    rx.select.root(
+                        rx.select.trigger(placeholder="Modus wählen..."),
+                        rx.select.content(
+                            rx.select.item(
+                                rx.cond(AIState.ui_language == "de", "Standard", "Standard"),
+                                value="standard"
+                            ),
+                            rx.select.item(
+                                rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review"),
+                                value="user_judge"
+                            ),
+                            rx.select.item(
+                                rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto-Consensus"),
+                                value="auto_consensus"
+                            ),
+                            rx.select.item(
+                                rx.cond(AIState.ui_language == "de", "Advocatus Diaboli", "Devil's Advocate"),
+                                value="devils_advocate"
+                            ),
+                        ),
+                        value=AIState.multi_agent_mode,
+                        on_change=AIState.set_multi_agent_mode,
+                    ),
                 ),
                 rx.text(
                     t("multi_agent_info"),
@@ -2767,14 +2812,14 @@ def settings_accordion() -> rx.Component:
                             AIState.is_mobile,
                             # Mobile: Native select
                             native_select_stt(
-                                AIState.whisper_model_name,
+                                AIState.whisper_model_display,
                                 AIState.set_whisper_model,
                                 [t("stt_model_tiny"), t("stt_model_base"), t("stt_model_small"), t("stt_model_medium"), t("stt_model_large")],
                             ),
                             # Desktop: Radix UI select
                             rx.select(
                                 [t("stt_model_tiny"), t("stt_model_base"), t("stt_model_small"), t("stt_model_medium"), t("stt_model_large")],
-                                value=AIState.whisper_model_name,
+                                value=AIState.whisper_model_display,
                                 on_change=AIState.set_whisper_model,
                                 size="2",
                             ),

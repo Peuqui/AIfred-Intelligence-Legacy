@@ -29,6 +29,55 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Share Chat**: Copy entire conversation to clipboard as formatted text (🔗 button)
 - **HTML Preview**: AI-generated HTML code opens directly in browser (new tab)
 - **LaTeX & Chemistry**: KaTeX for math formulas, mhchem extension for chemistry (`\ce{H2O}`, reactions, structure formulas)
+- **Multi-Agent Debate System**: AIfred + Sokrates as critical discussion partner for improved answer quality
+
+### 🤖 Multi-Agent Discussion Modes
+
+AIfred supports various discussion modes with a second LLM (Sokrates) as critical thinker:
+
+| Mode | Description | Rounds |
+|------|-------------|--------|
+| **Standard** | AIfred only (classic behavior) | 1 |
+| **Critical Review** | AIfred answers, Sokrates critiques, User decides | 1 |
+| **Auto-Consensus** | Iterative improvement until LGTM or max rounds | 1-3 |
+| **Devil's Advocate** | Pro & Contra arguments for balanced analysis | 1 |
+
+**Workflow (Auto-Consensus):**
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   User      │────▶│   AIfred    │────▶│  Sokrates   │
+│   Query     │     │   Answer    │     │  Critique   │
+└─────────────┘     └─────────────┘     └──────┬──────┘
+                                               │
+                         ┌─────────────────────┘
+                         ▼
+                    ┌─────────┐
+                    │  LGTM?  │
+                    └────┬────┘
+                         │
+              ┌──────────┼──────────┐
+              ▼          ▼          ▼
+         ┌────────┐ ┌────────┐ ┌────────┐
+         │  YES   │ │   NO   │ │  MAX   │
+         │  Done  │ │Continue│ │ ROUNDS │
+         └────────┘ └────────┘ └────────┘
+                         │
+                         ▼
+                  ┌─────────────┐
+                  │   AIfred    │
+                  │  Refinement │
+                  └─────────────┘
+```
+
+**UI Settings:**
+- Sokrates-LLM separately selectable (can be different model than AIfred)
+- Max debate rounds (1-5, default: 3)
+- Discussion mode in Settings panel
+
+**Thinking Support:**
+- All agents support Thinking Mode
+- `<think>` blocks formatted as collapsibles
+- LGTM detection works even with long thinking process
 
 ### 🔧 Technical Highlights
 - **Reflex Framework**: React frontend generated from Python

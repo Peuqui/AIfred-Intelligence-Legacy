@@ -346,7 +346,7 @@ class AIState(rx.State):
     tts_engine: str = "Edge TTS (Cloud, best quality)"  # TTS engine selection
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
     tts_playback_rate: str = "1.25x"  # Browser playback rate (persisted)
-    whisper_model_name: str = "small (466MB, better quality, multilingual)"  # Whisper model display name
+    whisper_model_key: str = "small"  # Whisper model key (tiny/base/small/medium/large)
     # whisper_device removed - now configured in config.py (WHISPER_DEVICE)
     show_transcription: bool = False  # Show transcribed text for editing before sending
     _whisper_model = None  # Loaded WhisperModel instance (module-level, shared across sessions)
@@ -573,6 +573,39 @@ class AIState(rx.State):
             return ""  # Empty = use Main-LLM
         return self.available_models_dict.get(self.sokrates_model_id, self.sokrates_model_id)
 
+    @rx.var(deps=["whisper_model_key", "ui_language"], auto_deps=False)
+    def whisper_model_display(self) -> str:
+        """Get localized display name for current Whisper model.
+
+        Maps key (tiny/base/small/medium/large) to translated display name.
+        """
+        from .lib import TranslationManager
+        # Translation map: key -> translation_key
+        key_to_translation = {
+            "tiny": "stt_model_tiny",
+            "base": "stt_model_base",
+            "small": "stt_model_small",
+            "medium": "stt_model_medium",
+            "large-v3": "stt_model_large",
+            "large": "stt_model_large",  # Alias
+        }
+        translation_key = key_to_translation.get(self.whisper_model_key, "stt_model_small")
+        return TranslationManager.get_text(translation_key, self.ui_language)
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def multi_agent_mode_options(self) -> List[List[str]]:
+        """Get localized multi-agent mode options as [key, label] pairs for dropdown.
+
+        Returns List[List[str]] for rx.foreach() compatibility.
+        """
+        from .lib import TranslationManager
+        return [
+            ["standard", TranslationManager.get_text("multi_agent_standard", self.ui_language)],
+            ["user_judge", TranslationManager.get_text("multi_agent_user_judge", self.ui_language)],
+            ["auto_consensus", TranslationManager.get_text("multi_agent_auto_consensus", self.ui_language)],
+            ["devils_advocate", TranslationManager.get_text("multi_agent_devils_advocate", self.ui_language)],
+        ]
+
     @rx.var
     def available_models_for_select(self) -> List[List[str]]:
         """Get list of [id, label] pairs for native model select
@@ -700,8 +733,11 @@ class AIState(rx.State):
 
             # Initialize Whisper STT Model (once per server)
             from .lib.config import DEFAULT_SETTINGS
-            whisper_model_display = DEFAULT_SETTINGS.get("whisper_model", "small (466MB, better quality, multilingual)")
-            initialize_whisper_model(whisper_model_display)
+            whisper_model_key = str(DEFAULT_SETTINGS.get("whisper_model", "small"))
+            # Extract key if old format with display name
+            if "(" in whisper_model_key:
+                whisper_model_key = whisper_model_key.split("(")[0].strip()
+            initialize_whisper_model(whisper_model_key)
 
             # GPU Detection (once per server)
             log_message("🔍 Detecting GPU capabilities...")
@@ -781,7 +817,12 @@ class AIState(rx.State):
                 self.tts_engine = saved_settings.get("tts_engine", self.tts_engine)
                 self.tts_autoplay = saved_settings.get("tts_autoplay", self.tts_autoplay)
                 self.tts_playback_rate = saved_settings.get("tts_playback_rate", self.tts_playback_rate)
-                self.whisper_model_name = saved_settings.get("whisper_model", self.whisper_model_name)
+                # Load whisper model key (backwards compatible: extract key from old display name)
+                saved_whisper = saved_settings.get("whisper_model", self.whisper_model_key)
+                # Extract key from display name if old format (e.g., "small (466MB, ...)" -> "small")
+                if "(" in saved_whisper:
+                    saved_whisper = saved_whisper.split("(")[0].strip()
+                self.whisper_model_key = saved_whisper
                 # whisper_device removed - now in config.py (backwards compatibility: ignore old saved value)
                 self.show_transcription = saved_settings.get("show_transcription", self.show_transcription)
 
@@ -1340,12 +1381,15 @@ class AIState(rx.State):
         existing = load_settings() or {}
         backend_models = existing.get("backend_models", {})
 
-        # NEW: Save pure IDs directly (no more extract_model_name() needed!)
-        backend_models[self.backend_id] = {
-            "selected_model": self.selected_model_id,  # Pure ID: "qwen3:8b"
-            "automatik_model": self.automatik_model_id,
-            "vision_model": self.vision_model_id,
-        }
+        # Only update backend models if we have valid model IDs
+        # This prevents overwriting with empty strings during early initialization
+        # (e.g., when UI language is switched before backend is fully loaded)
+        if self.selected_model_id and self.backend_id:
+            backend_models[self.backend_id] = {
+                "selected_model": self.selected_model_id,  # Pure ID: "qwen3:8b"
+                "automatik_model": self.automatik_model_id,
+                "vision_model": self.vision_model_id,
+            }
 
         settings = {
             "backend_type": self.backend_type,
@@ -1371,7 +1415,7 @@ class AIState(rx.State):
             "tts_engine": self.tts_engine,
             "tts_autoplay": self.tts_autoplay,
             "tts_playback_rate": self.tts_playback_rate,
-            "whisper_model": self.whisper_model_name,
+            "whisper_model": self.whisper_model_key,  # Save only key (tiny/base/small/medium/large)
             # whisper_device removed - now in config.py
             "show_transcription": self.show_transcription,
             # Language-specific TTS voices (user preferences per engine/language)
@@ -2975,7 +3019,7 @@ class AIState(rx.State):
                 from .lib.formatting import format_thinking_process, format_metadata
                 thinking_html = format_thinking_process(
                     full_response,
-                    model_name=self.selected_model,
+                    model_name=self.selected_model_id,  # Use pure ID, not display name with size
                     inference_time=inference_time,
                     tokens_per_sec=tokens_per_sec
                 )
@@ -3619,7 +3663,7 @@ class AIState(rx.State):
         # Lazy load Whisper model if not already loaded
         if _whisper_model is None:
             self.add_debug("🎤 Loading Whisper model...")
-            initialize_whisper_model(self.whisper_model_name)
+            initialize_whisper_model(self.whisper_model_key)
             if _whisper_model is None:
                 self.add_debug("❌ Failed to load Whisper model")
                 return
@@ -4600,13 +4644,25 @@ class AIState(rx.State):
             mode_label = mode_labels.get(self.multi_agent_mode, self.multi_agent_mode)
 
             # Calculate VRAM limit for Sokrates model (like Main-LLM does)
-            from .lib.context_manager import calculate_dynamic_num_ctx
+            from .lib.context_manager import calculate_dynamic_num_ctx, estimate_tokens
+            from .lib.formatting import format_number
             sokrates_num_ctx, sokrates_vram_msgs = await calculate_dynamic_num_ctx(
                 llm_client, sokrates_model, [], None,
                 enable_vram_limit=True
             )
             for msg in sokrates_vram_msgs:
                 self.add_debug(f"   {msg}")  # Indent to show it's for Sokrates
+
+            # Get Main-LLM context limit
+            main_llm_ctx = self.last_vram_limit if self.last_vram_limit else 40960
+
+            # Update global cache with MINIMUM of both context limits
+            # This ensures history compression uses the smallest window
+            from aifred.lib.context_manager import _last_vram_limit_cache
+            min_ctx = min(sokrates_num_ctx, main_llm_ctx)
+            if min_ctx < _last_vram_limit_cache.get("limit", float('inf')):
+                _last_vram_limit_cache["limit"] = min_ctx
+                self.add_debug(f"📉 Context limit for compression: {format_number(min_ctx)} tokens (min of AIfred/Sokrates)")
 
             # LLM options with calculated context (use global thinking toggle)
             sokrates_options = LLMOptions(
@@ -4617,7 +4673,7 @@ class AIState(rx.State):
             alfred_options = LLMOptions(
                 temperature=0.5,  # Moderate temp for refinement
                 enable_thinking=self.enable_thinking,  # Use global thinking toggle
-                num_ctx=self.last_vram_limit if self.last_vram_limit else 40960  # Use Main-LLM context
+                num_ctx=main_llm_ctx
             )
 
             # Track current answer (may be refined in auto_consensus)
@@ -4663,13 +4719,12 @@ class AIState(rx.State):
                 sokrates_index = len(self.chat_history) - 1
                 yield  # Show placeholder
 
-                # Estimate tokens in messages (rough: ~4 chars per token)
-                sokrates_msg_chars = sum(len(m.get("content", "")) for m in sokrates_messages)
-                sokrates_msg_tokens = sokrates_msg_chars // 4
+                # Estimate tokens in messages (using proper tokenizer estimation)
+                sokrates_msg_tokens = estimate_tokens(sokrates_messages, model_name=sokrates_model)
                 sokrates_ctx = sokrates_options.num_ctx if sokrates_options and sokrates_options.num_ctx else 8192
                 self.add_debug(
-                    f"🏛️ Sokrates R{round_num}: ~{sokrates_msg_tokens:,} / {sokrates_ctx:,} tok "
-                    f"({100*sokrates_msg_tokens//sokrates_ctx}%)"
+                    f"📊 Sokrates R{round_num}: {format_number(sokrates_msg_tokens)} / "
+                    f"{format_number(sokrates_ctx)} tokens"
                 )
 
                 # Stream Sokrates response
@@ -4694,11 +4749,23 @@ class AIState(rx.State):
                     f"{metrics['tok_per_sec']:.1f} tok/s"
                 )
 
+                # Format <think> tags as collapsible (if present)
+                from .lib.formatting import format_thinking_process
+                formatted_sokrates = format_thinking_process(
+                    sokrates_response_text,
+                    model_name=f"Sokrates ({sokrates_model})",
+                    inference_time=metrics.get("time", 0)
+                )
+
                 # Final update with metadata
-                final_content = f"{sokrates_header}{sokrates_response_text}\n\n{metadata}"
+                final_content = f"{sokrates_header}{formatted_sokrates}\n\n{metadata}"
                 self.chat_history[sokrates_index] = ("", final_content)
-                self.sokrates_critique = sokrates_response_text
+                self.sokrates_critique = sokrates_response_text  # Keep raw text for logic checks
                 yield
+
+                # === Check if history compression needed (after each LLM response) ===
+                async for _ in self._check_compression_if_needed(llm_client, min_ctx):
+                    yield
 
                 # Parse Pro/Contra for devils_advocate
                 if self.multi_agent_mode == "devils_advocate":
@@ -4708,12 +4775,14 @@ class AIState(rx.State):
                 # Check for LGTM (consensus reached)
                 # LGTM only counts if it's essentially JUST "LGTM" (possibly with punctuation)
                 # This avoids false positives like "LGTM ist nicht möglich"
-                response_stripped = sokrates_response_text.strip()
-                response_upper = response_stripped.upper()
+                # IMPORTANT: Strip <think> blocks first - they can be very long but actual answer is just "LGTM"
+                from .lib.context_manager import strip_thinking_blocks
+                response_content = strip_thinking_blocks(sokrates_response_text).strip()
+                response_upper = response_content.upper()
 
                 # True LGTM: response is very short and contains LGTM
                 # e.g. "LGTM", "LGTM.", "LGTM!", "  LGTM  "
-                is_lgtm = len(response_stripped) < 20 and "LGTM" in response_upper
+                is_lgtm = len(response_content) < 20 and "LGTM" in response_upper
 
                 if is_lgtm:
                     self.add_debug(f"✅ Consensus reached in round {round_num} (LGTM)")
@@ -4739,13 +4808,12 @@ class AIState(rx.State):
                         refinement_prompt  # Refinement task as "user" message
                     )
 
-                    # Estimate tokens in messages (rough: ~4 chars per token)
-                    alfred_msg_chars = sum(len(m.get("content", "")) for m in alfred_messages)
-                    alfred_msg_tokens = alfred_msg_chars // 4
+                    # Estimate tokens in messages (using proper tokenizer estimation)
+                    alfred_msg_tokens = estimate_tokens(alfred_messages, model_name=self.selected_model_id)
                     alfred_ctx = alfred_options.num_ctx if alfred_options and alfred_options.num_ctx else 40960
                     self.add_debug(
-                        f"🎩 AIfred R{round_num + 1}: ~{alfred_msg_tokens:,} / {alfred_ctx:,} tok "
-                        f"({100*alfred_msg_tokens//alfred_ctx}%)"
+                        f"📊 AIfred R{round_num + 1}: {format_number(alfred_msg_tokens)} / "
+                        f"{format_number(alfred_ctx)} tokens"
                     )
 
                     # Add placeholder for AIfred refinement
@@ -4769,11 +4837,24 @@ class AIState(rx.State):
                     alfred_result = self._stream_result
                     current_answer = alfred_result["text"]
                     alfred_metadata = alfred_result["metadata"]
+                    alfred_metrics = alfred_result.get("metrics", {})
+
+                    # Format <think> tags as collapsible (if present)
+                    from .lib.formatting import format_thinking_process
+                    formatted_alfred = format_thinking_process(
+                        current_answer,
+                        model_name=f"AIfred ({alfred_model})",
+                        inference_time=alfred_metrics.get("time", 0)
+                    )
 
                     # Update history with metadata
-                    final_alfred = f"{alfred_header}{current_answer}\n\n{alfred_metadata}"
+                    final_alfred = f"{alfred_header}{formatted_alfred}\n\n{alfred_metadata}"
                     self.chat_history[alfred_index] = ("", final_alfred)
                     yield
+
+                    # === Check if history compression needed (after each LLM response) ===
+                    async for _ in self._check_compression_if_needed(llm_client, min_ctx):
+                        yield
 
             # End of debate
             if self.multi_agent_mode == "auto_consensus":
@@ -4843,6 +4924,39 @@ class AIState(rx.State):
             "metadata": metadata,
             "metrics": {"time": inference_time, "tokens": token_count, "tok_per_sec": tokens_per_sec}
         }
+
+    async def _check_compression_if_needed(self, llm_client, context_limit: int):
+        """
+        Check if history compression is needed during multi-agent debate.
+        Uses the same logic as post-response compression but can run mid-debate.
+        Compression triggers at 70% of context_limit (HISTORY_COMPRESSION_THRESHOLD).
+        """
+        from .lib.context_manager import summarize_history_if_needed
+
+        try:
+            # Run compression check (yields events if compression happens)
+            async for event in summarize_history_if_needed(
+                history=self.chat_history,
+                llm_client=llm_client,
+                model_name=self.automatik_model,  # Use fast model for compression
+                context_limit=context_limit
+            ):
+                if event["type"] == "history_update":
+                    self.chat_history = event["data"]
+                    self.add_debug(f"✅ History komprimiert: {len(self.chat_history)} Messages")
+                    yield
+                elif event["type"] == "debug":
+                    self.add_debug(event["message"])
+                    yield
+                elif event["type"] == "progress":
+                    self.is_compressing = True
+                    yield
+
+            self.is_compressing = False
+
+        except Exception as e:
+            self.add_debug(f"⚠️ Compression check failed: {e}")
+            self.is_compressing = False
 
     async def set_automatik_model(self, model: str):
         """Set automatik model for decision and query optimization"""
@@ -4974,14 +5088,20 @@ class AIState(rx.State):
 
     # TODO: clear_tts_autoplay removed - TTS Playback will be reimplemented
 
-    def set_whisper_model(self, model_name: str):
-        """Set Whisper model and reload"""
+    def set_whisper_model(self, model_display_name: str):
+        """Set Whisper model and reload.
+
+        Args:
+            model_display_name: Display name from dropdown (e.g., "small (466MB, bessere Qualität, multilingual)")
+        """
         global _whisper_model
-        self.whisper_model_name = model_name
-        self.add_debug(f"🎤 Whisper Model: {model_name} (reload required)")
+        # Extract key from display name (e.g., "small (466MB, ...)" -> "small")
+        model_key = model_display_name.split("(")[0].strip() if "(" in model_display_name else model_display_name
+        self.whisper_model_key = model_key
+        self.add_debug(f"🎤 Whisper Model: {model_key} (reload required)")
         # Reload Whisper model with new selection
         _whisper_model = None  # Clear old model
-        initialize_whisper_model(model_name)
+        initialize_whisper_model(model_key)
         self._save_settings()
 
     # REMOVED: toggle_whisper_device - Device is now configured in config.py

@@ -9,14 +9,14 @@ Implements multi-agent debate patterns for improved answer quality:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Callable, Any
-from .llm_client import LLMClient
+from typing import List, Dict, Optional, Callable, cast
+from .llm_client import LLMClient, MessageType
 from .prompt_loader import (
     get_sokrates_critic_prompt,
     get_sokrates_devils_advocate_prompt,
     get_sokrates_refinement_prompt
 )
-from ..backends.base import LLMMessage, LLMOptions, LLMResponse
+from ..backends.base import LLMOptions
 
 
 @dataclass
@@ -57,6 +57,11 @@ class MultiAgentOrchestrator:
         """Initialize the orchestrator"""
         pass
 
+    @staticmethod
+    def _to_messages(msgs: List[Dict[str, str]]) -> List[MessageType]:
+        """Convert list of message dicts to MessageType list for type safety."""
+        return cast(List[MessageType], msgs)
+
     def _get_critic_prompt(self) -> str:
         """Load Sokrates Critic prompt from external file"""
         return get_sokrates_critic_prompt()
@@ -88,20 +93,20 @@ class MultiAgentOrchestrator:
 
         # Step 1: AIfred answers
         alfred_messages = self._build_messages(ctx.history, ctx.query)
-        alfred_response = await ctx.llm_client.chat(ctx.model, alfred_messages, ctx.options)
+        alfred_response = await ctx.llm_client.chat(ctx.model, self._to_messages(alfred_messages), ctx.options)
         alfred_answer = alfred_response.text
 
         if add_debug:
             add_debug(f"🎩 AIfred: {len(alfred_answer)} Zeichen generiert")
 
         # Step 2: Sokrates critiques
-        sokrates_messages = [
+        sokrates_messages: List[Dict[str, str]] = [
             {"role": "system", "content": self._get_critic_prompt()},
             {"role": "user", "content": f"Frage des Users: {ctx.query}"},
             {"role": "assistant", "content": f"AIfred's Antwort:\n{alfred_answer}"},
             {"role": "user", "content": "Analysiere diese Antwort kritisch."}
         ]
-        sokrates_response = await ctx.llm_client.chat(ctx.model, sokrates_messages, ctx.options)
+        sokrates_response = await ctx.llm_client.chat(ctx.model, self._to_messages(sokrates_messages), ctx.options)
         sokrates_critique = sokrates_response.text
 
         if add_debug:
@@ -162,23 +167,23 @@ class MultiAgentOrchestrator:
                 alfred_messages.append({"role": "assistant", "content": alfred_answer})
                 alfred_messages.append({"role": "user", "content": refinement_prompt})
 
-            alfred_response = await ctx.llm_client.chat(ctx.model, alfred_messages, ctx.options)
+            alfred_response = await ctx.llm_client.chat(ctx.model, self._to_messages(alfred_messages), ctx.options)
             alfred_answer = alfred_response.text
-            debate_history.append({"role": "alfred", "round": round_num, "content": alfred_answer})
+            debate_history.append({"role": "alfred", "round": str(round_num), "content": alfred_answer})
 
             if add_debug:
                 add_debug(f"🎩 AIfred R{round_num}: {len(alfred_answer)} Zeichen")
 
             # Step 2: Sokrates critiques
-            sokrates_messages = [
+            sokrates_messages: List[Dict[str, str]] = [
                 {"role": "system", "content": self._get_critic_prompt()},
                 {"role": "user", "content": f"Frage des Users: {ctx.query}"},
                 {"role": "assistant", "content": f"AIfred's Antwort (Runde {round_num}):\n{alfred_answer}"},
                 {"role": "user", "content": "Analysiere diese Antwort kritisch."}
             ]
-            sokrates_response = await ctx.llm_client.chat(ctx.model, sokrates_messages, ctx.options)
+            sokrates_response = await ctx.llm_client.chat(ctx.model, self._to_messages(sokrates_messages), ctx.options)
             sokrates_critique = sokrates_response.text
-            debate_history.append({"role": "sokrates", "round": round_num, "content": sokrates_critique})
+            debate_history.append({"role": "sokrates", "round": str(round_num), "content": sokrates_critique})
 
             if add_debug:
                 add_debug(f"🧠 Sokrates R{round_num}: {len(sokrates_critique)} Zeichen")
@@ -197,7 +202,7 @@ class MultiAgentOrchestrator:
 
         # Max rounds reached without consensus
         if add_debug:
-            add_debug(f"⚠️ Max Runden erreicht ohne Konsens")
+            add_debug("⚠️ Max Runden erreicht ohne Konsens")
 
         return DebateResult(
             alfred_answer=alfred_answer,
@@ -222,14 +227,14 @@ class MultiAgentOrchestrator:
 
         # Step 1: AIfred answers
         alfred_messages = self._build_messages(ctx.history, ctx.query)
-        alfred_response = await ctx.llm_client.chat(ctx.model, alfred_messages, ctx.options)
+        alfred_response = await ctx.llm_client.chat(ctx.model, self._to_messages(alfred_messages), ctx.options)
         alfred_answer = alfred_response.text
 
         if add_debug:
             add_debug(f"🎩 AIfred: {len(alfred_answer)} Zeichen generiert")
 
         # Step 2: Sokrates provides Pro/Contra analysis
-        sokrates_messages = [
+        sokrates_messages: List[Dict[str, str]] = [
             {"role": "system", "content": self._get_devils_advocate_prompt()},
             {"role": "user", "content": f"""Frage des Users: {ctx.query}
 
@@ -238,7 +243,7 @@ AIfred's Antwort/Position:
 
 Analysiere diese Position mit Pro- und Contra-Argumenten."""}
         ]
-        sokrates_response = await ctx.llm_client.chat(ctx.model, sokrates_messages, ctx.options)
+        sokrates_response = await ctx.llm_client.chat(ctx.model, self._to_messages(sokrates_messages), ctx.options)
         sokrates_analysis = sokrates_response.text
 
         if add_debug:
