@@ -741,8 +741,8 @@ def llm_parameters_accordion() -> rx.Component:
 
                     # Radio Buttons für Mode Selection (nur Deutsch für Konsistenz)
                     rx.radio(
-                        ["🛡️ Auto (VRAM-optimiert) - Empfohlen", "⚠️ Auto (Modell-Maximum) - Risiko CPU-Offload", "🔧 Manuell"],
-                        default_value="🛡️ Auto (VRAM-optimiert) - Empfohlen",
+                        ["🎯 Auto", "🔧 Manuell"],
+                        default_value="🎯 Auto",
                         on_change=AIState.set_num_ctx_mode_from_display,
                         direction="column",
                         spacing="2",
@@ -2162,6 +2162,47 @@ def settings_accordion() -> rx.Component:
                     ),
                     spacing="3",
                     align="center",
+                ),
+
+                # Context Calibration Button + Extended Toggle - Only for Ollama backend
+                rx.cond(
+                    AIState.backend_id == "ollama",
+                    rx.hstack(
+                        rx.button(
+                            rx.cond(
+                                AIState.is_calibrating,
+                                rx.hstack(
+                                    rx.spinner(size="1"),
+                                    rx.text(t("calibrating"), font_size="11px"),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                rx.hstack(
+                                    rx.icon("gauge", size=14),
+                                    rx.text(t("calibrate_context"), font_size="11px"),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                            ),
+                            on_click=AIState.calibrate_context,
+                            disabled=AIState.is_calibrating | AIState.backend_switching,
+                            size="1",
+                            variant="outline",
+                            color_scheme="orange",
+                        ),
+                        rx.hstack(
+                            rx.switch(
+                                checked=AIState.calibrate_extended,
+                                on_change=AIState.set_calibrate_extended,
+                                size="1",
+                            ),
+                            rx.text(t("up_to_2x"), font_size="10px", color="gray"),
+                            spacing="1",
+                            align="center",
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
                 ),
 
                 # Sokrates LLM Selection - Only visible when multi-agent mode is not "standard"

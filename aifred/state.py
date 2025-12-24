@@ -229,6 +229,8 @@ class AIState(rx.State):
     is_generating: bool = False
     is_compressing: bool = False  # Shows if history compression is running
     is_uploading_image: bool = False  # Shows spinner during image upload
+    is_calibrating: bool = False  # Shows spinner during context calibration
+    calibrate_extended: bool = False  # Toggle for RoPE 2x calibration mode
 
     # Image Upload State
     pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "base64": "...", "url": "...", "original_bytes": bytes}]
@@ -295,7 +297,7 @@ class AIState(rx.State):
     num_ctx: int = 32768
 
     # Context Window Control (NOT saved in settings.json - reset on every start)
-    num_ctx_mode: str = "auto_vram"  # "auto_vram" | "auto_max" | "manual"
+    num_ctx_mode: str = "auto"  # "auto" | "manual" (RoPE extension via calibrate_extended toggle)
     num_ctx_manual: int = 4096  # Manual value (only if mode="manual") - Ollama default
 
     # Cached Model Metadata (to avoid repeated API calls)
@@ -918,6 +920,11 @@ class AIState(rx.State):
                     self.automatik_model_id = extract_model_name(automatik_raw)
                     self.vision_model_id = extract_model_name(vision_raw)
 
+                    # Load per-model RoPE 2x toggle from cache
+                    if self.backend_id == "ollama" and self.selected_model_id:
+                        from .lib.model_vram_cache import get_use_extended_for_model
+                        self.calibrate_extended = get_use_extended_for_model(self.selected_model_id)
+
                     # Sync deprecated variables (will be populated later after models load)
                     self.selected_model = selected_raw
                     self.automatik_model = automatik_raw
@@ -931,6 +938,11 @@ class AIState(rx.State):
                     self.selected_model_id = extract_model_name(selected_raw)
                     self.automatik_model_id = extract_model_name(automatik_raw)
                     self.vision_model_id = extract_model_name(vision_raw)
+
+                    # Load per-model RoPE 2x toggle from cache
+                    if self.backend_id == "ollama" and self.selected_model_id:
+                        from .lib.model_vram_cache import get_use_extended_for_model
+                        self.calibrate_extended = get_use_extended_for_model(self.selected_model_id)
 
                     self.selected_model = selected_raw
                     self.automatik_model = automatik_raw
@@ -2987,7 +2999,7 @@ class AIState(rx.State):
 
                 # Prepare Main-LLM: calculate num_ctx + Preload (central function!)
                 # IMPORTANT: prepare_main_llm() guarantees the correct order:
-                # 1. Calculate num_ctx (Ollama auto_vram: with unload + VRAM measurement)
+                # 1. Calculate num_ctx (Ollama auto: with unload + VRAM measurement)
                 # 2. Preload with num_ctx (Ollama loads model + allocates KV-Cache)
                 # AsyncGenerator yields debug messages immediately for UI feedback
                 async for item in prepare_main_llm(
@@ -4150,6 +4162,85 @@ class AIState(rx.State):
         """Legacy method - calls restart_backend()"""
         await self.restart_backend()
 
+    def set_calibrate_extended(self, value: bool):
+        """Toggle RoPE 2x extended calibration mode and save to cache"""
+        self.calibrate_extended = value
+        mode = "RoPE 2x" if value else "Native"
+        self.add_debug(f"🎚️ Calibration mode: {mode}")
+
+        # Save to VRAM cache (per-model setting)
+        if self.selected_model_id:
+            from .lib.model_vram_cache import set_use_extended_for_model, get_ollama_calibrated_max_context
+            set_use_extended_for_model(self.selected_model_id, value)
+
+            # Warn if no calibration exists for this mode
+            if value:
+                # Check if extended calibration exists
+                extended_ctx = get_ollama_calibrated_max_context(self.selected_model_id, extended=True)
+                if extended_ctx is None:
+                    self.add_debug("⚠️ No RoPE 2x calibration found - please calibrate first!")
+            else:
+                # Check if native calibration exists
+                native_ctx = get_ollama_calibrated_max_context(self.selected_model_id, extended=False)
+                if native_ctx is None:
+                    self.add_debug("⚠️ No native calibration found - please calibrate first!")
+
+    async def calibrate_context(self):
+        """
+        Calibrate maximum context window for current Ollama model.
+
+        Uses binary search with /api/ps to find the largest context
+        that fits entirely in VRAM without CPU offloading.
+
+        If calibrate_extended=True, calibrates up to 2x native context (RoPE scaling).
+        """
+        if self.backend_id != "ollama":
+            self.add_debug("⚠️ Calibration only available for Ollama")
+            return
+
+        if not self.selected_model_id:
+            self.add_debug("⚠️ No model selected")
+            return
+
+        if self.is_calibrating:
+            self.add_debug("⚠️ Calibration already in progress")
+            return
+
+        self.is_calibrating = True
+        mode_label = "RoPE 2x" if self.calibrate_extended else "Native"
+        self.add_debug(f"🔧 Starting {mode_label} calibration for {self.selected_model_id}...")
+        yield
+
+        try:
+            from .backends import BackendFactory
+
+            backend = BackendFactory.create(
+                self.backend_type,
+                base_url=self.backend_url
+            )
+
+            calibrated_ctx = None
+            async for progress_msg in backend.calibrate_max_context_generator(
+                self.selected_model_id,
+                extended=self.calibrate_extended  # Pass extended flag
+            ):
+                # Check for result marker
+                if progress_msg.startswith("__RESULT__:"):
+                    calibrated_ctx = int(progress_msg.split(":")[1])
+                else:
+                    self.add_debug(f"📊 {progress_msg}")
+                    yield  # Update UI after each progress message
+
+            if calibrated_ctx:
+                self.add_debug(f"   → Value will be used automatically on next inference")
+                self.add_debug("─" * 40)
+
+        except Exception as e:
+            self.add_debug(f"❌ Calibration failed: {e}")
+
+        finally:
+            self.is_calibrating = False
+            yield
 
     def restart_aifred(self):
         """Restart AIfred service via systemctl"""
@@ -4381,8 +4472,7 @@ class AIState(rx.State):
         Set num_ctx mode (NICHT in settings.json gespeichert - Reset bei jedem Start)
 
         Modes:
-        - auto_vram: VRAM-optimiert (Standard, verhindert CPU-Offload)
-        - auto_max: Modell-Maximum (riskant, kann CPU-Offload auslösen)
+        - auto: Auto-Modus (nutzt Kalibrierung, extended wenn calibrate_extended=True)
         - manual: Manueller Wert aus num_ctx_manual
         """
         self.num_ctx_mode = mode
@@ -4390,14 +4480,12 @@ class AIState(rx.State):
         # WICHTIG: Nicht in settings.json speichern!
 
     def set_num_ctx_mode_from_display(self, display_value: str):
-        """Set num_ctx mode from UI display value (German text)"""
-        # Map German display text to mode
-        if "VRAM" in display_value:
-            mode = "auto_vram"
-        elif "Maximum" in display_value:
-            mode = "auto_max"
-        else:  # "Manuell"
+        """Set num_ctx mode from UI display value"""
+        # Map display text to mode (simplified: Auto or Manual)
+        if "Manuell" in display_value or "Manual" in display_value:
             mode = "manual"
+        else:  # "Auto" (default)
+            mode = "auto"
         self.set_num_ctx_mode(mode)
 
     def set_num_ctx_manual(self, value: str):
@@ -5050,6 +5138,11 @@ class AIState(rx.State):
         """Set selected model using pure ID (new key-value system)"""
         # Update ID
         self.selected_model_id = model_id
+
+        # Load per-model RoPE 2x toggle from cache
+        if self.backend_id == "ollama":
+            from .lib.model_vram_cache import get_use_extended_for_model
+            self.calibrate_extended = get_use_extended_for_model(model_id)
 
         # Sync deprecated display variable
         display_label = self.available_models_dict.get(model_id, model_id)

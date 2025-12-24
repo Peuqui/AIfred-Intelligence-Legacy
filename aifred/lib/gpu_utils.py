@@ -106,6 +106,34 @@ def get_free_vram_mb() -> Optional[int]:
         return None
 
 
+def get_gpu_model_name(gpu_index: int = 0) -> Optional[str]:
+    """
+    Get GPU model name (e.g., "NVIDIA GeForce RTX 3090 Ti")
+
+    Args:
+        gpu_index: GPU index (default: 0 for primary GPU)
+
+    Returns:
+        GPU model name string, or None if unavailable
+    """
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+
+        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
+        name = pynvml.nvmlDeviceGetName(handle)
+
+        pynvml.nvmlShutdown()
+
+        if isinstance(name, bytes):
+            name = name.decode('utf-8')
+
+        return name
+
+    except Exception:
+        return None
+
+
 async def is_moe_model(model_name: str, ollama_url: str = "http://localhost:11434") -> bool:
     """
     Detect if model is MoE (Mixture of Experts) architecture
@@ -274,6 +302,8 @@ async def calculate_vram_based_context(
 
     UNIVERSAL FUNCTION FOR ALL BACKENDS (Ollama, vLLM, TabbyAPI)
 
+    For Ollama: Reads per-model use_extended setting from VRAM cache automatically.
+
     Args:
         model_name: Name of the model (for MoE detection and logging)
         model_size_bytes: Model size in bytes (from HF cache or Ollama blobs)
@@ -304,11 +334,24 @@ async def calculate_vram_based_context(
     debug_msgs = []  # Collect messages for UI yield
 
     # PRIORITY 1: Check for calibrated max_context (most accurate!)
-    # If we have a manually calibrated max_context_gpu_only value, use it directly
-    # instead of calculating dynamically (calibration > estimation)
+    # If we have a manually calibrated value, use it directly instead of calculating dynamically
     if backend_type == "ollama":
-        from .model_vram_cache import get_ollama_calibrated_max_context
-        calibrated_max = get_ollama_calibrated_max_context(model_name)
+        from .model_vram_cache import get_ollama_calibrated_max_context, get_use_extended_for_model
+
+        # Read toggle from cache (per-model setting)
+        use_extended = get_use_extended_for_model(model_name)
+
+        # For extended mode: try extended calibration first, fall back to native
+        if use_extended:
+            calibrated_max = get_ollama_calibrated_max_context(model_name, extended=True)
+            if calibrated_max is not None:
+                # Extended calibration found - use it (can exceed native limit via RoPE)
+                debug_msgs.append(f"🎯 Calibrated (RoPE 2x): {format_number(calibrated_max)} tok")
+                return calibrated_max, debug_msgs
+            # No extended calibration - fall through to native or VRAM calculation
+
+        # Native calibration (default)
+        calibrated_max = get_ollama_calibrated_max_context(model_name, extended=False)
         if calibrated_max is not None:
             # Use calibrated value directly - no VRAM calculation needed!
             final_ctx = min(calibrated_max, model_context_limit)

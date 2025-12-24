@@ -494,7 +494,7 @@ async def chat_with_vision_pipeline(
     main_model: str,
     backend_type: str = "ollama",
     backend_url: Optional[str] = None,
-    num_ctx_mode: str = "auto_vram",
+    num_ctx_mode: str = "auto",
     num_ctx_manual: int = 16384,
     llm_options: Optional[Dict] = None,
     state=None  # AIState object (for Automatik routing if user_text present)
@@ -515,7 +515,7 @@ async def chat_with_vision_pipeline(
         main_model: Main LLM for post-processing (e.g., "qwen3:30b")
         backend_type: "ollama", "koboldcpp", "vllm", "tabbyapi"
         backend_url: Backend URL (optional, uses default if None)
-        num_ctx_mode: "auto_vram", "auto_dynamic", "manual"
+        num_ctx_mode: "auto" or "manual"
         num_ctx_manual: Manual context size if mode="manual"
         llm_options: Additional LLM options
 
@@ -845,13 +845,15 @@ async def chat_interactive_mode(
     llm_options: Optional[Dict] = None,
     backend_type: str = "ollama",
     backend_url: Optional[str] = None,
-    num_ctx_mode: str = "auto_vram",
+    num_ctx_mode: str = "auto",
     num_ctx_manual: int = 16384,
     pending_images: Optional[List[Dict[str, str]]] = None,
     vision_json_context: Optional[dict] = None
 ) -> AsyncIterator[Dict]:
     """
     Automatik mode: AI decides whether web research is needed
+
+    Note: For Ollama, per-model RoPE 2x toggle is read automatically from VRAM cache.
 
     Args:
         user_text: User question
@@ -865,7 +867,7 @@ async def chat_interactive_mode(
         llm_options: Dict with Ollama options (num_ctx, etc.) - optional
         backend_type: LLM backend ("ollama", "vllm", "tabbyapi")
         backend_url: Backend URL (optional, uses default if not provided)
-        num_ctx_mode: Context mode ("auto_vram", "auto_max", "manual")
+        num_ctx_mode: Context mode ("auto" or "manual")
         num_ctx_manual: Manual num_ctx value (only used if mode="manual")
         pending_images: List of images (for multimodal messages)
         vision_json_context: Structured data extracted from images by Vision-LLM (optional)
@@ -1209,7 +1211,7 @@ async def chat_interactive_mode(
 
             # Prepare Main-LLM: calculate num_ctx + preload (centralized function!)
             # IMPORTANT: prepare_main_llm() guarantees the correct order:
-            # 1. Calculate num_ctx (Ollama auto_vram: with unload + VRAM measurement)
+            # 1. Calculate num_ctx (Ollama auto: with unload + VRAM measurement)
             # 2. Preload with num_ctx (Ollama loads model + allocates KV cache)
             # AsyncGenerator yields debug messages immediately for UI feedback
             backend = llm_client._get_backend()
@@ -1573,7 +1575,7 @@ async def chat_interactive_mode(
 
                 # Prepare Main-LLM: calculate num_ctx + Preload (centralized function!)
                 # IMPORTANT: prepare_main_llm() guarantees correct order:
-                # 1. Calculate num_ctx (Ollama auto_vram: with unload + VRAM measurement)
+                # 1. Calculate num_ctx (Ollama auto: with unload + VRAM measurement)
                 # 2. Preload with num_ctx (Ollama loads model + allocates KV-Cache)
                 # AsyncGenerator yields debug messages immediately for UI feedback
                 backend = llm_client._get_backend()

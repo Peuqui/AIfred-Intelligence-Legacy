@@ -567,7 +567,7 @@ async def prepare_main_llm(
     llm_client,
     model_name: str,
     messages: list,
-    num_ctx_mode: str = "auto_vram",
+    num_ctx_mode: str = "auto",
     num_ctx_manual: int = 4096,
     backend_type: str = "ollama"
 ):
@@ -575,7 +575,7 @@ async def prepare_main_llm(
     Central function for Main-LLM preparation (AsyncGenerator).
 
     Guarantees correct order for Ollama Multi-GPU:
-    1. Calculate num_ctx (Ollama auto_vram: with unload + VRAM measurement)
+    1. Calculate num_ctx (Ollama auto: with unload + VRAM measurement)
     2. Preload with num_ctx (Ollama loads model + allocates KV-Cache)
 
     IMPORTANT: This function is ONLY for the Main-LLM!
@@ -583,12 +583,14 @@ async def prepare_main_llm(
 
     Yields debug messages immediately for UI, so user sees what's happening.
 
+    Note: For Ollama, per-model RoPE 2x toggle is read automatically from VRAM cache.
+
     Args:
         backend: LLM Backend instance
         llm_client: LLMClient for context limit query
         model_name: Model name (pure ID without suffix)
         messages: Message list for token estimation
-        num_ctx_mode: "manual", "auto_vram", "auto_max"
+        num_ctx_mode: "auto" or "manual"
         num_ctx_manual: Manual value (only when mode="manual")
         backend_type: "ollama", "vllm", etc.
 
@@ -606,31 +608,29 @@ async def prepare_main_llm(
             final_num_ctx = num_ctx_manual
             yield {"type": "debug", "message": f"🔧 Manual num_ctx: {num_ctx_manual:,}"}
             log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
+        elif backend_type == "ollama":
+            # Ollama auto: calculate_practical_context() does:
+            # - unload_all_models() internally
+            # - Wait 2s for VRAM release
+            # - VRAM-based calculation (reads use_extended from cache per model)
+            log_message(f"🔄 prepare_main_llm: Starting VRAM calculation")
+
+            final_num_ctx, vram_msgs = await backend.calculate_practical_context(model_name)
+            for msg in vram_msgs:
+                yield {"type": "debug", "message": msg}
+            log_message(f"✅ prepare_main_llm: VRAM calculation done → num_ctx={final_num_ctx:,}")
+
+            # Set cache for history compression
+            _last_vram_limit_cache["limit"] = final_num_ctx
         else:
-            enable_vram_limit = (num_ctx_mode == "auto_vram")
-            log_message(f"🔄 prepare_main_llm: Starting VRAM calculation (enable_vram_limit={enable_vram_limit})")
-
-            if backend_type == "ollama" and enable_vram_limit:
-                # Ollama auto_vram: calculate_practical_context() does:
-                # - unload_all_models() internally
-                # - Wait 2s for VRAM release
-                # - VRAM-based calculation
-                final_num_ctx, vram_msgs = await backend.calculate_practical_context(model_name)
-                for msg in vram_msgs:
-                    yield {"type": "debug", "message": msg}
-                log_message(f"✅ prepare_main_llm: VRAM calculation done → num_ctx={final_num_ctx:,}")
-
-                # Set cache for history compression (like calculate_dynamic_num_ctx() does)
-                _last_vram_limit_cache["limit"] = final_num_ctx
-            else:
-                # Other backends or auto_max: Standard calculation
-                final_num_ctx, vram_msgs = await calculate_dynamic_num_ctx(
-                    llm_client, model_name, messages, None,
-                    enable_vram_limit=enable_vram_limit
-                )
-                for msg in vram_msgs:
-                    yield {"type": "debug", "message": msg}
-                log_message(f"✅ prepare_main_llm: Context calculation done → num_ctx={final_num_ctx:,}")
+            # Other backends: Standard calculation (no extended calibration support)
+            final_num_ctx, vram_msgs = await calculate_dynamic_num_ctx(
+                llm_client, model_name, messages, None,
+                enable_vram_limit=True
+            )
+            for msg in vram_msgs:
+                yield {"type": "debug", "message": msg}
+            log_message(f"✅ prepare_main_llm: Context calculation done → num_ctx={final_num_ctx:,}")
 
         # 2. Preload with num_ctx (only Ollama - other backends have model at startup)
         preload_success = True

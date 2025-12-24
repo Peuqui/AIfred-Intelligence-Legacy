@@ -36,7 +36,7 @@ async def calculate_vram_aware_rag_budget(
     Args:
         llm_client: LLM client instance
         model_choice: Model name/ID
-        num_ctx_mode: "auto_vram", "manual", or "auto_unlimited"
+        num_ctx_mode: "auto" or "manual"
         num_ctx_manual: Manual context size (used if mode is "manual")
         history: Chat history list
         user_text: Current user message
@@ -46,8 +46,8 @@ async def calculate_vram_aware_rag_budget(
     Returns:
         Tuple of (max_rag_tokens, actual_reserve, max_ctx)
     """
-    # 1. Determine VRAM limit upfront (if auto_vram is active)
-    if num_ctx_mode == "auto_vram":
+    # 1. Determine VRAM limit upfront (if auto is active)
+    if num_ctx_mode == "auto":
         max_ctx, model_limit = await get_max_available_context(
             llm_client, model_choice,
             enable_vram_limit=True
@@ -56,10 +56,10 @@ async def calculate_vram_aware_rag_budget(
         max_ctx = num_ctx_manual
         model_limit = num_ctx_manual
     else:
-        # auto_unlimited: No VRAM limit
+        # Fallback: treat unknown modes as auto
         max_ctx, model_limit = await get_max_available_context(
             llm_client, model_choice,
-            enable_vram_limit=False
+            enable_vram_limit=True
         )
 
     # 2. Fixed overhead estimate (system prompt, history, user message)
