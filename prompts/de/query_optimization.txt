@@ -28,12 +28,9 @@ WICHTIG: Du MUSST immer exakt 3 verschiedene Queries ausgeben - nicht weniger!
 
 ## SPRACHREGELN
 
-- **Medizin:** Gemischt! Eine Query Englisch (PubMed, internationale Studien), eine Query Deutsch (AWMF-Leitlinien, deutsche Fachliteratur)
-- **Wissenschaft/Technik:** Englisch bevorzugen
-- **Aktuelle Nachrichten DE:** Deutsch
-- **Tech-Dokumentation:** Englisch
-- **Lokale Themen (Wetter, Politik DE):** Deutsch
-- **URLs:** Vollstaendig uebernehmen, nicht zerlegen!
+**WICHTIG: Mindestens 1 von 3 Queries MUSS in der Sprache der Frage sein!**
+
+- URLs vollstaendig uebernehmen, nicht zerlegen
 
 ## BEISPIELE
 
@@ -57,6 +54,13 @@ Frage: "Was hat die Bundesregierung zur Klimapolitik beschlossen?"
 Frage: "Wie funktioniert RAG bei LLMs?"
 → retrieval augmented generation LLM implementation
 → RAG architecture vector database embedding
+→ RAG LLM Erklaerung deutsch Tutorial
+
+**Produktvergleich/Kaufberatung:**
+Frage: "ELA Eclipse 10 oder AutoGyro Calidus Tragschrauber kaufen?"
+→ ELA Eclipse 10 Tragschrauber Erfahrungen Preis 2025
+→ AutoGyro Calidus Test Vergleich Deutschland
+→ gyrocopter ELA vs Calidus comparison review
 
 **Mit Vision-Kontext:**
 Frage: "Recherchiere Nebenwirkungen des ersten Medikaments"
