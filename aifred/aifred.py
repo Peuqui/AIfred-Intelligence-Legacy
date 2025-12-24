@@ -1368,37 +1368,41 @@ def render_chat_message(msg: dict) -> rx.Component:
                 # Failed Sources (wenn vorhanden) - ZWISCHEN User und AI Message
                 render_failed_sources_inline(msg["failed_sources"]),
                 # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
-                rx.box(
-                    rx.hstack(
-                        rx.text("🎩", font_size="13px"),
-                        rx.box(
-                            # Header with AIfred name
-                            rx.text(
-                                "AIfred",
-                                font_weight="bold",
-                                font_size="12px",
-                                color=COLORS["primary"],
-                                margin_bottom="1",
+                # ONLY show if ai_msg is not empty (hides when Sokrates answers directly)
+                rx.cond(
+                    msg["ai_msg"] != "",
+                    rx.box(
+                        rx.hstack(
+                            rx.text("🎩", font_size="13px"),
+                            rx.box(
+                                # Header with AIfred name
+                                rx.text(
+                                    "AIfred",
+                                    font_weight="bold",
+                                    font_size="12px",
+                                    color=COLORS["primary"],
+                                    margin_bottom="1",
+                                ),
+                                rx.markdown(
+                                    msg["ai_msg"],
+                                    color=COLORS["ai_text"],
+                                    font_size="13px"
+                                ),
+                                background_color=COLORS["ai_msg"],
+                                padding="3",
+                                border_radius="6px",
+                                width="100%",
                             ),
-                            rx.markdown(
-                                msg["ai_msg"],
-                                color=COLORS["ai_text"],
-                                font_size="13px"
-                            ),
-                            background_color=COLORS["ai_msg"],
-                            padding="3",
-                            border_radius="6px",
+                            spacing="2",
+                            align="start",
+                            justify="start",
                             width="100%",
                         ),
-                        spacing="2",
-                        align="start",
-                        justify="start",
+                        background_color="rgba(255, 255, 255, 0.03)",
+                        padding="2",
+                        border_radius="8px",
                         width="100%",
                     ),
-                    background_color="rgba(255, 255, 255, 0.03)",
-                    padding="2",
-                    border_radius="8px",
-                    width="100%",
                 ),
                 spacing="3",
                 width="100%",
