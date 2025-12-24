@@ -1195,8 +1195,8 @@ def render_chat_message(msg: dict) -> rx.Component:
     # Check ob es eine Sokrates-Nachricht ist (leerer User-Teil + "🏛️" am Anfang)
     is_sokrates = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🏛️")
 
-    # Check ob es eine AIfred-Refinement-Nachricht ist (leerer User-Teil + "🎩 **AIfred** (Überarbeitung")
-    is_alfred_refinement = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🎩 **AIfred**")
+    # Check ob es eine AIfred-Refinement-Nachricht ist (leerer User-Teil + "🎩[" am Anfang)
+    is_alfred_refinement = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🎩[")
 
     return rx.cond(
         is_summary,
@@ -1304,9 +1304,21 @@ def render_chat_message(msg: dict) -> rx.Component:
                     rx.hstack(
                         rx.text("🎩", font_size="13px"),
                         rx.box(
-                            # Content already contains header like "🎩 **AIfred** (Überarbeitung R2):"
+                            # Header with AIfred name + mode (e.g. "AIfred (Überarbeitung R2)")
+                            rx.text(
+                                rx.cond(
+                                    msg["alfred_mode"] != "",
+                                    f"AIfred ({msg['alfred_mode']})",
+                                    "AIfred"
+                                ),
+                                font_weight="bold",
+                                font_size="12px",
+                                color=COLORS["primary"],
+                                margin_bottom="1",
+                            ),
+                            # Show alfred_content (marker stripped) instead of ai_msg
                             rx.markdown(
-                                msg["ai_msg"],
+                                msg["alfred_content"],
                                 color=COLORS["ai_text"],
                                 font_size="13px"
                             ),
