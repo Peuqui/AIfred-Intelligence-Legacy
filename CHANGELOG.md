@@ -5,6 +5,81 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.1] - 2025-12-24
+
+### 🎭 Dialog Routing & Calibration Improvements
+
+**Direkte Adressierung von Sokrates oder AIfred, entfernte num_predict Limitierung, Kalibrierungs-Info bei Modellwechsel.**
+
+#### Added
+
+- **Dialog Routing: Direkte Agenten-Ansprache** ([intent_detector.py](aifred/lib/intent_detector.py), [state.py](aifred/state.py)):
+  - Neue `detect_dialog_addressing()` Funktion erkennt direkte Anrede
+  - **Sokrates direkt**: "Sokrates, warum denkst du...", "@sokrates", "Hey Sokrates"
+  - **AIfred direkt**: "AIfred, erkläre...", "@alfred", "Eifred" (STT-Varianten)
+  - Sokrates-Adressierung → Sokrates antwortet direkt mit sokratischer Methode
+  - AIfred-Adressierung → AIfred antwortet ohne Sokrates-Analyse
+  - Marker: "🏛️[Direkte Antwort]" / "🏛️[Direct Response]"
+
+- **Kalibrierungs-Info bei Modellwechsel** ([state.py:4350-4368](aifred/state.py#L4350-L4368)):
+  - Zeigt kalibrierten Kontext bei Modellauswahl an (Native und/oder RoPE 2x)
+  - Warnung wenn Modell noch nicht kalibriert wurde
+  - Debug-Ausgabe: "🎯 Calibrated: Native: 110K, RoPE 2x: 220K"
+
+#### Changed
+
+- **num_predict für Ollama entfernt** ([ollama.py:117-118, 305-306](aifred/backends/ollama.py)):
+  - Problem: Safety Margin Berechnung limitierte DeepSeek auf 512 Tokens Output
+  - Ollama generiert natürlich bis EOS oder Context voll - keine künstliche Begrenzung nötig
+  - Betrifft sowohl Streaming als auch Non-Streaming Aufrufe
+
+- **Binary Search Präzision erhöht** ([ollama.py](aifred/backends/ollama.py)):
+  - Minimaler Schritt: 2048 → 512 Tokens
+  - Feinere Granularität: 1024 bei <16k, 512 bei <8k Differenz
+  - Genauere Kalibrierungswerte für maximale VRAM-Nutzung
+
+#### Fixed
+
+- **History-Kompression ignorierte manuellen num_ctx** ([state.py:4804-4809](aifred/state.py#L4804-L4809)):
+  - Problem: Zeigte "Context limit: 40.960" obwohl manual auf 1.472 gesetzt
+  - Lösung: Prüft jetzt `num_ctx_mode == "manual"` und verwendet `num_ctx_manual`
+  - Fallback von 40k auf 32k reduziert (kleinster üblicher Context)
+
+- **num_ctx Eingabe zu restriktiv** ([state.py](aifred/state.py)):
+  - Problem: Werte wie 1472 wurden als "ungültiger Wert" abgelehnt
+  - Minimum von 2048 auf 1 gesenkt
+  - Locale-Formatierung wird akzeptiert (Punkte, Kommas, Leerzeichen als Tausendertrennzeichen)
+  - `NUM_CTX_MANUAL_MAX` nach config.py verschoben (2M Tokens)
+
+- **System-Instabilität bei RAM-Erschöpfung** ([ollama.py](aifred/backends/ollama.py)):
+  - Problem: Nemotron 1M Context führte zu RAM-Erschöpfung und System-Freeze
+  - Erkennung: 3 aufeinanderfolgende Fails <2s → System-Instabilität
+  - Recovery: 5s Pause, Ollama Health-Check, Neustart mit 256k Ceiling
+  - `RECOVERY_THRESHOLD = 262144`
+
+#### Technical Details
+
+**Dialog Routing Workflow:**
+```
+User: "Sokrates, was denkst du über KI?"
+    ↓
+detect_dialog_addressing() → ("sokrates", "was denkst du über KI?")
+    ↓
+_run_sokrates_direct_response()
+    ↓
+Sokrates antwortet mit sokratischer Methode
+    ↓
+Marker: 🏛️[Direkte Antwort]
+```
+
+**Affected Files:**
+- `aifred/lib/intent_detector.py` - `detect_dialog_addressing()` function
+- `aifred/state.py` - Dialog routing, `_run_sokrates_direct_response()`, compression fix
+- `aifred/backends/ollama.py` - num_predict removal, precision increase, stability detection
+- `aifred/lib/config.py` - `NUM_CTX_MANUAL_MAX` constant
+
+---
+
 ## [2.10.0] - 2025-12-24
 
 ### 🎯 Ollama Context Calibration with RoPE 2x Support
