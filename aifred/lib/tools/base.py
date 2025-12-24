@@ -40,7 +40,7 @@ class BaseTool:
 
     def __init__(self):
         # Subclasses must set name, description and min_call_interval
-        self.last_call_time = 0
+        self.last_call_time: float = 0.0
 
     def execute(self, query: str, **kwargs) -> Dict:
         """

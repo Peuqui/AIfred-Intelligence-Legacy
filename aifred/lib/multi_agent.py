@@ -19,6 +19,51 @@ from .prompt_loader import (
 from ..backends.base import LLMOptions
 
 
+def parse_pro_contra(analysis: str) -> tuple[str, str]:
+    """Parse Pro and Contra sections from Sokrates' analysis.
+
+    Standalone function that can be imported and used directly.
+    """
+    pro_args = ""
+    contra_args = ""
+
+    lower_analysis = analysis.lower()
+
+    # Find Pro section
+    pro_markers = ["## pro", "**pro", "pro:", "pro-argumente:", "pro arguments:"]
+    contra_markers = ["## contra", "**contra", "contra:", "contra-argumente:", "contra arguments:"]
+
+    pro_start = -1
+    contra_start = -1
+
+    for marker in pro_markers:
+        idx = lower_analysis.find(marker)
+        if idx != -1 and (pro_start == -1 or idx < pro_start):
+            pro_start = idx
+
+    for marker in contra_markers:
+        idx = lower_analysis.find(marker)
+        if idx != -1 and (contra_start == -1 or idx < contra_start):
+            contra_start = idx
+
+    if pro_start != -1 and contra_start != -1:
+        if pro_start < contra_start:
+            pro_args = analysis[pro_start:contra_start].strip()
+            contra_args = analysis[contra_start:].strip()
+        else:
+            contra_args = analysis[contra_start:pro_start].strip()
+            pro_args = analysis[pro_start:].strip()
+    elif pro_start != -1:
+        pro_args = analysis[pro_start:].strip()
+    elif contra_start != -1:
+        contra_args = analysis[contra_start:].strip()
+    else:
+        # No clear sections - return full analysis as pro
+        pro_args = analysis.strip()
+
+    return pro_args, contra_args
+
+
 @dataclass
 class DebateResult:
     """Result of a multi-agent debate session"""

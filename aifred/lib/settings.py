@@ -71,7 +71,8 @@ def get_default_settings() -> Dict[str, Any]:
     defaults = DEFAULT_SETTINGS.copy()
 
     # Extract model names from BACKEND_DEFAULT_MODELS for current backend
-    backend_models = BACKEND_DEFAULT_MODELS.get(defaults["backend_type"], {})
+    backend_type = str(defaults.get("backend_type", "ollama"))
+    backend_models = BACKEND_DEFAULT_MODELS.get(backend_type, {})
     defaults["model"] = backend_models.get("selected_model", "qwen3:8b")
     defaults["automatik_model"] = backend_models.get("automatik_model", "qwen2.5:3b")
 

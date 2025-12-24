@@ -175,7 +175,7 @@ def list_available_prompts() -> list:
     if not PROMPTS_DIR.exists():
         return []
 
-    prompts = set()
+    prompts: set[str] = set()
 
     # Check language directories only (no root directory)
     for lang_dir in ['de', 'en']:
