@@ -123,6 +123,25 @@ def t(key: str) -> rx.Var:
         "crop_modal_hint": "Ziehe die Ecken oder Kanten",
         "crop_cancel": "Abbrechen",
         "crop_apply": "Zuschneiden",
+        # Multi-Agent (Phase 6)
+        "multi_agent_mode": "🤝 Diskussionsmodus",
+        "multi_agent_standard": "Standard",
+        "multi_agent_user_judge": "Kritische Prüfung",
+        "multi_agent_auto_consensus": "Auto-Konsens",
+        "multi_agent_devils_advocate": "Advocatus Diaboli",
+        "multi_agent_info": "Sokrates prüft bis LGTM (Looks Good To Me)",
+        "max_debate_rounds": "Max. Debattenrunden:",
+        "sokrates_title": "🏛️ Sokrates",
+        "sokrates_critique_label": "Kritik:",
+        "sokrates_pro_label": "Pro-Argumente:",
+        "sokrates_contra_label": "Contra-Argumente:",
+        "debate_round_label": "Runde",
+        "accept_answer": "✓ Akzeptieren",
+        "improve_answer": "↻ Verbessern",
+        "sokrates_llm": "Sokrates-LLM:",
+        "sokrates_llm_same": "(wie Haupt-LLM)",
+        "lgtm_tooltip": "Sokrates ist zufrieden mit AIfred's Antwort",
+        "alfred_title": "🎩 AIfred",
     }
 
     en_text = {
@@ -234,6 +253,25 @@ def t(key: str) -> rx.Var:
         "crop_modal_hint": "Drag corners or edges",
         "crop_cancel": "Cancel",
         "crop_apply": "Crop",
+        # Multi-Agent (Phase 6)
+        "multi_agent_mode": "🤝 Discussion Mode",
+        "multi_agent_standard": "Standard",
+        "multi_agent_user_judge": "Critical Review",
+        "multi_agent_auto_consensus": "Auto-Consensus",
+        "multi_agent_devils_advocate": "Devil's Advocate",
+        "multi_agent_info": "Sokrates reviews until LGTM (Looks Good To Me)",
+        "max_debate_rounds": "Max. Debate Rounds:",
+        "sokrates_title": "🏛️ Sokrates",
+        "sokrates_critique_label": "Critique:",
+        "sokrates_pro_label": "Pro Arguments:",
+        "sokrates_contra_label": "Contra Arguments:",
+        "debate_round_label": "Round",
+        "accept_answer": "✓ Accept",
+        "improve_answer": "↻ Improve",
+        "sokrates_llm": "Sokrates LLM:",
+        "sokrates_llm_same": "(same as Main LLM)",
+        "lgtm_tooltip": "Sokrates is satisfied with AIfred's answer",
+        "alfred_title": "🎩 AIfred",
     }
 
     return rx.cond(
@@ -667,6 +705,70 @@ def text_input_section() -> rx.Component:
                 t("choose_research_mode"),
                 font_size="12px",
                 color=COLORS["text_secondary"],
+            ),
+            width="100%",
+        ),
+
+        # Multi-Agent Mode Dropdown
+        rx.vstack(
+            rx.text(t("multi_agent_mode"), font_weight="bold", font_size="12px"),
+            rx.hstack(
+                rx.select.root(
+                    rx.select.trigger(placeholder="Modus wählen..."),
+                    rx.select.content(
+                        rx.select.item(
+                            rx.cond(AIState.ui_language == "de", "Standard", "Standard"),
+                            value="standard"
+                        ),
+                        rx.select.item(
+                            rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review"),
+                            value="user_judge"
+                        ),
+                        rx.select.item(
+                            rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto-Consensus"),
+                            value="auto_consensus"
+                        ),
+                        rx.select.item(
+                            rx.cond(AIState.ui_language == "de", "Advocatus Diaboli", "Devil's Advocate"),
+                            value="devils_advocate"
+                        ),
+                    ),
+                    value=AIState.multi_agent_mode,
+                    on_change=AIState.set_multi_agent_mode,
+                ),
+                rx.text(
+                    t("multi_agent_info"),
+                    font_size="11px",
+                    color=COLORS["text_secondary"],
+                ),
+                spacing="3",
+                align="center",
+                width="100%",
+            ),
+            # Max Debate Rounds Slider (only visible for "auto_consensus" mode)
+            rx.cond(
+                AIState.multi_agent_mode == "auto_consensus",
+                rx.hstack(
+                    rx.text(t("max_debate_rounds"), font_size="11px"),
+                    rx.text(
+                        AIState.max_debate_rounds,
+                        font_size="11px",
+                        font_weight="bold",
+                        color=COLORS["primary"],
+                    ),
+                    rx.slider(
+                        value=[AIState.max_debate_rounds],
+                        min=1,
+                        max=5,
+                        step=1,
+                        on_change=AIState.set_max_debate_rounds,
+                        width="60%",
+                    ),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                    padding_top="4px",
+                ),
             ),
             width="100%",
         ),
@@ -1285,16 +1387,24 @@ def render_image_thumbnails(images) -> rx.Component:
 
 def render_chat_message(msg: dict) -> rx.Component:
     """
-    Rendert eine einzelne Chat-Message (User+AI oder Summary).
+    Rendert eine einzelne Chat-Message (User+AI, Summary, oder Sokrates).
 
     msg ist ein Dict mit:
     - user_msg: User-Nachricht
     - ai_msg: AI-Nachricht (bereinigt)
     - failed_sources: Liste der fehlgeschlagenen URLs
     """
-    # Check ob es eine Summary ist (leerer User-Teil + "[📊 Komprimiert" am Anfang)
+    # Check ob es eine Summary ist (leerer User-Teil + "[📊 Komprimiert" oder "[📊 Compressed" am Anfang)
     # Verwende Reflex bitwise operators: & statt 'and'
-    is_summary = (msg["user_msg"] == "") & msg["ai_msg"].startswith("[📊 Komprimiert")
+    is_summary = (msg["user_msg"] == "") & (
+        msg["ai_msg"].startswith("[📊 Komprimiert") | msg["ai_msg"].startswith("[📊 Compressed")
+    )
+
+    # Check ob es eine Sokrates-Nachricht ist (leerer User-Teil + "🏛️" am Anfang)
+    is_sokrates = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🏛️")
+
+    # Check ob es eine AIfred-Refinement-Nachricht ist (leerer User-Teil + "🎩 **AIfred** (Überarbeitung")
+    is_alfred_refinement = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🎩 **AIfred**")
 
     return rx.cond(
         is_summary,
@@ -1351,46 +1461,28 @@ def render_chat_message(msg: dict) -> rx.Component:
             width="100%",
             margin_bottom="3",
         ),
-        # Normale Message-Anzeige (User + AI + Failed Sources)
-        rx.vstack(
-            # User message (rechts, max 70%) - mit hellgrauem Container
+        # Check if Sokrates message
+        rx.cond(
+            is_sokrates,
+            # Sokrates-Anzeige (nur AI-Teil, kein User, dezentes Kupfer/Terrakotta-Styling)
             rx.box(
                 rx.hstack(
-                    rx.spacer(),
+                    rx.text("🏛️", font_size="13px"),
                     rx.box(
-                        # Image thumbnails (if present) above the text
-                        render_image_thumbnails(msg["images"]),
-                        # User text
-                        rx.markdown(msg["user_msg"], color=COLORS["user_text"], font_size="13px"),
-                        background_color=COLORS["user_msg"],
-                        padding="3",
-                        border_radius="6px",
-                        max_width="70%",
-                    ),
-                    rx.text("👤", font_size="13px"),
-                    spacing="2",
-                    align="start",
-                    justify="end",
-                    width="100%",
-                ),
-                background_color="rgba(255, 255, 255, 0.03)",
-                padding="2",
-                border_radius="8px",
-                width="100%",
-            ),
-            # Failed Sources (wenn vorhanden) - ZWISCHEN User und AI Message
-            render_failed_sources_inline(msg["failed_sources"]),
-            # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
-            rx.box(
-                rx.hstack(
-                    rx.text("🤖", font_size="13px"),
-                    rx.box(
+                        # Header with Sokrates name
+                        rx.text(
+                            "Sokrates",
+                            font_weight="bold",
+                            font_size="12px",
+                            color="#cd7f32",  # Bronze/Kupfer-Ton
+                            margin_bottom="1",
+                        ),
                         rx.markdown(
                             msg["ai_msg"],
                             color=COLORS["ai_text"],
                             font_size="13px"
                         ),
-                        background_color=COLORS["ai_msg"],
+                        background_color="rgba(205, 127, 50, 0.08)",  # Dezenter Kupfer-Hintergrund
                         padding="3",
                         border_radius="6px",
                         width="100%",
@@ -1400,14 +1492,242 @@ def render_chat_message(msg: dict) -> rx.Component:
                     justify="start",
                     width="100%",
                 ),
-                background_color="rgba(255, 255, 255, 0.03)",
+                background_color="rgba(205, 127, 50, 0.03)",  # Sehr dezenter Kupfer-Container
                 padding="2",
                 border_radius="8px",
+                border="1px solid rgba(205, 127, 50, 0.3)",  # Dezenter Kupfer-Rand
+                width="100%",
+                margin_bottom="3",
+            ),
+            # Check if AIfred refinement message (during debate)
+            rx.cond(
+                is_alfred_refinement,
+                # AIfred-Refinement-Anzeige (nur AI-Teil, kein User, leicht hervorgehoben)
+                rx.box(
+                    rx.hstack(
+                        rx.text("🎩", font_size="13px"),
+                        rx.box(
+                            # Content already contains header like "🎩 **AIfred** (Überarbeitung R2):"
+                            rx.markdown(
+                                msg["ai_msg"],
+                                color=COLORS["ai_text"],
+                                font_size="13px"
+                            ),
+                            background_color=COLORS["ai_msg"],
+                            padding="3",
+                            border_radius="6px",
+                            width="100%",
+                        ),
+                        spacing="2",
+                        align="start",
+                        justify="start",
+                        width="100%",
+                    ),
+                    background_color="rgba(255, 255, 255, 0.03)",
+                    padding="2",
+                    border_radius="8px",
+                    width="100%",
+                    margin_bottom="3",
+                ),
+                # Normale Message-Anzeige (User + AI + Failed Sources)
+                rx.vstack(
+                # User message (rechts, max 70%) - mit hellgrauem Container
+                rx.box(
+                    rx.hstack(
+                        rx.spacer(),
+                        rx.box(
+                            # Image thumbnails (if present) above the text
+                            render_image_thumbnails(msg["images"]),
+                            # User text
+                            rx.markdown(msg["user_msg"], color=COLORS["user_text"], font_size="13px"),
+                            background_color=COLORS["user_msg"],
+                            padding="3",
+                            border_radius="6px",
+                            max_width="70%",
+                        ),
+                        rx.text("👤", font_size="13px"),
+                        spacing="2",
+                        align="start",
+                        justify="end",
+                        width="100%",
+                    ),
+                    background_color="rgba(255, 255, 255, 0.03)",
+                    padding="2",
+                    border_radius="8px",
+                    width="100%",
+                ),
+                # Failed Sources (wenn vorhanden) - ZWISCHEN User und AI Message
+                render_failed_sources_inline(msg["failed_sources"]),
+                # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
+                rx.box(
+                    rx.hstack(
+                        rx.text("🎩", font_size="13px"),
+                        rx.box(
+                            # Header with AIfred name
+                            rx.text(
+                                "AIfred",
+                                font_weight="bold",
+                                font_size="12px",
+                                color=COLORS["primary"],
+                                margin_bottom="1",
+                            ),
+                            rx.markdown(
+                                msg["ai_msg"],
+                                color=COLORS["ai_text"],
+                                font_size="13px"
+                            ),
+                            background_color=COLORS["ai_msg"],
+                            padding="3",
+                            border_radius="6px",
+                            width="100%",
+                        ),
+                        spacing="2",
+                        align="start",
+                        justify="start",
+                        width="100%",
+                    ),
+                    background_color="rgba(255, 255, 255, 0.03)",
+                    padding="2",
+                    border_radius="8px",
+                    width="100%",
+                ),
+                spacing="3",
+                width="100%",
+            ),
+            )  # Close is_alfred_refinement rx.cond
+        )  # Close is_sokrates rx.cond
+    )  # Close is_summary rx.cond
+
+
+def render_sokrates_inline() -> rx.Component:
+    """
+    Renders Sokrates' response inline in the chat (same style as User/AI messages).
+    Shows only when show_sokrates_panel is True.
+    """
+    return rx.cond(
+        AIState.show_sokrates_panel,
+        rx.vstack(
+            # Sokrates message (links wie AI, aber mit anderem Styling)
+            rx.box(
+                rx.hstack(
+                    rx.text("🏛️", font_size="13px"),
+                    rx.box(
+                        # Header mit Name und Badges
+                        rx.hstack(
+                            rx.text(
+                                t("sokrates_title"),
+                                font_weight="bold",
+                                font_size="13px",
+                                color=COLORS["accent_blue"],
+                            ),
+                            # Round indicator for auto_consensus
+                            rx.cond(
+                                AIState.multi_agent_mode == "auto_consensus",
+                                rx.badge(
+                                    rx.hstack(
+                                        rx.text(t("debate_round_label"), font_size="9px"),
+                                        rx.text(AIState.debate_round.to(str), font_weight="bold"),
+                                        spacing="1",
+                                    ),
+                                    variant="soft",
+                                    color_scheme="blue",
+                                    size="1",
+                                ),
+                            ),
+                            # LGTM badge if consensus reached
+                            rx.cond(
+                                AIState.sokrates_critique.contains("LGTM"),
+                                rx.tooltip(
+                                    rx.badge("LGTM", variant="soft", color_scheme="green", size="1"),
+                                    content=t("lgtm_tooltip"),
+                                ),
+                            ),
+                            spacing="2",
+                            align="center",
+                            margin_bottom="2",
+                        ),
+                        # Content based on mode
+                        rx.cond(
+                            AIState.multi_agent_mode == "devils_advocate",
+                            # Devil's Advocate: Pro/Contra layout
+                            rx.vstack(
+                                # Pro section
+                                rx.box(
+                                    rx.vstack(
+                                        rx.text(t("sokrates_pro_label"), font_weight="bold", font_size="11px", color="#4ade80"),
+                                        rx.markdown(
+                                            AIState.sokrates_pro_args,
+                                            font_size="12px",
+                                            component_map={
+                                                "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
+                                                "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
+                                            },
+                                        ),
+                                        spacing="1",
+                                        width="100%",
+                                    ),
+                                    padding="10px",
+                                    background_color="rgba(74, 222, 128, 0.1)",
+                                    border_radius="6px",
+                                    width="100%",
+                                ),
+                                # Contra section
+                                rx.box(
+                                    rx.vstack(
+                                        rx.text(t("sokrates_contra_label"), font_weight="bold", font_size="11px", color="#f87171"),
+                                        rx.markdown(
+                                            AIState.sokrates_contra_args,
+                                            font_size="12px",
+                                            component_map={
+                                                "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
+                                                "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
+                                            },
+                                        ),
+                                        spacing="1",
+                                        width="100%",
+                                    ),
+                                    padding="10px",
+                                    background_color="rgba(248, 113, 113, 0.1)",
+                                    border_radius="6px",
+                                    width="100%",
+                                ),
+                                spacing="2",
+                                width="100%",
+                            ),
+                            # Critique layout (user_judge, auto_consensus)
+                            rx.markdown(
+                                AIState.sokrates_critique,
+                                color=COLORS["ai_text"],
+                                font_size="12px",
+                                component_map={
+                                    "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
+                                    "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
+                                },
+                            ),
+                        ),
+                        # Sokrates-spezifischer Hintergrund (leicht blau)
+                        background_color="rgba(59, 130, 246, 0.15)",
+                        padding="3",
+                        border_radius="6px",
+                        width="100%",
+                    ),
+                    spacing="2",
+                    align="start",
+                    justify="start",
+                    width="100%",
+                ),
+                # Äußerer Container mit leicht anderem Hintergrund
+                background_color="rgba(59, 130, 246, 0.05)",
+                padding="2",
+                border_radius="8px",
+                border="1px solid rgba(59, 130, 246, 0.2)",
                 width="100%",
             ),
             spacing="3",
             width="100%",
-        )
+            margin_top="3",
+        ),
+        rx.fragment(),  # Nichts anzeigen wenn Panel nicht aktiv
     )
 
 
@@ -1577,6 +1897,126 @@ def chat_history_display() -> rx.Component:
 
 # NOTE: Legacy failed_sources_display() removed - failed sources are now rendered
 # inline within each chat message via render_failed_sources_inline()
+
+
+def sokrates_panel() -> rx.Component:
+    """Sokrates live streaming panel - shown only during active debate"""
+    return rx.cond(
+        AIState.debate_in_progress,  # Only show during live streaming
+        rx.box(
+            rx.vstack(
+                # Header with Sokrates icon (Kupfer-Styling)
+                rx.hstack(
+                    rx.text("🏛️", font_size="16px"),
+                    rx.text(
+                        "Sokrates",
+                        font_weight="bold",
+                        font_size="13px",
+                        color="#cd7f32",  # Kupfer/Bronze
+                    ),
+                    rx.text(
+                        "(live)",
+                        font_size="11px",
+                        color="rgba(205, 127, 50, 0.6)",
+                        font_style="italic",
+                    ),
+                    # Show round indicator for auto_consensus
+                    rx.cond(
+                        AIState.multi_agent_mode == "auto_consensus",
+                        rx.badge(
+                            rx.hstack(
+                                rx.text(t("debate_round_label"), font_size="10px"),
+                                rx.text(AIState.debate_round.to(str), font_weight="bold"),
+                                spacing="1",
+                            ),
+                            variant="soft",
+                            color_scheme="orange",
+                        ),
+                    ),
+                    # Show LGTM badge if consensus reached
+                    rx.cond(
+                        AIState.sokrates_critique.contains("LGTM"),
+                        rx.badge("LGTM", variant="soft", color_scheme="green"),
+                    ),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                ),
+
+                # Content based on mode
+                rx.cond(
+                    AIState.multi_agent_mode == "devils_advocate",
+                    # Devil's Advocate: Pro/Contra layout
+                    rx.vstack(
+                        # Pro section
+                        rx.box(
+                            rx.vstack(
+                                rx.text(t("sokrates_pro_label"), font_weight="bold", font_size="12px", color="#4ade80"),
+                                rx.markdown(
+                                    AIState.sokrates_pro_args,
+                                    component_map={
+                                        "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
+                                        "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
+                                    },
+                                ),
+                                spacing="1",
+                                width="100%",
+                            ),
+                            padding="12px",
+                            background_color="rgba(74, 222, 128, 0.1)",
+                            border_radius="8px",
+                            width="100%",
+                        ),
+                        # Contra section
+                        rx.box(
+                            rx.vstack(
+                                rx.text(t("sokrates_contra_label"), font_weight="bold", font_size="12px", color="#f87171"),
+                                rx.markdown(
+                                    AIState.sokrates_contra_args,
+                                    component_map={
+                                        "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
+                                        "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
+                                    },
+                                ),
+                                spacing="1",
+                                width="100%",
+                            ),
+                            padding="12px",
+                            background_color="rgba(248, 113, 113, 0.1)",
+                            border_radius="8px",
+                            width="100%",
+                        ),
+                        spacing="3",
+                        width="100%",
+                    ),
+                    # Critique layout (user_judge, auto_consensus) - Kupfer-Styling
+                    rx.box(
+                        rx.markdown(
+                            AIState.sokrates_critique,
+                            component_map={
+                                "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
+                                "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
+                            },
+                            font_size="13px",
+                        ),
+                        padding="8px",
+                        background_color="rgba(205, 127, 50, 0.08)",  # Kupfer-Hintergrund
+                        border_radius="6px",
+                        width="100%",
+                    ),
+                ),
+
+                spacing="2",
+                width="100%",
+            ),
+            padding="8px",
+            background_color="rgba(205, 127, 50, 0.03)",  # Dezenter Kupfer-Container
+            border_radius="8px",
+            border="1px solid rgba(205, 127, 50, 0.3)",  # Kupfer-Rand
+            width="100%",
+            margin_top="4px",
+        ),
+    )
 
 
 def right_column() -> rx.Component:
@@ -1913,6 +2353,44 @@ def settings_accordion() -> rx.Component:
                     ),
                     spacing="3",
                     align="center",
+                ),
+
+                # Sokrates LLM Selection - Only visible when multi-agent mode is not "standard"
+                rx.cond(
+                    (AIState.multi_agent_mode != "standard") & AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text(
+                            t("sokrates_llm"),
+                            font_weight="bold",
+                            font_size="12px",
+                        ),
+                        rx.cond(
+                            AIState.is_mobile,
+                            # MOBILE: Native HTML <select> (simple list)
+                            native_select_model(
+                                rx.cond(
+                                    AIState.sokrates_model == "",
+                                    t("sokrates_llm_same"),
+                                    AIState.sokrates_model
+                                ),
+                                AIState.set_sokrates_model,
+                                AIState.backend_switching,
+                                AIState.available_models,  # Use same list as main model
+                            ),
+                            # DESKTOP: Radix UI Select with placeholder for "same as main"
+                            rx.select(
+                                AIState.available_models,
+                                value=AIState.sokrates_model,
+                                on_change=AIState.set_sokrates_model,
+                                size="2",
+                                position="popper",
+                                disabled=AIState.backend_switching,
+                                placeholder=t("sokrates_llm_same"),
+                            ),
+                        ),
+                        spacing="3",
+                        align="center",
+                    ),
                 ),
 
                 # Automatik LLM Selection - Hidden for KoboldCPP (single model only)
@@ -3247,6 +3725,7 @@ console.log('✂️ Crop handler loaded');
 
             # Chat History (top - read conversation first)
             # NOTE: Failed sources are now displayed inline within each message (persistent)
+            # NOTE: Sokrates now streams directly into chat_history (no separate panel)
             chat_history_display(),
 
             # TTS Audio Player - shows when TTS enabled AND chat history exists

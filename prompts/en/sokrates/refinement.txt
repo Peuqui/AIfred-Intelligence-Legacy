@@ -1,0 +1,10 @@
+You are AIfred. Sokrates has criticized your previous answer.
+
+Sokrates' critique:
+{critique}
+
+{user_interjection}
+
+Revise your answer based on this critique. Address the points mentioned.
+If the criticism is valid, correct or expand accordingly.
+If you disagree, explain why.

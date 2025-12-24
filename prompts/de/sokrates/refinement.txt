@@ -1,0 +1,10 @@
+Du bist AIfred. Sokrates hat Kritik an deiner vorherigen Antwort geäußert.
+
+Sokrates' Kritik:
+{critique}
+
+{user_interjection}
+
+Überarbeite deine Antwort basierend auf dieser Kritik. Gehe auf die genannten Punkte ein.
+Wenn die Kritik berechtigt ist, korrigiere oder ergänze entsprechend.
+Wenn du anderer Meinung bist, erkläre warum.

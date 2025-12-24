@@ -139,7 +139,6 @@ _global_backend_state: dict[str, Any] = {
 
 # Lock to prevent race conditions during backend initialization
 # (e.g., two browser tabs starting simultaneously)
-import asyncio
 _backend_init_lock = asyncio.Lock()
 
 
@@ -300,6 +299,24 @@ class AIState(rx.State):
     # Research Settings
     research_mode: str = "automatik"  # "quick", "deep", "automatik", "none"
     research_mode_display: str = "🤖 Automatik (AI decides)"  # UI display value
+
+    # Multi-Agent Settings - PERSISTENT (saved to settings.json)
+    multi_agent_mode: str = "standard"  # "standard", "user_judge", "auto_consensus", "devils_advocate"
+    max_debate_rounds: int = 3  # Maximum rounds for auto_consensus (UI slider: 1-5)
+    sokrates_model: str = ""  # Sokrates LLM model (empty = same as Main-LLM)
+    sokrates_model_id: str = ""  # Pure model ID for Sokrates (without size suffix)
+
+    # Multi-Agent Runtime State (reset on session start)
+    sokrates_critique: str = ""  # Current critique from Sokrates
+    sokrates_pro_args: str = ""  # Pro arguments (Devil's Advocate)
+    sokrates_contra_args: str = ""  # Contra arguments (Devil's Advocate)
+    show_sokrates_panel: bool = False  # Show Sokrates UI panel?
+    debate_round: int = 0  # Current debate round (for Auto-Consensus)
+    debate_user_interjection: str = ""  # Queued user input during debate
+    debate_in_progress: bool = False  # Signals active debate (for UI)
+
+    # Internal streaming result (used by _stream_llm_with_ui helper)
+    _stream_result: Dict[str, Any] = {}
 
     # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
     enable_thinking: bool = True  # True = Thinking Mode (temp=0.6), False = Non-Thinking (temp=0.7)
@@ -550,6 +567,13 @@ class AIState(rx.State):
         return self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
 
     @rx.var
+    def sokrates_model_label(self) -> str:
+        """Get display label for Sokrates model"""
+        if not self.sokrates_model_id:
+            return ""  # Empty = use Main-LLM
+        return self.available_models_dict.get(self.sokrates_model_id, self.sokrates_model_id)
+
+    @rx.var
     def available_models_for_select(self) -> List[List[str]]:
         """Get list of [id, label] pairs for native model select
 
@@ -777,6 +801,13 @@ class AIState(rx.State):
                 self.yarn_factor_input = "1.0"
                 # NOTE: vllm_max_tokens and vllm_native_context are NEVER loaded from settings!
                 # They are calculated dynamically on every vLLM startup based on VRAM availability
+
+                # Load Multi-Agent Settings
+                self.multi_agent_mode = saved_settings.get("multi_agent_mode", self.multi_agent_mode)
+                self.max_debate_rounds = saved_settings.get("max_debate_rounds", self.max_debate_rounds)
+                # Load Sokrates model (pure ID, display name set after models load)
+                self.sokrates_model_id = saved_settings.get("sokrates_model", "")
+                self.sokrates_model = self.sokrates_model_id  # Will be updated with display name after models load
 
                 # Load per-backend models (if available)
                 from .lib.conversation_handler import extract_model_name
@@ -1011,6 +1042,15 @@ class AIState(rx.State):
                 self.vision_model_id = self.vision_models_cache[0]
                 self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
 
+            # Validate and sync sokrates_model (use settings, not global state)
+            # sokrates_model can be empty (= use Main-LLM)
+            if self.sokrates_model_id and self.sokrates_model_id in self.available_models_dict:
+                self.sokrates_model = self.available_models_dict[self.sokrates_model_id]
+            elif self.sokrates_model_id:
+                # Model ID was set but model not found - clear it
+                self.sokrates_model_id = ""
+                self.sokrates_model = ""
+
             # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
             if self.backend_type == "vllm" and self.automatik_model != self.selected_model:
                 self.automatik_model = self.selected_model
@@ -1193,6 +1233,15 @@ class AIState(rx.State):
                     self.automatik_model_id = first_id
                     self.automatik_model = self.available_models_dict[first_id]
 
+                # Validate and sync sokrates_model (can be empty = use Main-LLM)
+                if self.sokrates_model_id and self.sokrates_model_id in self.available_models_dict:
+                    self.sokrates_model = self.available_models_dict[self.sokrates_model_id]
+                elif self.sokrates_model_id:
+                    # Model ID was set but model not found - clear it
+                    log_message(f"⚠️ Configured sokrates model '{self.sokrates_model_id}' not found, clearing")
+                    self.sokrates_model_id = ""
+                    self.sokrates_model = ""
+
                 self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
                 self.backend_healthy = True
 
@@ -1206,6 +1255,9 @@ class AIState(rx.State):
                     self.add_debug(f"✅ {len(self.available_models)} models available")
                     self.add_debug(f"   Main: {self.selected_model}")
                     self.add_debug(f"   Automatik: {self.automatik_model}")
+                    # Show Sokrates model if multi-agent mode is active
+                    if self.multi_agent_mode != "standard" and self.sokrates_model_id:
+                        self.add_debug(f"   Sokrates: {self.sokrates_model}")
 
             except Exception as e:
                 self.backend_healthy = False
@@ -1303,6 +1355,10 @@ class AIState(rx.State):
             "enable_thinking": self.enable_thinking,
             "ui_language": self.ui_language,  # UI language (de/en)
             "backend_models": backend_models,  # Merged: preserves all backends
+            # Multi-Agent Settings
+            "multi_agent_mode": self.multi_agent_mode,
+            "max_debate_rounds": self.max_debate_rounds,
+            "sokrates_model": self.sokrates_model_id,  # Save pure ID
             # vLLM YaRN Settings (only enable/disable, factor is calculated dynamically)
             "enable_yarn": self.enable_yarn,
             # NOTE: yarn_factor is NOT saved - always starts at 1.0, system calibrates maximum
@@ -1620,7 +1676,7 @@ class AIState(rx.State):
                     if koboldcpp_busy_final:
                         from aifred.lib.logging_utils import log_message
                         log_message(
-                            f"🔒 Shutdown aborted - KoboldCPP queue active"
+                            "🔒 Shutdown aborted - KoboldCPP queue active"
                         )
                         self.gpu_consecutive_idle_checks = 0  # Reset timer
                         continue  # Skip shutdown, continue monitoring
@@ -2384,15 +2440,15 @@ class AIState(rx.State):
                                 tokens_per_sec=tokens_per_sec
                             )
 
-                            # Metadata footer
+                            # Metadata footer with model name
                             metadata = format_metadata(
-                                f"Vision: {format_number(vision_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s"
+                                f"Vision: {format_number(vision_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s ({self.vision_model_id})"
                             )
                             formatted_response = f"{formatted_html}\n\n{metadata}"
                         elif vision_readable_text:
                             # Kein JSON, aber readable text vorhanden (z.B. Fallback oder nur Description)
                             metadata = format_metadata(
-                                f"Vision: {format_number(vision_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s"
+                                f"Vision: {format_number(vision_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s ({self.vision_model_id})"
                             )
                             formatted_response = f"{vision_readable_text}\n\n{metadata}"
                         else:
@@ -2579,6 +2635,14 @@ class AIState(rx.State):
                         self.chat_history = updated_history
                         # The message is already in the history from the streaming, no need to re-add
                         yield  # Update UI to show new history entry
+
+                        # ============================================================
+                        # MULTI-AGENT: Sokrates Analysis (if enabled)
+                        # ============================================================
+                        if self.multi_agent_mode != "standard" and ai_text:
+                            async for _ in self._run_sokrates_analysis(user_msg, ai_text):
+                                yield  # Forward yields to update Sokrates panel
+
                         # Clear AI response and user message windows IMMEDIATELY
                         self.current_ai_response = ""
                         self.current_user_message = ""
@@ -2689,6 +2753,14 @@ class AIState(rx.State):
                         self.chat_history = updated_history
                         # The message is already in the history from the streaming, no need to re-add
                         yield  # Update UI to show new history entry
+
+                        # ============================================================
+                        # MULTI-AGENT: Sokrates Analysis (if enabled)
+                        # ============================================================
+                        if self.multi_agent_mode != "standard" and ai_text:
+                            async for _ in self._run_sokrates_analysis(user_msg, ai_text):
+                                yield  # Forward yields to update Sokrates panel
+
                         # Clear AI response and user message windows IMMEDIATELY
                         self.current_ai_response = ""
                         self.current_user_message = ""
@@ -2908,15 +2980,22 @@ class AIState(rx.State):
                     tokens_per_sec=tokens_per_sec
                 )
 
-                # Add metadata footer (Inference + Tok/s + Source) like other modes
+                # Add metadata footer (Inference + Tok/s + Source + Model) like other modes
                 metadata = format_metadata(
-                    f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Training data"
+                    f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Training data ({self.selected_model_id})"
                 )
                 formatted_response = f"{thinking_html}  \n{metadata}"
 
                 # Update chat history with formatted response + metadata
                 self.chat_history[temp_history_index] = (user_msg, formatted_response)
                 yield  # Update UI
+
+                # ============================================================
+                # MULTI-AGENT: Sokrates Analysis (if enabled)
+                # ============================================================
+                if self.multi_agent_mode != "standard" and full_response:
+                    async for _ in self._run_sokrates_analysis(user_msg, full_response):
+                        yield  # Forward yields to update Sokrates panel
 
                 # Clear response windows
                 self.current_ai_response = ""
@@ -3084,13 +3163,27 @@ class AIState(rx.State):
         except Exception as e:
             self.add_debug(f"⚠️ HTML preview cleanup failed: {e}")
 
-        self.add_debug("🗑️ Chat + Images + Audio + HTML Preview cleared")
+        # Clear Sokrates Multi-Agent state
+        self.sokrates_critique = ""
+        self.sokrates_pro_args = ""
+        self.sokrates_contra_args = ""
+        self.show_sokrates_panel = False
+        self.debate_round = 0
+        self.debate_user_interjection = ""
+        self.debate_in_progress = False
+
+        self.add_debug("🗑️ Chat + Images + Audio + HTML Preview + Sokrates cleared")
 
         # Session speichern (leerer Chat)
         self._save_current_session()
 
     def share_chat(self):
-        """Share chat history - copy to clipboard as formatted text"""
+        """Share chat history - copy to clipboard as formatted text
+
+        Handles multi-agent debate messages correctly:
+        - Regular messages: (user_msg, ai_msg) where user_msg is non-empty
+        - Sokrates/AIfred refinements: ("", ai_msg) where ai_msg starts with agent marker
+        """
         if not self.chat_history:
             self.add_debug("⚠️ No chat to share")
             return
@@ -3098,12 +3191,43 @@ class AIState(rx.State):
         # Format chat history as readable text
         lines = ["═" * 50, "🎩 AIfred Intelligence - Chat Export", "═" * 50, ""]
 
-        for i, (user_msg, ai_msg) in enumerate(self.chat_history, 1):
-            lines.append(f"👤 User ({i}):")
-            lines.append(user_msg)
-            lines.append("")
-            lines.append(f"🤖 AIfred ({i}):")
-            lines.append(ai_msg)
+        message_num = 0
+        for user_msg, ai_msg in self.chat_history:
+            ai_msg_stripped = ai_msg.strip()
+
+            # Determine message type based on content
+            is_sokrates = ai_msg_stripped.startswith("🏛️ **Sokrates**") or ai_msg_stripped.startswith("🏛️")
+            is_alfred_refinement = ai_msg_stripped.startswith("🎩 **AIfred** (Überarbeitung")
+            is_summary = ai_msg_stripped.startswith("[📊 Komprimiert") or ai_msg_stripped.startswith("[📊 Compressed")
+            has_user_input = bool(user_msg and user_msg.strip())
+
+            if has_user_input:
+                # Regular user message followed by AI response
+                message_num += 1
+                lines.append(f"👤 User ({message_num}):")
+                lines.append(user_msg)
+                lines.append("")
+
+            # Determine AI label based on message type
+            if is_summary:
+                # Summary (compressed messages) - use special marker
+                lines.append("📊 [Komprimierte History]:")
+                lines.append(ai_msg)
+            elif is_sokrates:
+                # Sokrates message - already has proper header with emoji
+                lines.append(ai_msg)
+            elif is_alfred_refinement:
+                # AIfred refinement - already has proper header
+                lines.append(ai_msg)
+            elif has_user_input:
+                # Regular AIfred response to user question
+                lines.append(f"🤖 AIfred ({message_num}):")
+                lines.append(ai_msg)
+            else:
+                # AI-only message without user input (shouldn't happen often)
+                lines.append("🤖 AIfred:")
+                lines.append(ai_msg)
+
             lines.append("")
             lines.append("─" * 40)
             lines.append("")
@@ -4205,6 +4329,520 @@ class AIState(rx.State):
         self.research_mode = TranslationManager.get_research_mode_value(display_value)
         self.add_debug(f"🔍 Research mode: {self.research_mode}")
         self._save_settings()  # Persist research mode to settings.json
+
+    # ===== Multi-Agent Settings =====
+
+    def set_multi_agent_mode(self, mode: str):
+        """Set multi-agent discussion mode"""
+        self.multi_agent_mode = mode
+        # Reset Sokrates panel when switching modes
+        self.show_sokrates_panel = False
+        self.sokrates_critique = ""
+        self.sokrates_pro_args = ""
+        self.sokrates_contra_args = ""
+        self.debate_round = 0
+        self._save_settings()
+
+        mode_labels = {
+            "standard": "Standard",
+            "user_judge": "Critical Review",
+            "auto_consensus": "Auto-Consensus",
+            "devils_advocate": "Devil's Advocate"
+        }
+        self.add_debug(f"🤖 Discussion mode: {mode_labels.get(mode, mode)}")
+
+    def set_max_debate_rounds(self, value: list[float]):
+        """Set maximum debate rounds (from slider)"""
+        self.max_debate_rounds = int(value[0])
+        self._save_settings()
+        self.add_debug(f"🔄 Max debate rounds: {self.max_debate_rounds}")
+
+    def set_sokrates_model(self, model: str):
+        """Set Sokrates LLM model for multi-agent debate"""
+        self.sokrates_model = model
+        # Extract pure model ID (remove size suffix)
+        self.sokrates_model_id = extract_model_name(model)
+        self._save_settings()
+        if model:
+            self.add_debug(f"🧠 Sokrates-LLM: {model}")
+        else:
+            self.add_debug("🧠 Sokrates-LLM: (wie Haupt-LLM)")
+
+    def queue_user_interjection(self, text: str):
+        """Queue user input during active debate"""
+        if self.debate_in_progress and text.strip():
+            self.debate_user_interjection = text.strip()
+            self.add_debug(f"💬 User-Einwurf gequeued: {text[:50]}...")
+
+    def get_and_clear_user_interjection(self) -> str:
+        """Get queued user interjection and clear it (called by orchestrator)"""
+        interjection = self.debate_user_interjection
+        self.debate_user_interjection = ""
+        return interjection
+
+    def reset_sokrates_state(self):
+        """Reset all Sokrates-related runtime state"""
+        self.sokrates_critique = ""
+        self.sokrates_pro_args = ""
+        self.sokrates_contra_args = ""
+        self.show_sokrates_panel = False
+        self.debate_round = 0
+        self.debate_user_interjection = ""
+        self.debate_in_progress = False
+
+    # ============================================================
+    # GENERIC STREAMING HELPER (DRY - reusable for all LLM calls)
+    # ============================================================
+
+    async def _stream_llm_with_ui(
+        self,
+        llm_client,
+        model: str,
+        messages: list,
+        options,
+        target_var: str,
+        source_label: str,
+        history_index: int = None,
+    ):
+        """
+        Generic LLM streaming helper with UI updates and metadata collection.
+
+        Reusable for AIfred, Sokrates, Vision, etc.
+        Uses the same chunk structure as the main chat_stream.
+
+        Args:
+            llm_client: LLMClient instance
+            model: Model name/ID
+            messages: List of message dicts
+            options: LLMOptions
+            target_var: State variable to update (e.g., "sokrates_critique")
+            source_label: Label for metadata (e.g., "Sokrates", "Training data")
+            history_index: Optional chat_history index for live updates
+
+        Yields:
+            For UI updates during streaming
+
+        Sets self._stream_result after completion with:
+            - text: Full response text
+            - metadata: Formatted metadata string
+            - metrics: Dict with time, tokens, tok_per_sec
+        """
+        import time
+        from .lib.formatting import format_metadata, format_number
+
+        full_response = ""
+        token_count = 0
+        start_time = time.time()
+        ttft = None
+        first_token = False
+
+        async for chunk in llm_client.chat_stream(model, messages, options):
+            if chunk["type"] == "content":
+                # TTFT measurement
+                if not first_token:
+                    ttft = time.time() - start_time
+                    first_token = True
+
+                full_response += chunk["text"]
+                token_count += 1
+
+                # Update target state variable
+                setattr(self, target_var, full_response)
+
+                # Optionally update chat_history for live display
+                if history_index is not None and history_index < len(self.chat_history):
+                    user_msg = self.chat_history[history_index][0]
+                    self.chat_history[history_index] = (user_msg, full_response)
+
+                yield  # UI Update
+
+            elif chunk["type"] == "done":
+                metrics = chunk.get("metrics", {})
+                token_count = metrics.get("tokens_generated", token_count)
+
+        # Calculate final metrics
+        inference_time = time.time() - start_time
+        tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
+
+        # Build metadata footer (same format as AIfred)
+        metadata = format_metadata(
+            f"Inference: {format_number(inference_time, 1)}s    "
+            f"{format_number(tokens_per_sec, 1)} tok/s    "
+            f"Source: {source_label} ({model})"
+        )
+
+        # Store result for caller to access
+        self._stream_result = {
+            "text": full_response,
+            "metadata": metadata,
+            "metrics": {
+                "time": inference_time,
+                "tokens": token_count,
+                "tok_per_sec": tokens_per_sec,
+                "ttft": ttft
+            }
+        }
+
+    async def _stream_sokrates_to_history(
+        self,
+        llm_client,
+        model: str,
+        messages: list,
+        options,
+        history_index: int,
+        sokrates_header: str,
+    ):
+        """
+        Stream Sokrates response directly into chat_history.
+
+        Similar to _stream_llm_with_ui but specifically for Sokrates:
+        - Keeps the header prefix during streaming
+        - Updates chat_history[history_index] directly
+        - No separate state variable needed
+        """
+        import time
+        from .lib.formatting import format_metadata, format_number
+
+        full_response = ""
+        token_count = 0
+        start_time = time.time()
+        ttft = None
+        first_token = False
+
+        async for chunk in llm_client.chat_stream(model, messages, options):
+            if chunk["type"] == "content":
+                if not first_token:
+                    ttft = time.time() - start_time
+                    first_token = True
+
+                full_response += chunk["text"]
+                token_count += 1
+
+                # Update chat_history directly with header + current response
+                if history_index < len(self.chat_history):
+                    self.chat_history[history_index] = ("", f"{sokrates_header}{full_response}")
+
+                yield  # UI Update
+
+            elif chunk["type"] == "done":
+                metrics = chunk.get("metrics", {})
+                token_count = metrics.get("tokens_generated", token_count)
+
+        # Calculate final metrics
+        inference_time = time.time() - start_time
+        tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
+
+        metadata = format_metadata(
+            f"Inference: {format_number(inference_time, 1)}s    "
+            f"{format_number(tokens_per_sec, 1)} tok/s    "
+            f"Source: Sokrates ({model})"
+        )
+
+        # Store result for caller
+        self._stream_result = {
+            "text": full_response,
+            "metadata": metadata,
+            "metrics": {
+                "time": inference_time,
+                "tokens": token_count,
+                "tok_per_sec": tokens_per_sec,
+                "ttft": ttft
+            }
+        }
+
+    # ============================================================
+    # SOKRATES ANALYSIS
+    # ============================================================
+
+    async def _run_sokrates_analysis(self, user_query: str, alfred_answer: str):
+        """
+        Run Sokrates analysis based on current multi_agent_mode
+
+        This is called after AIfred's response is complete.
+        Uses streaming for real-time output and collects metadata.
+        Yields to update UI during analysis.
+
+        For auto_consensus mode: Iterates until Sokrates says LGTM or max_rounds reached.
+        """
+        from .lib.llm_client import LLMClient
+        from .backends.base import LLMOptions
+        from .lib.prompt_loader import (
+            get_sokrates_critic_prompt,
+            get_sokrates_devils_advocate_prompt,
+            get_sokrates_refinement_prompt
+        )
+        from .lib.message_builder import build_messages_from_history
+
+        self.debate_in_progress = True
+        self.sokrates_critique = ""  # Clear previous
+        self.debate_round = 0
+        yield  # Update UI
+
+        try:
+            # Create LLM client
+            llm_client = LLMClient(
+                backend_type=self.backend_type,
+                base_url=self.backend_url
+            )
+
+            # Determine models
+            sokrates_model = self.sokrates_model_id if self.sokrates_model_id else self.selected_model_id
+            sokrates_display = self.sokrates_model if self.sokrates_model else self.selected_model
+            alfred_model = self.selected_model_id
+            self.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
+
+            # Mode labels for display
+            mode_labels = {
+                "user_judge": "Kritische Prüfung",
+                "auto_consensus": "Auto-Konsens",
+                "devils_advocate": "Advocatus Diaboli"
+            }
+            mode_label = mode_labels.get(self.multi_agent_mode, self.multi_agent_mode)
+
+            # Calculate VRAM limit for Sokrates model (like Main-LLM does)
+            from .lib.context_manager import calculate_dynamic_num_ctx
+            sokrates_num_ctx, sokrates_vram_msgs = await calculate_dynamic_num_ctx(
+                llm_client, sokrates_model, [], None,
+                enable_vram_limit=True
+            )
+            for msg in sokrates_vram_msgs:
+                self.add_debug(f"   {msg}")  # Indent to show it's for Sokrates
+
+            # LLM options with calculated context (use global thinking toggle)
+            sokrates_options = LLMOptions(
+                temperature=0.3,  # Lower temp for critical analysis
+                enable_thinking=self.enable_thinking,  # Use global thinking toggle
+                num_ctx=sokrates_num_ctx
+            )
+            alfred_options = LLMOptions(
+                temperature=0.5,  # Moderate temp for refinement
+                enable_thinking=self.enable_thinking,  # Use global thinking toggle
+                num_ctx=self.last_vram_limit if self.last_vram_limit else 40960  # Use Main-LLM context
+            )
+
+            # Track current answer (may be refined in auto_consensus)
+            current_answer = alfred_answer
+            consensus_reached = False
+            max_rounds = self.max_debate_rounds if self.multi_agent_mode == "auto_consensus" else 1
+
+            for round_num in range(1, max_rounds + 1):
+                self.debate_round = round_num
+
+                # === SOKRATES CRITIQUE ===
+                # Get system prompt based on mode
+                if self.multi_agent_mode == "devils_advocate":
+                    system_prompt = get_sokrates_devils_advocate_prompt()
+                    task_instruction = "Analysiere AIfred's letzte Antwort mit Pro- und Contra-Argumenten."
+                else:
+                    # user_judge and auto_consensus use critic prompt
+                    system_prompt = get_sokrates_critic_prompt()
+                    round_info = f" (Runde {round_num}/{max_rounds})" if max_rounds > 1 else ""
+                    task_instruction = f"Analysiere AIfred's letzte Antwort kritisch.{round_info}"
+
+                # Build messages with full conversation history (like AIfred gets)
+                # This gives Sokrates context of previous questions, answers, and critiques
+                history_messages = build_messages_from_history(
+                    self.chat_history,
+                    task_instruction  # Current task as "user" message
+                )
+
+                # Replace system message with Sokrates' system prompt
+                # (build_messages_from_history may include summaries as system messages)
+                sokrates_messages = [{"role": "system", "content": system_prompt}]
+                for msg in history_messages:
+                    if msg["role"] != "system":  # Skip existing system messages
+                        sokrates_messages.append(msg)
+                    elif "Compressed:" in msg.get("content", ""):
+                        # Keep summary messages as context
+                        sokrates_messages.append(msg)
+
+                # Add placeholder for Sokrates
+                round_suffix = f" R{round_num}" if max_rounds > 1 else ""
+                sokrates_header = f"🏛️ **Sokrates** ({mode_label}{round_suffix}):\n\n"
+                self.chat_history.append(("", sokrates_header))
+                sokrates_index = len(self.chat_history) - 1
+                yield  # Show placeholder
+
+                # Estimate tokens in messages (rough: ~4 chars per token)
+                sokrates_msg_chars = sum(len(m.get("content", "")) for m in sokrates_messages)
+                sokrates_msg_tokens = sokrates_msg_chars // 4
+                sokrates_ctx = sokrates_options.num_ctx if sokrates_options and sokrates_options.num_ctx else 8192
+                self.add_debug(
+                    f"🏛️ Sokrates R{round_num}: ~{sokrates_msg_tokens:,} / {sokrates_ctx:,} tok "
+                    f"({100*sokrates_msg_tokens//sokrates_ctx}%)"
+                )
+
+                # Stream Sokrates response
+                async for _ in self._stream_sokrates_to_history(
+                    llm_client=llm_client,
+                    model=sokrates_model,
+                    messages=sokrates_messages,
+                    options=sokrates_options,
+                    history_index=sokrates_index,
+                    sokrates_header=sokrates_header
+                ):
+                    yield  # Forward UI updates
+
+                # Get Sokrates result
+                result = self._stream_result
+                sokrates_response_text = result["text"]
+                metadata = result["metadata"]
+                metrics = result["metrics"]
+
+                self.add_debug(
+                    f"🏛️ Sokrates R{round_num}: {len(sokrates_response_text)} chars, "
+                    f"{metrics['tok_per_sec']:.1f} tok/s"
+                )
+
+                # Final update with metadata
+                final_content = f"{sokrates_header}{sokrates_response_text}\n\n{metadata}"
+                self.chat_history[sokrates_index] = ("", final_content)
+                self.sokrates_critique = sokrates_response_text
+                yield
+
+                # Parse Pro/Contra for devils_advocate
+                if self.multi_agent_mode == "devils_advocate":
+                    self.sokrates_pro_args, self.sokrates_contra_args = self._parse_pro_contra(sokrates_response_text)
+                    break  # Devils advocate is always one round
+
+                # Check for LGTM (consensus reached)
+                # LGTM only counts if it's essentially JUST "LGTM" (possibly with punctuation)
+                # This avoids false positives like "LGTM ist nicht möglich"
+                response_stripped = sokrates_response_text.strip()
+                response_upper = response_stripped.upper()
+
+                # True LGTM: response is very short and contains LGTM
+                # e.g. "LGTM", "LGTM.", "LGTM!", "  LGTM  "
+                is_lgtm = len(response_stripped) < 20 and "LGTM" in response_upper
+
+                if is_lgtm:
+                    self.add_debug(f"✅ Consensus reached in round {round_num} (LGTM)")
+                    consensus_reached = True
+                    break
+
+                # For user_judge: only one round (user decides)
+                if self.multi_agent_mode == "user_judge":
+                    break
+
+                # === AUTO-CONSENSUS: AIfred refines based on critique ===
+                if self.multi_agent_mode == "auto_consensus" and round_num < max_rounds:
+                    # Build refinement prompt
+                    refinement_prompt = get_sokrates_refinement_prompt(
+                        critique=sokrates_response_text,
+                        user_interjection=""  # Could add user input here later
+                    )
+
+                    # Build messages with full conversation history
+                    # AIfred sees all previous context including Sokrates' critique
+                    alfred_messages = build_messages_from_history(
+                        self.chat_history,
+                        refinement_prompt  # Refinement task as "user" message
+                    )
+
+                    # Estimate tokens in messages (rough: ~4 chars per token)
+                    alfred_msg_chars = sum(len(m.get("content", "")) for m in alfred_messages)
+                    alfred_msg_tokens = alfred_msg_chars // 4
+                    alfred_ctx = alfred_options.num_ctx if alfred_options and alfred_options.num_ctx else 40960
+                    self.add_debug(
+                        f"🎩 AIfred R{round_num + 1}: ~{alfred_msg_tokens:,} / {alfred_ctx:,} tok "
+                        f"({100*alfred_msg_tokens//alfred_ctx}%)"
+                    )
+
+                    # Add placeholder for AIfred refinement
+                    alfred_header = f"🎩 **AIfred** (Überarbeitung R{round_num + 1}):\n\n"
+                    self.chat_history.append(("", alfred_header))
+                    alfred_index = len(self.chat_history) - 1
+                    yield
+
+                    # Stream AIfred refinement
+                    async for _ in self._stream_alfred_refinement(
+                        llm_client=llm_client,
+                        model=alfred_model,
+                        messages=alfred_messages,
+                        options=alfred_options,
+                        history_index=alfred_index,
+                        alfred_header=alfred_header
+                    ):
+                        yield
+
+                    # Get refined answer
+                    alfred_result = self._stream_result
+                    current_answer = alfred_result["text"]
+                    alfred_metadata = alfred_result["metadata"]
+
+                    # Update history with metadata
+                    final_alfred = f"{alfred_header}{current_answer}\n\n{alfred_metadata}"
+                    self.chat_history[alfred_index] = ("", final_alfred)
+                    yield
+
+            # End of debate
+            if self.multi_agent_mode == "auto_consensus":
+                if consensus_reached:
+                    self.add_debug(f"🎯 Debate finished: consensus after {self.debate_round} rounds")
+                else:
+                    self.add_debug(f"⚠️ Debate finished: max {max_rounds} rounds without consensus")
+
+            await llm_client.close()
+
+            # Persist to session storage
+            self._save_current_session()
+
+        except Exception as e:
+            self.add_debug(f"❌ Sokrates Error: {e}")
+
+        finally:
+            self.debate_in_progress = False
+
+        yield  # Final UI update
+
+    async def _stream_alfred_refinement(
+        self,
+        llm_client,
+        model: str,
+        messages: list,
+        options,
+        history_index: int,
+        alfred_header: str,
+    ):
+        """Stream AIfred's refined answer into chat_history (for auto_consensus)."""
+        import time
+        from .lib.formatting import format_metadata, format_number
+
+        full_response = ""
+        token_count = 0
+        start_time = time.time()
+        first_token = False
+
+        async for chunk in llm_client.chat_stream(model, messages, options):
+            if chunk["type"] == "content":
+                if not first_token:
+                    first_token = True
+                full_response += chunk["text"]
+                token_count += 1
+
+                # Update chat_history with current content
+                if history_index < len(self.chat_history):
+                    self.chat_history[history_index] = ("", f"{alfred_header}{full_response}")
+                yield  # UI Update
+
+            elif chunk["type"] == "done":
+                metrics = chunk.get("metrics", {})
+                token_count = metrics.get("tokens_generated", token_count)
+
+        inference_time = time.time() - start_time
+        tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
+
+        metadata = format_metadata(
+            f"Inference: {format_number(inference_time, 1)}s    "
+            f"{format_number(tokens_per_sec, 1)} tok/s    "
+            f"Source: AIfred ({model})"
+        )
+
+        self._stream_result = {
+            "text": full_response,
+            "metadata": metadata,
+            "metrics": {"time": inference_time, "tokens": token_count, "tok_per_sec": tokens_per_sec}
+        }
 
     async def set_automatik_model(self, model: str):
         """Set automatik model for decision and query optimization"""
