@@ -360,3 +360,78 @@ def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) 
         template = f.read().strip()
 
     return template.format(sources_preview=sources_preview)
+
+
+# ============================================================
+# Sokrates Multi-Agent Prompts
+# ============================================================
+
+def get_sokrates_critic_prompt(lang: Optional[str] = None) -> str:
+    """
+    Load Sokrates Critic prompt for User-as-Judge and Auto-Consensus modes.
+
+    Args:
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Sokrates critic system prompt
+    """
+    if lang is None:
+        lang = _current_language
+    if lang == "auto":
+        lang = "de"
+
+    prompt_file = PROMPTS_DIR / lang / "sokrates" / "critic.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
+def get_sokrates_devils_advocate_prompt(lang: Optional[str] = None) -> str:
+    """
+    Load Sokrates Devil's Advocate prompt for Pro/Contra analysis.
+
+    Args:
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Sokrates devil's advocate system prompt
+    """
+    if lang is None:
+        lang = _current_language
+    if lang == "auto":
+        lang = "de"
+
+    prompt_file = PROMPTS_DIR / lang / "sokrates" / "devils_advocate.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
+def get_sokrates_refinement_prompt(
+    critique: str,
+    user_interjection: str = "",
+    lang: Optional[str] = None
+) -> str:
+    """
+    Load AIfred Refinement prompt (when responding to Sokrates' critique).
+
+    Args:
+        critique: Sokrates' critique text
+        user_interjection: Optional user interjection during debate
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Formatted refinement prompt with critique inserted
+    """
+    if lang is None:
+        lang = _current_language
+    if lang == "auto":
+        lang = "de"
+
+    prompt_file = PROMPTS_DIR / lang / "sokrates" / "refinement.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        template = f.read().strip()
+
+    return template.format(
+        critique=critique,
+        user_interjection=user_interjection
+    )

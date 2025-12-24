@@ -1342,8 +1342,8 @@ async def chat_interactive_mode(
             else:
                 user_with_time = user_text
 
-            # AI response with timing + source (RAG)
-            source_label = "Cache+LLM RAG"
+            # AI response with timing + source (RAG) + model name
+            source_label = f"Cache+LLM RAG ({model_choice})"
             metadata = format_metadata(f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
             ai_with_source = f"{thinking_html}  \n{metadata}"
 
@@ -1668,13 +1668,13 @@ async def chat_interactive_mode(
                     user_metadata = format_metadata(f"Decision: {format_number(decision_time, 1)}s")
                     user_with_time = f"{user_text}  \n{user_metadata}"
 
-                # AI response with timing + source (dynamic based on RAG/History)
+                # AI response with timing + source (dynamic based on RAG/History) + model name
                 if rag_context:
-                    source_label = "Cache+LLM RAG"
+                    source_label = f"Cache+LLM RAG ({model_choice})"
                 elif len(history) > 0:
-                    source_label = "LLM with History"
+                    source_label = f"LLM with History ({model_choice})"
                 else:
-                    source_label = "LLM"
+                    source_label = f"LLM ({model_choice})"
 
                 metadata = format_metadata(f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
                 ai_with_source = f"{thinking_html}  \n{metadata}"

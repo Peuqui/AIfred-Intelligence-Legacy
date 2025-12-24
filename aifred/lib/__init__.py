@@ -48,6 +48,12 @@ from .intent_detector import (
     get_temperature_label
 )
 
+from .multi_agent import (
+    MultiAgentOrchestrator,
+    DebateResult,
+    DebateContext
+)
+
 __all__ = [
     # Logging
     "initialize_debug_log",
@@ -82,4 +88,8 @@ __all__ = [
     # Intent Detector
     "detect_query_intent",
     "get_temperature_label",
+    # Multi-Agent
+    "MultiAgentOrchestrator",
+    "DebateResult",
+    "DebateContext",
 ]
