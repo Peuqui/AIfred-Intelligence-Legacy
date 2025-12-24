@@ -2442,6 +2442,7 @@ class AIState(rx.State):
             if addressed_to == "sokrates":
                 # User directly addresses Sokrates → Sokrates responds directly
                 self.add_debug(f"🏛️ Direct addressing: Sokrates")
+                yield  # Update UI immediately to show debug message
                 async for _ in self._run_sokrates_direct_response(user_msg, temp_history_index):
                     yield
                 # Clean up and return - Sokrates handled everything
@@ -2455,6 +2456,7 @@ class AIState(rx.State):
             elif addressed_to == "alfred":
                 # User directly addresses AIfred → Skip Sokrates analysis after response
                 self.add_debug(f"🎩 Direct addressing: AIfred")
+                yield  # Update UI immediately to show debug message
                 skip_sokrates_analysis = True
                 # Continue with normal flow, but skip Sokrates at the end
 
@@ -3375,6 +3377,10 @@ class AIState(rx.State):
                 lines.append(f"👤 User ({message_num}):")
                 lines.append(user_msg)
                 lines.append("")
+
+            # Skip empty AI responses (e.g., when Sokrates answers directly)
+            if not ai_msg_stripped:
+                continue
 
             # Determine AI label based on message type
             if is_summary:
@@ -4880,29 +4886,45 @@ Be concise but profound. Consider the context of the previous conversation."""
             # Get original user message from history (to preserve it)
             original_user_msg, _ = self.chat_history[history_index]
 
+            # Keep user message in history with empty AI response (no AIfred panel)
+            self.chat_history[history_index] = (original_user_msg, "")
+
+            # Add Sokrates response entry with empty user (triggers Sokrates panel styling)
+            sokrates_marker = "🏛️[Direkte Antwort]" if detected_lang == "de" else "🏛️[Direct Response]"
+            self.chat_history.append(("", sokrates_marker))
+            sokrates_index = len(self.chat_history) - 1
+            yield  # Show placeholder
+
             # Streaming response
             full_response = ""
             token_count = 0
             start_time = time.time()
             first_token = False
-            sokrates_marker = "🏛️[Direkte Antwort]" if detected_lang == "de" else "🏛️[Direct Response]"
 
             async for chunk in llm_client.chat_stream(sokrates_model, messages, sokrates_options):
-                if chunk["type"] == "content":
+                chunk_type = chunk.get("type", "")
+
+                if chunk_type == "content":
                     if not first_token:
                         ttft = time.time() - start_time
                         self.add_debug(f"⚡ TTFT: {ttft:.2f}s")
                         first_token = True
 
-                    content = chunk["content"]
+                    content = chunk.get("text", "")  # Key is "text", not "content"
                     full_response += content
                     token_count += 1
 
-                    # Update chat history with streaming content (preserve user message!)
-                    self.chat_history[history_index] = (original_user_msg, f"{sokrates_marker}{full_response}")
+                    # Update Sokrates entry (empty user = renders as Sokrates panel)
+                    self.chat_history[sokrates_index] = ("", f"{sokrates_marker}{full_response}")
                     yield
 
-                elif chunk["type"] == "done":
+                elif chunk_type == "thinking":
+                    # Handle thinking chunks (Qwen3 thinking mode)
+                    thinking_content = chunk.get("text", "")  # Also "text" for thinking
+                    if thinking_content:
+                        full_response += f"<think>{thinking_content}</think>"
+
+                elif chunk_type == "done":
                     metrics = chunk.get("metrics", {})
                     token_count = metrics.get("tokens_generated", token_count)
 
@@ -4919,14 +4941,18 @@ Be concise but profound. Consider the context of the previous conversation."""
 
             # Build metadata
             metadata = format_metadata(
-                inference_time=inference_time,
-                tokens_per_sec=tokens_per_sec,
-                source=f"Sokrates ({sokrates_model})"
+                f"Inference: {format_number(inference_time, 1)}s    "
+                f"{format_number(tokens_per_sec, 1)} tok/s    "
+                f"Source: Sokrates ({sokrates_model})"
             )
 
-            # Final update with metadata (preserve user message!)
+            # Final update: Sokrates in separate entry (empty user = Sokrates panel)
             final_content = f"{sokrates_marker}{formatted_response}\n\n{metadata}"
-            self.chat_history[history_index] = (original_user_msg, final_content)
+            self.chat_history[sokrates_index] = ("", final_content)
+
+            # Remove the waiting message from user entry, keep only user question
+            # Since Sokrates answered, no AIfred response needed
+            self.chat_history[history_index] = (original_user_msg, "")
 
             self.add_debug(f"🏛️ Sokrates: {len(full_response)} chars, {tokens_per_sec:.1f} tok/s")
 
@@ -4935,12 +4961,15 @@ Be concise but profound. Consider the context of the previous conversation."""
 
         except Exception as e:
             self.add_debug(f"❌ Sokrates Direct Response Error: {e}")
-            # Put error message in history (try to preserve user message)
+            # Put error message in Sokrates panel (empty user = Sokrates styling)
             try:
                 original_user_msg, _ = self.chat_history[history_index]
+                # Keep user message, clear AI response
+                self.chat_history[history_index] = (original_user_msg, "")
             except (IndexError, ValueError):
-                original_user_msg = ""
-            self.chat_history[history_index] = (original_user_msg, f"🏛️[Error] {str(e)}")
+                pass
+            # Add error as Sokrates panel entry
+            self.chat_history.append(("", f"🏛️[Error] {str(e)}"))
             yield
 
     # ============================================================

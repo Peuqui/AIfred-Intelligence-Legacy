@@ -230,13 +230,19 @@ def detect_dialog_addressing(user_text: str) -> tuple[Optional[str], str]:
     # ============================================================
     sokrates_patterns = [
         # Start patterns: "Sokrates, ..." / "Sokrates: ..." / "@Sokrates ..."
-        (r'^(?:@)?sokrates[,:\s!]+\s*', True),
+        # IMPORTANT: Requires comma/colon after name to distinguish from "Sokrates hat gesagt"
+        (r'^(?:@)?sokrates[,:]\s*', True),
         # "Hey Sokrates, ..."
-        (r'^hey\s+sokrates[,:\s!]+\s*', True),
+        (r'^hey\s+sokrates[,:]\s*', True),
         # "An Sokrates: ..."
-        (r'^an\s+sokrates[,:\s!]+\s*', True),
+        (r'^an\s+sokrates[,:]\s*', True),
+        # "Also Sokrates, ..." / "Aber Sokrates, ..." (word + Sokrates + comma/colon)
+        # Does NOT match "Aber Sokrates hat gesagt" (no comma after Sokrates)
+        (r'^\w+\s+sokrates[,:]\s*', True),
         # Embedded: "Warum, Sokrates, denkst du..." - keep text, just detect
         (r',\s*sokrates\s*,', False),
+        # End of sentence: "..., Sokrates." / "..., Sokrates?" / "..., Sokrates!"
+        (r',\s*sokrates\s*[.?!]?\s*$', False),
     ]
 
     for pattern, remove_prefix in sokrates_patterns:
@@ -264,6 +270,8 @@ def detect_dialog_addressing(user_text: str) -> tuple[Optional[str], str]:
         (r'^hey\s+(?:ai\s*fred|aifred|alfred|eifred)[,:\s!]+\s*', True),
         # "An AIfred: ..."
         (r'^an\s+(?:ai\s*fred|aifred|alfred|eifred)[,:\s!]+\s*', True),
+        # "Also AIfred, ..." / "Aber Alfred, ..." (word before AIfred)
+        (r'^\w+\s+(?:ai\s*fred|aifred|alfred|eifred)[,:\s!]+\s*', True),
         # Embedded: "Warum, AIfred, denkst du..."
         (r',\s*(?:ai\s*fred|aifred|alfred|eifred)\s*,', False),
     ]
