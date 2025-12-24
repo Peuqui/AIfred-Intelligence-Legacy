@@ -48,6 +48,8 @@ class ChatMessageParsed(TypedDict):
     images: List[str]  # List of data URLs for image thumbnails
     sokrates_mode: str  # Extracted mode from 🏛️[Mode] marker (e.g., "Advocatus Diaboli")
     sokrates_content: str  # AI message with marker stripped for display
+    alfred_mode: str  # Extracted mode from 🎩[Mode] marker (e.g., "Überarbeitung R2")
+    alfred_content: str  # AI message with marker stripped for display
 
 
 # ============================================================
@@ -677,6 +679,8 @@ class AIState(rx.State):
         image_pattern = r'\[IMG:(data:image/[^;]+;base64,[^\]]+)\]'
         # Sokrates marker pattern: 🏛️[Mode]Content or 🏛️[Mode R2]Content
         sokrates_marker_pattern = r'^🏛️\[([^\]]+)\]'
+        # AIfred marker pattern: 🎩[Mode]Content (e.g., 🎩[Überarbeitung R2])
+        alfred_marker_pattern = r'^🎩\[([^\]]+)\]'
 
         def extract_sokrates_info(ai_text: str) -> tuple[str, str]:
             """Extract mode and content from Sokrates marker.
@@ -685,6 +689,16 @@ class AIState(rx.State):
             if sokrates_match:
                 mode = sokrates_match.group(1)
                 content = ai_text[sokrates_match.end():]
+                return mode, content
+            return "", ai_text
+
+        def extract_alfred_info(ai_text: str) -> tuple[str, str]:
+            """Extract mode and content from AIfred marker.
+            Returns (mode, content) or ("", ai_text) if no marker."""
+            alfred_match = re.match(alfred_marker_pattern, ai_text)
+            if alfred_match:
+                mode = alfred_match.group(1)
+                content = ai_text[alfred_match.end():]
                 return mode, content
             return "", ai_text
 
@@ -702,33 +716,42 @@ class AIState(rx.State):
                     failed_sources = json.loads(match.group(1))
                     clean_ai_msg = re.sub(failed_sources_pattern, '', ai_msg, count=1)
                     sokrates_mode, sokrates_content = extract_sokrates_info(clean_ai_msg)
+                    alfred_mode, alfred_content = extract_alfred_info(clean_ai_msg)
                     result.append({
                         "user_msg": clean_user_msg,
                         "ai_msg": clean_ai_msg,
                         "failed_sources": failed_sources,
                         "images": images,
                         "sokrates_mode": sokrates_mode,
-                        "sokrates_content": sokrates_content
+                        "sokrates_content": sokrates_content,
+                        "alfred_mode": alfred_mode,
+                        "alfred_content": alfred_content
                     })
                 except json.JSONDecodeError:
                     sokrates_mode, sokrates_content = extract_sokrates_info(ai_msg)
+                    alfred_mode, alfred_content = extract_alfred_info(ai_msg)
                     result.append({
                         "user_msg": clean_user_msg,
                         "ai_msg": ai_msg,
                         "failed_sources": [],
                         "images": images,
                         "sokrates_mode": sokrates_mode,
-                        "sokrates_content": sokrates_content
+                        "sokrates_content": sokrates_content,
+                        "alfred_mode": alfred_mode,
+                        "alfred_content": alfred_content
                     })
             else:
                 sokrates_mode, sokrates_content = extract_sokrates_info(ai_msg)
+                alfred_mode, alfred_content = extract_alfred_info(ai_msg)
                 result.append({
                     "user_msg": clean_user_msg,
                     "ai_msg": ai_msg,
                     "failed_sources": [],
                     "images": images,
                     "sokrates_mode": sokrates_mode,
-                    "sokrates_content": sokrates_content
+                    "sokrates_content": sokrates_content,
+                    "alfred_mode": alfred_mode,
+                    "alfred_content": alfred_content
                 })
 
         return result
@@ -3271,9 +3294,9 @@ class AIState(rx.State):
         for user_msg, ai_msg in self.chat_history:
             ai_msg_stripped = ai_msg.strip()
 
-            # Determine message type based on content
-            is_sokrates = ai_msg_stripped.startswith("🏛️ **Sokrates**") or ai_msg_stripped.startswith("🏛️")
-            is_alfred_refinement = ai_msg_stripped.startswith("🎩 **AIfred** (Überarbeitung")
+            # Determine message type based on content (new marker format)
+            is_sokrates = ai_msg_stripped.startswith("🏛️")
+            is_alfred_refinement = ai_msg_stripped.startswith("🎩[")
             is_summary = ai_msg_stripped.startswith("[📊 Komprimiert") or ai_msg_stripped.startswith("[📊 Compressed")
             has_user_input = bool(user_msg and user_msg.strip())
 
@@ -4851,8 +4874,8 @@ class AIState(rx.State):
                     )
 
                     # Add placeholder for AIfred refinement
-                    alfred_header = f"🎩 **AIfred** (Überarbeitung R{round_num + 1}):\n\n"
-                    self.chat_history.append(("", alfred_header))
+                    alfred_marker = f"🎩[Überarbeitung R{round_num + 1}]"
+                    self.chat_history.append(("", alfred_marker))
                     alfred_index = len(self.chat_history) - 1
                     yield
 
@@ -4863,7 +4886,7 @@ class AIState(rx.State):
                         messages=alfred_messages,
                         options=alfred_options,
                         history_index=alfred_index,
-                        alfred_header=alfred_header
+                        alfred_marker=alfred_marker
                     ):
                         yield
 
@@ -4882,7 +4905,7 @@ class AIState(rx.State):
                     )
 
                     # Update history with metadata
-                    final_alfred = f"{alfred_header}{formatted_alfred}\n\n{alfred_metadata}"
+                    final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
                     self.chat_history[alfred_index] = ("", final_alfred)
                     yield
 
@@ -4917,7 +4940,7 @@ class AIState(rx.State):
         messages: list,
         options,
         history_index: int,
-        alfred_header: str,
+        alfred_marker: str,
     ):
         """Stream AIfred's refined answer into chat_history (for auto_consensus)."""
         import time
@@ -4937,7 +4960,7 @@ class AIState(rx.State):
 
                 # Update chat_history with current content
                 if history_index < len(self.chat_history):
-                    self.chat_history[history_index] = ("", f"{alfred_header}{full_response}")
+                    self.chat_history[history_index] = ("", f"{alfred_marker}{full_response}")
                 yield  # UI Update
 
             elif chunk["type"] == "done":
