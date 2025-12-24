@@ -94,19 +94,29 @@ def build_messages_from_history(
         # Clean AI message (remove HTML tags AND text metadata)
         clean_ai = ai_turn
 
-        # 1. Remove thinking collapsibles (<details>...</details>)
+        # 1. Remove Multi-Agent headers (Sokrates, AIfred refinement headers)
+        # These are UI decorations that shouldn't be in the LLM context
+        # Pattern: "🏛️ **Sokrates** (Mode Label):\n\n" or "🎩 **AIfred** (...):\n\n"
+        # Note: 🏛️ is 2 chars (base + variation selector), so use alternation not char class
+        clean_ai = re.sub(
+            r'^(?:🏛️|🎩)\s*\*\*(?:Sokrates|AIfred)\*\*\s*\([^)]+\):\s*\n*',
+            '',
+            clean_ai
+        )
+
+        # 2. Remove thinking collapsibles (<details>...</details>)
         clean_ai = re.sub(r'<details[^>]*>.*?</details>', '', clean_ai, flags=re.DOTALL)
 
-        # 2. Remove metadata spans (<span style="...">( Inference: ... )</span>)
+        # 3. Remove metadata spans (<span style="...">( Inference: ... )</span>)
         clean_ai = re.sub(r'<span[^>]*>\s*\([^)]+\)\s*</span>', '', clean_ai, flags=re.DOTALL)
 
-        # 3. Fallback: Remove remaining text metadata (if HTML tags missing)
+        # 4. Fallback: Remove remaining text metadata (if HTML tags missing)
         for pattern in timing_patterns:
             if pattern in clean_ai:
                 # Cut everything from the first timing pattern
                 clean_ai = clean_ai.split(pattern)[0]
 
-        # 4. Cleanup: Remove multiple blank lines and whitespace
+        # 5. Cleanup: Remove multiple blank lines and whitespace
         clean_ai = re.sub(r'\n\n+', '\n\n', clean_ai.strip())
 
         # Add cleaned messages
