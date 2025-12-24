@@ -131,7 +131,7 @@ class VectorCache:
 
             # Get or create collection with Ollama embeddings
             self.collection = self.client.get_or_create_collection(
-                name="research_cache_v2",  # New name to avoid mixing old/new embeddings
+                name="research_cache",
                 metadata={
                     "description": "AIfred web research results with semantic search",
                     "embedding_model": OLLAMA_EMBEDDING_MODEL
