@@ -124,7 +124,7 @@ async def build_and_generate_response(
 
     # System prompt (timestamp injected automatically by load_prompt)
     system_prompt = load_prompt(
-        'system_rag',
+        'aifred/system_rag',
         lang=detected_user_language,
         user_text=user_text,
         context=context

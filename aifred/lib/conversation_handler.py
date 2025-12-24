@@ -1155,7 +1155,7 @@ async def chat_interactive_mode(
 
             # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
             from .prompt_loader import load_prompt
-            system_prompt_minimal = load_prompt('system_minimal', lang=detected_user_language)
+            system_prompt_minimal = load_prompt('aifred/system_minimal', lang=detected_user_language)
             messages.insert(0, {"role": "system", "content": system_prompt_minimal})
 
             # Inject RAG context using centralized helper
@@ -1518,7 +1518,7 @@ async def chat_interactive_mode(
 
                 # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
                 from .prompt_loader import load_prompt
-                system_prompt_minimal = load_prompt('system_minimal', lang=detected_user_language)
+                system_prompt_minimal = load_prompt('aifred/system_minimal', lang=detected_user_language)
                 messages.insert(0, {"role": "system", "content": system_prompt_minimal})
 
                 # Inject RAG context using centralized helper

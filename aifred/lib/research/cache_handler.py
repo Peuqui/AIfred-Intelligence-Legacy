@@ -97,7 +97,7 @@ async def handle_cache_hit(
 
     # System prompt for cache hit: Use separate prompt file
     system_prompt = load_prompt(
-        'system_rag_cache_hit',
+        'aifred/system_rag_cache_hit',
         lang=detected_user_language,
         original_question=cache_entry.get('user_text', 'N/A'),
         current_question=user_text,

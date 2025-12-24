@@ -289,7 +289,7 @@ def get_followup_intent_prompt(original_query: str, followup_query: str, lang: O
 def get_system_rag_prompt(context: str, user_text: str = "", lang: Optional[str] = None) -> str:
     """Load system RAG prompt (timestamp injected automatically by load_prompt)"""
     return load_prompt(
-        'system_rag',
+        'aifred/system_rag',
         lang=lang,
         user_text=user_text,
         context=context
@@ -435,3 +435,43 @@ def get_sokrates_refinement_prompt(
         critique=critique,
         user_interjection=user_interjection
     )
+
+
+def get_sokrates_direct_prompt(lang: Optional[str] = None) -> str:
+    """
+    Load Sokrates Direct Response prompt for when user addresses Sokrates directly.
+
+    Args:
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Sokrates direct response system prompt
+    """
+    if lang is None:
+        lang = _current_language
+    if lang == "auto":
+        lang = "de"
+
+    prompt_file = PROMPTS_DIR / lang / "sokrates" / "direct.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
+def get_aifred_direct_prompt(lang: Optional[str] = None) -> str:
+    """
+    Load AIfred Direct Response prompt for when user addresses AIfred directly.
+
+    Args:
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        AIfred direct response system prompt
+    """
+    if lang is None:
+        lang = _current_language
+    if lang == "auto":
+        lang = "de"
+
+    prompt_file = PROMPTS_DIR / lang / "aifred" / "direct.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
