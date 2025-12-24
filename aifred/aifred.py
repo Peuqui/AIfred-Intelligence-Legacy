@@ -1261,16 +1261,21 @@ def render_chat_message(msg: dict) -> rx.Component:
                 rx.hstack(
                     rx.text("🏛️", font_size="13px"),
                     rx.box(
-                        # Header with Sokrates name
+                        # Header with Sokrates name + mode (e.g. "Sokrates (Advocatus Diaboli)")
                         rx.text(
-                            "Sokrates",
+                            rx.cond(
+                                msg["sokrates_mode"] != "",
+                                f"Sokrates ({msg['sokrates_mode']})",
+                                "Sokrates"
+                            ),
                             font_weight="bold",
                             font_size="12px",
                             color="#cd7f32",  # Bronze/Kupfer-Ton
                             margin_bottom="1",
                         ),
+                        # Show sokrates_content (marker stripped) instead of ai_msg
                         rx.markdown(
-                            msg["ai_msg"],
+                            msg["sokrates_content"],
                             color=COLORS["ai_text"],
                             font_size="13px"
                         ),

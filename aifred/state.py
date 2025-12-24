@@ -46,6 +46,8 @@ class ChatMessageParsed(TypedDict):
     ai_msg: str
     failed_sources: List[FailedSourceDict]
     images: List[str]  # List of data URLs for image thumbnails
+    sokrates_mode: str  # Extracted mode from 🏛️[Mode] marker (e.g., "Advocatus Diaboli")
+    sokrates_content: str  # AI message with marker stripped for display
 
 
 # ============================================================
@@ -673,6 +675,18 @@ class AIState(rx.State):
         result = []
         failed_sources_pattern = r'<!--FAILED_SOURCES:(\[.*?\])-->\n?'
         image_pattern = r'\[IMG:(data:image/[^;]+;base64,[^\]]+)\]'
+        # Sokrates marker pattern: 🏛️[Mode]Content or 🏛️[Mode R2]Content
+        sokrates_marker_pattern = r'^🏛️\[([^\]]+)\]'
+
+        def extract_sokrates_info(ai_text: str) -> tuple[str, str]:
+            """Extract mode and content from Sokrates marker.
+            Returns (mode, content) or ("", ai_text) if no marker."""
+            sokrates_match = re.match(sokrates_marker_pattern, ai_text)
+            if sokrates_match:
+                mode = sokrates_match.group(1)
+                content = ai_text[sokrates_match.end():]
+                return mode, content
+            return "", ai_text
 
         for user_msg, ai_msg in self.chat_history:
             # Extract images from user message
@@ -687,25 +701,34 @@ class AIState(rx.State):
                 try:
                     failed_sources = json.loads(match.group(1))
                     clean_ai_msg = re.sub(failed_sources_pattern, '', ai_msg, count=1)
+                    sokrates_mode, sokrates_content = extract_sokrates_info(clean_ai_msg)
                     result.append({
                         "user_msg": clean_user_msg,
                         "ai_msg": clean_ai_msg,
                         "failed_sources": failed_sources,
-                        "images": images
+                        "images": images,
+                        "sokrates_mode": sokrates_mode,
+                        "sokrates_content": sokrates_content
                     })
                 except json.JSONDecodeError:
+                    sokrates_mode, sokrates_content = extract_sokrates_info(ai_msg)
                     result.append({
                         "user_msg": clean_user_msg,
                         "ai_msg": ai_msg,
                         "failed_sources": [],
-                        "images": images
+                        "images": images,
+                        "sokrates_mode": sokrates_mode,
+                        "sokrates_content": sokrates_content
                     })
             else:
+                sokrates_mode, sokrates_content = extract_sokrates_info(ai_msg)
                 result.append({
                     "user_msg": clean_user_msg,
                     "ai_msg": ai_msg,
                     "failed_sources": [],
-                    "images": images
+                    "images": images,
+                    "sokrates_mode": sokrates_mode,
+                    "sokrates_content": sokrates_content
                 })
 
         return result
@@ -4543,13 +4566,13 @@ class AIState(rx.State):
         messages: list,
         options,
         history_index: int,
-        sokrates_header: str,
+        sokrates_marker: str,
     ):
         """
         Stream Sokrates response directly into chat_history.
 
         Similar to _stream_llm_with_ui but specifically for Sokrates:
-        - Keeps the header prefix during streaming
+        - Keeps the marker prefix during streaming (🏛️[Mode])
         - Updates chat_history[history_index] directly
         - No separate state variable needed
         """
@@ -4571,9 +4594,9 @@ class AIState(rx.State):
                 full_response += chunk["text"]
                 token_count += 1
 
-                # Update chat_history directly with header + current response
+                # Update chat_history directly with marker + current response
                 if history_index < len(self.chat_history):
-                    self.chat_history[history_index] = ("", f"{sokrates_header}{full_response}")
+                    self.chat_history[history_index] = ("", f"{sokrates_marker}{full_response}")
 
                 yield  # UI Update
 
@@ -4722,9 +4745,10 @@ class AIState(rx.State):
                         sokrates_messages.append(msg)
 
                 # Add placeholder for Sokrates
+                # Minimal marker for UI detection (🏛️), mode info stored in metadata
                 round_suffix = f" R{round_num}" if max_rounds > 1 else ""
-                sokrates_header = f"🏛️ **Sokrates** ({mode_label}{round_suffix}):\n\n"
-                self.chat_history.append(("", sokrates_header))
+                sokrates_marker = f"🏛️[{mode_label}{round_suffix}]"  # Marker for UI parsing
+                self.chat_history.append(("", sokrates_marker))
                 sokrates_index = len(self.chat_history) - 1
                 yield  # Show placeholder
 
@@ -4743,7 +4767,7 @@ class AIState(rx.State):
                     messages=sokrates_messages,
                     options=sokrates_options,
                     history_index=sokrates_index,
-                    sokrates_header=sokrates_header
+                    sokrates_marker=sokrates_marker
                 ):
                     yield  # Forward UI updates
 
@@ -4767,7 +4791,8 @@ class AIState(rx.State):
                 )
 
                 # Final update with metadata
-                final_content = f"{sokrates_header}{formatted_sokrates}\n\n{metadata}"
+                # Format: "🏛️[Mode]Content\n\nMetadata" - UI parses mode from bracket
+                final_content = f"{sokrates_marker}{formatted_sokrates}\n\n{metadata}"
                 self.chat_history[sokrates_index] = ("", final_content)
                 self.sokrates_critique = sokrates_response_text  # Keep raw text for logic checks
                 yield
