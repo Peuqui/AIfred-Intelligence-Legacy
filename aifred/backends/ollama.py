@@ -995,6 +995,20 @@ class OllamaBackend(LLMBackend):
             extended=extended
         )
 
+        # 6. Auto-set extended value if native calibration is VRAM-limited
+        # If native calibration < native context limit, VRAM is the bottleneck
+        # → RoPE 2x wouldn't help, so set extended = native calibrated value
+        if not extended and final_ctx < native_ctx:
+            add_ollama_calibration(
+                model_name=model,
+                max_context_gpu_only=final_ctx,
+                native_context=native_ctx,
+                gpu_model=gpu_model,
+                extended=True  # Also save as extended value
+            )
+            yield f"ℹ️ VRAM-limited ({fmt(final_ctx)} < {fmt(native_ctx)} native)"
+            yield f"   → RoPE 2x auto-set to {fmt(final_ctx)} (no benefit from scaling)"
+
         # Final yield with result marker
         yield f"__RESULT__:{final_ctx}"
 
