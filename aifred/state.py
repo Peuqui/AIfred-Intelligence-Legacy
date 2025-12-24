@@ -4491,8 +4491,8 @@ class AIState(rx.State):
     def set_num_ctx_manual(self, value: str):
         """Set manual num_ctx value (only used when mode=manual)"""
         try:
-            # Handle locale-formatted numbers (e.g., "1.472" German or "1,472" English)
-            clean_value = str(value).replace(".", "").replace(",", "").strip()
+            # Handle locale-formatted numbers and spaces (e.g., "1.472", "1,472", "1 472")
+            clean_value = str(value).replace(".", "").replace(",", "").replace(" ", "").strip()
             if not clean_value:
                 return  # Empty input, ignore
             num_value = int(clean_value)
