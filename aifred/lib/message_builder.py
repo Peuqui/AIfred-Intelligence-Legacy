@@ -94,10 +94,11 @@ def build_messages_from_history(
         # Clean AI message (remove HTML tags AND text metadata)
         clean_ai = ai_turn
 
-        # 1. Remove Multi-Agent headers (Sokrates, AIfred refinement headers)
+        # 1. Remove Multi-Agent markers (Sokrates, AIfred refinement headers)
         # These are UI decorations that shouldn't be in the LLM context
-        # Pattern: "🏛️ **Sokrates** (Mode Label):\n\n" or "🎩 **AIfred** (...):\n\n"
-        # Note: 🏛️ is 2 chars (base + variation selector), so use alternation not char class
+        # New format: "🏛️[Mode]" marker (e.g., "🏛️[Advocatus Diaboli]")
+        # Old format: "🏛️ **Sokrates** (Mode):\n\n" (for backwards compatibility)
+        clean_ai = re.sub(r'^🏛️\[[^\]]+\]', '', clean_ai)  # New marker format
         clean_ai = re.sub(
             r'^(?:🏛️|🎩)\s*\*\*(?:Sokrates|AIfred)\*\*\s*\([^)]+\):\s*\n*',
             '',
