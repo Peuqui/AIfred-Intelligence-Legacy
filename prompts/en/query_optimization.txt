@@ -28,12 +28,9 @@ IMPORTANT: You MUST always output exactly 3 different queries - never less!
 
 ## LANGUAGE RULES
 
-- **Medicine:** Mixed! One query English (PubMed, international studies), one query in user's language (local guidelines, national literature)
-- **Science/Technology:** English preferred
-- **Current News (local):** Keep original language
-- **Tech Documentation:** English
-- **Local Topics (weather, local politics):** Keep original language
-- **URLs:** Preserve completely, do not break down!
+**IMPORTANT: At least 1 of 3 queries MUST be in the language of the question!**
+
+- Preserve URLs completely, do not break down
 
 ## EXAMPLES
 
