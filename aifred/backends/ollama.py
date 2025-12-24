@@ -909,15 +909,17 @@ class OllamaBackend(LLMBackend):
             yield f"Binary search range: {fmt(low)} → {fmt(high)} tok"
 
             iteration = 1  # Already did iteration 1 with max target
-            while high - low > 2048:  # End condition: 2k precision
+            while high - low > 512:  # End condition: 512 token precision
                 iteration += 1
-                # Adaptive granularity: switch to 2k when close
-                if high - low < 16384:
-                    granularity = 2048
+                # Adaptive granularity: narrow down as we get closer
+                if high - low < 8192:
+                    granularity = 512
+                elif high - low < 16384:
+                    granularity = 1024
 
                 mid = ((low + high) // 2 // granularity) * granularity  # Align to granularity
 
-                yield f"[{iteration}] Testing {mid // 1024}k..."
+                yield f"[{iteration}] Testing {fmt(mid)}..."
 
                 # Load model with test context
                 success, _ = await self.preload_model(model, num_ctx=mid)
@@ -933,10 +935,10 @@ class OllamaBackend(LLMBackend):
                 if await self._is_fully_in_vram(model):
                     result = mid
                     low = mid
-                    yield f"✓ {mid // 1024}k fits in VRAM"
+                    yield f"✓ {fmt(mid)} fits in VRAM"
                 else:
                     high = mid
-                    yield f"✗ {mid // 1024}k → CPU offload"
+                    yield f"✗ {fmt(mid)} → CPU offload"
 
             # Unload for next iteration
             await self.unload_all_models()
