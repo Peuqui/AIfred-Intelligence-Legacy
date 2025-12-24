@@ -114,8 +114,8 @@ class OllamaBackend(LLMBackend):
         }
         if options.num_ctx:
             ollama_options["num_ctx"] = options.num_ctx
-        if options.num_predict:
-            ollama_options["num_predict"] = options.num_predict
+        # NOTE: num_predict intentionally NOT set for Ollama
+        # Ollama generates until EOS or num_ctx is full - no artificial limit needed
         if options.seed:
             ollama_options["seed"] = options.seed
 
@@ -302,11 +302,11 @@ class OllamaBackend(LLMBackend):
         }
         if options.num_ctx:
             ollama_options["num_ctx"] = options.num_ctx
-        if options.num_predict:
-            ollama_options["num_predict"] = options.num_predict
+        # NOTE: num_predict intentionally NOT set for Ollama
+        # Ollama generates until EOS or num_ctx is full - no artificial limit needed
         if options.seed:
             ollama_options["seed"] = options.seed
-        
+
         payload = {
             "model": model,
             "messages": ollama_messages,
