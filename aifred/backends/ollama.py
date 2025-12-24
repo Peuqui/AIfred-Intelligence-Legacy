@@ -882,18 +882,18 @@ class OllamaBackend(LLMBackend):
         await asyncio.sleep(2.0)
 
         # 3. First try: max target (often fits, saves binary search)
-        yield f"[1] Testing {max_target // 1024}k..."
+        yield f"[1] Testing {fmt(max_target)}..."
         success, _ = await self.preload_model(model, num_ctx=max_target)
         if success:
             await asyncio.sleep(1.5)
             if await self._is_fully_in_vram(model):
-                yield f"✓ {max_target // 1024}k fits in VRAM"
+                yield f"✓ {fmt(max_target)} fits in VRAM"
                 result = max_target
                 # Skip binary search - go directly to save
                 low = max_target
                 high = max_target
             else:
-                yield f"✗ {max_target // 1024}k too large, starting binary search..."
+                yield f"✗ {fmt(max_target)} too large, starting binary search..."
                 low = 4096
                 high = max_target
                 result = low
