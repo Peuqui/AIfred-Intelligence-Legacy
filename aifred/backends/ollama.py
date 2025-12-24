@@ -909,6 +909,9 @@ class OllamaBackend(LLMBackend):
             yield f"Binary search range: {fmt(low)} → {fmt(high)} tok"
 
             iteration = 1  # Already did iteration 1 with max target
+            consecutive_fast_fails = 0  # Track rapid failures (system instability)
+            RECOVERY_THRESHOLD = 262144  # 256k - restart threshold after crash
+
             while high - low > 512:  # End condition: 512 token precision
                 iteration += 1
                 # Adaptive granularity: narrow down as we get closer
@@ -922,11 +925,44 @@ class OllamaBackend(LLMBackend):
                 yield f"[{iteration}] Testing {fmt(mid)}..."
 
                 # Load model with test context
+                import time
+                start_time = time.time()
                 success, _ = await self.preload_model(model, num_ctx=mid)
+                elapsed = time.time() - start_time
+
                 if not success:
-                    yield f"⚠️ Preload failed at {mid // 1024}k"
+                    yield f"⚠️ Preload failed at {fmt(mid)}"
                     high = mid
+
+                    # Detect rapid consecutive failures (< 2 sec each = system unstable)
+                    if elapsed < 2.0:
+                        consecutive_fast_fails += 1
+                        if consecutive_fast_fails >= 3:
+                            yield "⚠️ System instability detected (rapid failures)"
+                            yield "🔄 Waiting for system recovery..."
+                            await asyncio.sleep(5.0)
+
+                            # Check if Ollama is still responsive
+                            try:
+                                await self.unload_all_models()
+                                await asyncio.sleep(2.0)
+                            except Exception:
+                                yield "❌ Ollama unresponsive - please restart manually"
+                                return
+
+                            # Restart with lower ceiling if original was very high
+                            if high > RECOVERY_THRESHOLD:
+                                high = RECOVERY_THRESHOLD
+                                yield f"🔄 Restarting search with ceiling {fmt(high)}"
+
+                            consecutive_fast_fails = 0
+                    else:
+                        consecutive_fast_fails = 0  # Reset on slow fail (normal behavior)
+
                     continue
+
+                # Success - reset fail counter
+                consecutive_fast_fails = 0
 
                 # Wait for model to stabilize
                 await asyncio.sleep(1.5)
