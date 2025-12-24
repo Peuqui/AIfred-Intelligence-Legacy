@@ -4801,8 +4801,12 @@ class AIState(rx.State):
             for msg in sokrates_vram_msgs:
                 self.add_debug(f"   {msg}")  # Indent to show it's for Sokrates
 
-            # Get Main-LLM context limit
-            main_llm_ctx = self.last_vram_limit if self.last_vram_limit else 40960
+            # Get Main-LLM context limit (respect manual mode)
+            # Fallback 32k is conservative - smallest common context size
+            if self.num_ctx_mode == "manual" and self.num_ctx_manual:
+                main_llm_ctx = self.num_ctx_manual
+            else:
+                main_llm_ctx = self.last_vram_limit if self.last_vram_limit else 32768
 
             # Update global cache with MINIMUM of both context limits
             # This ensures history compression uses the smallest window
@@ -4960,7 +4964,7 @@ class AIState(rx.State):
 
                     # Estimate tokens in messages (using proper tokenizer estimation)
                     alfred_msg_tokens = estimate_tokens(alfred_messages, model_name=self.selected_model_id)
-                    alfred_ctx = alfred_options.num_ctx if alfred_options and alfred_options.num_ctx else 40960
+                    alfred_ctx = alfred_options.num_ctx if alfred_options and alfred_options.num_ctx else 32768
                     self.add_debug(
                         f"📊 AIfred R{round_num + 1}: {format_number(alfred_msg_tokens)} / "
                         f"{format_number(alfred_ctx)} tokens"
