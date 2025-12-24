@@ -735,7 +735,10 @@ class OllamaBackend(LLMBackend):
             "requires_preload": False    # Optional preloading (for performance only)
         }
 
-    async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]:
+    async def calculate_practical_context(
+        self,
+        model: str
+    ) -> tuple[int, list[str]]:
         """
         Calculate practical context for Ollama (dynamic VRAM-based calculation)
 
@@ -745,6 +748,8 @@ class OllamaBackend(LLMBackend):
         IMPORTANT: This function UNLOADS ALL MODELS before measuring VRAM!
         This ensures accurate VRAM measurement even if Automatik-LLM or Vision-LLM
         were running before the Main-LLM inference.
+
+        Note: Per-model RoPE 2x toggle is read automatically from VRAM cache.
 
         Args:
             model: Model name
@@ -777,6 +782,7 @@ class OllamaBackend(LLMBackend):
         model_is_loaded = False
 
         # Calculate practical context based on current VRAM (with auto-MoE detection)
+        # Note: use_extended is read from cache inside calculate_vram_based_context
         num_ctx, vram_debug_msgs = await calculate_vram_based_context(
             model_name=model,
             model_size_bytes=model_size_bytes,
@@ -790,6 +796,169 @@ class OllamaBackend(LLMBackend):
         debug_msgs.extend(vram_debug_msgs)
 
         return num_ctx, debug_msgs
+
+    async def _is_fully_in_vram(self, model: str) -> bool:
+        """
+        Check if model is fully loaded in VRAM (no CPU offloading).
+
+        Queries /api/ps and compares `size` (total) vs `size_vram` (GPU only).
+        If size == size_vram, the model fits entirely in GPU memory.
+
+        Args:
+            model: Model name (e.g., "qwen3:8b")
+
+        Returns:
+            True if model is 100% in VRAM, False if CPU offloading is active
+        """
+        try:
+            response = await self.client.get(f"{self.base_url}/api/ps")
+            response.raise_for_status()
+            data = response.json()
+
+            for loaded_model in data.get("models", []):
+                # Match model name (handle tags like "qwen3:8b" vs "qwen3:8b-instruct")
+                if loaded_model.get("name") == model or model in loaded_model.get("name", ""):
+                    size = loaded_model.get("size", 0)
+                    size_vram = loaded_model.get("size_vram", 0)
+
+                    # Log for debugging
+                    logger.debug(
+                        f"📊 VRAM check: {model} → size={size:,}, size_vram={size_vram:,}, "
+                        f"fully_in_vram={size == size_vram}"
+                    )
+
+                    return size == size_vram
+
+            logger.warning(f"Model {model} not found in /api/ps response")
+            return False
+
+        except httpx.HTTPError as e:
+            logger.warning(f"Failed to query /api/ps: {e}")
+            return False
+
+    async def calibrate_max_context_generator(
+        self,
+        model: str,
+        extended: bool = False
+    ):
+        """
+        Calibrate maximum context window without CPU offloading via binary search.
+
+        This is an async generator that yields progress messages for UI updates.
+        Uses /api/ps to detect if model fits entirely in VRAM (size == size_vram).
+        Binary search finds the largest num_ctx that still fits in GPU memory.
+
+        Supports two calibration modes:
+        - Native (extended=False): Calibrates up to native context limit
+        - Extended (extended=True): Calibrates up to 2x native (RoPE scaling)
+
+        Args:
+            model: Model name (e.g., "qwen3:8b")
+            extended: If True, calibrate up to 2x native context (RoPE scaling)
+
+        Yields:
+            str: Progress messages (prefix "__RESULT__:" indicates final result)
+        """
+        import asyncio
+        from ..lib.model_vram_cache import add_ollama_calibration
+        from ..lib.gpu_utils import get_gpu_model_name
+        from ..lib.formatting import format_number
+
+        # Helper for locale-aware number formatting (follows UI language setting)
+        def fmt(n: int) -> str:
+            return format_number(n)
+
+        # 1. Get native context limit
+        native_ctx, _ = await self.get_model_context_limit(model)
+        max_target = native_ctx * 2 if extended else native_ctx
+        mode_label = "RoPE 2x" if extended else "Native"
+
+        yield f"{mode_label} calibration: target {fmt(max_target)} tok"
+        yield f"Native context: {fmt(native_ctx)} tok"
+
+        # 2. Unload all models for clean VRAM state
+        yield "Unloading all models..."
+        await self.unload_all_models()
+        await asyncio.sleep(2.0)
+
+        # 3. First try: max target (often fits, saves binary search)
+        yield f"[1] Testing {max_target // 1024}k..."
+        success, _ = await self.preload_model(model, num_ctx=max_target)
+        if success:
+            await asyncio.sleep(1.5)
+            if await self._is_fully_in_vram(model):
+                yield f"✓ {max_target // 1024}k fits in VRAM"
+                result = max_target
+                # Skip binary search - go directly to save
+                low = max_target
+                high = max_target
+            else:
+                yield f"✗ {max_target // 1024}k too large, starting binary search..."
+                low = 4096
+                high = max_target
+                result = low
+        else:
+            yield f"⚠️ Preload failed, starting binary search..."
+            low = 4096
+            high = max_target
+            result = low
+
+        # 4. Binary search (only if max target didn't fit)
+        if low != high:
+            granularity = 4096  # Start with 4k steps
+            yield f"Binary search range: {fmt(low)} → {fmt(high)} tok"
+
+            iteration = 1  # Already did iteration 1 with max target
+            while high - low > 2048:  # End condition: 2k precision
+                iteration += 1
+                # Adaptive granularity: switch to 2k when close
+                if high - low < 16384:
+                    granularity = 2048
+
+                mid = ((low + high) // 2 // granularity) * granularity  # Align to granularity
+
+                yield f"[{iteration}] Testing {mid // 1024}k..."
+
+                # Load model with test context
+                success, _ = await self.preload_model(model, num_ctx=mid)
+                if not success:
+                    yield f"⚠️ Preload failed at {mid // 1024}k"
+                    high = mid
+                    continue
+
+                # Wait for model to stabilize
+                await asyncio.sleep(1.5)
+
+                # Check if fully in VRAM
+                if await self._is_fully_in_vram(model):
+                    result = mid
+                    low = mid
+                    yield f"✓ {mid // 1024}k fits in VRAM"
+                else:
+                    high = mid
+                    yield f"✗ {mid // 1024}k → CPU offload"
+
+            # Unload for next iteration
+            await self.unload_all_models()
+            await asyncio.sleep(1.0)
+
+        # 4. Result (no safety buffer - Ollama handles memory management internally)
+        final_ctx = result
+
+        yield f"✅ Calibrated ({mode_label}): {fmt(final_ctx)} tok"
+
+        # 5. Save to cache
+        gpu_model = get_gpu_model_name() or "Unknown"
+        add_ollama_calibration(
+            model_name=model,
+            max_context_gpu_only=final_ctx,
+            native_context=native_ctx,
+            gpu_model=gpu_model,
+            extended=extended
+        )
+
+        # Final yield with result marker
+        yield f"__RESULT__:{final_ctx}"
 
     async def close(self):
         """Close HTTP client"""

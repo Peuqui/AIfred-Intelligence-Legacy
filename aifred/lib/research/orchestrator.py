@@ -28,7 +28,7 @@ async def perform_agent_research(
     llm_options: Optional[Dict] = None,
     backend_type: str = "ollama",
     backend_url: Optional[str] = None,
-    num_ctx_mode: str = "auto_vram",
+    num_ctx_mode: str = "auto",
     num_ctx_manual: int = 16384,
     vision_json_context: Optional[dict] = None
 ) -> AsyncIterator[Dict]:

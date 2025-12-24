@@ -5,6 +5,115 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] - 2025-12-24
+
+### 🎯 Ollama Context Calibration with RoPE 2x Support
+
+**Per-model context calibration with optional RoPE 2x extended context window.**
+
+#### Added
+
+- **Context Calibration Button** ([aifred.py](aifred/aifred.py), [state.py](aifred/state.py)):
+  - New "Context kalibrieren" button in LLM Parameters section
+  - Binary search algorithm finds maximum context fitting entirely in VRAM
+  - Uses Ollama `/api/ps` endpoint: `size == size_vram` → no CPU offload
+  - Progress displayed in debug console during calibration
+
+- **RoPE 2x Extended Mode** ([state.py:4155](aifred/state.py#L4155)):
+  - Toggle "RoPE bis 2x" enables extended context calibration
+  - Calibrates up to 2x native context limit via RoPE scaling
+  - Per-model setting stored in `model_vram_cache.json`
+  - Toggle state automatically loads when switching models
+
+- **Dual Calibration System** ([model_vram_cache.py](aifred/lib/model_vram_cache.py)):
+  - `max_context_gpu_only`: Native calibration (up to model limit)
+  - `max_context_extended`: RoPE 2x calibration (up to 2x model limit)
+  - `use_extended`: Per-model toggle stored in cache
+  - `get_use_extended_for_model()` / `set_use_extended_for_model()` functions
+
+- **Automatic Toggle Sync** ([state.py:919-945](aifred/state.py#L919-L945)):
+  - On app start: Load toggle from cache for selected model
+  - On model switch: Load toggle from cache for new model
+  - UI toggle reflects actual cache state
+
+- **Calibration Warnings** ([state.py:4166-4176](aifred/state.py#L4166-L4176)):
+  - Warning if RoPE 2x toggle enabled but no extended calibration exists
+  - Warning if native toggle but no native calibration exists
+  - Prompts user to calibrate before using
+
+#### Changed
+
+- **Simplified num_ctx_mode** ([context_manager.py](aifred/lib/context_manager.py)):
+  - Reduced from 3 modes (`auto_vram`, `auto_extended`, `manual`) to 2 modes (`auto`, `manual`)
+  - RoPE extension now controlled by per-model toggle, not dropdown
+  - Cleaner UI with just "Auto" and "Manual" radio buttons
+
+- **Removed use_extended_calibration Parameter**:
+  - No longer passed through function call chain
+  - `gpu_utils.py` reads toggle directly from cache via `get_use_extended_for_model()`
+  - Simpler code, less parameter threading
+
+- **i18n for Calibration UI** ([i18n.py](aifred/lib/i18n.py)):
+  - Added translations: `calibrate_context`, `calibrating`, `up_to_2x`
+  - German: "Context kalibrieren", "Kalibriere...", "RoPE bis 2x"
+  - English: "Calibrate context", "Calibrating...", "RoPE up to 2x"
+
+#### Fixed
+
+- **Toggle not affecting inference** ([gpu_utils.py:338-359](aifred/lib/gpu_utils.py#L338-L359)):
+  - Problem: RoPE 2x was calibrated but inference used native context
+  - Solution: Read `use_extended` from cache at inference time, not just calibration
+
+- **Toggle state not persisted on app restart**:
+  - Problem: Toggle reset to OFF on every restart
+  - Solution: Load from `model_vram_cache.json` during `on_load()`
+
+#### Technical Details
+
+**Calibration Flow:**
+```
+User clicks "Context kalibrieren"
+    ↓
+Check toggle: Native or RoPE 2x?
+    ↓
+Set target: native_limit or 2x native_limit
+    ↓
+Binary search with /api/ps check
+    ↓
+Save to model_vram_cache.json
+    ↓
+Next inference uses calibrated value
+```
+
+**Cache Structure:**
+```json
+{
+  "qwen3:14b": {
+    "backend": "ollama",
+    "native_context": 40960,
+    "gpu_model": "NVIDIA GeForce RTX 3090 Ti",
+    "use_extended": true,
+    "ollama_calibrations": [
+      {"max_context_gpu_only": 40960, "measured_at": "..."},
+      {"max_context_extended": 81920, "measured_at": "..."}
+    ]
+  }
+}
+```
+
+**Affected Files:**
+- `aifred/aifred.py` - Calibration button + RoPE toggle UI
+- `aifred/state.py` - `calibrate_context()`, `set_calibrate_extended()`, toggle sync
+- `aifred/lib/model_vram_cache.py` - Per-model toggle functions
+- `aifred/lib/gpu_utils.py` - Read toggle from cache at inference
+- `aifred/lib/context_manager.py` - Simplified to 2 modes
+- `aifred/lib/i18n.py` - Calibration UI translations
+- `aifred/backends/ollama.py` - `calibrate_max_context()`, `_is_fully_in_vram()`
+- `docs/plans/OLLAMA_CONTEXT_CALIBRATION.md` - Updated documentation
+- `docs/architecture/ollama-context-calculation.md` - Updated flow diagram
+
+---
+
 ## [2.9.0] - 2025-12-24
 
 ### 🤖 Multi-Agent Debate System: AIfred + Sokrates

@@ -15,15 +15,17 @@ Alle Haupt-LLM Vorbereitungen nutzen diese zentrale Funktion in `aifred/lib/cont
 ```python
 from aifred.lib.context_manager import prepare_main_llm
 
-final_num_ctx, debug_msgs, preload_success, preload_time = await prepare_main_llm(
+async for item in prepare_main_llm(
     backend=backend,
     llm_client=llm_client,
     model_name=model_name,
     messages=messages,
-    num_ctx_mode="auto_vram",  # oder "auto_max" oder "manual"
+    num_ctx_mode="auto",  # oder "manual"
     num_ctx_manual=4096,
-    backend_type="ollama"
-)
+    backend_type="ollama",
+    use_extended_calibration=False  # True für RoPE 2x
+):
+    # item enthält debug/result messages
 ```
 
 ## Flow-Diagramm
@@ -33,19 +35,21 @@ flowchart TD
     A[User sendet Nachricht] --> B{num_ctx_mode?}
 
     B -->|manual| C[final_num_ctx = num_ctx_manual]
-    B -->|auto_vram| D[Ollama: calculate_practical_context]
-    B -->|auto_max| E[calculate_dynamic_num_ctx]
+    B -->|auto| D[Ollama: calculate_practical_context]
 
     D --> D1[1. Alle Modelle entladen]
     D1 --> D2[2. 2s warten VRAM-Freigabe]
     D2 --> D3[3. get_model_context_limit]
     D3 --> D4[4. MoE-Erkennung]
     D4 --> D5[5. calculate_vram_based_context]
-    D5 --> D6[final_num_ctx = min VRAM, Model-Limit]
+    D5 --> D6{use_extended?}
+    D6 -->|ja| D7[Nutze max_context_extended aus Cache]
+    D6 -->|nein| D8[Nutze max_context_gpu_only aus Cache]
+    D7 --> D9[final_num_ctx = min VRAM, Model-Limit]
+    D8 --> D9
 
-    E --> D6
     C --> F
-    D6 --> F[preload_model mit num_ctx]
+    D9 --> F[preload_model mit num_ctx]
 
     F --> G[Ollama lädt Modell + KV-Cache]
     G --> H[Multi-GPU Distribution wenn nötig]
@@ -65,16 +69,21 @@ flowchart TD
 
 | Mode | UI-Text | Verhalten |
 |------|---------|-----------|
-| `auto_vram` | "Auto (VRAM-optimiert)" | Berechnet max Context der IN VRAM PASST - **SICHER** |
-| `auto_max` | "Auto (Modell-Maximum)" | Nutzt native Model-Grenze (z.B. 128K) - **RISIKO CPU-Offload** |
-| `manual` | "Manuell" | User-definierter Wert |
+| `auto` | "🎯 Auto" | VRAM-basierte Berechnung mit kalibriertem Maximum |
+| `manual` | "🔧 Manuell" | User-definierter Wert |
+
+## RoPE Extended Toggle
+
+Der "RoPE bis 2x" Toggle in den LLM-Parametern steuert:
+1. **Kalibrierung:** Ob native oder RoPE 2x kalibriert wird
+2. **Inferenz:** Ob `max_context_gpu_only` oder `max_context_extended` verwendet wird
 
 ## Korrekte Reihenfolge (WICHTIG!)
 
 ```
-1. calculate_practical_context() oder calculate_dynamic_num_ctx()
+1. calculate_practical_context(use_extended_calibration=toggle)
    → Berechnet final_num_ctx
-   → Bei auto_vram: Entlädt ALLE Modelle für saubere VRAM-Messung
+   → Entlädt ALLE Modelle für saubere VRAM-Messung
 
 2. preload_model(model, num_ctx=final_num_ctx)
    → Ollama lädt Modell MIT KV-Cache für diese Context-Größe
@@ -88,10 +97,11 @@ flowchart TD
 
 | Datei | Funktion | Beschreibung |
 |-------|----------|--------------|
-| `aifred/lib/context_manager.py:565` | `prepare_main_llm()` | Zentrale Funktion für Haupt-LLM |
-| `aifred/backends/ollama.py:734` | `calculate_practical_context()` | VRAM-basierte Berechnung |
-| `aifred/backends/ollama.py:476` | `preload_model()` | Modell laden mit num_ctx |
-| `aifred/lib/gpu_utils.py:242` | `calculate_vram_based_context()` | VRAM-Berechnung |
+| `aifred/lib/context_manager.py` | `prepare_main_llm()` | Zentrale Funktion für Haupt-LLM |
+| `aifred/backends/ollama.py` | `calculate_practical_context()` | VRAM-basierte Berechnung |
+| `aifred/backends/ollama.py` | `preload_model()` | Modell laden mit num_ctx |
+| `aifred/lib/gpu_utils.py` | `calculate_vram_based_context()` | VRAM-Berechnung |
+| `aifred/lib/model_vram_cache.py` | Cache für kalibrierte Werte | Speichert max_context_gpu_only & max_context_extended |
 
 ## VRAM-Konstanten
 
@@ -146,6 +156,7 @@ Bei Problemen mit der Context-Berechnung:
 
 ## History
 
+- **2025-12-24:** Vereinfachung auf 2 Modi (Auto/Manual) + RoPE Toggle
 - **2025-12-18:** Refactoring auf zentrale `prepare_main_llm()` Funktion
 - **2025-12-17:** Bug in `conversation_handler.py` - falsche Reihenfolge (Preload vor Calculate)
 - **2025-12-15:** Initial Implementation in `state.py`

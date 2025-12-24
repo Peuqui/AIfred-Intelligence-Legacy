@@ -31,7 +31,7 @@ async def handle_cache_hit(
     temperature_mode: str,
     temperature: float,
     agent_start: float,
-    num_ctx_mode: str = "auto_vram",
+    num_ctx_mode: str = "auto",
     num_ctx_manual: int = 16384
 ) -> AsyncIterator[Dict]:
     """
@@ -140,8 +140,8 @@ async def handle_cache_hit(
         final_num_ctx = num_ctx_manual
         log_message(f"🔧 Manual num_ctx: {format_number(num_ctx_manual)} (VRAM calculation skipped)")
     else:
-        # Auto mode: Determine VRAM limiting
-        enable_vram_limit = (num_ctx_mode == "auto_vram")
+        # Auto mode: always enable VRAM limiting
+        enable_vram_limit = True
         final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
             llm_client, model_choice, messages, llm_options,
             enable_vram_limit=enable_vram_limit

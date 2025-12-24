@@ -192,6 +192,10 @@ class TranslationManager:
             "crop_modal_hint": "Ziehe die Ecken oder Kanten",
             "crop_cancel": "Abbrechen",
             "crop_apply": "Zuschneiden",
+            # Context Calibration
+            "calibrate_context": "Context kalibrieren",
+            "calibrating": "Kalibriere...",
+            "up_to_2x": "RoPE bis 2x",
         },
         "en": {
             # UI Labels
@@ -341,6 +345,10 @@ class TranslationManager:
             "crop_modal_hint": "Drag corners or edges",
             "crop_cancel": "Cancel",
             "crop_apply": "Crop",
+            # Context Calibration
+            "calibrate_context": "Calibrate context",
+            "calibrating": "Calibrating...",
+            "up_to_2x": "RoPE up to 2x",
         }
     }
 

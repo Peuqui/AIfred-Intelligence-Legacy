@@ -261,15 +261,23 @@ def get_measurement_count(model_name: str) -> int:
     return 0
 
 
-def get_ollama_calibrated_max_context(model_name: str) -> Optional[int]:
+def get_ollama_calibrated_max_context(
+    model_name: str,
+    extended: bool = False
+) -> Optional[int]:
     """
-    Get calibrated max_context_gpu_only for an Ollama model.
+    Get calibrated max context for an Ollama model.
 
     Returns the experimentally measured maximum context that fits in GPU memory
     without CPU offloading. This is more accurate than dynamic VRAM calculation.
 
+    Supports two calibration modes:
+    - Native (extended=False): Returns max_context_gpu_only (up to native limit)
+    - Extended (extended=True): Returns max_context_extended (up to 2x native, RoPE scaling)
+
     Args:
         model_name: Ollama model name (e.g., "qwen3:30b-a3b-instruct-2507-q8_0")
+        extended: If True, returns extended (RoPE 2x) calibration value
 
     Returns:
         Calibrated max context tokens, or None if no calibration exists
@@ -283,10 +291,136 @@ def get_ollama_calibrated_max_context(model_name: str) -> Optional[int]:
     if not calibrations:
         return None
 
-    # Return the most recent calibration's max_context_gpu_only
-    latest = calibrations[-1]
-    max_ctx = latest.get("max_context_gpu_only")
-    return int(max_ctx) if max_ctx is not None else None
+    # Determine field name based on mode
+    field_name = "max_context_extended" if extended else "max_context_gpu_only"
+
+    # Search backwards for the most recent calibration with this field
+    for cal in reversed(calibrations):
+        max_ctx = cal.get(field_name)
+        if max_ctx is not None:
+            return int(max_ctx)
+
+    return None
+
+
+def add_ollama_calibration(
+    model_name: str,
+    max_context_gpu_only: int,
+    native_context: int,
+    gpu_model: str = "Unknown",
+    extended: bool = False
+) -> bool:
+    """
+    Add a calibration point for an Ollama model.
+
+    Stores the experimentally measured maximum context that fits entirely
+    in GPU memory (no CPU offloading). This is determined via binary search
+    using Ollama's /api/ps endpoint (size == size_vram check).
+
+    Supports two calibration modes:
+    - Native (extended=False): Calibrates up to native context limit
+    - Extended (extended=True): Calibrates up to 2x native (RoPE scaling)
+
+    Args:
+        model_name: Ollama model name (e.g., "qwen3:8b")
+        max_context_gpu_only: Maximum context tokens without CPU offload
+        native_context: Model's architectural context limit
+        gpu_model: GPU model name (e.g., "NVIDIA GeForce RTX 3090 Ti")
+        extended: If True, saves as extended (RoPE 2x) calibration
+
+    Returns:
+        True if successfully added, False otherwise
+    """
+    cache = load_cache()
+
+    # Initialize model entry if not exists
+    if model_name not in cache:
+        cache[model_name] = {
+            "backend": "ollama",
+            "native_context": native_context,
+            "gpu_model": gpu_model,
+            "ollama_calibrations": []
+        }
+
+    # Ensure ollama_calibrations exists
+    if "ollama_calibrations" not in cache[model_name]:
+        cache[model_name]["ollama_calibrations"] = []
+
+    # Update metadata
+    cache[model_name]["native_context"] = native_context
+    cache[model_name]["gpu_model"] = gpu_model
+
+    # Determine field name based on mode
+    field_name = "max_context_extended" if extended else "max_context_gpu_only"
+    mode_label = "extended (RoPE 2x)" if extended else "native"
+
+    # Add calibration point
+    calibration = {
+        field_name: max_context_gpu_only,
+        "measured_at": datetime.now().isoformat()
+    }
+
+    cache[model_name]["ollama_calibrations"].append(calibration)
+
+    # Keep only last 5 calibrations per model
+    if len(cache[model_name]["ollama_calibrations"]) > 5:
+        cache[model_name]["ollama_calibrations"] = \
+            cache[model_name]["ollama_calibrations"][-5:]
+
+    logger.info(
+        f"📊 Ollama calibration saved ({mode_label}): {model_name} → "
+        f"{max_context_gpu_only:,} tokens (native: {native_context:,})"
+    )
+
+    return save_cache(cache)
+
+
+def get_use_extended_for_model(model_name: str) -> bool:
+    """
+    Get the use_extended toggle value for a specific Ollama model.
+
+    This allows per-model configuration of RoPE 2x scaling.
+
+    Args:
+        model_name: Ollama model name (e.g., "qwen3:14b")
+
+    Returns:
+        True if RoPE 2x should be used for this model, False otherwise
+    """
+    cache = load_cache()
+
+    if model_name not in cache:
+        return False
+
+    return cache[model_name].get("use_extended", False)
+
+
+def set_use_extended_for_model(model_name: str, use_extended: bool) -> bool:
+    """
+    Set the use_extended toggle for a specific Ollama model.
+
+    Args:
+        model_name: Ollama model name (e.g., "qwen3:14b")
+        use_extended: True to use RoPE 2x calibration, False for native
+
+    Returns:
+        True if successfully saved, False otherwise
+    """
+    cache = load_cache()
+
+    # Initialize model entry if not exists
+    if model_name not in cache:
+        cache[model_name] = {
+            "backend": "ollama",
+            "native_context": 0,
+            "gpu_model": "Unknown",
+            "use_extended": use_extended
+        }
+    else:
+        cache[model_name]["use_extended"] = use_extended
+
+    logger.info(f"📊 Set use_extended={use_extended} for {model_name}")
+    return save_cache(cache)
 
 
 # ============================================================================
