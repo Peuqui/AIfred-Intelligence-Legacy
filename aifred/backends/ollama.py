@@ -863,6 +863,7 @@ class OllamaBackend(LLMBackend):
         from ..lib.model_vram_cache import add_ollama_calibration
         from ..lib.gpu_utils import get_gpu_model_name
         from ..lib.formatting import format_number
+        from ..lib.config import CALIBRATION_MIN_CONTEXT
 
         # Helper for locale-aware number formatting (follows UI language setting)
         def fmt(n: int) -> str:
@@ -894,12 +895,12 @@ class OllamaBackend(LLMBackend):
                 high = max_target
             else:
                 yield f"✗ {fmt(max_target)} too large, starting binary search..."
-                low = 512
+                low = CALIBRATION_MIN_CONTEXT
                 high = max_target
                 result = low
         else:
             yield f"⚠️ Preload failed, starting binary search..."
-            low = 512
+            low = CALIBRATION_MIN_CONTEXT
             high = max_target
             result = low
 
