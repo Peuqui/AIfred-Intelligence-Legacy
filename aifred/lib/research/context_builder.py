@@ -396,10 +396,8 @@ async def build_and_generate_response(
         log_message(info_msg)
         yield {"type": "debug", "message": info_msg}
 
-    # Separator after cache decision block (end of unit)
-    from ..logging_utils import console_separator, CONSOLE_SEPARATOR
-    console_separator()
-    yield {"type": "debug", "message": CONSOLE_SEPARATOR}
+    # Note: Separator already emitted after volatility detection (line ~310)
+    # No second separator needed here - avoids double separator in Multi-Agent mode
 
     log_message(f"✅ Agent done: {format_number(total_time, 1)}s total, {len(ai_text)} chars")
     log_message("=" * 60)

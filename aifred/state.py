@@ -607,6 +607,13 @@ class AIState(rx.State):
             ["devils_advocate", TranslationManager.get_text("multi_agent_devils_advocate", self.ui_language)],
         ]
 
+    @rx.var(deps=["ui_language", "multi_agent_mode"], auto_deps=False)
+    def multi_agent_mode_info(self) -> str:
+        """Get localized description for the currently selected multi-agent mode."""
+        from .lib import TranslationManager
+        info_key = f"multi_agent_info_{self.multi_agent_mode}"
+        return TranslationManager.get_text(info_key, self.ui_language)
+
     @rx.var
     def available_models_for_select(self) -> List[List[str]]:
         """Get list of [id, label] pairs for native model select
@@ -3055,13 +3062,14 @@ class AIState(rx.State):
             # ============================================================
             # Compression runs AFTER the response, while user reads
             # Input fields are disabled during compression
+            # NOTE: Skip for Multi-Agent - compression already runs in _run_sokrates_analysis
 
             try:
                 from .lib.context_manager import summarize_history_if_needed
                 from .backends import BackendFactory
 
-                # Always check - token-based (no message count check anymore)
-                if True:  # summarize_history_if_needed does all checks internally
+                # Skip for Multi-Agent (compression already done in _run_sokrates_analysis)
+                if self.multi_agent_mode == "standard":  # Only run for standard mode
                     yield
                     # Backend for summarization
                     temp_backend = BackendFactory.create(
