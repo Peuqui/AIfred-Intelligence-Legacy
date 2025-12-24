@@ -28,7 +28,10 @@ WICHTIG: Du MUSST immer exakt 3 verschiedene Queries ausgeben - nicht weniger!
 
 ## SPRACHREGELN
 
-**WICHTIG: Mindestens 1 von 3 Queries MUSS in der Sprache der Frage sein!**
+**KRITISCH - Sprachmix:**
+
+1. Mindestens 1 Query in der Sprache der Frage
+2. Mindestens 1 Query auf ENGLISCH bei Fachthemen, Produktvergleichen, Technik
 
 - URLs vollstaendig uebernehmen, nicht zerlegen
 
