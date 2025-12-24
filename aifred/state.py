@@ -4490,6 +4490,7 @@ class AIState(rx.State):
 
     def set_num_ctx_manual(self, value: str):
         """Set manual num_ctx value (only used when mode=manual)"""
+        from .lib.config import NUM_CTX_MANUAL_MAX
         try:
             # Handle locale-formatted numbers and spaces (e.g., "1.472", "1,472", "1 472")
             clean_value = str(value).replace(".", "").replace(",", "").replace(" ", "").strip()
@@ -4498,8 +4499,8 @@ class AIState(rx.State):
             num_value = int(clean_value)
             if num_value < 1:
                 num_value = 1
-            if num_value > 1048576:  # 1M tokens max
-                num_value = 1048576
+            if num_value > NUM_CTX_MANUAL_MAX:
+                num_value = NUM_CTX_MANUAL_MAX
             self.num_ctx_manual = num_value
             self.add_debug(f"🔧 Manual num_ctx: {num_value:,}")
             # WICHTIG: Nicht in settings.json speichern!

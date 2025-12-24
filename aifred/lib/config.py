@@ -396,6 +396,10 @@ DYNAMIC_NUM_PREDICT_HARD_LIMIT = 4096  # tokens
 # 4K is sufficient for all Automatik tasks and keeps VRAM usage minimal.
 AUTOMATIK_LLM_NUM_CTX = 4096  # 4K context for all Automatik tasks
 
+# Maximum manual num_ctx value (for UI input validation)
+# 2M tokens should cover even the largest context windows (Gemini 2M, future models)
+NUM_CTX_MANUAL_MAX = 2097152  # 2M tokens
+
 # ============================================================
 # VISION/OCR CONTEXT CONSTANTS
 # ============================================================
