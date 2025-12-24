@@ -5,6 +5,102 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2025-12-24
+
+### 🤖 Multi-Agent Debate System: AIfred + Sokrates
+
+**Neues Multi-Agent System mit zweitem LLM (Sokrates) als kritischem Diskussionspartner.**
+
+#### Added
+
+- **Multi-Agent Diskussionsmodi** ([state.py:4489-4820](aifred/state.py#L4489-L4820)):
+  - **Standard**: Nur AIfred (klassisches Verhalten)
+  - **Kritische Prüfung** (`user_judge`): AIfred antwortet, Sokrates kritisiert, User entscheidet
+  - **Auto-Konsens** (`auto_consensus`): Iterative Verbesserung bis LGTM oder max Runden (1-3)
+  - **Advocatus Diaboli** (`devils_advocate`): Pro & Contra Argumente für ausgewogene Analyse
+
+- **Sokrates-LLM Auswahl** ([aifred.py](aifred/aifred.py)):
+  - Separates Dropdown für Sokrates-Modell im Settings-Panel
+  - Kann anderes Modell als AIfred verwenden
+  - Einstellung wird in `settings.json` persistiert
+
+- **Debate-Orchestrierung** ([state.py:4489](aifred/state.py#L4489)):
+  - `_run_sokrates_analysis()`: Hauptlogik für Multi-Agent Debate
+  - `_stream_llm_with_ui()`: Generic Streaming Helper für alle Agenten
+  - `_stream_alfred_refinement()`: AIfred Überarbeitung nach Sokrates-Kritik
+  - Max. Debattenrunden konfigurierbar (1-5, Standard: 3)
+
+- **Sokrates Prompts** ([prompts/de/sokrates/](prompts/de/sokrates/), [prompts/en/sokrates/](prompts/en/sokrates/)):
+  - `critic.txt`: Kritik-Prompt mit LGTM-Option
+  - `refinement.txt`: AIfred Überarbeitungs-Prompt
+  - `devils_advocate.txt`: Pro/Contra Analyse-Prompt
+  - Zweisprachig (DE/EN) mit automatischer Spracherkennung
+
+- **Thinking-Support für alle Agenten**:
+  - `<think>`-Blöcke werden als Collapsible formatiert
+  - LGTM-Erkennung strippt `<think>`-Tags vor Prüfung
+  - Konsistente Darstellung für AIfred, Sokrates und Refinement
+
+#### Fixed
+
+- **LGTM-Erkennung bei Thinking-Models** ([state.py:4735](aifred/state.py#L4735)):
+  - Problem: LGTM wurde nicht erkannt wenn in `<think>`-Block verpackt
+  - Lösung: `strip_thinking_blocks()` vor LGTM-Check
+
+- **Thinking-Header ohne Modellgröße** ([state.py:2978](aifred/state.py#L2978)):
+  - Problem: Collapsible-Header zeigte "qwen3:8b (4.9 GB)" statt nur "qwen3:8b"
+  - Lösung: `selected_model_id` statt `selected_model` verwenden
+
+- **ollama Python-Paket fehlte** ([requirements.txt](requirements.txt)):
+  - War in requirements definiert aber nicht installiert
+  - Benötigt für ChromaDB Ollama Embedding Function
+
+- **Whisper-Modell Dropdown bei Sprachwechsel** ([state.py](aifred/state.py)):
+  - Problem: STT-Modell wurde als Display-Name gespeichert (z.B. "small (466MB...)")
+  - Bei UI-Sprachwechsel konnte Dropdown den Wert nicht mehr matchen
+  - Lösung: `whisper_model_key` speichert nur den Key ("small", "tiny", etc.)
+  - Computed Property `whisper_model_display` generiert lokalisierten Display-Namen
+
+- **Mobile Diskussionsmodus-Dropdown** ([aifred.py](aifred/aifred.py)):
+  - Problem: Multi-Agent Dropdown sah auf Mobile anders aus als andere Dropdowns
+  - Lösung: `native_select_generic()` Helper für konsistentes Mobile-Styling
+  - `rx.cond(AIState.is_mobile, ...)` für responsive Darstellung
+
+- **Type-Safety Fixes** (ruff/mypy compliance):
+  - `i18n.py`: Research-Mode-Maps als separate Klassenattribute (nested dict type fix)
+  - `prompt_loader.py`: `Optional[str]` statt implizites `str = None`
+  - `llm_client.py`: `MessageType` TypeAlias nach Imports verschoben
+  - `multi_agent.py`: `_to_messages()` Helper mit `cast()` für type-safe chat calls
+
+- **Reflex Computed Var Warnings** ([state.py](aifred/state.py)):
+  - Problem: Warnings über fehlende Dependencies bei computed vars
+  - Lösung: Explizite `deps=["...", "ui_language"]` und `auto_deps=False`
+
+#### Technical Details
+
+**Workflow (Auto-Konsens):**
+```
+User Query → AIfred R1 → Sokrates Kritik
+                              ↓
+                         LGTM? ──YES──→ Fertig
+                              ↓ NO
+                    AIfred Überarbeitung R2
+                              ↓
+                    Sokrates Kritik R2
+                              ↓
+                         LGTM? ──YES──→ Fertig
+                              ↓ NO
+                    ... (bis max Runden)
+```
+
+**Betroffene Dateien:**
+- `aifred/state.py` - Debate-Orchestrierung, Streaming Helper
+- `aifred/aifred.py` - UI für Sokrates-LLM Auswahl, Diskussionsmodus
+- `aifred/lib/multi_agent.py` - Orchestrator-Klassen (DebateResult, DebateContext)
+- `prompts/*/sokrates/` - Sokrates-Prompts (critic, refinement, devils_advocate)
+
+---
+
 ## [2.8.3] - 2025-12-23
 
 ### 🎯 Automatik-LLM: Fehlende num_ctx Parameter

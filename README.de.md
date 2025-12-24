@@ -29,6 +29,55 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Chat teilen**: Gesamte Konversation als formatierten Text in die Zwischenablage kopieren (🔗 Button)
 - **HTML-Vorschau**: KI-generierter HTML-Code öffnet direkt im Browser (neuer Tab)
 - **LaTeX & Chemie**: KaTeX für Mathe-Formeln, mhchem-Erweiterung für Chemie (`\ce{H2O}`, Reaktionen, Strukturformeln)
+- **Multi-Agent Debate System**: AIfred + Sokrates als kritischer Diskussionspartner für verbesserte Antwortqualität
+
+### 🤖 Multi-Agent Diskussionsmodi
+
+AIfred unterstützt verschiedene Diskussionsmodi mit einem zweiten LLM (Sokrates) als kritischem Denker:
+
+| Modus | Beschreibung | Runden |
+|-------|--------------|--------|
+| **Standard** | Nur AIfred (klassisches Verhalten) | 1 |
+| **Kritische Prüfung** | AIfred antwortet, Sokrates kritisiert, User entscheidet | 1 |
+| **Auto-Konsens** | Iterative Verbesserung bis LGTM oder max Runden | 1-3 |
+| **Advocatus Diaboli** | Pro & Contra Argumente für ausgewogene Analyse | 1 |
+
+**Workflow (Auto-Konsens):**
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   User      │────▶│   AIfred    │────▶│  Sokrates   │
+│   Frage     │     │   Antwort   │     │   Kritik    │
+└─────────────┘     └─────────────┘     └──────┬──────┘
+                                               │
+                         ┌─────────────────────┘
+                         ▼
+                    ┌─────────┐
+                    │  LGTM?  │
+                    └────┬────┘
+                         │
+              ┌──────────┼──────────┐
+              ▼          ▼          ▼
+         ┌────────┐ ┌────────┐ ┌────────┐
+         │  JA    │ │  NEIN  │ │ MAX    │
+         │ Fertig │ │ Weiter │ │ ROUNDS │
+         └────────┘ └────────┘ └────────┘
+                         │
+                         ▼
+                  ┌─────────────┐
+                  │   AIfred    │
+                  │ Überarbeitung│
+                  └─────────────┘
+```
+
+**UI-Einstellungen:**
+- Sokrates-LLM separat wählbar (kann anderes Modell als AIfred sein)
+- Max. Debattenrunden (1-5, Standard: 3)
+- Diskussionsmodus im Settings-Panel
+
+**Thinking-Support:**
+- Alle Agenten unterstützen Thinking-Mode
+- `<think>`-Blöcke werden als Collapsible formatiert
+- LGTM-Erkennung funktioniert auch bei langem Denkprozess
 
 ### 🔧 Technische Highlights
 - **Reflex-Framework**: React-Frontend aus Python generiert

@@ -10,7 +10,38 @@ from .prompt_loader import get_language
 
 class TranslationManager:
     """Manages UI translations"""
-    
+
+    # Research mode mappings (separate from translations for type safety)
+    _research_mode_maps: Dict[str, Dict[str, str]] = {
+        "de": {
+            "🧠 Eigenes Wissen (schnell)": "none",
+            "⚡ Web-Suche Schnell (3 beste)": "quick",
+            "🔍 Web-Suche Ausführlich (7 beste)": "deep",
+            "🤖 Automatik (KI entscheidet)": "automatik"
+        },
+        "en": {
+            "🧠 Own Knowledge (fast)": "none",
+            "⚡ Web Search Quick (3 best)": "quick",
+            "🔍 Web Search Detailed (7 best)": "deep",
+            "🤖 Automatic (AI decides)": "automatik"
+        }
+    }
+
+    _reverse_research_mode_maps: Dict[str, Dict[str, str]] = {
+        "de": {
+            "none": "🧠 Eigenes Wissen (schnell)",
+            "quick": "⚡ Web-Suche Schnell (3 beste)",
+            "deep": "🔍 Web-Suche Ausführlich (7 beste)",
+            "automatik": "🤖 Automatik (KI entscheidet)"
+        },
+        "en": {
+            "none": "🧠 Own Knowledge (fast)",
+            "quick": "⚡ Web Search Quick (3 best)",
+            "deep": "🔍 Web Search Detailed (7 best)",
+            "automatik": "🤖 Automatic (AI decides)"
+        }
+    }
+
     # Translation dictionary
     _translations: Dict[str, Dict[str, str]] = {
         "de": {
@@ -118,6 +149,11 @@ class TranslationManager:
             "stt_model_small": "small (466MB, bessere Qualität, multilingual)",
             "stt_model_medium": "medium (1.5GB, hohe Qualität, multilingual)",
             "stt_model_large": "large-v3 (2.9GB, beste Qualität, multilingual)",
+            # Multi-Agent Mode Options
+            "multi_agent_standard": "Standard",
+            "multi_agent_user_judge": "Kritische Prüfung",
+            "multi_agent_auto_consensus": "Auto-Konsens",
+            "multi_agent_devils_advocate": "Advocatus Diaboli",
             "tts_player_label": "Sprachausgabe",
             "tts_regenerate_hint": "Klicke 'Neu generieren' um die letzte Antwort vorzulesen",
             # Vision & Advanced Settings (Phase 4)
@@ -136,20 +172,6 @@ class TranslationManager:
             "crop_modal_hint": "Ziehe die Ecken oder Kanten",
             "crop_cancel": "Abbrechen",
             "crop_apply": "Zuschneiden",
-
-            # Research mode mapping (for internal use)
-            "research_mode_map": {
-                "🧠 Eigenes Wissen (schnell)": "none",
-                "⚡ Web-Suche Schnell (3 beste)": "quick",
-                "🔍 Web-Suche Ausführlich (7 beste)": "deep",
-                "🤖 Automatik (KI entscheidet)": "automatik"
-            },
-            "reverse_research_mode_map": {
-                "none": "🧠 Eigenes Wissen (schnell)",
-                "quick": "⚡ Web-Suche Schnell (3 beste)",
-                "deep": "🔍 Web-Suche Ausführlich (7 beste)",
-                "automatik": "🤖 Automatik (KI entscheidet)"
-            }
         },
         "en": {
             # UI Labels
@@ -256,6 +278,11 @@ class TranslationManager:
             "stt_model_small": "small (466MB, better quality, multilingual)",
             "stt_model_medium": "medium (1.5GB, high quality, multilingual)",
             "stt_model_large": "large-v3 (2.9GB, best quality, multilingual)",
+            # Multi-Agent Mode Options
+            "multi_agent_standard": "Standard",
+            "multi_agent_user_judge": "Critical Review",
+            "multi_agent_auto_consensus": "Auto-Consensus",
+            "multi_agent_devils_advocate": "Devil's Advocate",
             "tts_player_label": "Text-to-Speech",
             "tts_regenerate_hint": "Click 'Regenerate' to read the last response aloud",
             # Vision & Advanced Settings (Phase 4)
@@ -274,20 +301,6 @@ class TranslationManager:
             "crop_modal_hint": "Drag corners or edges",
             "crop_cancel": "Cancel",
             "crop_apply": "Crop",
-
-            # Research mode mapping (for internal use)
-            "research_mode_map": {
-                "🧠 Own Knowledge (fast)": "none",
-                "⚡ Web Search Quick (3 best)": "quick",
-                "🔍 Web Search Detailed (7 best)": "deep",
-                "🤖 Automatic (AI decides)": "automatik"
-            },
-            "reverse_research_mode_map": {
-                "none": "🧠 Own Knowledge (fast)",
-                "quick": "⚡ Web Search Quick (3 best)",
-                "deep": "🔍 Web Search Detailed (7 best)",
-                "automatik": "🤖 Automatic (AI decides)"
-            }
         }
     }
 
@@ -330,11 +343,11 @@ class TranslationManager:
     def get_research_mode_value(display_text: str, lang: Optional[str] = None) -> str:
         """
         Get internal research mode value for display text
-        
+
         Args:
             display_text: Display text of research mode
             lang: Language code or None for current language
-            
+
         Returns:
             Internal mode value (none, quick, deep, automatik)
         """
@@ -342,13 +355,13 @@ class TranslationManager:
             lang = get_language()
             if lang == "auto":
                 lang = "de"
-        
-        if lang not in TranslationManager._translations:
+
+        if lang not in TranslationManager._research_mode_maps:
             lang = "de"
-        
+
         # Get the mapping for the current language
-        mode_map = TranslationManager._translations[lang].get("research_mode_map", {})
-        
+        mode_map = TranslationManager._research_mode_maps.get(lang, {})
+
         # Return the internal value or default to automatik
         return mode_map.get(display_text, "automatik")
 
@@ -356,11 +369,11 @@ class TranslationManager:
     def get_research_mode_display(mode_value: str, lang: Optional[str] = None) -> str:
         """
         Get display text for research mode value
-        
+
         Args:
             mode_value: Internal mode value (none, quick, deep, automatik)
             lang: Language code or None for current language
-            
+
         Returns:
             Display text for the mode
         """
@@ -368,13 +381,13 @@ class TranslationManager:
             lang = get_language()
             if lang == "auto":
                 lang = "de"
-        
-        if lang not in TranslationManager._translations:
+
+        if lang not in TranslationManager._reverse_research_mode_maps:
             lang = "de"
-        
+
         # Get the reverse mapping for the current language
-        reverse_mode_map = TranslationManager._translations[lang].get("reverse_research_mode_map", {})
-        
+        reverse_mode_map = TranslationManager._reverse_research_mode_maps.get(lang, {})
+
         # Return the display text or default to automatik display
         return reverse_mode_map.get(mode_value, "🤖 Automatic (AI decides)")
 

@@ -6,8 +6,12 @@ with proper integration into the existing Backend system.
 """
 
 from typing import Dict, List, Optional, AsyncIterator, Union, Any, cast
+
 from ..backends import BackendFactory
 from ..backends.base import LLMMessage, LLMOptions, LLMResponse
+
+# Type alias for messages: can be Dict[str, str] or LLMMessage
+MessageType = Union[Dict[str, Any], LLMMessage]
 
 
 class LLMClient:
@@ -65,8 +69,8 @@ class LLMClient:
     async def chat(
         self,
         model: str,
-        messages: List[Union[Dict, LLMMessage]],
-        options: Optional[Union[Dict, LLMOptions]] = None
+        messages: List[MessageType],
+        options: Optional[Union[Dict[str, Any], LLMOptions]] = None
     ) -> LLMResponse:
         """
         Async non-streaming chat completion
@@ -119,9 +123,9 @@ class LLMClient:
     async def chat_stream(
         self,
         model: str,
-        messages: List[Union[Dict, LLMMessage]],
-        options: Optional[Union[Dict, LLMOptions]] = None
-    ) -> AsyncIterator[Dict]:
+        messages: List[MessageType],
+        options: Optional[Union[Dict[str, Any], LLMOptions]] = None
+    ) -> AsyncIterator[Dict[str, Any]]:
         """
         Async streaming chat completion
 

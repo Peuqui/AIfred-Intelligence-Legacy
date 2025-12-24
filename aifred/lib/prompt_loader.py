@@ -71,7 +71,7 @@ def get_language() -> str:
     return _current_language
 
 
-def load_prompt(prompt_name: str, lang: Optional[str] = None, user_text: str = None, **kwargs) -> str:
+def load_prompt(prompt_name: str, lang: Optional[str] = None, user_text: Optional[str] = None, **kwargs) -> str:
     """
     Load a prompt from a file with language support
 
