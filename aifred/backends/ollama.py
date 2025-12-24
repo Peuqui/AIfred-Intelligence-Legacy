@@ -894,12 +894,12 @@ class OllamaBackend(LLMBackend):
                 high = max_target
             else:
                 yield f"✗ {fmt(max_target)} too large, starting binary search..."
-                low = 4096
+                low = 512
                 high = max_target
                 result = low
         else:
             yield f"⚠️ Preload failed, starting binary search..."
-            low = 4096
+            low = 512
             high = max_target
             result = low
 
