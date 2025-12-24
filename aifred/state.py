@@ -4143,8 +4143,8 @@ class AIState(rx.State):
             import chromadb
             client = chromadb.HttpClient(host='localhost', port=8000)
 
-            # Get collection
-            collection = client.get_collection('research_cache')
+            # Get collection (must match name in vector_cache.py)
+            collection = client.get_collection('research_cache_v2')
 
             # Get all document IDs
             all_ids = collection.get(include=[])["ids"]
