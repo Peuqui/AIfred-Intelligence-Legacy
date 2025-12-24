@@ -4491,15 +4491,19 @@ class AIState(rx.State):
     def set_num_ctx_manual(self, value: str):
         """Set manual num_ctx value (only used when mode=manual)"""
         try:
-            num_value = int(value)
-            if num_value < 2048:
-                num_value = 2048
+            # Handle locale-formatted numbers (e.g., "1.472" German or "1,472" English)
+            clean_value = str(value).replace(".", "").replace(",", "").strip()
+            if not clean_value:
+                return  # Empty input, ignore
+            num_value = int(clean_value)
+            if num_value < 1:
+                num_value = 1
             if num_value > 1048576:  # 1M tokens max
                 num_value = 1048576
             self.num_ctx_manual = num_value
             self.add_debug(f"🔧 Manual num_ctx: {num_value:,}")
             # WICHTIG: Nicht in settings.json speichern!
-        except ValueError:
+        except (ValueError, TypeError):
             self.add_debug(f"❌ Ungültiger num_ctx Wert: {value}")
 
     def set_research_mode(self, mode: str):
