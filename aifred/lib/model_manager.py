@@ -169,7 +169,7 @@ def backend_supports_dynamic_models(backend: Any) -> bool:
     """
     try:
         caps = backend.get_capabilities()
-        return caps.get("dynamic_models", True)  # Default True for backwards compat
+        return bool(caps.get("dynamic_models", True))  # Default True for backwards compat
     except Exception:
         # Fallback to True (assume dynamic if capabilities not available)
         return True

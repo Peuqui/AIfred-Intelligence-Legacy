@@ -245,7 +245,7 @@ def get_calibrated_ratio(model_name: str, architecture: str, default_ratio: floa
 
     if model_name in cache:
         vram_ratio = cache[model_name].get("vram_ratio", {})
-        avg = vram_ratio.get("avg_mb_per_token", 0.0)
+        avg = float(vram_ratio.get("avg_mb_per_token", 0.0))
         if avg > 0:
             return avg
 
@@ -285,7 +285,8 @@ def get_ollama_calibrated_max_context(model_name: str) -> Optional[int]:
 
     # Return the most recent calibration's max_context_gpu_only
     latest = calibrations[-1]
-    return latest.get("max_context_gpu_only")
+    max_ctx = latest.get("max_context_gpu_only")
+    return int(max_ctx) if max_ctx is not None else None
 
 
 # ============================================================================
@@ -307,7 +308,10 @@ def get_vllm_calibrations(model_id: str) -> Optional[List[Dict[str, Any]]]:
     if model_id not in cache:
         return None
 
-    return cache[model_id].get("vllm_calibrations", None)
+    calibrations = cache[model_id].get("vllm_calibrations", None)
+    if calibrations is None:
+        return None
+    return list(calibrations) if isinstance(calibrations, list) else None
 
 
 def interpolate_vllm_context(model_id: str, current_vram_mb: int, tolerance_mb: int = 500) -> Optional[int]:
@@ -334,7 +338,7 @@ def interpolate_vllm_context(model_id: str, current_vram_mb: int, tolerance_mb: 
     for cal in sorted_cal:
         if abs(cal["free_vram_mb"] - current_vram_mb) <= tolerance_mb:
             logger.info(f"Exact match: {cal['free_vram_mb']} MB ≈ {current_vram_mb} MB → {cal['max_context']} tokens")
-            return cal["max_context"]
+            return int(cal["max_context"])
 
     # Interpolation logic (same as old vllm_context_cache.py)
     if current_vram_mb < sorted_cal[0]["free_vram_mb"]:
@@ -346,11 +350,11 @@ def interpolate_vllm_context(model_id: str, current_vram_mb: int, tolerance_mb: 
             interpolated = int(y1 + slope * (current_vram_mb - x1))
             return max(interpolated, 1024)  # Minimum 1K tokens
         else:
-            return sorted_cal[0]["max_context"]
+            return int(sorted_cal[0]["max_context"])
 
     elif current_vram_mb > sorted_cal[-1]["free_vram_mb"]:
         # Above highest calibration - use highest known value
-        return sorted_cal[-1]["max_context"]
+        return int(sorted_cal[-1]["max_context"])
 
     else:
         # Between two calibration points - linear interpolation
@@ -532,7 +536,7 @@ def interpolate_koboldcpp_context(
                 f"📊 Exact cache match for {model_id}: "
                 f"{cal['max_context']:,} tokens @ {cal['free_vram_mb']:,}MB VRAM"
             )
-            return cal["max_context"]
+            return int(cal["max_context"])
 
     # Find bracketing points for interpolation
     lower_cal = None  # Less VRAM, smaller context
@@ -563,7 +567,7 @@ def interpolate_koboldcpp_context(
             f"   Current: {current_free_vram_mb:,}MB VRAM"
         )
 
-        return interpolated_context
+        return int(interpolated_context)
 
     # Case 2: Extrapolate down (less VRAM than any calibration)
     if upper_cal and not lower_cal:
@@ -612,7 +616,7 @@ def interpolate_koboldcpp_context(
             f"   Added: {additional_tokens:,} tokens ({quant_level} @ {mb_per_token[quant_level]} MB/tok)"
         )
 
-        return extrapolated
+        return int(extrapolated)
 
     # Case 4: Single calibration point - use it
     if lower_cal:
@@ -620,7 +624,7 @@ def interpolate_koboldcpp_context(
             f"📊 Using single calibration point for {model_id}: "
             f"{lower_cal['max_context']:,} tokens"
         )
-        return lower_cal["max_context"]
+        return int(lower_cal["max_context"])
 
     return None
 

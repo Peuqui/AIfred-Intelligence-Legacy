@@ -28,6 +28,7 @@ from .lib.model_manager import (
     # NOTE: backend_supports_dynamic_models not imported - State has own @rx.var implementation
 )
 from .lib.gpu_monitor import round_to_nominal_vram
+from .lib.multi_agent import parse_pro_contra
 
 # ============================================================
 # TypedDicts for Reflex (foreach requires typed dicts)
@@ -4769,7 +4770,7 @@ class AIState(rx.State):
 
                 # Parse Pro/Contra for devils_advocate
                 if self.multi_agent_mode == "devils_advocate":
-                    self.sokrates_pro_args, self.sokrates_contra_args = self._parse_pro_contra(sokrates_response_text)
+                    self.sokrates_pro_args, self.sokrates_contra_args = parse_pro_contra(sokrates_response_text)
                     break  # Devils advocate is always one round
 
                 # Check for LGTM (consensus reached)

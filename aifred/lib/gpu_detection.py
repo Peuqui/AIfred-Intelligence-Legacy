@@ -6,8 +6,30 @@ Prevents users from trying to use incompatible backends with their GPU.
 """
 
 import subprocess
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, TypedDict
 from dataclasses import dataclass
+
+
+class GPUDict(TypedDict):
+    """Type for parsed GPU info from nvidia-smi"""
+    name: str
+    vram_mb: int
+    compute_cap: float
+
+
+class BackendRequirement(TypedDict):
+    """Type for backend requirements"""
+    min_compute_capability: float
+    requires_tensor_cores: bool
+    requires_fast_fp16: bool
+    description: str
+
+
+class KnownIssue(TypedDict):
+    """Type for known GPU issues"""
+    fp16_ratio: str
+    issue: str
+    recommendation: str
 
 
 @dataclass
@@ -56,7 +78,7 @@ class GPUDetector:
     }
 
     # Backend requirements
-    BACKEND_REQUIREMENTS = {
+    BACKEND_REQUIREMENTS: Dict[str, BackendRequirement] = {
         "ollama": {
             "min_compute_capability": 3.5,
             "requires_tensor_cores": False,
@@ -84,7 +106,7 @@ class GPUDetector:
     }
 
     # Known problematic GPUs
-    KNOWN_ISSUES = {
+    KNOWN_ISSUES: Dict[str, Dict[str, Any]] = {
         "Tesla P40": {
             "fp16_ratio": "1:64",
             "issue": "Extremely slow FP16 performance",
@@ -135,7 +157,7 @@ class GPUDetector:
 
             # For multi-GPU: Find GPU with LOWEST compute capability
             # This ensures backend compatibility across all GPUs
-            gpu_list = []
+            gpu_list: List[GPUDict] = []
             for line in lines:
                 parts = [p.strip() for p in line.split(",")]
                 if len(parts) >= 3:
@@ -264,8 +286,8 @@ class GPUDetector:
         # Add known issue warnings
         for known_gpu, issue_info in self.KNOWN_ISSUES.items():
             if known_gpu in gpu_name:
-                warnings.append(f"{gpu_name}: {issue_info['issue']}")
-                warnings.append(f"Recommendation: {issue_info['recommendation']}")
+                warnings.append(f"{gpu_name}: {str(issue_info['issue'])}")
+                warnings.append(f"Recommendation: {str(issue_info['recommendation'])}")
 
         return recommended, unsupported, warnings
 
@@ -313,11 +335,12 @@ class GPUDetector:
                     return warning
 
             # Generic warning
-            reqs = self.BACKEND_REQUIREMENTS.get(backend, {})
+            reqs: BackendRequirement | None = self.BACKEND_REQUIREMENTS.get(backend)
+            desc = reqs.get('description', '') if reqs else ''
             return (
                 f"⚠️ {backend} may not work properly on {self.gpu_info.name}\n"
                 f"   (Compute Capability: {self.gpu_info.compute_capability})\n"
-                f"   {reqs.get('description', '')}"
+                f"   {desc}"
             )
 
         return None
