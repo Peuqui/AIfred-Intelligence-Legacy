@@ -49,9 +49,9 @@ from .intent_detector import (
 )
 
 from .multi_agent import (
-    MultiAgentOrchestrator,
-    DebateResult,
-    DebateContext
+    parse_pro_contra,
+    run_sokrates_direct_response,
+    run_sokrates_analysis,
 )
 
 __all__ = [
@@ -89,7 +89,7 @@ __all__ = [
     "detect_query_intent",
     "get_temperature_label",
     # Multi-Agent
-    "MultiAgentOrchestrator",
-    "DebateResult",
-    "DebateContext",
+    "parse_pro_contra",
+    "run_sokrates_direct_response",
+    "run_sokrates_analysis",
 ]
