@@ -395,17 +395,18 @@ def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) 
 # Sokrates Multi-Agent Prompts
 # ============================================================
 
-def get_sokrates_critic_prompt(lang: Optional[str] = None) -> str:
+def get_sokrates_critic_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
     """
     Load Sokrates Critic prompt for User-as-Judge and Auto-Consensus modes.
 
     Args:
+        round_num: Current debate round (1, 2, 3, ...)
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Sokrates critic system prompt with timestamp prefix
+        Sokrates critic system prompt with timestamp prefix and round number
     """
-    return load_prompt('sokrates/critic', lang=lang)
+    return load_prompt('sokrates/critic', lang=lang, round_num=round_num)
 
 
 def get_sokrates_devils_advocate_prompt(lang: Optional[str] = None) -> str:
