@@ -588,69 +588,6 @@ def text_input_section() -> rx.Component:
             width="100%",
         ),
 
-        # Temperature Control Section (visible, compact - 60% width)
-        rx.hstack(
-            rx.hstack(
-                # Slider
-                rx.vstack(
-                    rx.hstack(
-                        rx.text(t("temperature_label"), font_weight="bold", font_size="12px"),
-                        rx.text(
-                            f"{AIState.temperature:.1f}",
-                            font_size="11px",
-                            color=COLORS["text_secondary"],
-                        ),
-                        spacing="2",
-                    ),
-                    rx.slider(
-                        value=[AIState.temperature],  # REACTIVE: value statt default_value!
-                        min=0.0,
-                        max=2.0,
-                        step=0.1,
-                        on_change=AIState.set_temperature,
-                        width="100%",
-                    ),
-                    flex="1",
-                    spacing="1",
-                ),
-                # Toggle Button (rechts neben Slider)
-                rx.vstack(
-                    rx.text(
-                        rx.cond(
-                            AIState.temperature_mode == "manual",
-                            t("temp_mode_manual"),
-                            t("temp_mode_auto")
-                        ),
-                        font_weight="bold",
-                        font_size="11px",
-                        width="70px",  # Feste Breite verhindert Springen
-                        text_align="center",
-                    ),
-                    rx.switch(
-                        checked=AIState.temperature_mode == "manual",
-                        on_change=AIState.set_temperature_mode,
-                    ),
-                    spacing="1",
-                    align_items="center",
-                ),
-                spacing="3",
-                width="60%",  # Nur 60% statt 100%
-                align_items="flex-end",
-            ),
-            width="100%",
-        ),
-        # Info Text
-        rx.text(
-            rx.cond(
-                AIState.temperature_mode == "manual",
-                t("temp_info_manual"),
-                t("temp_info_auto"),
-            ),
-            font_size="11px",
-            color=COLORS["text_secondary"],
-            font_style="italic",
-        ),
-
         # Processing Progress Banner (above the send button - always visible)
         processing_progress_banner(),
 
@@ -732,6 +669,165 @@ def text_input_section() -> rx.Component:
     )
 
 
+def temperature_control_section() -> rx.Component:
+    """Temperature control with Auto/Manual toggle and multi-agent sliders"""
+    return rx.vstack(
+        # Header
+        rx.text(
+            rx.cond(
+                AIState.ui_language == "de",
+                "🌡️ Temperature",
+                "🌡️ Temperature"
+            ),
+            font_weight="bold",
+            font_size="12px"
+        ),
+
+        # Mode Toggle (Radio Buttons) - Language-aware
+        rx.cond(
+            AIState.ui_language == "de",
+            rx.radio(
+                ["🤖 Auto (Intent-Detection)", "✋ Manuell"],
+                default_value=rx.cond(
+                    AIState.temperature_mode == "manual",
+                    "✋ Manuell",
+                    "🤖 Auto (Intent-Detection)"
+                ),
+                on_change=AIState.set_temperature_mode_from_display,
+                direction="column",
+                spacing="2",
+                size="2",
+            ),
+            rx.radio(
+                ["🤖 Auto (Intent-Detection)", "✋ Manual"],
+                default_value=rx.cond(
+                    AIState.temperature_mode == "manual",
+                    "✋ Manual",
+                    "🤖 Auto (Intent-Detection)"
+                ),
+                on_change=AIState.set_temperature_mode_from_display,
+                direction="column",
+                spacing="2",
+                size="2",
+            ),
+        ),
+
+        # Conditional Sliders based on mode
+        rx.cond(
+            AIState.temperature_mode == "manual",
+            # Manual Mode: Two separate sliders for AIfred and Sokrates
+            rx.vstack(
+                # AIfred Slider
+                rx.hstack(
+                    rx.text(
+                        "🎩 AIfred:",
+                        font_size="11px",
+                        width="85px",
+                        font_weight="500",
+                    ),
+                    rx.slider(
+                        value=[AIState.temperature],
+                        min=0.0,
+                        max=2.0,
+                        step=0.1,
+                        on_change=AIState.set_temperature,
+                        flex="1",
+                    ),
+                    rx.text(
+                        f"{AIState.temperature:.1f}",
+                        font_size="11px",
+                        width="30px",
+                        text_align="right",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    align_items="center",
+                ),
+                # Sokrates Slider
+                rx.hstack(
+                    rx.text(
+                        "🏛️ Sokrates:",
+                        font_size="11px",
+                        width="85px",
+                        font_weight="500",
+                    ),
+                    rx.slider(
+                        value=[AIState.sokrates_temperature],
+                        min=0.0,
+                        max=2.0,
+                        step=0.1,
+                        on_change=AIState.set_sokrates_temperature,
+                        flex="1",
+                    ),
+                    rx.text(
+                        f"{AIState.sokrates_temperature:.1f}",
+                        font_size="11px",
+                        width="30px",
+                        text_align="right",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    align_items="center",
+                ),
+                spacing="2",
+                width="100%",
+                padding_top="2",
+            ),
+            # Auto Mode: Offset slider for Sokrates
+            rx.vstack(
+                rx.hstack(
+                    rx.text(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "🏛️ Sokrates Offset:",
+                            "🏛️ Sokrates Offset:"
+                        ),
+                        font_size="11px",
+                        width="110px",
+                        font_weight="500",
+                    ),
+                    rx.slider(
+                        value=[AIState.sokrates_temperature_offset],
+                        min=0.0,
+                        max=0.5,
+                        step=0.1,
+                        on_change=AIState.set_sokrates_temperature_offset,
+                        flex="1",
+                    ),
+                    rx.text(
+                        f"+{AIState.sokrates_temperature_offset:.1f}",
+                        font_size="11px",
+                        width="35px",
+                        text_align="right",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    align_items="center",
+                ),
+                rx.text(
+                    rx.cond(
+                        AIState.ui_language == "de",
+                        "Sokrates = Intent-Temp + Offset (max 1.0)",
+                        "Sokrates = Intent Temp + Offset (max 1.0)"
+                    ),
+                    font_size="10px",
+                    color=COLORS["text_secondary"],
+                    font_style="italic",
+                ),
+                spacing="1",
+                width="100%",
+                padding_top="2",
+            ),
+        ),
+
+        # Divider
+        rx.divider(margin_y="3"),
+
+        width="100%",
+        spacing="2",
+    )
+
+
 def llm_parameters_accordion() -> rx.Component:
     """LLM Parameters in collapsible accordion - Kompakt"""
     return rx.accordion.root(
@@ -750,6 +846,9 @@ def llm_parameters_accordion() -> rx.Component:
                 padding_y="2",  # Weniger Padding oben/unten
             ),
             content=rx.vstack(
+                # Temperature Control Section
+                temperature_control_section(),
+
                 # Context Window Control
                 rx.vstack(
                     rx.text(

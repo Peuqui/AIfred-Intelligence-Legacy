@@ -296,8 +296,10 @@ class AIState(rx.State):
     vision_model_id: str = ""  # NEW: Pure model ID (synced with vision_model)
 
     # LLM Options
-    temperature: float = 0.7
+    temperature: float = 0.3  # Default: low temperature for factual responses
     temperature_mode: str = "auto"  # "auto" (Intent-Detection) | "manual" (user slider)
+    sokrates_temperature: float = 0.5  # Sokrates temperature (manual mode only)
+    sokrates_temperature_offset: float = 0.2  # Offset for auto mode: Sokrates = AIfred + offset
     num_ctx: int = 32768
 
     # Context Window Control (NOT saved in settings.json - reset on every start)
@@ -866,6 +868,8 @@ class AIState(rx.State):
 
                 self.temperature = saved_settings.get("temperature", self.temperature)
                 self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)
+                self.sokrates_temperature = saved_settings.get("sokrates_temperature", self.sokrates_temperature)
+                self.sokrates_temperature_offset = saved_settings.get("sokrates_temperature_offset", self.sokrates_temperature_offset)
                 self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
 
                 # Load UI language and update global locale
@@ -1475,6 +1479,8 @@ class AIState(rx.State):
             "research_mode": self.research_mode,
             "temperature": self.temperature,
             "temperature_mode": self.temperature_mode,
+            "sokrates_temperature": self.sokrates_temperature,
+            "sokrates_temperature_offset": self.sokrates_temperature_offset,
             "enable_thinking": self.enable_thinking,
             "ui_language": self.ui_language,  # UI language (de/en)
             "user_name": self.user_name,  # User's name for personalized responses
@@ -3074,6 +3080,8 @@ class AIState(rx.State):
 
                     final_temperature = get_temperature_for_intent(own_knowledge_intent)
                     temp_label = get_temperature_label(own_knowledge_intent)
+                    # Store intent-based temperature in state for Multi-Agent mode
+                    self.temperature = final_temperature
                     self.add_debug(f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)")
                 yield
 
@@ -4572,6 +4580,43 @@ class AIState(rx.State):
         self._save_settings()
         mode_label = "Manual" if checked else "Auto"
         self.add_debug(f"🌡️ Temperature Mode: {mode_label}")
+
+    def set_temperature_mode_radio(self, value: str):
+        """
+        Set temperature mode from radio group (returns string directly)
+
+        Args:
+            value: "auto" or "manual"
+        """
+        self.temperature_mode = value
+        self._save_settings()
+        self.add_debug(f"🌡️ Temperature Mode: {value.title()}")
+
+    def set_temperature_mode_from_display(self, display_value: str):
+        """
+        Set temperature mode from radio display value
+
+        Args:
+            display_value: Display string like "🤖 Auto (Intent-Detection)" or "✋ Manuell"
+        """
+        # Extract mode from display value
+        if "Auto" in display_value:
+            self.temperature_mode = "auto"
+        else:
+            self.temperature_mode = "manual"
+        self._save_settings()
+        self.add_debug(f"🌡️ Temperature Mode: {self.temperature_mode.title()}")
+
+    def set_sokrates_temperature(self, temp: list[float]):
+        """Set Sokrates temperature (from slider which returns list[float])"""
+        self.sokrates_temperature = temp[0] if isinstance(temp, list) else temp
+        self._save_settings()
+
+    def set_sokrates_temperature_offset(self, offset: list[float]):
+        """Set Sokrates temperature offset for Auto mode (from slider which returns list[float])"""
+        self.sokrates_temperature_offset = offset[0] if isinstance(offset, list) else offset
+        self._save_settings()
+        self.add_debug(f"🌡️ Sokrates Offset: +{self.sokrates_temperature_offset:.1f}")
 
     def set_num_ctx_mode(self, mode: str):
         """

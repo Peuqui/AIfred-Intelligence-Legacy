@@ -66,6 +66,12 @@ AIfred supports various discussion modes with a second LLM (Sokrates) as critica
 - Maximum 1-2 critique points per round
 - Checkbox-style LGTM checklist for consistent decision-making
 
+**Temperature Control** (v2.10.4):
+- Auto mode: Intent-Detection determines base temperature (FACTUAL=0.2, MIXED=0.5, CREATIVE=1.1)
+- Manual mode: Separate sliders for AIfred and Sokrates temperature
+- Configurable Sokrates offset in Auto mode (default +0.2, capped at 1.0)
+- All temperature settings in "LLM Parameters (Advanced)" collapsible
+
 **Dialectical Workflow (Auto-Consensus):**
 ```
 ┌─────────────┐     ┌─────────────────┐     ┌─────────────────────┐
