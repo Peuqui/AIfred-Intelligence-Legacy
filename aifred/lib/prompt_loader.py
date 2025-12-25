@@ -16,6 +16,20 @@ PROMPTS_DIR = Path(__file__).parent.parent.parent / 'prompts'
 # Global language setting (can be overridden)
 _current_language = "auto"  # "auto", "de", "en"
 
+# Global user name (set once when settings are loaded)
+_current_user_name = ""
+
+
+def set_user_name(name: str):
+    """Set the global user name for prompts"""
+    global _current_user_name
+    _current_user_name = name.strip() if name else ""
+
+
+def get_user_name() -> str:
+    """Get the current user name"""
+    return _current_user_name
+
 
 def detect_language(text: str) -> str:
     """
@@ -153,6 +167,16 @@ def load_prompt(
 
     # Prepend timestamp to prompt
     prompt_template = timestamp_prefix + prompt_template
+
+    # ============================================================
+    # INJECT USER NAME (if set globally)
+    # ============================================================
+    if _current_user_name:
+        if lang == "de":
+            user_prefix = f"BENUTZER-NAME: {_current_user_name}\n\n"
+        else:
+            user_prefix = f"USER NAME: {_current_user_name}\n\n"
+        prompt_template = user_prefix + prompt_template
 
     # Format with kwargs if provided
     if kwargs or user_text:

@@ -873,6 +873,9 @@ class AIState(rx.State):
 
                 # Load user name
                 self.user_name = saved_settings.get("user_name", self.user_name)
+                # Sync to prompt_loader for automatic injection into system prompts
+                from .lib.prompt_loader import set_user_name
+                set_user_name(self.user_name)
 
                 # Load TTS/STT Settings
                 self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)
@@ -5472,6 +5475,9 @@ class AIState(rx.State):
     def save_user_name(self, name: str):
         """Save user name when input loses focus"""
         self.user_name = name.strip()
+        # Sync to prompt_loader for automatic injection into system prompts
+        from .lib.prompt_loader import set_user_name
+        set_user_name(self.user_name)
         if self.user_name:
             self.add_debug(f"👤 User name: {self.user_name}")
         self._save_settings()
