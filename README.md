@@ -54,6 +54,18 @@ AIfred supports various discussion modes with a second LLM (Sokrates) as critica
 - Prevents LLM from confusing agent exchanges with its own responses
 - All prompts automatically receive current date/time for temporal queries
 
+**Perspective System** (v2.10.3):
+- Each agent sees the conversation from their own perspective
+- Sokrates sees AIfred's answers as `[AIFRED]:` (user role), his own as `assistant`
+- AIfred sees Sokrates' critiques as `[SOKRATES]:` (user role), his own as `assistant`
+- Prevents identity confusion between agents during multi-round debates
+
+**Structured Critic Prompts** (v2.10.3):
+- Round number placeholder `{round_num}` - Sokrates knows which round it is
+- DIMINISHING RETURNS section - "Good enough" threshold prevents perfectionism
+- Maximum 1-2 critique points per round
+- Checkbox-style LGTM checklist for consistent decision-making
+
 **Dialectical Workflow (Auto-Consensus):**
 ```
 ┌─────────────┐     ┌─────────────────┐     ┌─────────────────────┐

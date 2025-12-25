@@ -28,6 +28,8 @@ ssl/
 
 # User Settings (persönlich)
 assistant_settings.json
+
+# Claude Code Settings (persönlich)
 settings.json
 **/settings.json  # Alle settings.json in allen Unterordnern
 
