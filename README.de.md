@@ -54,32 +54,47 @@ AIfred unterstützt verschiedene Diskussionsmodi mit einem zweiten LLM (Sokrates
 - Verhindert, dass LLM Agenten-Austausch mit eigenen Antworten verwechselt
 - Alle Prompts erhalten automatisch aktuelles Datum/Uhrzeit für zeitbezogene Fragen
 
-**Workflow (Auto-Konsens):**
+**Dialektischer Workflow (Auto-Konsens):**
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   User      │────▶│   AIfred    │────▶│  Sokrates   │
-│   Frage     │     │   Antwort   │     │   Kritik    │
-└─────────────┘     └─────────────┘     └──────┬──────┘
-                                               │
-                         ┌─────────────────────┘
-                         ▼
-                    ┌─────────┐
-                    │  LGTM?  │
-                    └────┬────┘
-                         │
-              ┌──────────┼──────────┐
-              ▼          ▼          ▼
-         ┌────────┐ ┌────────┐ ┌────────┐
-         │  JA    │ │  NEIN  │ │ MAX    │
-         │ Fertig │ │ Weiter │ │ ROUNDS │
-         └────────┘ └────────┘ └────────┘
-                         │
-                         ▼
-                  ┌─────────────┐
-                  │   AIfred    │
-                  │ Überarbeitung│
-                  └─────────────┘
+┌─────────────┐     ┌─────────────────┐     ┌─────────────────────┐
+│   User      │────▶│   AIfred        │────▶│   Sokrates          │
+│   Frage     │     │   THESE         │     │   ANTITHESE         │
+└─────────────┘     │   (Erste Antw.) │     │   (Kritik +         │
+                    └─────────────────┘     │    Alternative)     │
+                    Prompt: system_rag      └──────────┬──────────┘
+                    oder system_minimal     Prompt: sokrates/critic
+                                                       │
+                              ┌─────────────────────────┘
+                              ▼
+                         ┌─────────┐
+                         │  LGTM?  │
+                         └────┬────┘
+                              │
+               ┌──────────────┼──────────────┐
+               ▼              ▼              ▼
+          ┌────────┐    ┌────────┐     ┌────────┐
+          │  JA    │    │  NEIN  │     │  MAX   │
+          │ Fertig │    │ Weiter │     │ ROUNDS │
+          └────────┘    └────────┘     └────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │   AIfred        │
+                    │   SYNTHESE      │
+                    │   (Verschmelzung)│
+                    └─────────────────┘
+                    Prompt: aifred/refinement
 ```
+
+**Prompt-Dateien pro Modus:**
+| Modus | Verwendete Prompts |
+|-------|-------------------|
+| **Standard** | `aifred/system_rag` oder `aifred/system_minimal` |
+| **Direkt AIfred** | `aifred/direct` |
+| **Direkt Sokrates** | `sokrates/direct` |
+| **Critical Review** | `aifred/*` → `sokrates/critic` |
+| **Auto-Konsens** | `aifred/*` → `sokrates/critic` → `aifred/refinement` (Schleife) |
+| **Devil's Advocate** | `aifred/*` → `sokrates/devils_advocate` |
 
 **UI-Einstellungen:**
 - Sokrates-LLM separat wählbar (kann anderes Modell als AIfred sein)
