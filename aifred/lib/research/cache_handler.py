@@ -32,7 +32,8 @@ async def handle_cache_hit(
     temperature: float,
     agent_start: float,
     num_ctx_mode: str = "auto",
-    num_ctx_manual: int = 16384
+    num_ctx_manual: int = 16384,
+    user_name: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Handles cache hit - uses cached research data to answer follow-up question

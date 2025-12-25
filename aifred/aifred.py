@@ -331,6 +331,18 @@ def image_upload_section() -> rx.Component:
                 padding="0",
             ),
 
+            # User Name Input (for personalized responses)
+            rx.input(
+                placeholder=t("your_name"),
+                value=AIState.user_name,
+                on_change=AIState.set_user_name,
+                on_blur=AIState.save_user_name,
+                size="3",
+                width="140px",
+                style={"height": "48px"},  # Match button height via inline style
+                variant="soft",
+            ),
+
             # Clear button (only show if images present)
             rx.cond(
                 AIState.pending_images.length() > 0,

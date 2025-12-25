@@ -30,7 +30,8 @@ async def perform_agent_research(
     backend_url: Optional[str] = None,
     num_ctx_mode: str = "auto",
     num_ctx_manual: int = 16384,
-    vision_json_context: Optional[dict] = None
+    vision_json_context: Optional[dict] = None,
+    user_name: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Agent research with query optimization and parallel web scraping
@@ -89,7 +90,8 @@ async def perform_agent_research(
         temperature=temperature,
         agent_start=agent_start,
         num_ctx_mode=num_ctx_mode,
-        num_ctx_manual=num_ctx_manual
+        num_ctx_manual=num_ctx_manual,
+        user_name=user_name
     ):
         if item["type"] == "result":
             cache_handled = True
@@ -224,7 +226,8 @@ async def perform_agent_research(
         agent_start=agent_start,
         stt_time=stt_time,
         num_ctx_mode=num_ctx_mode,
-        num_ctx_manual=num_ctx_manual
+        num_ctx_manual=num_ctx_manual,
+        user_name=user_name
     ):
         yield item
 

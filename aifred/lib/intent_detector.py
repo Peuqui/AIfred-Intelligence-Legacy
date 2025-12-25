@@ -243,6 +243,11 @@ def detect_dialog_addressing(user_text: str) -> tuple[Optional[str], str]:
         (r',\s*sokrates\s*,', False),
         # End of sentence: "..., Sokrates." / "..., Sokrates?" / "..., Sokrates!"
         (r',\s*sokrates\s*[.?!]?\s*$', False),
+        # Standalone at end after period: "... motiviert. Sokrates." / "... Sokrates!"
+        # Catches cases where Sokrates is addressed as a separate sentence/word
+        (r'[.!?]\s*sokrates\s*[.!?]?\s*$', False),
+        # Vocative phrases: "mein lieber Sokrates" / "lieber Sokrates" (anywhere in text)
+        (r'\b(?:mein\s+)?liebe[rn]?\s+sokrates\b', False),
     ]
 
     for pattern, remove_prefix in sokrates_patterns:
@@ -274,6 +279,12 @@ def detect_dialog_addressing(user_text: str) -> tuple[Optional[str], str]:
         (r'^\w+\s+(?:ai\s*fred|aifred|alfred|eifred)[,:\s!]+\s*', True),
         # Embedded: "Warum, AIfred, denkst du..."
         (r',\s*(?:ai\s*fred|aifred|alfred|eifred)\s*,', False),
+        # End of sentence: "..., Alfred?" / "Was sagst du, Alfred?" / "..., Alfred!"
+        (r',\s*(?:ai\s*fred|aifred|alfred|eifred)\s*[.?!]?\s*$', False),
+        # Standalone at end after period: "... machen. Alfred." / "... Alfred!"
+        (r'[.!?]\s*(?:ai\s*fred|aifred|alfred|eifred)\s*[.!?]?\s*$', False),
+        # Vocative phrases: "mein lieber Alfred" / "lieber Alfred" (anywhere in text)
+        (r'\b(?:mein\s+)?liebe[rn]?\s+(?:ai\s*fred|aifred|alfred|eifred)\b', False),
     ]
 
     for pattern, remove_prefix in alfred_patterns:
