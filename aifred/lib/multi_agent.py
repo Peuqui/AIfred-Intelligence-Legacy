@@ -290,9 +290,16 @@ async def run_sokrates_direct_response(
         # Prepend system message
         messages.insert(0, {"role": "system", "content": system_prompt})
 
+        # Calculate Sokrates temperature based on mode
+        if state.temperature_mode == "manual":
+            sokrates_direct_temp = state.sokrates_temperature
+        else:
+            # Auto mode: AIfred's temperature + offset (capped at 1.0)
+            sokrates_direct_temp = min(1.0, state.temperature + state.sokrates_temperature_offset)
+
         # LLM options
         sokrates_options = LLMOptions(
-            temperature=0.4,  # Slightly creative for philosophical responses
+            temperature=sokrates_direct_temp,
             enable_thinking=state.enable_thinking,
             num_ctx=sokrates_num_ctx
         )
@@ -471,14 +478,26 @@ async def run_sokrates_analysis(
             _last_vram_limit_cache["limit"] = min_ctx
             state.add_debug(f"📉 Context limit for compression: {format_number(min_ctx)} tokens (min of AIfred/Sokrates)")
 
-        # LLM options with calculated context (use global thinking toggle)
+        # Calculate temperatures based on mode
+        if state.temperature_mode == "manual":
+            alfred_temp = state.temperature
+            sokrates_temp = state.sokrates_temperature
+        else:
+            # Auto mode: Use intent-based temperature from main flow
+            # For Multi-Agent, use moderate defaults since Intent Detection ran earlier
+            alfred_temp = state.temperature  # Already set by Intent Detection or manual
+            sokrates_temp = min(1.0, alfred_temp + state.sokrates_temperature_offset)
+
+        state.add_debug(f"🌡️ Temps: AIfred={alfred_temp:.1f}, Sokrates={sokrates_temp:.1f}")
+
+        # LLM options with calculated context and temperatures
         sokrates_options = LLMOptions(
-            temperature=0.3,  # Lower temp for critical analysis
+            temperature=sokrates_temp,
             enable_thinking=state.enable_thinking,  # Use global thinking toggle
             num_ctx=sokrates_num_ctx
         )
         alfred_options = LLMOptions(
-            temperature=0.5,  # Moderate temp for refinement
+            temperature=alfred_temp,
             enable_thinking=state.enable_thinking,  # Use global thinking toggle
             num_ctx=main_llm_ctx
         )

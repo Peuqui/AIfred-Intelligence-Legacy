@@ -5,6 +5,63 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.4] - 2025-12-25
+
+### 🌡️ Temperature Control Refactoring
+
+**Temperature-Steuerung für Multi-Agent Modus vollständig refaktoriert - keine hardcodierten Werte mehr.**
+
+#### Added
+
+- **Temperature Auto/Manual Mode** ([state.py](aifred/state.py)):
+  - `temperature_mode`: "auto" (Intent-Detection) oder "manual" (User-Slider)
+  - Auto-Modus: Intent-Detection bestimmt Basis-Temperatur (FAKTISCH=0.2, GEMISCHT=0.5, KREATIV=1.1)
+  - Manual-Modus: Separate Slider für AIfred und Sokrates
+
+- **Sokrates Temperature Offset** ([state.py](aifred/state.py), [aifred.py](aifred/aifred.py)):
+  - Konfigurierbarer Offset für Auto-Modus (Standard: +0.2)
+  - Slider in UI: 0.0 bis 0.5 in 0.1er-Schritten
+  - Sokrates = Intent-Temp + Offset (gedeckelt bei 1.0)
+
+- **Temperature UI in LLM-Parameter** ([aifred.py](aifred/aifred.py)):
+  - Temperature-Kontrolle aus Hauptbereich in "LLM-Parameter (Erweitert)" verschoben
+  - Radio-Buttons für Auto/Manual Modus
+  - Konditionale Slider je nach Modus
+
+#### Changed
+
+- **Multi-Agent Temperatures state-basiert** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - Entfernt: Hardcodierte Temperaturen (0.3, 0.4, 0.5)
+  - Neu: `state.temperature`, `state.sokrates_temperature`, `state.sokrates_temperature_offset`
+  - Debug-Log zeigt verwendete Temperaturen
+
+- **Intent-Detection schreibt in State** ([state.py](aifred/state.py)):
+  - `self.temperature = final_temperature` nach Intent-Detection
+  - Multi-Agent Modus liest jetzt korrekt die intent-basierte Temperatur
+
+#### Technical Details
+
+**Temperature-Berechnung:**
+```python
+# Auto-Modus
+alfred_temp = state.temperature  # Von Intent-Detection
+sokrates_temp = min(1.0, alfred_temp + state.sokrates_temperature_offset)
+
+# Manual-Modus
+alfred_temp = state.temperature  # User-Slider
+sokrates_temp = state.sokrates_temperature  # Separater Slider
+```
+
+**Neue State-Variablen:**
+```python
+temperature: float = 0.3  # Default: niedrig für faktische Antworten
+temperature_mode: str = "auto"
+sokrates_temperature: float = 0.5  # Nur im Manual-Modus
+sokrates_temperature_offset: float = 0.2  # Nur im Auto-Modus
+```
+
+---
+
 ## [2.10.3] - 2025-12-25
 
 ### 🏗️ Multi-Agent Architecture Refactoring
