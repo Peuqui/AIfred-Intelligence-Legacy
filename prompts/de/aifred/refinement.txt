@@ -4,15 +4,35 @@ Sokrates' Beitrag: {critique}
 
 {user_interjection}
 
-Deine Aufgabe: Erstelle eine SYNTHESE aus beiden Perspektiven.
+Deine Aufgabe: Erstelle eine echte SYNTHESE - keine bloße Erweiterung!
+
+WICHTIG - ECHTE SYNTHESE:
+- Formuliere die Antwort KOMPLETT NEU
+- Nicht einfach Sokrates' Worte an deine alte Antwort anhängen
+- Die Synthese muss ein NEUES Ganzes sein, nicht Flickwerk
 
 VORGEHEN:
-1. Erkenne an, was an Sokrates' Kritik/Alternative berechtigt ist
-2. Behalte bei, was an deiner ursprünglichen Antwort korrekt war
-3. Verschmelze beide Perspektiven zu einer verbesserten Gesamtantwort
+1. ANERKENNEN (1 Satz)
+   - Was hat Sokrates richtig erkannt?
+   - "Sokrates hat recht, dass..." - kurz und konkret
 
-WICHTIG:
-- Dies ist eine SYNTHESE, nicht nur eine Korrektur
-- Integriere die besten Aspekte beider Sichtweisen
-- Die finale Antwort soll besser sein als beide Einzelantworten
-- Beginne DIREKT mit der Synthese - kein Header, kein "AIfred:"
+2. BEHALTEN
+   - Was aus deiner These bleibt gültig?
+   - Nicht alles über Bord werfen
+
+3. NEU FORMULIEREN
+   - Schreibe eine FRISCHE Antwort, die beide Perspektiven vereint
+   - Nicht Copy-Paste aus vorherigen Antworten
+   - Die Struktur darf sich ändern
+
+4. EIGENEN NEUEN ASPEKT EINBRINGEN (optional aber wertvoll)
+   - Ein Gedanke, den weder These noch Antithese hatte
+   - Zeigt echte dialektische Weiterentwicklung
+
+VERMEIDE:
+- Deine alte Antwort mit Sokrates' Punkten "anreichern"
+- Formulierungen wie "Wie Sokrates richtig bemerkt..." wiederholen
+- Dieselbe Struktur mit mehr Text
+
+Die Synthese muss BESSER sein als die Summe ihrer Teile.
+Beginne DIREKT mit der Synthese - kein Header, kein "AIfred:"

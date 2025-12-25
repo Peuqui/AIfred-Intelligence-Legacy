@@ -160,9 +160,9 @@ class TranslationManager:
             # Multi-Agent Mode Descriptions
             "multi_agent_mode": "🤝 Diskussionsmodus",
             "multi_agent_info_standard": "Nur AIfred antwortet (klassisches Verhalten)",
-            "multi_agent_info_user_judge": "AIfred antwortet, Sokrates kritisiert, du entscheidest",
-            "multi_agent_info_auto_consensus": "Sokrates prüft bis LGTM (Looks Good To Me)",
-            "multi_agent_info_devils_advocate": "Pro & Contra Argumente für ausgewogene Analyse",
+            "multi_agent_info_user_judge": "AIfred antwortet, Sokrates kritisiert, du entscheidest (Reasoning empfohlen)",
+            "multi_agent_info_auto_consensus": "Sokrates prüft bis LGTM (Reasoning empfohlen)",
+            "multi_agent_info_devils_advocate": "Pro & Contra Argumente für ausgewogene Analyse (Reasoning empfohlen)",
             "max_debate_rounds": "Max. Debattenrunden:",
             "sokrates_title": "🏛️ Sokrates",
             "sokrates_critique_label": "Kritik:",
@@ -178,7 +178,7 @@ class TranslationManager:
             "tts_player_label": "Sprachausgabe",
             "tts_regenerate_hint": "Klicke 'Neu generieren' um die letzte Antwort vorzulesen",
             # Vision & Advanced Settings (Phase 4)
-            "thinking_mode_label": "🧠 Thinking Mode:",
+            "thinking_mode_label": "🧠 Reasoning Mode:",
             "thinking_mode_info": "ℹ️ Chain-of-Thought Reasoning für komplexe Aufgaben",
             "thinking_mode_unavailable": "⚠️ Nicht verfügbar für",
             "yarn_heading": "📏 YaRN Context Extension:",
@@ -314,9 +314,9 @@ class TranslationManager:
             # Multi-Agent Mode Descriptions
             "multi_agent_mode": "🤝 Discussion Mode",
             "multi_agent_info_standard": "Only AIfred answers (classic behavior)",
-            "multi_agent_info_user_judge": "AIfred answers, Sokrates critiques, you decide",
-            "multi_agent_info_auto_consensus": "Sokrates reviews until LGTM (Looks Good To Me)",
-            "multi_agent_info_devils_advocate": "Pro & Contra arguments for balanced analysis",
+            "multi_agent_info_user_judge": "AIfred answers, Sokrates critiques, you decide (Reasoning recommended)",
+            "multi_agent_info_auto_consensus": "Sokrates reviews until LGTM (Reasoning recommended)",
+            "multi_agent_info_devils_advocate": "Pro & Contra arguments for balanced analysis (Reasoning recommended)",
             "max_debate_rounds": "Max. Debate Rounds:",
             "sokrates_title": "🏛️ Sokrates",
             "sokrates_critique_label": "Critique:",
@@ -332,7 +332,7 @@ class TranslationManager:
             "tts_player_label": "Text-to-Speech",
             "tts_regenerate_hint": "Click 'Regenerate' to read the last response aloud",
             # Vision & Advanced Settings (Phase 4)
-            "thinking_mode_label": "🧠 Thinking Mode:",
+            "thinking_mode_label": "🧠 Reasoning Mode:",
             "thinking_mode_info": "ℹ️ Chain-of-Thought Reasoning for complex tasks",
             "thinking_mode_unavailable": "⚠️ Not available for",
             "yarn_heading": "📏 YaRN Context Extension:",

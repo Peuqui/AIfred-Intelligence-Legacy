@@ -98,7 +98,7 @@ AIfred supports various discussion modes with a second LLM (Sokrates) as critica
 
 **UI Settings:**
 - Sokrates-LLM separately selectable (can be different model than AIfred)
-- Max debate rounds (1-5, default: 3)
+- Max debate rounds (1-10, default: 3)
 - Discussion mode in Settings panel
 
 **Thinking Support:**
