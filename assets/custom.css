@@ -560,3 +560,27 @@ div em {
     min-width: 280px !important;
     max-width: 400px !important;
 }
+
+/* ============================================================
+   USERNAME INPUT STYLE
+   ============================================================ */
+
+/* Subtle Orange - Input inside container with icon */
+/* All elements inherit the orange background from parent box */
+.username-input-subtle,
+.username-input-subtle * {
+    background-color: rgba(204, 136, 0, 0.15) !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+.username-input-subtle input {
+    text-align: left !important;
+    color: #B8860B !important;
+    font-weight: 500 !important;
+    padding-left: 0 !important;
+    padding-right: 8px !important;
+}
+.username-input-subtle input::placeholder {
+    color: rgba(184, 134, 11, 0.7) !important;
+}

@@ -492,32 +492,29 @@ async def run_sokrates_analysis(
             state.debate_round = round_num
 
             # === SOKRATES CRITIQUE ===
-            # Get system prompt based on mode
+            # Get system prompt based on mode (no hardcoded task instructions!)
             if state.multi_agent_mode == "devils_advocate":
                 system_prompt = get_sokrates_devils_advocate_prompt()
-                task_instruction = "Analysiere AIfred's letzte Antwort mit Pro- und Contra-Argumenten."
             else:
                 # user_judge and auto_consensus use critic prompt
-                system_prompt = get_sokrates_critic_prompt()
-                round_info = f" (Runde {round_num}/{max_rounds})" if max_rounds > 1 else ""
-                task_instruction = f"Analysiere AIfred's letzte Antwort kritisch.{round_info}"
+                # round_num is passed so Sokrates knows which round it is
+                # (prevents hallucinating "progress" in round 1)
+                system_prompt = get_sokrates_critic_prompt(round_num=round_num)
 
-            # Build messages with full conversation history
-            # This gives Sokrates context of previous questions, answers, and critiques
+            # Build messages with Sokrates' perspective
+            # - Sokrates sees his own earlier responses as 'assistant'
+            # - AIfred's responses and User messages become 'user' with labels
+            # - No "Sokrates?" activation needed - perspective handles role assignment
             history_messages: list[dict[str, str]] = build_messages_from_history(
                 state.chat_history,
-                task_instruction  # Current task as "user" message
+                perspective="sokrates"
             )
 
-            # Replace system message with Sokrates' system prompt
-            # (build_messages_from_history may include summaries as system messages)
+            # Build final message list: Sokrates system prompt + history
             sokrates_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
-            msg: dict[str, str]
             for msg in history_messages:
-                if msg["role"] != "system":  # Skip existing system messages
-                    sokrates_messages.append(msg)
-                elif "Compressed:" in msg.get("content", ""):
-                    # Keep summary messages as context
+                # Keep all messages except non-summary system messages
+                if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
                     sokrates_messages.append(msg)
 
             # Add placeholder for Sokrates
@@ -583,17 +580,11 @@ async def run_sokrates_analysis(
                 break  # Devils advocate is always one round
 
             # Check for LGTM (consensus reached)
-            # LGTM only counts if it's essentially JUST "LGTM" (possibly with punctuation)
-            # This avoids false positives like "LGTM ist nicht möglich"
-            # IMPORTANT: Strip <think> blocks first - they can be very long but actual answer is just "LGTM"
+            # Strip <think> blocks first, then check for LGTM anywhere
+            # The prompt now clearly instructs: LGTM ends the debate immediately
             response_content = strip_thinking_blocks(sokrates_response_text).strip()
-            response_upper = response_content.upper()
 
-            # True LGTM: response is very short and contains LGTM
-            # e.g. "LGTM", "LGTM.", "LGTM!", "  LGTM  "
-            is_lgtm = len(response_content) < 20 and "LGTM" in response_upper
-
-            if is_lgtm:
+            if "LGTM" in response_content.upper():
                 state.add_debug(f"✅ Consensus reached in round {round_num} (LGTM)")
                 consensus_reached = True
                 break
@@ -610,11 +601,14 @@ async def run_sokrates_analysis(
                     user_interjection=""  # Could add user input here later
                 )
 
-                # Build messages with full conversation history
-                # AIfred sees all previous context including Sokrates' critique
+                # Build messages with AIfred's perspective
+                # - AIfred sees his own earlier responses as 'assistant'
+                # - Sokrates' critiques become 'user' with [SOKRATES]: label
+                # - User messages become 'user' with [USER]: label
                 alfred_messages: list[dict[str, str]] = build_messages_from_history(
                     state.chat_history,
-                    refinement_prompt  # Refinement task as "user" message
+                    current_user_text=refinement_prompt,  # Refinement task as "user" message
+                    perspective="aifred"
                 )
 
                 # Estimate tokens in messages (using proper tokenizer estimation)

@@ -12,12 +12,23 @@ import re
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
+from .prompt_loader import get_user_name
+
+# Multi-Agent Marker → Speaker Labels
+# Used to identify which agent wrote a message in the chat history
+AGENT_MARKERS = {
+    "🏛️": "SOKRATES",
+    "🎩": "AIFRED",
+    # Extensible for additional agents
+}
+
 
 def build_messages_from_history(
     history: List[Tuple[str, str]],
-    current_user_text: str,
+    current_user_text: str = "",
     max_turns: Optional[int] = None,
-    include_summaries: bool = True
+    include_summaries: bool = True,
+    perspective: Optional[str] = None  # "sokrates", "aifred", or None
 ) -> List[Dict[str, str]]:
     """
     Convert Gradio History to Ollama Messages format
@@ -33,15 +44,21 @@ def build_messages_from_history(
     3. Multi-Agent: ("", "🏛️[...]...") or ("", "🎩[...]...") → system message with speaker label
 
     Speaker attribution (for multi-agent context):
-    - Sokrates entries: 🏛️[Mode] → "[SOKRATES]: " prefix (as system message)
-    - AIfred entries: 🎩[Mode] → "[AIFRED]: " prefix (as system message)
-    - User messages: No prefix needed - 'role: user' distinguishes them
+    - Without perspective: Agent entries → system message with [SOKRATES]/[AIFRED] label
+    - With perspective="sokrates": Sokrates sees his messages as 'assistant', others as 'user'
+    - With perspective="aifred": AIfred sees his messages as 'assistant', others as 'user'
 
     Args:
         history: Gradio Chat History [[user_msg, ai_msg], ...]
         current_user_text: Current user message
         max_turns: Optional - Only use last N turns (None = all)
         include_summaries: Include summaries as system messages (default: True)
+        perspective: Multi-Agent perspective ("sokrates", "aifred", or None)
+            - None: Standard mode - all AI responses as 'assistant'
+            - "sokrates": Sokrates is speaking - his responses are 'assistant',
+                         AIfred's responses become 'user' with [AIFRED]: label
+            - "aifred": AIfred is speaking - his responses are 'assistant',
+                       Sokrates' responses become 'user' with [SOKRATES]: label
 
     Returns:
         list: Ollama Messages format [{'role': 'user', 'content': '...'}, ...]
@@ -118,37 +135,70 @@ def build_messages_from_history(
         # 5. Cleanup: Remove multiple blank lines and whitespace
         clean_ai = re.sub(r'\n\n+', '\n\n', clean_ai.strip())
 
-        if is_agent_only:
-            # Agent-only message (Sokrates or AIfred internal exchange)
-            # Use 'system' role to clearly separate from the current assistant's responses
-            # This prevents the LLM from confusing Sokrates' critique with its own output
-            messages.append({'role': 'system', 'content': f"[MULTI-AGENT CONTEXT]\n{clean_ai}"})
-        else:
-            # Normal user/AI exchange
-            # Clean user message
-            clean_user = user_turn
+        # Clean user message (needed for both modes)
+        clean_user = user_turn
+        if not is_agent_only:
             for pattern in timing_patterns:
                 if pattern in clean_user:
-                    # Cut everything from the first timing pattern
                     clean_user = clean_user.split(pattern)[0]
-
-            # Remove [IMG:...] markers from user messages (images already sent to Vision-LLM)
-            # These markers are stored in history for UI thumbnail display, not for LLM context
+            # Remove [IMG:...] markers from user messages
             clean_user = re.sub(r'\[IMG:[^\]]*\]', '', clean_user).strip()
 
-            # NOTE: We intentionally do NOT add [Username]: prefix to user messages.
-            # The 'role: user' already distinguishes user messages from assistant messages.
-            # Adding a prefix causes the LLM to imitate this pattern in its responses.
-            # Speaker attribution is handled by [SOKRATES]: and [AIFRED]: in agent-only messages.
+        # === PERSPECTIVE-BASED ROLE ASSIGNMENT ===
+        if perspective:
+            # Multi-Agent mode: Assign roles based on who is currently speaking
+            perspective_lower = perspective.lower()
 
-            # Add user message and assistant response
-            messages.extend([
-                {'role': 'user', 'content': clean_user},
-                {'role': 'assistant', 'content': clean_ai}
-            ])
+            if is_agent_only:
+                # Agent-only message (Sokrates or AIfred internal exchange)
+                is_sokrates_msg = ai_turn.startswith("🏛️")
+                is_aifred_msg = ai_turn.startswith("🎩")
 
-    # Add current user message (no prefix - role: user is sufficient)
-    messages.append({'role': 'user', 'content': current_user_text})
+                if perspective_lower == "sokrates" and is_sokrates_msg:
+                    # Sokrates sees his own earlier responses as 'assistant'
+                    content = clean_ai.replace('[SOKRATES]: ', '').strip()
+                    messages.append({'role': 'assistant', 'content': content})
+                elif perspective_lower == "aifred" and is_aifred_msg:
+                    # AIfred sees his own earlier responses as 'assistant'
+                    content = clean_ai.replace('[AIFRED]: ', '').strip()
+                    messages.append({'role': 'assistant', 'content': content})
+                else:
+                    # Other agent's message → 'user' role with speaker label
+                    messages.append({'role': 'user', 'content': clean_ai})
+            else:
+                # Normal user/AI exchange
+                # Use actual username if set, otherwise fallback to [USER]
+                user_label = get_user_name() or "USER"
+
+                if perspective_lower == "sokrates":
+                    # Sokrates sees: User as [Username], AIfred as [AIFRED]
+                    messages.append({'role': 'user', 'content': f"[{user_label}]: {clean_user}"})
+                    messages.append({'role': 'user', 'content': f"[AIFRED]: {clean_ai}"})
+                elif perspective_lower == "aifred":
+                    # AIfred sees: User as [Username], own responses as 'assistant'
+                    messages.append({'role': 'user', 'content': f"[{user_label}]: {clean_user}"})
+                    messages.append({'role': 'assistant', 'content': clean_ai})
+                else:
+                    # Unknown perspective → fallback to standard
+                    messages.extend([
+                        {'role': 'user', 'content': clean_user},
+                        {'role': 'assistant', 'content': clean_ai}
+                    ])
+        else:
+            # === STANDARD MODE (no perspective) ===
+            if is_agent_only:
+                # Agent-only message → system role for context
+                messages.append({'role': 'system', 'content': f"[MULTI-AGENT CONTEXT]\n{clean_ai}"})
+            else:
+                # Normal user/AI exchange
+                messages.extend([
+                    {'role': 'user', 'content': clean_user},
+                    {'role': 'assistant', 'content': clean_ai}
+                ])
+
+    # Add current user message only if provided (no prefix - role: user is sufficient)
+    if current_user_text:
+        messages.append({'role': 'user', 'content': current_user_text})
 
     return messages
 

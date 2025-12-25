@@ -332,15 +332,26 @@ def image_upload_section() -> rx.Component:
             ),
 
             # User Name Input (for personalized responses)
-            rx.input(
-                placeholder=t("your_name"),
-                value=AIState.user_name,
-                on_change=AIState.set_user_name,
-                on_blur=AIState.save_user_name,
-                size="3",
-                width="140px",
-                style={"height": "48px"},  # Match button height via inline style
-                variant="soft",
+            # Subtle Orange style with user icon, matching other buttons
+            rx.box(
+                rx.icon("user", size=18, color="#B8860B"),
+                rx.input(
+                    placeholder=t("your_name"),
+                    value=AIState.user_name,
+                    on_change=AIState.set_user_name,
+                    on_blur=AIState.save_user_name,
+                    size="3",
+                    width="110px",
+                    style={"height": "48px"},
+                    class_name="username-input-subtle",
+                ),
+                display="flex",
+                align_items="center",
+                gap="6px",
+                background_color="rgba(204, 136, 0, 0.15)",
+                border_radius="8px",
+                padding_left="10px",
+                height="48px",
             ),
 
             # Clear button (only show if images present)
