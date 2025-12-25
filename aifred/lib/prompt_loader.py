@@ -421,7 +421,7 @@ def get_sokrates_devils_advocate_prompt(lang: Optional[str] = None) -> str:
     return load_prompt('sokrates/devils_advocate', lang=lang)
 
 
-def get_sokrates_refinement_prompt(
+def get_aifred_refinement_prompt(
     critique: str,
     user_interjection: str = "",
     lang: Optional[str] = None
@@ -438,11 +438,15 @@ def get_sokrates_refinement_prompt(
         Formatted refinement prompt with critique and timestamp prefix
     """
     return load_prompt(
-        'sokrates/refinement',
+        'aifred/refinement',
         lang=lang,
         critique=critique,
         user_interjection=user_interjection
     )
+
+
+# Backwards compatibility alias
+get_sokrates_refinement_prompt = get_aifred_refinement_prompt
 
 
 def get_sokrates_direct_prompt(lang: Optional[str] = None) -> str:
