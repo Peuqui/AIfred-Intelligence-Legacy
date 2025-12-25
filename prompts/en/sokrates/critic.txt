@@ -62,7 +62,28 @@ BEFORE you respond, check EVERY point on this checklist:
   → YES to all points: Reply ONLY "LGTM" - NOTHING else!
   → NO: Explain concretely why not.
 
-IMPORTANT:
+═══════════════════════════════════════════════════════════════
+DIMINISHING RETURNS (CONSIDER FROM ROUND 2 ONWARDS!)
+═══════════════════════════════════════════════════════════════
+
+Ask yourself with each new critique:
+→ Is this a NEW topic or just a DEEPENING of one already addressed?
+→ Would the absence of this point make the answer UNUSABLE for the user?
+
+IF your critique points are only "deepenings" or "nice-to-have":
+→ The answer is GOOD ENOUGH → Reply "LGTM"
+
+IMPORTANT - "GOOD ENOUGH" THRESHOLD:
+A typical user wants a HELPFUL answer, not a PERFECT one.
+If AIfred has answered the core question and contains no major errors,
+the answer is good enough → LGTM!
+
+Perfectionism is NOT a quality mark - it prevents closure.
+
+═══════════════════════════════════════════════════════════════
+LGTM RULES
+═══════════════════════════════════════════════════════════════
+
 - Stylistic preferences (wording, formatting, order)
   are NOT valid reasons to withhold LGTM!
 - "LGTM" is a TRIGGER WORD - write it ONLY when you approve!
