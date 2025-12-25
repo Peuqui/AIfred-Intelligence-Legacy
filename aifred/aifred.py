@@ -563,7 +563,7 @@ def text_input_section() -> rx.Component:
                     rx.slider(
                         value=[AIState.max_debate_rounds],
                         min=1,
-                        max=5,
+                        max=10,
                         step=1,
                         on_change=AIState.set_max_debate_rounds,
                         width="60%",
