@@ -5073,15 +5073,20 @@ class AIState(rx.State):
                 self.add_debug(f"   {msg}")  # Indent to show it's for Sokrates
 
             # Get Main-LLM context limit (respect manual mode)
-            # Fallback 32k is conservative - smallest common context size
+            # Use _last_vram_limit_cache which is set by calculate_dynamic_num_ctx()
+            # during initial AIfred inference (before multi-agent kicks in)
+            from aifred.lib.context_manager import _last_vram_limit_cache
             if self.num_ctx_mode == "manual" and self.num_ctx_manual:
                 main_llm_ctx = self.num_ctx_manual
             else:
-                main_llm_ctx = self.last_vram_limit if self.last_vram_limit else 32768
+                # Get cached limit from AIfred's inference (set during chat_interactive_mode)
+                cached_limit = _last_vram_limit_cache.get("limit", 0)
+                main_llm_ctx = cached_limit if cached_limit > 0 else 32768
+                if cached_limit == 0:
+                    self.add_debug(f"⚠️ No cached VRAM limit found, using fallback 32K")
 
             # Update global cache with MINIMUM of both context limits
             # This ensures history compression uses the smallest window
-            from aifred.lib.context_manager import _last_vram_limit_cache
             min_ctx = min(sokrates_num_ctx, main_llm_ctx)
             if min_ctx < _last_vram_limit_cache.get("limit", float('inf')):
                 _last_vram_limit_cache["limit"] = min_ctx
