@@ -52,7 +52,8 @@ async def build_and_generate_response(
     agent_start: float,
     stt_time: float,
     num_ctx_mode: str = "auto",
-    num_ctx_manual: int = 16384
+    num_ctx_manual: int = 16384,
+    user_name: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Build context and generate LLM response

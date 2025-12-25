@@ -42,10 +42,17 @@ AIfred unterstützt verschiedene Diskussionsmodi mit einem zweiten LLM (Sokrates
 | **Auto-Konsens** | Iterative Verbesserung bis LGTM oder max Runden | 1-3 |
 | **Advocatus Diaboli** | Pro & Contra Argumente für ausgewogene Analyse | 1 |
 
-**Direkte Agenten-Ansprache** (NEU in v2.10.1):
+**Direkte Agenten-Ansprache** (NEU in v2.10):
 - Sokrates direkt ansprechen: "Sokrates, was denkst du über...?" → Sokrates antwortet mit sokratischer Methode
 - AIfred direkt ansprechen: "AIfred, erkläre..." → AIfred antwortet ohne Sokrates-Analyse
 - Unterstützt STT-Transkriptionsvarianten: "Alfred", "Eifred", "AI Fred"
+- Funktioniert auch am Satzende: "Gut erklärt. Sokrates." / "Prima gemacht. Alfred!"
+
+**Intelligentes Context-Handling** (v2.10.2):
+- Multi-Agent-Nachrichten verwenden `role: system` mit `[MULTI-AGENT CONTEXT]` Prefix
+- Speaker-Labels `[SOKRATES]:` und `[AIFRED]:` bleiben für LLM-Kontext erhalten
+- Verhindert, dass LLM Agenten-Austausch mit eigenen Antworten verwechselt
+- Alle Prompts erhalten automatisch aktuelles Datum/Uhrzeit für zeitbezogene Fragen
 
 **Workflow (Auto-Konsens):**
 ```

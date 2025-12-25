@@ -848,7 +848,8 @@ async def chat_interactive_mode(
     num_ctx_mode: str = "auto",
     num_ctx_manual: int = 16384,
     pending_images: Optional[List[Dict[str, str]]] = None,
-    vision_json_context: Optional[dict] = None
+    vision_json_context: Optional[dict] = None,
+    user_name: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Automatik mode: AI decides whether web research is needed
@@ -871,6 +872,7 @@ async def chat_interactive_mode(
         num_ctx_manual: Manual num_ctx value (only used if mode="manual")
         pending_images: List of images (for multimodal messages)
         vision_json_context: Structured data extracted from images by Vision-LLM (optional)
+        user_name: User's name for personalized prompts (optional)
 
     Yields:
         Dict with: {"type": "debug"|"content"|"metrics"|"separator"|"result", ...}
@@ -1026,7 +1028,8 @@ async def chat_interactive_mode(
                 backend_url=backend_url,
                 num_ctx_mode=num_ctx_mode,
                 num_ctx_manual=num_ctx_manual,
-                vision_json_context=vision_json_context  # CRITICAL: Pass Vision JSON to Research flow
+                vision_json_context=vision_json_context,  # CRITICAL: Pass Vision JSON to Research flow
+                user_name=user_name  # For personalized prompts
             ):
                 yield item
             return  # Generator ends after forwarding all items
@@ -1145,7 +1148,7 @@ async def chat_interactive_mode(
             yield {"type": "progress", "phase": "llm"}
 
             # Now normal inference WITH timing
-            # Build messages from history (all turns)
+            # Build messages from history
             messages = build_messages_from_history(history, user_text)
 
             # Replace last message content with multimodal if images present
@@ -1493,7 +1496,8 @@ async def chat_interactive_mode(
                     backend_url=backend_url,
                     num_ctx_mode=num_ctx_mode,
                     num_ctx_manual=num_ctx_manual,
-                    vision_json_context=vision_json_context  # CRITICAL: Pass Vision JSON to Research flow
+                    vision_json_context=vision_json_context,  # CRITICAL: Pass Vision JSON to Research flow
+                    user_name=user_name  # For personalized prompts
                 ):
                     yield item
                 return
@@ -1508,7 +1512,7 @@ async def chat_interactive_mode(
                 yield {"type": "progress", "phase": "llm"}
 
                 # Now normal inference WITH time measurement
-                # Build messages from history (all turns)
+                # Build messages from history
                 messages = build_messages_from_history(history, user_text)
 
                 # Replace last message content with multimodal if images present

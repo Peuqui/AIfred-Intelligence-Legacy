@@ -17,6 +17,7 @@ from .lib import (
     perform_agent_research,
     set_language
 )
+from .lib.logging_utils import CONSOLE_SEPARATOR
 from .lib.formatting import format_debug_message
 from .lib.conversation_handler import extract_model_name
 from .lib import config
@@ -345,6 +346,9 @@ class AIState(rx.State):
     # The calculated VRAM limit from the last calculate_dynamic_num_ctx() call
     # Used for history compression (prevents recalculation)
     last_vram_limit: int = 0  # min(VRAM-Limit, Model-Limit) - practical maximum
+
+    # User Settings
+    user_name: str = ""  # User's name for personalized responses (optional)
 
     # TTS/STT Settings
     enable_tts: bool = False
@@ -866,6 +870,9 @@ class AIState(rx.State):
                 if saved_ui_lang in ["de", "en"]:
                     self.ui_language = saved_ui_lang
                     set_ui_locale(saved_ui_lang)
+
+                # Load user name
+                self.user_name = saved_settings.get("user_name", self.user_name)
 
                 # Load TTS/STT Settings
                 self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)
@@ -1464,6 +1471,7 @@ class AIState(rx.State):
             "temperature_mode": self.temperature_mode,
             "enable_thinking": self.enable_thinking,
             "ui_language": self.ui_language,  # UI language (de/en)
+            "user_name": self.user_name,  # User's name for personalized responses
             "backend_models": backend_models,  # Merged: preserves all backends
             # Multi-Agent Settings
             "multi_agent_mode": self.multi_agent_mode,
@@ -2673,7 +2681,8 @@ class AIState(rx.State):
                         num_ctx_mode=self.num_ctx_mode,
                         num_ctx_manual=self.num_ctx_manual,
                         pending_images=None,  # Images already processed
-                        vision_json_context=extracted_vision_json  # Pass Vision JSON!
+                        vision_json_context=extracted_vision_json,  # Pass Vision JSON!
+                        user_name=self.user_name  # For personalized prompts
                     ):
                         # Handle Main-LLM items using NORMAL FLOW logic
                         # (EXACT same pattern as normal flow in line 2029-2068)
@@ -2773,7 +2782,8 @@ class AIState(rx.State):
                     backend_url=self.backend_url,
                     num_ctx_mode=self.num_ctx_mode,
                     num_ctx_manual=self.num_ctx_manual,
-                    pending_images=self.pending_images if len(self.pending_images) > 0 else None
+                    pending_images=self.pending_images if len(self.pending_images) > 0 else None,
+                    user_name=self.user_name  # For personalized prompts
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
@@ -2891,7 +2901,8 @@ class AIState(rx.State):
                     temperature=self.temperature,
                     llm_options=llm_options,
                     backend_type=self.backend_type,
-                    backend_url=self.backend_url
+                    backend_url=self.backend_url,
+                    user_name=self.user_name  # For personalized prompts
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
@@ -3106,12 +3117,16 @@ class AIState(rx.State):
                 yield
 
                 # Stream response directly from LLM
+                from .lib.logging_utils import log_message
+                log_message(f"🔬 DEBUG: Setting inference_start at {time.time()}")
                 inference_start = time.time()
+                log_message(f"🔬 DEBUG: inference_start = {inference_start}")
                 full_response = ""
                 ttft = None
                 first_token_received = False
                 tokens_generated = 0
 
+                log_message(f"🔬 DEBUG: Starting chat_stream at {time.time()}")
                 async for chunk in llm_client.chat_stream(
                     model=pure_model_name,
                     messages=messages,
@@ -3120,7 +3135,10 @@ class AIState(rx.State):
                     if chunk["type"] == "content":
                         # Measure TTFT (matching Automatik mode)
                         if not first_token_received:
-                            ttft = time.time() - inference_start
+                            now = time.time()
+                            log_message(f"🔬 DEBUG: First token received at {now}, inference_start was {inference_start}")
+                            ttft = now - inference_start
+                            log_message(f"🔬 DEBUG: TTFT = {ttft:.6f}s (now={now}, start={inference_start})")
                             first_token_received = True
                             self.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                             yield
@@ -3168,9 +3186,10 @@ class AIState(rx.State):
                 yield  # Update UI
 
                 # ============================================================
-                # MULTI-AGENT: Sokrates Analysis (if enabled)
+                # MULTI-AGENT: Sokrates Analysis (if enabled and not direct AIfred addressing)
                 # ============================================================
-                if self.multi_agent_mode != "standard" and full_response:
+                # skip_sokrates_analysis is True when user directly addresses AIfred
+                if self.multi_agent_mode != "standard" and full_response and not skip_sokrates_analysis:
                     async for _ in self._run_sokrates_analysis(user_msg, full_response):
                         yield  # Forward yields to update Sokrates panel
 
@@ -3257,10 +3276,12 @@ class AIState(rx.State):
                 self.is_compressing = False
                 yield
 
-            # Separator nach Compression-Check (einmal am Ende)
-            console_separator()  # Schreibt in Log-File
-            self.add_debug("────────────────────")  # Zeigt in Debug-Console
-            yield
+            # Separator nach Compression-Check (NUR für standard mode)
+            # Multi-Agent mode hat bereits Separator nach Main-LLM (Zeile ~3158)
+            if self.multi_agent_mode == "standard":
+                console_separator()  # Schreibt in Log-File
+                self.add_debug("────────────────────")  # Zeigt in Debug-Console
+                yield
 
             # Clear response display
             self.current_ai_response = ""
@@ -3411,8 +3432,13 @@ class AIState(rx.State):
                 lines.append(ai_msg)
 
             lines.append("")
-            lines.append("─" * 40)
+            lines.append(CONSOLE_SEPARATOR)
             lines.append("")
+
+        # Remove trailing separator (last 3 lines: empty, separator, empty)
+        if len(lines) >= 3 and lines[-2] == CONSOLE_SEPARATOR:
+            lines = lines[:-3]
+            lines.append("")  # Keep one trailing newline
 
         chat_text = "\n".join(lines)
 
@@ -4709,6 +4735,9 @@ class AIState(rx.State):
                 # TTFT measurement
                 if not first_token:
                     ttft = time.time() - start_time
+                    # Guard against negative TTFT (WSL2 time sync issues)
+                    if ttft < 0:
+                        ttft = 0.0
                     first_token = True
 
                 full_response += chunk["text"]
@@ -4869,7 +4898,7 @@ class AIState(rx.State):
             # Load system prompt from file (no hardcoded prompts!)
             system_prompt = get_sokrates_direct_prompt(lang=detected_lang)
 
-            # Build messages from chat history (for context)
+            # Build messages from chat history
             messages = build_messages_from_history(self.chat_history[:-1], user_query)
 
             # Prepend system message
@@ -4906,6 +4935,11 @@ class AIState(rx.State):
                 if chunk_type == "content":
                     if not first_token:
                         ttft = time.time() - start_time
+                        # Guard against negative TTFT (can happen with WSL2 time sync issues)
+                        if ttft < 0:
+                            from .lib.logging_utils import log_message
+                            log_message(f"⚠️ Negative TTFT detected: {ttft:.3f}s - possible WSL2 time sync issue")
+                            ttft = 0.0
                         self.add_debug(f"⚡ TTFT: {ttft:.2f}s")
                         first_token = True
 
@@ -4954,6 +4988,11 @@ class AIState(rx.State):
             self.chat_history[history_index] = (original_user_msg, "")
 
             self.add_debug(f"🏛️ Sokrates: {len(full_response)} chars, {tokens_per_sec:.1f} tok/s")
+
+            # Separator nach Sokrates Direct Response
+            from .lib.logging_utils import console_separator
+            console_separator()  # Log-File
+            self.add_debug("────────────────────")  # Debug-Console
 
             await llm_client.close()
             yield
@@ -5076,7 +5115,7 @@ class AIState(rx.State):
                     round_info = f" (Runde {round_num}/{max_rounds})" if max_rounds > 1 else ""
                     task_instruction = f"Analysiere AIfred's letzte Antwort kritisch.{round_info}"
 
-                # Build messages with full conversation history (like AIfred gets)
+                # Build messages with full conversation history
                 # This gives Sokrates context of previous questions, answers, and critiques
                 history_messages = build_messages_from_history(
                     self.chat_history,
@@ -5251,6 +5290,11 @@ class AIState(rx.State):
             # Persist to session storage
             self._save_current_session()
 
+            # Separator nach Sokrates Analysis (Ende des Multi-Agent Dialogs)
+            from .lib.logging_utils import console_separator
+            console_separator()  # Log-File
+            self.add_debug("────────────────────")  # Debug-Console
+
         except Exception as e:
             self.add_debug(f"❌ Sokrates Error: {e}")
 
@@ -5416,6 +5460,25 @@ class AIState(rx.State):
 
         # Call existing handler with display label (reuses all logic)
         await self.set_vision_model(display_label)
+
+    # ============================================================
+    # USER NAME SETTINGS
+    # ============================================================
+
+    def set_user_name(self, name: str):
+        """Set user name (called on every keystroke)"""
+        self.user_name = name
+
+    def save_user_name(self, name: str):
+        """Save user name when input loses focus"""
+        self.user_name = name.strip()
+        if self.user_name:
+            self.add_debug(f"👤 User name: {self.user_name}")
+        self._save_settings()
+
+    # ============================================================
+    # TTS/STT SETTINGS
+    # ============================================================
 
     def toggle_tts(self):
         """Toggle TTS on/off"""

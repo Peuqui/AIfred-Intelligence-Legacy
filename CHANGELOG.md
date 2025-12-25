@@ -5,6 +5,89 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.2] - 2025-12-25
+
+### 🎭 Multi-Agent Dialog Improvements
+
+**Verbesserte Multi-Agent Konversationen: Klarere Rollenverteilung, besseres Context-Handling, erweiterte Dialog-Patterns.**
+
+#### Added
+
+- **Dialog Routing: Erweiterte Patterns** ([intent_detector.py:247-248, 284-285](aifred/lib/intent_detector.py)):
+  - Neue Patterns für Namen nach Satzende: "...motiviert. Sokrates." / "...machen. Alfred."
+  - Regex: `[.!?]\s*sokrates\s*[.!?]?\s*$` und `[.!?]\s*(?:ai\s*fred|aifred|alfred|eifred)\s*[.!?]?\s*$`
+  - Ermöglicht natürlichere Adressierung am Satzende
+
+- **Automatische Timestamp-Injektion** ([prompt_loader.py:131-158](aifred/lib/prompt_loader.py)):
+  - Alle Prompts erhalten automatisch aktuelles Datum und Uhrzeit
+  - DE: "AKTUELLES DATUM UND UHRZEIT: Mittwoch, 25.12.2025, 14:30:00 Uhr"
+  - EN: "CURRENT DATE AND TIME: Wednesday, 2025-12-25, 14:30:00"
+  - LLM kennt immer den aktuellen Zeitpunkt für zeitbezogene Fragen
+
+- **Debug-Console Separatoren** ([state.py](aifred/state.py)):
+  - Separator nach `_run_sokrates_direct_response()` hinzugefügt
+  - Separator nach `_run_sokrates_analysis()` hinzugefügt
+  - Konsistente visuelle Trennung aller Dialog-Phasen
+
+- **TTFT Debug-Logging** ([state.py:3120-3144](aifred/state.py)):
+  - Zusätzliche Timestamps zur Diagnose negativer TTFT-Werte
+  - Logs: inference_start, first token time, calculated TTFT
+
+#### Changed
+
+- **Multi-Agent Messages als System Role** ([message_builder.py:121-131](aifred/lib/message_builder.py)):
+  - Sokrates/AIfred Nachrichten jetzt mit `role: system` statt `role: assistant`
+  - Prefix `[MULTI-AGENT CONTEXT]` für klare Trennung
+  - Verhindert, dass LLM eigene Antworten mit Agent-Nachrichten verwechselt
+  - Speaker-Labels: `[SOKRATES]:` und `[AIFRED]:` erhalten
+
+- **AIfred Direct Prompt verstärkt** ([prompts/de/aifred/direct.txt](prompts/de/aifred/direct.txt), [prompts/en/aifred/direct.txt](prompts/en/aifred/direct.txt)):
+  - Explizite Regel: "NIEMALS mit 'Was hältst du davon, Sokrates?' enden"
+  - Klarstellung: "Sokrates ist NICHT im Gespräch - er ist nur Hintergrund-Kontext"
+  - Verhindert, dass AIfred Sokrates direkt anspricht statt den User
+
+- **Sokrates Direct Prompt: Context-Verständnis** ([prompts/de/sokrates/direct.txt](prompts/de/sokrates/direct.txt), [prompts/en/sokrates/direct.txt](prompts/en/sokrates/direct.txt)):
+  - Neue Sektion: "KRITISCH - Kontext richtig verstehen"
+  - Wenn User "die Antwort" lobt → bezieht sich meist auf AIfred's Antwort
+  - Sokrates hat die Frage NICHT beantwortet, nur kritisiert
+  - Verhindert falsches "Danke für dein Lob" wenn AIfred gemeint war
+
+#### Fixed
+
+- **Doppelte Separator-Linien in Debug-Console**:
+  - Problem: Nach Multi-Agent Dialog erschienen zwei Separatoren
+  - Ursache: Separator nach Main-LLM UND finaler Separator beide aktiv
+  - Lösung: Finaler Separator nur bei `multi_agent_mode == "standard"`
+
+#### Technical Details
+
+**Multi-Agent Message Format:**
+```python
+# Vorher: role: assistant (verwirrte LLM)
+{'role': 'assistant', 'content': '🏛️[Kritik] Deine Antwort...'}
+
+# Nachher: role: system mit klarem Label
+{'role': 'system', 'content': '[MULTI-AGENT CONTEXT]\n[SOKRATES]: Deine Antwort...'}
+```
+
+**Neue Dialog-Patterns:**
+```
+"Toll erklärt. Sokrates."     → detect_dialog_addressing() = ("sokrates", "Toll erklärt.")
+"Prima gemacht. Alfred!"      → detect_dialog_addressing() = ("alfred", "Prima gemacht.")
+```
+
+**Affected Files:**
+- `aifred/lib/intent_detector.py` - Erweiterte Adressierungs-Patterns
+- `aifred/lib/message_builder.py` - Multi-Agent als System-Messages
+- `aifred/lib/prompt_loader.py` - Timestamp-Injektion
+- `aifred/state.py` - Separatoren, TTFT-Debug
+- `prompts/de/aifred/direct.txt` - Verstärkte User-Fokussierung
+- `prompts/en/aifred/direct.txt` - Same in English
+- `prompts/de/sokrates/direct.txt` - Context-Verständnis
+- `prompts/en/sokrates/direct.txt` - Same in English
+
+---
+
 ## [2.10.1] - 2025-12-24
 
 ### 🎭 Dialog Routing & Calibration Improvements

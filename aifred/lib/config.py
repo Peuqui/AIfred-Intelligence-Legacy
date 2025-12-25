@@ -72,6 +72,7 @@ DEFAULT_LANGUAGE = "auto"
 DEFAULT_SETTINGS = {
     # NOTE: Model names are defined in BACKEND_DEFAULT_MODELS below (backend-specific)
     # They will be merged in settings.py get_default_settings()
+    "user_name": "",  # User's name (leave empty - set via UI, saved in settings.json)
     "backend_type": "ollama",  # Default backend: "ollama", "vllm", "tabbyapi"
     "voice": "Deutsch (Katja)",
     "tts_playback_rate": "1.25x",  # Browser playback speed (generation always at 1.0)

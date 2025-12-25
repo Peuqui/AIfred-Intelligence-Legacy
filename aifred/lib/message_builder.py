@@ -27,9 +27,15 @@ def build_messages_from_history(
     - HTML metadata: <span style="...">( Inference: ... )</span>
     - Thinking collapsibles: <details>...</details>
 
-    Treats history summaries as system messages:
-    - Summary format: ("", "[📊 Compressed: X Messages]\\n{summary}")
-    - Becomes: {'role': 'system', 'content': summary}
+    Handles three types of history entries:
+    1. Normal exchanges: (user_msg, ai_msg) → user + assistant messages
+    2. Summaries: ("", "[📊 Compressed: ...]") → system message
+    3. Multi-Agent: ("", "🏛️[...]...") or ("", "🎩[...]...") → system message with speaker label
+
+    Speaker attribution (for multi-agent context):
+    - Sokrates entries: 🏛️[Mode] → "[SOKRATES]: " prefix (as system message)
+    - AIfred entries: 🎩[Mode] → "[AIFRED]: " prefix (as system message)
+    - User messages: No prefix needed - 'role: user' distinguishes them
 
     Args:
         history: Gradio Chat History [[user_msg, ai_msg], ...]
@@ -43,12 +49,15 @@ def build_messages_from_history(
     Examples:
         >>> history = [
         ...     ["", "[📊 Compressed: 6 Messages]\\nUser asked about weather..."],
-        ...     ["Hello (STT: 2.5s)", "Hi! (Inference: 1.3s)"],
-        ...     ["What is 2+2? (Agent: 45.2s)", "4 (Inference: 0.8s)"]
+        ...     ["Hello", "Hi!"],
+        ...     ["", "🏛️[Kritische Prüfung] Deine Antwort ist zu kurz."],
+        ...     ["", "🎩[Überarbeitung] Hier mehr Details..."]
         ... ]
-        >>> msgs = build_messages_from_history(history, "Thanks!")
-        >>> msgs[0]
-        {'role': 'system', 'content': '[📊 Compressed: 6 Messages]\\nUser asked about weather...'}
+        >>> msgs = build_messages_from_history(history, "Was denkst du?")
+        >>> msgs[1]  # User message
+        {'role': 'user', 'content': 'Hello'}
+        >>> msgs[3]  # Sokrates critique as system
+        {'role': 'system', 'content': '[MULTI-AGENT CONTEXT]\\n[SOKRATES]:  Deine Antwort ist zu kurz.'}
     """
     messages = []
 
@@ -79,27 +88,20 @@ def build_messages_from_history(
             messages.append({'role': 'system', 'content': ai_turn})
             continue
 
-        # Clean normal User/AI messages
-        # Clean user message
-        clean_user = user_turn
-        for pattern in timing_patterns:
-            if pattern in clean_user:
-                # Cut everything from the first timing pattern
-                clean_user = clean_user.split(pattern)[0]
-
-        # Remove [IMG:...] markers from user messages (images already sent to Vision-LLM)
-        # These markers are stored in history for UI thumbnail display, not for LLM context
-        clean_user = re.sub(r'\[IMG:[^\]]*\]', '', clean_user).strip()
+        # Detect Multi-Agent entries: ("", "🏛️[...]..." or "🎩[...]...")
+        # These are internal agent exchanges without user input
+        is_agent_only = (user_turn == "" and
+                        (ai_turn.startswith("🏛️") or ai_turn.startswith("🎩")))
 
         # Clean AI message (remove HTML tags AND text metadata)
         clean_ai = ai_turn
 
-        # 1. Remove Multi-Agent markers (Sokrates, AIfred refinement)
-        # These are UI decorations that shouldn't be in the LLM context
-        # Sokrates: 🏛️[Mode] (e.g., 🏛️[Advocatus Diaboli])
-        # AIfred: 🎩[Mode] (e.g., 🎩[Überarbeitung R2])
-        clean_ai = re.sub(r'^🏛️\[[^\]]+\]', '', clean_ai)  # Sokrates marker
-        clean_ai = re.sub(r'^🎩\[[^\]]+\]', '', clean_ai)   # AIfred marker
+        # 1. Transform Multi-Agent markers to keep speaker attribution
+        # Instead of removing, replace with clear speaker labels for LLM context
+        # Sokrates: 🏛️[Mode] → "[SOKRATES]: "
+        # AIfred: 🎩[Mode] → "[AIFRED]: "
+        clean_ai = re.sub(r'^🏛️\[[^\]]+\]', '[SOKRATES]: ', clean_ai)  # Sokrates marker
+        clean_ai = re.sub(r'^🎩\[[^\]]+\]', '[AIFRED]: ', clean_ai)   # AIfred marker
 
         # 2. Remove thinking collapsibles (<details>...</details>)
         clean_ai = re.sub(r'<details[^>]*>.*?</details>', '', clean_ai, flags=re.DOTALL)
@@ -116,13 +118,36 @@ def build_messages_from_history(
         # 5. Cleanup: Remove multiple blank lines and whitespace
         clean_ai = re.sub(r'\n\n+', '\n\n', clean_ai.strip())
 
-        # Add cleaned messages
-        messages.extend([
-            {'role': 'user', 'content': clean_user},
-            {'role': 'assistant', 'content': clean_ai}
-        ])
+        if is_agent_only:
+            # Agent-only message (Sokrates or AIfred internal exchange)
+            # Use 'system' role to clearly separate from the current assistant's responses
+            # This prevents the LLM from confusing Sokrates' critique with its own output
+            messages.append({'role': 'system', 'content': f"[MULTI-AGENT CONTEXT]\n{clean_ai}"})
+        else:
+            # Normal user/AI exchange
+            # Clean user message
+            clean_user = user_turn
+            for pattern in timing_patterns:
+                if pattern in clean_user:
+                    # Cut everything from the first timing pattern
+                    clean_user = clean_user.split(pattern)[0]
 
-    # Add current user message
+            # Remove [IMG:...] markers from user messages (images already sent to Vision-LLM)
+            # These markers are stored in history for UI thumbnail display, not for LLM context
+            clean_user = re.sub(r'\[IMG:[^\]]*\]', '', clean_user).strip()
+
+            # NOTE: We intentionally do NOT add [Username]: prefix to user messages.
+            # The 'role: user' already distinguishes user messages from assistant messages.
+            # Adding a prefix causes the LLM to imitate this pattern in its responses.
+            # Speaker attribution is handled by [SOKRATES]: and [AIFRED]: in agent-only messages.
+
+            # Add user message and assistant response
+            messages.extend([
+                {'role': 'user', 'content': clean_user},
+                {'role': 'assistant', 'content': clean_ai}
+            ])
+
+    # Add current user message (no prefix - role: user is sufficient)
     messages.append({'role': 'user', 'content': current_user_text})
 
     return messages

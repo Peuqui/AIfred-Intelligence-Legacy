@@ -71,7 +71,12 @@ def get_language() -> str:
     return _current_language
 
 
-def load_prompt(prompt_name: str, lang: Optional[str] = None, user_text: Optional[str] = None, **kwargs) -> str:
+def load_prompt(
+    prompt_name: str,
+    lang: Optional[str] = None,
+    user_text: Optional[str] = None,
+    **kwargs
+) -> str:
     """
     Load a prompt from a file with language support
 
@@ -121,7 +126,7 @@ def load_prompt(prompt_name: str, lang: Optional[str] = None, user_text: Optiona
         prompt_template = f.read()
 
     # ============================================================
-    # INJECT CURRENT DATE/TIME (always, for all prompts)
+    # INJECT CURRENT DATE/TIME
     # ============================================================
     now = datetime.now()
 
@@ -374,16 +379,9 @@ def get_sokrates_critic_prompt(lang: Optional[str] = None) -> str:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Sokrates critic system prompt
+        Sokrates critic system prompt with timestamp prefix
     """
-    if lang is None:
-        lang = _current_language
-    if lang == "auto":
-        lang = "de"
-
-    prompt_file = PROMPTS_DIR / lang / "sokrates" / "critic.txt"
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        return f.read().strip()
+    return load_prompt('sokrates/critic', lang=lang)
 
 
 def get_sokrates_devils_advocate_prompt(lang: Optional[str] = None) -> str:
@@ -394,16 +392,9 @@ def get_sokrates_devils_advocate_prompt(lang: Optional[str] = None) -> str:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Sokrates devil's advocate system prompt
+        Sokrates devil's advocate system prompt with timestamp prefix
     """
-    if lang is None:
-        lang = _current_language
-    if lang == "auto":
-        lang = "de"
-
-    prompt_file = PROMPTS_DIR / lang / "sokrates" / "devils_advocate.txt"
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        return f.read().strip()
+    return load_prompt('sokrates/devils_advocate', lang=lang)
 
 
 def get_sokrates_refinement_prompt(
@@ -420,18 +411,11 @@ def get_sokrates_refinement_prompt(
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Formatted refinement prompt with critique inserted
+        Formatted refinement prompt with critique and timestamp prefix
     """
-    if lang is None:
-        lang = _current_language
-    if lang == "auto":
-        lang = "de"
-
-    prompt_file = PROMPTS_DIR / lang / "sokrates" / "refinement.txt"
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        template = f.read().strip()
-
-    return template.format(
+    return load_prompt(
+        'sokrates/refinement',
+        lang=lang,
         critique=critique,
         user_interjection=user_interjection
     )
@@ -445,16 +429,9 @@ def get_sokrates_direct_prompt(lang: Optional[str] = None) -> str:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Sokrates direct response system prompt
+        Sokrates direct response system prompt with timestamp prefix
     """
-    if lang is None:
-        lang = _current_language
-    if lang == "auto":
-        lang = "de"
-
-    prompt_file = PROMPTS_DIR / lang / "sokrates" / "direct.txt"
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        return f.read().strip()
+    return load_prompt('sokrates/direct', lang=lang)
 
 
 def get_aifred_direct_prompt(lang: Optional[str] = None) -> str:
@@ -465,13 +442,6 @@ def get_aifred_direct_prompt(lang: Optional[str] = None) -> str:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        AIfred direct response system prompt
+        AIfred direct response system prompt with timestamp prefix
     """
-    if lang is None:
-        lang = _current_language
-    if lang == "auto":
-        lang = "de"
-
-    prompt_file = PROMPTS_DIR / lang / "aifred" / "direct.txt"
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        return f.read().strip()
+    return load_prompt('aifred/direct', lang=lang)
