@@ -54,6 +54,18 @@ AIfred unterstützt verschiedene Diskussionsmodi mit einem zweiten LLM (Sokrates
 - Verhindert, dass LLM Agenten-Austausch mit eigenen Antworten verwechselt
 - Alle Prompts erhalten automatisch aktuelles Datum/Uhrzeit für zeitbezogene Fragen
 
+**Perspektiven-System** (v2.10.3):
+- Jeder Agent sieht die Konversation aus seiner eigenen Perspektive
+- Sokrates sieht AIfred's Antworten als `[AIFRED]:` (user role), seine eigenen als `assistant`
+- AIfred sieht Sokrates' Kritik als `[SOKRATES]:` (user role), seine eigene als `assistant`
+- Verhindert Identitätsverwechslung zwischen Agenten bei mehrrundigen Debatten
+
+**Strukturierte Kritik-Prompts** (v2.10.3):
+- Rundennummer-Platzhalter `{round_num}` - Sokrates weiß welche Runde es ist
+- DIMINISHING RETURNS Sektion - "Gut genug" Schwelle verhindert Perfektionismus
+- Maximal 1-2 Kritikpunkte pro Runde
+- Checkbox-Style LGTM-Checkliste für konsistente Entscheidungsfindung
+
 **Dialektischer Workflow (Auto-Konsens):**
 ```
 ┌─────────────┐     ┌─────────────────┐     ┌─────────────────────┐

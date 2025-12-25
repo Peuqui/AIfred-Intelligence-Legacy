@@ -5,6 +5,111 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.3] - 2025-12-25
+
+### 🏗️ Multi-Agent Architecture Refactoring
+
+**Große Refaktorisierung: Multi-Agent Logik ausgelagert, Perspective-System implementiert, Sokrates-Prompts mit strukturiertem Format verstärkt.**
+
+#### Added
+
+- **Perspective-System für Multi-Agent Dialog** ([message_builder.py](aifred/lib/message_builder.py)):
+  - Neuer `perspective` Parameter in `build_messages_from_history()`
+  - `perspective="sokrates"`: Sokrates sieht AIfred als `[AIFRED]:` (user role)
+  - `perspective="aifred"`: AIfred sieht Sokrates als `[SOKRATES]:` (user role)
+  - Eigene frühere Antworten bleiben `assistant` role
+  - Verhindert Identitätsverwechslung zwischen Agenten
+
+- **Rundennummer-Platzhalter** ([prompts/*/sokrates/critic.txt](prompts/de/sokrates/critic.txt)):
+  - `{round_num}` Platzhalter am Prompt-Anfang
+  - Sokrates weiß jetzt explizit welche Runde es ist
+  - Keine Hardcodierung mehr im Python-Code
+
+- **DIMINISHING RETURNS Sektion** ([prompts/*/sokrates/critic.txt](prompts/de/sokrates/critic.txt)):
+  - Neue Prompt-Sektion ab Runde 2
+  - "Gut genug" Schwelle definiert
+  - Perfektionismus verhindert Abschluss - LGTM früher möglich
+
+- **Strukturiertes Prompt-Format**:
+  - Visuelle Sektions-Trenner mit `═══════════════`
+  - Checkbox-Style LGTM-Checkliste
+  - Klare IF/THEN Runden-Logik
+  - LGTM-Regeln: Stilistische Präferenzen sind KEINE validen Kritikgründe
+
+- **AIfred Refinement Prompt** ([prompts/*/aifred/refinement.txt](prompts/de/aifred/refinement.txt)):
+  - Neuer dedizierter Prompt für Synthese-Phase
+  - Anleitung für echte Synthese statt Patchwork
+  - 4-Schritte Vorgehen: Anerkennen → Behalten → Neu formulieren → Eigener Aspekt
+
+#### Changed
+
+- **Multi-Agent Logik ausgelagert** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - ~600 Zeilen aus state.py nach multi_agent.py verschoben
+  - Klare Trennung: State-Management vs. Agent-Logik
+  - state.py: -633 Zeilen, multi_agent.py: +906 Zeilen
+  - Bessere Wartbarkeit und Testbarkeit
+
+- **Sokrates Critic Prompt komplett überarbeitet**:
+  - Von ~30 auf ~100 Zeilen erweitert
+  - Explizite Runden-Logik (Runde 1 vs. Runde 2+)
+  - MAXIMAL 1-2 Kritikpunkte pro Runde
+  - Pflicht-Sektion "ALTERNATIVE LÖSUNG"
+
+- **Prompt-Loader erweitert** ([prompt_loader.py](aifred/lib/prompt_loader.py)):
+  - `get_sokrates_critic_prompt(round_num)` akzeptiert jetzt Rundennummer
+  - `{round_num}` Platzhalter wird automatisch ersetzt
+
+#### Removed
+
+- **Hardcodierte Round-Injection** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - Entfernt: `round_context = f"AKTUELLE RUNDE: {round_num}..."`
+  - Ersetzt durch Platzhalter im Prompt-Template
+
+- **Sokrates Refinement Prompt** ([prompts/*/sokrates/refinement.txt](prompts/)):
+  - Gelöscht - Refinement ist AIfred's Aufgabe, nicht Sokrates'
+
+#### Technical Details
+
+**Perspective-System Beispiel:**
+```python
+# Sokrates-Aufruf
+messages = build_messages_from_history(
+    state.chat_history,
+    perspective="sokrates"  # AIfred → [AIFRED]: prefix
+)
+
+# AIfred-Refinement-Aufruf
+messages = build_messages_from_history(
+    state.chat_history,
+    perspective="aifred"    # Sokrates → [SOKRATES]: prefix
+)
+```
+
+**Strukturiertes Prompt-Format:**
+```
+AKTUELLE RUNDE: {round_num}
+
+═══════════════════════════════════════════════════════════════
+RUNDEN-LOGIK (STRIKT BEFOLGEN!)
+═══════════════════════════════════════════════════════════════
+
+WENN {round_num} = 1:
+→ Überspringe "FORTSCHRITT" komplett
+→ Beginne direkt mit "NEUE KRITIK"
+```
+
+**Affected Files:**
+- `aifred/state.py` - Auslagerung der Multi-Agent Logik (-633 Zeilen)
+- `aifred/lib/multi_agent.py` - Neue zentrale Agent-Logik (+906 Zeilen)
+- `aifred/lib/message_builder.py` - Perspective-System
+- `aifred/lib/prompt_loader.py` - Round-Platzhalter Support
+- `prompts/de/sokrates/critic.txt` - Strukturiertes Format
+- `prompts/en/sokrates/critic.txt` - Same in English
+- `prompts/de/aifred/refinement.txt` - Neuer Synthese-Prompt
+- `prompts/en/aifred/refinement.txt` - Same in English
+
+---
+
 ## [2.10.2] - 2025-12-25
 
 ### 🎭 Multi-Agent Dialog Improvements
