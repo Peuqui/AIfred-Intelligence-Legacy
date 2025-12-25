@@ -3246,7 +3246,7 @@ class AIState(rx.State):
                     async for event in summarize_history_if_needed(
                         history=self.chat_history,
                         llm_client=temp_backend,
-                        model_name=self.automatik_model,  # Fast model
+                        model_name=self.automatik_model_id,  # Pure model ID (not display name!)
                         context_limit=context_limit  # Uses only context_limit, not model_size
                     ):
                         if event["type"] == "history_update":
@@ -5373,7 +5373,7 @@ class AIState(rx.State):
             async for event in summarize_history_if_needed(
                 history=self.chat_history,
                 llm_client=llm_client,
-                model_name=self.automatik_model,  # Use fast model for compression
+                model_name=self.automatik_model_id,  # Pure model ID (not display name!)
                 context_limit=context_limit
             ):
                 if event["type"] == "history_update":

@@ -126,11 +126,10 @@ class OllamaBackend(LLMBackend):
             "stream": False
         }
 
-        # Thinking Mode: Only include 'think' parameter if explicitly enabled
-        # Omitting 'think' parameter is safe for all Ollama versions/models
-        # Setting think=False on models that don't support it can cause 400 errors
-        if options.enable_thinking:
-            payload["think"] = True
+        # Thinking Mode: Set based on options
+        # - Non-thinking models ignore this parameter
+        # - Thinking models use it to enable/disable reasoning
+        payload["think"] = options.enable_thinking
 
         try:
             start_time = time.time()
