@@ -126,9 +126,11 @@ class OllamaBackend(LLMBackend):
             "stream": False
         }
 
-        # Thinking Mode: ALWAYS False for non-streaming chat (used by Automatik-LLM)
-        # Automatik-LLM should never do reasoning - only fast decisions
-        payload["think"] = False
+        # Thinking Mode: Only include 'think' parameter if explicitly enabled
+        # Omitting 'think' parameter is safe for all Ollama versions/models
+        # Setting think=False on models that don't support it can cause 400 errors
+        if options.enable_thinking:
+            payload["think"] = True
 
         try:
             start_time = time.time()
@@ -225,6 +227,15 @@ class OllamaBackend(LLMBackend):
                 except Exception:
                     pass  # If JSON parsing fails, fall through to normal error handling
                 raise BackendInferenceError(f"Ollama HTTP error: {e}")
+            elif e.response.status_code == 400:
+                # Generic 400 error - log details for debugging
+                try:
+                    error_data = e.response.json()
+                    error_msg = error_data.get("error", e.response.text)
+                except Exception:
+                    error_msg = e.response.text
+                logger.error(f"Ollama 400 error: {error_msg}")
+                raise BackendInferenceError(f"Ollama HTTP error: {e} - {error_msg}")
             elif e.response.status_code == 500:
                 error_msg = e.response.text
                 raise BackendInferenceError(f"Ollama inference error: {error_msg}")
