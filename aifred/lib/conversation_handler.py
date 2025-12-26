@@ -1225,7 +1225,8 @@ async def chat_interactive_mode(
                 messages=messages,
                 num_ctx_mode=num_ctx_mode,
                 num_ctx_manual=num_ctx_manual,
-                backend_type=backend_type
+                backend_type=backend_type,
+                enable_thinking=llm_options.get('enable_thinking', False) if llm_options else False
             ):
                 if item["type"] == "debug":
                     yield item
@@ -1590,7 +1591,8 @@ async def chat_interactive_mode(
                     messages=messages,
                     num_ctx_mode=num_ctx_mode,
                     num_ctx_manual=num_ctx_manual,
-                    backend_type=backend_type
+                    backend_type=backend_type,
+                    enable_thinking=llm_options.get('enable_thinking', False) if llm_options else False
                 ):
                     if item["type"] == "debug":
                         yield item

@@ -576,7 +576,8 @@ async def prepare_main_llm(
     messages: list,
     num_ctx_mode: str = "auto",
     num_ctx_manual: int = 4096,
-    backend_type: str = "ollama"
+    backend_type: str = "ollama",
+    enable_thinking: bool = False
 ):
     """
     Central function for Main-LLM preparation (AsyncGenerator).
@@ -600,6 +601,7 @@ async def prepare_main_llm(
         num_ctx_mode: "auto" or "manual"
         num_ctx_manual: Manual value (only when mode="manual")
         backend_type: "ollama", "vllm", etc.
+        enable_thinking: Whether to enable thinking mode during preload (Ollama-specific)
 
     Yields:
         dict: {"type": "debug", "message": "..."} for UI console
@@ -653,7 +655,9 @@ async def prepare_main_llm(
             import asyncio
             await asyncio.sleep(0)
 
-            preload_success, preload_time = await backend.preload_model(model_name, num_ctx=final_num_ctx)
+            # NOTE: The actual fix is removing num_predict=1 from the preload in ollama.py
+            # We can keep enable_thinking as is - the bug was num_predict=1
+            preload_success, preload_time = await backend.preload_model(model_name, num_ctx=final_num_ctx, enable_thinking=enable_thinking)
 
             if preload_success:
                 yield {"type": "debug", "message": f"✅ Main LLM preloaded ({preload_time:.1f}s)"}

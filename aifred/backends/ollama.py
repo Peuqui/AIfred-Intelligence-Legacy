@@ -265,7 +265,7 @@ class OllamaBackend(LLMBackend):
         """
         if options is None:
             options = LLMOptions()
-        
+
         # Convert LLMMessage to Ollama format (supports multimodal content)
         ollama_messages = []
         for msg in messages:
@@ -339,7 +339,10 @@ class OllamaBackend(LLMBackend):
                 thinking_started = False
                 thinking_buffer = ""
 
-                async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
+                # Use fresh client to avoid connection reuse issues
+                fresh_client = httpx.AsyncClient(timeout=httpx.Timeout(None))
+
+                async with fresh_client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
                     # Check for 400 error with thinking mode BEFORE raise_for_status
                     if response.status_code == 400 and options.enable_thinking and attempt == 0:
                         # Read error body while stream is still open
@@ -362,6 +365,7 @@ class OllamaBackend(LLMBackend):
                         response.raise_for_status()
                     
                     # Process stream
+                    chunk_count = 0
                     async for line in response.aiter_lines():
                         if line.strip():
                             import json
@@ -370,7 +374,7 @@ class OllamaBackend(LLMBackend):
                                 message = data.get("message", {})
                                 content = message.get("content", "")
                                 thinking = message.get("thinking", "")
-                                
+
                                 # Handle thinking chunks
                                 if thinking:
                                     if not thinking_started:
@@ -484,7 +488,7 @@ class OllamaBackend(LLMBackend):
             logger.warning(f"Failed to unload models: {e}")
             return (False, [])
 
-    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
+    async def preload_model(self, model: str, num_ctx: Optional[int] = None, enable_thinking: bool = False) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal chat request.
         This warms up the model so future requests are faster.
@@ -497,6 +501,8 @@ class OllamaBackend(LLMBackend):
             num_ctx: Context window size to use. IMPORTANT: Ollama uses this to
                      allocate KV cache and potentially split model across multiple
                      GPUs if the model + KV cache doesn't fit on a single GPU.
+            enable_thinking: Whether to enable thinking mode. IMPORTANT: Must be set
+                     during preload so the model is loaded in the correct mode.
 
         Returns:
             Tuple of (success: bool, load_time: float in seconds)
@@ -504,12 +510,13 @@ class OllamaBackend(LLMBackend):
         try:
             from ..lib.logging_utils import log_message
             start_time = time.time()
-            log_message(f"⏱️ preload_model: START for {model} (num_ctx={num_ctx})")
+            log_message(f"⏱️ preload_model: START for {model} (num_ctx={num_ctx}, think={enable_thinking})")
 
             # Load the requested model
             # Send minimal request to trigger model loading
             options = {
-                "num_predict": 1,  # Only generate 1 token
+                # NOTE: Do NOT use num_predict=1! It causes Ollama to break thinking mode
+                # for the next request (returns content instead of thinking field)
                 "temperature": 0.0
             }
             # IMPORTANT: Set num_ctx during preload so Ollama loads the model
@@ -522,7 +529,8 @@ class OllamaBackend(LLMBackend):
                 "model": model,
                 "messages": [{"role": "user", "content": "hi"}],
                 "stream": False,
-                "options": options
+                "options": options,
+                "think": enable_thinking  # IMPORTANT: Set thinking mode during preload!
             }
 
             log_message(f"⏱️ preload_model: Sending request to Ollama...")

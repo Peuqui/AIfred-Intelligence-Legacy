@@ -469,7 +469,7 @@ class KoboldCPPBackend(LLMBackend):
         """
         return True
 
-    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
+    async def preload_model(self, model: str, num_ctx: Optional[int] = None, enable_thinking: bool = False) -> tuple[bool, float]:
         """
         Preload a model into VRAM.
 
@@ -479,6 +479,7 @@ class KoboldCPPBackend(LLMBackend):
         Args:
             model: Model name (ignored)
             num_ctx: Ignored for KoboldCPP (context is fixed at startup)
+            enable_thinking: Ignored for KoboldCPP (no thinking mode support)
 
         Returns:
             Tuple of (success: bool, load_time: float)

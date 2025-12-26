@@ -191,7 +191,7 @@ class LLMBackend(ABC):
         pass
 
     @abstractmethod
-    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
+    async def preload_model(self, model: str, num_ctx: Optional[int] = None, enable_thinking: bool = False) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal request.
         This warms up the model so future requests are faster.
@@ -200,13 +200,18 @@ class LLMBackend(ABC):
         num_ctx MUST be passed during preload so Ollama loads the model
         with the correct KV-Cache and distributes across multiple GPUs if needed.
 
+        IMPORTANT for Ollama Thinking Mode:
+        enable_thinking MUST be passed during preload so the model is loaded
+        in the correct mode. Otherwise the first request may not use thinking.
+
         Correct order (see prepare_main_llm() in context_manager.py):
         1. calculate_practical_context() or calculate_dynamic_num_ctx() → num_ctx
-        2. preload_model(model, num_ctx=num_ctx) → Load model with KV-Cache
+        2. preload_model(model, num_ctx=num_ctx, enable_thinking=True/False) → Load model with KV-Cache
 
         Args:
             model: Model name to preload
             num_ctx: Optional context size for KV-cache allocation (Ollama-specific)
+            enable_thinking: Whether to enable thinking mode (Ollama-specific)
 
         Returns:
             Tuple of (success: bool, load_time: float in seconds)

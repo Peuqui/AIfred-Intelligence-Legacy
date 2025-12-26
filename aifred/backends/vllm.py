@@ -218,7 +218,7 @@ class vLLMBackend(LLMBackend):
             else:
                 raise BackendInferenceError(f"vLLM streaming failed: {e}")
 
-    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
+    async def preload_model(self, model: str, num_ctx: Optional[int] = None, enable_thinking: bool = False) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal chat request.
 
@@ -229,6 +229,7 @@ class vLLMBackend(LLMBackend):
         Args:
             model: Model name to preload (e.g., 'qwen3:8b')
             num_ctx: Ignored for vLLM (context is fixed at startup)
+            enable_thinking: Ignored for vLLM (thinking is handled per-request)
 
         Returns:
             Tuple of (success: bool, load_time: float in seconds)
