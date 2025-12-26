@@ -304,7 +304,8 @@ class AIState(rx.State):
 
     # Context Window Control (NOT saved in settings.json - reset on every start)
     num_ctx_mode: str = "auto"  # "auto" | "manual" (RoPE extension via calibrate_extended toggle)
-    num_ctx_manual: int = 4096  # Manual value (only if mode="manual") - Ollama default
+    num_ctx_manual: int = 4096  # Manual value for AIfred (only if mode="manual") - Ollama default
+    num_ctx_manual_sokrates: int = 4096  # Manual value for Sokrates (only if mode="manual")
 
     # Cached Model Metadata (to avoid repeated API calls)
     _automatik_model_context_limit: int = 0  # Cached context limit for automatik model
@@ -4640,7 +4641,7 @@ class AIState(rx.State):
         self.set_num_ctx_mode(mode)
 
     def set_num_ctx_manual(self, value: str):
-        """Set manual num_ctx value (only used when mode=manual)"""
+        """Set manual num_ctx value for AIfred (only used when mode=manual)"""
         from .lib.config import NUM_CTX_MANUAL_MAX
         try:
             # Handle locale-formatted numbers and spaces (e.g., "1.472", "1,472", "1 472")
@@ -4653,8 +4654,25 @@ class AIState(rx.State):
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             self.num_ctx_manual = num_value
-            self.add_debug(f"🔧 Manual num_ctx: {num_value:,}")
+            self.add_debug(f"🔧 Manual num_ctx (AIfred): {num_value:,}")
             # WICHTIG: Nicht in settings.json speichern!
+        except (ValueError, TypeError):
+            self.add_debug(f"❌ Ungültiger num_ctx Wert: {value}")
+
+    def set_num_ctx_manual_sokrates(self, value: str):
+        """Set manual num_ctx value for Sokrates (only used when mode=manual)"""
+        from .lib.config import NUM_CTX_MANUAL_MAX
+        try:
+            clean_value = str(value).replace(".", "").replace(",", "").replace(" ", "").strip()
+            if not clean_value:
+                return
+            num_value = int(clean_value)
+            if num_value < 1:
+                num_value = 1
+            if num_value > NUM_CTX_MANUAL_MAX:
+                num_value = NUM_CTX_MANUAL_MAX
+            self.num_ctx_manual_sokrates = num_value
+            self.add_debug(f"🔧 Manual num_ctx (Sokrates): {num_value:,}")
         except (ValueError, TypeError):
             self.add_debug(f"❌ Ungültiger num_ctx Wert: {value}")
 

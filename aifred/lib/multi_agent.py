@@ -451,20 +451,21 @@ async def run_sokrates_analysis(
         }
         mode_label = mode_labels.get(state.multi_agent_mode, state.multi_agent_mode)
 
-        # Calculate VRAM limit for Sokrates model (like Main-LLM does)
-        sokrates_num_ctx, sokrates_vram_msgs = await calculate_dynamic_num_ctx(
-            llm_client, sokrates_model, [], None,
-            enable_vram_limit=True
-        )
-        for vram_msg in sokrates_vram_msgs:
-            state.add_debug(f"   {vram_msg}")  # Indent to show it's for Sokrates
-
-        # Get Main-LLM context limit (respect manual mode)
-        # Use _last_vram_limit_cache which is set by calculate_dynamic_num_ctx()
-        # during initial AIfred inference (before multi-agent kicks in)
-        if state.num_ctx_mode == "manual" and state.num_ctx_manual:
-            main_llm_ctx = state.num_ctx_manual
+        # Get context limits for both models (respect manual mode for each)
+        if state.num_ctx_mode == "manual":
+            # Manual mode: Use separate values for AIfred and Sokrates
+            main_llm_ctx = state.num_ctx_manual if state.num_ctx_manual else 4096
+            sokrates_num_ctx = state.num_ctx_manual_sokrates if state.num_ctx_manual_sokrates else 4096
+            state.add_debug(f"🔧 Manual num_ctx: AIfred={main_llm_ctx:,}, Sokrates={sokrates_num_ctx:,}")
         else:
+            # Auto mode: Calculate VRAM limit for Sokrates model
+            sokrates_num_ctx, sokrates_vram_msgs = await calculate_dynamic_num_ctx(
+                llm_client, sokrates_model, [], None,
+                enable_vram_limit=True
+            )
+            for vram_msg in sokrates_vram_msgs:
+                state.add_debug(f"   {vram_msg}")  # Indent to show it's for Sokrates
+
             # Get cached limit from AIfred's inference (set during chat_interactive_mode)
             cached_limit = _last_vram_limit_cache.get("limit", 0)
             main_llm_ctx = cached_limit if cached_limit > 0 else 32768

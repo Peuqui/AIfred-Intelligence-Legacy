@@ -871,35 +871,57 @@ def llm_parameters_accordion() -> rx.Component:
                         size="2",
                     ),
 
-                    # Manual Input (immer sichtbar, aber disabled wenn nicht manual)
-                    rx.vstack(
-                        rx.input(
-                            placeholder=rx.cond(
-                                AIState.ui_language == "de",
-                                "z.B. 16384",
-                                "e.g. 16384"
+                    # Manual Input - Two fields side by side (AIfred + Sokrates)
+                    rx.hstack(
+                        # AIfred num_ctx
+                        rx.vstack(
+                            rx.text(
+                                "🎩 AIfred",
+                                font_size="11px",
+                                font_weight="bold",
+                                color=COLORS["text_secondary"],
                             ),
-                            value=AIState.num_ctx_manual,
-                            on_change=AIState.set_num_ctx_manual,
-                            type="number",
-                            width="100%",
-                            disabled=AIState.num_ctx_mode != "manual",
-                            opacity=rx.cond(
-                                AIState.num_ctx_mode == "manual",
-                                "1.0",
-                                "0.5"
+                            rx.input(
+                                placeholder="z.B. 16384",
+                                value=AIState.num_ctx_manual,
+                                on_change=AIState.set_num_ctx_manual,
+                                type="number",
+                                width="100%",
+                                disabled=AIState.num_ctx_mode != "manual",
+                                opacity=rx.cond(
+                                    AIState.num_ctx_mode == "manual",
+                                    "1.0",
+                                    "0.5"
+                                ),
                             ),
+                            spacing="1",
+                            flex="1",
                         ),
-                        rx.text(
-                            rx.cond(
-                                AIState.ui_language == "de",
-                                f"Wert: {AIState.num_ctx_manual:,} tokens",
-                                f"Value: {AIState.num_ctx_manual:,} tokens"
+                        # Sokrates num_ctx
+                        rx.vstack(
+                            rx.text(
+                                "🏛️ Sokrates",
+                                font_size="11px",
+                                font_weight="bold",
+                                color=COLORS["text_secondary"],
                             ),
-                            font_size="11px",
-                            color=COLORS["text_secondary"],
+                            rx.input(
+                                placeholder="z.B. 16384",
+                                value=AIState.num_ctx_manual_sokrates,
+                                on_change=AIState.set_num_ctx_manual_sokrates,
+                                type="number",
+                                width="100%",
+                                disabled=AIState.num_ctx_mode != "manual",
+                                opacity=rx.cond(
+                                    AIState.num_ctx_mode == "manual",
+                                    "1.0",
+                                    "0.5"
+                                ),
+                            ),
+                            spacing="1",
+                            flex="1",
                         ),
-                        spacing="1",
+                        spacing="2",
                         width="100%",
                     ),
 
