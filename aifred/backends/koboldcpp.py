@@ -148,6 +148,7 @@ class KoboldCPPBackend(LLMBackend):
             # Update context cache (same as state.py does)
             from aifred.lib.context_manager import _last_vram_limit_cache
             _last_vram_limit_cache["limit"] = config_info['context_size']
+            _last_vram_limit_cache["aifred_limit"] = config_info['context_size']
 
             logger.info(f"✅ KoboldCPP auto-restarted: {config_info['context_size']:,} tokens context")
 

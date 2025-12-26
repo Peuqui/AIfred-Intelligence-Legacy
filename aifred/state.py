@@ -2218,6 +2218,7 @@ class AIState(rx.State):
                 # (same as vLLM does in context_manager.py)
                 from aifred.lib.context_manager import _last_vram_limit_cache
                 _last_vram_limit_cache["limit"] = config_info['context_size']
+                _last_vram_limit_cache["aifred_limit"] = config_info['context_size']
 
                 # Start GPU Inactivity Monitoring (Reflex Background Task)
                 # Automatically shuts down KoboldCPP after inactivity to save power (~100W idle)

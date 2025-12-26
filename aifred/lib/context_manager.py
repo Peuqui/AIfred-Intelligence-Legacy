@@ -136,8 +136,13 @@ def estimate_tokens_from_history(history: List[tuple]) -> int:
     return int(total_size / 3.5)
 
 
-# Global cache for VRAM limit (prevents recalculation during history compression)
-_last_vram_limit_cache = {"limit": 0}
+# Global cache for VRAM limits (prevents recalculation during history compression)
+# Separate limits for AIfred and Sokrates since they use different models
+_last_vram_limit_cache = {
+    "limit": 0,           # Legacy/default (for compression, uses min of both)
+    "aifred_limit": 0,    # AIfred's model-specific limit
+    "sokrates_limit": 0   # Sokrates' model-specific limit
+}
 
 # Reserve tiers for LLM output (stepwise reduction before content truncation)
 OUTPUT_RESERVE_PREFERRED = 32768  # 32K - Ideal for detailed answers (4x increased for 108K+ context)
@@ -338,7 +343,9 @@ async def calculate_dynamic_num_ctx(
 
     # Store VRAM limit in global cache for history compression
     # (prevents history from recalculating the limit)
+    # This is called for AIfred (main LLM), so store in aifred_limit too
     _last_vram_limit_cache["limit"] = min(max_practical_ctx, model_limit)
+    _last_vram_limit_cache["aifred_limit"] = min(max_practical_ctx, model_limit)
 
     # Optional: Also store in state if provided
     if state is not None:
@@ -620,8 +627,9 @@ async def prepare_main_llm(
                 yield {"type": "debug", "message": msg}
             log_message(f"✅ prepare_main_llm: VRAM calculation done → num_ctx={final_num_ctx:,}")
 
-            # Set cache for history compression
+            # Set cache for history compression (this is for AIfred/main LLM)
             _last_vram_limit_cache["limit"] = final_num_ctx
+            _last_vram_limit_cache["aifred_limit"] = final_num_ctx
         else:
             # Other backends: Standard calculation (no extended calibration support)
             final_num_ctx, vram_msgs = await calculate_dynamic_num_ctx(
