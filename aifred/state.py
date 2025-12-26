@@ -312,7 +312,7 @@ class AIState(rx.State):
 
     # Research Settings
     research_mode: str = "automatik"  # "quick", "deep", "automatik", "none"
-    research_mode_display: str = "🤖 Automatik (AI decides)"  # UI display value
+    research_mode_display: str = "✨ Automatik (KI entscheidet)"  # UI display value
 
     # Multi-Agent Settings - PERSISTENT (saved to settings.json)
     multi_agent_mode: str = "standard"  # "standard", "user_judge", "auto_consensus", "devils_advocate"
