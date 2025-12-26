@@ -149,7 +149,7 @@ def get_free_ram_mb() -> Optional[int]:
         logger.warning("psutil not installed - install via: pip install psutil")
         return None
     except Exception as e:
-        logger.debug(f"Could not query RAM via psutil: {e}")
+        logger.warning(f"Could not query RAM via psutil: {e}")
         return None
 
 
