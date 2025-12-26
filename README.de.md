@@ -127,7 +127,24 @@ AIfred unterstützt verschiedene Diskussionsmodi mit einem zweiten LLM (Sokrates
 - **Debug-Konsole**: Umfangreiches Logging und Monitoring
 - **ChromaDB-Server-Modus**: Thread-sichere Vector-DB via Docker (0.0 Distance für exakte Matches)
 - **GPU-Erkennung**: Automatische Erkennung und Warnung bei inkompatiblen Backend-GPU-Kombinationen ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
-- **Ollama Context-Kalibrierung**: Per-Modell Kalibrierung findet maximalen VRAM-only Kontext via Binary Search
+- **Ollama Context-Kalibrierung**: Intelligente Per-Modell Kalibrierung mit automatischer Hybrid-Mode-Erkennung
+  - **Normal Mode**: Binary Search für Modelle die ins VRAM passen
+  - **Hybrid Mode**: Direktberechnung für Modelle größer als VRAM (CPU-Offload)
+    - Erkennt MoE vs Dense Modelle (0.10 vs 0.15 MB/Token Ratio)
+    - Dynamische RAM-Reserve (2-8 GB basierend auf verfügbarem Speicher)
+    - Feintuning nach initialem Laden (±25% Anpassungen)
+  - **Ablauf-Schema**:
+    ```
+    1. Modell > VRAM? → Hybrid Mode
+    2. Prüfe: Passt Modell in VRAM + RAM?
+    3. MoE-Erkennung → Ratio (0.10 MoE / 0.15 Dense)
+    4. Schätze RAM nach Modell-Load
+    5. Berechne dynamische Reserve (2-8 GB)
+    6. Direktberechnung: verfügbares_RAM / ratio
+    7. Lade mit berechnetem Kontext
+    8. Feintuning: Messe tatsächliches RAM, passe ±25% an
+    9. Speichere Kalibrierungsergebnis
+    ```
 - **RoPE 2x Erweiterter Kontext**: Optionale erweiterte Kalibrierung bis 2x natives Kontextlimit
 - **KoboldCPP Dynamic RoPE**: Intelligente VRAM-basierte Kontext-Optimierung mit automatischem RoPE-Scaling
 - **Multi-User-Queue**: KoboldCPP Request-Queuing für gleichzeitige Benutzer (bis zu 5 Clients)

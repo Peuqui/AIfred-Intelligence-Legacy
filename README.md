@@ -133,7 +133,24 @@ AIfred supports various discussion modes with a second LLM (Sokrates) as critica
 - **Debug Console**: Comprehensive logging and monitoring
 - **ChromaDB Server Mode**: Thread-safe vector DB via Docker (0.0 distance for exact matches)
 - **GPU Detection**: Automatic detection and warnings for incompatible backend-GPU combinations ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
-- **Ollama Context Calibration**: Per-model calibration finds maximum VRAM-only context via binary search
+- **Ollama Context Calibration**: Intelligent per-model calibration with automatic hybrid mode detection
+  - **Normal Mode**: Binary search for models that fit in VRAM
+  - **Hybrid Mode**: Direct calculation for models larger than VRAM (CPU offload)
+    - Detects MoE vs Dense models (0.10 vs 0.15 MB/token ratio)
+    - Dynamic RAM reserve (2-8 GB based on available memory)
+    - Fine-tuning after initial load (±25% adjustments)
+  - **Algorithm Flow**:
+    ```
+    1. Model > VRAM? → Hybrid Mode
+    2. Check: Model fits in VRAM + RAM?
+    3. MoE Detection → ratio (0.10 MoE / 0.15 Dense)
+    4. Estimate RAM after model load
+    5. Calculate dynamic reserve (2-8 GB)
+    6. Direct context calculation: available_ram / ratio
+    7. Load with calculated context
+    8. Fine-tuning: measure actual RAM, adjust ±25%
+    9. Save calibration result
+    ```
 - **RoPE 2x Extended Context**: Optional extended calibration up to 2x native context limit
 - **KoboldCPP Dynamic RoPE**: Intelligent VRAM-based context optimization with automatic RoPE scaling
 - **Multi-User Queue**: KoboldCPP request queuing for concurrent users (up to 5 clients)

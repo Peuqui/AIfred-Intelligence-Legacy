@@ -5,6 +5,47 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.6] - 2025-12-26
+
+### 🔧 Hybrid Mode for Large Models
+
+**Intelligente Kalibrierung für Modelle größer als VRAM mit CPU-Offloading.**
+
+#### Added
+
+- **Hybrid Mode Detection** ([ollama.py](aifred/backends/ollama.py)):
+  - Automatische Erkennung wenn Modell > VRAM
+  - Direktberechnung statt iterativer 2K-Schritte (1-3 statt 15+ Lade-Versuche)
+  - MoE vs Dense Erkennung (0.10 vs 0.15 MB/Token Ratio)
+  - Fine-Tuning nach initialem Laden (±25% Anpassungen)
+
+- **Dynamic RAM Reserve** ([gpu_utils.py](aifred/lib/gpu_utils.py)):
+  - 32+ GB frei → 8 GB Reserve
+  - 16-32 GB frei → 6 GB Reserve
+  - 8-16 GB frei → 4 GB Reserve
+  - 4-8 GB frei → 3 GB Reserve
+  - <4 GB frei → 2 GB Reserve (Minimum)
+
+- **Neue Konstanten** ([config.py](aifred/lib/config.py)):
+  - `RAM_RESERVE_MIN = 2048` (Minimum-Reserve)
+  - `RAM_RESERVE_COMFORT = 8192` (Maximum-Reserve für große Systeme)
+
+#### Changed
+
+- **Model Size via /api/tags** ([ollama.py](aifred/backends/ollama.py)):
+  - Modellgröße direkt von Ollama API statt Blob-Pfad-Parsing
+  - Zuverlässiger und weniger fehleranfällig
+
+- **README Dokumentation** ([README.md](README.md), [README.de.md](README.de.md)):
+  - Ablauf-Schema für Hybrid-Mode hinzugefügt
+  - Feature-Beschreibung erweitert
+
+#### Tested
+
+- Erfolgreich getestet mit 30+ GB Modell auf System mit begrenztem VRAM
+
+---
+
 ## [2.10.5] - 2025-12-26
 
 ### 🎨 UI/UX Improvements

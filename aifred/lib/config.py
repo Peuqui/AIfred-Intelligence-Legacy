@@ -504,6 +504,19 @@ VLLM_CONTEXT_SAFETY_PERCENT = 0.02  # 2% safety buffer (iteratively applied to e
 KOBOLDCPP_CONTEXT_SAFETY_TOKENS = 1500  # 1.5K token reduction for final attempt (Q4 KV)
 
 # ============================================================
+# OLLAMA HYBRID MODE (CPU OFFLOAD) CONFIGURATION
+# ============================================================
+# When a model is larger than available VRAM, Ollama automatically offloads
+# some layers to CPU/RAM. This "hybrid mode" requires careful RAM management
+# to avoid swapping.
+
+# Minimum context to start with in hybrid mode (fallback)
+HYBRID_MIN_CONTEXT = 2048  # 2K tokens (conservative fallback)
+
+# Minimum RAM reserve to prevent swapping
+RAM_RESERVE_MIN = 2048  # 2 GB minimum reserve
+
+# ============================================================
 # KOBOLDCPP ROPE SCALING CONFIGURATION
 # ============================================================
 # Linear RoPE Scaling factor for context extension beyond native limit
