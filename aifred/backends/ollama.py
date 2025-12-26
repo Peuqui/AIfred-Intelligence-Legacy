@@ -905,6 +905,9 @@ class OllamaBackend(LLMBackend):
             yield "⚠️ Model size unknown - using binary search"
         elif free_vram_mb is None:
             yield "⚠️ VRAM not measurable - using binary search"
+        elif free_ram_mb is None and model_size_mb > free_vram_mb:
+            yield f"⚠️ Model ({format_number(model_size_mb / 1024, 1)} GB) > VRAM ({format_number(free_vram_mb / 1024, 1)} GB)"
+            yield "⚠️ RAM not measurable - cannot use hybrid mode, using binary search"
         elif model_size_mb > free_vram_mb:
             # Model larger than VRAM → Hybrid mode with direct calculation
             yield f"⚠️ Model ({format_number(model_size_mb / 1024, 1)} GB) > VRAM ({format_number(free_vram_mb / 1024, 1)} GB)"
