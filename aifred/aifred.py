@@ -2267,6 +2267,8 @@ def settings_accordion() -> rx.Component:
                             disabled=AIState.backend_switching,
                         ),
                     ),
+
+                    # Backend Switching Status Badge
                     rx.cond(
                         AIState.backend_switching,
                         rx.hstack(
@@ -2282,103 +2284,84 @@ def settings_accordion() -> rx.Component:
                             spacing="2",
                             align="center",
                         ),
-                        rx.cond(
-                            AIState.backend_healthy,
-                            rx.badge(
-                                rx.cond(
-                                    AIState.ui_language == "de",
-                                    f"{AIState.model_count} Modelle gefunden",
-                                    f"{AIState.model_count} models found",
+                    ),
+
+                    # GPU Details Collapsible (next to Backend dropdown)
+                    rx.cond(
+                        AIState.gpu_detected,
+                        rx.accordion.root(
+                            rx.accordion.item(
+                                value="gpu-details",
+                                header=rx.box(
+                                    rx.text(
+                                        rx.cond(
+                                            AIState.ui_language == "de",
+                                            "🖥️ GPU-Details",
+                                            "🖥️ GPU Details"
+                                        ),
+                                        font_size="11px",
+                                        font_weight="500",
+                                        color="#2a9d8f",
+                                    ),
+                                    padding_y="2",
                                 ),
-                                color_scheme="green"
-                            ),
-                            rx.badge(
-                                rx.cond(
-                                    AIState.ui_language == "de",
-                                    "Fehler",
-                                    "Error",
+                                content=rx.vstack(
+                                    # GPU Hardware Info
+                                    rx.text(
+                                        f"🎮 {AIState.gpu_display_text}",
+                                        font_size="10px",
+                                        color="#2a9d8f",
+                                    ),
+                                    # Backend Compatibility (only if Compute < 7.0)
+                                    rx.cond(
+                                        AIState.gpu_compute_cap < 7.0,
+                                        rx.box(
+                                            rx.text(
+                                                rx.cond(
+                                                    AIState.ui_language == "de",
+                                                    "vLLM & TabbyAPI benötigen Compute 7.0+",
+                                                    "vLLM & TabbyAPI require Compute 7.0+"
+                                                ),
+                                                font_size="10px",
+                                                color="#666",
+                                            ),
+                                            rx.text(
+                                                rx.cond(
+                                                    AIState.ui_language == "de",
+                                                    f"Verfügbar: Ollama, KoboldCPP",
+                                                    f"Available: Ollama, KoboldCPP"
+                                                ),
+                                                font_size="10px",
+                                                color="#666",
+                                                margin_top="2px",
+                                            ),
+                                            rx.text(
+                                                rx.cond(
+                                                    AIState.ui_language == "de",
+                                                    "💡 Ollama nutzt INT8/Q4 - optimal für ältere GPUs",
+                                                    "💡 Ollama uses INT8/Q4 - optimal for older GPUs"
+                                                ),
+                                                font_size="10px",
+                                                color="#2a9d8f",
+                                                margin_top="4px",
+                                                font_style="italic",
+                                            ),
+                                            margin_top="4px",
+                                        ),
+                                    ),
+                                    spacing="1",
+                                    width="100%",
+                                    align_items="start",
                                 ),
-                                color_scheme="red"
                             ),
+                            collapsible=True,
+                            color_scheme="gray",
+                            variant="ghost",
                         ),
                     ),
+
                     spacing="3",
                     align="center",
-                ),
-
-                # GPU Details Collapsible (GPU info + Backend compatibility)
-                rx.cond(
-                    AIState.gpu_detected,
-                    rx.accordion.root(
-                        rx.accordion.item(
-                            value="gpu-details",
-                            header=rx.box(
-                                rx.text(
-                                    rx.cond(
-                                        AIState.ui_language == "de",
-                                        "🖥️ GPU-Details",
-                                        "🖥️ GPU Details"
-                                    ),
-                                    font_size="11px",
-                                    font_weight="500",
-                                    color="#2a9d8f",
-                                ),
-                                padding_y="2",
-                            ),
-                            content=rx.vstack(
-                                # GPU Hardware Info
-                                rx.text(
-                                    f"🎮 {AIState.gpu_display_text}",
-                                    font_size="10px",
-                                    color="#2a9d8f",
-                                ),
-                                # Backend Compatibility (only if Compute < 7.0)
-                                rx.cond(
-                                    AIState.gpu_compute_cap < 7.0,
-                                    rx.box(
-                                        rx.text(
-                                            rx.cond(
-                                                AIState.ui_language == "de",
-                                                "vLLM & TabbyAPI benötigen Compute 7.0+",
-                                                "vLLM & TabbyAPI require Compute 7.0+"
-                                            ),
-                                            font_size="10px",
-                                            color="#666",
-                                        ),
-                                        rx.text(
-                                            rx.cond(
-                                                AIState.ui_language == "de",
-                                                f"Verfügbar: Ollama, KoboldCPP",
-                                                f"Available: Ollama, KoboldCPP"
-                                            ),
-                                            font_size="10px",
-                                            color="#666",
-                                            margin_top="2px",
-                                        ),
-                                        rx.text(
-                                            rx.cond(
-                                                AIState.ui_language == "de",
-                                                "💡 Ollama nutzt INT8/Q4 - optimal für ältere GPUs",
-                                                "💡 Ollama uses INT8/Q4 - optimal for older GPUs"
-                                            ),
-                                            font_size="10px",
-                                            color="#2a9d8f",
-                                            margin_top="4px",
-                                            font_style="italic",
-                                        ),
-                                        margin_top="4px",
-                                    ),
-                                ),
-                                spacing="1",
-                                width="100%",
-                                align_items="start",
-                            ),
-                        ),
-                        collapsible=True,
-                        color_scheme="gray",
-                        variant="ghost",
-                        margin_top="4px",
-                    ),
                 ),
 
                 # Single Model Warning (for backends that can't switch models)
@@ -2397,33 +2380,7 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
-                # Model Selection - Mobile: Native select, Desktop: Radix UI
-                rx.hstack(
-                    rx.text(t("main_llm"), font_weight="bold", font_size="12px"),
-                    rx.cond(
-                        AIState.is_mobile,
-                        # MOBILE: Native HTML <select> (simple list)
-                        native_select_model(
-                            AIState.selected_model,  # Display name with size
-                            AIState.set_selected_model,  # Original handler
-                            AIState.backend_switching,
-                            AIState.available_models,  # Simple list of display names
-                        ),
-                        # DESKTOP: Radix UI Select
-                        rx.select(
-                            AIState.available_models,
-                            value=AIState.selected_model,
-                            on_change=AIState.set_selected_model,
-                            size="2",
-                            position="popper",  # Better mobile positioning (adapts to viewport)
-                            disabled=AIState.backend_switching,  # Disable during backend switch
-                        ),
-                    ),
-                    spacing="3",
-                    align="center",
-                ),
-
-                # Context Calibration Button + Extended Toggle - Only for Ollama backend
+                # Context Calibration Row (only for Ollama, between Backend and Model selection)
                 rx.cond(
                     AIState.backend_id == "ollama",
                     rx.hstack(
@@ -2462,6 +2419,32 @@ def settings_accordion() -> rx.Component:
                         spacing="2",
                         align="center",
                     ),
+                ),
+
+                # AIfred-LLM Selection
+                rx.hstack(
+                    rx.text(t("main_llm"), font_weight="bold", font_size="12px"),
+                    rx.cond(
+                        AIState.is_mobile,
+                        # MOBILE: Native HTML <select> (simple list)
+                        native_select_model(
+                            AIState.selected_model,  # Display name with size
+                            AIState.set_selected_model,  # Original handler
+                            AIState.backend_switching,
+                            AIState.available_models,  # Simple list of display names
+                        ),
+                        # DESKTOP: Radix UI Select
+                        rx.select(
+                            AIState.available_models,
+                            value=AIState.selected_model,
+                            on_change=AIState.set_selected_model,
+                            size="2",
+                            position="popper",  # Better mobile positioning (adapts to viewport)
+                            disabled=AIState.backend_switching,  # Disable during backend switch
+                        ),
+                    ),
+                    spacing="3",
+                    align="center",
                 ),
 
                 # Sokrates LLM Selection - Only visible when multi-agent mode is not "standard"
