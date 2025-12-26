@@ -1000,21 +1000,47 @@ class OllamaBackend(LLMBackend):
                             await self.preload_model(model, num_ctx=calculated_ctx)
 
                 elif difference_mb < 0:  # Below reserve
-                    # Reduce context by 25%
-                    reduce_ctx = int(calculated_ctx * 0.75)
-                    reduce_ctx = max(reduce_ctx, HYBRID_MIN_CONTEXT)
+                    # Reduce context iteratively until reserve is met or minimum reached
+                    max_reduction_attempts = 5
+                    for attempt in range(max_reduction_attempts):
+                        reduce_ctx = int(calculated_ctx * 0.75)
+                        reduce_ctx = max(reduce_ctx, HYBRID_MIN_CONTEXT)
 
-                    yield f"⚠️ Below reserve - reducing to {format_number(reduce_ctx)} tokens..."
-                    await self.unload_all_models()
-                    await asyncio.sleep(1.0)
+                        if reduce_ctx == calculated_ctx:
+                            # Already at minimum
+                            yield f"⚠️ Already at minimum ({format_number(HYBRID_MIN_CONTEXT)} tokens)"
+                            break
 
-                    success, _ = await self.preload_model(model, num_ctx=reduce_ctx)
-                    if success:
+                        yield f"⚠️ Below reserve - reducing to {format_number(reduce_ctx)} tokens..."
+                        await self.unload_all_models()
+                        await asyncio.sleep(1.0)
+
+                        success, _ = await self.preload_model(model, num_ctx=reduce_ctx)
+                        if not success:
+                            yield f"❌ Reduction to {format_number(reduce_ctx)} failed"
+                            yield f"__RESULT__:0"
+                            return
+
                         calculated_ctx = reduce_ctx
-                    else:
-                        yield f"❌ Reduction failed"
-                        yield f"__RESULT__:0"
-                        return
+                        await asyncio.sleep(2.0)
+
+                        # Check if reserve is now met
+                        check_ram = get_free_ram_mb()
+                        if check_ram is None:
+                            yield f"⚠️ Cannot measure RAM - keeping {format_number(calculated_ctx)} tokens"
+                            break
+
+                        # Recalculate reserve based on current free RAM
+                        current_reserve = get_dynamic_ram_reserve(check_ram)
+                        if check_ram >= current_reserve:
+                            yield f"✅ Reserve met: {format_number(check_ram / 1024, 1)} GB free (need {format_number(current_reserve / 1024, 1)} GB)"
+                            break
+                        else:
+                            yield f"→ Still below reserve: {format_number(check_ram / 1024, 1)} GB free (need {format_number(current_reserve / 1024, 1)} GB)"
+
+                        if reduce_ctx == HYBRID_MIN_CONTEXT:
+                            yield f"⚠️ At minimum context - cannot reduce further"
+                            break
 
             final_ctx = calculated_ctx
 
