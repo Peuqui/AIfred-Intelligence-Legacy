@@ -1,6 +1,6 @@
 # Ollama VRAM Optimization for 48GB Setup
 
-**Datum**: 2025-11-30
+**Datum**: 2025-12-26
 **Hardware**: 2x Tesla P40 (48 GB total VRAM)
 **Backend**: Ollama
 
