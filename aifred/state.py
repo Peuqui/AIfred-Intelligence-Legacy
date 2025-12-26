@@ -32,6 +32,7 @@ from .lib.gpu_monitor import round_to_nominal_vram
 from .lib.multi_agent import (
     run_sokrates_direct_response,
     run_sokrates_analysis,
+    run_tribunal,
 )
 
 # ============================================================
@@ -54,6 +55,8 @@ class ChatMessageParsed(TypedDict):
     sokrates_content: str  # AI message with marker stripped for display
     alfred_mode: str  # Extracted mode from 🎩[Mode] marker (e.g., "Überarbeitung R2")
     alfred_content: str  # AI message with marker stripped for display
+    salomo_mode: str  # Extracted mode from 👑[Mode] marker (e.g., "Synthese R1", "Urteil")
+    salomo_content: str  # AI message with marker stripped for display
 
 
 # ============================================================
@@ -261,6 +264,9 @@ class AIState(rx.State):
     lightbox_open: bool = False  # Show lightbox modal?
     lightbox_image_url: str = ""  # Data URL for lightbox image
 
+    # Multi-Agent Help Modal
+    multi_agent_help_open: bool = False  # Show help modal?
+
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi" [DEPRECATED - use backend_id]
     backend_id: str = "ollama"  # NEW: Pure backend ID (synced with backend_type for compatibility)
@@ -300,12 +306,15 @@ class AIState(rx.State):
     temperature_mode: str = "auto"  # "auto" (Intent-Detection) | "manual" (user slider)
     sokrates_temperature: float = 0.5  # Sokrates temperature (manual mode only)
     sokrates_temperature_offset: float = 0.2  # Offset for auto mode: Sokrates = AIfred + offset
+    salomo_temperature: float = 0.5  # Salomo temperature (manual mode only)
+    salomo_temperature_offset: float = 0.1  # Offset for auto mode: Salomo = AIfred + offset
     num_ctx: int = 32768
 
     # Context Window Control (NOT saved in settings.json - reset on every start)
     num_ctx_mode: str = "auto"  # "auto" | "manual" (RoPE extension via calibrate_extended toggle)
     num_ctx_manual: int = 4096  # Manual value for AIfred (only if mode="manual") - Ollama default
     num_ctx_manual_sokrates: int = 4096  # Manual value for Sokrates (only if mode="manual")
+    num_ctx_manual_salomo: int = 4096  # Manual value for Salomo (only if mode="manual")
 
     # Cached Model Metadata (to avoid repeated API calls)
     _automatik_model_context_limit: int = 0  # Cached context limit for automatik model
@@ -315,17 +324,21 @@ class AIState(rx.State):
     research_mode_display: str = "✨ Automatik (KI entscheidet)"  # UI display value
 
     # Multi-Agent Settings - PERSISTENT (saved to settings.json)
-    multi_agent_mode: str = "standard"  # "standard", "user_judge", "auto_consensus", "devils_advocate"
-    max_debate_rounds: int = 3  # Maximum rounds for auto_consensus (UI slider: 1-5)
+    multi_agent_mode: str = "standard"  # "standard", "user_judge", "auto_consensus", "devils_advocate", "tribunal"
+    max_debate_rounds: int = 3  # Maximum rounds for auto_consensus/tribunal (UI slider: 1-5)
     sokrates_model: str = ""  # Sokrates LLM model (empty = same as Main-LLM)
     sokrates_model_id: str = ""  # Pure model ID for Sokrates (without size suffix)
+    salomo_model: str = ""  # Salomo LLM model (empty = same as Main-LLM)
+    salomo_model_id: str = ""  # Pure model ID for Salomo (without size suffix)
 
     # Multi-Agent Runtime State (reset on session start)
     sokrates_critique: str = ""  # Current critique from Sokrates
     sokrates_pro_args: str = ""  # Pro arguments (Devil's Advocate)
     sokrates_contra_args: str = ""  # Contra arguments (Devil's Advocate)
     show_sokrates_panel: bool = False  # Show Sokrates UI panel?
-    debate_round: int = 0  # Current debate round (for Auto-Consensus)
+    salomo_synthesis: str = ""  # Current synthesis/verdict from Salomo
+    show_salomo_panel: bool = False  # Show Salomo UI panel?
+    debate_round: int = 0  # Current debate round (for Auto-Consensus/Tribunal)
     debate_user_interjection: str = ""  # Queued user input during debate
     debate_in_progress: bool = False  # Signals active debate (for UI)
 
@@ -622,6 +635,7 @@ class AIState(rx.State):
             ["user_judge", TranslationManager.get_text("multi_agent_user_judge", self.ui_language)],
             ["auto_consensus", TranslationManager.get_text("multi_agent_auto_consensus", self.ui_language)],
             ["devils_advocate", TranslationManager.get_text("multi_agent_devils_advocate", self.ui_language)],
+            ["tribunal", TranslationManager.get_text("multi_agent_tribunal", self.ui_language)],
         ]
 
     @rx.var(deps=["ui_language", "multi_agent_mode"], auto_deps=False)
@@ -694,6 +708,8 @@ class AIState(rx.State):
         sokrates_marker_pattern = r'^🏛️\[([^\]]+)\]'
         # AIfred marker pattern: 🎩[Mode]Content (e.g., 🎩[Überarbeitung R2])
         alfred_marker_pattern = r'^🎩\[([^\]]+)\]'
+        # Salomo marker pattern: 👑[Mode]Content (e.g., 👑[Synthese R1] or 👑[Urteil])
+        salomo_marker_pattern = r'^👑\[([^\]]+)\]'
 
         def extract_sokrates_info(ai_text: str) -> tuple[str, str]:
             """Extract mode and content from Sokrates marker.
@@ -715,6 +731,16 @@ class AIState(rx.State):
                 return mode, content
             return "", ai_text
 
+        def extract_salomo_info(ai_text: str) -> tuple[str, str]:
+            """Extract mode and content from Salomo marker.
+            Returns (mode, content) or ("", ai_text) if no marker."""
+            salomo_match = re.match(salomo_marker_pattern, ai_text)
+            if salomo_match:
+                mode = salomo_match.group(1)
+                content = ai_text[salomo_match.end():]
+                return mode, content
+            return "", ai_text
+
         for user_msg, ai_msg in self.chat_history:
             # Extract images from user message
             images = re.findall(image_pattern, user_msg)
@@ -730,6 +756,7 @@ class AIState(rx.State):
                     clean_ai_msg = re.sub(failed_sources_pattern, '', ai_msg, count=1)
                     sokrates_mode, sokrates_content = extract_sokrates_info(clean_ai_msg)
                     alfred_mode, alfred_content = extract_alfred_info(clean_ai_msg)
+                    salomo_mode, salomo_content = extract_salomo_info(clean_ai_msg)
                     result.append({
                         "user_msg": clean_user_msg,
                         "ai_msg": clean_ai_msg,
@@ -738,11 +765,14 @@ class AIState(rx.State):
                         "sokrates_mode": sokrates_mode,
                         "sokrates_content": sokrates_content,
                         "alfred_mode": alfred_mode,
-                        "alfred_content": alfred_content
+                        "alfred_content": alfred_content,
+                        "salomo_mode": salomo_mode,
+                        "salomo_content": salomo_content
                     })
                 except json.JSONDecodeError:
                     sokrates_mode, sokrates_content = extract_sokrates_info(ai_msg)
                     alfred_mode, alfred_content = extract_alfred_info(ai_msg)
+                    salomo_mode, salomo_content = extract_salomo_info(ai_msg)
                     result.append({
                         "user_msg": clean_user_msg,
                         "ai_msg": ai_msg,
@@ -751,11 +781,14 @@ class AIState(rx.State):
                         "sokrates_mode": sokrates_mode,
                         "sokrates_content": sokrates_content,
                         "alfred_mode": alfred_mode,
-                        "alfred_content": alfred_content
+                        "alfred_content": alfred_content,
+                        "salomo_mode": salomo_mode,
+                        "salomo_content": salomo_content
                     })
             else:
                 sokrates_mode, sokrates_content = extract_sokrates_info(ai_msg)
                 alfred_mode, alfred_content = extract_alfred_info(ai_msg)
+                salomo_mode, salomo_content = extract_salomo_info(ai_msg)
                 result.append({
                     "user_msg": clean_user_msg,
                     "ai_msg": ai_msg,
@@ -764,7 +797,9 @@ class AIState(rx.State):
                     "sokrates_mode": sokrates_mode,
                     "sokrates_content": sokrates_content,
                     "alfred_mode": alfred_mode,
-                    "alfred_content": alfred_content
+                    "alfred_content": alfred_content,
+                    "salomo_mode": salomo_mode,
+                    "salomo_content": salomo_content
                 })
 
         return result
@@ -872,6 +907,8 @@ class AIState(rx.State):
                 self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)
                 self.sokrates_temperature = saved_settings.get("sokrates_temperature", self.sokrates_temperature)
                 self.sokrates_temperature_offset = saved_settings.get("sokrates_temperature_offset", self.sokrates_temperature_offset)
+                self.salomo_temperature = saved_settings.get("salomo_temperature", self.salomo_temperature)
+                self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)
                 self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
 
                 # Load UI language and update global locale
@@ -924,6 +961,12 @@ class AIState(rx.State):
                 # Load Sokrates model (pure ID, display name set after models load)
                 self.sokrates_model_id = saved_settings.get("sokrates_model", "")
                 self.sokrates_model = self.sokrates_model_id  # Will be updated with display name after models load
+
+                # Load Salomo model (pure ID, display name set after models load)
+                self.salomo_model_id = saved_settings.get("salomo_model", "")
+                self.salomo_model = self.salomo_model_id  # Will be updated with display name after models load
+                self.salomo_temperature = saved_settings.get("salomo_temperature", self.salomo_temperature)
+                self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)
 
                 # Load per-backend models (if available)
                 from .lib.conversation_handler import extract_model_name
@@ -1177,6 +1220,15 @@ class AIState(rx.State):
                 self.sokrates_model_id = ""
                 self.sokrates_model = ""
 
+            # Validate and sync salomo_model (use settings, not global state)
+            # salomo_model can be empty (= use Main-LLM)
+            if self.salomo_model_id and self.salomo_model_id in self.available_models_dict:
+                self.salomo_model = self.available_models_dict[self.salomo_model_id]
+            elif self.salomo_model_id:
+                # Model ID was set but model not found - clear it
+                self.salomo_model_id = ""
+                self.salomo_model = ""
+
             # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
             if self.backend_type == "vllm" and self.automatik_model != self.selected_model:
                 self.automatik_model = self.selected_model
@@ -1369,6 +1421,15 @@ class AIState(rx.State):
                     self.sokrates_model_id = ""
                     self.sokrates_model = ""
 
+                # Validate and sync salomo_model (can be empty = use Main-LLM)
+                if self.salomo_model_id and self.salomo_model_id in self.available_models_dict:
+                    self.salomo_model = self.available_models_dict[self.salomo_model_id]
+                elif self.salomo_model_id:
+                    # Model ID was set but model not found - clear it
+                    log_message(f"⚠️ Configured salomo model '{self.salomo_model_id}' not found, clearing")
+                    self.salomo_model_id = ""
+                    self.salomo_model = ""
+
                 self.model_count = len(self.available_models)
                 self.backend_info = f"{self.model_count} models"
                 self.backend_healthy = True
@@ -1493,6 +1554,9 @@ class AIState(rx.State):
             "multi_agent_mode": self.multi_agent_mode,
             "max_debate_rounds": self.max_debate_rounds,
             "sokrates_model": self.sokrates_model_id,  # Save pure ID
+            "salomo_model": self.salomo_model_id,  # Save pure ID
+            "salomo_temperature": self.salomo_temperature,
+            "salomo_temperature_offset": self.salomo_temperature_offset,
             # vLLM YaRN Settings (only enable/disable, factor is calculated dynamically)
             "enable_yarn": self.enable_yarn,
             # NOTE: yarn_factor is NOT saved - always starts at 1.0, system calibrates maximum
@@ -2833,12 +2897,16 @@ class AIState(rx.State):
                         yield  # Update UI to show new history entry
 
                         # ============================================================
-                        # MULTI-AGENT: Sokrates Analysis (if enabled and not skipped)
+                        # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not skipped)
                         # skip_sokrates_analysis is set when user directly addresses AIfred
                         # ============================================================
                         if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
-                            async for _ in run_sokrates_analysis(self, user_msg, ai_text):
-                                yield  # Forward yields to update Sokrates panel
+                            if self.multi_agent_mode == "tribunal":
+                                async for _ in run_tribunal(self, user_msg, ai_text):
+                                    yield  # Forward yields to update agent panels
+                            else:
+                                async for _ in run_sokrates_analysis(self, user_msg, ai_text):
+                                    yield  # Forward yields to update Sokrates panel
 
                         # Clear AI response and user message windows IMMEDIATELY
                         self.current_ai_response = ""
@@ -2953,12 +3021,16 @@ class AIState(rx.State):
                         yield  # Update UI to show new history entry
 
                         # ============================================================
-                        # MULTI-AGENT: Sokrates Analysis (if enabled and not skipped)
+                        # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not skipped)
                         # skip_sokrates_analysis is set when user directly addresses AIfred
                         # ============================================================
                         if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
-                            async for _ in run_sokrates_analysis(self, user_msg, ai_text):
-                                yield  # Forward yields to update Sokrates panel
+                            if self.multi_agent_mode == "tribunal":
+                                async for _ in run_tribunal(self, user_msg, ai_text):
+                                    yield  # Forward yields to update agent panels
+                            else:
+                                async for _ in run_sokrates_analysis(self, user_msg, ai_text):
+                                    yield  # Forward yields to update Sokrates panel
 
                         # Clear AI response and user message windows IMMEDIATELY
                         self.current_ai_response = ""
@@ -3205,12 +3277,16 @@ class AIState(rx.State):
                 yield  # Update UI
 
                 # ============================================================
-                # MULTI-AGENT: Sokrates Analysis (if enabled and not direct AIfred addressing)
+                # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not direct AIfred addressing)
                 # ============================================================
                 # skip_sokrates_analysis is True when user directly addresses AIfred
                 if self.multi_agent_mode != "standard" and full_response and not skip_sokrates_analysis:
-                    async for _ in run_sokrates_analysis(self, user_msg, full_response):
-                        yield  # Forward yields to update Sokrates panel
+                    if self.multi_agent_mode == "tribunal":
+                        async for _ in run_tribunal(self, user_msg, full_response):
+                            yield  # Forward yields to update agent panels
+                    else:
+                        async for _ in run_sokrates_analysis(self, user_msg, full_response):
+                            yield  # Forward yields to update Sokrates panel
 
                 # Clear response windows
                 self.current_ai_response = ""
@@ -3702,6 +3778,18 @@ class AIState(rx.State):
         """Closes the lightbox modal"""
         self.lightbox_open = False
         self.lightbox_image_url = ""
+
+    # ============================================================
+    # MULTI-AGENT HELP MODAL HANDLERS
+    # ============================================================
+
+    def open_multi_agent_help(self):
+        """Opens the multi-agent modes help modal"""
+        self.multi_agent_help_open = True
+
+    def close_multi_agent_help(self):
+        """Closes the multi-agent modes help modal"""
+        self.multi_agent_help_open = False
 
     # ============================================================
     # IMAGE CROP HANDLERS
@@ -4623,6 +4711,17 @@ class AIState(rx.State):
         self._save_settings()
         self.add_debug(f"🌡️ Sokrates Offset: +{self.sokrates_temperature_offset:.1f}")
 
+    def set_salomo_temperature(self, temp: list[float]):
+        """Set Salomo temperature for Manual mode (from slider which returns list[float])"""
+        self.salomo_temperature = temp[0] if isinstance(temp, list) else temp
+        self._save_settings()
+
+    def set_salomo_temperature_offset(self, offset: list[float]):
+        """Set Salomo temperature offset for Auto mode (from slider which returns list[float])"""
+        self.salomo_temperature_offset = offset[0] if isinstance(offset, list) else offset
+        self._save_settings()
+        self.add_debug(f"🌡️ Salomo Offset: +{self.salomo_temperature_offset:.1f}")
+
     def set_num_ctx_mode(self, mode: str):
         """
         Set num_ctx mode (NICHT in settings.json gespeichert - Reset bei jedem Start)
@@ -4735,6 +4834,19 @@ class AIState(rx.State):
         else:
             self.add_debug("🧠 Sokrates-LLM: (wie Haupt-LLM)")
 
+    def set_salomo_model(self, model: str):
+        """Set Salomo LLM model for multi-agent debate"""
+        self.salomo_model = model
+        # Extract pure model ID (remove size suffix)
+        self.salomo_model_id = extract_model_name(model)
+        self._save_settings()
+        if model:
+            self.add_debug(f"👑 Salomo-LLM: {model}")
+            # Show calibration info for Ollama models
+            self._show_model_calibration_info(self.salomo_model_id)
+        else:
+            self.add_debug("👑 Salomo-LLM: (wie Haupt-LLM)")
+
     def queue_user_interjection(self, text: str):
         """Queue user input during active debate"""
         if self.debate_in_progress and text.strip():
@@ -4756,6 +4868,16 @@ class AIState(rx.State):
         self.debate_round = 0
         self.debate_user_interjection = ""
         self.debate_in_progress = False
+
+    def reset_salomo_state(self):
+        """Reset all Salomo-related runtime state"""
+        self.salomo_synthesis = ""
+        self.show_salomo_panel = False
+
+    def reset_multi_agent_state(self):
+        """Reset all multi-agent runtime state (Sokrates + Salomo)"""
+        self.reset_sokrates_state()
+        self.reset_salomo_state()
 
     # ============================================================
     # GENERIC STREAMING HELPER (DRY - reusable for all LLM calls)

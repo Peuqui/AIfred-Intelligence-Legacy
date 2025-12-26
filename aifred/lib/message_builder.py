@@ -28,7 +28,7 @@ def build_messages_from_history(
     current_user_text: str = "",
     max_turns: Optional[int] = None,
     include_summaries: bool = True,
-    perspective: Optional[str] = None  # "sokrates", "aifred", or None
+    perspective: Optional[str] = None  # "sokrates", "aifred", "salomo", "observer", or None
 ) -> List[Dict[str, str]]:
     """
     Convert Gradio History to Ollama Messages format
@@ -105,10 +105,10 @@ def build_messages_from_history(
             messages.append({'role': 'system', 'content': ai_turn})
             continue
 
-        # Detect Multi-Agent entries: ("", "🏛️[...]..." or "🎩[...]...")
+        # Detect Multi-Agent entries: ("", "🏛️[...]..." or "🎩[...]..." or "👑[...]...")
         # These are internal agent exchanges without user input
         is_agent_only = (user_turn == "" and
-                        (ai_turn.startswith("🏛️") or ai_turn.startswith("🎩")))
+                        (ai_turn.startswith("🏛️") or ai_turn.startswith("🎩") or ai_turn.startswith("👑")))
 
         # Clean AI message (remove HTML tags AND text metadata)
         clean_ai = ai_turn
@@ -117,8 +117,10 @@ def build_messages_from_history(
         # Instead of removing, replace with clear speaker labels for LLM context
         # Sokrates: 🏛️[Mode] → "[SOKRATES]: "
         # AIfred: 🎩[Mode] → "[AIFRED]: "
+        # Salomo: 👑[Mode] → "[SALOMO]: "
         clean_ai = re.sub(r'^🏛️\[[^\]]+\]', '[SOKRATES]: ', clean_ai)  # Sokrates marker
         clean_ai = re.sub(r'^🎩\[[^\]]+\]', '[AIFRED]: ', clean_ai)   # AIfred marker
+        clean_ai = re.sub(r'^👑\[[^\]]+\]', '[SALOMO]: ', clean_ai)   # Salomo marker
 
         # 2. Remove thinking collapsibles (<details>...</details>)
         clean_ai = re.sub(r'<details[^>]*>.*?</details>', '', clean_ai, flags=re.DOTALL)
@@ -150,9 +152,10 @@ def build_messages_from_history(
             perspective_lower = perspective.lower()
 
             if is_agent_only:
-                # Agent-only message (Sokrates or AIfred internal exchange)
+                # Agent-only message (Sokrates, AIfred or Salomo internal exchange)
                 is_sokrates_msg = ai_turn.startswith("🏛️")
                 is_aifred_msg = ai_turn.startswith("🎩")
+                is_salomo_msg = ai_turn.startswith("👑")
 
                 if perspective_lower == "sokrates" and is_sokrates_msg:
                     # Sokrates sees his own earlier responses as 'assistant'
@@ -162,6 +165,13 @@ def build_messages_from_history(
                     # AIfred sees his own earlier responses as 'assistant'
                     content = clean_ai.replace('[AIFRED]: ', '').strip()
                     messages.append({'role': 'assistant', 'content': content})
+                elif perspective_lower == "salomo" and is_salomo_msg:
+                    # Salomo sees his own earlier responses as 'assistant'
+                    content = clean_ai.replace('[SALOMO]: ', '').strip()
+                    messages.append({'role': 'assistant', 'content': content})
+                elif perspective_lower == "observer":
+                    # Observer (Salomo as judge) sees ALL messages as 'user' with labels
+                    messages.append({'role': 'user', 'content': clean_ai})
                 else:
                     # Other agent's message → 'user' role with speaker label
                     messages.append({'role': 'user', 'content': clean_ai})
@@ -178,6 +188,14 @@ def build_messages_from_history(
                     # AIfred sees: User as [Username], own responses as 'assistant'
                     messages.append({'role': 'user', 'content': f"[{user_label}]: {clean_user}"})
                     messages.append({'role': 'assistant', 'content': clean_ai})
+                elif perspective_lower == "salomo":
+                    # Salomo sees: User as [Username], AIfred's initial answer as [AIFRED]
+                    messages.append({'role': 'user', 'content': f"[{user_label}]: {clean_user}"})
+                    messages.append({'role': 'user', 'content': f"[AIFRED]: {clean_ai}"})
+                elif perspective_lower == "observer":
+                    # Observer sees: All as 'user' with labels (neutral viewpoint)
+                    messages.append({'role': 'user', 'content': f"[{user_label}]: {clean_user}"})
+                    messages.append({'role': 'user', 'content': f"[AIFRED]: {clean_ai}"})
                 else:
                     # Unknown perspective → fallback to standard
                     messages.extend([

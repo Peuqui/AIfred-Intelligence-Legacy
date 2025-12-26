@@ -33,14 +33,20 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 
 ### 🤖 Multi-Agent Diskussionsmodi
 
-AIfred unterstützt verschiedene Diskussionsmodi mit einem zweiten LLM (Sokrates) als kritischem Denker:
+AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Salomo (Richter):
 
-| Modus | Beschreibung | Runden |
-|-------|--------------|--------|
-| **Standard** | Nur AIfred (klassisches Verhalten) | 1 |
-| **Kritische Prüfung** | AIfred antwortet, Sokrates kritisiert, User entscheidet | 1 |
-| **Auto-Konsens** | Iterative Verbesserung bis LGTM oder max Runden | 1-3 |
-| **Advocatus Diaboli** | Pro & Contra Argumente für ausgewogene Analyse | 1 |
+| Modus | Ablauf | Wer entscheidet? |
+|-------|--------|------------------|
+| **Standard** | AIfred antwortet | — |
+| **Kritische Prüfung** | AIfred → Sokrates → STOP | User |
+| **Auto-Konsens** | AIfred → Sokrates → Salomo (X Runden) | Salomo |
+| **Advocatus Diaboli** | AIfred → Sokrates (Pro/Contra) | User |
+| **Tribunal** | AIfred ↔ Sokrates (X Runden) → Salomo | Salomo (Urteil) |
+
+**Agenten:**
+- 🎩 **AIfred** - Butler & Gelehrter - beantwortet Fragen
+- 🏛️ **Sokrates** - Kritischer Philosoph - hinterfragt & liefert Alternativen
+- 👑 **Salomo** (NEU in v2.11) - Weiser Richter - synthetisiert & urteilt
 
 **Direkte Agenten-Ansprache** (NEU in v2.10):
 - Sokrates direkt ansprechen: "Sokrates, was denkst du über...?" → Sokrates antwortet mit sokratischer Methode
@@ -62,40 +68,45 @@ AIfred unterstützt verschiedene Diskussionsmodi mit einem zweiten LLM (Sokrates
 
 **Strukturierte Kritik-Prompts** (v2.10.3):
 - Rundennummer-Platzhalter `{round_num}` - Sokrates weiß welche Runde es ist
-- DIMINISHING RETURNS Sektion - "Gut genug" Schwelle verhindert Perfektionismus
 - Maximal 1-2 Kritikpunkte pro Runde
-- Checkbox-Style LGTM-Checkliste für konsistente Entscheidungsfindung
+- Sokrates kritisiert nur - entscheidet nie über Konsens (das ist Salomos Aufgabe)
 
-**Dialektischer Workflow (Auto-Konsens):**
+**Trialog-Workflow (Auto-Konsens mit Salomo):**
 ```
 ┌─────────────┐     ┌─────────────────┐     ┌─────────────────────┐
-│   User      │────▶│   AIfred        │────▶│   Sokrates          │
+│   User      │────▶│   🎩 AIfred     │────▶│   🏛️ Sokrates       │
 │   Frage     │     │   THESE         │     │   ANTITHESE         │
-└─────────────┘     │   (Erste Antw.) │     │   (Kritik +         │
-                    └─────────────────┘     │    Alternative)     │
-                    Prompt: system_rag      └──────────┬──────────┘
-                    oder system_minimal     Prompt: sokrates/critic
+└─────────────┘     │   (Antwort)     │     │   (Kritik)          │
+                    └─────────────────┘     └──────────┬──────────┘
                                                        │
                               ┌─────────────────────────┘
                               ▼
-                         ┌─────────┐
-                         │  LGTM?  │
-                         └────┬────┘
-                              │
-               ┌──────────────┼──────────────┐
-               ▼              ▼              ▼
-          ┌────────┐    ┌────────┐     ┌────────┐
-          │  JA    │    │  NEIN  │     │  MAX   │
-          │ Fertig │    │ Weiter │     │ ROUNDS │
-          └────────┘    └────────┘     └────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │   AIfred        │
-                    │   SYNTHESE      │
-                    │   (Verschmelzung)│
-                    └─────────────────┘
-                    Prompt: aifred/refinement
+                    ┌─────────────────────┐
+                    │   👑 Salomo         │
+                    │   SYNTHESE          │
+                    │   (Vermittlung)     │
+                    └──────────┬──────────┘
+                               │
+               ┌───────────────┴───────────────┐
+               ▼                               ▼
+          ┌────────┐                     ┌────────┐
+          │  LGTM  │                     │ Weiter │
+          │ Fertig │                     │ Runde  │
+          └────────┘                     └────────┘
+```
+
+**Tribunal-Workflow:**
+```
+┌─────────────┐     ┌─────────────────────────────────────┐
+│   User      │────▶│   🎩 AIfred ↔ 🏛️ Sokrates          │
+│   Frage     │     │   Debatte für X Runden              │
+└─────────────┘     └──────────────────┬──────────────────┘
+                                       │
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │   👑 Salomo - Finales Urteil        │
+                    │   Wägt beide Seiten, entscheidet    │
+                    └─────────────────────────────────────┘
 ```
 
 **Prompt-Dateien pro Modus:**
@@ -104,19 +115,20 @@ AIfred unterstützt verschiedene Diskussionsmodi mit einem zweiten LLM (Sokrates
 | **Standard** | `aifred/system_rag` oder `aifred/system_minimal` |
 | **Direkt AIfred** | `aifred/direct` |
 | **Direkt Sokrates** | `sokrates/direct` |
-| **Critical Review** | `aifred/*` → `sokrates/critic` |
-| **Auto-Konsens** | `aifred/*` → `sokrates/critic` → `aifred/refinement` (Schleife) |
-| **Devil's Advocate** | `aifred/*` → `sokrates/devils_advocate` |
+| **Kritische Prüfung** | `aifred/*` → `sokrates/critic` |
+| **Auto-Konsens** | `aifred/*` → `sokrates/critic` → `salomo/mediator` (Schleife) |
+| **Advocatus Diaboli** | `aifred/*` → `sokrates/devils_advocate` |
+| **Tribunal** | `aifred/*` ↔ `sokrates/critic` (X Runden) → `salomo/judge` |
 
 **UI-Einstellungen:**
-- Sokrates-LLM separat wählbar (kann anderes Modell als AIfred sein)
+- Sokrates-LLM und Salomo-LLM separat wählbar (können verschiedene Modelle sein)
 - Max. Debattenrunden (1-10, Standard: 3)
 - Diskussionsmodus im Settings-Panel
+- 💡 Hilfe-Icon öffnet Modal mit Übersicht aller Modi
 
 **Thinking-Support:**
-- Alle Agenten unterstützen Thinking-Mode
+- Alle Agenten (AIfred, Sokrates, Salomo) unterstützen Thinking-Mode
 - `<think>`-Blöcke werden als Collapsible formatiert
-- LGTM-Erkennung funktioniert auch bei langem Denkprozess
 
 ### 🔧 Technische Highlights
 - **Reflex-Framework**: React-Frontend aus Python generiert

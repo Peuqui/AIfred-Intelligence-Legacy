@@ -31,7 +31,10 @@ from .prompt_loader import (
     get_sokrates_direct_prompt,
     get_sokrates_critic_prompt,
     get_sokrates_devils_advocate_prompt,
-    get_sokrates_refinement_prompt
+    get_sokrates_refinement_prompt,
+    get_salomo_system_minimal,
+    get_salomo_mediator_prompt,
+    get_salomo_judge_prompt,
 )
 from .logging_utils import log_message, console_separator
 from ..backends.base import LLMOptions
@@ -198,6 +201,70 @@ async def _stream_alfred_refinement(
         "text": full_response,
         "metadata": metadata,
         "metrics": {"time": inference_time, "tokens": token_count, "tok_per_sec": tokens_per_sec}
+    }
+
+
+async def _stream_salomo_to_history(
+    state: 'AIState',
+    llm_client: LLMClient,
+    model: str,
+    messages: list,
+    options: LLMOptions,
+    history_index: int,
+    salomo_marker: str,
+) -> AsyncGenerator[None, None]:
+    """
+    Stream Salomo response directly into chat_history.
+
+    Similar to _stream_sokrates_to_history but for Salomo:
+    - Keeps the marker prefix during streaming (👑[Mode])
+    - Updates chat_history[history_index] directly
+    """
+    full_response = ""
+    token_count = 0
+    start_time = time.time()
+    ttft = None
+    first_token = False
+
+    async for chunk in llm_client.chat_stream(model, messages, options):
+        if chunk["type"] == "content":
+            if not first_token:
+                ttft = time.time() - start_time
+                first_token = True
+
+            full_response += chunk["text"]
+            token_count += 1
+
+            # Update chat_history directly with marker + current response
+            if history_index < len(state.chat_history):
+                state.chat_history[history_index] = ("", f"{salomo_marker}{full_response}")
+
+            yield  # UI Update
+
+        elif chunk["type"] == "done":
+            metrics = chunk.get("metrics", {})
+            token_count = metrics.get("tokens_generated", token_count)
+
+    # Calculate final metrics
+    inference_time = time.time() - start_time
+    tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
+
+    metadata = format_metadata(
+        f"Inference: {format_number(inference_time, 1)}s    "
+        f"{format_number(tokens_per_sec, 1)} tok/s    "
+        f"Source: Salomo ({model})"
+    )
+
+    # Store result for caller
+    state._stream_result = {
+        "text": full_response,
+        "metadata": metadata,
+        "metrics": {
+            "time": inference_time,
+            "tokens": token_count,
+            "tok_per_sec": tokens_per_sec,
+            "ttft": ttft
+        }
     }
 
 
@@ -489,13 +556,15 @@ async def run_sokrates_analysis(
         if state.temperature_mode == "manual":
             alfred_temp = state.temperature
             sokrates_temp = state.sokrates_temperature
+            salomo_temp = state.salomo_temperature
         else:
             # Auto mode: Use intent-based temperature from main flow
             # For Multi-Agent, use moderate defaults since Intent Detection ran earlier
             alfred_temp = state.temperature  # Already set by Intent Detection or manual
             sokrates_temp = min(1.0, alfred_temp + state.sokrates_temperature_offset)
+            salomo_temp = min(1.0, alfred_temp + state.salomo_temperature_offset)
 
-        state.add_debug(f"🌡️ Temps: AIfred={alfred_temp:.1f}, Sokrates={sokrates_temp:.1f}")
+        state.add_debug(f"🌡️ Temps: AIfred={alfred_temp:.1f}, Sokrates={sokrates_temp:.1f}, Salomo={salomo_temp:.1f}")
 
         # LLM options with calculated context and temperatures
         sokrates_options = LLMOptions(
@@ -523,9 +592,8 @@ async def run_sokrates_analysis(
             if state.multi_agent_mode == "devils_advocate":
                 mode_prompt = get_sokrates_devils_advocate_prompt()
             else:
-                # user_judge and auto_consensus use critic prompt
-                # round_num is passed so Sokrates knows which round it is
-                # (prevents hallucinating "progress" in round 1)
+                # Critic prompt for all other modes (Sokrates never says LGTM)
+                # round_num prevents hallucinating "progress" in round 1
                 mode_prompt = get_sokrates_critic_prompt(round_num=round_num)
 
             # Combine: minimal first, then mode-specific
@@ -609,85 +677,162 @@ async def run_sokrates_analysis(
                 state.sokrates_pro_args, state.sokrates_contra_args = parse_pro_contra(sokrates_response_text)
                 break  # Devils advocate is always one round
 
-            # Check for LGTM (consensus reached)
-            # Strip <think> blocks first, then check for LGTM anywhere
-            # The prompt now clearly instructs: LGTM ends the debate immediately
-            response_content = strip_thinking_blocks(sokrates_response_text).strip()
-
-            if "LGTM" in response_content.upper():
-                state.add_debug(f"✅ Consensus reached in round {round_num} (LGTM)")
-                consensus_reached = True
-                break
-
             # For user_judge: only one round (user decides)
             if state.multi_agent_mode == "user_judge":
                 break
 
-            # === AUTO-CONSENSUS: AIfred refines based on critique ===
-            if state.multi_agent_mode == "auto_consensus" and round_num < max_rounds:
-                # Build refinement prompt
-                refinement_prompt = get_sokrates_refinement_prompt(
-                    critique=sokrates_response_text,
-                    user_interjection=""  # Could add user input here later
+            # === AUTO-CONSENSUS (TRIALOG): Salomo synthesizes and decides ===
+            if state.multi_agent_mode == "auto_consensus":
+                # Determine Salomo model
+                salomo_model = state.salomo_model_id if state.salomo_model_id else state.selected_model_id
+                salomo_display = state.salomo_model if state.salomo_model else state.selected_model
+
+                if round_num == 1:
+                    state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
+
+                # Calculate Salomo context
+                if state.num_ctx_mode == "manual":
+                    salomo_num_ctx = state.num_ctx_manual_salomo if hasattr(state, 'num_ctx_manual_salomo') else 4096
+                else:
+                    salomo_num_ctx, _ = await calculate_dynamic_num_ctx(
+                        llm_client, salomo_model, [], None,
+                        enable_vram_limit=True
+                    )
+
+                # salomo_temp already calculated above (before the loop)
+                salomo_options = LLMOptions(
+                    temperature=salomo_temp,
+                    enable_thinking=state.enable_thinking,
+                    num_ctx=salomo_num_ctx
                 )
 
-                # Build messages with AIfred's perspective
-                # - AIfred sees his own earlier responses as 'assistant'
-                # - Sokrates' critiques become 'user' with [SOKRATES]: label
-                # - User messages become 'user' with [USER]: label
-                alfred_messages: list[dict[str, str]] = build_messages_from_history(
+                # Build Salomo's messages: system + history
+                salomo_minimal = get_salomo_system_minimal()
+                mediator_prompt = get_salomo_mediator_prompt(round_num=round_num)
+                salomo_system = f"{salomo_minimal}\n\n{mediator_prompt}"
+
+                # Build messages with observer perspective (sees everything neutrally)
+                salomo_messages: list[dict[str, str]] = build_messages_from_history(
                     state.chat_history,
-                    current_user_text=refinement_prompt,  # Refinement task as "user" message
-                    perspective="aifred"
+                    perspective="observer"  # Neutral perspective
                 )
+                salomo_messages.insert(0, {"role": "system", "content": salomo_system})
 
-                # Estimate tokens in messages (using proper tokenizer estimation)
-                alfred_msg_tokens = estimate_tokens(alfred_messages, model_name=state.selected_model_id)
-                alfred_ctx = alfred_options.num_ctx if alfred_options and alfred_options.num_ctx else 32768
-                state.add_debug(
-                    f"📊 AIfred R{round_num + 1}: {format_number(alfred_msg_tokens)} / "
-                    f"{format_number(alfred_ctx)} tokens"
-                )
-
-                # Add placeholder for AIfred refinement
-                alfred_marker = f"🎩[Überarbeitung R{round_num + 1}]"
-                state.chat_history.append(("", alfred_marker))
-                alfred_index = len(state.chat_history) - 1
+                # Add placeholder for Salomo
+                salomo_marker = f"👑[Synthese R{round_num}]"
+                state.chat_history.append(("", salomo_marker))
+                salomo_index = len(state.chat_history) - 1
                 yield
 
-                # Stream AIfred refinement
-                async for _ in _stream_alfred_refinement(
+                # Stream Salomo response
+                async for _ in _stream_salomo_to_history(
                     state=state,
                     llm_client=llm_client,
-                    model=alfred_model,
-                    messages=alfred_messages,
-                    options=alfred_options,
-                    history_index=alfred_index,
-                    alfred_marker=alfred_marker
+                    model=salomo_model,
+                    messages=salomo_messages,
+                    options=salomo_options,
+                    history_index=salomo_index,
+                    salomo_marker=salomo_marker
                 ):
                     yield
 
-                # Get refined answer
-                alfred_result = state._stream_result
-                current_answer = alfred_result["text"]
-                alfred_metadata = alfred_result["metadata"]
-                alfred_metrics = alfred_result.get("metrics", {})
+                # Get Salomo result
+                salomo_result = state._stream_result
+                salomo_response_text = salomo_result["text"]
+                salomo_metadata = salomo_result["metadata"]
+                salomo_metrics = salomo_result["metrics"]
 
-                # Format <think> tags as collapsible (if present)
-                formatted_alfred = format_thinking_process(
-                    current_answer,
-                    model_name=f"AIfred ({alfred_model})",
-                    inference_time=alfred_metrics.get("time", 0)
+                state.add_debug(
+                    f"👑 Salomo R{round_num}: {len(salomo_response_text)} chars, "
+                    f"{salomo_metrics['tok_per_sec']:.1f} tok/s"
                 )
 
-                # Update history with metadata
-                final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
-                state.chat_history[alfred_index] = ("", final_alfred)
+                # Format <think> tags as collapsible
+                formatted_salomo = format_thinking_process(
+                    salomo_response_text,
+                    model_name=f"Salomo ({salomo_model})",
+                    inference_time=salomo_metrics.get("time", 0)
+                )
+
+                # Final update with metadata
+                final_salomo = f"{salomo_marker}{formatted_salomo}\n\n{salomo_metadata}"
+                state.chat_history[salomo_index] = ("", final_salomo)
+                state.salomo_synthesis = salomo_response_text
                 yield
 
-                # === Check if history compression needed (after each LLM response) ===
+                # Check compression after Salomo
                 async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
                     yield
+
+                # Check for LGTM from Salomo (not Sokrates!)
+                salomo_content = strip_thinking_blocks(salomo_response_text).strip()
+                if "LGTM" in salomo_content.upper():
+                    state.add_debug(f"✅ Consensus reached in round {round_num} (Salomo: LGTM)")
+                    consensus_reached = True
+                    break
+
+                # If no LGTM and more rounds available: AIfred refines based on Salomo's feedback
+                if round_num < max_rounds:
+                    # Build refinement prompt using Salomo's synthesis (not Sokrates' critique)
+                    refinement_prompt = get_sokrates_refinement_prompt(
+                        critique=salomo_response_text,  # Use Salomo's synthesis as guidance
+                        user_interjection=""
+                    )
+
+                    # Build messages with AIfred's perspective
+                    alfred_messages: list[dict[str, str]] = build_messages_from_history(
+                        state.chat_history,
+                        current_user_text=refinement_prompt,
+                        perspective="aifred"
+                    )
+
+                    # Estimate tokens
+                    alfred_msg_tokens = estimate_tokens(alfred_messages, model_name=state.selected_model_id)
+                    alfred_ctx = alfred_options.num_ctx if alfred_options and alfred_options.num_ctx else 32768
+                    state.add_debug(
+                        f"📊 AIfred R{round_num + 1}: {format_number(alfred_msg_tokens)} / "
+                        f"{format_number(alfred_ctx)} tokens"
+                    )
+
+                    # Add placeholder for AIfred refinement
+                    alfred_marker = f"🎩[Überarbeitung R{round_num + 1}]"
+                    state.chat_history.append(("", alfred_marker))
+                    alfred_index = len(state.chat_history) - 1
+                    yield
+
+                    # Stream AIfred refinement
+                    async for _ in _stream_alfred_refinement(
+                        state=state,
+                        llm_client=llm_client,
+                        model=alfred_model,
+                        messages=alfred_messages,
+                        options=alfred_options,
+                        history_index=alfred_index,
+                        alfred_marker=alfred_marker
+                    ):
+                        yield
+
+                    # Get refined answer
+                    alfred_result = state._stream_result
+                    current_answer = alfred_result["text"]
+                    alfred_metadata = alfred_result["metadata"]
+                    alfred_metrics = alfred_result.get("metrics", {})
+
+                    # Format <think> tags as collapsible
+                    formatted_alfred = format_thinking_process(
+                        current_answer,
+                        model_name=f"AIfred ({alfred_model})",
+                        inference_time=alfred_metrics.get("time", 0)
+                    )
+
+                    # Update history with metadata
+                    final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
+                    state.chat_history[alfred_index] = ("", final_alfred)
+                    yield
+
+                    # Check compression after AIfred
+                    async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+                        yield
 
         # End of debate
         if state.multi_agent_mode == "auto_consensus":
@@ -712,3 +857,267 @@ async def run_sokrates_analysis(
         state.debate_in_progress = False
 
     yield  # Final UI update
+
+
+# ============================================================
+# TRIBUNAL MODE (AIfred vs Sokrates, Salomo judges at end)
+# ============================================================
+
+async def run_tribunal(
+    state: 'AIState',
+    user_query: str,
+    alfred_answer: str
+) -> AsyncGenerator[None, None]:
+    """
+    Run Tribunal mode: AIfred and Sokrates debate, Salomo judges at end.
+
+    This is a separate mode from auto_consensus:
+    - AIfred and Sokrates alternate for max_debate_rounds
+    - Salomo only speaks at the very end with a final verdict
+    - No LGTM during debate - Salomo delivers a definitive judgment
+
+    Args:
+        state: The AIState object
+        user_query: The original user question
+        alfred_answer: AIfred's initial answer
+    """
+    state.debate_in_progress = True
+    state.sokrates_critique = ""
+    state.salomo_synthesis = ""
+    state.debate_round = 0
+    yield
+
+    try:
+        # Create LLM client
+        llm_client = LLMClient(
+            backend_type=state.backend_type,
+            base_url=state.backend_url
+        )
+
+        # Determine models
+        sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.selected_model_id
+        sokrates_display = state.sokrates_model if state.sokrates_model else state.selected_model
+        salomo_model = state.salomo_model_id if state.salomo_model_id else state.selected_model_id
+        salomo_display = state.salomo_model if state.salomo_model else state.selected_model
+        alfred_model = state.selected_model_id
+
+        state.add_debug("⚖️ Tribunal-Modus gestartet")
+        state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
+        state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
+
+        # Get context limits
+        if state.num_ctx_mode == "manual":
+            main_llm_ctx = state.num_ctx_manual if state.num_ctx_manual else 4096
+            sokrates_num_ctx = state.num_ctx_manual_sokrates if state.num_ctx_manual_sokrates else 4096
+            salomo_num_ctx = state.num_ctx_manual_salomo if hasattr(state, 'num_ctx_manual_salomo') else 4096
+        else:
+            aifred_cached = _last_vram_limit_cache.get("aifred_limit", 0)
+            if aifred_cached == 0:
+                aifred_cached = _last_vram_limit_cache.get("limit", 0)
+            main_llm_ctx = aifred_cached if aifred_cached > 0 else 32768
+
+            sokrates_num_ctx, _ = await calculate_dynamic_num_ctx(
+                llm_client, sokrates_model, [], None, enable_vram_limit=True
+            )
+            salomo_num_ctx, _ = await calculate_dynamic_num_ctx(
+                llm_client, salomo_model, [], None, enable_vram_limit=True
+            )
+
+        min_ctx = min(sokrates_num_ctx, main_llm_ctx, salomo_num_ctx)
+
+        # Calculate temperatures
+        if state.temperature_mode == "manual":
+            alfred_temp = state.temperature
+            sokrates_temp = state.sokrates_temperature
+            salomo_temp = state.salomo_temperature
+        else:
+            alfred_temp = state.temperature
+            sokrates_temp = min(1.0, alfred_temp + state.sokrates_temperature_offset)
+            salomo_temp = min(1.0, alfred_temp + state.salomo_temperature_offset)
+
+        sokrates_options = LLMOptions(
+            temperature=sokrates_temp,
+            enable_thinking=state.enable_thinking,
+            num_ctx=sokrates_num_ctx
+        )
+        alfred_options = LLMOptions(
+            temperature=alfred_temp,
+            enable_thinking=state.enable_thinking,
+            num_ctx=main_llm_ctx
+        )
+        salomo_options = LLMOptions(
+            temperature=salomo_temp,
+            enable_thinking=state.enable_thinking,
+            num_ctx=salomo_num_ctx
+        )
+
+        max_rounds = state.max_debate_rounds
+        current_answer = alfred_answer
+
+        # === DEBATE PHASE: AIfred vs Sokrates ===
+        for round_num in range(1, max_rounds + 1):
+            state.debate_round = round_num
+
+            # --- SOKRATES CRITIQUE ---
+            sokrates_minimal = get_sokrates_system_minimal()
+            mode_prompt = get_sokrates_critic_prompt(round_num=round_num)
+            system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
+
+            history_messages = build_messages_from_history(
+                state.chat_history,
+                perspective="sokrates"
+            )
+            sokrates_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+            for msg in history_messages:
+                if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
+                    sokrates_messages.append(msg)
+
+            sokrates_marker = f"🏛️[Tribunal R{round_num}]"
+            state.chat_history.append(("", sokrates_marker))
+            sokrates_index = len(state.chat_history) - 1
+            yield
+
+            async for _ in _stream_sokrates_to_history(
+                state=state,
+                llm_client=llm_client,
+                model=sokrates_model,
+                messages=sokrates_messages,
+                options=sokrates_options,
+                history_index=sokrates_index,
+                sokrates_marker=sokrates_marker
+            ):
+                yield
+
+            result = state._stream_result
+            sokrates_response_text = result["text"]
+            metadata = result["metadata"]
+            metrics = result["metrics"]
+
+            state.add_debug(
+                f"🏛️ Sokrates R{round_num}: {len(sokrates_response_text)} chars, "
+                f"{metrics['tok_per_sec']:.1f} tok/s"
+            )
+
+            formatted_sokrates = format_thinking_process(
+                sokrates_response_text,
+                model_name=f"Sokrates ({sokrates_model})",
+                inference_time=metrics.get("time", 0)
+            )
+            final_content = f"{sokrates_marker}{formatted_sokrates}\n\n{metadata}"
+            state.chat_history[sokrates_index] = ("", final_content)
+            state.sokrates_critique = sokrates_response_text
+            yield
+
+            async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+                yield
+
+            # --- AIFRED RESPONSE (if not last round) ---
+            if round_num < max_rounds:
+                refinement_prompt = get_sokrates_refinement_prompt(
+                    critique=sokrates_response_text,
+                    user_interjection=""
+                )
+
+                alfred_messages: list[dict[str, str]] = build_messages_from_history(
+                    state.chat_history,
+                    current_user_text=refinement_prompt,
+                    perspective="aifred"
+                )
+
+                alfred_marker = f"🎩[Tribunal R{round_num + 1}]"
+                state.chat_history.append(("", alfred_marker))
+                alfred_index = len(state.chat_history) - 1
+                yield
+
+                async for _ in _stream_alfred_refinement(
+                    state=state,
+                    llm_client=llm_client,
+                    model=alfred_model,
+                    messages=alfred_messages,
+                    options=alfred_options,
+                    history_index=alfred_index,
+                    alfred_marker=alfred_marker
+                ):
+                    yield
+
+                alfred_result = state._stream_result
+                current_answer = alfred_result["text"]
+                alfred_metadata = alfred_result["metadata"]
+                alfred_metrics = alfred_result.get("metrics", {})
+
+                formatted_alfred = format_thinking_process(
+                    current_answer,
+                    model_name=f"AIfred ({alfred_model})",
+                    inference_time=alfred_metrics.get("time", 0)
+                )
+                final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
+                state.chat_history[alfred_index] = ("", final_alfred)
+                yield
+
+                async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+                    yield
+
+        # === JUDGMENT PHASE: Salomo delivers final verdict ===
+        state.add_debug("👑 Salomo fällt sein Urteil...")
+
+        salomo_minimal = get_salomo_system_minimal()
+        judge_prompt = get_salomo_judge_prompt()
+        salomo_system = f"{salomo_minimal}\n\n{judge_prompt}"
+
+        salomo_messages: list[dict[str, str]] = build_messages_from_history(
+            state.chat_history,
+            perspective="observer"
+        )
+        salomo_messages.insert(0, {"role": "system", "content": salomo_system})
+
+        salomo_marker = "👑[Urteil]"
+        state.chat_history.append(("", salomo_marker))
+        salomo_index = len(state.chat_history) - 1
+        yield
+
+        async for _ in _stream_salomo_to_history(
+            state=state,
+            llm_client=llm_client,
+            model=salomo_model,
+            messages=salomo_messages,
+            options=salomo_options,
+            history_index=salomo_index,
+            salomo_marker=salomo_marker
+        ):
+            yield
+
+        salomo_result = state._stream_result
+        salomo_response_text = salomo_result["text"]
+        salomo_metadata = salomo_result["metadata"]
+        salomo_metrics = salomo_result["metrics"]
+
+        state.add_debug(
+            f"👑 Salomo Urteil: {len(salomo_response_text)} chars, "
+            f"{salomo_metrics['tok_per_sec']:.1f} tok/s"
+        )
+
+        formatted_salomo = format_thinking_process(
+            salomo_response_text,
+            model_name=f"Salomo ({salomo_model})",
+            inference_time=salomo_metrics.get("time", 0)
+        )
+        final_salomo = f"{salomo_marker}{formatted_salomo}\n\n{salomo_metadata}"
+        state.chat_history[salomo_index] = ("", final_salomo)
+        state.salomo_synthesis = salomo_response_text
+        yield
+
+        state.add_debug(f"⚖️ Tribunal beendet nach {max_rounds} Runden + Urteil")
+
+        await llm_client.close()
+        state._save_current_session()
+
+        console_separator()
+        state.add_debug("────────────────────")
+
+    except Exception as e:
+        state.add_debug(f"❌ Tribunal Error: {e}")
+
+    finally:
+        state.debate_in_progress = False
+
+    yield

@@ -5,6 +5,67 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] - 2025-12-26
+
+### 👑 Salomo - The Wise Judge (NEW AGENT)
+
+**Neuer dritter Agent für Multi-Agent-Diskussionen: Salomo als weiser Vermittler und Richter.**
+
+#### Added
+
+- **Salomo Agent** - Dritter Agent im Multi-Agent-System:
+  - 👑 König Salomo - bekannt für weise Urteile
+  - Ruhiger, abwägender Sprachstil (nicht religiös-salbungsvoll)
+  - Zwei Rollen: Vermittler (Auto-Konsens) und Richter (Tribunal)
+
+- **Tribunal Mode** (NEW):
+  - AIfred und Sokrates debattieren für X Runden
+  - Salomo fällt am Ende ein finales Urteil
+  - Wägt beide Standpunkte ab und entscheidet
+
+- **Trialog-Workflow** (Auto-Konsens erweitert):
+  - AIfred → Sokrates → Salomo (pro Runde)
+  - Salomo synthetisiert und entscheidet ob LGTM
+  - Sokrates kritisiert nur noch - sagt nie mehr LGTM
+
+- **Salomo-Prompts** ([prompts/de/salomo/](prompts/de/salomo/), [prompts/en/salomo/](prompts/en/salomo/)):
+  - `system_minimal.txt` - Basis-Persönlichkeit
+  - `mediator.txt` - Für Auto-Konsens (Synthese)
+  - `judge.txt` - Für Tribunal (Urteil)
+
+- **Help Modal für Diskussionsmodi** ([aifred.py](aifred/aifred.py)):
+  - 💡 Glühbirnen-Icon öffnet Übersicht aller Modi
+  - Tabelle mit Ablauf und "Wer entscheidet?"
+  - Agenten-Beschreibungen mit Emojis
+  - Desktop + Mobile kompatibel
+
+- **Multi-Agent-Modi Dokumentation** ([docs/multi-agent-modes.md](docs/multi-agent-modes.md)):
+  - Vollständige Übersicht aller 5 Modi
+  - Ablauf-Diagramme für Trialog und Tribunal
+
+#### Changed
+
+- **Sokrates-Prompts vereinfacht** ([prompts/de/sokrates/critic.txt](prompts/de/sokrates/critic.txt)):
+  - LGTM-Logik komplett entfernt
+  - Sokrates kritisiert nur - Salomo entscheidet
+  - Klarere Rollenverteilung
+
+- **AIfred-Prompts präzisiert** ([prompts/de/aifred/system_minimal.txt](prompts/de/aifred/system_minimal.txt)):
+  - "NIEMALS archaisch-philosophisch sprechen"
+  - Keine sokratischen rhetorischen Fragen
+  - Butler-Charakter verstärkt
+
+- **State erweitert** ([state.py](aifred/state.py)):
+  - `salomo_model`, `salomo_temperature` etc.
+  - `multi_agent_help_open` für Help-Modal
+  - `ChatMessageParsed` um `salomo_mode`, `salomo_content`
+
+- **i18n Labels** ([i18n.py](aifred/lib/i18n.py)):
+  - 20+ neue Übersetzungsschlüssel für Salomo und Help-Modal
+  - DE + EN vollständig
+
+---
+
 ## [2.10.6] - 2025-12-26
 
 ### 🔧 Hybrid Mode for Large Models
