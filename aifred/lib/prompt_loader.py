@@ -489,3 +489,54 @@ def get_aifred_direct_prompt(lang: Optional[str] = None) -> str:
         AIfred direct response system prompt with timestamp prefix
     """
     return load_prompt('aifred/direct', lang=lang)
+
+
+# ============================================================
+# Salomo Multi-Agent Prompts
+# ============================================================
+
+def get_salomo_system_minimal(lang: Optional[str] = None) -> str:
+    """
+    Load Salomo minimal system prompt (base personality + style rules).
+
+    This is prepended to all Salomo prompts.
+
+    Args:
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Salomo minimal system prompt
+    """
+    return load_prompt('salomo/system_minimal', lang=lang)
+
+
+def get_salomo_mediator_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
+    """
+    Load Salomo Mediator prompt for Auto-Consensus mode (Trialog).
+
+    Salomo synthesizes AIfred's answer and Sokrates' critique,
+    and decides whether to give LGTM.
+
+    Args:
+        round_num: Current debate round (1, 2, 3, ...)
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Salomo mediator system prompt with round number
+    """
+    return load_prompt('salomo/mediator', lang=lang, round_num=round_num)
+
+
+def get_salomo_judge_prompt(lang: Optional[str] = None) -> str:
+    """
+    Load Salomo Judge prompt for Tribunal mode.
+
+    Salomo delivers a final verdict after AIfred and Sokrates have debated.
+
+    Args:
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Salomo judge system prompt
+    """
+    return load_prompt('salomo/judge', lang=lang)

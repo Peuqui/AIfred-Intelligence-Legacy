@@ -52,6 +52,7 @@ from .multi_agent import (
     parse_pro_contra,
     run_sokrates_direct_response,
     run_sokrates_analysis,
+    run_tribunal,
 )
 
 __all__ = [
@@ -92,4 +93,5 @@ __all__ = [
     "parse_pro_contra",
     "run_sokrates_direct_response",
     "run_sokrates_analysis",
+    "run_tribunal",
 ]

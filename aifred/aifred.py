@@ -558,38 +558,35 @@ def text_input_section() -> rx.Component:
                                     rx.cond(AIState.ui_language == "de", "Advocatus Diaboli", "Devil's Advocate"),
                                     value="devils_advocate"
                                 ),
+                                rx.select.item(
+                                    rx.cond(AIState.ui_language == "de", "Tribunal", "Tribunal"),
+                                    value="tribunal"
+                                ),
                             ),
                             value=AIState.multi_agent_mode,
                             on_change=AIState.set_multi_agent_mode,
                         ),
                     ),
-                    # Info-Icon mit Hover-Card (nur Desktop)
-                    rx.cond(
-                        AIState.is_mobile,
-                        rx.fragment(),  # Mobile: nichts anzeigen
-                        rx.hover_card.root(
-                            rx.hover_card.trigger(
-                                rx.icon("info", size=14, color=COLORS["text_secondary"], cursor="help"),
-                            ),
-                            rx.hover_card.content(
-                                rx.text(AIState.multi_agent_mode_info, font_size="12px", color=COLORS["text_primary"]),
-                                side="top",
-                                style={
-                                    "background": COLORS["card_bg"],
-                                    "border": f"1px solid {COLORS['border']}",
-                                    "border_radius": "8px",
-                                    "padding": "8px 12px",
-                                    "box_shadow": "0 4px 12px rgba(0,0,0,0.4)",
-                                },
-                            ),
-                        ),
+                    # Glühbirnen-Icon für Hilfe-Modal (Desktop + Mobile)
+                    rx.icon(
+                        "lightbulb",
+                        size=18,
+                        color="#FFD700",
+                        cursor="pointer",
+                        on_click=AIState.open_multi_agent_help,
+                        style={
+                            "transition": "transform 0.2s ease",
+                            "&:hover": {
+                                "transform": "scale(1.15)",
+                            },
+                        },
                     ),
                     spacing="3",
                     align="center",
                 ),
-                # Max Debate Rounds Slider (only visible for "auto_consensus" mode)
+                # Max Debate Rounds Slider (visible for "auto_consensus" and "tribunal" modes)
                 rx.cond(
-                    AIState.multi_agent_mode == "auto_consensus",
+                    (AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal"),
                     rx.hstack(
                         rx.text(t("max_debate_rounds"), font_size="11px"),
                         rx.text(
@@ -1384,6 +1381,9 @@ def render_chat_message(msg: dict) -> rx.Component:
     # Check ob es eine AIfred-Refinement-Nachricht ist (leerer User-Teil + "🎩[" am Anfang)
     is_alfred_refinement = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🎩[")
 
+    # Check ob es eine Salomo-Nachricht ist (leerer User-Teil + "👑" am Anfang)
+    is_salomo = (msg["user_msg"] == "") & msg["ai_msg"].startswith("👑")
+
     return rx.cond(
         is_summary,
         # Summary-Anzeige mit Collapsible (vereinfacht für Reflex)
@@ -1524,8 +1524,51 @@ def render_chat_message(msg: dict) -> rx.Component:
                     width="100%",
                     margin_bottom="3",
                 ),
-                # Normale Message-Anzeige (User + AI + Failed Sources)
-                rx.vstack(
+                # Check if Salomo message (synthesis/verdict)
+                rx.cond(
+                    is_salomo,
+                    # Salomo-Anzeige (nur AI-Teil, kein User, dezentes Gold-Styling)
+                    rx.box(
+                        rx.hstack(
+                            rx.text("👑", font_size="13px"),
+                            rx.box(
+                                # Header with Salomo name + mode (e.g. "Salomo (Synthese R1)")
+                                rx.text(
+                                    rx.cond(
+                                        msg["salomo_mode"] != "",
+                                        f"Salomo ({msg['salomo_mode']})",
+                                        "Salomo"
+                                    ),
+                                    font_weight="bold",
+                                    font_size="12px",
+                                    color="#daa520",  # Goldenrod
+                                    margin_bottom="1",
+                                ),
+                                # Show salomo_content (marker stripped) instead of ai_msg
+                                rx.markdown(
+                                    msg["salomo_content"],
+                                    color=COLORS["ai_text"],
+                                    font_size="13px"
+                                ),
+                                background_color="rgba(218, 165, 32, 0.08)",  # Dezenter Gold-Hintergrund
+                                padding="3",
+                                border_radius="6px",
+                                width="100%",
+                            ),
+                            spacing="2",
+                            align="start",
+                            justify="start",
+                            width="100%",
+                        ),
+                        background_color="rgba(218, 165, 32, 0.03)",  # Sehr dezenter Gold-Container
+                        padding="2",
+                        border_radius="8px",
+                        border="1px solid rgba(218, 165, 32, 0.3)",  # Dezenter Gold-Rand
+                        width="100%",
+                        margin_bottom="3",
+                    ),
+                    # Normale Message-Anzeige (User + AI + Failed Sources)
+                    rx.vstack(
                 # User message (rechts, max 70%) - mit hellgrauem Container
                 rx.box(
                     rx.hstack(
@@ -1593,6 +1636,7 @@ def render_chat_message(msg: dict) -> rx.Component:
                 spacing="3",
                 width="100%",
             ),
+            )  # Close is_salomo rx.cond
             )  # Close is_alfred_refinement rx.cond
         )  # Close is_sokrates rx.cond
     )  # Close is_summary rx.cond
@@ -2485,6 +2529,44 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
+                # Salomo LLM Selection - Only visible for auto_consensus or tribunal modes
+                rx.cond(
+                    ((AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal")) & AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text(
+                            t("salomo_llm"),
+                            font_weight="bold",
+                            font_size="12px",
+                        ),
+                        rx.cond(
+                            AIState.is_mobile,
+                            # MOBILE: Native HTML <select> (simple list)
+                            native_select_model(
+                                rx.cond(
+                                    AIState.salomo_model == "",
+                                    t("sokrates_llm_same"),  # Same placeholder as Sokrates
+                                    AIState.salomo_model
+                                ),
+                                AIState.set_salomo_model,
+                                AIState.backend_switching,
+                                AIState.available_models,
+                            ),
+                            # DESKTOP: Radix UI Select with placeholder for "same as main"
+                            rx.select(
+                                AIState.available_models,
+                                value=AIState.salomo_model,
+                                on_change=AIState.set_salomo_model,
+                                size="2",
+                                position="popper",
+                                disabled=AIState.backend_switching,
+                                placeholder=t("sokrates_llm_same"),  # Same placeholder as Sokrates
+                            ),
+                        ),
+                        spacing="3",
+                        align="center",
+                    ),
+                ),
+
                 # Automatik LLM Selection - Hidden for KoboldCPP (single model only)
                 rx.cond(
                     AIState.backend_supports_dynamic_models,
@@ -3007,6 +3089,161 @@ def settings_accordion() -> rx.Component:
         default_value="settings",  # Standardmäßig geöffnet
         color_scheme="gray",
         variant="soft",
+    )
+
+
+# ============================================================
+# MULTI-AGENT HELP MODAL - Übersicht aller Diskussionsmodi
+# ============================================================
+
+def multi_agent_help_modal() -> rx.Component:
+    """
+    Fullscreen Overlay für Multi-Agent Modus-Übersicht.
+    Zeigt alle Modi mit Ablauf und wer entscheidet.
+    """
+    return rx.cond(
+        AIState.multi_agent_help_open,
+        # Fullscreen Overlay
+        rx.box(
+            # Backdrop (klickbar zum Schließen)
+            rx.box(
+                position="absolute",
+                top="0",
+                left="0",
+                width="100%",
+                height="100%",
+                background_color="rgba(0, 0, 0, 0.85)",
+                on_click=AIState.close_multi_agent_help,
+            ),
+
+            # Modal Content - zentriert
+            rx.vstack(
+                # Header
+                rx.hstack(
+                    rx.icon("lightbulb", size=24, color="#FFD700"),
+                    rx.text(t("multi_agent_help_title"), color="white", font_weight="bold", font_size="18px"),
+                    spacing="3",
+                    align="center",
+                ),
+
+                # Tabelle der Modi
+                rx.box(
+                    rx.table.root(
+                        rx.table.header(
+                            rx.table.row(
+                                rx.table.column_header_cell(t("multi_agent_help_mode"), style={"color": "#FFD700", "font_weight": "bold"}),
+                                rx.table.column_header_cell(t("multi_agent_help_flow"), style={"color": "#FFD700", "font_weight": "bold"}),
+                                rx.table.column_header_cell(t("multi_agent_help_decision"), style={"color": "#FFD700", "font_weight": "bold"}),
+                            ),
+                        ),
+                        rx.table.body(
+                            # Standard
+                            rx.table.row(
+                                rx.table.cell(rx.cond(AIState.ui_language == "de", "Standard", "Standard")),
+                                rx.table.cell(t("multi_agent_help_standard_flow")),
+                                rx.table.cell(t("multi_agent_help_standard_decision")),
+                            ),
+                            # Kritische Prüfung / Critical Review
+                            rx.table.row(
+                                rx.table.cell(rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review")),
+                                rx.table.cell(t("multi_agent_help_user_judge_flow")),
+                                rx.table.cell(t("multi_agent_help_user_judge_decision")),
+                            ),
+                            # Auto-Konsens / Auto Consensus
+                            rx.table.row(
+                                rx.table.cell(rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto Consensus")),
+                                rx.table.cell(t("multi_agent_help_auto_consensus_flow")),
+                                rx.table.cell(t("multi_agent_help_auto_consensus_decision")),
+                            ),
+                            # Advocatus Diaboli / Devil's Advocate
+                            rx.table.row(
+                                rx.table.cell(rx.cond(AIState.ui_language == "de", "Advocatus Diaboli", "Devil's Advocate")),
+                                rx.table.cell(t("multi_agent_help_devils_advocate_flow")),
+                                rx.table.cell(t("multi_agent_help_devils_advocate_decision")),
+                            ),
+                            # Tribunal
+                            rx.table.row(
+                                rx.table.cell("Tribunal"),
+                                rx.table.cell(t("multi_agent_help_tribunal_flow")),
+                                rx.table.cell(t("multi_agent_help_tribunal_decision")),
+                            ),
+                        ),
+                        style={
+                            "width": "100%",
+                            "border_collapse": "collapse",
+                            "& th, & td": {
+                                "padding": "10px 15px",
+                                "text_align": "left",
+                                "border_bottom": "1px solid #444",
+                            },
+                        },
+                    ),
+                    width="100%",
+                    overflow_x="auto",
+                ),
+
+                # Agenten-Beschreibungen
+                rx.divider(color="#444", margin_y="15px"),
+                rx.text(t("multi_agent_help_agents_title"), color="#FFD700", font_weight="bold", font_size="14px"),
+                rx.vstack(
+                    rx.hstack(
+                        rx.text("🎩 AIfred:", color="white", font_weight="bold", min_width="120px"),
+                        rx.text(t("multi_agent_help_aifred_desc"), color="#ccc"),
+                        spacing="2",
+                        align="start",
+                    ),
+                    rx.hstack(
+                        rx.text("🏛️ Sokrates:", color="white", font_weight="bold", min_width="120px"),
+                        rx.text(t("multi_agent_help_sokrates_desc"), color="#ccc"),
+                        spacing="2",
+                        align="start",
+                    ),
+                    rx.hstack(
+                        rx.text("👑 Salomo:", color="white", font_weight="bold", min_width="120px"),
+                        rx.text(t("multi_agent_help_salomo_desc"), color="#ccc"),
+                        spacing="2",
+                        align="start",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    align_items="start",
+                ),
+
+                # Schließen-Button
+                rx.button(
+                    t("multi_agent_help_close"),
+                    on_click=AIState.close_multi_agent_help,
+                    variant="soft",
+                    color_scheme="gray",
+                    size="3",
+                    margin_top="15px",
+                ),
+
+                spacing="4",
+                align="center",
+                padding="25px",
+                background_color="#1a1a1a",
+                border_radius="12px",
+                max_width="95vw",
+                width="600px",
+                max_height="90vh",
+                overflow_y="auto",
+                position="relative",
+                z_index="1001",
+                color="white",
+            ),
+
+            # Fullscreen container
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index="1000",
+            display="flex",
+            justify_content="center",
+            align_items="center",
+        ),
     )
 
 
@@ -3704,6 +3941,9 @@ console.log('✂️ Crop handler loaded');
 
         # Image Lightbox Modal (for viewing history images full-size)
         image_lightbox_modal(),
+
+        # Multi-Agent Help Modal (Diskussionsmodi-Übersicht)
+        multi_agent_help_modal(),
 
         # Hidden element to trigger camera detection on mount
         rx.box(

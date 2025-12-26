@@ -33,14 +33,20 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 
 ### 🤖 Multi-Agent Discussion Modes
 
-AIfred supports various discussion modes with a second LLM (Sokrates) as critical thinker:
+AIfred supports various discussion modes with Sokrates (critic) and Salomo (judge):
 
-| Mode | Description | Rounds |
-|------|-------------|--------|
-| **Standard** | AIfred only (classic behavior) | 1 |
-| **Critical Review** | AIfred answers, Sokrates critiques, User decides | 1 |
-| **Auto-Consensus** | Iterative improvement until LGTM or max rounds | 1-3 |
-| **Devil's Advocate** | Pro & Contra arguments for balanced analysis | 1 |
+| Mode | Flow | Who decides? |
+|------|------|--------------|
+| **Standard** | AIfred answers | — |
+| **Critical Review** | AIfred → Sokrates → STOP | User |
+| **Auto-Consensus** | AIfred → Sokrates → Salomo (X rounds) | Salomo |
+| **Devil's Advocate** | AIfred → Sokrates (Pro/Contra) | User |
+| **Tribunal** | AIfred ↔ Sokrates (X rounds) → Salomo | Salomo (Verdict) |
+
+**Agents:**
+- 🎩 **AIfred** - Butler & Scholar - answers questions
+- 🏛️ **Sokrates** - Critical Philosopher - questions & provides alternatives
+- 👑 **Salomo** (NEW in v2.11) - Wise Judge - synthesizes & judges
 
 **Direct Agent Addressing** (NEW in v2.10):
 - Address Sokrates directly: "Sokrates, what do you think about...?" → Sokrates answers with Socratic method
@@ -62,9 +68,8 @@ AIfred supports various discussion modes with a second LLM (Sokrates) as critica
 
 **Structured Critic Prompts** (v2.10.3):
 - Round number placeholder `{round_num}` - Sokrates knows which round it is
-- DIMINISHING RETURNS section - "Good enough" threshold prevents perfectionism
 - Maximum 1-2 critique points per round
-- Checkbox-style LGTM checklist for consistent decision-making
+- Sokrates only critiques - never decides consensus (that's Salomo's job)
 
 **Temperature Control** (v2.10.4):
 - Auto mode: Intent-Detection determines base temperature (FACTUAL=0.2, MIXED=0.5, CREATIVE=1.1)
@@ -72,36 +77,42 @@ AIfred supports various discussion modes with a second LLM (Sokrates) as critica
 - Configurable Sokrates offset in Auto mode (default +0.2, capped at 1.0)
 - All temperature settings in "LLM Parameters (Advanced)" collapsible
 
-**Dialectical Workflow (Auto-Consensus):**
+**Trialog Workflow (Auto-Consensus with Salomo):**
 ```
 ┌─────────────┐     ┌─────────────────┐     ┌─────────────────────┐
-│   User      │────▶│   AIfred        │────▶│   Sokrates          │
+│   User      │────▶│   🎩 AIfred     │────▶│   🏛️ Sokrates       │
 │   Query     │     │   THESIS        │     │   ANTITHESIS        │
-└─────────────┘     │   (First Answer)│     │   (Critique +       │
-                    └─────────────────┘     │    Alternative)     │
-                    Prompt: system_rag      └──────────┬──────────┘
-                    or system_minimal       Prompt: sokrates/critic
+└─────────────┘     │   (Answer)      │     │   (Critique)        │
+                    └─────────────────┘     └──────────┬──────────┘
                                                        │
                               ┌─────────────────────────┘
                               ▼
-                         ┌─────────┐
-                         │  LGTM?  │
-                         └────┬────┘
-                              │
-               ┌──────────────┼──────────────┐
-               ▼              ▼              ▼
-          ┌────────┐    ┌────────┐     ┌────────┐
-          │  YES   │    │   NO   │     │  MAX   │
-          │  Done  │    │Continue│     │ ROUNDS │
-          └────────┘    └────────┘     └────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │   AIfred        │
-                    │   SYNTHESIS     │
-                    │   (Merge both)  │
-                    └─────────────────┘
-                    Prompt: aifred/refinement
+                    ┌─────────────────────┐
+                    │   👑 Salomo         │
+                    │   SYNTHESIS         │
+                    │   (Mediate/Judge)   │
+                    └──────────┬──────────┘
+                               │
+               ┌───────────────┴───────────────┐
+               ▼                               ▼
+          ┌────────┐                     ┌────────┐
+          │  LGTM  │                     │Continue│
+          │  Done  │                     │ Round  │
+          └────────┘                     └────────┘
+```
+
+**Tribunal Workflow:**
+```
+┌─────────────┐     ┌─────────────────────────────────────┐
+│   User      │────▶│   🎩 AIfred ↔ 🏛️ Sokrates          │
+│   Query     │     │   Debate for X Rounds               │
+└─────────────┘     └──────────────────┬──────────────────┘
+                                       │
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │   👑 Salomo - Final Verdict         │
+                    │   Weighs both sides, decides winner │
+                    └─────────────────────────────────────┘
 ```
 
 **Prompt Files per Mode:**
@@ -111,18 +122,19 @@ AIfred supports various discussion modes with a second LLM (Sokrates) as critica
 | **Direct AIfred** | `aifred/direct` |
 | **Direct Sokrates** | `sokrates/direct` |
 | **Critical Review** | `aifred/*` → `sokrates/critic` |
-| **Auto-Consensus** | `aifred/*` → `sokrates/critic` → `aifred/refinement` (loop) |
+| **Auto-Consensus** | `aifred/*` → `sokrates/critic` → `salomo/mediator` (loop) |
 | **Devil's Advocate** | `aifred/*` → `sokrates/devils_advocate` |
+| **Tribunal** | `aifred/*` ↔ `sokrates/critic` (X rounds) → `salomo/judge` |
 
 **UI Settings:**
-- Sokrates-LLM separately selectable (can be different model than AIfred)
+- Sokrates-LLM and Salomo-LLM separately selectable (can be different models)
 - Max debate rounds (1-10, default: 3)
 - Discussion mode in Settings panel
+- 💡 Help icon opens modal with all modes overview
 
 **Thinking Support:**
-- All agents support Thinking Mode
+- All agents (AIfred, Sokrates, Salomo) support Thinking Mode
 - `<think>` blocks formatted as collapsibles
-- LGTM detection works even with long thinking process
 
 ### 🔧 Technical Highlights
 - **Reflex Framework**: React frontend generated from Python
