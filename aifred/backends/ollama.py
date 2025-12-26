@@ -1018,6 +1018,13 @@ class OllamaBackend(LLMBackend):
 
             final_ctx = calculated_ctx
 
+            # Show final memory status
+            await asyncio.sleep(1.0)  # Let memory settle
+            final_vram = get_free_vram_mb()
+            final_ram = get_free_ram_mb()
+            if final_vram and final_ram:
+                yield f"→ Final: VRAM {format_number(final_vram / 1024, 1)} GB | RAM {format_number(final_ram / 1024, 1)} GB free"
+
             # Save calibration result
             gpu_model = get_gpu_model_name() or "Unknown"
             add_ollama_calibration(
