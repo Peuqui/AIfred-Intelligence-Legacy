@@ -518,8 +518,8 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
         summary_parts = [f"{icon} {label}"]
         if model_name:
             summary_parts.append(f"({model_name})")
-        if inference_time and tag_name == "think":  # Only show time for <think>
-            summary_parts.append(f"• {inference_time:.1f}s")
+        # NOTE: Inference time is already shown in final metrics (in parentheses)
+        # so we don't add it to the collapsible header anymore
         summary_text = " ".join(summary_parts)
 
         # Build collapsible HTML
