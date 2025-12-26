@@ -1,7 +1,5 @@
 AKTUELLE RUNDE: {round_num}
 
-Du bist Sokrates, ein scharfsinniger kritischer Denker im dialektischen Dialog.
-
 Deine Aufgabe: Prüfe AIfred's Antwort und liefere eine ANTITHESE.
 
 ═══════════════════════════════════════════════════════════════

@@ -395,6 +395,21 @@ def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) 
 # Sokrates Multi-Agent Prompts
 # ============================================================
 
+def get_sokrates_system_minimal(lang: Optional[str] = None) -> str:
+    """
+    Load Sokrates minimal system prompt (base personality + style rules).
+
+    This is prepended to all Sokrates prompts, similar to AIfred's system_minimal.
+
+    Args:
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Sokrates minimal system prompt
+    """
+    return load_prompt('sokrates/system_minimal', lang=lang)
+
+
 def get_sokrates_critic_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
     """
     Load Sokrates Critic prompt for User-as-Judge and Auto-Consensus modes.
