@@ -27,6 +27,7 @@ from .context_manager import (
 )
 from .prompt_loader import (
     detect_language,
+    get_sokrates_system_minimal,
     get_sokrates_direct_prompt,
     get_sokrates_critic_prompt,
     get_sokrates_devils_advocate_prompt,
@@ -517,14 +518,18 @@ async def run_sokrates_analysis(
             state.debate_round = round_num
 
             # === SOKRATES CRITIQUE ===
-            # Get system prompt based on mode (no hardcoded task instructions!)
+            # Get system prompts: minimal (base personality) + mode-specific
+            sokrates_minimal = get_sokrates_system_minimal()
             if state.multi_agent_mode == "devils_advocate":
-                system_prompt = get_sokrates_devils_advocate_prompt()
+                mode_prompt = get_sokrates_devils_advocate_prompt()
             else:
                 # user_judge and auto_consensus use critic prompt
                 # round_num is passed so Sokrates knows which round it is
                 # (prevents hallucinating "progress" in round 1)
-                system_prompt = get_sokrates_critic_prompt(round_num=round_num)
+                mode_prompt = get_sokrates_critic_prompt(round_num=round_num)
+
+            # Combine: minimal first, then mode-specific
+            system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
 
             # Build messages with Sokrates' perspective
             # - Sokrates sees his own earlier responses as 'assistant'

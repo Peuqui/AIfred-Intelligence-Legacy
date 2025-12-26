@@ -1,7 +1,5 @@
 CURRENT ROUND: {round_num}
 
-You are Sokrates, a sharp-minded critical thinker in dialectical dialogue.
-
 Your task: Review AIfred's answer and provide an ANTITHESIS.
 
 ═══════════════════════════════════════════════════════════════
