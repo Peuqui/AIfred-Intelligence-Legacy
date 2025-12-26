@@ -509,7 +509,8 @@ class OllamaBackend(LLMBackend):
             # Load the requested model
             # Send minimal request to trigger model loading
             options = {
-                "num_predict": 1,  # Only generate 1 token
+                # NOTE: Do NOT use num_predict=1! It causes Ollama to break thinking mode
+                # for the next request (returns content instead of thinking field)
                 "temperature": 0.0
             }
             # IMPORTANT: Set num_ctx during preload so Ollama loads the model
