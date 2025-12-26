@@ -134,6 +134,46 @@ def get_gpu_model_name(gpu_index: int = 0) -> Optional[str]:
         return None
 
 
+def get_free_ram_mb() -> Optional[int]:
+    """
+    Query free system RAM using psutil.
+
+    Returns:
+        int: Available RAM in MB, or None if unavailable
+    """
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        return int(mem.available / (1024 * 1024))
+    except ImportError:
+        logger.warning("psutil not installed - install via: pip install psutil")
+        return None
+    except Exception as e:
+        logger.debug(f"Could not query RAM via psutil: {e}")
+        return None
+
+
+def get_dynamic_ram_reserve(free_ram_mb: int) -> int:
+    """
+    Calculate dynamic RAM reserve based on available RAM.
+
+    More RAM available = larger reserve to prevent swapping.
+    Less RAM available = smaller reserve to maximize usability.
+
+    Args:
+        free_ram_mb: Currently free RAM in MB
+
+    Returns:
+        int: RAM reserve in MB (2048-4096)
+    """
+    if free_ram_mb >= 8192:  # 8+ GB free
+        return 4096  # 4 GB reserve (comfort)
+    elif free_ram_mb >= 4096:  # 4-8 GB free
+        return 3072  # 3 GB reserve
+    else:  # < 4 GB free
+        return 2048  # 2 GB reserve (minimum)
+
+
 async def is_moe_model(model_name: str, ollama_url: str = "http://localhost:11434") -> bool:
     """
     Detect if model is MoE (Mixture of Experts) architecture
