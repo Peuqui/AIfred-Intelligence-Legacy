@@ -4,6 +4,14 @@
 
 ---
 
+## ⚠️ KRITISCH: Git-Workflow
+
+- **NIEMALS** automatisch commit oder push ausführen
+- Nur auf explizite Ansage des Users ("commit", "push")
+- Bei Änderungen: Zeigen, erklären, warten auf Freigabe
+
+---
+
 ## Bereits integrierte Features (NICHT vergessen!)
 
 - **ChromaDB Vector Cache** - Semantischer Cache für Web-Research (Docker)

@@ -2271,71 +2271,113 @@ def settings_accordion() -> rx.Component:
                         AIState.backend_switching,
                         rx.hstack(
                             rx.spinner(size="1", color="orange"),
-                            rx.badge("Switching...", color_scheme="orange"),
+                            rx.badge(
+                                rx.cond(
+                                    AIState.ui_language == "de",
+                                    "Wechsle...",
+                                    "Switching...",
+                                ),
+                                color_scheme="orange"
+                            ),
                             spacing="2",
                             align="center",
                         ),
                         rx.cond(
                             AIState.backend_healthy,
-                            rx.badge(AIState.backend_info, color_scheme="green"),
-                            rx.badge(AIState.backend_info, color_scheme="red"),
+                            rx.badge(
+                                rx.cond(
+                                    AIState.ui_language == "de",
+                                    f"{AIState.model_count} Modelle gefunden",
+                                    f"{AIState.model_count} models found",
+                                ),
+                                color_scheme="green"
+                            ),
+                            rx.badge(
+                                rx.cond(
+                                    AIState.ui_language == "de",
+                                    "Fehler",
+                                    "Error",
+                                ),
+                                color_scheme="red"
+                            ),
                         ),
                     ),
                     spacing="3",
                     align="center",
                 ),
 
-                # GPU Info: Show detected GPU and filtered backends
+                # GPU Details Collapsible (GPU info + Backend compatibility)
                 rx.cond(
                     AIState.gpu_detected,
-                    rx.box(
-                        rx.text(
-                            f"🎮 GPU: {AIState.gpu_display_text}",
-                            font_size="10px",
-                            font_weight="500",
-                            color="#2a9d8f",
+                    rx.accordion.root(
+                        rx.accordion.item(
+                            value="gpu-details",
+                            header=rx.box(
+                                rx.text(
+                                    rx.cond(
+                                        AIState.ui_language == "de",
+                                        "🖥️ GPU-Details",
+                                        "🖥️ GPU Details"
+                                    ),
+                                    font_size="11px",
+                                    font_weight="500",
+                                    color="#2a9d8f",
+                                ),
+                                padding_y="2",
+                            ),
+                            content=rx.vstack(
+                                # GPU Hardware Info
+                                rx.text(
+                                    f"🎮 {AIState.gpu_display_text}",
+                                    font_size="10px",
+                                    color="#2a9d8f",
+                                ),
+                                # Backend Compatibility (only if Compute < 7.0)
+                                rx.cond(
+                                    AIState.gpu_compute_cap < 7.0,
+                                    rx.box(
+                                        rx.text(
+                                            rx.cond(
+                                                AIState.ui_language == "de",
+                                                "vLLM & TabbyAPI benötigen Compute 7.0+",
+                                                "vLLM & TabbyAPI require Compute 7.0+"
+                                            ),
+                                            font_size="10px",
+                                            color="#666",
+                                        ),
+                                        rx.text(
+                                            rx.cond(
+                                                AIState.ui_language == "de",
+                                                f"Verfügbar: Ollama, KoboldCPP",
+                                                f"Available: Ollama, KoboldCPP"
+                                            ),
+                                            font_size="10px",
+                                            color="#666",
+                                            margin_top="2px",
+                                        ),
+                                        rx.text(
+                                            rx.cond(
+                                                AIState.ui_language == "de",
+                                                "💡 Ollama nutzt INT8/Q4 - optimal für ältere GPUs",
+                                                "💡 Ollama uses INT8/Q4 - optimal for older GPUs"
+                                            ),
+                                            font_size="10px",
+                                            color="#2a9d8f",
+                                            margin_top="4px",
+                                            font_style="italic",
+                                        ),
+                                        margin_top="4px",
+                                    ),
+                                ),
+                                spacing="1",
+                                width="100%",
+                                align_items="start",
+                            ),
                         ),
-                        padding="4px 8px",
-                        background="rgba(42, 157, 143, 0.1)",
-                        border_radius="4px",
+                        collapsible=True,
+                        color_scheme="gray",
+                        variant="ghost",
                         margin_top="4px",
-                    ),
-                ),
-
-                # Backend Compatibility Info: Show why backends are filtered
-                rx.cond(
-                    AIState.gpu_detected & (AIState.gpu_compute_cap < 7.0),
-                    rx.box(
-                        rx.text(
-                            "ℹ️ Backend-Einschränkung",
-                            font_size="11px",
-                            font_weight="600",
-                            color="#b71c1c",  # Dark red (dezent)
-                        ),
-                        rx.text(
-                            "vLLM & TabbyAPI benötigen Compute Capability 7.0+ und schnelles FP16.",
-                            font_size="10px",
-                            color="#666",
-                            margin_top="2px",
-                        ),
-                        rx.text(
-                            f"Deine GPU ({AIState.gpu_name}) hat Compute {AIState.gpu_compute_cap} → Nur Ollama verfügbar.",
-                            font_size="10px",
-                            color="#666",
-                            margin_top="2px",
-                        ),
-                        rx.text(
-                            "💡 Ollama nutzt INT8/Q4-Quantisierung und funktioniert optimal auf älteren GPUs!",
-                            font_size="10px",
-                            color="#2a9d8f",
-                            margin_top="4px",
-                            font_style="italic",
-                        ),
-                        padding="8px",
-                        background="rgba(183, 28, 28, 0.08)",  # Dark red transparent background (dezent)
-                        border_radius="4px",
-                        margin_top="8px",
-                        border_left="3px solid #b71c1c",  # Dark red border
                     ),
                 ),
 

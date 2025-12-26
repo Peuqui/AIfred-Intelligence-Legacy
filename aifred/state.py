@@ -382,6 +382,7 @@ class AIState(rx.State):
     # Backend Status
     backend_healthy: bool = False
     backend_info: str = ""
+    model_count: int = 0  # Number of available models (for localized UI display)
     backend_switching: bool = False  # True during backend switch (UI will be disabled)
     backend_initializing: bool = True  # True during initial initialization (shows Loading Spinner)
     vllm_restarting: bool = False  # True during vLLM restart (model switch/YaRN)
@@ -1199,8 +1200,9 @@ class AIState(rx.State):
                     self.add_debug("⚠️ KoboldCPP manager exists but server not running")
 
             self.backend_healthy = True
-            self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
-            self.add_debug(f"✅ Backend ready (restored: {len(self.available_models)} models)")
+            self.model_count = len(self.available_models)
+            self.backend_info = f"{self.model_count} models"
+            self.add_debug(f"✅ Backend ready (restored: {self.model_count} models)")
 
             # Hide loading spinner (fast path = already initialized)
             self.backend_initializing = False
@@ -1367,7 +1369,8 @@ class AIState(rx.State):
                     self.sokrates_model_id = ""
                     self.sokrates_model = ""
 
-                self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
+                self.model_count = len(self.available_models)
+                self.backend_info = f"{self.model_count} models"
                 self.backend_healthy = True
 
                 # For backends without model switching (vLLM, KoboldCPP, TabbyAPI), show only Main model
