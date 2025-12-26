@@ -32,3 +32,20 @@
 - Multi-Agent System:
   - AIfred (Hauptagent)
   - Sokrates (Kritiker)
+
+---
+
+## Code-Konventionen
+
+### Zahlenformatierung (WICHTIG!)
+- **IMMER** `format_number()` aus `aifred/lib/formatting.py` verwenden
+- Diese Funktion formatiert Zahlen locale-aware (DE: 1.000,5 vs EN: 1,000.5)
+- **NIEMALS** f-Strings mit direkten Zahlen wie `f"{value:.1f}"` in User-facing Output
+- Beispiel:
+  ```python
+  from .lib.formatting import format_number
+  # RICHTIG:
+  yield f"Model: {format_number(size_mb / 1024, 1)} GB"
+  # FALSCH:
+  yield f"Model: {size_mb / 1024:.1f} GB"
+  ```

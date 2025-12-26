@@ -18,6 +18,7 @@ from .base import (
     BackendInferenceError
 )
 from ..lib.logging_utils import log_message
+from ..lib.config import HYBRID_MIN_CONTEXT, RAM_RESERVE_MIN
 
 logger = logging.getLogger(__name__)
 
@@ -630,37 +631,29 @@ class OllamaBackend(LLMBackend):
                     f"Available keys: {available_keys}"
                 )
 
-            # 2. Get model file size from blob path in modelfile
+            # 2. Get model file size from /api/tags (reliable, no filesystem access needed)
             model_size_bytes = 0
-            modelfile = data.get('modelfile', '')
+            try:
+                tags_response = await self.client.get(f"{self.base_url}/api/tags")
+                tags_response.raise_for_status()
+                tags_data = tags_response.json()
 
-            # Extract blob hash from FROM line (e.g., "FROM /path/to/blobs/sha256-...")
-            import re
-            blob_match = re.search(
-                r'FROM\s+(/[^\s]+/blobs/(sha256-[a-f0-9]+))',
-                modelfile
-            )
+                for m in tags_data.get("models", []):
+                    # Match by name or model field
+                    if m.get("name") == model or m.get("model") == model:
+                        model_size_bytes = m.get("size", 0)
+                        break
 
-            if blob_match:
-                blob_path = blob_match.group(1)
-                try:
-                    # Get file size from filesystem
-                    import os
-                    if os.path.exists(blob_path):
-                        model_size_bytes = os.path.getsize(blob_path)
-                        log_message(
-                            f"📦 Model '{model}' size: {model_size_bytes / (1024**3):.2f}GB "
-                            f"(context limit: {context_limit:,} tokens)"
-                        )
-                    else:
-                        logger.warning(f"Blob path not found: {blob_path}")
-                except Exception as e:
-                    logger.warning(f"Could not get blob size: {e}")
-            else:
-                logger.warning(
-                    f"Could not extract blob path from modelfile for '{model}' "
-                    f"- VRAM calculation will use model_limit fallback"
-                )
+                if model_size_bytes > 0:
+                    log_message(
+                        f"📦 Model '{model}' size: {model_size_bytes / (1024**3):.2f}GB "
+                        f"(context limit: {context_limit:,} tokens)"
+                    )
+                else:
+                    logger.warning(f"Model '{model}' not found in /api/tags")
+
+            except Exception as e:
+                logger.warning(f"Could not get model size from /api/tags: {e}")
 
             return (context_limit, model_size_bytes)
 
@@ -875,17 +868,13 @@ class OllamaBackend(LLMBackend):
         from ..lib.formatting import format_number
         from ..lib.config import CALIBRATION_MIN_CONTEXT
 
-        # Helper for locale-aware number formatting (follows UI language setting)
-        def fmt(n: int) -> str:
-            return format_number(n)
-
         # 1. Get native context limit AND model size
         native_ctx, model_size_bytes = await self.get_model_context_limit(model)
         max_target = native_ctx * 2 if extended else native_ctx
         mode_label = "RoPE 2x" if extended else "Native"
 
-        yield f"{mode_label} calibration: target {fmt(max_target)} tok"
-        yield f"Native context: {fmt(native_ctx)} tok"
+        yield f"{mode_label} calibration: target {format_number(max_target)} tok"
+        yield f"Native context: {format_number(native_ctx)} tok"
 
         # 2. Unload all models for clean VRAM state
         yield "Unloading all models..."
@@ -894,154 +883,178 @@ class OllamaBackend(LLMBackend):
 
         # === HYBRID MODE DETECTION ===
         # Check if model is larger than available VRAM (requires CPU offloading)
-        from ..lib.gpu_utils import get_free_vram_mb, get_free_ram_mb, get_dynamic_ram_reserve
-
-        HYBRID_MIN_CONTEXT = 2048   # Start context for hybrid mode
-        HYBRID_STEP_SIZE = 2048     # Step size (2K per step)
-        RAM_RESERVE_MIN = 2048      # Minimum 2 GB reserve
+        from ..lib.gpu_utils import (
+            get_free_vram_mb, get_free_ram_mb, get_dynamic_ram_reserve, is_moe_model
+        )
+        from ..lib.config import (
+            HYBRID_MIN_CONTEXT, RAM_RESERVE_MIN,
+            VRAM_CONTEXT_RATIO_MOE, VRAM_CONTEXT_RATIO_DENSE
+        )
 
         free_vram_mb = get_free_vram_mb()
         free_ram_mb = get_free_ram_mb()
         model_size_mb = model_size_bytes / (1024 * 1024) if model_size_bytes else 0
 
-        if free_vram_mb and free_ram_mb and model_size_mb > 0:
-            yield f"Model: {model_size_mb / 1024:.1f} GB | VRAM: {free_vram_mb / 1024:.1f} GB | RAM: {free_ram_mb / 1024:.1f} GB"
+        # Always log memory status (using locale-aware formatting)
+        vram_str = f"{format_number(free_vram_mb / 1024, 1)} GB" if free_vram_mb else "N/A"
+        ram_str = f"{format_number(free_ram_mb / 1024, 1)} GB" if free_ram_mb else "N/A"
+        yield f"Model: {format_number(model_size_mb / 1024, 1)} GB | VRAM: {vram_str} | RAM: {ram_str}"
 
-            # Check if model is larger than VRAM → Hybrid mode required
-            if model_size_mb > free_vram_mb:
-                yield f"⚠️ Model ({model_size_mb / 1024:.1f} GB) > VRAM ({free_vram_mb / 1024:.1f} GB)"
-                yield f"→ Hybrid mode: CPU offload required"
+        # Check if we can do hybrid mode detection
+        if model_size_mb == 0:
+            yield "⚠️ Model size unknown - using binary search"
+        elif free_vram_mb is None:
+            yield "⚠️ VRAM not measurable - using binary search"
+        elif model_size_mb > free_vram_mb:
+            # Model larger than VRAM → Hybrid mode with direct calculation
+            yield f"⚠️ Model ({format_number(model_size_mb / 1024, 1)} GB) > VRAM ({format_number(free_vram_mb / 1024, 1)} GB)"
+            yield f"→ Hybrid mode: CPU offload required"
 
-                # Check if model fits in VRAM + RAM (with minimum reserve)
-                total_available_mb = free_vram_mb + (free_ram_mb - RAM_RESERVE_MIN)
-                if model_size_mb > total_available_mb:
-                    yield f"❌ Model ({model_size_mb / 1024:.1f} GB) > available ({total_available_mb / 1024:.1f} GB)"
-                    yield f"❌ ABORT: Model too large for system"
-                    yield f"__RESULT__:0"
-                    return
+            # Check if model fits in VRAM + RAM
+            total_available_mb = free_vram_mb + free_ram_mb - RAM_RESERVE_MIN
+            if model_size_mb > total_available_mb:
+                yield f"❌ Model ({format_number(model_size_mb / 1024, 1)} GB) > available ({format_number(total_available_mb / 1024, 1)} GB)"
+                yield f"❌ ABORT: Model too large for system"
+                yield f"__RESULT__:0"
+                return
 
-                # Try loading with minimum context (2K)
-                yield f"→ Testing {fmt(HYBRID_MIN_CONTEXT)} tokens..."
+            # === DIRECT CALCULATION ===
+            # 1. Detect MoE vs Dense for correct ratio
+            is_moe = await is_moe_model(model, self.base_url)
+            ratio = VRAM_CONTEXT_RATIO_MOE if is_moe else VRAM_CONTEXT_RATIO_DENSE
+            model_type = "MoE" if is_moe else "Dense"
+            yield f"→ Model type: {model_type} → {format_number(ratio, 2)} MB/token"
+
+            # 2. Estimate RAM consumption after model load
+            model_in_ram_mb = model_size_mb - free_vram_mb
+            estimated_free_ram_after = free_ram_mb - model_in_ram_mb
+            yield f"→ Estimated RAM after load: {format_number(estimated_free_ram_after / 1024, 1)} GB"
+
+            # 3. Calculate dynamic reserve
+            dynamic_reserve = get_dynamic_ram_reserve(int(estimated_free_ram_after))
+            yield f"→ Dynamic reserve: {format_number(dynamic_reserve / 1024, 1)} GB"
+
+            # 4. Calculate max context
+            available_for_context = estimated_free_ram_after - dynamic_reserve
+            if available_for_context <= 0:
+                yield f"❌ Not enough RAM for context (need {format_number(dynamic_reserve / 1024, 1)} GB reserve)"
+                yield f"__RESULT__:0"
+                return
+
+            calculated_tokens = int(available_for_context / ratio)
+            calculated_ctx = min(calculated_tokens, max_target)
+            yield f"→ Calculated context: {format_number(calculated_ctx)} tokens"
+
+            # 5. Load with calculated context
+            yield f"→ Loading with {format_number(calculated_ctx)} tokens..."
+            success, _ = await self.preload_model(model, num_ctx=calculated_ctx)
+
+            if not success:
+                # Fallback: try minimum context
+                yield f"⚠️ Failed → Fallback to {format_number(HYBRID_MIN_CONTEXT)} tokens"
                 success, _ = await self.preload_model(model, num_ctx=HYBRID_MIN_CONTEXT)
-
                 if not success:
-                    yield f"❌ Loading with {fmt(HYBRID_MIN_CONTEXT)} tokens failed"
+                    yield f"❌ Even {format_number(HYBRID_MIN_CONTEXT)} tokens failed"
                     yield f"__RESULT__:0"
                     return
+                calculated_ctx = HYBRID_MIN_CONTEXT
 
-                await asyncio.sleep(2.0)
+            await asyncio.sleep(2.0)
 
-                # Check RAM after loading
-                ram_after_load = get_free_ram_mb()
-                if ram_after_load is None:
-                    yield f"❌ Could not measure RAM"
-                    yield f"__RESULT__:0"
-                    return
+            # 6. Fine-tuning: measure actual RAM and adjust
+            actual_free_ram = get_free_ram_mb()
+            if actual_free_ram is None:
+                yield f"⚠️ Could not measure RAM - keeping {format_number(calculated_ctx)} tokens"
+            else:
+                yield f"→ Actual RAM after load: {format_number(actual_free_ram / 1024, 1)} GB"
 
-                yield f"RAM after load: {ram_after_load / 1024:.1f} GB free"
+                difference_mb = actual_free_ram - dynamic_reserve
 
-                if ram_after_load < RAM_RESERVE_MIN:
-                    yield f"❌ Less than 2 GB RAM free → even 2K too large"
-                    await self.unload_all_models()
-                    yield f"__RESULT__:0"
-                    return
+                if difference_mb > 2048:  # More than 2 GB headroom
+                    # Try increasing context by 25%
+                    increase_ctx = int(calculated_ctx * 1.25)
+                    increase_ctx = min(increase_ctx, max_target)
 
-                # 2K works! Now determine dynamic reserve and step up
-                yield f"✅ {fmt(HYBRID_MIN_CONTEXT)} tokens OK"
-
-                # Calculate dynamic reserve based on available RAM
-                dynamic_reserve = get_dynamic_ram_reserve(ram_after_load)
-                yield f"Dynamic reserve: {dynamic_reserve / 1024:.1f} GB (based on {ram_after_load / 1024:.1f} GB free)"
-
-                # If RAM is very tight, stop at 2K
-                if ram_after_load < dynamic_reserve + 1024:  # Less than 1 GB headroom
-                    yield f"⚠️ RAM tight → staying at {fmt(HYBRID_MIN_CONTEXT)} tokens"
-                    final_ctx = HYBRID_MIN_CONTEXT
-                else:
-                    # Step up in 2K increments until RAM reserve is hit
-                    best_ctx = HYBRID_MIN_CONTEXT
-                    current_ctx = HYBRID_MIN_CONTEXT
-
-                    while True:
-                        next_ctx = current_ctx + HYBRID_STEP_SIZE
-
-                        # Don't exceed native context limit
-                        if next_ctx > max_target:
-                            yield f"→ Reached max target ({fmt(max_target)}), stopping"
-                            break
-
-                        yield f"→ Testing {fmt(next_ctx)} tokens..."
-
-                        # Unload and reload with new context
+                    if increase_ctx > calculated_ctx:
+                        yield f"→ Headroom detected - trying {format_number(increase_ctx)} tokens..."
                         await self.unload_all_models()
                         await asyncio.sleep(1.0)
 
-                        success, _ = await self.preload_model(model, num_ctx=next_ctx)
-
-                        if not success:
-                            yield f"⚠️ Loading {fmt(next_ctx)} failed → staying at {fmt(best_ctx)}"
-                            break
-
-                        await asyncio.sleep(2.0)
-
-                        # Check RAM
-                        ram_after = get_free_ram_mb()
-                        if ram_after is None:
-                            yield f"⚠️ RAM measurement failed → staying at {fmt(best_ctx)}"
-                            break
-
-                        yield f"   RAM: {ram_after / 1024:.1f} GB free (reserve: {dynamic_reserve / 1024:.1f} GB)"
-
-                        if ram_after >= dynamic_reserve:
-                            best_ctx = next_ctx
-                            current_ctx = next_ctx
-                            yield f"✅ {fmt(next_ctx)} tokens OK"
+                        success, _ = await self.preload_model(model, num_ctx=increase_ctx)
+                        if success:
+                            await asyncio.sleep(2.0)
+                            verify_ram = get_free_ram_mb()
+                            if verify_ram and verify_ram >= dynamic_reserve:
+                                calculated_ctx = increase_ctx
+                                yield f"✅ Increased to {format_number(calculated_ctx)} tokens"
+                            else:
+                                yield f"⚠️ {format_number(increase_ctx)} too tight - reverting"
+                                await self.unload_all_models()
+                                await asyncio.sleep(1.0)
+                                await self.preload_model(model, num_ctx=calculated_ctx)
                         else:
-                            yield f"⚠️ {fmt(next_ctx)}: RAM below reserve → staying at {fmt(best_ctx)}"
-                            break
+                            yield f"⚠️ Increase failed - keeping {format_number(calculated_ctx)} tokens"
+                            await self.preload_model(model, num_ctx=calculated_ctx)
 
-                    final_ctx = best_ctx
+                elif difference_mb < 0:  # Below reserve
+                    # Reduce context by 25%
+                    reduce_ctx = int(calculated_ctx * 0.75)
+                    reduce_ctx = max(reduce_ctx, HYBRID_MIN_CONTEXT)
 
-                # Save calibration result
-                gpu_model = get_gpu_model_name() or "Unknown"
+                    yield f"⚠️ Below reserve - reducing to {format_number(reduce_ctx)} tokens..."
+                    await self.unload_all_models()
+                    await asyncio.sleep(1.0)
+
+                    success, _ = await self.preload_model(model, num_ctx=reduce_ctx)
+                    if success:
+                        calculated_ctx = reduce_ctx
+                    else:
+                        yield f"❌ Reduction failed"
+                        yield f"__RESULT__:0"
+                        return
+
+            final_ctx = calculated_ctx
+
+            # Save calibration result
+            gpu_model = get_gpu_model_name() or "Unknown"
+            add_ollama_calibration(
+                model_name=model,
+                max_context_gpu_only=final_ctx,
+                native_context=native_ctx,
+                gpu_model=gpu_model,
+                extended=extended
+            )
+
+            yield f"✅ Hybrid mode: {format_number(final_ctx)} tokens saved"
+
+            # Also save extended value (hybrid mode = same limit for both)
+            if not extended:
                 add_ollama_calibration(
                     model_name=model,
                     max_context_gpu_only=final_ctx,
                     native_context=native_ctx,
                     gpu_model=gpu_model,
-                    extended=extended
+                    extended=True
                 )
+                yield f"ℹ️ RoPE 2x auto-set to {format_number(final_ctx)} (hybrid mode)"
 
-                yield f"✅ Hybrid mode: {fmt(final_ctx)} tokens saved"
-
-                # Also save extended value (hybrid mode = same limit for both)
-                if not extended:
-                    add_ollama_calibration(
-                        model_name=model,
-                        max_context_gpu_only=final_ctx,
-                        native_context=native_ctx,
-                        gpu_model=gpu_model,
-                        extended=True
-                    )
-                    yield f"ℹ️ RoPE 2x auto-set to {fmt(final_ctx)} (hybrid mode)"
-
-                yield f"__RESULT__:{final_ctx}"
-                return  # Skip normal binary search
+            yield f"__RESULT__:{final_ctx}"
+            return  # Skip normal binary search
 
         # === NORMAL MODE (model fits in VRAM) ===
         # 3. First try: max target (often fits, saves binary search)
-        yield f"[1] Testing {fmt(max_target)}..."
+        yield f"[1] Testing {format_number(max_target)}..."
         success, _ = await self.preload_model(model, num_ctx=max_target)
         if success:
             await asyncio.sleep(1.5)
             if await self._is_fully_in_vram(model):
-                yield f"✓ {fmt(max_target)} fits in VRAM"
+                yield f"✓ {format_number(max_target)} fits in VRAM"
                 result = max_target
                 # Skip binary search - go directly to save
                 low = max_target
                 high = max_target
             else:
-                yield f"✗ {fmt(max_target)} too large, starting binary search..."
+                yield f"✗ {format_number(max_target)} too large, starting binary search..."
                 low = CALIBRATION_MIN_CONTEXT
                 high = max_target
                 result = low
@@ -1054,7 +1067,7 @@ class OllamaBackend(LLMBackend):
         # 4. Binary search (only if max target didn't fit)
         if low != high:
             granularity = 4096  # Start with 4k steps
-            yield f"Binary search range: {fmt(low)} → {fmt(high)} tok"
+            yield f"Binary search range: {format_number(low)} → {format_number(high)} tok"
 
             iteration = 1  # Already did iteration 1 with max target
             consecutive_fast_fails = 0  # Track rapid failures (system instability)
@@ -1070,7 +1083,7 @@ class OllamaBackend(LLMBackend):
 
                 mid = ((low + high) // 2 // granularity) * granularity  # Align to granularity
 
-                yield f"[{iteration}] Testing {fmt(mid)}..."
+                yield f"[{iteration}] Testing {format_number(mid)}..."
 
                 # Load model with test context
                 import time
@@ -1079,7 +1092,7 @@ class OllamaBackend(LLMBackend):
                 elapsed = time.time() - start_time
 
                 if not success:
-                    yield f"⚠️ Preload failed at {fmt(mid)}"
+                    yield f"⚠️ Preload failed at {format_number(mid)}"
                     high = mid
 
                     # Detect rapid consecutive failures (< 2 sec each = system unstable)
@@ -1101,7 +1114,7 @@ class OllamaBackend(LLMBackend):
                             # Restart with lower ceiling if original was very high
                             if high > RECOVERY_THRESHOLD:
                                 high = RECOVERY_THRESHOLD
-                                yield f"🔄 Restarting search with ceiling {fmt(high)}"
+                                yield f"🔄 Restarting search with ceiling {format_number(high)}"
 
                             consecutive_fast_fails = 0
                     else:
@@ -1119,10 +1132,10 @@ class OllamaBackend(LLMBackend):
                 if await self._is_fully_in_vram(model):
                     result = mid
                     low = mid
-                    yield f"✓ {fmt(mid)} fits in VRAM"
+                    yield f"✓ {format_number(mid)} fits in VRAM"
                 else:
                     high = mid
-                    yield f"✗ {fmt(mid)} → CPU offload"
+                    yield f"✗ {format_number(mid)} → CPU offload"
 
             # Unload for next iteration
             await self.unload_all_models()
@@ -1131,7 +1144,7 @@ class OllamaBackend(LLMBackend):
         # 4. Result (no safety buffer - Ollama handles memory management internally)
         final_ctx = result
 
-        yield f"✅ Calibrated ({mode_label}): {fmt(final_ctx)} tok"
+        yield f"✅ Calibrated ({mode_label}): {format_number(final_ctx)} tok"
 
         # 5. Save to cache
         gpu_model = get_gpu_model_name() or "Unknown"
@@ -1154,8 +1167,8 @@ class OllamaBackend(LLMBackend):
                 gpu_model=gpu_model,
                 extended=True  # Also save as extended value
             )
-            yield f"ℹ️ VRAM-limited ({fmt(final_ctx)} < {fmt(native_ctx)} native)"
-            yield f"   → RoPE 2x auto-set to {fmt(final_ctx)} (no benefit from scaling)"
+            yield f"ℹ️ VRAM-limited ({format_number(final_ctx)} < {format_number(native_ctx)} native)"
+            yield f"   → RoPE 2x auto-set to {format_number(final_ctx)} (no benefit from scaling)"
 
         # Final yield with result marker
         yield f"__RESULT__:{final_ctx}"

@@ -157,17 +157,21 @@ def get_dynamic_ram_reserve(free_ram_mb: int) -> int:
     """
     Calculate dynamic RAM reserve based on available RAM.
 
-    More RAM available = larger reserve to prevent swapping.
+    More RAM available = larger reserve for comfort and stability.
     Less RAM available = smaller reserve to maximize usability.
 
     Args:
         free_ram_mb: Currently free RAM in MB
 
     Returns:
-        int: RAM reserve in MB (2048-4096)
+        int: RAM reserve in MB (2048-8192)
     """
-    if free_ram_mb >= 8192:  # 8+ GB free
-        return 4096  # 4 GB reserve (comfort)
+    if free_ram_mb >= 32768:  # 32+ GB free
+        return 8192  # 8 GB reserve (very comfortable)
+    elif free_ram_mb >= 16384:  # 16-32 GB free
+        return 6144  # 6 GB reserve
+    elif free_ram_mb >= 8192:  # 8-16 GB free
+        return 4096  # 4 GB reserve
     elif free_ram_mb >= 4096:  # 4-8 GB free
         return 3072  # 3 GB reserve
     else:  # < 4 GB free
