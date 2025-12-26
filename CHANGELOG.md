@@ -37,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Diskussionsmodus-Info verbessert** ([i18n.py](aifred/lib/i18n.py)):
   - Auto-Konsens Text erweitert: "LGTM (Looks Good To Me)"
+  - Icon von 🤝 auf 💬 geändert (bessere Darstellung)
+
+- **Settings-Bereich aufgeräumt** ([aifred.py](aifred/aifred.py), [i18n.py](aifred/lib/i18n.py)):
+  - Selbsterklärende Hinweistexte entfernt (F5/Browser, Button/Grundeinstellungen)
+  - Neustart-Infos vereinfacht mit 💡 Icon
+  - Backend: "Entlädt Models aus VRAM"
+  - AIfred: "Debug-Logs werden geleert, Sessions bleiben erhalten"
 
 ---
 

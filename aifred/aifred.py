@@ -512,10 +512,10 @@ def text_input_section() -> rx.Component:
             ),
             rx.radio(
                 [
-                    rx.cond(AIState.ui_language == "de", "🤖 Automatik (KI entscheidet)", "🤖 Automatic (AI decides)"),
-                    rx.cond(AIState.ui_language == "de", "🧠 Eigenes Wissen (schnell)", "🧠 Own Knowledge (fast)"),
+                    rx.cond(AIState.ui_language == "de", "✨ Automatik (KI entscheidet)", "✨ Automatic (AI decides)"),
+                    rx.cond(AIState.ui_language == "de", "💡 Eigenes Wissen (schnell)", "💡 Own Knowledge (fast)"),
                     rx.cond(AIState.ui_language == "de", "⚡ Web-Suche Schnell (3 beste)", "⚡ Web Search Quick (3 best)"),
-                    rx.cond(AIState.ui_language == "de", "🔍 Web-Suche Ausführlich (7 beste)", "🔍 Web Search Detailed (7 best)")
+                    rx.cond(AIState.ui_language == "de", "🌍 Web-Suche Ausführlich (7 beste)", "🌍 Web Search Detailed (7 best)")
                 ],
                 value=AIState.research_mode_display,
                 on_change=AIState.set_research_mode_display,
@@ -2957,61 +2957,19 @@ def settings_accordion() -> rx.Component:
                     spacing="2",
                     width="100%",
                 ),
-                # Info Text for Settings Reset
+                # Neustart-Info Texte
                 rx.vstack(
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "ℹ️ F5 / Browser neu laden: Lädt gespeicherte Einstellungen",
-                            "ℹ️ F5 / Reload browser: Loads saved settings"
-                        ),
+                        t("backend_restart_info"),
                         font_size="10px",
                         color=COLORS["text_secondary"],
-                        font_style="italic",
                     ),
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "ℹ️ Button: Lädt Standard-Grundeinstellungen (config.py)",
-                            "ℹ️ Button: Loads default settings (config.py)"
-                        ),
+                        t("aifred_restart_info"),
                         font_size="10px",
                         color=COLORS["text_secondary"],
-                        font_style="italic",
                     ),
                     spacing="1",
-                    width="100%",
-                ),
-                rx.vstack(
-                    rx.text(
-                        rx.cond(
-                            AIState.backend_type == "ollama",
-                            t("ollama_restart_info"),
-                            rx.cond(
-                                AIState.backend_type == "vllm",
-                                t("vllm_restart_info"),
-                                t("backend_restart_info")
-                            )
-                        ),
-                        font_size="11px",
-                        color="#d4913d",  # Dunkles Orange - gut lesbar
-                        line_height="1.5",
-                    ),
-                    rx.text(
-                        t("chat_preserved"),
-                        font_size="10px",
-                        color="#a67a30",  # Etwas dunkler für Zusatzinfo
-                        line_height="1.3",
-                        margin_top="-2px",  # Näher an die Zeile darüber
-                        margin_left="16px",  # Eingerückt
-                    ),
-                    rx.text(
-                        t("aifred_restart_warning"),
-                        font_size="11px",
-                        color="#d4913d",  # Dunkles Orange - gut lesbar
-                        line_height="1.5",
-                    ),
-                    spacing="2",
                     width="100%",
                 ),
 

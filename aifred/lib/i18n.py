@@ -14,31 +14,31 @@ class TranslationManager:
     # Research mode mappings (separate from translations for type safety)
     _research_mode_maps: Dict[str, Dict[str, str]] = {
         "de": {
-            "🧠 Eigenes Wissen (schnell)": "none",
+            "💡 Eigenes Wissen (schnell)": "none",
             "⚡ Web-Suche Schnell (3 beste)": "quick",
-            "🔍 Web-Suche Ausführlich (7 beste)": "deep",
-            "🤖 Automatik (KI entscheidet)": "automatik"
+            "🌍 Web-Suche Ausführlich (7 beste)": "deep",
+            "✨ Automatik (KI entscheidet)": "automatik"
         },
         "en": {
-            "🧠 Own Knowledge (fast)": "none",
+            "💡 Own Knowledge (fast)": "none",
             "⚡ Web Search Quick (3 best)": "quick",
-            "🔍 Web Search Detailed (7 best)": "deep",
-            "🤖 Automatic (AI decides)": "automatik"
+            "🌍 Web Search Detailed (7 best)": "deep",
+            "✨ Automatic (AI decides)": "automatik"
         }
     }
 
     _reverse_research_mode_maps: Dict[str, Dict[str, str]] = {
         "de": {
-            "none": "🧠 Eigenes Wissen (schnell)",
+            "none": "💡 Eigenes Wissen (schnell)",
             "quick": "⚡ Web-Suche Schnell (3 beste)",
-            "deep": "🔍 Web-Suche Ausführlich (7 beste)",
-            "automatik": "🤖 Automatik (KI entscheidet)"
+            "deep": "🌍 Web-Suche Ausführlich (7 beste)",
+            "automatik": "✨ Automatik (KI entscheidet)"
         },
         "en": {
-            "none": "🧠 Own Knowledge (fast)",
+            "none": "💡 Own Knowledge (fast)",
             "quick": "⚡ Web Search Quick (3 best)",
-            "deep": "🔍 Web Search Detailed (7 best)",
-            "automatik": "🤖 Automatic (AI decides)"
+            "deep": "🌍 Web Search Detailed (7 best)",
+            "automatik": "✨ Automatic (AI decides)"
         }
     }
 
@@ -52,11 +52,11 @@ class TranslationManager:
             "tip_automatic_transcription": "💡 Tipp: Nach dem Stoppen läuft automatisch die Transkription",
             "text_input": "⌨️ Texteingabe",
             "enter_your_question": "Oder schreibe hier deine Frage...",
-            "research_mode": "🎯 Recherche-Modus",
-            "research_mode_auto": "🤖 Automatik (KI entscheidet)",
-            "research_mode_none": "🧠 Eigenes Wissen (schnell)",
+            "research_mode": "🔎 Recherche-Modus",
+            "research_mode_auto": "✨ Automatik (KI entscheidet)",
+            "research_mode_none": "💡 Eigenes Wissen (schnell)",
             "research_mode_quick": "⚡ Web-Suche Schnell (3 beste)",
-            "research_mode_deep": "🔍 Web-Suche Ausführlich (7 beste)",
+            "research_mode_deep": "🌍 Web-Suche Ausführlich (7 beste)",
             "choose_research_mode": "💡 Wähle, wie der Assistant Fragen beantwortet",
             "send_text": "💬 Text senden",
             "clear_chat": "🗑️ Chat löschen",
@@ -97,7 +97,7 @@ class TranslationManager:
             
             # Settings
             "settings": "⚙️ Einstellungen",
-            "ui_language": "🌐 UI Sprache:",
+            "ui_language": "🌍 UI Sprache:",
             "backend": "Backend:",
             "main_llm": "Haupt-LLM:",
             "automatic_llm": "Automatik-LLM:",
@@ -106,11 +106,8 @@ class TranslationManager:
             "restart_ollama": "🔄 Ollama Neustart",
             "restart_vllm": "🔄 vLLM Neustart",
             "restart_aifred": "🔄 AIfred Neustart",
-            "ollama_restart_info": "ℹ️ Neustart: Stoppt laufende Generierungen, lädt Models neu",
-            "vllm_restart_info": "ℹ️ Neustart: Stoppt vLLM Server, startet neu mit gewähltem Modell",
-            "backend_restart_info": "ℹ️ Neustart: Startet Backend neu",
-            "chat_preserved": "(Chats bleiben erhalten)",
-            "aifred_restart_warning": "⚠️ AIfred-Neustart: Löscht ALLE Chats, Caches und Debug-Logs komplett!",
+            "backend_restart_info": "💡 Backend-Neustart: Entlädt Models aus VRAM",
+            "aifred_restart_info": "💡 AIfred-Neustart: Debug-Logs werden geleert, Sessions bleiben erhalten",
             
             # Main Page
             "aifred_intelligence": "🎩 AIfred Intelligence",
@@ -125,7 +122,7 @@ class TranslationManager:
             "clear_all": "Alle löschen",
             "transcription_edit": "Transkription bearbeiten:",
             "text_edit": "✏️ Text editieren",
-            "text_direct": "🚀 Direkt senden",
+            "text_direct": "⚡ Direkt senden",
             "image_hint": "💡 Ziehe Bilder auf den Button oder klicke zum Auswählen",
             "crop_tooltip": "Zuschneiden",
             # Text Input (Phase 2)
@@ -133,7 +130,7 @@ class TranslationManager:
             "text_input_placeholder": "Schreibe hier deine Frage...",
             "temperature_label": "🌡️ Temperature:",
             "temp_mode_manual": "✋ Manual",
-            "temp_mode_auto": "🤖 Auto",
+            "temp_mode_auto": "✨ Auto",
             "temp_info_manual": "Slider-Wert wird verwendet",
             "temp_info_auto": "Intent-Detection wählt optimale Temperature",
             # TTS/STT Settings (Phase 3)
@@ -158,7 +155,7 @@ class TranslationManager:
             "multi_agent_auto_consensus": "Auto-Konsens",
             "multi_agent_devils_advocate": "Advocatus Diaboli",
             # Multi-Agent Mode Descriptions
-            "multi_agent_mode": "🤝 Diskussionsmodus",
+            "multi_agent_mode": "💬 Diskussionsmodus",
             "multi_agent_info_standard": "💡 Nur AIfred antwortet (klassisches Verhalten)",
             "multi_agent_info_user_judge": "💡 AIfred antwortet, Sokrates kritisiert, du entscheidest (Reasoning empfohlen)",
             "multi_agent_info_auto_consensus": "💡 Sokrates prüft bis LGTM (Looks Good To Me) – Reasoning empfohlen",
@@ -178,7 +175,7 @@ class TranslationManager:
             "tts_player_label": "Sprachausgabe",
             "tts_regenerate_hint": "Klicke 'Neu generieren' um die letzte Antwort vorzulesen",
             # Vision & Advanced Settings (Phase 4)
-            "thinking_mode_label": "🧠 Reasoning Mode:",
+            "thinking_mode_label": "🔗 Reasoning Mode:",
             "thinking_mode_info": "ℹ️ Chain-of-Thought Reasoning für komplexe Aufgaben",
             "thinking_mode_unavailable": "⚠️ Nicht verfügbar für",
             "yarn_heading": "📏 YaRN Context Extension:",
@@ -206,11 +203,11 @@ class TranslationManager:
             "tip_automatic_transcription": "💡 Tip: Automatic transcription runs after stopping",
             "text_input": "⌨️ Text Input",
             "enter_your_question": "Or write your question here...",
-            "research_mode": "🎯 Research Mode",
-            "research_mode_auto": "🤖 Automatic (AI decides)",
-            "research_mode_none": "🧠 Own Knowledge (fast)",
+            "research_mode": "🔎 Research Mode",
+            "research_mode_auto": "✨ Automatic (AI decides)",
+            "research_mode_none": "💡 Own Knowledge (fast)",
             "research_mode_quick": "⚡ Web Search Quick (3 best)",
-            "research_mode_deep": "🔍 Web Search Detailed (7 best)",
+            "research_mode_deep": "🌍 Web Search Detailed (7 best)",
             "choose_research_mode": "💡 Choose how the assistant answers questions",
             "send_text": "💬 Send Text",
             "clear_chat": "🗑️ Clear Chat",
@@ -251,7 +248,7 @@ class TranslationManager:
             
             # Settings
             "settings": "⚙️ Settings",
-            "ui_language": "🌐 UI Language:",
+            "ui_language": "🌍 UI Language:",
             "backend": "Backend:",
             "main_llm": "Main LLM:",
             "automatic_llm": "Automatic LLM:",
@@ -260,11 +257,8 @@ class TranslationManager:
             "restart_ollama": "🔄 Ollama Restart",
             "restart_vllm": "🔄 vLLM Restart",
             "restart_aifred": "🔄 AIfred Restart",
-            "ollama_restart_info": "ℹ️ Restart: Stops ongoing generations, reloads models",
-            "vllm_restart_info": "ℹ️ Restart: Stops vLLM server, restarts with selected model",
-            "backend_restart_info": "ℹ️ Restart: Restarts backend",
-            "chat_preserved": "(Chats are preserved)",
-            "aifred_restart_warning": "⚠️ AIfred restart: Deletes ALL chats, caches and debug logs completely!",
+            "backend_restart_info": "💡 Backend restart: Unloads models from VRAM",
+            "aifred_restart_info": "💡 AIfred restart: Debug logs cleared, sessions preserved",
             
             # Main Page
             "aifred_intelligence": "🎩 AIfred Intelligence",
@@ -279,7 +273,7 @@ class TranslationManager:
             "clear_all": "Clear All",
             "transcription_edit": "Edit transcription:",
             "text_edit": "✏️ Edit text",
-            "text_direct": "🚀 Send directly",
+            "text_direct": "⚡ Send directly",
             "image_hint": "💡 Drag images to the button or click to select",
             "crop_tooltip": "Crop",
             # Text Input (Phase 2)
@@ -287,7 +281,7 @@ class TranslationManager:
             "text_input_placeholder": "Write your question here...",
             "temperature_label": "🌡️ Temperature:",
             "temp_mode_manual": "✋ Manual",
-            "temp_mode_auto": "🤖 Auto",
+            "temp_mode_auto": "✨ Auto",
             "temp_info_manual": "Slider value is used",
             "temp_info_auto": "Intent-Detection chooses optimal temperature",
             # TTS/STT Settings (Phase 3)
@@ -312,7 +306,7 @@ class TranslationManager:
             "multi_agent_auto_consensus": "Auto-Consensus",
             "multi_agent_devils_advocate": "Devil's Advocate",
             # Multi-Agent Mode Descriptions
-            "multi_agent_mode": "🤝 Discussion Mode",
+            "multi_agent_mode": "💬 Discussion Mode",
             "multi_agent_info_standard": "💡 Only AIfred answers (classic behavior)",
             "multi_agent_info_user_judge": "💡 AIfred answers, Sokrates critiques, you decide (Reasoning recommended)",
             "multi_agent_info_auto_consensus": "💡 Sokrates reviews until LGTM (Looks Good To Me) – Reasoning recommended",
@@ -332,7 +326,7 @@ class TranslationManager:
             "tts_player_label": "Text-to-Speech",
             "tts_regenerate_hint": "Click 'Regenerate' to read the last response aloud",
             # Vision & Advanced Settings (Phase 4)
-            "thinking_mode_label": "🧠 Reasoning Mode:",
+            "thinking_mode_label": "🔗 Reasoning Mode:",
             "thinking_mode_info": "ℹ️ Chain-of-Thought Reasoning for complex tasks",
             "thinking_mode_unavailable": "⚠️ Not available for",
             "yarn_heading": "📏 YaRN Context Extension:",
@@ -439,7 +433,7 @@ class TranslationManager:
         reverse_mode_map = TranslationManager._reverse_research_mode_maps.get(lang, {})
 
         # Return the display text or default to automatik display
-        return reverse_mode_map.get(mode_value, "🤖 Automatic (AI decides)")
+        return reverse_mode_map.get(mode_value, "✨ Automatic (AI decides)")
 
 
 # Convenience function
