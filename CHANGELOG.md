@@ -5,6 +5,41 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.5] - 2025-12-26
+
+### 🎨 UI/UX Improvements
+
+**UI-Optimierungen: Kompakteres Layout, Info-Tooltips, User-Name in Einstellungen verschoben.**
+
+#### Added
+
+- **Info-Tooltips mit Hover-Cards** ([aifred.py](aifred/aifred.py)):
+  - Erklärungstexte durch Info-Icons (ℹ️) ersetzt
+  - Hover zeigt Hilfetext im Dark-Mode Stil
+  - Auf Mobile ausgeblendet (kein Hover möglich)
+  - Betrifft: Bild-Upload Hint, Recherche-Modus, Diskussionsmodus
+
+- **Separate Context Window für Sokrates** ([state.py](aifred/state.py), [multi_agent.py](aifred/lib/multi_agent.py)):
+  - Neues Feld `num_ctx_manual_sokrates` im Manual-Modus
+  - Zwei Input-Felder nebeneinander im LLM-Parameter Accordion
+  - Sokrates kann anderen Context als AIfred haben
+
+#### Changed
+
+- **User-Name Input verschoben** ([aifred.py](aifred/aifred.py)):
+  - Von Button-Zeile in Einstellungen verschoben
+  - Jetzt neben UI-Sprache Dropdown
+  - Behält orangenes Styling
+
+- **LLM-Parameter Accordion kompakter** ([aifred.py](aifred/aifred.py)):
+  - Neben Diskussionsmodus-Dropdown positioniert
+  - Höhe reduziert, Select-ähnliches Styling
+
+- **Diskussionsmodus-Info verbessert** ([i18n.py](aifred/lib/i18n.py)):
+  - Auto-Konsens Text erweitert: "LGTM (Looks Good To Me)"
+
+---
+
 ## [2.10.4] - 2025-12-25
 
 ### 🌡️ Temperature Control Refactoring
