@@ -458,7 +458,16 @@ async def run_sokrates_analysis(
             sokrates_num_ctx = state.num_ctx_manual_sokrates if state.num_ctx_manual_sokrates else 4096
             state.add_debug(f"🔧 Manual num_ctx: AIfred={main_llm_ctx:,}, Sokrates={sokrates_num_ctx:,}")
         else:
-            # Auto mode: Calculate VRAM limit for Sokrates model
+            # Auto mode: Get AIfred's limit FIRST (before Sokrates calculation could overwrite)
+            # Try aifred_limit first, fall back to general limit
+            aifred_cached = _last_vram_limit_cache.get("aifred_limit", 0)
+            if aifred_cached == 0:
+                aifred_cached = _last_vram_limit_cache.get("limit", 0)
+            main_llm_ctx = aifred_cached if aifred_cached > 0 else 32768
+            if aifred_cached == 0:
+                state.add_debug("⚠️ No cached AIfred VRAM limit found, using fallback 32K")
+
+            # THEN calculate VRAM limit for Sokrates model
             sokrates_num_ctx, sokrates_vram_msgs = await calculate_dynamic_num_ctx(
                 llm_client, sokrates_model, [], None,
                 enable_vram_limit=True
@@ -466,18 +475,14 @@ async def run_sokrates_analysis(
             for vram_msg in sokrates_vram_msgs:
                 state.add_debug(f"   {vram_msg}")  # Indent to show it's for Sokrates
 
-            # Get cached limit from AIfred's inference (set during chat_interactive_mode)
-            cached_limit = _last_vram_limit_cache.get("limit", 0)
-            main_llm_ctx = cached_limit if cached_limit > 0 else 32768
-            if cached_limit == 0:
-                state.add_debug("⚠️ No cached VRAM limit found, using fallback 32K")
+        # Store separate limits for each agent
+        _last_vram_limit_cache["aifred_limit"] = main_llm_ctx
+        _last_vram_limit_cache["sokrates_limit"] = sokrates_num_ctx
 
-        # Update global cache with MINIMUM of both context limits
-        # This ensures history compression uses the smallest window
+        # Update global limit with MINIMUM of both (for history compression)
         min_ctx = min(sokrates_num_ctx, main_llm_ctx)
-        if min_ctx < _last_vram_limit_cache.get("limit", float('inf')):
-            _last_vram_limit_cache["limit"] = min_ctx
-            state.add_debug(f"📉 Context limit for compression: {format_number(min_ctx)} tokens (min of AIfred/Sokrates)")
+        _last_vram_limit_cache["limit"] = min_ctx
+        state.add_debug(f"📊 Context limits: AIfred={format_number(main_llm_ctx)}, Sokrates={format_number(sokrates_num_ctx)}, Compression={format_number(min_ctx)}")
 
         # Calculate temperatures based on mode
         if state.temperature_mode == "manual":
