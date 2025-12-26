@@ -331,29 +331,6 @@ def image_upload_section() -> rx.Component:
                 padding="0",
             ),
 
-            # User Name Input (for personalized responses)
-            # Subtle Orange style with user icon, matching other buttons
-            rx.box(
-                rx.icon("user", size=18, color="#B8860B"),
-                rx.input(
-                    placeholder=t("your_name"),
-                    value=AIState.user_name,
-                    on_change=AIState.set_user_name,
-                    on_blur=AIState.save_user_name,
-                    size="3",
-                    width="110px",
-                    style={"height": "48px"},
-                    class_name="username-input-subtle",
-                ),
-                display="flex",
-                align_items="center",
-                gap="6px",
-                background_color="rgba(204, 136, 0, 0.15)",
-                border_radius="8px",
-                padding_left="10px",
-                height="48px",
-            ),
-
             # Clear button (only show if images present)
             rx.cond(
                 AIState.pending_images.length() > 0,
@@ -366,6 +343,28 @@ def image_upload_section() -> rx.Component:
                     padding_y="24px",
                     on_click=AIState.clear_pending_images,
                 )
+            ),
+
+            # Info-Icon mit Hover-Card für Drag & Drop Hint (nur Desktop)
+            rx.cond(
+                AIState.is_mobile,
+                rx.fragment(),
+                rx.hover_card.root(
+                    rx.hover_card.trigger(
+                        rx.icon("info", size=16, color=COLORS["text_secondary"], cursor="help"),
+                    ),
+                    rx.hover_card.content(
+                        rx.text(t("image_hint"), font_size="12px", color=COLORS["text_primary"]),
+                        side="top",
+                        style={
+                            "background": COLORS["card_bg"],
+                            "border": f"1px solid {COLORS['border']}",
+                            "border_radius": "8px",
+                            "padding": "8px 12px",
+                            "box_shadow": "0 4px 12px rgba(0,0,0,0.4)",
+                        },
+                    ),
+                ),
             ),
 
             spacing="2",
@@ -398,15 +397,6 @@ def image_upload_section() -> rx.Component:
             align="center",
             margin_top="8px",
             margin_bottom="4px",
-        ),
-
-        # Row 3: Hint text - linksbündig
-        rx.text(
-            t("image_hint"),
-            font_size="11px",
-            color=COLORS["text_muted"],
-            width="100%",
-            text_align="left",  # Linksbündig
         ),
 
         # Row 3: Image previews (only if images present) - linksbündig
@@ -494,7 +484,32 @@ def text_input_section() -> rx.Component:
 
         # Research Mode Radio Buttons
         rx.vstack(
-            rx.text(t("research_mode"), font_weight="bold", font_size="12px"),
+            rx.hstack(
+                rx.text(t("research_mode"), font_weight="bold", font_size="12px"),
+                # Info-Icon mit Hover-Card (nur Desktop) - in Header-Zeile
+                rx.cond(
+                    AIState.is_mobile,
+                    rx.fragment(),
+                    rx.hover_card.root(
+                        rx.hover_card.trigger(
+                            rx.icon("info", size=14, color=COLORS["text_secondary"], cursor="help"),
+                        ),
+                        rx.hover_card.content(
+                            rx.text(t("choose_research_mode"), font_size="12px", color=COLORS["text_primary"]),
+                            side="top",
+                            style={
+                                "background": COLORS["card_bg"],
+                                "border": f"1px solid {COLORS['border']}",
+                                "border_radius": "8px",
+                                "padding": "8px 12px",
+                                "box_shadow": "0 4px 12px rgba(0,0,0,0.4)",
+                            },
+                        ),
+                    ),
+                ),
+                spacing="2",
+                align="center",
+            ),
             rx.radio(
                 [
                     rx.cond(AIState.ui_language == "de", "🤖 Automatik (KI entscheidet)", "🤖 Automatic (AI decides)"),
@@ -506,85 +521,105 @@ def text_input_section() -> rx.Component:
                 on_change=AIState.set_research_mode_display,
                 spacing="2",
             ),
-            rx.text(
-                t("choose_research_mode"),
-                font_size="12px",
-                color=COLORS["text_secondary"],
-            ),
             width="100%",
         ),
 
-        # Multi-Agent Mode Dropdown
-        rx.vstack(
-            rx.text(t("multi_agent_mode"), font_weight="bold", font_size="12px"),
-            rx.hstack(
-                rx.cond(
-                    AIState.is_mobile,
-                    # MOBILE: Native HTML <select>
-                    native_select_generic(
-                        AIState.multi_agent_mode,
-                        AIState.set_multi_agent_mode,
-                        AIState.multi_agent_mode_options,
+        # Multi-Agent Mode + LLM Parameters Row
+        rx.hstack(
+            # Left: Multi-Agent Mode Dropdown
+            rx.vstack(
+                rx.text(t("multi_agent_mode"), font_weight="bold", font_size="12px"),
+                rx.hstack(
+                    rx.cond(
+                        AIState.is_mobile,
+                        # MOBILE: Native HTML <select>
+                        native_select_generic(
+                            AIState.multi_agent_mode,
+                            AIState.set_multi_agent_mode,
+                            AIState.multi_agent_mode_options,
+                        ),
+                        # DESKTOP: Radix UI Select
+                        rx.select.root(
+                            rx.select.trigger(placeholder="Modus wählen..."),
+                            rx.select.content(
+                                rx.select.item(
+                                    rx.cond(AIState.ui_language == "de", "Standard", "Standard"),
+                                    value="standard"
+                                ),
+                                rx.select.item(
+                                    rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review"),
+                                    value="user_judge"
+                                ),
+                                rx.select.item(
+                                    rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto-Consensus"),
+                                    value="auto_consensus"
+                                ),
+                                rx.select.item(
+                                    rx.cond(AIState.ui_language == "de", "Advocatus Diaboli", "Devil's Advocate"),
+                                    value="devils_advocate"
+                                ),
+                            ),
+                            value=AIState.multi_agent_mode,
+                            on_change=AIState.set_multi_agent_mode,
+                        ),
                     ),
-                    # DESKTOP: Radix UI Select
-                    rx.select.root(
-                        rx.select.trigger(placeholder="Modus wählen..."),
-                        rx.select.content(
-                            rx.select.item(
-                                rx.cond(AIState.ui_language == "de", "Standard", "Standard"),
-                                value="standard"
+                    # Info-Icon mit Hover-Card (nur Desktop)
+                    rx.cond(
+                        AIState.is_mobile,
+                        rx.fragment(),  # Mobile: nichts anzeigen
+                        rx.hover_card.root(
+                            rx.hover_card.trigger(
+                                rx.icon("info", size=14, color=COLORS["text_secondary"], cursor="help"),
                             ),
-                            rx.select.item(
-                                rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review"),
-                                value="user_judge"
-                            ),
-                            rx.select.item(
-                                rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto-Consensus"),
-                                value="auto_consensus"
-                            ),
-                            rx.select.item(
-                                rx.cond(AIState.ui_language == "de", "Advocatus Diaboli", "Devil's Advocate"),
-                                value="devils_advocate"
+                            rx.hover_card.content(
+                                rx.text(AIState.multi_agent_mode_info, font_size="12px", color=COLORS["text_primary"]),
+                                side="top",
+                                style={
+                                    "background": COLORS["card_bg"],
+                                    "border": f"1px solid {COLORS['border']}",
+                                    "border_radius": "8px",
+                                    "padding": "8px 12px",
+                                    "box_shadow": "0 4px 12px rgba(0,0,0,0.4)",
+                                },
                             ),
                         ),
-                        value=AIState.multi_agent_mode,
-                        on_change=AIState.set_multi_agent_mode,
                     ),
-                ),
-                rx.text(
-                    AIState.multi_agent_mode_info,
-                    font_size="11px",
-                    color=COLORS["text_secondary"],
-                ),
-                spacing="3",
-                align="center",
-                width="100%",
-            ),
-            # Max Debate Rounds Slider (only visible for "auto_consensus" mode)
-            rx.cond(
-                AIState.multi_agent_mode == "auto_consensus",
-                rx.hstack(
-                    rx.text(t("max_debate_rounds"), font_size="11px"),
-                    rx.text(
-                        AIState.max_debate_rounds,
-                        font_size="11px",
-                        font_weight="bold",
-                        color=COLORS["primary"],
-                    ),
-                    rx.slider(
-                        value=[AIState.max_debate_rounds],
-                        min=1,
-                        max=10,
-                        step=1,
-                        on_change=AIState.set_max_debate_rounds,
-                        width="60%",
-                    ),
-                    spacing="2",
+                    spacing="3",
                     align="center",
-                    width="100%",
-                    padding_top="4px",
                 ),
+                # Max Debate Rounds Slider (only visible for "auto_consensus" mode)
+                rx.cond(
+                    AIState.multi_agent_mode == "auto_consensus",
+                    rx.hstack(
+                        rx.text(t("max_debate_rounds"), font_size="11px"),
+                        rx.text(
+                            AIState.max_debate_rounds,
+                            font_size="11px",
+                            font_weight="bold",
+                            color=COLORS["primary"],
+                        ),
+                        rx.slider(
+                            value=[AIState.max_debate_rounds],
+                            min=1,
+                            max=10,
+                            step=1,
+                            on_change=AIState.set_max_debate_rounds,
+                            width="100px",
+                        ),
+                        spacing="2",
+                        align="center",
+                        padding_top="4px",
+                    ),
+                ),
+                spacing="1",
             ),
+            # Right: LLM Parameters Accordion (mit margin-top für Alignment mit Dropdown)
+            rx.box(
+                llm_parameters_accordion(),
+                margin_top="18px",  # Aligned mit Auto-Konsens Dropdown
+            ),
+            spacing="4",
+            align="start",
             width="100%",
         ),
 
@@ -829,21 +864,24 @@ def temperature_control_section() -> rx.Component:
 
 
 def llm_parameters_accordion() -> rx.Component:
-    """LLM Parameters in collapsible accordion - Kompakt"""
+    """LLM Parameters in collapsible accordion - styled like select dropdown"""
     return rx.accordion.root(
         rx.accordion.item(
-            header=rx.box(
+            header=rx.hstack(
                 rx.text(
                     rx.cond(
                         AIState.ui_language == "de",
                         "⚙️ LLM-Parameter (Erweitert)",
                         "⚙️ LLM Parameters (Advanced)"
                     ),
-                    font_weight="500",
-                    font_size="12px",
+                    font_weight="400",
+                    font_size="13px",
                     color=COLORS["text_primary"]
                 ),
-                padding_y="2",  # Weniger Padding oben/unten
+                align="center",
+                padding_x="6px",
+                padding_y="0",
+                height="28px",
             ),
             content=rx.vstack(
                 # Temperature Control Section
@@ -945,9 +983,14 @@ def llm_parameters_accordion() -> rx.Component:
                 width="100%",
             ),
         ),
-        collapsible=True,  # WICHTIG: Macht Accordion schließbar!
-        color_scheme="gray",
-        variant="soft",
+        collapsible=True,
+        variant="ghost",  # Weniger visueller Overhead
+        style={
+            "border": "1px solid var(--gray-6)",
+            "border_radius": "6px",
+            "background": "var(--gray-2)",
+            "min_height": "32px",
+        },
     )
 
 
@@ -956,7 +999,6 @@ def left_column() -> rx.Component:
     return rx.vstack(
         audio_input_section(),
         text_input_section(),
-        llm_parameters_accordion(),
         spacing="4",
         width="100%",
     )
@@ -2110,27 +2152,54 @@ def settings_accordion() -> rx.Component:
                 padding_y="2",  # Kompakter Header
             ),
             content=rx.vstack(
-                # UI Language Selection - Mobile: Native select, Desktop: Radix UI
+                # UI Language + User Name Row
                 rx.hstack(
-                    rx.text(t("ui_language"), font_weight="bold", font_size="12px"),
-                    rx.cond(
-                        AIState.is_mobile,
-                        # MOBILE: Native HTML <select>
-                        native_select_tts(
-                            AIState.ui_language,
-                            AIState.set_ui_language,
-                            ["de", "en"],
+                    # UI Language Selection
+                    rx.hstack(
+                        rx.text(t("ui_language"), font_weight="bold", font_size="12px"),
+                        rx.cond(
+                            AIState.is_mobile,
+                            # MOBILE: Native HTML <select>
+                            native_select_tts(
+                                AIState.ui_language,
+                                AIState.set_ui_language,
+                                ["de", "en"],
+                            ),
+                            # DESKTOP: Radix UI Select
+                            rx.select(
+                                ["de", "en"],
+                                value=AIState.ui_language,
+                                on_change=AIState.set_ui_language,
+                                size="2",
+                            ),
                         ),
-                        # DESKTOP: Radix UI Select
-                        rx.select(
-                            ["de", "en"],
-                            value=AIState.ui_language,
-                            on_change=AIState.set_ui_language,
-                            size="2",
-                        ),
+                        spacing="2",
+                        align="center",
                     ),
-                    spacing="3",
+                    # User Name Input (Subtle Orange style)
+                    rx.box(
+                        rx.icon("user", size=16, color="#B8860B"),
+                        rx.input(
+                            placeholder=t("your_name"),
+                            value=AIState.user_name,
+                            on_change=AIState.set_user_name,
+                            on_blur=AIState.save_user_name,
+                            size="2",
+                            width="100px",
+                            class_name="username-input-subtle",
+                        ),
+                        display="flex",
+                        align_items="center",
+                        gap="6px",
+                        background_color="rgba(204, 136, 0, 0.15)",
+                        border_radius="8px",
+                        padding_left="8px",
+                        padding_right="4px",
+                        padding_y="4px",
+                    ),
+                    spacing="4",
                     align="center",
+                    width="100%",
                 ),
 
                 # Backend Selection - Mobile: Native select, Desktop: Radix UI
