@@ -646,7 +646,7 @@ async def prepare_main_llm(
 
         if backend_type == "ollama":
             formatted_ctx = format_number(final_num_ctx)
-            yield {"type": "debug", "message": f"🚀 Main LLM ({model_name}) is being preloaded (num_ctx={formatted_ctx})..."}
+            yield {"type": "debug", "message": f"🚀 AIfred-LLM ({model_name}) is being preloaded (num_ctx={formatted_ctx})..."}
             log_message(f"🔄 prepare_main_llm: Starting preload for {model_name} (num_ctx={final_num_ctx:,})...")
 
             # Give event loop a chance to flush the UI update before blocking preload

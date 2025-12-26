@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 from .llm_client import LLMClient
 from .formatting import format_metadata, format_number, format_thinking_process
 from .message_builder import build_messages_from_history
+from .i18n import t
 from .context_manager import (
     calculate_dynamic_num_ctx,
     estimate_tokens,
@@ -288,7 +289,7 @@ async def _check_compression_if_needed(
         ):
             if event["type"] == "history_update":
                 state.chat_history = event["data"]
-                state.add_debug(f"✅ History komprimiert: {len(state.chat_history)} Messages")
+                state.add_debug(f"✅ History compressed: {len(state.chat_history)} messages")
                 yield
             elif event["type"] == "debug":
                 state.add_debug(event["message"])
@@ -364,6 +365,10 @@ async def run_sokrates_direct_response(
         else:
             # Auto mode: AIfred's temperature + offset (capped at 1.0)
             sokrates_direct_temp = min(1.0, state.temperature + state.sokrates_temperature_offset)
+
+        # Debug: Show context and temperature
+        state.add_debug(f"📊 Context limit: {format_number(sokrates_num_ctx/1000, 3)}k")
+        state.add_debug(f"🌡️ Temperature: {format_number(sokrates_direct_temp, 1)}")
 
         # LLM options
         sokrates_options = LLMOptions(
@@ -511,11 +516,11 @@ async def run_sokrates_analysis(
         alfred_model = state.selected_model_id
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
 
-        # Mode labels for display
+        # Mode labels for display (i18n)
         mode_labels = {
-            "user_judge": "Kritische Prüfung",
-            "auto_consensus": "Auto-Konsens",
-            "devils_advocate": "Advocatus Diaboli"
+            "user_judge": t("multi_agent_user_judge", lang=state.ui_language),
+            "auto_consensus": t("multi_agent_auto_consensus", lang=state.ui_language),
+            "devils_advocate": t("multi_agent_devils_advocate", lang=state.ui_language)
         }
         mode_label = mode_labels.get(state.multi_agent_mode, state.multi_agent_mode)
 
@@ -550,7 +555,11 @@ async def run_sokrates_analysis(
         # Update global limit with MINIMUM of both (for history compression)
         min_ctx = min(sokrates_num_ctx, main_llm_ctx)
         _last_vram_limit_cache["limit"] = min_ctx
-        state.add_debug(f"📊 Context limits: AIfred={format_number(main_llm_ctx)}, Sokrates={format_number(sokrates_num_ctx)}, Compression={format_number(min_ctx)}")
+        state.add_debug(
+            f"📊 Context limits: AIfred={format_number(main_llm_ctx/1000, 3)}k, "
+            f"Sokrates={format_number(sokrates_num_ctx/1000, 3)}k, "
+            f"Compression={format_number(min_ctx/1000, 3)}k"
+        )
 
         # Calculate temperatures based on mode
         if state.temperature_mode == "manual":
@@ -564,7 +573,11 @@ async def run_sokrates_analysis(
             sokrates_temp = min(1.0, alfred_temp + state.sokrates_temperature_offset)
             salomo_temp = min(1.0, alfred_temp + state.salomo_temperature_offset)
 
-        state.add_debug(f"🌡️ Temps: AIfred={alfred_temp:.1f}, Sokrates={sokrates_temp:.1f}, Salomo={salomo_temp:.1f}")
+        state.add_debug(
+            f"🌡️ Temps: AIfred={format_number(alfred_temp, 1)}, "
+            f"Sokrates={format_number(sokrates_temp, 1)}, "
+            f"Salomo={format_number(salomo_temp, 1)}"
+        )
 
         # LLM options with calculated context and temperatures
         sokrates_options = LLMOptions(
@@ -719,7 +732,7 @@ async def run_sokrates_analysis(
                 salomo_messages.insert(0, {"role": "system", "content": salomo_system})
 
                 # Add placeholder for Salomo
-                salomo_marker = f"👑[Synthese R{round_num}]"
+                salomo_marker = f"👑[{t('salomo_synthesis_label', lang=state.ui_language).rstrip(':')} R{round_num}]"
                 state.chat_history.append(("", salomo_marker))
                 salomo_index = len(state.chat_history) - 1
                 yield
@@ -795,7 +808,7 @@ async def run_sokrates_analysis(
                     )
 
                     # Add placeholder for AIfred refinement
-                    alfred_marker = f"🎩[Überarbeitung R{round_num + 1}]"
+                    alfred_marker = f"🎩[Refinement R{round_num + 1}]"
                     state.chat_history.append(("", alfred_marker))
                     alfred_index = len(state.chat_history) - 1
                     yield
@@ -828,6 +841,11 @@ async def run_sokrates_analysis(
                     # Update history with metadata
                     final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
                     state.chat_history[alfred_index] = ("", final_alfred)
+
+                    state.add_debug(
+                        f"🎩 AIfred R{round_num + 1}: {len(current_answer)} chars, "
+                        f"{alfred_metrics.get('tok_per_sec', 0):.1f} tok/s"
+                    )
                     yield
 
                     # Check compression after AIfred
@@ -901,9 +919,9 @@ async def run_tribunal(
         salomo_display = state.salomo_model if state.salomo_model else state.selected_model
         alfred_model = state.selected_model_id
 
-        state.add_debug("⚖️ Tribunal-Modus gestartet")
-        state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
-        state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
+        state.add_debug("⚖️ Tribunal mode started")
+        state.add_debug(f"🏛️ Sokrates LLM: {sokrates_display}")
+        state.add_debug(f"👑 Salomo LLM: {salomo_display}")
 
         # Get context limits
         if state.num_ctx_mode == "manual":
@@ -949,6 +967,19 @@ async def run_tribunal(
             temperature=salomo_temp,
             enable_thinking=state.enable_thinking,
             num_ctx=salomo_num_ctx
+        )
+
+        # Debug: Show context limits and temperatures
+        state.add_debug(
+            f"📊 Context limits: AIfred={format_number(main_llm_ctx/1000, 3)}k, "
+            f"Sokrates={format_number(sokrates_num_ctx/1000, 3)}k, "
+            f"Salomo={format_number(salomo_num_ctx/1000, 3)}k, "
+            f"Compression={format_number(min_ctx/1000, 3)}k"
+        )
+        state.add_debug(
+            f"🌡️ Temps: AIfred={format_number(alfred_temp, 1)}, "
+            f"Sokrates={format_number(sokrates_temp, 1)}, "
+            f"Salomo={format_number(salomo_temp, 1)}"
         )
 
         max_rounds = state.max_debate_rounds
@@ -1052,13 +1083,18 @@ async def run_tribunal(
                 )
                 final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
                 state.chat_history[alfred_index] = ("", final_alfred)
+
+                state.add_debug(
+                    f"🎩 AIfred R{round_num + 1}: {len(current_answer)} chars, "
+                    f"{alfred_metrics.get('tok_per_sec', 0):.1f} tok/s"
+                )
                 yield
 
                 async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
                     yield
 
         # === JUDGMENT PHASE: Salomo delivers final verdict ===
-        state.add_debug("👑 Salomo fällt sein Urteil...")
+        state.add_debug("👑 Salomo rendering verdict...")
 
         salomo_minimal = get_salomo_system_minimal()
         judge_prompt = get_salomo_judge_prompt()
@@ -1070,7 +1106,7 @@ async def run_tribunal(
         )
         salomo_messages.insert(0, {"role": "system", "content": salomo_system})
 
-        salomo_marker = "👑[Urteil]"
+        salomo_marker = f"👑[{t('salomo_verdict_label', lang=state.ui_language).rstrip(':')}]"
         state.chat_history.append(("", salomo_marker))
         salomo_index = len(state.chat_history) - 1
         yield
@@ -1092,7 +1128,7 @@ async def run_tribunal(
         salomo_metrics = salomo_result["metrics"]
 
         state.add_debug(
-            f"👑 Salomo Urteil: {len(salomo_response_text)} chars, "
+            f"👑 Salomo Verdict: {len(salomo_response_text)} chars, "
             f"{salomo_metrics['tok_per_sec']:.1f} tok/s"
         )
 
@@ -1106,7 +1142,7 @@ async def run_tribunal(
         state.salomo_synthesis = salomo_response_text
         yield
 
-        state.add_debug(f"⚖️ Tribunal beendet nach {max_rounds} Runden + Urteil")
+        state.add_debug(f"⚖️ Tribunal completed after {max_rounds} rounds + verdict")
 
         await llm_client.close()
         state._save_current_session()

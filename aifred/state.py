@@ -1045,7 +1045,7 @@ class AIState(rx.State):
             # Ensure automatik_model = selected_model for these backends
             if self.backend_type in ["vllm", "tabbyapi"]:
                 if self.automatik_model != self.selected_model:
-                    self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.selected_model} for both Main and Automatik")
+                    self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.selected_model} for both AIfred and Automatik")
                     self.automatik_model = self.selected_model
 
             # Generate internal session ID (for Reflex, not displayed)
@@ -1438,11 +1438,11 @@ class AIState(rx.State):
                 if self.backend_type.lower() in ["vllm", "koboldcpp", "tabbyapi"]:
                     # Compact format for Mobile: Multi-line with indentation
                     self.add_debug(f"✅ {len(self.available_models)} models available")
-                    self.add_debug(f"   Main: {self.selected_model}")
+                    self.add_debug(f"   AIfred: {self.selected_model}")
                 else:
                     # Compact format for Mobile: Multi-line with indentation
                     self.add_debug(f"✅ {len(self.available_models)} models available")
-                    self.add_debug(f"   Main: {self.selected_model}")
+                    self.add_debug(f"   AIfred: {self.selected_model}")
                     self.add_debug(f"   Automatik: {self.automatik_model}")
                     # Show Sokrates model if multi-agent mode is active
                     if self.multi_agent_mode != "standard" and self.sokrates_model_id:
@@ -1664,13 +1664,13 @@ class AIState(rx.State):
                 target_main_model = saved_models.get("selected_model")
                 target_auto_model = saved_models.get("automatik_model")
                 target_vision_model = saved_models.get("vision_model")
-                self.add_debug(f"📝 Found saved models for {new_backend}: Main={target_main_model}, Auto={target_auto_model}, Vision={target_vision_model}")
+                self.add_debug(f"📝 Found saved models for {new_backend}: AIfred={target_main_model}, Auto={target_auto_model}, Vision={target_vision_model}")
             else:
                 # Use backend-specific defaults from config.py
                 default_models = config.BACKEND_DEFAULT_MODELS.get(new_backend, {})
                 target_main_model = default_models.get("selected_model")
                 target_auto_model = default_models.get("automatik_model")
-                self.add_debug(f"📝 Using default models for {new_backend}: Main={target_main_model}, Auto={target_auto_model}")
+                self.add_debug(f"📝 Using default models for {new_backend}: AIfred={target_main_model}, Auto={target_auto_model}")
 
             # Set target models BEFORE initialize_backend() so validation doesn't override them
             # CRITICAL: Set BOTH display name AND ID - initialize_backend() uses _id for validation!
@@ -1688,7 +1688,7 @@ class AIState(rx.State):
             # Set automatik_model = selected_model BEFORE initialize_backend() to prevent wrong model loading
             if new_backend in ["vllm", "tabbyapi"]:
                 if self.automatik_model != self.selected_model:
-                    self.add_debug(f"⚠️ {new_backend} can only load one model - using {self.selected_model} for both Main and Automatik")
+                    self.add_debug(f"⚠️ {new_backend} can only load one model - using {self.selected_model} for both AIfred and Automatik")
                 self.automatik_model = self.selected_model
                 self.automatik_model_id = self.selected_model_id  # Sync IDs too
 
@@ -2053,11 +2053,11 @@ class AIState(rx.State):
                 return
 
             # IMPORTANT: vLLM cannot switch models like Ollama (requires full restart)
-            # Therefore, start directly with the Main-Model (30B) to avoid slow restarts
-            # Both Automatik and Main requests will use the same 30B model
+            # Therefore, start directly with the AIfred-Model (30B) to avoid slow restarts
+            # Both Automatik and AIfred requests will use the same 30B model
             startup_model = self.selected_model_id  # Pure ID
             self.add_debug(f"🚀 Starting vLLM server with {startup_model}...")
-            self.add_debug("   (vLLM uses Main-Model for all requests - model switching requires slow restart)")
+            self.add_debug("   (vLLM uses AIfred-Model for all requests - model switching requires slow restart)")
 
             # Auto-detect context from model config.json (no hardcoded values!)
             # Build YaRN config if enabled
@@ -2733,7 +2733,7 @@ class AIState(rx.State):
                 # PHASE 2: AUTOMATIK/RESEARCH FLOW (if user text present)
                 # ==============================================================================
                 if has_user_text_for_automatik:
-                    self.add_debug("🤖 Main-LLM Phase startet...")
+                    self.add_debug("🤖 AIfred-LLM phase starting...")
                     yield
 
                     # Import here to avoid circular dependency
@@ -3193,7 +3193,7 @@ class AIState(rx.State):
                 yield
 
                 # Show compact context info (matching Automatik mode style)
-                self.add_debug(f"📊 Main-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})")
+                self.add_debug(f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})")
                 yield
 
                 # Build LLM options
@@ -3204,7 +3204,7 @@ class AIState(rx.State):
                 )
 
                 # Console: LLM starts (matching Automatik mode)
-                self.add_debug(f"🤖 Main-LLM starting: {self.selected_model}")
+                self.add_debug(f"🤖 AIfred-LLM starting: {self.selected_model}")
                 yield
 
                 # Stream response directly from LLM
@@ -3249,7 +3249,7 @@ class AIState(rx.State):
 
                 # Console: LLM finished (matching Automatik mode)
                 tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0
-                self.add_debug(f"✅ Main-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tokens, {format_number(tokens_per_sec, 1)} tok/s)")
+                self.add_debug(f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tokens, {format_number(tokens_per_sec, 1)} tok/s)")
                 yield
 
                 # Separator after Main-LLM (matching other modes)
@@ -4519,7 +4519,7 @@ class AIState(rx.State):
         self.selected_model_id = extract_model_name(model)
         # Clear thinking mode warning when model changes
         self.thinking_mode_warning = ""
-        self.add_debug(f"📝 Main-LLM: {model}")
+        self.add_debug(f"📝 AIfred-LLM: {model}")
 
         # Show calibration info for Ollama models
         self._show_model_calibration_info(self.selected_model_id)

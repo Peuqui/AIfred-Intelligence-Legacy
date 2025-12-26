@@ -230,7 +230,7 @@ em,
 .rt-Box em,
 p em,
 div em {
-    color: #888 !important;  /* Grau wie früher <span style="color: #888"> */
+    color: #e2e8f0 !important;  /* Gleiche Farbe wie normaler Text */
     font-style: italic !important;
 }
 
