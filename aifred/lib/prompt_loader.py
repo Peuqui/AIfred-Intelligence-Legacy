@@ -19,6 +19,10 @@ _current_language = "auto"  # "auto", "de", "en"
 # Global user name (set once when settings are loaded)
 _current_user_name = ""
 
+# Cache for system prompt token counts (populated at startup)
+# Format: {"aifred": {"de": tokens, "en": tokens}, "sokrates": {...}, ...}
+_system_prompt_token_cache: dict[str, dict[str, int]] = {}
+
 
 def set_user_name(name: str):
     """Set the global user name for prompts"""
@@ -540,3 +544,112 @@ def get_salomo_judge_prompt(lang: Optional[str] = None) -> str:
         Salomo judge system prompt
     """
     return load_prompt('salomo/judge', lang=lang)
+
+
+# ============================================================
+# System Prompt Token Cache (v2.14.0+)
+# ============================================================
+
+def _estimate_tokens(text: str) -> int:
+    """Estimate tokens from text (3.5 chars/token for German/mixed)."""
+    return int(len(text) / 3.5) if text else 0
+
+
+def init_system_prompt_cache() -> dict[str, dict[str, int]]:
+    """
+    Initialize cache with all system prompt token counts.
+
+    Called once at application startup to pre-calculate all prompt sizes.
+    This avoids repeated file reads and token estimations during runtime.
+
+    Returns:
+        dict: The populated cache {agent: {lang: tokens}}
+    """
+    global _system_prompt_token_cache
+    from .logging_utils import log_message
+
+    _system_prompt_token_cache = {}
+
+    for lang in ["de", "en"]:
+        try:
+            # AIfred system prompt
+            aifred_prompt = load_prompt('aifred/system_minimal', lang=lang)
+            if "aifred" not in _system_prompt_token_cache:
+                _system_prompt_token_cache["aifred"] = {}
+            _system_prompt_token_cache["aifred"][lang] = _estimate_tokens(aifred_prompt)
+
+            # Sokrates system prompt (minimal + critic as worst case)
+            sokrates_minimal = load_prompt('sokrates/system_minimal', lang=lang)
+            sokrates_critic = load_prompt('sokrates/critic', lang=lang, round_num=1)
+            sokrates_combined = f"{sokrates_minimal}\n\n{sokrates_critic}"
+            if "sokrates" not in _system_prompt_token_cache:
+                _system_prompt_token_cache["sokrates"] = {}
+            _system_prompt_token_cache["sokrates"][lang] = _estimate_tokens(sokrates_combined)
+
+            # Salomo system prompt (minimal + mediator as worst case)
+            salomo_minimal = load_prompt('salomo/system_minimal', lang=lang)
+            salomo_mediator = load_prompt('salomo/mediator', lang=lang, round_num=1)
+            salomo_combined = f"{salomo_minimal}\n\n{salomo_mediator}"
+            if "salomo" not in _system_prompt_token_cache:
+                _system_prompt_token_cache["salomo"] = {}
+            _system_prompt_token_cache["salomo"][lang] = _estimate_tokens(salomo_combined)
+
+        except Exception as e:
+            log_message(f"⚠️ Failed to cache prompts for {lang}: {e}")
+
+    # Log cache summary
+    for agent, langs in _system_prompt_token_cache.items():
+        de_tokens = langs.get("de", 0)
+        en_tokens = langs.get("en", 0)
+        log_message(f"📊 Prompt cache: {agent} = {de_tokens} tok (de), {en_tokens} tok (en)")
+
+    return _system_prompt_token_cache
+
+
+def get_system_prompt_tokens(agent: str, lang: str = "de") -> int:
+    """
+    Get cached system prompt token count for an agent.
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+        lang: Language code ("de" or "en")
+
+    Returns:
+        int: Cached token count, or 0 if not cached
+    """
+    if not _system_prompt_token_cache:
+        # Cache not initialized - use fallback estimation
+        return 0
+    return _system_prompt_token_cache.get(agent, {}).get(lang, 0)
+
+
+def get_max_system_prompt_tokens(multi_agent_mode: str = "standard", lang: str = "de") -> int:
+    """
+    Get the maximum system prompt tokens for the current mode.
+
+    For compression checks, we need the worst-case (largest) prompt size
+    across all agents that will be called.
+
+    Args:
+        multi_agent_mode: "standard", "user_judge", "auto_consensus", "tribunal", "devils_advocate"
+        lang: Language code ("de" or "en")
+
+    Returns:
+        int: Maximum token count across relevant agents
+    """
+    if not _system_prompt_token_cache:
+        return 0
+
+    aifred_tokens = get_system_prompt_tokens("aifred", lang)
+
+    if multi_agent_mode == "standard":
+        return aifred_tokens
+
+    sokrates_tokens = get_system_prompt_tokens("sokrates", lang)
+
+    if multi_agent_mode in ["auto_consensus", "tribunal"]:
+        salomo_tokens = get_system_prompt_tokens("salomo", lang)
+        return max(aifred_tokens, sokrates_tokens, salomo_tokens)
+
+    # user_judge, devils_advocate
+    return max(aifred_tokens, sokrates_tokens)

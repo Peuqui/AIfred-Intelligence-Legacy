@@ -5,6 +5,56 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.2] - 2025-12-27
+
+### 📋 Inline Summary Placement & UI Improvements
+
+**Summaries erscheinen jetzt inline im Chat an der Stelle wo komprimiert wurde, nicht mehr am Anfang.**
+
+#### Added
+
+- **Inline Summary Collapsibles** ([aifred.py](aifred/aifred.py)):
+  - `render_inline_summary()` - Rendert Summaries inline als Collapsibles
+  - Neue Optik: 📋 Zusammenfassung #N (X Messages) - Timestamp
+  - i18n: "Zusammenfassung" (DE) / "Summary" (EN)
+
+- **FIFO-Separation** ([context_manager.py](aifred/lib/context_manager.py)):
+  - `chat_history` (UI): Behält ALLE Summaries für vollständige Anzeige
+  - `llm_history` (LLM): Wendet FIFO an (nur neueste Summary bleibt)
+  - User sieht immer die komplette History
+
+#### Fixed
+
+- **Summary-Nummerierung** ([context_manager.py](aifred/lib/context_manager.py)):
+  - Bug: Beide Summaries hatten #1 statt #1 und #2
+  - Ursache: `len(preserved_summaries)` fand nur Summaries am ANFANG
+  - Fix: `count_summaries(history)` zählt ALLE Summaries in der History
+
+#### Removed
+
+- **Toter Code bereinigt**:
+  - `render_unified_summaries()` - nicht mehr benötigt
+  - `render_single_summary_box()` - nicht mehr benötigt
+  - `all_summaries` property - nicht mehr benötigt
+  - `chat_history_without_summaries` property - nicht mehr benötigt
+  - `total_summary_tokens` property - nicht mehr benötigt
+
+#### Technical Details
+
+```
+Vorher (oben, gruppiert):          Nachher (inline, wo komprimiert):
+┌── Summaries ──────────────┐      [User Message 1]
+│ [#1] [#2] [#3]           │      [AI Response 1]
+└───────────────────────────┘      ┌── 📋 Zusammenfassung #1 ──┐
+[User Message 1]                   └───────────────────────────┘
+[AI Response 1]                    [User Message 3]
+[User Message 2]                   [AI Response 3]
+...                                ┌── 📋 Zusammenfassung #2 ──┐
+                                   └───────────────────────────┘
+```
+
+---
+
 ## [2.14.0] - 2025-12-27
 
 ### 🗳️ 3-Agent Consensus Voting System

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 # Imports for the functions (same as original state.py methods)
 from .llm_client import LLMClient
 from .formatting import format_metadata, format_number, format_thinking_process
-from .message_builder import build_messages_from_history
+from .message_builder import build_messages_from_llm_history, clean_content_for_llm
 from .i18n import t
 from .context_manager import (
     calculate_dynamic_num_ctx,
@@ -28,6 +28,7 @@ from .context_manager import (
 )
 from .prompt_loader import (
     detect_language,
+    load_prompt,
     get_sokrates_system_minimal,
     get_sokrates_direct_prompt,
     get_sokrates_critic_prompt,
@@ -42,6 +43,11 @@ from ..backends.base import LLMOptions
 
 if TYPE_CHECKING:
     from ..state import AIState
+
+
+def _estimate_prompt_tokens(prompt: str) -> int:
+    """Estimate tokens in a prompt (3.5 chars/token for German/mixed text)."""
+    return int(len(prompt) / 3.5) if prompt else 0
 
 
 # ============================================================
@@ -220,7 +226,6 @@ async def _stream_sokrates_to_history(
 
     # DUAL-HISTORY: Sync Sokrates response to llm_history
     # Agent-only entries become system messages with speaker label
-    from .message_builder import clean_content_for_llm
     cleaned = clean_content_for_llm(full_response)
     if cleaned:
         state.llm_history.append({"role": "system", "content": f"[SOKRATES]: {cleaned}"})
@@ -274,7 +279,6 @@ async def _stream_alfred_refinement(
 
     # DUAL-HISTORY: Sync AIfred refinement to llm_history
     # Agent-only entries become system messages with speaker label
-    from .message_builder import clean_content_for_llm
     cleaned = clean_content_for_llm(full_response)
     if cleaned:
         state.llm_history.append({"role": "system", "content": f"[AIFRED]: {cleaned}"})
@@ -345,7 +349,6 @@ async def _stream_salomo_to_history(
 
     # DUAL-HISTORY: Sync Salomo response to llm_history
     # Agent-only entries become system messages with speaker label
-    from .message_builder import clean_content_for_llm
     cleaned = clean_content_for_llm(full_response)
     if cleaned:
         state.llm_history.append({"role": "system", "content": f"[SALOMO]: {cleaned}"})
@@ -354,7 +357,8 @@ async def _stream_salomo_to_history(
 async def _check_compression_if_needed(
     state: 'AIState',
     llm_client: LLMClient,
-    context_limit: int
+    context_limit: int,
+    system_prompt_tokens: int = 0
 ) -> AsyncGenerator[None, None]:
     """
     Check if history compression is needed during multi-agent debate.
@@ -364,6 +368,12 @@ async def _check_compression_if_needed(
     might push context usage above threshold.
 
     Compression triggers at 70% of context_limit (HISTORY_COMPRESSION_TRIGGER).
+
+    Args:
+        state: AIState instance
+        llm_client: LLM client for compression
+        context_limit: Context window limit
+        system_prompt_tokens: Estimated tokens for current agent's system prompt (v2.14.0+)
     """
     try:
         # Run compression check (yields events if compression happens) - DUAL-HISTORY
@@ -372,7 +382,8 @@ async def _check_compression_if_needed(
             llm_client=llm_client,
             model_name=state.automatik_model_id,  # Pure model ID (not display name!)
             context_limit=context_limit,
-            llm_history=state.llm_history
+            llm_history=state.llm_history,
+            system_prompt_tokens=system_prompt_tokens
         ):
             if event["type"] == "history_update":
                 # DUAL-HISTORY: Update both histories
@@ -418,8 +429,6 @@ async def run_sokrates_direct_response(
         history_index: Index in chat_history where response should be placed
     """
     try:
-        from .message_builder import clean_content_for_llm
-
         # Create LLM client
         llm_client = LLMClient(
             backend_type=state.backend_type,
@@ -446,7 +455,7 @@ async def run_sokrates_direct_response(
         system_prompt = get_sokrates_direct_prompt(lang=detected_lang)
 
         # Build messages from LLM history (compressed, not full chat_history)
-        messages: list[dict[str, Any]] = build_messages_from_history(state.llm_history[:-1], user_query)
+        messages: list[dict[str, Any]] = build_messages_from_llm_history(state.llm_history[:-1], user_query)
 
         # Prepend system message
         messages.insert(0, {"role": "system", "content": system_prompt})
@@ -717,7 +726,7 @@ async def run_sokrates_analysis(
             # - AIfred's responses and User messages become 'user' with labels
             # - No "Sokrates?" activation needed - perspective handles role assignment
             # Use llm_history (compressed) instead of chat_history (full UI)
-            history_messages: list[dict[str, str]] = build_messages_from_history(
+            history_messages: list[dict[str, str]] = build_messages_from_llm_history(
                 state.llm_history,
                 perspective="sokrates"
             )
@@ -730,7 +739,9 @@ async def run_sokrates_analysis(
                     sokrates_messages.append(msg)
 
             # PRE-SOKRATES: Check if compression needed before Sokrates call
-            async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+            # Include Sokrates system prompt in token calculation (v2.14.0+)
+            sokrates_prompt_tokens = _estimate_prompt_tokens(system_prompt)
+            async for _ in _check_compression_if_needed(state, llm_client, min_ctx, sokrates_prompt_tokens):
                 yield
 
             # Add placeholder for Sokrates
@@ -833,14 +844,16 @@ async def run_sokrates_analysis(
 
                 # Build messages with observer perspective (sees everything neutrally)
                 # Use llm_history (compressed) instead of chat_history (full UI)
-                salomo_messages: list[dict[str, str]] = build_messages_from_history(
+                salomo_messages: list[dict[str, str]] = build_messages_from_llm_history(
                     state.llm_history,
                     perspective="observer"  # Neutral perspective
                 )
                 salomo_messages.insert(0, {"role": "system", "content": salomo_system})
 
                 # PRE-SALOMO: Check if compression needed before Salomo call
-                async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+                # Include Salomo system prompt in token calculation (v2.14.0+)
+                salomo_prompt_tokens = _estimate_prompt_tokens(salomo_system)
+                async for _ in _check_compression_if_needed(state, llm_client, min_ctx, salomo_prompt_tokens):
                     yield
 
                 # Estimate tokens for Salomo (consistent with Sokrates debug output)
@@ -919,19 +932,22 @@ async def run_sokrates_analysis(
 
                 # If no consensus and more rounds available: AIfred refines based on Salomo's feedback
                 if round_num < max_rounds:
-                    # PRE-AIFRED: Check if compression needed before AIfred refinement
-                    async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
-                        yield
-
-                    # Build refinement prompt using Salomo's synthesis (not Sokrates' critique)
+                    # Build refinement prompt FIRST (needed for accurate token estimation)
                     refinement_prompt = get_sokrates_refinement_prompt(
                         critique=salomo_response_text,  # Use Salomo's synthesis as guidance
                         user_interjection=""
                     )
 
+                    # PRE-AIFRED: Check if compression needed before AIfred refinement
+                    # Include AIfred system prompt + refinement prompt in token calculation (v2.14.1+)
+                    aifred_system_prompt = load_prompt('aifred/system_minimal', lang=state.ui_language)
+                    aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
+                    async for _ in _check_compression_if_needed(state, llm_client, min_ctx, aifred_prompt_tokens):
+                        yield
+
                     # Build messages with AIfred's perspective
                     # Use llm_history (compressed) instead of chat_history (full UI)
-                    alfred_messages: list[dict[str, str]] = build_messages_from_history(
+                    alfred_messages: list[dict[str, str]] = build_messages_from_llm_history(
                         state.llm_history,
                         current_user_text=refinement_prompt,
                         perspective="aifred"
@@ -1138,17 +1154,19 @@ async def run_tribunal(
         for round_num in range(1, max_rounds + 1):
             state.debate_round = round_num
 
-            # PRE-SOKRATES: Check if compression needed before Sokrates call
-            async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
-                yield
-
             # --- SOKRATES CRITIQUE ---
             sokrates_minimal = get_sokrates_system_minimal()
             mode_prompt = get_sokrates_critic_prompt(round_num=round_num)
             system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
 
+            # PRE-SOKRATES: Check if compression needed before Sokrates call
+            # Include Sokrates system prompt in token calculation (v2.14.0+)
+            sokrates_prompt_tokens = _estimate_prompt_tokens(system_prompt)
+            async for _ in _check_compression_if_needed(state, llm_client, min_ctx, sokrates_prompt_tokens):
+                yield
+
             # Use llm_history (compressed) instead of chat_history (full UI)
-            history_messages = build_messages_from_history(
+            history_messages = build_messages_from_llm_history(
                 state.llm_history,
                 perspective="sokrates"
             )
@@ -1201,17 +1219,21 @@ async def run_tribunal(
 
             # --- AIFRED RESPONSE (if not last round) ---
             if round_num < max_rounds:
-                # PRE-AIFRED: Check if compression needed before AIfred refinement
-                async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
-                    yield
-
+                # Build refinement prompt FIRST (needed for accurate token estimation)
                 refinement_prompt = get_sokrates_refinement_prompt(
                     critique=sokrates_response_text,
                     user_interjection=""
                 )
 
+                # PRE-AIFRED: Check if compression needed before AIfred refinement
+                # Include AIfred system prompt + refinement prompt in token calculation (v2.14.1+)
+                aifred_system_prompt = load_prompt('aifred/system_minimal', lang=state.ui_language)
+                aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
+                async for _ in _check_compression_if_needed(state, llm_client, min_ctx, aifred_prompt_tokens):
+                    yield
+
                 # Use llm_history (compressed) instead of chat_history (full UI)
-                alfred_messages: list[dict[str, str]] = build_messages_from_history(
+                alfred_messages: list[dict[str, str]] = build_messages_from_llm_history(
                     state.llm_history,
                     current_user_text=refinement_prompt,
                     perspective="aifred"
@@ -1259,18 +1281,20 @@ async def run_tribunal(
                 # No POST-CHECK needed here
 
         # === JUDGMENT PHASE: Salomo delivers final verdict ===
-        # PRE-SALOMO: Check if compression needed before Salomo verdict
-        async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
-            yield
-
         state.add_debug("👑 Salomo rendering verdict...")
 
         salomo_minimal = get_salomo_system_minimal()
         judge_prompt = get_salomo_judge_prompt()
         salomo_system = f"{salomo_minimal}\n\n{judge_prompt}"
 
+        # PRE-SALOMO: Check if compression needed before Salomo verdict
+        # Include Salomo system prompt in token calculation (v2.14.0+)
+        salomo_prompt_tokens = _estimate_prompt_tokens(salomo_system)
+        async for _ in _check_compression_if_needed(state, llm_client, min_ctx, salomo_prompt_tokens):
+            yield
+
         # Use llm_history (compressed) instead of chat_history (full UI)
-        salomo_messages: list[dict[str, str]] = build_messages_from_history(
+        salomo_messages: list[dict[str, str]] = build_messages_from_llm_history(
             state.llm_history,
             perspective="observer"
         )

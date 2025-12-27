@@ -1428,162 +1428,115 @@ def render_image_thumbnails(images) -> rx.Component:
     )
 
 
-def render_single_summary_box(summary: dict) -> rx.Component:
+def render_inline_summary(msg: dict) -> rx.Component:
     """
-    Render a single summary as a bordered box within the unified collapsible.
+    Render a summary inline in the chat as a collapsible.
 
-    Each summary shows: number, message count, timestamp, and content.
+    This is shown at the position where the compression occurred in the chat,
+    not at the top of the chat. Uses the same styling as the unified collapsible.
+
+    Args:
+        msg: Dict with summary_number, summary_count, summary_timestamp, summary_content
     """
     return rx.box(
-        rx.vstack(
-            # Header: Summary #N (X Messages) - Timestamp
-            rx.hstack(
-                rx.text(
-                    f"📊 #{summary['number']}",
-                    font_weight="bold",
-                    font_size="12px",
-                    color=COLORS["accent_warning"],
-                ),
-                rx.text(
-                    f"({summary['count']} Messages)",
-                    color=COLORS["text_secondary"],
-                    font_size="11px",
-                ),
-                rx.spacer(),
-                rx.text(
-                    summary["timestamp"],
-                    color=COLORS["text_secondary"],
-                    font_size="10px",
-                ),
-                width="100%",
-                align="center",
-            ),
-            rx.divider(size="1", color=COLORS["border"]),
-            # Content
-            rx.markdown(
-                summary["content"],
-                color=COLORS["text_primary"],
-                font_size="12px",
-            ),
-            spacing="1",
-            width="100%",
-        ),
-        padding="10px",
-        border_radius="6px",
-        background="rgba(255, 165, 0, 0.03)",
-        border=f"1px solid {COLORS['border']}",
-        width="100%",
-    )
-
-
-def render_unified_summaries() -> rx.Component:
-    """
-    Render all summaries in a single unified collapsible.
-
-    This replaces individual summary accordions with one master accordion
-    containing all summaries as sub-boxes with visual separation.
-    Position: At the top of the chat (oldest content first).
-    """
-    return rx.cond(
-        AIState.all_summaries.length() > 0,
-        rx.box(
-            rx.accordion.root(
-                rx.accordion.item(
-                    value="unified_summaries",
-                    header=rx.box(
-                        rx.hstack(
-                            rx.text("📊", font_size="14px"),
-                            rx.cond(
-                                AIState.ui_language == "de",
-                                rx.text(
-                                    "Komprimierter Verlauf",
-                                    font_weight="bold",
-                                    font_size="13px",
-                                    color=COLORS["accent_warning"],
-                                ),
-                                rx.text(
-                                    "Compressed History",
-                                    font_weight="bold",
-                                    font_size="13px",
-                                    color=COLORS["accent_warning"],
-                                ),
+        rx.accordion.root(
+            rx.accordion.item(
+                value="inline_summary",
+                header=rx.box(
+                    rx.hstack(
+                        rx.text("📋", font_size="14px"),
+                        # i18n label: "Zusammenfassung" (DE) / "Summary" (EN)
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            rx.text(
+                                "Zusammenfassung",
+                                font_weight="bold",
+                                font_size="13px",
+                                color=COLORS["accent_warning"],
                             ),
                             rx.text(
-                                f"({AIState.all_summaries.length()} ",
-                                color=COLORS["text_secondary"],
-                                font_size="11px",
+                                "Summary",
+                                font_weight="bold",
+                                font_size="13px",
+                                color=COLORS["accent_warning"],
                             ),
-                            rx.cond(
-                                AIState.ui_language == "de",
-                                rx.text("Summaries", color=COLORS["text_secondary"], font_size="11px"),
-                                rx.text("Summaries", color=COLORS["text_secondary"], font_size="11px"),
-                            ),
-                            rx.text(
-                                f", ~{AIState.total_summary_tokens} tok)",
-                                color=COLORS["text_secondary"],
-                                font_size="11px",
-                            ),
-                            spacing="1",
-                            align="center",
                         ),
-                        padding_y="2",
-                        padding_x="3",
-                        background_color=COLORS["card_bg"],
-                        border_radius="6px",
-                        cursor="pointer",
-                        transition="background-color 0.2s ease",
-                        _hover={
-                            "background_color": COLORS["primary_bg"],
-                        },
-                    ),
-                    content=rx.box(
-                        rx.vstack(
-                            rx.foreach(
-                                AIState.all_summaries,
-                                render_single_summary_box,
-                            ),
-                            spacing="2",
-                            width="100%",
+                        rx.text(
+                            f"#{msg['summary_number']}",
+                            font_weight="bold",
+                            font_size="13px",
+                            color=COLORS["accent_warning"],
                         ),
-                        padding="3",
-                        background_color="rgba(255, 165, 0, 0.05)",
-                        border_radius="6px",
-                        border=f"1px solid {COLORS['border']}",
+                        rx.text(
+                            f"({msg['summary_count']} Messages)",
+                            color=COLORS["text_secondary"],
+                            font_size="11px",
+                        ),
+                        rx.spacer(),
+                        rx.text(
+                            msg["summary_timestamp"],
+                            color=COLORS["text_secondary"],
+                            font_size="10px",
+                        ),
+                        spacing="2",
+                        align="center",
                         width="100%",
-                        max_height="600px",
-                        overflow_y="auto",
                     ),
+                    padding_y="2",
+                    padding_x="3",
+                    background_color=COLORS["card_bg"],
+                    border_radius="6px",
+                    cursor="pointer",
+                    transition="background-color 0.2s ease",
+                    _hover={
+                        "background_color": COLORS["primary_bg"],
+                    },
                 ),
-                collapsible=True,
-                default_value=[],  # Collapsed by default
-                variant="soft",
-                width="100%",
+                content=rx.box(
+                    rx.markdown(
+                        msg["summary_content"],
+                        color=COLORS["text_primary"],
+                        font_size="12px",
+                    ),
+                    padding="3",
+                    background_color="rgba(255, 165, 0, 0.05)",
+                    border_radius="6px",
+                    border=f"1px solid {COLORS['border']}",
+                    width="100%",
+                    max_height="400px",
+                    overflow_y="auto",
+                ),
             ),
-            background_color="rgba(255, 165, 0, 0.1)",
-            padding="3",
-            border_radius="8px",
-            border=f"1px solid {COLORS['accent_warning']}",
+            collapsible=True,
+            default_value=[],  # Collapsed by default
+            variant="soft",
             width="100%",
-            margin_bottom="3",
         ),
-        rx.fragment(),  # Empty when no summaries
+        background_color="rgba(255, 165, 0, 0.1)",
+        padding="3",
+        border_radius="8px",
+        border=f"1px solid {COLORS['accent_warning']}",
+        width="100%",
+        margin_bottom="3",
     )
 
 
 def render_chat_message(msg: dict) -> rx.Component:
     """
-    Rendert eine einzelne Chat-Message (User+AI, Sokrates, AIfred Refinement, oder Salomo).
+    Rendert eine einzelne Chat-Message (User+AI, Sokrates, AIfred Refinement, Salomo, oder Summary).
 
-    NOTE: Summaries are now rendered separately via render_unified_summaries()
-    and filtered out via chat_history_without_summaries. This function should
-    not receive summary messages anymore.
+    Summaries are rendered inline as collapsibles at the position where compression occurred.
 
     msg ist ein Dict mit:
     - user_msg: User-Nachricht
     - ai_msg: AI-Nachricht (bereinigt)
     - failed_sources: Liste der fehlgeschlagenen URLs
-    - is_summary: True if this is a summary (should be filtered out before reaching here)
+    - is_summary: True if this is a summary entry
+    - summary_number, summary_count, summary_timestamp, summary_content: Summary details
     """
+    # Check ob es eine Summary ist (inline rendering)
+    is_summary = msg.get("is_summary", False)
+
     # Check ob es eine Sokrates-Nachricht ist (leerer User-Teil + "🏛️" am Anfang)
     is_sokrates = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🏛️")
 
@@ -1593,11 +1546,14 @@ def render_chat_message(msg: dict) -> rx.Component:
     # Check ob es eine Salomo-Nachricht ist (leerer User-Teil + "👑" am Anfang)
     is_salomo = (msg["user_msg"] == "") & msg["ai_msg"].startswith("👑")
 
-    # NOTE: Summaries are handled by render_unified_summaries() and filtered via
-    # chat_history_without_summaries. The old is_summary check has been removed.
-
+    # Summaries are rendered inline via render_inline_summary()
     return rx.cond(
-        is_sokrates,
+        is_summary,
+        # Summary: Render inline collapsible at this position
+        render_inline_summary(msg),
+        # Not a summary: Check other message types
+        rx.cond(
+            is_sokrates,
             # Sokrates-Anzeige (nur AI-Teil, kein User, dezentes Kupfer/Terrakotta-Styling)
             rx.box(
                 rx.hstack(
@@ -1794,7 +1750,8 @@ def render_chat_message(msg: dict) -> rx.Component:
             ),
         ),  # Close is_salomo rx.cond
     ),  # Close is_alfred_refinement rx.cond
-)  # Close is_sokrates rx.cond
+),  # Close is_sokrates rx.cond
+)  # Close is_summary rx.cond
 
 
 def render_sokrates_inline() -> rx.Component:
@@ -2009,11 +1966,9 @@ def chat_history_display() -> rx.Component:
             # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
             rx.auto_scroll(
                 rx.vstack(
-                    # Unified Summaries at the top (FIFO - oldest first)
-                    render_unified_summaries(),
-                    # Regular chat messages (excluding summaries)
+                    # All chat messages including inline summaries
                     rx.foreach(
-                        AIState.chat_history_without_summaries,
+                        AIState.chat_history_parsed,
                         render_chat_message
                     ),
                     spacing="3",
@@ -2034,11 +1989,9 @@ def chat_history_display() -> rx.Component:
             # Auto-Scroll disabled: normale rx.box (kein Scroll)
             rx.box(
                 rx.vstack(
-                    # Unified Summaries at the top (FIFO - oldest first)
-                    render_unified_summaries(),
-                    # Regular chat messages (excluding summaries)
+                    # All chat messages including inline summaries
                     rx.foreach(
-                        AIState.chat_history_without_summaries,
+                        AIState.chat_history_parsed,
                         render_chat_message
                     ),
                     spacing="3",

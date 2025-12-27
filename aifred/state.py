@@ -852,52 +852,6 @@ class AIState(rx.State):
 
         return result
 
-    @rx.var
-    def all_summaries(self) -> List[dict]:
-        """
-        Extract all summaries from chat_history for unified display.
-
-        Returns list of dicts with summary info (number, count, timestamp, content).
-        Used by the unified summary collapsible in the UI.
-        """
-        return [
-            {
-                "number": msg["summary_number"],
-                "count": msg["summary_count"],
-                "timestamp": msg["summary_timestamp"],
-                "content": msg["summary_content"],
-            }
-            for msg in self.chat_history_parsed
-            if msg.get("is_summary", False)
-        ]
-
-    @rx.var
-    def chat_history_without_summaries(self) -> List[ChatMessageParsed]:
-        """
-        Chat history excluding summary entries (for main display).
-
-        Summaries are displayed separately in a unified collapsible,
-        so we filter them out from the main chat rendering.
-        """
-        return [
-            msg for msg in self.chat_history_parsed
-            if not msg.get("is_summary", False)
-        ]
-
-    @rx.var
-    def total_summary_tokens(self) -> int:
-        """
-        Estimate total tokens used by all summaries.
-
-        Used to show token usage in the unified summary collapsible header.
-        """
-        total = 0
-        for summary in self.all_summaries:
-            content = summary.get("content", "")
-            # Rough estimate: ~3.5 chars per token for German
-            total += len(content) // 4
-        return total
-
     async def on_load(self):
         """
         Called when page loads - initialize backend and load models
@@ -1014,8 +968,12 @@ class AIState(rx.State):
                 # Load user name
                 self.user_name = saved_settings.get("user_name", self.user_name)
                 # Sync to prompt_loader for automatic injection into system prompts
-                from .lib.prompt_loader import set_user_name
+                from .lib.prompt_loader import set_user_name, init_system_prompt_cache
                 set_user_name(self.user_name)
+
+                # Initialize system prompt token cache (v2.14.0+)
+                # This caches all prompt sizes for accurate compression calculations
+                init_system_prompt_cache()
 
                 # Load TTS/STT Settings
                 self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)
@@ -2666,13 +2624,20 @@ class AIState(rx.State):
             # Create backend for compression LLM call
             temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
 
+            # Get system prompt tokens from cache (v2.14.0+)
+            # Cache is populated at startup in on_load()
+            from .lib.prompt_loader import get_max_system_prompt_tokens, detect_language
+            detected_lang = detect_language(user_msg) if user_msg else "de"
+            system_prompt_tokens = get_max_system_prompt_tokens(self.multi_agent_mode, detected_lang)
+
             # Check and compress if needed (DUAL-HISTORY)
             async for event in summarize_history_if_needed(
                 history=self.chat_history,
                 llm_client=temp_backend,
                 model_name=self.automatik_model_id,
                 context_limit=context_limit,
-                llm_history=self.llm_history
+                llm_history=self.llm_history,
+                system_prompt_tokens=system_prompt_tokens
             ):
                 if event["type"] == "history_update":
                     # DUAL-HISTORY: Update both histories
@@ -3542,6 +3507,7 @@ class AIState(rx.State):
     def clear_chat(self):
         """Clear chat history, pending images, and temporary files"""
         self.chat_history = []
+        self.llm_history = []  # DUAL-HISTORY: LLM-History auch leeren!
         self.current_ai_response = ""
         self.current_user_message = ""
         self.tts_audio_path = ""  # Clear TTS player
