@@ -424,22 +424,27 @@ PLAYWRIGHT_FALLBACK_THRESHOLD = 800  # words - below this value Playwright is tr
 # ============================================================
 # HISTORY SUMMARIZATION CONFIGURATION
 # ============================================================
-# Trigger point: At what percentage of context limit should compression occur?
-HISTORY_COMPRESSION_THRESHOLD = 0.7  # 70% of context limit (production value)
+# Trigger: At what percentage of context limit should compression occur?
+HISTORY_COMPRESSION_TRIGGER = 0.7  # 70% - when to compress
 
-# Number of messages compressed at once
-# (6 messages = 3 question-answer pairs)
-HISTORY_MESSAGES_TO_COMPRESS = 6  # 3 question-answer pairs
+# Target: Compress down to this percentage (aggressive, leaves room for ~2 roundtrips)
+HISTORY_COMPRESSION_TARGET = 0.3  # 30% - where to compress to
 
-# Maximum number of summaries stored
-# When exceeded, oldest is deleted (FIFO)
+# Summary size: Percentage of content being compressed (4:1 compression ratio)
+HISTORY_SUMMARY_RATIO = 0.25  # 25% of compressed content = 4:1 ratio
+
+# Minimum summary size in tokens (for very small compressions)
+HISTORY_SUMMARY_MIN_TOKENS = 500
+
+# Tolerance: How much larger than target is acceptable before truncation
+HISTORY_SUMMARY_TOLERANCE = 0.5  # 50% over target allowed, above that: truncate
+
+# Maximum number of summaries stored (FIFO when exceeded)
 HISTORY_MAX_SUMMARIES = 10
 
-# Target size for a summary in tokens
-HISTORY_SUMMARY_TARGET_TOKENS = 1000
-
-# Target size for a summary in words (for prompt)
-HISTORY_SUMMARY_TARGET_WORDS = 750
+# Maximum percentage of context that can be used by summaries
+# Used for dynamic max_summaries calculation based on context size
+HISTORY_SUMMARY_MAX_RATIO = 0.2  # 20% of context for summaries
 
 # Temperature for summary generation (lower = more factual)
 HISTORY_SUMMARY_TEMPERATURE = 0.3

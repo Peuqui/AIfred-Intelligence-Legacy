@@ -5,6 +5,85 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.0] - 2025-12-27
+
+### 📊 Unified Summary Collapsible & PRE-MESSAGE Compression
+
+**History-Kompression wurde komplett überarbeitet: PRE-MESSAGE statt POST-RESPONSE, dynamisches max_summaries basierend auf Context-Größe, und ein einheitliches Collapsible für alle Summaries.**
+
+#### Added
+
+- **Unified Summary Collapsible** ([aifred.py](aifred/aifred.py)):
+  - Alle Summaries in einem einzigen aufklappbaren Container
+  - Jede Summary als separate Box mit Header (Nummer, Message-Count, Timestamp)
+  - Token-Übersicht im Collapsible-Header (~X tok)
+  - Collapsed by default, FIFO-Reihenfolge (älteste zuerst)
+
+- **Dynamisches max_summaries** ([context_manager.py](aifred/lib/context_manager.py)):
+  - `calculate_max_summaries(context_limit)` - berechnet basierend auf 20% Context-Budget
+  - 4K Context → max 1-2 Summaries
+  - 8K Context → max 3 Summaries
+  - 32K+ Context → max 10 Summaries (gedeckelt)
+  - Neue Config: `HISTORY_SUMMARY_MAX_RATIO = 0.2`
+
+- **Neues Summary-Format**:
+  - Alt: `[📊 Compressed: N Messages]`
+  - Neu: `[📊 Summary #N|X Messages|DD.MM.YYYY HH:MM]`
+  - Abwärtskompatibel: Erkennt beide Formate
+
+- **State-Variablen für UI** ([state.py](aifred/state.py)):
+  - `all_summaries` - Extrahiert alle Summaries für Unified Collapsible
+  - `chat_history_without_summaries` - Chat ohne Summaries für normale Anzeige
+  - `total_summary_tokens` - Geschätzte Token-Anzahl aller Summaries
+  - `ChatMessageParsed` erweitert um Summary-Felder
+
+- **Helper-Funktionen** ([context_manager.py](aifred/lib/context_manager.py)):
+  - `is_summary_entry()` - Erkennt alte und neue Summary-Formate
+  - `count_summaries()` - Zählt Summaries in History
+
+#### Changed
+
+- **PRE-MESSAGE statt POST-RESPONSE Compression** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - Kompression VOR jedem LLM-Aufruf (nicht danach)
+  - Löst Session-Restore Problem: Modell-Wechsel → Kein Overflow mehr
+  - Multi-Agent: PRE-CHECK vor Sokrates, Salomo, AIfred-Revision
+  - `_check_compression_if_needed()` als zentrale Funktion
+
+- **FIFO aggressiver bei kleinem Context**:
+  - Bei max_summaries=1: Älteste Summary wird gelöscht vor neuer
+  - Garantiert: Nie mehr Summaries als Context erlaubt
+  - Debug-Log zeigt FIFO-Aktionen
+
+- **Chat-Rendering separiert** ([aifred.py](aifred/aifred.py)):
+  - `render_unified_summaries()` oben im Chat
+  - `chat_history_without_summaries` für normale Messages
+  - Alte inline-Summary-Darstellung entfernt
+
+- **Share-Chat erweitert** ([state.py](aifred/state.py)):
+  - Erkennt neues Summary-Format beim Export
+  - Salomo-Messages werden korrekt erkannt
+
+#### Technical Details
+
+**Dynamisches max_summaries:**
+```python
+# 20% des Context für Summaries reserviert
+max_summary_budget = context_limit * 0.2
+max_summaries = max(1, max_summary_budget // 500)
+# Gedeckelt bei HISTORY_MAX_SUMMARIES (10)
+```
+
+**PRE-MESSAGE Check:**
+```python
+# VOR dem Hinzufügen einer neuen Nachricht
+async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+    yield
+# Jetzt erst die neue Nachricht hinzufügen
+self.chat_history.append((user_msg, ""))
+```
+
+---
+
 ## [2.11.0] - 2025-12-26
 
 ### 👑 Salomo - The Wise Judge (NEW AGENT)

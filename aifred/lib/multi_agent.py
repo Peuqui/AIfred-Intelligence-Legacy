@@ -276,8 +276,12 @@ async def _check_compression_if_needed(
 ) -> AsyncGenerator[None, None]:
     """
     Check if history compression is needed during multi-agent debate.
-    Uses the same logic as post-response compression but can run mid-debate.
-    Compression triggers at 70% of context_limit (HISTORY_COMPRESSION_THRESHOLD).
+
+    NOTE: Main PRE-MESSAGE check runs in send_message() BEFORE multi-agent starts.
+    This function handles compression DURING long debates where the debate itself
+    might push context usage above threshold.
+
+    Compression triggers at 70% of context_limit (HISTORY_COMPRESSION_TRIGGER).
     """
     try:
         # Run compression check (yields events if compression happens)
@@ -628,6 +632,10 @@ async def run_sokrates_analysis(
                 if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
                     sokrates_messages.append(msg)
 
+            # PRE-SOKRATES: Check if compression needed before Sokrates call
+            async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+                yield
+
             # Add placeholder for Sokrates
             # Minimal marker for UI detection (🏛️), mode info stored in metadata
             round_suffix = f" R{round_num}" if max_rounds > 1 else ""
@@ -681,9 +689,8 @@ async def run_sokrates_analysis(
             state.sokrates_critique = sokrates_response_text  # Keep raw text for logic checks
             yield
 
-            # === Check if history compression needed (after each LLM response) ===
-            async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
-                yield
+            # NOTE: PRE-CHECK before Sokrates already handles compression (line ~635)
+            # No POST-CHECK needed here
 
             # Parse Pro/Contra for devils_advocate
             if state.multi_agent_mode == "devils_advocate":
@@ -731,6 +738,10 @@ async def run_sokrates_analysis(
                 )
                 salomo_messages.insert(0, {"role": "system", "content": salomo_system})
 
+                # PRE-SALOMO: Check if compression needed before Salomo call
+                async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+                    yield
+
                 # Add placeholder for Salomo
                 salomo_marker = f"👑[{t('salomo_synthesis_label', lang=state.ui_language).rstrip(':')} R{round_num}]"
                 state.chat_history.append(("", salomo_marker))
@@ -773,9 +784,8 @@ async def run_sokrates_analysis(
                 state.salomo_synthesis = salomo_response_text
                 yield
 
-                # Check compression after Salomo
-                async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
-                    yield
+                # NOTE: PRE-CHECK before next agent handles compression
+                # No POST-CHECK needed here
 
                 # Check for LGTM from Salomo (not Sokrates!)
                 salomo_content = strip_thinking_blocks(salomo_response_text).strip()
@@ -786,6 +796,10 @@ async def run_sokrates_analysis(
 
                 # If no LGTM and more rounds available: AIfred refines based on Salomo's feedback
                 if round_num < max_rounds:
+                    # PRE-AIFRED: Check if compression needed before AIfred refinement
+                    async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+                        yield
+
                     # Build refinement prompt using Salomo's synthesis (not Sokrates' critique)
                     refinement_prompt = get_sokrates_refinement_prompt(
                         critique=salomo_response_text,  # Use Salomo's synthesis as guidance
@@ -848,9 +862,8 @@ async def run_sokrates_analysis(
                     )
                     yield
 
-                    # Check compression after AIfred
-                    async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
-                        yield
+                    # NOTE: PRE-CHECK before next iteration handles compression
+                    # No POST-CHECK needed here
 
         # End of debate
         if state.multi_agent_mode == "auto_consensus":
@@ -927,7 +940,8 @@ async def run_tribunal(
         if state.num_ctx_mode == "manual":
             main_llm_ctx = state.num_ctx_manual if state.num_ctx_manual else 4096
             sokrates_num_ctx = state.num_ctx_manual_sokrates if state.num_ctx_manual_sokrates else 4096
-            salomo_num_ctx = state.num_ctx_manual_salomo if hasattr(state, 'num_ctx_manual_salomo') else 4096
+            salomo_num_ctx = state.num_ctx_manual_salomo if state.num_ctx_manual_salomo else 4096
+            state.add_debug(f"🔧 Manual num_ctx: AIfred={main_llm_ctx:,}, Sokrates={sokrates_num_ctx:,}, Salomo={salomo_num_ctx:,}")
         else:
             aifred_cached = _last_vram_limit_cache.get("aifred_limit", 0)
             if aifred_cached == 0:
@@ -942,6 +956,11 @@ async def run_tribunal(
             )
 
         min_ctx = min(sokrates_num_ctx, main_llm_ctx, salomo_num_ctx)
+
+        # Update global cache for history compression (same as standard multi-agent)
+        _last_vram_limit_cache["aifred_limit"] = main_llm_ctx
+        _last_vram_limit_cache["sokrates_limit"] = sokrates_num_ctx
+        _last_vram_limit_cache["limit"] = min_ctx
 
         # Calculate temperatures
         if state.temperature_mode == "manual":
@@ -988,6 +1007,10 @@ async def run_tribunal(
         # === DEBATE PHASE: AIfred vs Sokrates ===
         for round_num in range(1, max_rounds + 1):
             state.debate_round = round_num
+
+            # PRE-SOKRATES: Check if compression needed before Sokrates call
+            async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+                yield
 
             # --- SOKRATES CRITIQUE ---
             sokrates_minimal = get_sokrates_system_minimal()
@@ -1039,11 +1062,15 @@ async def run_tribunal(
             state.sokrates_critique = sokrates_response_text
             yield
 
-            async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
-                yield
+            # NOTE: PRE-CHECK before next agent handles compression
+            # No POST-CHECK needed here
 
             # --- AIFRED RESPONSE (if not last round) ---
             if round_num < max_rounds:
+                # PRE-AIFRED: Check if compression needed before AIfred refinement
+                async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+                    yield
+
                 refinement_prompt = get_sokrates_refinement_prompt(
                     critique=sokrates_response_text,
                     user_interjection=""
@@ -1090,10 +1117,14 @@ async def run_tribunal(
                 )
                 yield
 
-                async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
-                    yield
+                # NOTE: PRE-CHECK in next iteration handles compression
+                # No POST-CHECK needed here
 
         # === JUDGMENT PHASE: Salomo delivers final verdict ===
+        # PRE-SALOMO: Check if compression needed before Salomo verdict
+        async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
+            yield
+
         state.add_debug("👑 Salomo rendering verdict...")
 
         salomo_minimal = get_salomo_system_minimal()

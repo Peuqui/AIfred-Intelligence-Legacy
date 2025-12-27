@@ -9,8 +9,9 @@ Fasse die folgende Konversation zusammen. Die Zusammenfassung wird als **Kontext
 1. **PRÄGNANT**: Maximal {max_tokens} Tokens (ca. {max_words} Wörter)
 2. **FAKTISCH**: Nur konkrete Informationen, keine Meinungen
 3. **CHRONOLOGISCH**: Behalte zeitliche Reihenfolge bei
-4. **HAUPTTHEMEN**: Fokus auf wichtige Themen und Fakten
-5. **KONTEXT-RELEVANT**: Was könnte für zukünftige Fragen wichtig sein?
+4. **VOLLSTÄNDIG**: Erwähne JEDES besprochene Thema mit 1-2 Sätzen
+5. **NUR FAKTEN**: Keine philosophischen Betrachtungen, keine Stil-Elemente
+6. **KONTEXT-RELEVANT**: Was könnte für zukünftige Fragen wichtig sein?
 
 # 🚫 VERBOTEN
 
@@ -18,6 +19,13 @@ Fasse die folgende Konversation zusammen. Die Zusammenfassung wird als **Kontext
 - ❌ KEINE Höflichkeitsfloskeln ("Der User fragte höflich...")
 - ❌ KEINE Meta-Informationen ("In dieser Konversation...")
 - ❌ KEINE wörtlichen Zitate (paraphrasieren!)
+- ❌ KEINE eigenen Interpretationen ("AI betont...", "User wird aufgefordert...")
+
+# ✅ WICHTIG ZU BEHALTEN
+
+- ✅ **Fazits und Schlussfolgerungen** - diese sind für Folgefragen essentiell!
+- ✅ Konkrete Empfehlungen die gegeben wurden
+- ✅ Entscheidungen die getroffen wurden
 
 # 📝 FORMAT
 
@@ -50,7 +58,7 @@ Der User fragte nach dem Wetter in Berlin für morgen. Die AI antwortete, dass e
 # ⚠️ WICHTIG
 
 - Maximal {max_tokens} Tokens!
-- Nur die wichtigsten Fakten!
+- ALLE Themen erwähnen, aber nur Fakten!
 - Keine Metainformationen!
 - Kompakt und prägnant!
 

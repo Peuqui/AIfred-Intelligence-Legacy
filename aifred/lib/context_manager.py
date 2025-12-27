@@ -8,6 +8,7 @@ Handles context limits and token estimation for LLMs:
 - History compression (summarize_history_if_needed)
 """
 
+import re
 import time
 import asyncio
 from typing import Dict, List, Optional, AsyncIterator
@@ -15,11 +16,13 @@ from .logging_utils import log_message, console_separator
 from .prompt_loader import load_prompt
 from .formatting import format_number
 from .config import (
-    HISTORY_COMPRESSION_THRESHOLD,
-    HISTORY_MESSAGES_TO_COMPRESS,
+    HISTORY_COMPRESSION_TRIGGER,
+    HISTORY_COMPRESSION_TARGET,
+    HISTORY_SUMMARY_RATIO,
+    HISTORY_SUMMARY_MIN_TOKENS,
+    HISTORY_SUMMARY_TOLERANCE,
     HISTORY_MAX_SUMMARIES,
-    HISTORY_SUMMARY_TARGET_TOKENS,
-    HISTORY_SUMMARY_TARGET_WORDS,
+    HISTORY_SUMMARY_MAX_RATIO,
     HISTORY_SUMMARY_TEMPERATURE,
     HISTORY_SUMMARY_CONTEXT_LIMIT
 )
@@ -121,9 +124,30 @@ def estimate_tokens(messages: List[Dict], model_name: Optional[str] = None) -> i
     return int(total_chars / 2.5)
 
 
+def strip_non_llm_content(text: str) -> str:
+    """
+    Remove content that doesn't go to the LLM (thinking blocks, metadata).
+
+    These are stored in history for UI/export but should not count towards
+    token estimation since they are stripped before LLM calls.
+    """
+    if not text:
+        return ""
+    # <details>...</details> (Thinking blocks in UI - collapsible)
+    text = re.sub(r'<details[^>]*>.*?</details>', '', text, flags=re.DOTALL)
+    # <span>...</span> (Metadata spans)
+    text = re.sub(r'<span[^>]*>.*?</span>', '', text, flags=re.DOTALL)
+    # <think>...</think> (Raw thinking blocks)
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    return text.strip()
+
+
 def estimate_tokens_from_history(history: List[tuple]) -> int:
     """
-    Estimate token count from chat history (tuple format)
+    Estimate token count from chat history (tuple format).
+
+    Strips non-LLM content (thinking blocks, metadata) before estimation
+    since these don't actually go to the LLM.
 
     Args:
         history: List of (user_msg, ai_msg) tuples
@@ -131,9 +155,105 @@ def estimate_tokens_from_history(history: List[tuple]) -> int:
     Returns:
         int: Estimated token count (rule of thumb: 1 token ≈ 3.5 chars for German/mixed text)
     """
-    total_size = sum(len(user_msg) + len(ai_msg) for user_msg, ai_msg in history)
+    total_size = 0
+    for user_msg, ai_msg in history:
+        total_size += len(strip_non_llm_content(user_msg))
+        total_size += len(strip_non_llm_content(ai_msg))
     # 3.5 chars per token (better for German texts than 4)
     return int(total_size / 3.5)
+
+
+def get_summary_target_tokens(tokens_to_compress: int) -> int:
+    """
+    Calculate dynamic summary size based on content being compressed.
+
+    Summary = 25% of content being compressed (4:1 compression ratio).
+    Minimum 500 tokens for meaningful summaries.
+
+    Args:
+        tokens_to_compress: Estimated tokens in content to be compressed
+
+    Returns:
+        int: Target token count for summary
+    """
+    target = int(tokens_to_compress * HISTORY_SUMMARY_RATIO)
+    return max(HISTORY_SUMMARY_MIN_TOKENS, target)
+
+
+def truncate_to_tokens(text: str, target_tokens: int) -> str:
+    """
+    Truncate text to approximately target token count.
+
+    Uses char-based estimation (3.5 chars/token for German).
+
+    Args:
+        text: Text to truncate
+        target_tokens: Target token count
+
+    Returns:
+        str: Truncated text (with ... indicator if truncated)
+    """
+    target_chars = int(target_tokens * 3.5)
+    if len(text) <= target_chars:
+        return text
+    # Find last sentence boundary before limit
+    truncated = text[:target_chars]
+    last_period = truncated.rfind('. ')
+    if last_period > target_chars * 0.7:  # At least 70% of content
+        return truncated[:last_period + 1] + " [...]"
+    return truncated + " [...]"
+
+
+def calculate_max_summaries(context_limit: int, avg_summary_tokens: int = 500) -> int:
+    """
+    Calculate how many summaries fit based on context limit.
+
+    Rule: Summaries should use max HISTORY_SUMMARY_MAX_RATIO (20%) of context.
+    This ensures small models (4K) don't get overwhelmed by summaries.
+
+    Examples:
+        4K Context:  4096 * 0.2 / 500 = 1-2 Summaries
+        8K Context:  8192 * 0.2 / 500 = 3 Summaries
+        32K Context: 32768 * 0.2 / 500 = 13 → capped at HISTORY_MAX_SUMMARIES (10)
+
+    Args:
+        context_limit: The model's context window size in tokens
+        avg_summary_tokens: Average expected tokens per summary (default: 500)
+
+    Returns:
+        int: Maximum number of summaries allowed (at least 1, at most HISTORY_MAX_SUMMARIES)
+    """
+    max_summary_budget = int(context_limit * HISTORY_SUMMARY_MAX_RATIO)
+    max_summaries = max(1, max_summary_budget // avg_summary_tokens)
+    return min(max_summaries, HISTORY_MAX_SUMMARIES)
+
+
+def is_summary_entry(user_msg: str, ai_msg: str) -> bool:
+    """
+    Check if a chat history entry is a summary.
+
+    Supports both old format: [📊 Compressed: N Messages] / [📊 Komprimiert: N Messages]
+    And new format: [📊 Summary #N|X Messages|Timestamp]
+
+    Args:
+        user_msg: User message part (should be empty for summaries)
+        ai_msg: AI message part (contains summary marker)
+
+    Returns:
+        bool: True if this is a summary entry
+    """
+    if user_msg != "":
+        return False
+    return (
+        ai_msg.startswith("[📊 Compressed") or
+        ai_msg.startswith("[📊 Komprimiert") or
+        ai_msg.startswith("[📊 Summary #")
+    )
+
+
+def count_summaries(history: List[tuple]) -> int:
+    """Count the number of summary entries in chat history."""
+    return sum(1 for user_msg, ai_msg in history if is_summary_entry(user_msg, ai_msg))
 
 
 # Global cache for VRAM limits (prevents recalculation during history compression)
@@ -372,7 +492,15 @@ async def summarize_history_if_needed(
     max_summaries: int = None
 ) -> AsyncIterator[Dict]:
     """
-    Compress chat history when needed (context overflow prevention)
+    Compress chat history when context utilization reaches trigger threshold.
+
+    NEW ALGORITHM (dynamic, percentage-based):
+    1. Trigger: >= 70% context utilization (HISTORY_COMPRESSION_TRIGGER)
+    2. Target: Compress down to 30% (HISTORY_COMPRESSION_TARGET) - leaves room for ~2 roundtrips
+    3. Summary size: 25% of compressed content (4:1 ratio, min 500 tokens)
+    4. Tolerance: Allow up to 50% over target, then truncate
+
+    No more fixed message count - compresses as much as needed to reach target!
 
     Args:
         history: Chat history as list of (user_msg, ai_msg) tuples
@@ -387,106 +515,135 @@ async def summarize_history_if_needed(
     Returns:
         None - Function does not modify history in-place, state update via yield
     """
-    # Removed: Unnecessary debug line about function call details
-
-    # Use config values as defaults
+    # Calculate dynamic max_summaries based on context limit
+    # Small models (4K) get fewer summaries, large models (32K+) get more
     if max_summaries is None:
-        max_summaries = HISTORY_MAX_SUMMARIES
+        max_summaries = calculate_max_summaries(context_limit)
 
-    # Token estimation & utilization check (ALWAYS first, for debug message)
+    # Calculate thresholds from config
+    trigger_threshold = int(context_limit * HISTORY_COMPRESSION_TRIGGER)  # 70%
+    target_threshold = int(context_limit * HISTORY_COMPRESSION_TARGET)    # 30%
+
+    # Token estimation (without thinking blocks, metadata)
     estimated_tokens = estimate_tokens_from_history(history)
     utilization = (estimated_tokens / context_limit) * 100
-    threshold = int(context_limit * HISTORY_COMPRESSION_THRESHOLD)
 
-    # Safety-Check: Always keep at least 1 message after compression!
-    # CRITICAL: Prevents all messages from being compressed and chat becoming empty
-    if len(history) <= HISTORY_MESSAGES_TO_COMPRESS:
-        yield {"type": "debug", "message": f"📊 History: {format_number(estimated_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%)"}
-        log_message(f"⚠️ Compression aborted: {len(history)} messages would ALL be compressed → chat empty!")
-        return
-
-    if estimated_tokens < threshold:
+    # Check trigger: Only compress when >= 70% utilized
+    if estimated_tokens < trigger_threshold:
         yield {"type": "debug", "message": f"📊 History: {format_number(estimated_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%)"}
         return
 
-    log_message(f"⚠️ History too long: {int(utilization)}% utilization ({format_number(estimated_tokens)} tok) > {format_number(threshold)} threshold → starting compression")
+    # Safety: Need at least 2 messages (1 to compress, 1 to keep)
+    if len(history) < 2:
+        yield {"type": "debug", "message": f"📊 History: {format_number(estimated_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%) - too few messages"}
+        log_message(f"⚠️ Compression aborted: Only {len(history)} message(s) in history")
+        return
 
-    # Progress indicator: Compressing context
+    log_message(f"⚠️ History compression triggered: {int(utilization)}% utilization ({format_number(estimated_tokens)} tok) >= {int(HISTORY_COMPRESSION_TRIGGER*100)}% threshold")
+    log_message(f"   └─ Target: {int(HISTORY_COMPRESSION_TARGET*100)}% = {format_number(target_threshold)} tok")
+
+    # Progress indicator
     yield {"type": "progress", "phase": "compress"}
-    yield {"type": "debug", "message": f"🗜️ History compression starting: {int(utilization)}% utilization ({format_number(estimated_tokens)} / {format_number(context_limit)} tok)"}
+    yield {"type": "debug", "message": f"🗜️ Compressing: {int(utilization)}% → {int(HISTORY_COMPRESSION_TARGET*100)}% target ({format_number(estimated_tokens)} → {format_number(target_threshold)} tok)"}
 
-    # 4. Count existing summaries (check both German and English markers for backward compatibility)
-    summary_count = sum(1 for user_msg, ai_msg in history if user_msg == "" and (ai_msg.startswith("[📊 Compressed") or ai_msg.startswith("[📊 Komprimiert")))
+    # Count existing summaries using helper function (supports old and new formats)
+    summary_count = count_summaries(history)
 
-    # 5. FIFO when max_summaries already reached
-    if summary_count >= max_summaries:
-        log_message(f"⚠️ Max {max_summaries} summaries reached → deleting oldest summary (FIFO)")
-        # Find and remove oldest summary
+    # FIFO: Remove oldest summaries until we're below max
+    # This is especially important for small context models (4K)
+    while summary_count >= max_summaries:
+        log_message(f"⚠️ Max {max_summaries} summaries reached (have {summary_count}) → removing oldest (FIFO)")
         for i, (user_msg, ai_msg) in enumerate(history):
-            if user_msg == "" and (ai_msg.startswith("[📊 Compressed") or ai_msg.startswith("[📊 Komprimiert")):
+            if is_summary_entry(user_msg, ai_msg):
                 history.pop(i)
-                yield {"type": "debug", "message": "🗑️ Oldest summary removed (FIFO)"}
+                summary_count -= 1
+                yield {"type": "debug", "message": f"🗑️ Oldest summary removed (FIFO, max={max_summaries})"}
                 break
+        else:
+            # No summary found to remove - shouldn't happen but safety
+            break
 
-    # 6. Extract oldest messages to summarize (configurable count)
-    messages_to_summarize = history[:HISTORY_MESSAGES_TO_COMPRESS]
-    remaining_messages = history[HISTORY_MESSAGES_TO_COMPRESS:]
+    # DYNAMIC: Collect messages from front until remaining fits in target
+    # IMPORTANT: Skip existing summaries - they should be preserved!
+    messages_to_compress = []
+    preserved_summaries = []  # Summaries at the front that we keep
+    remaining_messages = history[:]
+    current_tokens = estimated_tokens
 
-    log_message("📝 Preparing compression:")
-    log_message(f"   └─ To compress: {len(messages_to_summarize)} messages")
-    log_message(f"   └─ Model: {model_name}")
-    log_message(f"   └─ Temperature: {HISTORY_SUMMARY_TEMPERATURE}")
-    log_message(f"   └─ Context limit: {HISTORY_SUMMARY_CONTEXT_LIMIT}")
+    # First, extract all summaries from the front and preserve them
+    while remaining_messages:
+        user_msg, ai_msg = remaining_messages[0]
+        if is_summary_entry(user_msg, ai_msg):
+            preserved_summaries.append(remaining_messages.pop(0))
+        else:
+            break  # Stop at first non-summary message
 
-    # 7. Format conversation for LLM (without <think> blocks!)
+    # Now collect non-summary messages for compression
+    current_tokens = estimate_tokens_from_history(preserved_summaries + remaining_messages)
+
+    while current_tokens > target_threshold and len(remaining_messages) > 1:
+        messages_to_compress.append(remaining_messages.pop(0))
+        current_tokens = estimate_tokens_from_history(preserved_summaries + remaining_messages)
+
+    # Safety: Must keep at least 1 message
+    if len(remaining_messages) == 0 and messages_to_compress:
+        remaining_messages = [messages_to_compress.pop()]
+
+    # Log preserved summaries
+    if preserved_summaries:
+        log_message(f"📌 Preserving {len(preserved_summaries)} existing summary/summaries")
+
+    # Calculate tokens being compressed
+    tokens_to_compress = estimate_tokens_from_history(messages_to_compress)
+    summary_target_tokens = get_summary_target_tokens(tokens_to_compress)
+    summary_target_words = int(summary_target_tokens * 0.75)  # ~0.75 words per token for German
+
+    log_message("📝 Compression plan:")
+    log_message(f"   └─ Messages to compress: {len(messages_to_compress)}")
+    log_message(f"   └─ Tokens to compress: {format_number(tokens_to_compress)}")
+    log_message(f"   └─ Summary target: {format_number(summary_target_tokens)} tok (~{format_number(summary_target_words)} words)")
+    log_message(f"   └─ Remaining after: {len(remaining_messages)} messages, ~{format_number(current_tokens)} tok")
+
+    # Format conversation for LLM (without thinking blocks)
     conversation_text = ""
-    for i, (user_msg, ai_msg) in enumerate(messages_to_summarize, 1):
-        # Remove <think> blocks from both messages
+    for i, (user_msg, ai_msg) in enumerate(messages_to_compress, 1):
         clean_user_msg = strip_thinking_blocks(user_msg) if user_msg else ""
         clean_ai_msg = strip_thinking_blocks(ai_msg) if ai_msg else ""
-
-        log_message(f"   └─ Message {i}: User={len(user_msg)}→{len(clean_user_msg)} chars, AI={len(ai_msg)}→{len(clean_ai_msg)} chars")
+        log_message(f"   └─ Msg {i}: User={len(user_msg)}→{len(clean_user_msg)}, AI={len(ai_msg)}→{len(clean_ai_msg)} chars")
         conversation_text += f"User: {clean_user_msg}\nAI: {clean_ai_msg}\n\n"
 
-    # Language detection for conversation (use first user text as reference)
+    # Language detection
     from .prompt_loader import detect_language
-    first_user_msg = messages_to_summarize[0][0] if messages_to_summarize else ""
+    first_user_msg = messages_to_compress[0][0] if messages_to_compress else ""
     detected_language = detect_language(first_user_msg) if first_user_msg else "de"
 
-    # 8. Load Summarization Prompt
+    # Load summarization prompt with dynamic target
     summary_prompt = load_prompt(
         'history_summarization',
         lang=detected_language,
         conversation=conversation_text.strip(),
-        max_tokens=HISTORY_SUMMARY_TARGET_TOKENS,
-        max_words=HISTORY_SUMMARY_TARGET_WORDS
+        max_tokens=summary_target_tokens,
+        max_words=summary_target_words
     )
 
-    # 9. LLM Summarization (Main LLM for better quality)
+    # LLM Summarization
     import datetime
-    start_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Milliseconds
-    log_message(f"🗜️ [START {start_timestamp}] Compressing {HISTORY_MESSAGES_TO_COMPRESS} messages with {model_name}...")
+    start_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    log_message(f"🗜️ [START {start_timestamp}] Compressing {len(messages_to_compress)} messages with {model_name}...")
     summary_start = time.time()
-
-    # Token count before compression
-    tokens_before = estimate_tokens_from_history(messages_to_summarize)
 
     summary_text = ""
     tokens_generated = 0
 
     try:
-        # MUCH SIMPLER: Use chat() instead of chat_stream() - we don't need streaming!
         log_message("   Calling LLM (non-streaming)...")
-
-        # Import backend types
         from ..backends.base import LLMMessage, LLMOptions
 
-        # Create proper message and options objects
         messages = [LLMMessage(role="system", content=summary_prompt)]
         options = LLMOptions(
             temperature=HISTORY_SUMMARY_TEMPERATURE,
             num_ctx=HISTORY_SUMMARY_CONTEXT_LIMIT,
-            enable_thinking=False  # Fast summarization, no reasoning needed
+            enable_thinking=False
         )
 
         response = await llm_client.chat(
@@ -495,78 +652,79 @@ async def summarize_history_if_needed(
             options=options
         )
 
-        # Evaluate response
         summary_time = time.time() - summary_start
         end_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
-        # Log raw response for debugging
-        log_message(f"   Raw response type: {type(response)}")
-        log_message(f"   Raw response: {response}")
-
-        # Extract summary text (response is an LLMResponse object!)
         summary_text = response.text if response else ""
 
-        # Extract metrics from LLMResponse
         if response:
             tokens_generated = response.tokens_generated
             tokens_per_second = response.tokens_per_second
         else:
-            # Fallback: Estimate tokens based on text length
-            tokens_generated = len(summary_text) // 4  # Rough estimate
+            tokens_generated = len(summary_text) // 4
             tokens_per_second = tokens_generated / summary_time if summary_time > 0 else 0
 
-        # Detailed debug output
         log_message(f"✅ [END {end_timestamp}] Summary generated:")
-        log_message(f"   └─ Chars generated: {len(summary_text)}")
-        log_message(f"   └─ Tokens estimated: {format_number(tokens_generated)}")
-        log_message(f"   └─ Time: {format_number(summary_time, 2)}s")
-        log_message(f"   └─ Speed: {format_number(tokens_per_second, 1)} tok/s")
-        if tokens_before > 0 and tokens_generated > 0:
-            log_message(f"   └─ Compression: {format_number(tokens_before)} → {format_number(tokens_generated)} tok ({format_number(tokens_before/tokens_generated, 1)}:1 ratio)")
+        log_message(f"   └─ Chars: {len(summary_text)}, Tokens: ~{format_number(tokens_generated)}")
+        log_message(f"   └─ Time: {format_number(summary_time, 2)}s, Speed: {format_number(tokens_per_second, 1)} tok/s")
+
+        # TOLERANCE CHECK: Is summary too large?
+        summary_tokens = int(len(summary_text) / 3.5)
+        max_allowed = int(summary_target_tokens * (1 + HISTORY_SUMMARY_TOLERANCE))
+
+        if summary_tokens > max_allowed:
+            log_message(f"⚠️ Summary too large: {format_number(summary_tokens)} > {format_number(max_allowed)} (target + 50%) → truncating")
+            summary_text = truncate_to_tokens(summary_text, max_allowed)
+            yield {"type": "debug", "message": f"✂️ Summary truncated: {format_number(summary_tokens)} → ~{format_number(max_allowed)} tok"}
+
+        if tokens_to_compress > 0 and tokens_generated > 0:
+            log_message(f"   └─ Compression: {format_number(tokens_to_compress)} → {format_number(tokens_generated)} tok ({format_number(tokens_to_compress/tokens_generated, 1)}:1)")
         console_separator()
 
     except asyncio.TimeoutError:
         log_message("⚠️ Async timeout during summary generation")
         yield {"type": "debug", "message": "⚠️ Summary generation timeout"}
-        summary_text = ""  # Ensure empty on timeout
+        summary_text = ""
     except Exception as e:
         log_message(f"❌ Error during summary generation: {e}")
         yield {"type": "debug", "message": f"❌ Summary error: {e}"}
-        summary_text = ""  # Ensure empty on error
+        summary_text = ""
 
-    # 10. Only if summary was successfully generated
-    if summary_text and len(summary_text.strip()) > 10:  # At least 10 characters
-        # Create summary entry (collapsible format)
+    # Build new history only if summary successful
+    if summary_text and len(summary_text.strip()) > 10:
+        # New format: [📊 Summary #N|X Messages|Timestamp]
+        # - N = sequential number (count of existing summaries + 1)
+        # - X Messages = how many messages were compressed
+        # - Timestamp = when compression happened
+        import datetime
+        summary_number = len(preserved_summaries) + 1
+        timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
         summary_entry = (
-            "",  # Empty user part
-            f"[📊 Compressed: {len(messages_to_summarize)} Messages]\n{summary_text.strip()}"
+            "",
+            f"[📊 Summary #{summary_number}|{len(messages_to_compress)} Messages|{timestamp}]\n{summary_text.strip()}"
         )
-        # Build new history: [Summary] + [Remaining Messages]
-        new_history = [summary_entry] + remaining_messages
+        # Order: preserved_summaries + new_summary + remaining_messages
+        new_history = preserved_summaries + [summary_entry] + remaining_messages
     else:
-        # On error: Keep history unchanged
         log_message("⚠️ Summary too short or empty - history remains unchanged")
         yield {"type": "debug", "message": "⚠️ Compression failed - history unchanged"}
-        return  # Exit here without changes
+        return
 
-    # Calculate new token count after compression
+    # Calculate results
     new_tokens = estimate_tokens_from_history(new_history)
+    new_utilization = (new_tokens / context_limit) * 100
     compression_ratio = estimated_tokens / new_tokens if new_tokens > 0 else 0
+    summaries_count = count_summaries(new_history)
 
     log_message("✅ History successfully compressed:")
-    log_message(f"   └─ Messages: {len(history)} → {len(new_history)} ({len(remaining_messages)} visible)")
-    log_message(f"   └─ Tokens: {format_number(estimated_tokens)} → {format_number(new_tokens)} ({format_number(compression_ratio, 1)}:1 ratio)")
-    log_message(f"   └─ Space saved: {format_number(estimated_tokens - new_tokens)} tok")
+    log_message(f"   └─ Messages: {len(history)} → {len(new_history)}")
+    log_message(f"   └─ Tokens: {format_number(estimated_tokens)} → {format_number(new_tokens)} ({format_number(compression_ratio, 1)}:1)")
+    log_message(f"   └─ Utilization: {int(utilization)}% → {int(new_utilization)}%")
+    log_message(f"   └─ Space freed: {format_number(estimated_tokens - new_tokens)} tok")
 
-    # Calculate new utilization after compression
-    new_utilization = (new_tokens / context_limit) * 100
-
-    # Count summaries in new history (check both German and English markers for backward compatibility)
-    summaries_count = sum(1 for user_msg, ai_msg in new_history if user_msg == "" and (ai_msg.startswith("[📊 Compressed") or ai_msg.startswith("[📊 Komprimiert")))
-
-    # 12. Yield update to state
+    # Yield update to state
     yield {"type": "history_update", "data": new_history}
-    yield {"type": "debug", "message": f"📦 History compressed: {int(utilization)}% → {int(new_utilization)}% ({format_number(estimated_tokens)} → {format_number(new_tokens)} tok, {len(messages_to_summarize)}→1 messages, {summaries_count} summaries total)"}
+    yield {"type": "debug", "message": f"📦 Compressed: {int(utilization)}% → {int(new_utilization)}% ({format_number(estimated_tokens)} → {format_number(new_tokens)} tok, {len(messages_to_compress)}→1 msg, {summaries_count} summaries)"}
 
 
 async def prepare_main_llm(
@@ -620,7 +778,7 @@ async def prepare_main_llm(
             # - unload_all_models() internally
             # - Wait 2s for VRAM release
             # - VRAM-based calculation (reads use_extended from cache per model)
-            log_message(f"🔄 prepare_main_llm: Starting VRAM calculation")
+            log_message("🔄 prepare_main_llm: Starting VRAM calculation")
 
             final_num_ctx, vram_msgs = await backend.calculate_practical_context(model_name)
             for msg in vram_msgs:
