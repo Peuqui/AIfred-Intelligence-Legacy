@@ -581,6 +581,38 @@ def text_input_section() -> rx.Component:
                             },
                         },
                     ),
+                    # Consensus Type Toggle (nur bei auto_consensus sichtbar, neben Glühbirne)
+                    rx.cond(
+                        AIState.multi_agent_mode == "auto_consensus",
+                        rx.hstack(
+                            # Dynamisches Label: 2/3 (grau) oder 3/3 (aktiv)
+                            rx.text(
+                                rx.cond(
+                                    AIState.is_unanimous_consensus,
+                                    "3/3",
+                                    "2/3"
+                                ),
+                                font_size="11px",
+                                color=rx.cond(
+                                    AIState.is_unanimous_consensus,
+                                    COLORS["primary"],
+                                    "var(--gray-10)"
+                                ),
+                                font_weight="600",
+                                min_width="24px",
+                                text_align="right",
+                            ),
+                            rx.switch(
+                                checked=AIState.is_unanimous_consensus,
+                                on_change=AIState.toggle_consensus_type,
+                                size="1",
+                            ),
+                            spacing="1",
+                            align="center",
+                            title=AIState.consensus_toggle_tooltip,
+                            margin_left="8px",  # Mehr Abstand zur Glühbirne
+                        ),
+                    ),
                     spacing="3",
                     align="center",
                 ),
@@ -602,23 +634,6 @@ def text_input_section() -> rx.Component:
                             step=1,
                             on_change=AIState.set_max_debate_rounds,
                             width="100px",
-                        ),
-                        spacing="2",
-                        align="center",
-                        padding_top="4px",
-                    ),
-                ),
-                # Consensus Type Toggle (visible only for "auto_consensus" mode)
-                rx.cond(
-                    AIState.multi_agent_mode == "auto_consensus",
-                    rx.hstack(
-                        rx.text(t("consensus_type_label"), font_size="11px"),
-                        rx.segmented_control.root(
-                            rx.segmented_control.item(t("consensus_majority"), value="majority"),
-                            rx.segmented_control.item(t("consensus_unanimous"), value="unanimous"),
-                            value=AIState.consensus_type,
-                            on_change=AIState.set_consensus_type,
-                            size="1",
                         ),
                         spacing="2",
                         align="center",
