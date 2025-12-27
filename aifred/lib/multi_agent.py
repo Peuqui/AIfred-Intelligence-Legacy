@@ -157,6 +157,13 @@ async def _stream_sokrates_to_history(
         }
     }
 
+    # DUAL-HISTORY: Sync Sokrates response to llm_history
+    # Agent-only entries become system messages with speaker label
+    from .message_builder import clean_content_for_llm
+    cleaned = clean_content_for_llm(full_response)
+    if cleaned:
+        state.llm_history.append({"role": "system", "content": f"[SOKRATES]: {cleaned}"})
+
 
 async def _stream_alfred_refinement(
     state: 'AIState',
@@ -203,6 +210,13 @@ async def _stream_alfred_refinement(
         "metadata": metadata,
         "metrics": {"time": inference_time, "tokens": token_count, "tok_per_sec": tokens_per_sec}
     }
+
+    # DUAL-HISTORY: Sync AIfred refinement to llm_history
+    # Agent-only entries become system messages with speaker label
+    from .message_builder import clean_content_for_llm
+    cleaned = clean_content_for_llm(full_response)
+    if cleaned:
+        state.llm_history.append({"role": "system", "content": f"[AIFRED]: {cleaned}"})
 
 
 async def _stream_salomo_to_history(
@@ -268,6 +282,13 @@ async def _stream_salomo_to_history(
         }
     }
 
+    # DUAL-HISTORY: Sync Salomo response to llm_history
+    # Agent-only entries become system messages with speaker label
+    from .message_builder import clean_content_for_llm
+    cleaned = clean_content_for_llm(full_response)
+    if cleaned:
+        state.llm_history.append({"role": "system", "content": f"[SALOMO]: {cleaned}"})
+
 
 async def _check_compression_if_needed(
     state: 'AIState',
@@ -284,16 +305,20 @@ async def _check_compression_if_needed(
     Compression triggers at 70% of context_limit (HISTORY_COMPRESSION_TRIGGER).
     """
     try:
-        # Run compression check (yields events if compression happens)
+        # Run compression check (yields events if compression happens) - DUAL-HISTORY
         async for event in summarize_history_if_needed(
             history=state.chat_history,
             llm_client=llm_client,
             model_name=state.automatik_model_id,  # Pure model ID (not display name!)
-            context_limit=context_limit
+            context_limit=context_limit,
+            llm_history=state.llm_history
         ):
             if event["type"] == "history_update":
-                state.chat_history = event["data"]
-                state.add_debug(f"✅ History compressed: {len(state.chat_history)} messages")
+                # DUAL-HISTORY: Update both histories
+                state.chat_history = event["chat_history"]
+                if event.get("llm_history") is not None:
+                    state.llm_history = event["llm_history"]
+                state.add_debug(f"✅ History compressed: {len(state.chat_history)} UI / {len(state.llm_history)} LLM messages")
                 yield
             elif event["type"] == "debug":
                 state.add_debug(event["message"])
@@ -332,6 +357,8 @@ async def run_sokrates_direct_response(
         history_index: Index in chat_history where response should be placed
     """
     try:
+        from .message_builder import clean_content_for_llm
+
         # Create LLM client
         llm_client = LLMClient(
             backend_type=state.backend_type,
@@ -451,6 +478,11 @@ async def run_sokrates_direct_response(
         # Final update: Sokrates in separate entry (empty user = Sokrates panel)
         final_content = f"{sokrates_marker}{formatted_response}\n\n{metadata}"
         state.chat_history[sokrates_index] = ("", final_content)
+
+        # DUAL-HISTORY: Sync Sokrates direct response to llm_history
+        cleaned = clean_content_for_llm(full_response)
+        if cleaned:
+            state.llm_history.append({"role": "system", "content": f"[SOKRATES]: {cleaned}"})
 
         # Remove the waiting message from user entry, keep only user question
         # Since Sokrates answered, no AIfred response needed

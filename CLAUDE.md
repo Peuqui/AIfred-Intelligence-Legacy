@@ -12,6 +12,15 @@
 
 ---
 
+## ⚠️ KRITISCH: Keine Fallbacks ohne Absprache
+
+- **NIEMALS** automatisch Fallback-Logik einbauen
+- Fallbacks (für alte Datenformate, fehlende Felder, Migration etc.) nur nach Absprache mit User
+- Im Zweifel: Alte Daten löschen und sauber neu starten
+- GRUND: Fallbacks verkomplizieren den Code und verstecken Probleme
+
+---
+
 ## Bereits integrierte Features (NICHT vergessen!)
 
 - **ChromaDB Vector Cache** - Semantischer Cache für Web-Research (Docker)
