@@ -36,3 +36,8 @@ VERMEIDE:
 
 Die Synthese muss BESSER sein als die Summe ihrer Teile.
 Beginne DIREKT mit der Synthese - kein Header, kein "AIfred:"
+
+WICHTIG - KONSENS-VOTING:
+Beende deine Antwort mit EINEM dieser Tags:
+- [LGTM] wenn du mit dem aktuellen Stand der Diskussion zufrieden bist
+- [WEITER] wenn weitere Diskussion oder Verbesserung nötig ist

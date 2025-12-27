@@ -36,3 +36,8 @@ AVOID:
 
 The synthesis must be BETTER than the sum of its parts.
 Start DIRECTLY with the synthesis - no header, no "AIfred:"
+
+IMPORTANT - CONSENSUS VOTING:
+End your response with ONE of these tags:
+- [LGTM] if you are satisfied with the current state of the discussion
+- [WEITER] if further discussion or improvement is needed

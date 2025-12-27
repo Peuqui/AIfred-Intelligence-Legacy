@@ -44,6 +44,67 @@ if TYPE_CHECKING:
     from ..state import AIState
 
 
+# ============================================================
+# CONSENSUS VOTING HELPERS
+# ============================================================
+
+def count_lgtm_votes(alfred_text: str, sokrates_text: str, salomo_text: str) -> dict:
+    """Count [LGTM] votes from all agents, ignoring if [WEITER] is present.
+
+    [WEITER] overrides [LGTM] to handle negation cases like:
+    "Das ist noch kein LGTM" -> Would otherwise false-positive on "LGTM"
+
+    Returns:
+        dict: {"alfred": bool, "sokrates": bool, "salomo": bool}
+    """
+    votes = {"alfred": False, "sokrates": False, "salomo": False}
+
+    for name, text in [("alfred", alfred_text), ("sokrates", sokrates_text), ("salomo", salomo_text)]:
+        content = strip_thinking_blocks(text).strip().upper()
+        # [WEITER] overrides [LGTM] (for negation case)
+        if "[WEITER]" in content:
+            votes[name] = False
+        elif "[LGTM]" in content:
+            votes[name] = True
+
+    return votes
+
+
+def check_consensus(votes: dict, consensus_type: str) -> bool:
+    """Check if consensus is reached based on type.
+
+    Args:
+        votes: dict with agent names as keys and bool votes as values
+        consensus_type: "majority" (2/3) or "unanimous" (3/3)
+
+    Returns:
+        bool: True if consensus reached
+    """
+    lgtm_count = sum(votes.values())
+    if consensus_type == "unanimous":
+        return lgtm_count == 3  # All must agree
+    else:  # majority
+        return lgtm_count >= 2  # 2/3 is enough
+
+
+def format_votes_debug(votes: dict, round_num: int) -> str:
+    """Format votes for debug output.
+
+    Args:
+        votes: dict with agent names as keys and bool votes as values
+        round_num: Current round number
+
+    Returns:
+        str: Formatted debug string
+    """
+    lgtm_count = sum(votes.values())
+    alfred_vote = "✅" if votes.get("alfred", False) else "❌"
+    sokrates_vote = "✅" if votes.get("sokrates", False) else "❌"
+    salomo_vote = "✅" if votes.get("salomo", False) else "❌"
+
+    return f"🗳️ Votes R{format_number(round_num)}: AIfred {alfred_vote}, Sokrates {sokrates_vote}, Salomo {salomo_vote} ({format_number(lgtm_count)}/3)"
+
+
 def parse_pro_contra(analysis: str) -> tuple[str, str]:
     """Parse Pro and Contra sections from Sokrates' analysis.
 
@@ -819,14 +880,26 @@ async def run_sokrates_analysis(
                 # NOTE: PRE-CHECK before next agent handles compression
                 # No POST-CHECK needed here
 
-                # Check for LGTM from Salomo (not Sokrates!)
-                salomo_content = strip_thinking_blocks(salomo_response_text).strip()
-                if "LGTM" in salomo_content.upper():
-                    state.add_debug(f"✅ Consensus reached in round {round_num} (Salomo: LGTM)")
+                # === NEW: 3-Agent Consensus Voting ===
+                # Count votes from all three agents (AIfred, Sokrates, Salomo)
+                votes = count_lgtm_votes(
+                    alfred_text=current_answer,
+                    sokrates_text=sokrates_response_text,
+                    salomo_text=salomo_response_text
+                )
+
+                # Debug: Show vote status
+                state.add_debug(format_votes_debug(votes, round_num))
+
+                # Check consensus based on user's configured consensus_type
+                if check_consensus(votes, state.consensus_type):
+                    lgtm_count = sum(votes.values())
+                    type_label = "unanimous" if state.consensus_type == "unanimous" else "majority"
+                    state.add_debug(f"✅ Consensus reached in round {format_number(round_num)} ({format_number(lgtm_count)}/3 votes, {type_label})")
                     consensus_reached = True
                     break
 
-                # If no LGTM and more rounds available: AIfred refines based on Salomo's feedback
+                # If no consensus and more rounds available: AIfred refines based on Salomo's feedback
                 if round_num < max_rounds:
                     # PRE-AIFRED: Check if compression needed before AIfred refinement
                     async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
@@ -900,9 +973,12 @@ async def run_sokrates_analysis(
         # End of debate
         if state.multi_agent_mode == "auto_consensus":
             if consensus_reached:
-                state.add_debug(f"🎯 Debate finished: consensus after {state.debate_round} rounds")
+                state.add_debug(f"🎯 Debate finished: consensus after {format_number(state.debate_round)} rounds")
             else:
-                state.add_debug(f"⚠️ Debate finished: max {max_rounds} rounds without consensus")
+                state.add_debug(f"⚠️ No consensus after {format_number(max_rounds)} rounds")
+                # Show final votes for debugging
+                if 'votes' in locals():
+                    state.add_debug(format_votes_debug(votes, state.debate_round))
 
         await llm_client.close()
 
