@@ -613,6 +613,19 @@ class AIState(rx.State):
             return ""  # Empty = use Main-LLM
         return self.available_models_dict.get(self.sokrates_model_id, self.sokrates_model_id)
 
+    @rx.var
+    def is_unanimous_consensus(self) -> bool:
+        """Check if consensus type is unanimous (for toggle state)"""
+        return self.consensus_type == "unanimous"
+
+    @rx.var
+    def consensus_toggle_tooltip(self) -> str:
+        """Get tooltip text for consensus toggle based on current state and language"""
+        from .lib.i18n import t
+        if self.consensus_type == "unanimous":
+            return t("consensus_toggle_tooltip_on", lang=self.ui_language)
+        return t("consensus_toggle_tooltip_off", lang=self.ui_language)
+
     @rx.var(deps=["whisper_model_key", "ui_language"], auto_deps=False)
     def whisper_model_display(self) -> str:
         """Get localized display name for current Whisper model.
@@ -5164,6 +5177,13 @@ class AIState(rx.State):
         self.consensus_type = consensus_type
         self._save_settings()
         type_label = "2/3 majority" if consensus_type == "majority" else "3/3 unanimous"
+        self.add_debug(f"🗳️ Consensus type: {type_label}")
+
+    def toggle_consensus_type(self, checked: bool):
+        """Toggle consensus type between majority (off) and unanimous (on)"""
+        self.consensus_type = "unanimous" if checked else "majority"
+        self._save_settings()
+        type_label = "3/3 unanimous" if checked else "2/3 majority"
         self.add_debug(f"🗳️ Consensus type: {type_label}")
 
     def set_sokrates_model(self, model: str):
