@@ -5,6 +5,126 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.0] - 2025-12-27
+
+### 🗳️ 3-Agent Consensus Voting System
+
+**Alle drei Agenten stimmen jetzt mit [LGTM]/[WEITER] Tags ab. Konfigurierbarer Konsens-Typ: Majority (2/3) oder Unanimous (3/3).**
+
+#### Added
+
+- **3-Agent Voting** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - `count_lgtm_votes()` - Zählt Votes von AIfred, Sokrates, Salomo
+  - `check_consensus()` - Prüft ob Konsens erreicht (majority/unanimous)
+  - `format_votes_debug()` - Formatiert Vote-Status für Debug-Ausgabe
+  - `[WEITER]` überschreibt `[LGTM]` für Negations-Fälle
+
+- **Consensus Type Setting** ([state.py](aifred/state.py)):
+  - `consensus_type: str = "majority"` - Wählbar in UI
+  - Majority: 2/3 Agents müssen `[LGTM]` sagen
+  - Unanimous: Alle 3 Agents müssen `[LGTM]` sagen
+
+- **UI Toggle** ([aifred.py](aifred/aifred.py)):
+  - Segment-Control für Konsens-Typ (nur im Auto-Consensus Modus sichtbar)
+  - i18n Labels für DE/EN
+
+- **Updated Prompts** ([prompts/](prompts/)):
+  - Alle Agenten-Prompts (AIfred, Sokrates, Salomo) mit Voting-Instructions
+  - DE + EN Varianten
+
+#### Changed
+
+- **Trialog Workflow** erweitert:
+  - Nach jeder Runde: Votes von allen 3 Agenten gezählt
+  - Bei Konsens: Debatte beendet
+  - Debug-Log zeigt Vote-Status pro Runde
+
+#### Technical Details
+
+```
+┌─────────────┐     ┌─────────────────┐     ┌─────────────────────┐
+│   User      │────▶│   🎩 AIfred     │────▶│   🏛️ Sokrates       │
+│   Query     │     │   + [LGTM/WEITER]│     │   + [LGTM/WEITER]  │
+└─────────────┘     └─────────────────┘     └──────────┬──────────┘
+                                                       │
+                              ┌─────────────────────────┘
+                              ▼
+                    ┌─────────────────────┐
+                    │   👑 Salomo         │
+                    │   + [LGTM/WEITER]   │
+                    └──────────┬──────────┘
+                               │
+               ┌───────────────┴───────────────┐
+               ▼                               ▼
+     ┌────────────────┐              ┌─────────────────┐
+     │ 2/3 or 3/3     │              │ Not enough votes│
+     │ = Consensus!   │              │ = Next Round    │
+     └────────────────┘              └─────────────────┘
+```
+
+---
+
+## [2.13.0] - 2025-12-27
+
+### 📚 Dual Chat-History Architecture
+
+**Zwei parallele Datenstrukturen: chat_history (UI, vollständig) und llm_history (LLM, komprimiert). User verliert nie Kontext, auch bei kleinen Modellen.**
+
+#### Added
+
+- **`llm_history`** ([state.py](aifred/state.py)):
+  - Neue State-Variable: `llm_history: List[Dict[str, str]] = []`
+  - Ready-to-use Format für LLM-Aufrufe: `{"role": "user/assistant/system", "content": "..."}`
+  - Parallel zu `chat_history` geführt
+
+- **Dual-Sync bei neuen Messages** ([state.py](aifred/state.py)):
+  - User-Message: Append zu beiden Histories
+  - AI-Response: Update `chat_history`, Append zu `llm_history`
+  - Agent-Responses als System-Messages mit Speaker-Label `[SOKRATES]:`, `[SALOMO]:`, `[AIFRED]:`
+
+- **Session-Speicherung erweitert** ([state.py](aifred/state.py)):
+  - Beide Histories werden in Session gespeichert
+  - Keine Rekonstruktion beim Laden nötig
+
+- **`clean_content_for_llm()`** ([message_builder.py](aifred/lib/message_builder.py)):
+  - Entfernt HTML-Tags, Metadaten, Timing-Patterns
+  - Bereinigt Content für LLM-History
+
+#### Changed
+
+- **Multi-Agent llm_history Sync** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - `_stream_sokrates_to_history()` synct zu llm_history
+  - `_stream_alfred_refinement()` synct zu llm_history
+  - `_stream_salomo_to_history()` synct zu llm_history
+  - `run_sokrates_direct_response()` synct zu llm_history
+
+- **Kompression arbeitet auf llm_history** ([context_manager.py](aifred/lib/context_manager.py)):
+  - `chat_history`: Summary-Eintrag eingefügt (Original-Messages bleiben!)
+  - `llm_history`: Alte Messages durch Summary ersetzt
+
+#### Removed
+
+- **`_reconstruct_llm_history()`** - Keine Fallback-Migration (alte Sessions starten leer)
+
+#### Technical Details
+
+```python
+# Parallele Datenstrukturen
+chat_history = [
+    ("Wetter?", "15°C sonnig"),                              # Original bleibt
+    ("", "[📊 Summary #1|2 Msgs|14:30]\n• Wetter"),           # Summary eingefügt
+    ("Aktuell", "Aktuelle Antwort"),
+]
+
+llm_history = [
+    {"role": "system", "content": "[Summary]\n• Wetter"},     # Summary ersetzt
+    {"role": "user", "content": "Aktuell"},
+    {"role": "assistant", "content": "Aktuelle Antwort"},
+]
+```
+
+---
+
 ## [2.12.0] - 2025-12-27
 
 ### 📊 Unified Summary Collapsible & PRE-MESSAGE Compression
