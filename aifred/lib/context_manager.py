@@ -509,7 +509,8 @@ async def summarize_history_if_needed(
     model_name: str,
     context_limit: int,
     max_summaries: int = None,
-    llm_history: List[Dict[str, str]] = None
+    llm_history: List[Dict[str, str]] = None,
+    system_prompt_tokens: int = 0
 ) -> AsyncIterator[Dict]:
     """
     Compress chat history when context utilization reaches trigger threshold.
@@ -526,6 +527,9 @@ async def summarize_history_if_needed(
 
     No more fixed message count - compresses as much as needed to reach target!
 
+    IMPORTANT (v2.14.0+): system_prompt_tokens is INCLUDED in utilization calculation!
+    This prevents context overflow when system prompts are large (e.g., 2000+ tokens).
+
     Args:
         history: Chat history as list of (user_msg, ai_msg) tuples (UI - vollständig)
         llm_client: LLM Client for summarization
@@ -533,6 +537,7 @@ async def summarize_history_if_needed(
         context_limit: Context window limit of the model
         max_summaries: Maximum number of summaries before FIFO (default: from config)
         llm_history: LLM history as list of {"role": ..., "content": ...} dicts (LLM - komprimiert)
+        system_prompt_tokens: Estimated tokens for system prompt(s) - included in utilization!
 
     Yields:
         Dict: Progress, debug messages, and history updates
@@ -552,60 +557,82 @@ async def summarize_history_if_needed(
 
     # Token estimation - use llm_history if available (already cleaned, accurate)
     if llm_history:
-        estimated_tokens = estimate_tokens_from_llm_history(llm_history)
+        history_tokens = estimate_tokens_from_llm_history(llm_history)
     else:
-        estimated_tokens = estimate_tokens_from_history(history)
-    utilization = (estimated_tokens / context_limit) * 100
+        history_tokens = estimate_tokens_from_history(history)
+
+    # CRITICAL (v2.14.0+): Include system prompt tokens in total!
+    # This prevents overflow when system prompts are large (2000+ tokens).
+    # Total = System Prompt + History (what actually goes to the LLM)
+    total_tokens = system_prompt_tokens + history_tokens
+    utilization = (total_tokens / context_limit) * 100
+
+    # Debug: Show breakdown (System vs History)
+    if system_prompt_tokens > 0:
+        yield {"type": "debug", "message": f"📊 Context: System {format_number(system_prompt_tokens)} + History {format_number(history_tokens)} = {format_number(total_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%)"}
+    else:
+        yield {"type": "debug", "message": f"📊 History: {format_number(history_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%)"}
 
     # Check trigger: Only compress when >= 70% utilized
-    if estimated_tokens < trigger_threshold:
-        yield {"type": "debug", "message": f"📊 History: {format_number(estimated_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%)"}
+    if total_tokens < trigger_threshold:
         return
 
     # Safety: Need at least 2 messages (1 to compress, 1 to keep)
     if len(history) < 2:
-        yield {"type": "debug", "message": f"📊 History: {format_number(estimated_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%) - too few messages"}
+        yield {"type": "debug", "message": f"📊 History: {format_number(total_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%) - too few messages"}
         log_message(f"⚠️ Compression aborted: Only {len(history)} message(s) in history")
         return
 
-    log_message(f"⚠️ History compression triggered: {int(utilization)}% utilization ({format_number(estimated_tokens)} tok) >= {int(HISTORY_COMPRESSION_TRIGGER*100)}% threshold")
+    log_message(f"⚠️ History compression triggered: {int(utilization)}% utilization ({format_number(total_tokens)} tok) >= {int(HISTORY_COMPRESSION_TRIGGER*100)}% threshold")
+    if system_prompt_tokens > 0:
+        log_message(f"   └─ Breakdown: System {format_number(system_prompt_tokens)} + History {format_number(history_tokens)}")
     log_message(f"   └─ Target: {int(HISTORY_COMPRESSION_TARGET*100)}% = {format_number(target_threshold)} tok")
 
     # Progress indicator
     yield {"type": "progress", "phase": "compress"}
-    yield {"type": "debug", "message": f"🗜️ Compressing: {int(utilization)}% → {int(HISTORY_COMPRESSION_TARGET*100)}% target ({format_number(estimated_tokens)} → {format_number(target_threshold)} tok)"}
+    yield {"type": "debug", "message": f"🗜️ Compressing: {int(utilization)}% → {int(HISTORY_COMPRESSION_TARGET*100)}% target ({format_number(total_tokens)} → {format_number(target_threshold)} tok)"}
 
     # Count existing summaries using helper function (supports old and new formats)
     summary_count = count_summaries(history)
 
-    # FIFO: Remove oldest summaries until we're below max
-    # This is especially important for small context models (4K)
-    # Note: For Dual-History, we only track chat_history summaries here.
-    # llm_history summaries are handled below when building the new histories.
-    while summary_count >= max_summaries:
-        log_message(f"⚠️ Max {max_summaries} summaries reached (have {summary_count}) → removing oldest (FIFO)")
-        for i, (user_msg, ai_msg) in enumerate(history):
-            if is_summary_entry(user_msg, ai_msg):
-                history.pop(i)
-                summary_count -= 1
-                yield {"type": "debug", "message": f"🗑️ Oldest summary removed (FIFO, max={max_summaries})"}
-                # Also remove from llm_history if provided
-                if llm_history is not None:
-                    for j, msg in enumerate(llm_history):
-                        if msg.get("role") == "system" and msg.get("content", "").startswith("[Summary]"):
-                            llm_history.pop(j)
-                            break
+    # ============================================================
+    # FIFO: Only apply to llm_history, NOT chat_history! (v2.14.2+)
+    # ============================================================
+    # - chat_history (UI): Keep ALL summaries for user to see history
+    # - llm_history (LLM): Apply FIFO, only newest summary stays (context limit)
+    #
+    # Count summaries in llm_history for FIFO decision
+    llm_summary_count = 0
+    if llm_history is not None:
+        llm_summary_count = sum(
+            1 for msg in llm_history
+            if msg.get("role") == "system" and msg.get("content", "").startswith("[Summary]")
+        )
+
+    # FIFO only on llm_history - remove oldest summaries until below max
+    while llm_summary_count >= max_summaries and llm_history is not None:
+        log_message(f"⚠️ Max {max_summaries} summaries in LLM-History (have {llm_summary_count}) → removing oldest (FIFO)")
+        for j, msg in enumerate(llm_history):
+            if msg.get("role") == "system" and msg.get("content", "").startswith("[Summary]"):
+                llm_history.pop(j)
+                llm_summary_count -= 1
+                yield {"type": "debug", "message": f"🗑️ Oldest LLM-Summary removed (FIFO, max={max_summaries})"}
+                # NOTE: chat_history keeps ALL summaries - no removal there!
                 break
         else:
             # No summary found to remove - shouldn't happen but safety
             break
+
+    # Log how many summaries UI keeps (informational)
+    if summary_count > 0:
+        log_message(f"📌 Chat-History keeps {summary_count} summaries (UI display)")
 
     # DYNAMIC: Collect messages from front until remaining fits in target
     # IMPORTANT: Skip existing summaries - they should be preserved!
     messages_to_compress = []
     preserved_summaries = []  # Summaries at the front that we keep
     remaining_messages = history[:]
-    current_tokens = estimated_tokens
+    current_tokens = history_tokens  # Use history tokens for compression calculation (system prompt is constant)
 
     # First, extract all summaries from the front and preserve them
     while remaining_messages:
@@ -730,11 +757,13 @@ async def summarize_history_if_needed(
     # Build new histories only if summary successful
     if summary_text and len(summary_text.strip()) > 10:
         # New format: [📊 Summary #N|X Messages|Timestamp]
-        # - N = sequential number (count of existing summaries + 1)
+        # - N = sequential number (count of ALL existing summaries + 1)
         # - X Messages = how many messages were compressed
         # - Timestamp = when compression happened
+        # NOTE: Use count_summaries(history) because with inline placement,
+        #       old summaries are in the MIDDLE of history, not at the front!
         import datetime
-        summary_number = len(preserved_summaries) + 1
+        summary_number = count_summaries(history) + 1
         timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
         summary_entry = (
             "",
@@ -794,22 +823,26 @@ async def summarize_history_if_needed(
 
     # Calculate results (based on llm_history for accurate LLM token count)
     if new_llm_history is not None:
-        new_tokens = estimate_tokens_from_history(
+        new_history_tokens = estimate_tokens_from_history(
             [(msg.get("content", ""), "") for msg in new_llm_history]
         )
     else:
-        new_tokens = estimate_tokens_from_history(new_chat_history)
-    new_utilization = (new_tokens / context_limit) * 100
-    compression_ratio = estimated_tokens / new_tokens if new_tokens > 0 else 0
+        new_history_tokens = estimate_tokens_from_history(new_chat_history)
+
+    # Include system prompt in new utilization (same as trigger calculation)
+    new_total_tokens = system_prompt_tokens + new_history_tokens
+    new_utilization = (new_total_tokens / context_limit) * 100
+    compression_ratio = history_tokens / new_history_tokens if new_history_tokens > 0 else 0
     summaries_count = count_summaries(new_chat_history)
 
     log_message("✅ History successfully compressed:")
     log_message(f"   └─ Chat-History: {len(history)} → {len(new_chat_history)} entries (UI vollständig)")
     if new_llm_history is not None:
         log_message(f"   └─ LLM-History: {len(new_llm_history)} messages (komprimiert)")
-    log_message(f"   └─ Tokens: {format_number(estimated_tokens)} → {format_number(new_tokens)} ({format_number(compression_ratio, 1)}:1)")
+    log_message(f"   └─ History Tokens: {format_number(history_tokens)} → {format_number(new_history_tokens)} ({format_number(compression_ratio, 1)}:1)")
+    log_message(f"   └─ Total (incl. System): {format_number(total_tokens)} → {format_number(new_total_tokens)} tok")
     log_message(f"   └─ Utilization: {int(utilization)}% → {int(new_utilization)}%")
-    log_message(f"   └─ Space freed: {format_number(estimated_tokens - new_tokens)} tok")
+    log_message(f"   └─ Space freed: {format_number(history_tokens - new_history_tokens)} tok")
 
     # Yield update to state (DUAL-HISTORY format)
     yield {
@@ -817,7 +850,7 @@ async def summarize_history_if_needed(
         "chat_history": new_chat_history,
         "llm_history": new_llm_history  # None if not provided
     }
-    yield {"type": "debug", "message": f"📦 Compressed: {int(utilization)}% → {int(new_utilization)}% ({format_number(estimated_tokens)} → {format_number(new_tokens)} tok, {len(messages_to_compress)}→1 msg, {summaries_count} summaries)"}
+    yield {"type": "debug", "message": f"📦 Compressed: {int(utilization)}% → {int(new_utilization)}% ({format_number(total_tokens)} → {format_number(new_total_tokens)} tok, {len(messages_to_compress)}→1 msg, {summaries_count} summaries)"}
 
 
 async def prepare_main_llm(
