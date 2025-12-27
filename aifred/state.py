@@ -333,7 +333,8 @@ class AIState(rx.State):
 
     # Multi-Agent Settings - PERSISTENT (saved to settings.json)
     multi_agent_mode: str = "standard"  # "standard", "user_judge", "auto_consensus", "devils_advocate", "tribunal"
-    max_debate_rounds: int = 3  # Maximum rounds for auto_consensus/tribunal (UI slider: 1-5)
+    max_debate_rounds: int = 3  # Maximum rounds for auto_consensus/tribunal (UI slider: 1-10)
+    consensus_type: str = "majority"  # "majority" (2/3) or "unanimous" (3/3) - only for auto_consensus
     sokrates_model: str = ""  # Sokrates LLM model (empty = same as Main-LLM)
     sokrates_model_id: str = ""  # Pure model ID for Sokrates (without size suffix)
     salomo_model: str = ""  # Salomo LLM model (empty = same as Main-LLM)
@@ -1038,6 +1039,7 @@ class AIState(rx.State):
                 # Load Multi-Agent Settings
                 self.multi_agent_mode = saved_settings.get("multi_agent_mode", self.multi_agent_mode)
                 self.max_debate_rounds = saved_settings.get("max_debate_rounds", self.max_debate_rounds)
+                self.consensus_type = saved_settings.get("consensus_type", self.consensus_type)
                 # Load Sokrates model (pure ID, display name set after models load)
                 self.sokrates_model_id = saved_settings.get("sokrates_model", "")
                 self.sokrates_model = self.sokrates_model_id  # Will be updated with display name after models load
@@ -1665,6 +1667,7 @@ class AIState(rx.State):
             # Multi-Agent Settings
             "multi_agent_mode": self.multi_agent_mode,
             "max_debate_rounds": self.max_debate_rounds,
+            "consensus_type": self.consensus_type,
             "sokrates_model": self.sokrates_model_id,  # Save pure ID
             "salomo_model": self.salomo_model_id,  # Save pure ID
             "salomo_temperature": self.salomo_temperature,
@@ -5142,6 +5145,16 @@ class AIState(rx.State):
         self.max_debate_rounds = int(value[0])
         self._save_settings()
         self.add_debug(f"🔄 Max debate rounds: {self.max_debate_rounds}")
+
+    def set_consensus_type(self, consensus_type: str | list[str]):
+        """Set consensus type for auto_consensus mode ('majority' or 'unanimous')"""
+        # Handle both str and list[str] from segmented_control
+        if isinstance(consensus_type, list):
+            consensus_type = consensus_type[0] if consensus_type else "majority"
+        self.consensus_type = consensus_type
+        self._save_settings()
+        type_label = "2/3 majority" if consensus_type == "majority" else "3/3 unanimous"
+        self.add_debug(f"🗳️ Consensus type: {type_label}")
 
     def set_sokrates_model(self, model: str):
         """Set Sokrates LLM model for multi-agent debate"""

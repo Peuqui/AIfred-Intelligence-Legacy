@@ -105,35 +105,48 @@ User → AIfred → Sokrates (critique) → User (judges)
 
 ---
 
-### 3. Auto-Consensus Mode
-**Iterative refinement until agreement or max rounds**
+### 3. Auto-Consensus Mode (Trialog)
+**Three-agent voting system with iterative refinement**
 
 ```
-Round 1: User → AIfred → Sokrates (critique) → AIfred (synthesis)
-Round 2: Sokrates (critique) → AIfred (synthesis)
-...
-Until: Sokrates says "LGTM" or max_rounds reached
+┌─────────────┐     ┌─────────────────┐     ┌─────────────────────┐
+│   User      │────▶│   🎩 AIfred     │────▶│   🏛️ Sokrates       │
+│   Question  │     │   Answer        │     │   Critique          │
+└─────────────┘     │   + [LGTM/WEITER]│     │   + [LGTM/WEITER]  │
+                    └─────────────────┘     └──────────┬──────────┘
+                                                       ▼
+                                           ┌─────────────────────┐
+                                           │   👑 Salomo         │
+                                           │   Synthesis         │
+                                           │   + [LGTM/WEITER]   │
+                                           └──────────┬──────────┘
+                                                      │
+                              ┌────────────────────────┴────────────────────────┐
+                              ▼                                                 ▼
+                   ┌──────────────────┐                              ┌──────────────────┐
+                   │ Consensus met?   │                              │ Not enough votes │
+                   │ = End debate     │                              │ = Next round     │
+                   └──────────────────┘                              └──────────────────┘
 ```
 
-**LGTM Detection:**
-- Sokrates analyzes AIfred's synthesis
-- If satisfied, includes "LGTM" (case-insensitive) in response
-- Triggers immediate consensus and ends debate
+**Three-Agent Voting:**
+- **AIfred:** Ends refined answer with `[LGTM]` or `[WEITER]`
+- **Sokrates:** Ends critique with `[LGTM]` or `[WEITER]`
+- **Salomo:** Ends synthesis with `[LGTM]` or `[WEITER]`
+- `[WEITER]` overrides `[LGTM]` to handle negation cases ("This is not yet LGTM")
+
+**Consensus Types (Configurable):**
+| Setting | Required Votes | Description |
+|---------|---------------|-------------|
+| Majority | 2/3 | Two agents must agree |
+| Unanimous | 3/3 | All three agents must agree |
 
 **Round Limit:**
 - Configurable via `max_debate_rounds` (default: 2)
 - Range: 1-3 rounds
-- Prevents infinite loops
+- If no consensus after max rounds, debate ends with warning
 
-**Synthesis Process:**
-1. AIfred receives:
-   - Previous answer
-   - Sokrates' critique (Antithesis)
-   - Task: Create improved synthesis
-2. AIfred produces refined answer
-3. Loop continues until consensus
-
-**Use case:** Complex questions requiring refinement, philosophical discussions
+**Use case:** Complex questions requiring genuine agreement, philosophical discussions
 
 ---
 
@@ -164,6 +177,50 @@ User → AIfred → Sokrates (Pro/Contra) → User
 ```
 
 **Use case:** Controversial topics, balanced analysis, decision-making
+
+---
+
+### 5. Tribunal Mode
+**Formal debate with final judgment**
+
+```
+┌─────────────┐     ┌─────────────────┐     ┌─────────────────────┐
+│   User      │────▶│   🎩 AIfred     │────▶│   🏛️ Sokrates       │
+│   Question  │     │   Thesis        │     │   Critique          │
+└─────────────┘     └─────────────────┘     └──────────┬──────────┘
+                                                       │
+                    ┌─────────────────┐                │
+                    │   🎩 AIfred     │◀───────────────┘
+                    │   Response      │
+                    └────────┬────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │ Repeat N rounds │
+                    └────────┬────────┘
+                             │
+                             ▼
+                    ┌─────────────────────┐
+                    │   👑 Salomo         │
+                    │   Final Verdict     │
+                    └─────────────────────┘
+```
+
+**Key Differences from Auto-Consensus:**
+- **Fixed rounds:** AIfred and Sokrates debate for exactly N rounds
+- **No voting during debate:** No `[LGTM]` or `[WEITER]` tags during rounds
+- **Salomo judges at end:** Only appears after all debate rounds complete
+- **Definitive verdict:** Salomo delivers final judgment, not consensus
+
+**Round Structure:**
+1. AIfred presents thesis
+2. Sokrates critiques
+3. AIfred responds to critique
+4. Sokrates critiques again
+5. ... (repeat for N rounds)
+6. Salomo delivers final verdict
+
+**Use case:** Formal debates, legal-style argumentation, when definitive judgment is needed
 
 ---
 
@@ -216,9 +273,11 @@ User → AIfred → Sokrates (Pro/Contra) → User
 
 **Persistent (saved in settings.json):**
 ```python
-multi_agent_mode: str = "standard"  # "standard" | "user_judge" | "auto_consensus" | "devils_advocate"
-max_debate_rounds: int = 2          # 1-3 rounds for Auto-Consensus
+multi_agent_mode: str = "standard"  # "standard" | "user_judge" | "auto_consensus" | "devils_advocate" | "tribunal"
+max_debate_rounds: int = 2          # 1-3 rounds for Auto-Consensus/Tribunal
 sokrates_model: str = ""            # Optional, defaults to main_model if empty
+salomo_model: str = ""              # Optional, defaults to main_model if empty
+consensus_type: str = "majority"    # "majority" (2/3) or "unanimous" (3/3) - only for auto_consensus
 ```
 
 **Runtime (reset per session):**
@@ -439,19 +498,32 @@ Located in `prompts/de/` and `prompts/en/`:
 ```
 🤖 Multi-Agent: <mode>
 🏛️ Sokrates-LLM: <model> (<size>)
-📊 Context limits: AIfred=<N>, Sokrates=<N>
-🌡️ Temps: AIfred=0.2, Sokrates=0.4
-✅ Consensus reached in round <N> (LGTM)
-⚠️ Debate finished: max <N> rounds without consensus
+👑 Salomo-LLM: <model> (<size>)
+📊 Context limits: AIfred=<N>, Sokrates=<N>, Salomo=<N>
+🌡️ Temps: AIfred=0.2, Sokrates=0.4, Salomo=0.3
+🗳️ Votes R<N>: AIfred ✅/❌, Sokrates ✅/❌, Salomo ✅/❌ (<N>/3)
+✅ Consensus reached in round <N> (<N>/3 votes, majority/unanimous)
+⚠️ No consensus after <N> rounds
 ```
 
-**Example log:**
+**Example log (Auto-Consensus with voting):**
 ```
 17:05:14.044 | 🏛️ Sokrates-LLM: gemma3:1b (0.8 GB)
-17:05:16.226 | 📊 Context limits: AIfred=32.768, Sokrates=32.768, Compression=32.768
-17:05:16.226 | 🌡️ Temps: AIfred=0.2, Sokrates=0.4
-17:05:21.765 | ✅ Consensus reached in round 1 (LGTM)
-17:05:21.765 | 🎯 Debate finished: consensus after 1 rounds
+17:05:14.045 | 👑 Salomo-LLM: gemma3:1b (0.8 GB)
+17:05:16.226 | 📊 Context limits: AIfred=32,768, Sokrates=32,768, Salomo=32,768, Compression=32,768
+17:05:16.226 | 🌡️ Temps: AIfred=0.2, Sokrates=0.4, Salomo=0.3
+17:05:21.765 | 🗳️ Votes R1: AIfred ✅, Sokrates ❌, Salomo ✅ (2/3)
+17:05:21.765 | ✅ Consensus reached in round 1 (2/3 votes, majority)
+17:05:21.766 | 🎯 Debate finished: consensus after 1 rounds
+```
+
+**Example log (Tribunal mode):**
+```
+17:05:14.044 | ⚖️ Tribunal mode started
+17:05:14.045 | 🏛️ Sokrates LLM: gemma3:1b
+17:05:14.046 | 👑 Salomo LLM: gemma3:1b
+17:05:32.123 | 👑 Salomo rendering verdict...
+17:05:45.456 | ⚖️ Tribunal completed after 2 rounds + verdict
 ```
 
 ---
@@ -471,11 +543,18 @@ Located in `prompts/de/` and `prompts/en/`:
 - Second opinion desired
 - Educational contexts (seeing critique process)
 
-**Auto-Consensus:**
+**Auto-Consensus (Trialog):**
 - Complex philosophical questions
-- Nuanced topics requiring refinement
+- Nuanced topics requiring genuine agreement
 - When initial answer may be incomplete
-- Iterative improvement desired
+- When you want all three agents to vote on quality
+- Use "Majority" for faster consensus, "Unanimous" for higher quality bar
+
+**Tribunal:**
+- Formal debate scenarios
+- Legal-style argumentation
+- When you want a definitive judgment (not consensus)
+- Fixed-round debates with final verdict
 
 **Devil's Advocate:**
 - Controversial topics
@@ -500,10 +579,10 @@ Located in `prompts/de/` and `prompts/en/`:
 
 ## Limitations
 
-1. **No cross-backend debate:** AIfred and Sokrates must use same backend (can't mix Ollama + vLLM)
+1. **No cross-backend debate:** AIfred, Sokrates, and Salomo must use same backend (can't mix Ollama + vLLM)
 2. **Sequential execution:** Inferences run one after another, no true parallelism
 3. **Context accumulation:** Long debates can hit context limits quickly
-4. **LGTM brittleness:** Sokrates must explicitly write "LGTM" - paraphrases won't trigger consensus
+4. **Tag-based voting:** Agents must explicitly use `[LGTM]` or `[WEITER]` tags - paraphrases won't trigger voting
 5. **No backtracking:** Once a round completes, can't go back to revise
 
 ---
@@ -511,17 +590,22 @@ Located in `prompts/de/` and `prompts/en/`:
 ## Future Enhancements
 
 **Planned:**
-- [ ] Separate Sokrates backend (Ollama for AIfred, vLLM for Sokrates)
+- [ ] Separate agent backends (Ollama for AIfred, vLLM for Sokrates)
 - [ ] Voice differentiation for TTS (different voices for agents)
 - [ ] Debate history visualization (tree view of refinements)
-- [ ] Custom agent personalities (beyond AIfred/Sokrates)
+- [ ] Custom agent personalities (beyond AIfred/Sokrates/Salomo)
 - [ ] Multi-agent memory (agents remember past debates)
 
+**Implemented (v2.10.8):**
+- [x] Three-agent voting system (AIfred, Sokrates, Salomo)
+- [x] Configurable consensus type (Majority 2/3, Unanimous 3/3)
+- [x] Tribunal mode with final judgment
+- [x] `[LGTM]`/`[WEITER]` tag-based voting
+
 **Under consideration:**
-- [ ] 3+ agent debates (Thesis, Antithesis, Synthesis, Synthesis2)
 - [ ] Parallel agent execution (if models fit in VRAM)
-- [ ] Agent voting (multiple Sokrates instances vote on best answer)
 - [ ] Human-in-the-loop during debate (user can inject feedback mid-debate)
+- [ ] Weighted voting (some agents have more influence)
 
 ---
 
@@ -537,6 +621,13 @@ Located in `prompts/de/` and `prompts/en/`:
 
 ## Changelog
 
+**v2.10.8** (Dec 2025)
+- **NEW:** Three-agent voting system (AIfred, Sokrates, Salomo vote with `[LGTM]`/`[WEITER]`)
+- **NEW:** Configurable consensus type (Majority 2/3, Unanimous 3/3)
+- **NEW:** Tribunal mode with fixed rounds and final judgment
+- **NEW:** `[WEITER]` tag overrides `[LGTM]` to handle negation cases
+- Updated prompts with voting instructions (DE + EN)
+
 **v2.10.6** (Dec 2025)
 - Fixed LGTM consensus detection in Auto-Consensus mode
 - Added collapsible UI for Sokrates responses
@@ -549,5 +640,5 @@ Located in `prompts/de/` and `prompts/en/`:
 
 ---
 
-**Last Updated:** 2025-12-26
+**Last Updated:** 2025-12-27
 **Maintainer:** AIfred Intelligence Team

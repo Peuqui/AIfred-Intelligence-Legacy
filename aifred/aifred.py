@@ -608,6 +608,23 @@ def text_input_section() -> rx.Component:
                         padding_top="4px",
                     ),
                 ),
+                # Consensus Type Toggle (visible only for "auto_consensus" mode)
+                rx.cond(
+                    AIState.multi_agent_mode == "auto_consensus",
+                    rx.hstack(
+                        rx.text(t("consensus_type_label"), font_size="11px"),
+                        rx.segmented_control.root(
+                            rx.segmented_control.item(t("consensus_majority"), value="majority"),
+                            rx.segmented_control.item(t("consensus_unanimous"), value="unanimous"),
+                            value=AIState.consensus_type,
+                            on_change=AIState.set_consensus_type,
+                            size="1",
+                        ),
+                        spacing="2",
+                        align="center",
+                        padding_top="4px",
+                    ),
+                ),
                 spacing="1",
             ),
             # Right: LLM Parameters Accordion (mit margin-top für Alignment mit Dropdown)

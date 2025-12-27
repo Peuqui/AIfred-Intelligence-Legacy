@@ -81,25 +81,27 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 ```
 ┌─────────────┐     ┌─────────────────┐     ┌─────────────────────┐
 │   User      │────▶│   🎩 AIfred     │────▶│   🏛️ Sokrates       │
-│   Query     │     │   THESIS        │     │   ANTITHESIS        │
-└─────────────┘     │   (Answer)      │     │   (Critique)        │
-                    └─────────────────┘     └──────────┬──────────┘
+│   Query     │     │   + [LGTM/WEITER]│     │   + [LGTM/WEITER]  │
+└─────────────┘     └─────────────────┘     └──────────┬──────────┘
                                                        │
                               ┌─────────────────────────┘
                               ▼
                     ┌─────────────────────┐
                     │   👑 Salomo         │
-                    │   SYNTHESIS         │
-                    │   (Mediate/Judge)   │
+                    │   + [LGTM/WEITER]   │
                     └──────────┬──────────┘
                                │
                ┌───────────────┴───────────────┐
                ▼                               ▼
-          ┌────────┐                     ┌────────┐
-          │  LGTM  │                     │Continue│
-          │  Done  │                     │ Round  │
-          └────────┘                     └────────┘
+     ┌────────────────┐              ┌─────────────────┐
+     │ 2/3 or 3/3     │              │ Not enough votes│
+     │ = Consensus!   │              │ = Next Round    │
+     └────────────────┘              └─────────────────┘
 ```
+
+**Consensus Types (configurable in settings):**
+- **Majority (2/3):** Two of three agents must vote `[LGTM]`
+- **Unanimous (3/3):** All three agents must vote `[LGTM]`
 
 **Tribunal Workflow:**
 ```
