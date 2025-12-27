@@ -445,8 +445,8 @@ async def run_sokrates_direct_response(
         # Load system prompt from file (no hardcoded prompts!)
         system_prompt = get_sokrates_direct_prompt(lang=detected_lang)
 
-        # Build messages from chat history
-        messages: list[dict[str, Any]] = build_messages_from_history(state.chat_history[:-1], user_query)
+        # Build messages from LLM history (compressed, not full chat_history)
+        messages: list[dict[str, Any]] = build_messages_from_history(state.llm_history[:-1], user_query)
 
         # Prepend system message
         messages.insert(0, {"role": "system", "content": system_prompt})
@@ -550,6 +550,9 @@ async def run_sokrates_direct_response(
         state.chat_history[history_index] = (original_user_msg, "")
 
         state.add_debug(f"🏛️ Sokrates: {len(full_response)} chars, {tokens_per_sec:.1f} tok/s")
+
+        # INCREMENTAL SAVE: Persist after response to survive browser refresh
+        state._save_current_session()
 
         # Separator nach Sokrates Direct Response
         console_separator()  # Log-File
@@ -713,8 +716,9 @@ async def run_sokrates_analysis(
             # - Sokrates sees his own earlier responses as 'assistant'
             # - AIfred's responses and User messages become 'user' with labels
             # - No "Sokrates?" activation needed - perspective handles role assignment
+            # Use llm_history (compressed) instead of chat_history (full UI)
             history_messages: list[dict[str, str]] = build_messages_from_history(
-                state.chat_history,
+                state.llm_history,
                 perspective="sokrates"
             )
 
@@ -782,6 +786,9 @@ async def run_sokrates_analysis(
             state.sokrates_critique = sokrates_response_text  # Keep raw text for logic checks
             yield
 
+            # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
+            state._save_current_session()
+
             # NOTE: PRE-CHECK before Sokrates already handles compression (line ~635)
             # No POST-CHECK needed here
 
@@ -825,8 +832,9 @@ async def run_sokrates_analysis(
                 salomo_system = f"{salomo_minimal}\n\n{mediator_prompt}"
 
                 # Build messages with observer perspective (sees everything neutrally)
+                # Use llm_history (compressed) instead of chat_history (full UI)
                 salomo_messages: list[dict[str, str]] = build_messages_from_history(
-                    state.chat_history,
+                    state.llm_history,
                     perspective="observer"  # Neutral perspective
                 )
                 salomo_messages.insert(0, {"role": "system", "content": salomo_system})
@@ -834,6 +842,13 @@ async def run_sokrates_analysis(
                 # PRE-SALOMO: Check if compression needed before Salomo call
                 async for _ in _check_compression_if_needed(state, llm_client, min_ctx):
                     yield
+
+                # Estimate tokens for Salomo (consistent with Sokrates debug output)
+                salomo_msg_tokens = estimate_tokens(salomo_messages, model_name=salomo_model)
+                state.add_debug(
+                    f"📊 Salomo R{round_num}: {format_number(salomo_msg_tokens)} / "
+                    f"{format_number(salomo_num_ctx)} tokens"
+                )
 
                 # Add placeholder for Salomo
                 salomo_marker = f"👑[{t('salomo_synthesis_label', lang=state.ui_language).rstrip(':')} R{round_num}]"
@@ -877,6 +892,9 @@ async def run_sokrates_analysis(
                 state.salomo_synthesis = salomo_response_text
                 yield
 
+                # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
+                state._save_current_session()
+
                 # NOTE: PRE-CHECK before next agent handles compression
                 # No POST-CHECK needed here
 
@@ -912,8 +930,9 @@ async def run_sokrates_analysis(
                     )
 
                     # Build messages with AIfred's perspective
+                    # Use llm_history (compressed) instead of chat_history (full UI)
                     alfred_messages: list[dict[str, str]] = build_messages_from_history(
-                        state.chat_history,
+                        state.llm_history,
                         current_user_text=refinement_prompt,
                         perspective="aifred"
                     )
@@ -966,6 +985,9 @@ async def run_sokrates_analysis(
                         f"{alfred_metrics.get('tok_per_sec', 0):.1f} tok/s"
                     )
                     yield
+
+                    # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
+                    state._save_current_session()
 
                     # NOTE: PRE-CHECK before next iteration handles compression
                     # No POST-CHECK needed here
@@ -1125,8 +1147,9 @@ async def run_tribunal(
             mode_prompt = get_sokrates_critic_prompt(round_num=round_num)
             system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
 
+            # Use llm_history (compressed) instead of chat_history (full UI)
             history_messages = build_messages_from_history(
-                state.chat_history,
+                state.llm_history,
                 perspective="sokrates"
             )
             sokrates_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
@@ -1170,6 +1193,9 @@ async def run_tribunal(
             state.sokrates_critique = sokrates_response_text
             yield
 
+            # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
+            state._save_current_session()
+
             # NOTE: PRE-CHECK before next agent handles compression
             # No POST-CHECK needed here
 
@@ -1184,8 +1210,9 @@ async def run_tribunal(
                     user_interjection=""
                 )
 
+                # Use llm_history (compressed) instead of chat_history (full UI)
                 alfred_messages: list[dict[str, str]] = build_messages_from_history(
-                    state.chat_history,
+                    state.llm_history,
                     current_user_text=refinement_prompt,
                     perspective="aifred"
                 )
@@ -1225,6 +1252,9 @@ async def run_tribunal(
                 )
                 yield
 
+                # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
+                state._save_current_session()
+
                 # NOTE: PRE-CHECK in next iteration handles compression
                 # No POST-CHECK needed here
 
@@ -1239,11 +1269,19 @@ async def run_tribunal(
         judge_prompt = get_salomo_judge_prompt()
         salomo_system = f"{salomo_minimal}\n\n{judge_prompt}"
 
+        # Use llm_history (compressed) instead of chat_history (full UI)
         salomo_messages: list[dict[str, str]] = build_messages_from_history(
-            state.chat_history,
+            state.llm_history,
             perspective="observer"
         )
         salomo_messages.insert(0, {"role": "system", "content": salomo_system})
+
+        # Estimate tokens for Salomo verdict (consistent with other agent debug output)
+        salomo_msg_tokens = estimate_tokens(salomo_messages, model_name=salomo_model)
+        state.add_debug(
+            f"📊 Salomo Verdict: {format_number(salomo_msg_tokens)} / "
+            f"{format_number(salomo_num_ctx)} tokens"
+        )
 
         salomo_marker = f"👑[{t('salomo_verdict_label', lang=state.ui_language).rstrip(':')}]"
         state.chat_history.append(("", salomo_marker))
