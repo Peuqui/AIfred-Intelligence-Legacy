@@ -5,6 +5,99 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.3] - 2025-12-28
+
+### 🎯 Intent Detection Improvements & Performance Optimizations
+
+**Kombinierte Intent + Addressee Detection in einem LLM-Call, verbesserte Direktansprache-Erkennung und VRAM-Optimierung.**
+
+#### Added
+
+- **Combined Intent + Addressee Detection** ([intent_detector.py](aifred/lib/intent_detector.py)):
+  - Neue Funktion `detect_query_intent_and_addressee()` kombiniert beide in einem Call
+  - Gibt Tuple zurück: `(intent, addressee, raw_response)`
+  - Raw Response wird in Debug-Konsole angezeigt für Transparenz
+  - Eliminiert doppelte Intent-Detection (war vorher Bug)
+
+- **Temperature Offsets in Config** ([config.py](aifred/lib/config.py)):
+  - `SOKRATES_TEMPERATURE_OFFSET = 0.2` - Sokrates ist etwas kreativer
+  - `SALOMO_TEMPERATURE_OFFSET = 0.3` - Salomo ist am kreativsten
+  - Offsets werden auf AIfred's Temperature addiert
+
+- **Salomo Direct Address Prompts** ([prompts/de/salomo/direct.txt](prompts/de/salomo/direct.txt), [prompts/en/salomo/direct.txt](prompts/en/salomo/direct.txt)):
+  - Neue Prompts für direkte Ansprache an Salomo
+  - Klare Regeln: Antwortet dem USER, nicht AIfred/Sokrates
+  - Hebräische Weisheits-Einsprengsel (Nu, Emet, Davka)
+
+#### Fixed
+
+- **AIfred responded in English despite German UI** ([system_minimal.txt](prompts/de/aifred/system_minimal.txt)):
+  - Problem: Britische Einsprengsel (Quite so, Indeed) ließen LLM auf Englisch antworten
+  - Fix: Explizite Anweisung "KRITISCH: Antworte IMMER auf DEUTSCH!"
+  - Nur Einsprengsel dürfen englisch sein, Rest muss deutsch sein
+
+- **Wrong Addressee Detection** ([intent_detection.txt](prompts/de/intent_detection.txt)):
+  - Problem: "Lieber Sokrates, was sagst du zu Salomo?" erkannte Salomo statt Sokrates
+  - Fix: Explizite Beispiele für Addressee vs. Topic Unterscheidung
+  - "Wer wird ANGESPROCHEN" vs. "Wer ist nur THEMA"
+
+- **Duplicate Intent Detection** ([state.py](aifred/state.py)):
+  - Problem: Intent wurde zweimal detected mit unterschiedlichen Ergebnissen
+  - Fix: Einmaliger Call, `detected_intent` wird wiederverwendet
+
+#### Changed
+
+- **KREATIV Temperature** ([config.py](aifred/lib/config.py)):
+  - Reduziert von 1.1 auf 1.0 (war inkonsistent mit Sokrates/Salomo Cap)
+
+- **Debug Output auf Englisch** ([state.py](aifred/state.py)):
+  - Intent Detection Debug: "🎯 Intent: ... → Addressee: ..."
+  - Temperature Debug: "🌡️ Temperature: X.X (auto, creative)"
+  - Zahlen mit `format_number()` formatiert
+
+#### Performance
+
+- **VRAM Unload deaktiviert** ([ollama.py](aifred/backends/ollama.py)):
+  - `unload_all_models()` in `calculate_practical_context()` auskommentiert
+  - Ollama managt VRAM automatisch mit LRU-Strategie
+  - Spart ~2s Latenz pro Request (kein Warten auf VRAM-Release)
+  - Für kalibrierte Modelle war der Unload sowieso unnötig (früher Return aus Cache)
+
+#### Technical Details
+
+```
+Intent Detection Output Format:
+  "FAKTISCH|sokrates" → intent=FAKTISCH, addressee=sokrates
+  "KREATIV|"          → intent=KREATIV, addressee=None
+  "GEMISCHT|aifred"   → intent=GEMISCHT, addressee=aifred
+
+Temperature Calculation (Multi-Agent):
+  AIfred:   base_temp (from intent or manual)
+  Sokrates: base_temp + 0.2 (capped at 1.0)
+  Salomo:   base_temp + 0.3 (capped at 1.0)
+
+VRAM Flow (kalibrierte Modelle):
+  calculate_practical_context()
+    → calculate_vram_based_context()
+      → Cache-Lookup (calibrated max_context)
+      → EARLY RETURN (kein VRAM-Messung, kein Unload!)
+```
+
+#### Files Changed
+
+- [aifred/backends/ollama.py](aifred/backends/ollama.py): Unload disabled
+- [aifred/lib/config.py](aifred/lib/config.py): Temperature offsets, KREATIV=1.0
+- [aifred/lib/intent_detector.py](aifred/lib/intent_detector.py): Combined detection
+- [aifred/lib/multi_agent.py](aifred/lib/multi_agent.py): Use config offsets
+- [aifred/state.py](aifred/state.py): Single intent call, debug output
+- [prompts/de/aifred/system_minimal.txt](prompts/de/aifred/system_minimal.txt): German enforcement
+- [prompts/de/intent_detection.txt](prompts/de/intent_detection.txt): Addressee examples
+- [prompts/en/intent_detection.txt](prompts/en/intent_detection.txt): Addressee examples
+- [prompts/de/salomo/direct.txt](prompts/de/salomo/direct.txt): New
+- [prompts/en/salomo/direct.txt](prompts/en/salomo/direct.txt): New
+
+---
+
 ## [2.14.2] - 2025-12-27
 
 ### 📋 Inline Summary Placement & UI Improvements

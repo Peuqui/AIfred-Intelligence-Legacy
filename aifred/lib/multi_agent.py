@@ -35,6 +35,7 @@ from .prompt_loader import (
     get_sokrates_devils_advocate_prompt,
     get_sokrates_refinement_prompt,
     get_salomo_system_minimal,
+    get_salomo_direct_prompt,
     get_salomo_mediator_prompt,
     get_salomo_judge_prompt,
 )
@@ -581,6 +582,184 @@ async def run_sokrates_direct_response(
             pass
         # Add error as Sokrates panel entry
         state.chat_history.append(("", f"🏛️[Error] {str(e)}"))
+        yield
+
+
+# ============================================================
+# SALOMO DIRECT RESPONSE
+# ============================================================
+
+async def run_salomo_direct_response(
+    state: 'AIState',
+    user_query: str,
+    history_index: int
+) -> AsyncGenerator[None, None]:
+    """
+    Salomo responds directly to user (without AIfred or Sokrates first).
+
+    This is called when user directly addresses Salomo:
+    - "Salomo, urteile du..."
+    - "@Salomo was meinst du..."
+    - "Hey Salomo, ..."
+
+    Args:
+        state: The AIState object for accessing chat_history, add_debug, etc.
+        user_query: The user's question (with or without addressing prefix)
+        history_index: Index in chat_history where response should be placed
+    """
+    try:
+        # Create LLM client
+        llm_client = LLMClient(
+            backend_type=state.backend_type,
+            base_url=state.backend_url
+        )
+
+        # Determine Salomo model
+        salomo_model = state.salomo_model_id if state.salomo_model_id else state.selected_model_id
+        salomo_display = state.salomo_model if state.salomo_model else state.selected_model
+        state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
+
+        # Calculate context limit
+        salomo_num_ctx, salomo_vram_msgs = await calculate_dynamic_num_ctx(
+            llm_client, salomo_model, [], None,
+            enable_vram_limit=True
+        )
+        for msg in salomo_vram_msgs:
+            state.add_debug(f"   {msg}")
+
+        # Detect language for response
+        detected_lang = detect_language(user_query)
+
+        # Load system prompt from file (no hardcoded prompts!)
+        system_prompt = get_salomo_direct_prompt(lang=detected_lang)
+
+        # Build messages from LLM history (compressed, not full chat_history)
+        messages: list[dict[str, Any]] = build_messages_from_llm_history(state.llm_history[:-1], user_query)
+
+        # Prepend system message
+        messages.insert(0, {"role": "system", "content": system_prompt})
+
+        # Calculate Salomo temperature based on mode
+        if state.temperature_mode == "manual":
+            salomo_direct_temp = state.salomo_temperature
+        else:
+            # Auto mode: AIfred's temperature + offset (capped at 1.0)
+            salomo_direct_temp = min(1.0, state.temperature + state.salomo_temperature_offset)
+
+        # Debug: Show context and temperature
+        state.add_debug(f"📊 Context limit: {format_number(salomo_num_ctx/1000, 3)}k")
+        state.add_debug(f"🌡️ Temperature: {format_number(salomo_direct_temp, 1)}")
+
+        # LLM options
+        salomo_options = LLMOptions(
+            temperature=salomo_direct_temp,
+            enable_thinking=state.enable_thinking,
+            num_ctx=salomo_num_ctx
+        )
+
+        # Get original user message from history (to preserve it)
+        original_user_msg, _ = state.chat_history[history_index]
+
+        # Keep user message in history with empty AI response (no AIfred panel)
+        state.chat_history[history_index] = (original_user_msg, "")
+
+        # Add Salomo response entry with empty user (triggers Salomo panel styling)
+        salomo_marker = "👑[Direkte Antwort]" if detected_lang == "de" else "👑[Direct Response]"
+        state.chat_history.append(("", salomo_marker))
+        salomo_index = len(state.chat_history) - 1
+        yield  # Show placeholder
+
+        # Streaming response
+        full_response = ""
+        token_count = 0
+        start_time = time.time()
+        first_token = False
+
+        async for chunk in llm_client.chat_stream(salomo_model, messages, salomo_options):
+            chunk_type = chunk.get("type", "")
+
+            if chunk_type == "content":
+                if not first_token:
+                    ttft = time.time() - start_time
+                    # Guard against negative TTFT (can happen with WSL2 time sync issues)
+                    if ttft < 0:
+                        log_message(f"⚠️ Negative TTFT detected: {ttft:.3f}s - possible WSL2 time sync issue")
+                        ttft = 0.0
+                    state.add_debug(f"⚡ TTFT: {ttft:.2f}s")
+                    first_token = True
+
+                content = chunk.get("text", "")  # Key is "text", not "content"
+                full_response += content
+                token_count += 1
+
+                # Update Salomo entry (empty user = renders as Salomo panel)
+                state.chat_history[salomo_index] = ("", f"{salomo_marker}{full_response}")
+                yield
+
+            elif chunk_type == "thinking":
+                # Handle thinking chunks (Qwen3 thinking mode)
+                thinking_content = chunk.get("text", "")  # Also "text" for thinking
+                if thinking_content:
+                    full_response += f"<think>{thinking_content}</think>"
+
+            elif chunk_type == "done":
+                metrics = chunk.get("metrics", {})
+                token_count = metrics.get("tokens_generated", token_count)
+
+        # Calculate final metrics
+        inference_time = time.time() - start_time
+        tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
+
+        # Format thinking blocks if present
+        formatted_response = format_thinking_process(
+            full_response,
+            model_name=f"Salomo ({salomo_model})",
+            inference_time=inference_time
+        )
+
+        # Build metadata
+        metadata = format_metadata(
+            f"Inference: {format_number(inference_time, 1)}s    "
+            f"{format_number(tokens_per_sec, 1)} tok/s    "
+            f"Source: Salomo ({salomo_model})"
+        )
+
+        # Final update: Salomo in separate entry (empty user = Salomo panel)
+        final_content = f"{salomo_marker}{formatted_response}\n\n{metadata}"
+        state.chat_history[salomo_index] = ("", final_content)
+
+        # DUAL-HISTORY: Sync Salomo direct response to llm_history
+        cleaned = clean_content_for_llm(full_response)
+        if cleaned:
+            state.llm_history.append({"role": "system", "content": f"[SALOMO]: {cleaned}"})
+
+        # Remove the waiting message from user entry, keep only user question
+        # Since Salomo answered, no AIfred response needed
+        state.chat_history[history_index] = (original_user_msg, "")
+
+        state.add_debug(f"👑 Salomo: {len(full_response)} chars, {tokens_per_sec:.1f} tok/s")
+
+        # INCREMENTAL SAVE: Persist after response to survive browser refresh
+        state._save_current_session()
+
+        # Separator nach Salomo Direct Response
+        console_separator()  # Log-File
+        state.add_debug("────────────────────")  # Debug-Console
+
+        await llm_client.close()
+        yield
+
+    except Exception as e:
+        state.add_debug(f"❌ Salomo Direct Response Error: {e}")
+        # Put error message in Salomo panel (empty user = Salomo styling)
+        try:
+            original_user_msg, _ = state.chat_history[history_index]
+            # Keep user message, clear AI response
+            state.chat_history[history_index] = (original_user_msg, "")
+        except (IndexError, ValueError):
+            pass
+        # Add error as Salomo panel entry
+        state.chat_history.append(("", f"👑[Error] {str(e)}"))
         yield
 
 

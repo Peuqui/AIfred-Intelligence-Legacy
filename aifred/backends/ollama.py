@@ -773,17 +773,20 @@ class OllamaBackend(LLMBackend):
         if model_size_bytes == 0:
             model_size_bytes = get_model_size_from_cache(model)
 
-        # CRITICAL: Unload ALL models before VRAM measurement
-        # This ensures we measure truly free VRAM, not VRAM minus Automatik-LLM
-        success, unloaded = await self.unload_all_models()
-        if success and unloaded:
-            debug_msgs.append(f"🔄 Models unloaded: {', '.join(unloaded)}")
-            # Wait for VRAM to be fully released by GPU driver
-            await asyncio.sleep(2.0)
-            debug_msgs.append("✅ VRAM released")
+        # DISABLED: Ollama manages VRAM automatically with LRU strategy
+        # Manual unloading is redundant and adds ~2s latency per request.
+        # If we load a new model, Ollama unloads the old one automatically.
+        #
+        # success, unloaded = await self.unload_all_models()
+        # if success and unloaded:
+        #     debug_msgs.append(f"🔄 Models unloaded: {', '.join(unloaded)}")
+        #     # Wait for VRAM to be fully released by GPU driver
+        #     await asyncio.sleep(2.0)
+        #     debug_msgs.append("✅ VRAM released")
 
-        # After unloading, model is definitely NOT loaded
-        model_is_loaded = False
+        # Since we don't unload anymore, check if the target model is currently loaded
+        # (it might be, or Ollama might have unloaded it for another model via LRU)
+        model_is_loaded = False  # Conservative assumption - VRAM calc will add model size
 
         # Calculate practical context based on current VRAM (with auto-MoE detection)
         # Note: use_extended is read from cache inside calculate_vram_based_context
