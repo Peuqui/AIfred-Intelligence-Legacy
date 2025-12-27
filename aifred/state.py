@@ -3768,6 +3768,10 @@ class AIState(rx.State):
             # Keine llm_history → leere Liste (alte Sessions werden nicht migriert)
             self.llm_history = []
 
+        # DEBUG-PERSISTENCE (v2.14.0+): debug_messages wiederherstellen
+        if "debug_messages" in data and data["debug_messages"]:
+            self.debug_messages = data["debug_messages"]
+
     def _sync_llm_history_assistant(self, content: str):
         """
         Sync AI response to llm_history (cleaned for LLM context).
@@ -3792,11 +3796,17 @@ class AIState(rx.State):
             return
 
         from .lib.session_storage import update_chat_data
+        from .lib.config import DEBUG_LOG_MAX_ENTRIES
+
+        # DEBUG-PERSISTENCE: Keep only last N entries
+        debug_to_save = self.debug_messages[-DEBUG_LOG_MAX_ENTRIES:] if self.debug_messages else []
+
         update_chat_data(
             device_id=self.device_id,
             chat_history=self.chat_history,
             chat_summaries=None,  # Aktuell nicht persistiert
-            llm_history=self.llm_history  # DUAL-HISTORY: LLM-komprimierte History
+            llm_history=self.llm_history,  # DUAL-HISTORY: LLM-komprimierte History
+            debug_messages=debug_to_save  # DEBUG-PERSISTENCE: Last N debug entries
         )
 
     # ============================================================

@@ -468,6 +468,13 @@ INTENT_TEMPERATURE_KREATIV = 1.1
 HISTORY_SUMMARY_CONTEXT_LIMIT = 4096
 
 # ============================================================
+# DEBUG LOG PERSISTENCE
+# ============================================================
+# Maximum number of debug log entries to persist in session
+# Allows debug log to survive browser refresh during long inferences
+DEBUG_LOG_MAX_ENTRIES = 250
+
+# ============================================================
 # VRAM MANAGEMENT (Dynamic Context Calculation)
 # ============================================================
 # Enable VRAM-based context calculation to prevent CPU offloading
