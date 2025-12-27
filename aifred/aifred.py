@@ -899,14 +899,14 @@ def llm_parameters_accordion() -> rx.Component:
                     # Radio Buttons für Mode Selection (nur Deutsch für Konsistenz)
                     rx.radio(
                         ["🎯 Auto", "🔧 Manuell"],
-                        default_value="🎯 Auto",
+                        value=AIState.num_ctx_mode_display,
                         on_change=AIState.set_num_ctx_mode_from_display,
                         direction="column",
                         spacing="2",
                         size="2",
                     ),
 
-                    # Manual Input - Two fields side by side (AIfred + Sokrates)
+                    # Manual Input - Three compact fields (AIfred + Sokrates + Salomo)
                     rx.hstack(
                         # AIfred num_ctx
                         rx.vstack(
@@ -917,11 +917,11 @@ def llm_parameters_accordion() -> rx.Component:
                                 color=COLORS["text_secondary"],
                             ),
                             rx.input(
-                                placeholder="z.B. 16384",
+                                placeholder="16384",
                                 value=AIState.num_ctx_manual,
                                 on_change=AIState.set_num_ctx_manual,
                                 type="number",
-                                width="100%",
+                                width="75px",
                                 disabled=AIState.num_ctx_mode != "manual",
                                 opacity=rx.cond(
                                     AIState.num_ctx_mode == "manual",
@@ -930,7 +930,6 @@ def llm_parameters_accordion() -> rx.Component:
                                 ),
                             ),
                             spacing="1",
-                            flex="1",
                         ),
                         # Sokrates num_ctx
                         rx.vstack(
@@ -941,11 +940,11 @@ def llm_parameters_accordion() -> rx.Component:
                                 color=COLORS["text_secondary"],
                             ),
                             rx.input(
-                                placeholder="z.B. 16384",
+                                placeholder="16384",
                                 value=AIState.num_ctx_manual_sokrates,
                                 on_change=AIState.set_num_ctx_manual_sokrates,
                                 type="number",
-                                width="100%",
+                                width="75px",
                                 disabled=AIState.num_ctx_mode != "manual",
                                 opacity=rx.cond(
                                     AIState.num_ctx_mode == "manual",
@@ -954,10 +953,47 @@ def llm_parameters_accordion() -> rx.Component:
                                 ),
                             ),
                             spacing="1",
-                            flex="1",
                         ),
-                        spacing="2",
-                        width="100%",
+                        # Salomo num_ctx
+                        rx.vstack(
+                            rx.text(
+                                "👑 Salomo",
+                                font_size="11px",
+                                font_weight="bold",
+                                color=COLORS["text_secondary"],
+                            ),
+                            rx.input(
+                                placeholder="16384",
+                                value=AIState.num_ctx_manual_salomo,
+                                on_change=AIState.set_num_ctx_manual_salomo,
+                                type="number",
+                                width="75px",
+                                disabled=AIState.num_ctx_mode != "manual",
+                                opacity=rx.cond(
+                                    AIState.num_ctx_mode == "manual",
+                                    "1.0",
+                                    "0.5"
+                                ),
+                            ),
+                            spacing="1",
+                        ),
+                        spacing="3",
+                    ),
+
+                    # Show Calculation Button (only visible in manual mode)
+                    rx.cond(
+                        AIState.num_ctx_mode == "manual",
+                        rx.button(
+                            rx.cond(
+                                AIState.ui_language == "de",
+                                "📊 Berechnung anzeigen",
+                                "📊 Show Calculation"
+                            ),
+                            on_click=AIState.calculate_manual_context,
+                            size="1",
+                            variant="soft",
+                            color_scheme="gray",
+                        ),
                     ),
 
                     # Info Text
@@ -1360,47 +1396,102 @@ def render_image_thumbnails(images) -> rx.Component:
     )
 
 
-def render_chat_message(msg: dict) -> rx.Component:
+def render_single_summary_box(summary: dict) -> rx.Component:
     """
-    Rendert eine einzelne Chat-Message (User+AI, Summary, oder Sokrates).
+    Render a single summary as a bordered box within the unified collapsible.
 
-    msg ist ein Dict mit:
-    - user_msg: User-Nachricht
-    - ai_msg: AI-Nachricht (bereinigt)
-    - failed_sources: Liste der fehlgeschlagenen URLs
+    Each summary shows: number, message count, timestamp, and content.
     """
-    # Check ob es eine Summary ist (leerer User-Teil + "[📊 Komprimiert" oder "[📊 Compressed" am Anfang)
-    # Verwende Reflex bitwise operators: & statt 'and'
-    is_summary = (msg["user_msg"] == "") & (
-        msg["ai_msg"].startswith("[📊 Komprimiert") | msg["ai_msg"].startswith("[📊 Compressed")
+    return rx.box(
+        rx.vstack(
+            # Header: Summary #N (X Messages) - Timestamp
+            rx.hstack(
+                rx.text(
+                    f"📊 #{summary['number']}",
+                    font_weight="bold",
+                    font_size="12px",
+                    color=COLORS["accent_warning"],
+                ),
+                rx.text(
+                    f"({summary['count']} Messages)",
+                    color=COLORS["text_secondary"],
+                    font_size="11px",
+                ),
+                rx.spacer(),
+                rx.text(
+                    summary["timestamp"],
+                    color=COLORS["text_secondary"],
+                    font_size="10px",
+                ),
+                width="100%",
+                align="center",
+            ),
+            rx.divider(size="1", color=COLORS["border"]),
+            # Content
+            rx.markdown(
+                summary["content"],
+                color=COLORS["text_primary"],
+                font_size="12px",
+            ),
+            spacing="1",
+            width="100%",
+        ),
+        padding="10px",
+        border_radius="6px",
+        background="rgba(255, 165, 0, 0.03)",
+        border=f"1px solid {COLORS['border']}",
+        width="100%",
     )
 
-    # Check ob es eine Sokrates-Nachricht ist (leerer User-Teil + "🏛️" am Anfang)
-    is_sokrates = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🏛️")
 
-    # Check ob es eine AIfred-Refinement-Nachricht ist (leerer User-Teil + "🎩[" am Anfang)
-    is_alfred_refinement = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🎩[")
+def render_unified_summaries() -> rx.Component:
+    """
+    Render all summaries in a single unified collapsible.
 
-    # Check ob es eine Salomo-Nachricht ist (leerer User-Teil + "👑" am Anfang)
-    is_salomo = (msg["user_msg"] == "") & msg["ai_msg"].startswith("👑")
-
+    This replaces individual summary accordions with one master accordion
+    containing all summaries as sub-boxes with visual separation.
+    Position: At the top of the chat (oldest content first).
+    """
     return rx.cond(
-        is_summary,
-        # Summary-Anzeige mit Collapsible (vereinfacht für Reflex)
+        AIState.all_summaries.length() > 0,
         rx.box(
             rx.accordion.root(
                 rx.accordion.item(
-                    value="summary_main",
+                    value="unified_summaries",
                     header=rx.box(
                         rx.hstack(
                             rx.text("📊", font_size="14px"),
-                            rx.text(
-                                "Komprimierte Messages",  # Fester Text statt StringVar-Operation
-                                font_weight="bold",
-                                font_size="13px",
-                                color=COLORS["accent_warning"]
+                            rx.cond(
+                                AIState.ui_language == "de",
+                                rx.text(
+                                    "Komprimierter Verlauf",
+                                    font_weight="bold",
+                                    font_size="13px",
+                                    color=COLORS["accent_warning"],
+                                ),
+                                rx.text(
+                                    "Compressed History",
+                                    font_weight="bold",
+                                    font_size="13px",
+                                    color=COLORS["accent_warning"],
+                                ),
                             ),
-                            spacing="2",
+                            rx.text(
+                                f"({AIState.all_summaries.length()} ",
+                                color=COLORS["text_secondary"],
+                                font_size="11px",
+                            ),
+                            rx.cond(
+                                AIState.ui_language == "de",
+                                rx.text("Summaries", color=COLORS["text_secondary"], font_size="11px"),
+                                rx.text("Summaries", color=COLORS["text_secondary"], font_size="11px"),
+                            ),
+                            rx.text(
+                                f", ~{AIState.total_summary_tokens} tok)",
+                                color=COLORS["text_secondary"],
+                                font_size="11px",
+                            ),
+                            spacing="1",
                             align="center",
                         ),
                         padding_y="2",
@@ -1414,34 +1505,67 @@ def render_chat_message(msg: dict) -> rx.Component:
                         },
                     ),
                     content=rx.box(
-                        rx.markdown(
-                            msg["ai_msg"],  # Zeige den kompletten Summary-Text
-                            color=COLORS["text_primary"],
-                            font_size="12px"
+                        rx.vstack(
+                            rx.foreach(
+                                AIState.all_summaries,
+                                render_single_summary_box,
+                            ),
+                            spacing="2",
+                            width="100%",
                         ),
                         padding="3",
-                        background_color="rgba(255, 165, 0, 0.05)",  # Leichter Orange-Tint
+                        background_color="rgba(255, 165, 0, 0.05)",
                         border_radius="6px",
                         border=f"1px solid {COLORS['border']}",
                         width="100%",
-                        max_height="600px",  # Scrollbar bei sehr langen Summaries
+                        max_height="600px",
                         overflow_y="auto",
                     ),
                 ),
                 collapsible=True,
+                default_value=[],  # Collapsed by default
                 variant="soft",
                 width="100%",
             ),
-            background_color="rgba(255, 165, 0, 0.1)",  # Orange Hintergrund für Container
+            background_color="rgba(255, 165, 0, 0.1)",
             padding="3",
             border_radius="8px",
             border=f"1px solid {COLORS['accent_warning']}",
             width="100%",
             margin_bottom="3",
         ),
-        # Check if Sokrates message
-        rx.cond(
-            is_sokrates,
+        rx.fragment(),  # Empty when no summaries
+    )
+
+
+def render_chat_message(msg: dict) -> rx.Component:
+    """
+    Rendert eine einzelne Chat-Message (User+AI, Sokrates, AIfred Refinement, oder Salomo).
+
+    NOTE: Summaries are now rendered separately via render_unified_summaries()
+    and filtered out via chat_history_without_summaries. This function should
+    not receive summary messages anymore.
+
+    msg ist ein Dict mit:
+    - user_msg: User-Nachricht
+    - ai_msg: AI-Nachricht (bereinigt)
+    - failed_sources: Liste der fehlgeschlagenen URLs
+    - is_summary: True if this is a summary (should be filtered out before reaching here)
+    """
+    # Check ob es eine Sokrates-Nachricht ist (leerer User-Teil + "🏛️" am Anfang)
+    is_sokrates = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🏛️")
+
+    # Check ob es eine AIfred-Refinement-Nachricht ist (leerer User-Teil + "🎩[" am Anfang)
+    is_alfred_refinement = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🎩[")
+
+    # Check ob es eine Salomo-Nachricht ist (leerer User-Teil + "👑" am Anfang)
+    is_salomo = (msg["user_msg"] == "") & msg["ai_msg"].startswith("👑")
+
+    # NOTE: Summaries are handled by render_unified_summaries() and filtered via
+    # chat_history_without_summaries. The old is_summary check has been removed.
+
+    return rx.cond(
+        is_sokrates,
             # Sokrates-Anzeige (nur AI-Teil, kein User, dezentes Kupfer/Terrakotta-Styling)
             rx.box(
                 rx.hstack(
@@ -1636,10 +1760,9 @@ def render_chat_message(msg: dict) -> rx.Component:
                 spacing="3",
                 width="100%",
             ),
-            )  # Close is_salomo rx.cond
-            )  # Close is_alfred_refinement rx.cond
-        )  # Close is_sokrates rx.cond
-    )  # Close is_summary rx.cond
+        ),  # Close is_salomo rx.cond
+    ),  # Close is_alfred_refinement rx.cond
+)  # Close is_sokrates rx.cond
 
 
 def render_sokrates_inline() -> rx.Component:
@@ -1853,9 +1976,16 @@ def chat_history_display() -> rx.Component:
             AIState.auto_refresh_enabled,
             # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
             rx.auto_scroll(
-                rx.foreach(
-                    AIState.chat_history_parsed,
-                    render_chat_message  # Verwende separate Render-Funktion
+                rx.vstack(
+                    # Unified Summaries at the top (FIFO - oldest first)
+                    render_unified_summaries(),
+                    # Regular chat messages (excluding summaries)
+                    rx.foreach(
+                        AIState.chat_history_without_summaries,
+                        render_chat_message
+                    ),
+                    spacing="3",
+                    width="100%",
                 ),
                 id="chat-history-box",
                 width="100%",
@@ -1871,9 +2001,16 @@ def chat_history_display() -> rx.Component:
             ),
             # Auto-Scroll disabled: normale rx.box (kein Scroll)
             rx.box(
-                rx.foreach(
-                    AIState.chat_history_parsed,
-                    render_chat_message  # Verwende separate Render-Funktion
+                rx.vstack(
+                    # Unified Summaries at the top (FIFO - oldest first)
+                    render_unified_summaries(),
+                    # Regular chat messages (excluding summaries)
+                    rx.foreach(
+                        AIState.chat_history_without_summaries,
+                        render_chat_message
+                    ),
+                    spacing="3",
+                    width="100%",
                 ),
                 id="chat-history-box",
                 width="100%",
@@ -2372,8 +2509,8 @@ def settings_accordion() -> rx.Component:
                                             rx.text(
                                                 rx.cond(
                                                     AIState.ui_language == "de",
-                                                    f"Verfügbar: Ollama, KoboldCPP",
-                                                    f"Available: Ollama, KoboldCPP"
+                                                    "Verfügbar: Ollama, KoboldCPP",
+                                                    "Available: Ollama, KoboldCPP"
                                                 ),
                                                 font_size="10px",
                                                 color="#666",

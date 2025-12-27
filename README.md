@@ -234,18 +234,18 @@ AIfred offers 4 different research modes, each using different strategies depend
 
 6. History Compression Check (AFTER every LLM response)
    ├─ Calculate token utilization: current_tokens / context_limit * 100
-   ├─ IF utilization > 70%:
-   │  ├─ Debug: "🗜️ History-Kompression startet: 78% Auslastung (21,800 / 28,000 tokens)"
-   │  ├─ Select oldest 6 messages (3 Q&A pairs)
+   ├─ IF utilization >= 70%:
+   │  ├─ Debug: "🗜️ Compressing: 78% → 30% target"
+   │  ├─ Collect oldest messages (FIFO) until remaining < 30%
    │  ├─ LLM Call (Automatik-LLM):
-   │  │  ├─ Prompt: history_compression
-   │  │  ├─ Input: 6 messages (User + Assistant alternating)
-   │  │  ├─ Output: 1 compact summary (~150 words)
-   │  │  └─ Compression ratio: ~6:1 (e.g. 3000 tokens → 500 tokens)
-   │  ├─ Replace 6 messages with 1 summary message
+   │  │  ├─ Prompt: history_summarization
+   │  │  ├─ Input: Collected messages
+   │  │  ├─ Output: 1 summary (25% of compressed content, min 500 tok)
+   │  │  └─ Compression ratio: ~4:1
+   │  ├─ Replace collected messages with 1 summary message
    │  ├─ Store in summaries[] (FIFO, max 10 summaries)
-   │  └─ Debug: "📦 History compressed: 78% → 52% utilization (21,800 → 14,600 tokens, 6→1 messages, 3 summaries total)"
-   └─ ELSE: Debug: "📊 History Compression Check: 45% utilization (12,500 / 28,000 tokens) - no compression needed"
+   │  └─ Debug: "📦 Compressed: 78% → 28% (21,800 → 7,800 tok, N→1 msg)"
+   └─ ELSE: Debug: "📊 History: 45% (12,500 / 28,000 tok) - no compression needed"
 ```
 
 **LLM Calls:** 1 Main-LLM + optional 1 Compression-LLM (if >70% context)
@@ -960,13 +960,47 @@ AIfred-Intelligence/
 
 ### History Compression System
 
-At 70% context utilization, older conversations are automatically compressed:
+At 70% context utilization, older conversations are automatically compressed using **PRE-MESSAGE checks** (v2.12.0):
 
-- **Trigger**: 70% of context window occupied
-- **Compression**: 3 Q&A pairs → 1 summary
-- **Efficiency**: ~6:1 compression ratio
-- **FIFO**: Maximum 10 summaries (oldest are deleted)
-- **Safety**: At least 1 current conversation remains visible
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `HISTORY_COMPRESSION_TRIGGER` | 0.7 (70%) | Compression triggers at this context utilization |
+| `HISTORY_COMPRESSION_TARGET` | 0.3 (30%) | Target after compression (room for ~2 roundtrips) |
+| `HISTORY_SUMMARY_RATIO` | 0.25 (4:1) | Summary = 25% of content being compressed |
+| `HISTORY_SUMMARY_MIN_TOKENS` | 500 | Minimum for meaningful summaries |
+| `HISTORY_SUMMARY_TOLERANCE` | 0.5 (50%) | Allowed overshoot, above this gets truncated |
+| `HISTORY_SUMMARY_MAX_RATIO` | 0.2 (20%) | Max context percentage for summaries (NEW) |
+
+**Algorithm (PRE-MESSAGE):**
+1. **PRE-CHECK** before each LLM call (not after!)
+2. **Trigger** at 70% context utilization
+3. **Dynamic max_summaries** based on context size (20% budget / 500 tok)
+4. **FIFO cleanup**: If too many summaries, oldest is deleted first
+5. **Collect** oldest messages until remaining < 30%
+6. **Compress** collected messages to summary (4:1 ratio)
+7. **New History** = [Summaries] + [remaining messages]
+
+**Dynamic Summary Limits:**
+| Context | Max Summaries | Calculation |
+|---------|---------------|-------------|
+| 4K | 1-2 | 4096 × 0.2 / 500 = 1.6 |
+| 8K | 3 | 8192 × 0.2 / 500 = 3.3 |
+| 32K | 10 | 32768 × 0.2 / 500 = 13 → capped at 10 |
+
+**Token Estimation:** Ignores `<details>`, `<span>`, `<think>` tags (not sent to LLM)
+
+**Examples by Context Size:**
+| Context | Trigger | Target | Compressed | Summary |
+|---------|---------|--------|------------|---------|
+| 7K | 4,900 tok | 2,100 tok | ~2,800 tok | ~700 tok |
+| 40K | 28,000 tok | 12,000 tok | ~16,000 tok | ~4,000 tok |
+| 200K | 140,000 tok | 60,000 tok | ~80,000 tok | ~20,000 tok |
+
+**Unified Summary Collapsible (UI):**
+- All summaries displayed in one collapsible container at top of chat
+- Each summary as bordered box with header (number, message count, timestamp)
+- Token count shown in collapsible header
+- Collapsed by default, FIFO order (oldest first)
 
 ### Vector Cache & RAG System
 
@@ -1111,10 +1145,12 @@ All important parameters in `aifred/lib/config.py`:
 # Deployment Mode (Production vs Development)
 USE_SYSTEMD_RESTART = True  # True for Production, False for Development
 
-# History Compression
-HISTORY_COMPRESSION_THRESHOLD = 0.7  # 70% Context
-HISTORY_MESSAGES_TO_COMPRESS = 6     # 3 Q&A pairs
-HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION = 10
+# History Compression (dynamic, percentage-based)
+HISTORY_COMPRESSION_TRIGGER = 0.7    # 70% - When to compress?
+HISTORY_COMPRESSION_TARGET = 0.3     # 30% - Where to compress to?
+HISTORY_SUMMARY_RATIO = 0.25         # 25% = 4:1 compression
+HISTORY_SUMMARY_MIN_TOKENS = 500     # Minimum for summaries
+HISTORY_SUMMARY_TOLERANCE = 0.5      # 50% overshoot allowed
 
 # LLM Settings (Default Models)
 DEFAULT_SETTINGS = {

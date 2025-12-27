@@ -57,6 +57,12 @@ class ChatMessageParsed(TypedDict):
     alfred_content: str  # AI message with marker stripped for display
     salomo_mode: str  # Extracted mode from 👑[Mode] marker (e.g., "Synthese R1", "Urteil")
     salomo_content: str  # AI message with marker stripped for display
+    # Summary-related fields (for unified summary collapsible)
+    is_summary: bool  # True if this is a summary entry
+    summary_number: str  # Summary number (e.g., "1", "2", or "?" for old format)
+    summary_count: str  # Message count (e.g., "5 Messages")
+    summary_timestamp: str  # Timestamp when summary was created
+    summary_content: str  # Summary content (without header)
 
 
 # ============================================================
@@ -318,6 +324,7 @@ class AIState(rx.State):
 
     # Cached Model Metadata (to avoid repeated API calls)
     _automatik_model_context_limit: int = 0  # Cached context limit for automatik model
+    _min_agent_context_limit: int = 0  # Cached min context limit of AIfred/Sokrates/Salomo (for session-load display)
 
     # Research Settings
     research_mode: str = "automatik"  # "quick", "deep", "automatik", "none"
@@ -710,6 +717,45 @@ class AIState(rx.State):
         alfred_marker_pattern = r'^🎩\[([^\]]+)\]'
         # Salomo marker pattern: 👑[Mode]Content (e.g., 👑[Synthese R1] or 👑[Urteil])
         salomo_marker_pattern = r'^👑\[([^\]]+)\]'
+        # Summary marker patterns:
+        # New format: [📊 Summary #N|X Messages|Timestamp]
+        # Old format: [📊 Compressed: N Messages] or [📊 Komprimiert: N Messages]
+        summary_new_pattern = r'^\[📊 Summary #(\d+)\|(\d+) Messages\|([^\]]+)\]'
+        summary_old_pattern = r'^\[📊 (?:Compressed|Komprimiert): (\d+) Messages\]'
+
+        def extract_summary_info(user_msg: str, ai_text: str) -> dict:
+            """Extract summary info from message.
+            Returns dict with is_summary, number, count, timestamp, content or empty values."""
+            if user_msg != "":
+                return {"is_summary": False, "summary_number": "", "summary_count": "", "summary_timestamp": "", "summary_content": ""}
+
+            # Try new format first
+            new_match = re.match(summary_new_pattern, ai_text)
+            if new_match:
+                header_end = ai_text.find("]\n")
+                content = ai_text[header_end + 2:] if header_end > 0 else ai_text
+                return {
+                    "is_summary": True,
+                    "summary_number": new_match.group(1),
+                    "summary_count": new_match.group(2),
+                    "summary_timestamp": new_match.group(3),
+                    "summary_content": content
+                }
+
+            # Try old format
+            old_match = re.match(summary_old_pattern, ai_text)
+            if old_match:
+                header_end = ai_text.find("]\n")
+                content = ai_text[header_end + 2:] if header_end > 0 else ai_text
+                return {
+                    "is_summary": True,
+                    "summary_number": "?",  # Old format doesn't have number
+                    "summary_count": old_match.group(1),
+                    "summary_timestamp": "",  # Old format doesn't have timestamp
+                    "summary_content": content
+                }
+
+            return {"is_summary": False, "summary_number": "", "summary_count": "", "summary_timestamp": "", "summary_content": ""}
 
         def extract_sokrates_info(ai_text: str) -> tuple[str, str]:
             """Extract mode and content from Sokrates marker.
@@ -747,6 +793,9 @@ class AIState(rx.State):
             # Remove [IMG:...] markers from user message for clean display
             clean_user_msg = re.sub(r'\[IMG:[^\]]*\]', '', user_msg).strip()
 
+            # Extract summary info (works on raw user_msg and ai_msg)
+            summary_info = extract_summary_info(user_msg, ai_msg)
+
             # Extract failed sources from AI message
             match = re.search(failed_sources_pattern, ai_msg, re.DOTALL)
 
@@ -754,55 +803,85 @@ class AIState(rx.State):
                 try:
                     failed_sources = json.loads(match.group(1))
                     clean_ai_msg = re.sub(failed_sources_pattern, '', ai_msg, count=1)
-                    sokrates_mode, sokrates_content = extract_sokrates_info(clean_ai_msg)
-                    alfred_mode, alfred_content = extract_alfred_info(clean_ai_msg)
-                    salomo_mode, salomo_content = extract_salomo_info(clean_ai_msg)
-                    result.append({
-                        "user_msg": clean_user_msg,
-                        "ai_msg": clean_ai_msg,
-                        "failed_sources": failed_sources,
-                        "images": images,
-                        "sokrates_mode": sokrates_mode,
-                        "sokrates_content": sokrates_content,
-                        "alfred_mode": alfred_mode,
-                        "alfred_content": alfred_content,
-                        "salomo_mode": salomo_mode,
-                        "salomo_content": salomo_content
-                    })
                 except json.JSONDecodeError:
-                    sokrates_mode, sokrates_content = extract_sokrates_info(ai_msg)
-                    alfred_mode, alfred_content = extract_alfred_info(ai_msg)
-                    salomo_mode, salomo_content = extract_salomo_info(ai_msg)
-                    result.append({
-                        "user_msg": clean_user_msg,
-                        "ai_msg": ai_msg,
-                        "failed_sources": [],
-                        "images": images,
-                        "sokrates_mode": sokrates_mode,
-                        "sokrates_content": sokrates_content,
-                        "alfred_mode": alfred_mode,
-                        "alfred_content": alfred_content,
-                        "salomo_mode": salomo_mode,
-                        "salomo_content": salomo_content
-                    })
+                    failed_sources = []
+                    clean_ai_msg = ai_msg
             else:
-                sokrates_mode, sokrates_content = extract_sokrates_info(ai_msg)
-                alfred_mode, alfred_content = extract_alfred_info(ai_msg)
-                salomo_mode, salomo_content = extract_salomo_info(ai_msg)
-                result.append({
-                    "user_msg": clean_user_msg,
-                    "ai_msg": ai_msg,
-                    "failed_sources": [],
-                    "images": images,
-                    "sokrates_mode": sokrates_mode,
-                    "sokrates_content": sokrates_content,
-                    "alfred_mode": alfred_mode,
-                    "alfred_content": alfred_content,
-                    "salomo_mode": salomo_mode,
-                    "salomo_content": salomo_content
-                })
+                failed_sources = []
+                clean_ai_msg = ai_msg
+
+            # Extract agent markers (Sokrates, AIfred, Salomo)
+            sokrates_mode, sokrates_content = extract_sokrates_info(clean_ai_msg)
+            alfred_mode, alfred_content = extract_alfred_info(clean_ai_msg)
+            salomo_mode, salomo_content = extract_salomo_info(clean_ai_msg)
+
+            # Build result entry with all extracted info
+            result.append({
+                "user_msg": clean_user_msg,
+                "ai_msg": clean_ai_msg,
+                "failed_sources": failed_sources,
+                "images": images,
+                "sokrates_mode": sokrates_mode,
+                "sokrates_content": sokrates_content,
+                "alfred_mode": alfred_mode,
+                "alfred_content": alfred_content,
+                "salomo_mode": salomo_mode,
+                "salomo_content": salomo_content,
+                # Summary fields
+                "is_summary": summary_info["is_summary"],
+                "summary_number": summary_info["summary_number"],
+                "summary_count": summary_info["summary_count"],
+                "summary_timestamp": summary_info["summary_timestamp"],
+                "summary_content": summary_info["summary_content"],
+            })
 
         return result
+
+    @rx.var
+    def all_summaries(self) -> List[dict]:
+        """
+        Extract all summaries from chat_history for unified display.
+
+        Returns list of dicts with summary info (number, count, timestamp, content).
+        Used by the unified summary collapsible in the UI.
+        """
+        return [
+            {
+                "number": msg["summary_number"],
+                "count": msg["summary_count"],
+                "timestamp": msg["summary_timestamp"],
+                "content": msg["summary_content"],
+            }
+            for msg in self.chat_history_parsed
+            if msg.get("is_summary", False)
+        ]
+
+    @rx.var
+    def chat_history_without_summaries(self) -> List[ChatMessageParsed]:
+        """
+        Chat history excluding summary entries (for main display).
+
+        Summaries are displayed separately in a unified collapsible,
+        so we filter them out from the main chat rendering.
+        """
+        return [
+            msg for msg in self.chat_history_parsed
+            if not msg.get("is_summary", False)
+        ]
+
+    @rx.var
+    def total_summary_tokens(self) -> int:
+        """
+        Estimate total tokens used by all summaries.
+
+        Used to show token usage in the unified summary collapsible header.
+        """
+        total = 0
+        for summary in self.all_summaries:
+            content = summary.get("content", "")
+            # Rough estimate: ~3.5 chars per token for German
+            total += len(content) // 4
+        return total
 
     async def on_load(self):
         """
@@ -1435,18 +1514,50 @@ class AIState(rx.State):
                 self.backend_healthy = True
 
                 # For backends without model switching (vLLM, KoboldCPP, TabbyAPI), show only Main model
+                # Import VRAM cache for calibrated context limits
+                from .lib.model_vram_cache import get_ollama_calibrated_max_context, get_use_extended_for_model
+                from .lib.formatting import format_number
+
+                def format_model_with_ctx(model_display: str, model_id: str) -> str:
+                    """Format model display with calibrated context limit merged into one bracket.
+                    e.g., 'qwen3:8b (4.9 GB)' + ctx -> 'qwen3:8b (4.9 GB, 32.768 ctx)'
+                    """
+                    if not model_id:
+                        return model_display
+                    ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                    if ctx:
+                        if model_display.endswith(")"):
+                            return model_display[:-1] + f", {format_number(ctx)} ctx)"
+                        return f"{model_display} ({format_number(ctx)} ctx)"
+                    else:
+                        if model_display.endswith(")"):
+                            return model_display[:-1] + ", ctx not calibrated)"
+                        return f"{model_display} (ctx not calibrated)"
+
                 if self.backend_type.lower() in ["vllm", "koboldcpp", "tabbyapi"]:
                     # Compact format for Mobile: Multi-line with indentation
                     self.add_debug(f"✅ {len(self.available_models)} models available")
-                    self.add_debug(f"   AIfred: {self.selected_model}")
+                    self.add_debug(f"   AIfred: {format_model_with_ctx(self.selected_model, self.selected_model_id)}")
                 else:
                     # Compact format for Mobile: Multi-line with indentation
                     self.add_debug(f"✅ {len(self.available_models)} models available")
-                    self.add_debug(f"   AIfred: {self.selected_model}")
+                    self.add_debug(f"   AIfred: {format_model_with_ctx(self.selected_model, self.selected_model_id)}")
                     self.add_debug(f"   Automatik: {self.automatik_model}")
-                    # Show Sokrates model if multi-agent mode is active
-                    if self.multi_agent_mode != "standard" and self.sokrates_model_id:
-                        self.add_debug(f"   Sokrates: {self.sokrates_model}")
+                    # Show Sokrates and Salomo models if multi-agent mode is active
+                    if self.multi_agent_mode != "standard":
+                        if self.sokrates_model_id:
+                            self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, self.sokrates_model_id)}")
+                        if self.salomo_model_id:
+                            self.add_debug(f"   Salomo: {format_model_with_ctx(self.salomo_model, self.salomo_model_id)}")
+
+                # Cache min context limit for session-load display
+                context_limits = []
+                for model_id in [self.selected_model_id, self.sokrates_model_id, self.salomo_model_id]:
+                    if model_id:
+                        ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                        if ctx:
+                            context_limits.append(ctx)
+                self._min_agent_context_limit = min(context_limits) if context_limits else 0
 
             except Exception as e:
                 self.backend_healthy = False
@@ -2509,6 +2620,50 @@ class AIState(rx.State):
         self.current_ai_response = ""
         self.failed_sources = []  # Clear failed sources from previous request
 
+        # ============================================================
+        # PRE-MESSAGE: History Compression Check
+        # ============================================================
+        # Check BEFORE adding new message - handles session restore, model changes, etc.
+        if self.chat_history:
+            from .lib.context_manager import summarize_history_if_needed
+            from .backends import BackendFactory
+
+            # Determine effective context limit
+            # Priority: 1. Manual mode → min of all manual limits, 2. Cached min limit, 3. Model limit
+            if self.num_ctx_mode == "manual":
+                # Take minimum of all agent manual limits
+                manual_limits = [self.num_ctx_manual]
+                if self.multi_agent_mode != "standard":
+                    if self.num_ctx_manual_sokrates > 0:
+                        manual_limits.append(self.num_ctx_manual_sokrates)
+                    if self.num_ctx_manual_salomo > 0:
+                        manual_limits.append(self.num_ctx_manual_salomo)
+                context_limit = min(manual_limits) if manual_limits else self.num_ctx_manual
+            elif self._min_agent_context_limit > 0:
+                context_limit = self._min_agent_context_limit
+            else:
+                # Fallback: Get from Automatik model
+                temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
+                context_limit, _ = await temp_backend.get_model_context_limit(self.automatik_model_id)
+
+            # Create backend for compression LLM call
+            temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
+
+            # Check and compress if needed
+            async for event in summarize_history_if_needed(
+                history=self.chat_history,
+                llm_client=temp_backend,
+                model_name=self.automatik_model_id,
+                context_limit=context_limit
+            ):
+                if event["type"] == "history_update":
+                    self.chat_history = event["data"]
+                    self.add_debug(f"✅ Pre-Message Compression: {len(self.chat_history)} messages")
+                    yield
+                elif event["type"] == "debug":
+                    self.add_debug(event["message"])
+                    yield
+
         # Add user message to chat history IMMEDIATELY (before any pipeline processing)
         # This ensures the user sees their message right away, even during STT transcription
         temp_history_index = len(self.chat_history)
@@ -3296,82 +3451,7 @@ class AIState(rx.State):
 
                 await llm_client.close()
 
-            # ============================================================
-            # POST-RESPONSE: History Summarization Check (in background)
-            # ============================================================
-            # Compression runs AFTER the response, while user reads
-            # Input fields are disabled during compression
-            # NOTE: Skip for Multi-Agent - compression already runs in run_sokrates_analysis
-
-            try:
-                from .lib.context_manager import summarize_history_if_needed
-                from .backends import BackendFactory
-
-                # Skip for Multi-Agent (compression already done in run_sokrates_analysis)
-                if self.multi_agent_mode == "standard":  # Only run for standard mode
-                    yield
-                    # Backend for summarization
-                    temp_backend = BackendFactory.create(
-                        self.backend_type,
-                        base_url=self.backend_url
-                    )
-
-                    # Context limit for history compression:
-                    # Use saved VRAM limit from last inference (prevents recalculation!)
-                    from aifred.lib.context_manager import _last_vram_limit_cache
-
-                    if self.num_ctx_mode == "manual":
-                        context_limit = self.num_ctx_manual
-                    elif _last_vram_limit_cache["limit"] > 0:
-                        # Use saved context limit (from last inference)
-                        context_limit = _last_vram_limit_cache["limit"]
-                    else:
-                        # Fallback: 8K (no inference run yet, limit will be calculated on first inference)
-                        context_limit = 8192
-                        self.add_debug("ℹ️ Context limit will be calculated on first inference (Fallback: 8K)")
-
-                    # Set compression flag (disables input fields)
-                    self.is_compressing = True
-                    yield
-
-                    # Summarization check (yields events if needed)
-                    async for event in summarize_history_if_needed(
-                        history=self.chat_history,
-                        llm_client=temp_backend,
-                        model_name=self.automatik_model_id,  # Pure model ID (not display name!)
-                        context_limit=context_limit  # Uses only context_limit, not model_size
-                    ):
-                        if event["type"] == "history_update":
-                            self.chat_history = event["data"]
-                            self.add_debug(f"✅ History komprimiert: {len(self.chat_history)} Messages")
-                            yield
-                        elif event["type"] == "debug":
-                            self.add_debug(event["message"])
-                            yield
-                        elif event["type"] == "progress":
-                            self.set_progress(phase="compress")
-                            yield
-
-                    await temp_backend.close()
-
-                    # Clear progress if set
-                    if self.progress_phase == "compress":
-                        self.clear_progress()
-                        yield
-
-                    # Compression done - re-enable input fields
-                    self.is_compressing = False
-                    yield
-
-            except Exception as e:
-                # Not critical - just continue
-                import traceback
-                self.add_debug(f"⚠️ History compression check failed: {e}")
-                self.add_debug(f"Traceback: {traceback.format_exc()}")
-                self.is_compressing = False
-                yield
-
-            # Separator nach Compression-Check (NUR für standard mode)
+            # Separator (PRE-MESSAGE Check in send_message() handles compression now)
             # Multi-Agent mode hat bereits Separator nach Main-LLM (Zeile ~3158)
             if self.multi_agent_mode == "standard":
                 console_separator()  # Schreibt in Log-File
@@ -3492,7 +3572,12 @@ class AIState(rx.State):
             # Determine message type based on content (new marker format)
             is_sokrates = ai_msg_stripped.startswith("🏛️")
             is_alfred_refinement = ai_msg_stripped.startswith("🎩[")
-            is_summary = ai_msg_stripped.startswith("[📊 Komprimiert") or ai_msg_stripped.startswith("[📊 Compressed")
+            is_salomo = ai_msg_stripped.startswith("👑")
+            is_summary = (
+                ai_msg_stripped.startswith("[📊 Komprimiert") or
+                ai_msg_stripped.startswith("[📊 Compressed") or
+                ai_msg_stripped.startswith("[📊 Summary #")
+            )
             has_user_input = bool(user_msg and user_msg.strip())
 
             if has_user_input:
@@ -3516,6 +3601,9 @@ class AIState(rx.State):
                 lines.append(ai_msg)
             elif is_alfred_refinement:
                 # AIfred refinement - already has proper header
+                lines.append(ai_msg)
+            elif is_salomo:
+                # Salomo message - already has proper header with emoji
                 lines.append(ai_msg)
             elif has_user_input:
                 # Regular AIfred response to user question
@@ -3600,6 +3688,26 @@ class AIState(rx.State):
             self.session_restored = True
             msg_count = len(self.chat_history)
             self.add_debug(f"✅ Session loaded: {device_id[:8]}... ({msg_count} messages)")
+
+            # Show context utilization after session restore
+            if self.chat_history:
+                from .lib.context_manager import estimate_tokens_from_history
+                from .lib.formatting import format_number
+                from .lib.config import HISTORY_COMPRESSION_TRIGGER
+                estimated_tokens = estimate_tokens_from_history(self.chat_history)
+
+                if self._min_agent_context_limit > 0:
+                    utilization = (estimated_tokens / self._min_agent_context_limit) * 100
+                    self.add_debug(f"   └─ History: {format_number(estimated_tokens)} / {format_number(self._min_agent_context_limit)} tok ({int(utilization)}%)")
+                    log_message(f"   └─ History: {format_number(estimated_tokens)} / {format_number(self._min_agent_context_limit)} tok ({int(utilization)}%)")
+
+                    # Warn if compression will trigger on next message
+                    if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
+                        self.add_debug(f"⚠️ History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
+                        log_message(f"⚠️ History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
+                else:
+                    self.add_debug(f"   └─ History: {format_number(estimated_tokens)} tokens")
+                    log_message(f"   └─ History: {format_number(estimated_tokens)} tokens")
         else:
             self.session_restored = False
             self.add_debug(f"🆕 Empty session: {device_id[:8]}...")
@@ -3628,6 +3736,7 @@ class AIState(rx.State):
 
         # Chat-History wiederherstellen
         # WICHTIG: JSON serialisiert Tuples als Listen, hier zurückkonvertieren!
+        # PRE-MESSAGE Check in send_message() prüft automatisch ob Kompression nötig ist
         if "chat_history" in data and data["chat_history"]:
             self.chat_history = [tuple(msg) for msg in data["chat_history"]]
 
@@ -4374,8 +4483,52 @@ class AIState(rx.State):
 
         # Save to VRAM cache (per-model setting)
         if self.selected_model_id:
-            from .lib.model_vram_cache import set_use_extended_for_model, get_ollama_calibrated_max_context
+            from .lib.model_vram_cache import set_use_extended_for_model, get_ollama_calibrated_max_context, get_use_extended_for_model
+            from .lib.formatting import format_number
             set_use_extended_for_model(self.selected_model_id, value)
+
+            # Helper for context limit display (merge GB and ctx into one bracket)
+            def format_model_with_ctx(model_display: str, model_id: str) -> str:
+                if not model_id:
+                    return model_display
+                ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                if ctx:
+                    if model_display.endswith(")"):
+                        return model_display[:-1] + f", {format_number(ctx)} ctx)"
+                    return f"{model_display} ({format_number(ctx)} ctx)"
+                else:
+                    if model_display.endswith(")"):
+                        return model_display[:-1] + ", ctx not calibrated)"
+                    return f"{model_display} (ctx not calibrated)"
+
+            # Re-display all agent models with updated context limits
+            self.add_debug(f"   AIfred: {format_model_with_ctx(self.selected_model, self.selected_model_id)}")
+            if self.multi_agent_mode != "standard":
+                if self.sokrates_model_id:
+                    self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, self.sokrates_model_id)}")
+                if self.salomo_model_id:
+                    self.add_debug(f"   Salomo: {format_model_with_ctx(self.salomo_model, self.salomo_model_id)}")
+
+            # Update cached min context limit
+            context_limits = []
+            for model_id in [self.selected_model_id, self.sokrates_model_id, self.salomo_model_id]:
+                if model_id:
+                    ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                    if ctx:
+                        context_limits.append(ctx)
+            self._min_agent_context_limit = min(context_limits) if context_limits else 0
+
+            # Show history utilization and warn if compression will trigger
+            if self.chat_history and self._min_agent_context_limit > 0:
+                from .lib.context_manager import estimate_tokens_from_history
+                from .lib.config import HISTORY_COMPRESSION_TRIGGER
+                estimated_tokens = estimate_tokens_from_history(self.chat_history)
+                utilization = (estimated_tokens / self._min_agent_context_limit) * 100
+                self.add_debug(f"   └─ History: {format_number(estimated_tokens)} / {format_number(self._min_agent_context_limit)} tok ({int(utilization)}%)")
+
+                # Warn if compression will trigger on next message
+                if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
+                    self.add_debug(f"⚠️ History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
 
             # Warn if no calibration exists for this mode
             if value:
@@ -4724,15 +4877,129 @@ class AIState(rx.State):
 
     def set_num_ctx_mode(self, mode: str):
         """
-        Set num_ctx mode (NICHT in settings.json gespeichert - Reset bei jedem Start)
+        Set num_ctx mode (NOT saved in settings.json - resets on every start)
 
         Modes:
-        - auto: Auto-Modus (nutzt Kalibrierung, extended wenn calibrate_extended=True)
-        - manual: Manueller Wert aus num_ctx_manual
+        - auto: Auto mode (uses calibration, extended if calibrate_extended=True)
+        - manual: Manual value from num_ctx_manual (user must click "Calculate" button to see preview)
         """
         self.num_ctx_mode = mode
         self.add_debug(f"🎯 Context Mode: {mode}")
-        # WICHTIG: Nicht in settings.json speichern!
+        # IMPORTANT: Not saved in settings.json!
+
+        # For auto mode: immediately recalculate and display
+        # For manual mode: user must click "Calculate" button for preview
+        if mode == "auto":
+            from .lib.model_vram_cache import get_ollama_calibrated_max_context, get_use_extended_for_model
+            from .lib.formatting import format_number
+            from .lib.context_manager import estimate_tokens_from_history
+            from .lib.config import HISTORY_COMPRESSION_TRIGGER
+
+            # Helper for context limit display (merge GB and ctx into one bracket)
+            def format_model_with_ctx(model_display: str, model_id: str) -> str:
+                if not model_id:
+                    return model_display
+                ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                if ctx:
+                    if model_display.endswith(")"):
+                        return model_display[:-1] + f", {format_number(ctx)} ctx)"
+                    return f"{model_display} ({format_number(ctx)} ctx)"
+                else:
+                    if model_display.endswith(")"):
+                        return model_display[:-1] + ", ctx not calibrated)"
+                    return f"{model_display} (ctx not calibrated)"
+
+            # Display auto limits
+            self.add_debug(f"   AIfred: {format_model_with_ctx(self.selected_model, self.selected_model_id)}")
+            if self.multi_agent_mode != "standard":
+                if self.sokrates_model_id:
+                    self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, self.sokrates_model_id)}")
+                if self.salomo_model_id:
+                    self.add_debug(f"   Salomo: {format_model_with_ctx(self.salomo_model, self.salomo_model_id)}")
+
+            # Calculate effective limit from calibrated values
+            context_limits = []
+            for model_id in [self.selected_model_id, self.sokrates_model_id, self.salomo_model_id]:
+                if model_id:
+                    ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                    if ctx:
+                        context_limits.append(ctx)
+            effective_limit = min(context_limits) if context_limits else 0
+
+            # Update cached min context limit
+            self._min_agent_context_limit = effective_limit
+
+            # Show history utilization and warn if compression will trigger
+            if self.chat_history and effective_limit > 0:
+                estimated_tokens = estimate_tokens_from_history(self.chat_history)
+                utilization = (estimated_tokens / effective_limit) * 100
+                self.add_debug(f"   └─ History: {format_number(estimated_tokens)} / {format_number(effective_limit)} tok ({int(utilization)}%)")
+
+                # Warn if compression will trigger on next message
+                if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
+                    self.add_debug(f"⚠️ History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
+
+    def calculate_manual_context(self):
+        """
+        Calculate and display manual context limits.
+        Called when user clicks "Calculate" button in manual mode.
+        Shows preview of context utilization and compression warnings.
+        """
+        if self.num_ctx_mode != "manual":
+            self.add_debug("⚠️ Calculate only works in manual mode")
+            return
+
+        from .lib.formatting import format_number
+        from .lib.context_manager import estimate_tokens_from_history
+        from .lib.config import HISTORY_COMPRESSION_TRIGGER
+
+        # Take minimum of all agent manual limits
+        manual_limits = [self.num_ctx_manual]
+        if self.multi_agent_mode != "standard":
+            if self.num_ctx_manual_sokrates > 0:
+                manual_limits.append(self.num_ctx_manual_sokrates)
+            if self.num_ctx_manual_salomo > 0:
+                manual_limits.append(self.num_ctx_manual_salomo)
+        effective_limit = min(manual_limits) if manual_limits else self.num_ctx_manual
+
+        # Display manual limits (merge GB and ctx into one bracket)
+        # e.g., "qwen3:8b (4.9 GB)" + "4.096 ctx" -> "qwen3:8b (4.9 GB, 4.096 ctx)"
+        def format_model_with_ctx(model_display: str, ctx_value: int) -> str:
+            if model_display.endswith(")"):
+                return model_display[:-1] + f", {format_number(ctx_value)} ctx)"
+            return f"{model_display} ({format_number(ctx_value)} ctx)"
+
+        self.add_debug("📊 Manual context calculation:")
+        self.add_debug(f"   AIfred: {format_model_with_ctx(self.selected_model, self.num_ctx_manual)}")
+        if self.multi_agent_mode != "standard":
+            if self.sokrates_model_id:
+                self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, self.num_ctx_manual_sokrates)}")
+            if self.salomo_model_id:
+                self.add_debug(f"   Salomo: {format_model_with_ctx(self.salomo_model, self.num_ctx_manual_salomo)}")
+
+        # Update cached min context limit
+        self._min_agent_context_limit = effective_limit
+
+        # Show history utilization and warn if compression will trigger
+        if self.chat_history and effective_limit > 0:
+            estimated_tokens = estimate_tokens_from_history(self.chat_history)
+            utilization = (estimated_tokens / effective_limit) * 100
+            self.add_debug(f"   └─ History: {format_number(estimated_tokens)} / {format_number(effective_limit)} tok ({int(utilization)}%)")
+
+            # Warn if compression will trigger on next message
+            if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
+                self.add_debug(f"⚠️ History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
+        elif not self.chat_history:
+            self.add_debug("   └─ History: empty")
+        else:
+            self.add_debug(f"   └─ Effective limit: {format_number(effective_limit)} tokens")
+
+    @rx.var(deps=["num_ctx_mode"], auto_deps=False)
+    def num_ctx_mode_display(self) -> str:
+        """Get display value for num_ctx mode radio button"""
+        if self.num_ctx_mode == "manual":
+            return "🔧 Manuell"
+        return "🎯 Auto"
 
     def set_num_ctx_mode_from_display(self, display_value: str):
         """Set num_ctx mode from UI display value"""
@@ -4746,6 +5013,7 @@ class AIState(rx.State):
     def set_num_ctx_manual(self, value: str):
         """Set manual num_ctx value for AIfred (only used when mode=manual)"""
         from .lib.config import NUM_CTX_MANUAL_MAX
+        from .lib.formatting import format_number
         try:
             # Handle locale-formatted numbers and spaces (e.g., "1.472", "1,472", "1 472")
             clean_value = str(value).replace(".", "").replace(",", "").replace(" ", "").strip()
@@ -4757,14 +5025,15 @@ class AIState(rx.State):
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             self.num_ctx_manual = num_value
-            self.add_debug(f"🔧 Manual num_ctx (AIfred): {num_value:,}")
-            # WICHTIG: Nicht in settings.json speichern!
+            self.add_debug(f"🔧 Manual num_ctx (AIfred): {format_number(num_value)}")
+            # IMPORTANT: Not saved in settings.json!
         except (ValueError, TypeError):
-            self.add_debug(f"❌ Ungültiger num_ctx Wert: {value}")
+            self.add_debug(f"❌ Invalid num_ctx value: {value}")
 
     def set_num_ctx_manual_sokrates(self, value: str):
         """Set manual num_ctx value for Sokrates (only used when mode=manual)"""
         from .lib.config import NUM_CTX_MANUAL_MAX
+        from .lib.formatting import format_number
         try:
             clean_value = str(value).replace(".", "").replace(",", "").replace(" ", "").strip()
             if not clean_value:
@@ -4775,9 +5044,27 @@ class AIState(rx.State):
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             self.num_ctx_manual_sokrates = num_value
-            self.add_debug(f"🔧 Manual num_ctx (Sokrates): {num_value:,}")
+            self.add_debug(f"🔧 Manual num_ctx (Sokrates): {format_number(num_value)}")
         except (ValueError, TypeError):
-            self.add_debug(f"❌ Ungültiger num_ctx Wert: {value}")
+            self.add_debug(f"❌ Invalid num_ctx value: {value}")
+
+    def set_num_ctx_manual_salomo(self, value: str):
+        """Set manual num_ctx value for Salomo (only used when mode=manual)"""
+        from .lib.config import NUM_CTX_MANUAL_MAX
+        from .lib.formatting import format_number
+        try:
+            clean_value = str(value).replace(".", "").replace(",", "").replace(" ", "").strip()
+            if not clean_value:
+                return
+            num_value = int(clean_value)
+            if num_value < 1:
+                num_value = 1
+            if num_value > NUM_CTX_MANUAL_MAX:
+                num_value = NUM_CTX_MANUAL_MAX
+            self.num_ctx_manual_salomo = num_value
+            self.add_debug(f"🔧 Manual num_ctx (Salomo): {format_number(num_value)}")
+        except (ValueError, TypeError):
+            self.add_debug(f"❌ Invalid num_ctx value: {value}")
 
     def set_research_mode(self, mode: str):
         """Set research mode"""

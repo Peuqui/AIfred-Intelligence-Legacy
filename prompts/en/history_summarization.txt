@@ -9,8 +9,9 @@ Summarize the following conversation. The summary will be used as **context** fo
 1. **CONCISE**: Maximum {max_tokens} tokens (approx. {max_words} words)
 2. **FACTUAL**: Only concrete information, no opinions
 3. **CHRONOLOGICAL**: Keep temporal order
-4. **MAIN TOPICS**: Focus on important topics and facts
-5. **CONTEXT-RELEVANT**: What might be important for future questions?
+4. **COMPLETE**: Mention EVERY discussed topic with 1-2 sentences
+5. **FACTS ONLY**: No philosophical musings, no stylistic elements
+6. **CONTEXT-RELEVANT**: What might be important for future questions?
 
 # 🚫 FORBIDDEN
 
@@ -18,6 +19,13 @@ Summarize the following conversation. The summary will be used as **context** fo
 - ❌ NO pleasantries ("The user politely asked...")
 - ❌ NO meta-information ("In this conversation...")
 - ❌ NO literal quotes (paraphrase!)
+- ❌ NO own interpretations ("AI emphasizes...", "User is prompted to...")
+
+# ✅ IMPORTANT TO KEEP
+
+- ✅ **Conclusions and takeaways** - these are essential for follow-up questions!
+- ✅ Concrete recommendations that were given
+- ✅ Decisions that were made
 
 # 📝 FORMAT
 
@@ -50,7 +58,7 @@ The user asked about the weather in Berlin for tomorrow. The AI responded that i
 # ⚠️ IMPORTANT
 
 - Maximum {max_tokens} tokens!
-- Only the most important facts!
+- Mention ALL topics, but only facts!
 - No meta-information!
 - Compact and concise!
 

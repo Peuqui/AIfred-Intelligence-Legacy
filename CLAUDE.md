@@ -16,7 +16,7 @@
 
 - **ChromaDB Vector Cache** - Semantischer Cache für Web-Research (Docker)
 - **RAG-System** - Retrieval-Augmented Generation mit Relevanz-Check
-- **History Compression** - Automatische Kompression bei 70% Context-Auslastung
+- **History Compression** - Automatische Kompression (siehe unten)
 - **Multi-Backend Support** - Ollama, vLLM, TabbyAPI, KoboldCPP
 - **Thinking Mode** - Chain-of-Thought für Qwen3 Modelle
 
@@ -40,10 +40,38 @@
 - Multi-Agent System:
   - AIfred (Hauptagent)
   - Sokrates (Kritiker)
+  - Salomo (Richter im Tribunal-Mode)
 
 ---
 
 ## Code-Konventionen
+
+### History Compression Algorithmus
+
+Die History-Kompression verwendet folgende Schwellenwerte (konfigurierbar in `config.py`):
+
+| Parameter | Wert | Beschreibung |
+|-----------|------|--------------|
+| `HISTORY_COMPRESSION_TRIGGER` | 0.7 (70%) | Bei dieser Context-Auslastung wird komprimiert |
+| `HISTORY_COMPRESSION_TARGET` | 0.3 (30%) | Ziel nach Kompression (Platz für ~2 Roundtrips) |
+| `HISTORY_SUMMARY_RATIO` | 0.25 (4:1) | Summary = 25% des zu komprimierenden Inhalts |
+| `HISTORY_SUMMARY_MIN_TOKENS` | 500 | Minimum für sinnvolle Zusammenfassungen |
+| `HISTORY_SUMMARY_TOLERANCE` | 0.5 (50%) | Erlaubte Überschreitung, darüber wird gekürzt |
+
+**Ablauf:**
+1. Trigger bei 70% Context-Auslastung
+2. Sammle älteste Messages (FIFO) bis remaining < 30%
+3. Komprimiere gesammelte Messages zu Summary (4:1 Ratio)
+4. Neue History = [Summary] + [verbleibende Messages]
+
+**Token-Estimation:** Ignoriert `<details>`, `<span>`, `<think>` Tags (gehen nicht ans LLM)
+
+**Beispiele:**
+- 7K Context: Trigger bei 4.900, Ziel 2.100, Summary ~700 tok
+- 40K Context: Trigger bei 28.000, Ziel 12.000, Summary ~4.000 tok
+- 200K Context: Trigger bei 140.000, Ziel 60.000, Summary ~20.000 tok
+
+---
 
 ### Zahlenformatierung (WICHTIG!)
 - **IMMER** `format_number()` aus `aifred/lib/formatting.py` verwenden
@@ -57,3 +85,32 @@
   # FALSCH:
   yield f"Model: {size_mb / 1024:.1f} GB"
   ```
+
+---
+
+## ⚠️ Code-Qualitätsprüfungen (PFLICHT!)
+
+**IMMER nach Code-Änderungen ausführen - KEINE Ausnahmen!**
+
+```bash
+# 1. Syntax-Check (schnell, immer zuerst)
+python3 -m py_compile aifred/DATEI.py
+
+# 2. Linting mit Ruff
+source venv/bin/activate && ruff check aifred/DATEI.py
+
+# 3. Type-Checking mit mypy
+source venv/bin/activate && mypy aifred/DATEI.py --ignore-missing-imports
+```
+
+**Mehrere Dateien auf einmal:**
+```bash
+source venv/bin/activate && ruff check aifred/state.py aifred/aifred.py aifred/lib/context_manager.py
+source venv/bin/activate && mypy aifred/state.py aifred/aifred.py --ignore-missing-imports
+```
+
+**Bekannte Ignores (NICHT beheben):**
+- `E402` in config.py/state.py: Import-Position (notwendig wegen zirkulärer Imports)
+- `F541` unnötige f-strings: Können mit `--fix` automatisch behoben werden
+- mypy-Warnungen in Backends: OpenAI SDK Type-Mismatches (OpenAI-Library Issue)
+- mypy `no_implicit_optional`: Bestehender Code, wird nicht refactored
