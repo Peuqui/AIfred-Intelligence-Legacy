@@ -21,7 +21,10 @@ from .lib.logging_utils import CONSOLE_SEPARATOR
 from .lib.formatting import format_debug_message
 from .lib.conversation_handler import extract_model_name
 from .lib import config
-from .lib.config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
+from .lib.config import (
+    EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES,
+    SOKRATES_TEMPERATURE_OFFSET, SALOMO_TEMPERATURE_OFFSET
+)
 from .lib.vllm_manager import vLLMProcessManager
 from .lib.model_manager import (
     sort_models_grouped,
@@ -31,6 +34,7 @@ from .lib.model_manager import (
 from .lib.gpu_monitor import round_to_nominal_vram
 from .lib.multi_agent import (
     run_sokrates_direct_response,
+    run_salomo_direct_response,
     run_sokrates_analysis,
     run_tribunal,
 )
@@ -312,9 +316,9 @@ class AIState(rx.State):
     temperature: float = 0.3  # Default: low temperature for factual responses
     temperature_mode: str = "auto"  # "auto" (Intent-Detection) | "manual" (user slider)
     sokrates_temperature: float = 0.5  # Sokrates temperature (manual mode only)
-    sokrates_temperature_offset: float = 0.2  # Offset for auto mode: Sokrates = AIfred + offset
+    sokrates_temperature_offset: float = SOKRATES_TEMPERATURE_OFFSET  # From config.py
     salomo_temperature: float = 0.5  # Salomo temperature (manual mode only)
-    salomo_temperature_offset: float = 0.1  # Offset for auto mode: Salomo = AIfred + offset
+    salomo_temperature_offset: float = SALOMO_TEMPERATURE_OFFSET  # From config.py
     num_ctx: int = 32768
 
     # Context Window Control (NOT saved in settings.json - reset on every start)
@@ -618,7 +622,7 @@ class AIState(rx.State):
         """Check if consensus type is unanimous (for toggle state)"""
         return self.consensus_type == "unanimous"
 
-    @rx.var
+    @rx.var(deps=["consensus_type", "ui_language"], auto_deps=False)
     def consensus_toggle_tooltip(self) -> str:
         """Get tooltip text for consensus toggle based on current state and language"""
         from .lib.i18n import t
@@ -2599,9 +2603,16 @@ class AIState(rx.State):
         # PRE-MESSAGE: History Compression Check
         # ============================================================
         # Check BEFORE adding new message - handles session restore, model changes, etc.
+
+        # Create LLM client once - used for compression AND intent detection
+        from .lib.llm_client import LLMClient
+        llm_client = LLMClient(
+            backend_type=self.backend_type,
+            base_url=self.backend_url
+        )
+
         if self.chat_history:
             from .lib.context_manager import summarize_history_if_needed
-            from .backends import BackendFactory
 
             # Determine effective context limit
             # Priority: 1. Manual mode → min of all manual limits, 2. Cached min limit, 3. Model limit
@@ -2618,11 +2629,7 @@ class AIState(rx.State):
                 context_limit = self._min_agent_context_limit
             else:
                 # Fallback: Get from Automatik model
-                temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
-                context_limit, _ = await temp_backend.get_model_context_limit(self.automatik_model_id)
-
-            # Create backend for compression LLM call
-            temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
+                context_limit, _ = await llm_client.get_model_context_limit(self.automatik_model_id)
 
             # Get system prompt tokens from cache (v2.14.0+)
             # Cache is populated at startup in on_load()
@@ -2633,7 +2640,7 @@ class AIState(rx.State):
             # Check and compress if needed (DUAL-HISTORY)
             async for event in summarize_history_if_needed(
                 history=self.chat_history,
-                llm_client=temp_backend,
+                llm_client=llm_client,
                 model_name=self.automatik_model_id,
                 context_limit=context_limit,
                 llm_history=self.llm_history,
@@ -2663,10 +2670,21 @@ class AIState(rx.State):
 
         try:
             # ============================================================
-            # DIALOG ROUTING: Check for direct addressing (@Sokrates, @AIfred)
+            # DIALOG ROUTING + INTENT DETECTION (combined in one LLM call)
             # ============================================================
-            from .lib.intent_detector import detect_dialog_addressing
-            addressed_to, cleaned_text = detect_dialog_addressing(user_msg)
+            from .lib.intent_detector import detect_query_intent_and_addressee
+
+            # Early intent + addressee detection (uses automatik_model)
+            # llm_client was created above before compression check
+            detected_intent, addressed_to, intent_raw = await detect_query_intent_and_addressee(
+                user_msg,
+                self.automatik_model_id,
+                llm_client
+            )
+            # Show raw LLM response + parsed result in debug console (English)
+            addressee_display = addressed_to.capitalize() if addressed_to else "–"
+            self.add_debug(f"🎯 Intent: \"{intent_raw}\" → {detected_intent}, Addressee: {addressee_display}")
+            yield
 
             # Track if Sokrates should be skipped (AIfred direct addressing)
             skip_sokrates_analysis = False
@@ -2686,13 +2704,27 @@ class AIState(rx.State):
                 yield
                 return
 
-            elif addressed_to == "alfred":
+            elif addressed_to == "aifred":
                 # User directly addresses AIfred → Skip Sokrates analysis, use special prompt
                 self.add_debug("🎩 Direct addressing: AIfred")
                 yield  # Update UI immediately to show debug message
                 skip_sokrates_analysis = True
                 use_aifred_direct_prompt = True
                 # Continue with normal flow, but with AIfred's direct response persona
+
+            elif addressed_to == "salomo":
+                # User directly addresses Salomo → Salomo responds directly
+                self.add_debug("👑 Direct addressing: Salomo")
+                yield  # Update UI immediately to show debug message
+                async for _ in run_salomo_direct_response(self, user_msg, temp_history_index):
+                    yield
+                # Clean up and return - Salomo handled everything
+                self.current_ai_response = ""
+                self.current_user_message = ""
+                self.is_generating = False
+                self._save_current_session()
+                yield
+                return
 
             # ============================================================
             # VISION PIPELINE: Route to Vision-LLM if images present
@@ -3275,37 +3307,19 @@ class AIState(rx.State):
                 # Import format_number for locale-aware number formatting (uses global ui_locale)
                 from .lib.formatting import format_number
 
-                # Temperature decision: Manual Override or Auto (Intent-Detection)
-                # IMPORTANT: Intent Detection MUST run BEFORE Main-LLM preload!
-                # Otherwise Ollama might unload the Main-LLM to load the Automatik-LLM,
-                # then reload the Main-LLM again (wasting ~10s of loading time).
+                # Temperature decision: Manual Override or Auto (reuse detected_intent from above)
                 if self.temperature_mode == 'manual':
                     final_temperature = self.temperature
-                    self.add_debug(f"🌡️ Temperature: {final_temperature} (manual)")
+                    self.add_debug(f"🌡️ Temperature: {format_number(final_temperature, 1)} (manual)")
                 else:
-                    # Auto: Intent-Detection for own knowledge mode
-                    from .lib.intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
+                    # Auto: Reuse detected_intent from dialog routing (no second LLM call!)
+                    from .lib.intent_detector import get_temperature_for_intent, get_temperature_label
 
-                    # Use automatik model for intent detection
-                    automatik_llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)
-
-                    self.add_debug("🎯 Intent detection running...")
-                    yield
-
-                    intent_start = time.time()
-                    own_knowledge_intent = await detect_query_intent(
-                        user_query=user_msg,
-                        automatik_model=self.automatik_model_id,
-                        llm_client=automatik_llm_client,
-                        llm_options={'temperature': 0.2, 'num_predict': 64}
-                    )
-                    intent_time = time.time() - intent_start
-
-                    final_temperature = get_temperature_for_intent(own_knowledge_intent)
-                    temp_label = get_temperature_label(own_knowledge_intent)
+                    final_temperature = get_temperature_for_intent(detected_intent)
+                    temp_label = get_temperature_label(detected_intent)
                     # Store intent-based temperature in state for Multi-Agent mode
                     self.temperature = final_temperature
-                    self.add_debug(f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {format_number(intent_time, 1)}s)")
+                    self.add_debug(f"🌡️ Temperature: {format_number(final_temperature, 1)} (auto, {temp_label})")
                 yield
 
                 # Count actual input tokens (using real tokenizer)
@@ -3748,8 +3762,11 @@ class AIState(rx.State):
             self.llm_history = []
 
         # DEBUG-PERSISTENCE (v2.14.0+): debug_messages wiederherstellen
+        # WICHTIG: Startup-Messages behalten, gespeicherte Messages hinzufügen
         if "debug_messages" in data and data["debug_messages"]:
-            self.debug_messages = data["debug_messages"]
+            # Startup-Messages (bereits in self.debug_messages) + Separator + gespeicherte Messages
+            startup_messages = self.debug_messages.copy()
+            self.debug_messages = startup_messages + ["────────────────────"] + data["debug_messages"]
 
     def _sync_llm_history_assistant(self, content: str):
         """

@@ -5,17 +5,81 @@ Classifies user queries for adaptive temperature selection:
 - FAKTISCH: Factual queries (low temperature)
 - KREATIV: Creative queries (high temperature)
 - GEMISCHT: Mixed queries (medium temperature)
+
+Also detects dialog addressing (who is being spoken to):
+- aifred: User is directly addressing AIfred
+- sokrates: User is directly addressing Sokrates
+- salomo: User is directly addressing Salomo
+- None: No specific addressee
 """
 
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 from .logging_utils import log_message
 from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prompt
 from .config import AUTOMATIK_LLM_NUM_CTX
 
 
+def parse_intent_and_addressee(
+    response_raw: str,
+    context: str = "general"
+) -> Tuple[str, Optional[str]]:
+    """
+    Extract intent and addressee from LLM response.
+
+    Expected format: "INTENT|ADDRESSEE" (e.g., "FAKTISCH|sokrates", "KREATIV|")
+
+    Args:
+        response_raw: Raw LLM response
+        context: Context for logging ("general" or "cache_followup")
+
+    Returns:
+        Tuple[str, Optional[str]]: (intent, addressee)
+            - intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
+            - addressee: "aifred", "sokrates", "salomo" or None
+    """
+    raw = response_raw.strip()
+
+    # Try to parse pipe-separated format first
+    if "|" in raw:
+        parts = raw.split("|", 1)
+        intent_part = parts[0].strip().upper()
+        addressee_part = parts[1].strip().lower() if len(parts) > 1 else ""
+    else:
+        # Fallback: Just intent, no pipe
+        intent_part = raw.upper()
+        addressee_part = ""
+
+    # Parse intent (with English/German support)
+    if "FAKTISCH" in intent_part or "FACTUAL" in intent_part:
+        intent = "FAKTISCH"
+    elif "KREATIV" in intent_part or "CREATIVE" in intent_part:
+        intent = "KREATIV"
+    elif "GEMISCHT" in intent_part or "MIXED" in intent_part:
+        intent = "GEMISCHT"
+    else:
+        prefix = "Cache-Intent" if context == "cache_followup" else "Intent"
+        log_message(f"⚠️ {prefix} unknown: '{response_raw}' → Default: FAKTISCH")
+        intent = "FAKTISCH"
+
+    # Parse addressee
+    addressee: Optional[str] = None
+    if addressee_part:
+        # Normalize variations
+        if addressee_part in ("aifred", "alfred", "eifred", "ai fred"):
+            addressee = "aifred"
+        elif addressee_part in ("sokrates", "socrates"):
+            addressee = "sokrates"
+        elif addressee_part in ("salomo", "solomon"):
+            addressee = "salomo"
+        # else: leave as None (unknown or empty)
+
+    return (intent, addressee)
+
+
+# Keep old function for backwards compatibility (used by cache_followup)
 def parse_intent_from_response(intent_raw: str, context: str = "general") -> str:
     """
-    Extract intent from LLM response (even if LLM writes more text)
+    Extract intent from LLM response (legacy wrapper).
 
     Args:
         intent_raw: Raw LLM response
@@ -24,20 +88,66 @@ def parse_intent_from_response(intent_raw: str, context: str = "general") -> str
     Returns:
         str: "FAKTISCH", "KREATIV" or "GEMISCHT"
     """
-    intent_upper = intent_raw.strip().upper()
+    intent, _ = parse_intent_and_addressee(intent_raw, context)
+    return intent
 
-    # Extract intent (prioritization)
-    if "FAKTISCH" in intent_upper:
-        return "FAKTISCH"
-    elif "KREATIV" in intent_upper:
-        return "KREATIV"
-    elif "GEMISCHT" in intent_upper:
-        return "GEMISCHT"
-    else:
-        # Fallback
-        prefix = "Cache-Intent" if context == "cache_followup" else "Intent"
-        log_message(f"⚠️ {prefix} unknown: '{intent_raw}' → Default: FAKTISCH")
-        return "FAKTISCH"
+
+async def detect_query_intent_and_addressee(
+    user_query: str,
+    automatik_model: str,
+    llm_client,
+    llm_options: Optional[Dict] = None
+) -> Tuple[str, Optional[str], str]:
+    """
+    Detect intent and addressee of user query.
+
+    Combines intent detection (for temperature selection) with addressee
+    detection (for dialog routing) in a single LLM call.
+
+    Args:
+        user_query: User question
+        automatik_model: LLM for intent detection
+        llm_client: LLMClient instance
+        llm_options: Optional Dict with enable_thinking toggle
+
+    Returns:
+        Tuple[str, Optional[str], str]: (intent, addressee, raw_response)
+            - intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
+            - addressee: "aifred", "sokrates", "salomo" or None
+            - raw_response: Raw LLM output for debugging
+    """
+    from .prompt_loader import detect_language
+    detected_user_language = detect_language(user_query)
+    log_message(f"🌐 Language detection: User input is probably '{detected_user_language.upper()}' (for prompt selection)")
+
+    prompt = get_intent_detection_prompt(user_query=user_query, lang=detected_user_language)
+
+    try:
+        log_message(f"🎯 Intent+Addressee detection for query: {user_query[:60]}...")
+
+        intent_options = {
+            'temperature': 0.2,  # Low for consistent detection
+            'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit 4K context
+            'num_predict': 32,  # Short: "FAKTISCH|sokrates" = ~10 tokens
+            'enable_thinking': False  # Fast detection without reasoning
+        }
+
+        log_message("🧠 Intent enable_thinking: False (Automatik-Task)")
+
+        response = await llm_client.chat(
+            model=automatik_model,
+            messages=[{'role': 'user', 'content': prompt}],
+            options=intent_options
+        )
+        response_raw = response.text
+
+        intent, addressee = parse_intent_and_addressee(response_raw, context="general")
+        log_message(f"✅ Intent: {intent}, Addressee: {addressee or 'none'}, Raw: '{response_raw}'")
+        return (intent, addressee, response_raw)
+
+    except Exception as e:
+        log_message(f"❌ Intent detection error: {e} → Fallback: FAKTISCH, no addressee")
+        return ("FAKTISCH", None, "")
 
 
 async def detect_query_intent(
@@ -47,52 +157,17 @@ async def detect_query_intent(
     llm_options: Optional[Dict] = None
 ) -> str:
     """
-    Detect intent of user query for adaptive temperature selection
+    Detect intent of user query (legacy wrapper).
 
-    Args:
-        user_query: User question
-        automatik_model: LLM for intent detection
-        llm_client: LLMClient instance
-        llm_options: Optional Dict with enable_thinking toggle
+    For backwards compatibility. Use detect_query_intent_and_addressee() instead.
 
     Returns:
         str: "FAKTISCH", "KREATIV" or "GEMISCHT"
     """
-    # Language detection for user input
-    from .prompt_loader import detect_language
-    detected_user_language = detect_language(user_query)
-    log_message(f"🌐 Language detection: User input is probably '{detected_user_language.upper()}' (for prompt selection)")
-
-    prompt = get_intent_detection_prompt(user_query=user_query, lang=detected_user_language)
-
-    try:
-        log_message(f"🎯 Intent detection for query: {user_query[:60]}...")
-
-        # Build options
-        intent_options = {
-            'temperature': 0.2,  # Low for consistent intent detection
-            'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit 4K context (prevents 262K default!)
-            'num_predict': 32,  # Short: "FAKTISCH" / "KREATIV" = ~10 tokens (3x buffer)
-            'enable_thinking': False  # Default: Fast intent detection without reasoning
-        }
-
-        # Automatik tasks: Thinking is ALWAYS off (independent of user toggle)
-        log_message("🧠 Intent enable_thinking: False (Automatik-Task)")
-
-        response = await llm_client.chat(
-            model=automatik_model,
-            messages=[{'role': 'user', 'content': prompt}],
-            options=intent_options
-        )
-        intent_raw = response.text
-
-        intent = parse_intent_from_response(intent_raw, context="general")
-        log_message(f"✅ Intent detected: {intent}")
-        return intent
-
-    except Exception as e:
-        log_message(f"❌ Intent detection error: {e} → Fallback: FAKTISCH")
-        return "FAKTISCH"  # Safe Fallback
+    intent, _, _ = await detect_query_intent_and_addressee(
+        user_query, automatik_model, llm_client, llm_options
+    )
+    return intent
 
 
 async def detect_cache_followup_intent(
@@ -203,100 +278,3 @@ def get_temperature_label(intent: str) -> str:
     return label_map.get(intent, "factual")  # Fallback: factual
 
 
-def detect_dialog_addressing(user_text: str) -> tuple[Optional[str], str]:
-    """
-    Detect if user is directly addressing Sokrates or AIfred.
-
-    Handles various addressing patterns:
-    - "Sokrates, warum..." / "sokrates:" / "@sokrates"
-    - "AIfred, erkläre..." / "alfred," / "@alfred" / "Eifred," (STT variant)
-    - "Warum, Sokrates, denkst du..."  (embedded addressing)
-
-    Args:
-        user_text: The user's message
-
-    Returns:
-        tuple: (addressed_to, cleaned_text)
-            - addressed_to: "sokrates", "alfred", or None
-            - cleaned_text: User text with addressing prefix removed
-    """
-    import re
-
-    text = user_text.strip()
-    text_lower = text.lower()
-
-    # ============================================================
-    # SOKRATES ADDRESSING PATTERNS
-    # ============================================================
-    sokrates_patterns = [
-        # Start patterns: "Sokrates, ..." / "Sokrates: ..." / "@Sokrates ..."
-        # IMPORTANT: Requires comma/colon after name to distinguish from "Sokrates hat gesagt"
-        (r'^(?:@)?sokrates[,:]\s*', True),
-        # "Hey Sokrates, ..."
-        (r'^hey\s+sokrates[,:]\s*', True),
-        # "An Sokrates: ..."
-        (r'^an\s+sokrates[,:]\s*', True),
-        # "Also Sokrates, ..." / "Aber Sokrates, ..." (word + Sokrates + comma/colon)
-        # Does NOT match "Aber Sokrates hat gesagt" (no comma after Sokrates)
-        (r'^\w+\s+sokrates[,:]\s*', True),
-        # Embedded: "Warum, Sokrates, denkst du..." - keep text, just detect
-        (r',\s*sokrates\s*,', False),
-        # End of sentence: "..., Sokrates." / "..., Sokrates?" / "..., Sokrates!"
-        (r',\s*sokrates\s*[.?!]?\s*$', False),
-        # Standalone at end after period: "... motiviert. Sokrates." / "... Sokrates!"
-        # Catches cases where Sokrates is addressed as a separate sentence/word
-        (r'[.!?]\s*sokrates\s*[.!?]?\s*$', False),
-        # Vocative phrases: "mein lieber Sokrates" / "lieber Sokrates" (anywhere in text)
-        (r'\b(?:mein\s+)?liebe[rn]?\s+sokrates\b', False),
-    ]
-
-    for pattern, remove_prefix in sokrates_patterns:
-        match = re.search(pattern, text_lower)
-        if match:
-            if remove_prefix:
-                # Remove the addressing prefix from the text
-                cleaned = text[match.end():].strip()
-                # Capitalize first letter if needed
-                if cleaned and cleaned[0].islower():
-                    cleaned = cleaned[0].upper() + cleaned[1:]
-                return ("sokrates", cleaned if cleaned else text)
-            else:
-                # Embedded addressing - keep original text
-                return ("sokrates", text)
-
-    # ============================================================
-    # ALFRED ADDRESSING PATTERNS
-    # ============================================================
-    # Note: "AIfred" is often transcribed as "Eifred", "Alfred", "AI Fred" by STT
-    alfred_patterns = [
-        # Start patterns with various STT transcriptions
-        (r'^(?:@)?(?:ai\s*fred|aifred|alfred|eifred)[,:\s!]+\s*', True),
-        # "Hey AIfred, ..."
-        (r'^hey\s+(?:ai\s*fred|aifred|alfred|eifred)[,:\s!]+\s*', True),
-        # "An AIfred: ..."
-        (r'^an\s+(?:ai\s*fred|aifred|alfred|eifred)[,:\s!]+\s*', True),
-        # "Also AIfred, ..." / "Aber Alfred, ..." (word before AIfred)
-        (r'^\w+\s+(?:ai\s*fred|aifred|alfred|eifred)[,:\s!]+\s*', True),
-        # Embedded: "Warum, AIfred, denkst du..."
-        (r',\s*(?:ai\s*fred|aifred|alfred|eifred)\s*,', False),
-        # End of sentence: "..., Alfred?" / "Was sagst du, Alfred?" / "..., Alfred!"
-        (r',\s*(?:ai\s*fred|aifred|alfred|eifred)\s*[.?!]?\s*$', False),
-        # Standalone at end after period: "... machen. Alfred." / "... Alfred!"
-        (r'[.!?]\s*(?:ai\s*fred|aifred|alfred|eifred)\s*[.!?]?\s*$', False),
-        # Vocative phrases: "mein lieber Alfred" / "lieber Alfred" (anywhere in text)
-        (r'\b(?:mein\s+)?liebe[rn]?\s+(?:ai\s*fred|aifred|alfred|eifred)\b', False),
-    ]
-
-    for pattern, remove_prefix in alfred_patterns:
-        match = re.search(pattern, text_lower)
-        if match:
-            if remove_prefix:
-                cleaned = text[match.end():].strip()
-                if cleaned and cleaned[0].islower():
-                    cleaned = cleaned[0].upper() + cleaned[1:]
-                return ("alfred", cleaned if cleaned else text)
-            else:
-                return ("alfred", text)
-
-    # No addressing detected
-    return (None, text)

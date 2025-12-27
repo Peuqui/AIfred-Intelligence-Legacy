@@ -7,11 +7,26 @@ Analysiere die Intention dieser User-Anfrage:
 - KREATIV: Gedichte, Geschichten, Brainstorming, Ideen generieren, kreative Texte
 - GEMISCHT: Beide Aspekte kombiniert (z.B. "Erkläre Quantenphysik wie ein Märchen")
 
-**Beispiele:**
+**Adressat-Erkennung:**
+Prüfe, ob der User einen spezifischen Gesprächspartner DIREKT ANSPRICHT (Vokativ):
+- aifred: Direkte Ansprache an AIfred/Alfred/Eifred (z.B. "Alfred was meinst du?", "Hey AIfred erkläre mir...")
+- sokrates: Direkte Ansprache an Sokrates (z.B. "Sokrates was sagst du dazu?", "Hey Sokrates...")
+- salomo: Direkte Ansprache an Salomo (z.B. "Salomo urteile du!", "Was meinst du Salomo?")
+- (leer): Keine direkte Ansprache oder nur Erwähnung (z.B. "Was hat Sokrates gesagt?" = KEINE Ansprache!)
+
+**Beispiele Intent:**
 - "Wie ist das Wetter morgen?" → FAKTISCH
-- "Welche Nobelpreise wurden 2025 vergeben?" → FAKTISCH
 - "Schreibe ein Gedicht über den Klimawandel" → KREATIV
-- "Erfinde eine Geschichte über einen Roboter" → KREATIV
 - "Erkläre die Relativitätstheorie als spannende Geschichte" → GEMISCHT
 
-**WICHTIG:** Antworte NUR mit einem Wort: FAKTISCH, KREATIV oder GEMISCHT
+**Beispiele Adressat:**
+- "Sokrates was meinst du dazu?" → sokrates (direkte Ansprache)
+- "Alfred erkläre mir das bitte" → aifred (direkte Ansprache)
+- "Was hat Sokrates dazu gesagt?" → (leer) (nur Erwähnung, keine Ansprache!)
+- "Erkläre mir Quantenphysik" → (leer) (keine Ansprache)
+- "Salomo, wie würdest du urteilen?" → salomo (direkte Ansprache)
+- "Lieber Sokrates, was sagst du zu Salomo?" → sokrates (Sokrates wird angesprochen, Salomo ist nur Thema!)
+- "Hey Alfred, was hält Sokrates davon?" → aifred (Alfred wird angesprochen, Sokrates ist nur Thema!)
+
+**WICHTIG:** Antworte NUR in diesem Format: INTENT|ADRESSAT
+Beispiele: FAKTISCH|sokrates, KREATIV|, GEMISCHT|aifred

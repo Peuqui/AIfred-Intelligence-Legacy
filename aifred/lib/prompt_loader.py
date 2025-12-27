@@ -499,6 +499,19 @@ def get_aifred_direct_prompt(lang: Optional[str] = None) -> str:
 # Salomo Multi-Agent Prompts
 # ============================================================
 
+def get_salomo_direct_prompt(lang: Optional[str] = None) -> str:
+    """
+    Load Salomo Direct Response prompt for when user addresses Salomo directly.
+
+    Args:
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Salomo direct response system prompt with timestamp prefix
+    """
+    return load_prompt('salomo/direct', lang=lang)
+
+
 def get_salomo_system_minimal(lang: Optional[str] = None) -> str:
     """
     Load Salomo minimal system prompt (base personality + style rules).

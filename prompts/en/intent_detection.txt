@@ -7,11 +7,26 @@ Analyze the intention of this user request:
 - CREATIVE: Poems, stories, brainstorming, generating ideas, creative texts
 - MIXED: Both aspects combined (e.g. "Explain quantum physics like a fairy tale")
 
-**Examples:**
+**Addressee Detection:**
+Check if the user is DIRECTLY ADDRESSING a specific conversation partner (vocative):
+- aifred: Direct address to AIfred/Alfred/Eifred (e.g. "Alfred what do you think?", "Hey AIfred explain...")
+- sokrates: Direct address to Sokrates/Socrates (e.g. "Sokrates what's your take?", "Hey Socrates...")
+- salomo: Direct address to Salomo/Solomon (e.g. "Solomon judge this!", "What do you think Salomo?")
+- (empty): No direct address or just a mention (e.g. "What did Socrates say?" = NOT addressing!)
+
+**Intent Examples:**
 - "What's the weather like tomorrow?" → FACTUAL
-- "Which Nobel Prizes were awarded in 2025?" → FACTUAL
 - "Write a poem about climate change" → CREATIVE
-- "Invent a story about a robot" → CREATIVE
 - "Explain the theory of relativity as an exciting story" → MIXED
 
-**IMPORTANT:** Answer with ONLY ONE word: FACTUAL, CREATIVE or MIXED
+**Addressee Examples:**
+- "Sokrates what do you think about this?" → sokrates (direct address)
+- "Alfred please explain this to me" → aifred (direct address)
+- "What did Socrates say about this?" → (empty) (just a mention, not addressing!)
+- "Explain quantum physics to me" → (empty) (no address)
+- "Solomon, how would you judge this?" → salomo (direct address)
+- "Dear Sokrates, what do you think about Salomo?" → sokrates (Sokrates is addressed, Salomo is just the topic!)
+- "Hey Alfred, what does Sokrates think?" → aifred (Alfred is addressed, Sokrates is just the topic!)
+
+**IMPORTANT:** Answer ONLY in this format: INTENT|ADDRESSEE
+Examples: FACTUAL|sokrates, CREATIVE|, MIXED|aifred

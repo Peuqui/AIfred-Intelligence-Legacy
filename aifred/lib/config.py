@@ -462,7 +462,12 @@ INTENT_TEMPERATURE_FAKTISCH = 0.2
 INTENT_TEMPERATURE_GEMISCHT = 0.5
 
 # Creative queries: stories, poems, brainstorming (higher = more creative)
-INTENT_TEMPERATURE_KREATIV = 1.1
+INTENT_TEMPERATURE_KREATIV = 1.0
+
+# Temperature offsets for multi-agent mode (auto temperature)
+# Sokrates and Salomo get slightly higher temperatures for more varied responses
+SOKRATES_TEMPERATURE_OFFSET = 0.2  # Sokrates = AIfred + 0.2
+SALOMO_TEMPERATURE_OFFSET = 0.3   # Salomo = AIfred + 0.3 (wisest, most creative)
 
 # Context limit for Summary-LLM (should not be too large)
 HISTORY_SUMMARY_CONTEXT_LIMIT = 4096
