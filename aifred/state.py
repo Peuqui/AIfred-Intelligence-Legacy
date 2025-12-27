@@ -235,7 +235,8 @@ class AIState(rx.State):
     """Main application state"""
 
     # Chat History
-    chat_history: List[Tuple[str, str]] = []  # [(user_msg, ai_msg), ...]
+    chat_history: List[Tuple[str, str]] = []  # [(user_msg, ai_msg), ...] - UI vollständig
+    llm_history: List[Dict[str, str]] = []  # [{"role": "user/assistant/system", "content": "..."}] - LLM komprimiert
     current_user_input: str = ""
     current_user_message: str = ""  # The message currently being processed
     current_ai_response: str = ""
@@ -2649,16 +2650,20 @@ class AIState(rx.State):
             # Create backend for compression LLM call
             temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
 
-            # Check and compress if needed
+            # Check and compress if needed (DUAL-HISTORY)
             async for event in summarize_history_if_needed(
                 history=self.chat_history,
                 llm_client=temp_backend,
                 model_name=self.automatik_model_id,
-                context_limit=context_limit
+                context_limit=context_limit,
+                llm_history=self.llm_history
             ):
                 if event["type"] == "history_update":
-                    self.chat_history = event["data"]
-                    self.add_debug(f"✅ Pre-Message Compression: {len(self.chat_history)} messages")
+                    # DUAL-HISTORY: Update both histories
+                    self.chat_history = event["chat_history"]
+                    if event.get("llm_history") is not None:
+                        self.llm_history = event["llm_history"]
+                    self.add_debug(f"✅ Pre-Message Compression: {len(self.chat_history)} UI / {len(self.llm_history)} LLM messages")
                     yield
                 elif event["type"] == "debug":
                     self.add_debug(event["message"])
@@ -2668,6 +2673,8 @@ class AIState(rx.State):
         # This ensures the user sees their message right away, even during STT transcription
         temp_history_index = len(self.chat_history)
         self.chat_history.append((user_msg, ""))
+        # Sync to llm_history (for LLM context)
+        self.llm_history.append({"role": "user", "content": user_msg})
 
         yield  # Update UI sofort (Eingabefeld leeren + Spinner zeigen + User-Nachricht anzeigen)
 
@@ -2872,6 +2879,8 @@ class AIState(rx.State):
                         # Use display_user_msg (with image name) for history display
                         self.current_ai_response = formatted_response
                         self.chat_history[temp_history_index] = (display_user_msg, formatted_response)
+                        # Sync to llm_history (cleaned)
+                        self._sync_llm_history_assistant(formatted_response)
 
                         self.add_debug(f"✅ Vision-LLM done ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
                         self.add_debug("────────────────────")
@@ -3244,10 +3253,11 @@ class AIState(rx.State):
                 # Start timing for preload phase (preparation + actual model loading)
                 import time
 
-                # Build messages from history
-                from .lib.message_builder import build_messages_from_history
-                messages = build_messages_from_history(
-                    history=self.chat_history[:-1],  # Exclude current temporary entry
+                # Build messages from llm_history (v2.13.0+)
+                # llm_history is already cleaned and ready-to-use
+                from .lib.message_builder import build_messages_from_llm_history
+                messages = build_messages_from_llm_history(
+                    llm_history=self.llm_history[:-1],  # Exclude current user message (already in llm_history)
                     current_user_text=user_msg
                 )
 
@@ -3429,6 +3439,8 @@ class AIState(rx.State):
 
                 # Update chat history with formatted response + metadata
                 self.chat_history[temp_history_index] = (user_msg, formatted_response)
+                # Sync to llm_history (cleaned)
+                self._sync_llm_history_assistant(formatted_response)
                 yield  # Update UI
 
                 # ============================================================
@@ -3471,6 +3483,8 @@ class AIState(rx.State):
             # Update the temporary entry in chat history with the error
             if temp_history_index < len(self.chat_history):
                 self.chat_history[temp_history_index] = (user_msg, error_msg)
+                # Sync error to llm_history
+                self._sync_llm_history_assistant(error_msg)
             self.add_debug(f"❌ Generation failed: {e}")
             import traceback
             self.add_debug(f"Traceback: {traceback.format_exc()}")
@@ -3729,6 +3743,10 @@ class AIState(rx.State):
         """
         Stellt Chat-History aus gespeicherter Session wieder her.
 
+        DUAL-HISTORY (v2.13.0+):
+        - chat_history: UI-vollständig (Original-Messages erhalten)
+        - llm_history: LLM-komprimiert (ready-to-use für LLM-Aufrufe)
+
         Args:
             session: Session-Dict mit "data" Feld
         """
@@ -3740,9 +3758,24 @@ class AIState(rx.State):
         if "chat_history" in data and data["chat_history"]:
             self.chat_history = [tuple(msg) for msg in data["chat_history"]]
 
-        if "chat_summaries" in data and data["chat_summaries"]:
-            # Falls chat_summaries existiert (für zukünftige Erweiterung)
-            pass  # Aktuell nicht in State gespeichert
+        # DUAL-HISTORY (v2.13.0+): llm_history laden
+        if "llm_history" in data and data["llm_history"]:
+            self.llm_history = data["llm_history"]
+        else:
+            # Keine llm_history → leere Liste (alte Sessions werden nicht migriert)
+            self.llm_history = []
+
+    def _sync_llm_history_assistant(self, content: str):
+        """
+        Sync AI response to llm_history (cleaned for LLM context).
+
+        Args:
+            content: Raw AI response (may contain HTML, metadata, etc.)
+        """
+        from .lib.message_builder import clean_content_for_llm
+        cleaned = clean_content_for_llm(content)
+        if cleaned:
+            self.llm_history.append({"role": "assistant", "content": cleaned})
 
     def _save_current_session(self):
         """
@@ -3750,6 +3783,7 @@ class AIState(rx.State):
 
         Wird nach jeder Chat-Änderung aufgerufen (Auto-Save).
         Nur speichern wenn device_id vorhanden (Session initialisiert).
+        DUAL-HISTORY (v2.13.0+): Speichert sowohl chat_history als auch llm_history.
         """
         if not self.device_id:
             return
@@ -3758,7 +3792,8 @@ class AIState(rx.State):
         update_chat_data(
             device_id=self.device_id,
             chat_history=self.chat_history,
-            chat_summaries=None  # Aktuell nicht persistiert
+            chat_summaries=None,  # Aktuell nicht persistiert
+            llm_history=self.llm_history  # DUAL-HISTORY: LLM-komprimierte History
         )
 
     # ============================================================

@@ -175,7 +175,8 @@ def save_session(device_id: str, session_data: Dict[str, Any]) -> bool:
 def update_chat_data(
     device_id: str,
     chat_history: List[Tuple[str, str]],
-    chat_summaries: Optional[List[str]] = None
+    chat_summaries: Optional[List[str]] = None,
+    llm_history: Optional[List[Dict[str, str]]] = None
 ) -> bool:
     """
     Update chat data of a session.
@@ -185,8 +186,9 @@ def update_chat_data(
 
     Args:
         device_id: Device identifier
-        chat_history: List of (user, assistant) tuples
+        chat_history: List of (user, assistant) tuples (UI - vollständig)
         chat_summaries: Optional - List of summary strings
+        llm_history: Optional - List of {"role": ..., "content": ...} dicts (LLM - komprimiert)
 
     Returns:
         True on success
@@ -207,6 +209,10 @@ def update_chat_data(
 
     if chat_summaries is not None:
         session["data"]["chat_summaries"] = list(chat_summaries)
+
+    # DUAL-HISTORY (v2.13.0+): Store llm_history separately
+    if llm_history is not None:
+        session["data"]["llm_history"] = llm_history
 
     return save_session(device_id, session)
 

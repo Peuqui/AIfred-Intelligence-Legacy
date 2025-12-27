@@ -221,6 +221,164 @@ def build_messages_from_history(
     return messages
 
 
+def clean_content_for_llm(content: str) -> str:
+    """
+    Clean content for LLM history storage.
+
+    Removes:
+    - Thinking collapsibles (<details>...</details>)
+    - Metadata spans (<span style="...">...</span>)
+    - Timing patterns (*( Inference: ... )*)
+    - [IMG:...] markers
+    - Multi-agent markers (keeps label)
+
+    Args:
+        content: Raw content (may contain HTML, metadata, etc.)
+
+    Returns:
+        Cleaned content suitable for LLM context
+    """
+    if not content:
+        return ""
+
+    clean = content
+
+    # 1. Transform Multi-Agent markers to speaker labels
+    clean = re.sub(r'^🏛️\[[^\]]+\]', '[SOKRATES]: ', clean)
+    clean = re.sub(r'^🎩\[[^\]]+\]', '[AIFRED]: ', clean)
+    clean = re.sub(r'^👑\[[^\]]+\]', '[SALOMO]: ', clean)
+
+    # 2. Remove thinking collapsibles (<details>...</details>)
+    clean = re.sub(r'<details[^>]*>.*?</details>', '', clean, flags=re.DOTALL)
+
+    # 3. Remove metadata spans (<span style="...">( Inference: ... )</span>)
+    clean = re.sub(r'<span[^>]*>\s*\([^)]+\)\s*</span>', '', clean, flags=re.DOTALL)
+
+    # 4. Remove text timing patterns
+    timing_patterns = [
+        "*( STT:", "*( Agent:", "*( Inference:", "*( Vision:",
+        "*( TTS:", "*( Decision:", "*( Cache-Hit:",
+    ]
+    for pattern in timing_patterns:
+        if pattern in clean:
+            clean = clean.split(pattern)[0]
+
+    # 5. Remove [IMG:...] markers
+    clean = re.sub(r'\[IMG:[^\]]*\]', '', clean)
+
+    # 6. Cleanup: Remove multiple blank lines and whitespace
+    clean = re.sub(r'\n\n+', '\n\n', clean.strip())
+
+    return clean
+
+
+def build_messages_from_llm_history(
+    llm_history: List[Dict[str, str]],
+    current_user_text: str = "",
+    perspective: Optional[str] = None  # "sokrates", "aifred", "salomo", "observer", or None
+) -> List[Dict[str, str]]:
+    """
+    Build LLM messages directly from llm_history (v2.13.0+).
+
+    This is the PREFERRED function for building LLM messages.
+    llm_history is already in the correct format - no parsing or cleaning needed!
+
+    Advantages over build_messages_from_history():
+    - No regex parsing needed (llm_history is pre-cleaned)
+    - No marker detection (speaker labels already applied)
+    - Faster and more reliable
+    - Summaries already as system messages
+
+    Args:
+        llm_history: List of {"role": "user/assistant/system", "content": "..."}
+        current_user_text: Current user message to append
+        perspective: Multi-Agent perspective for role transformation
+            - None: Use messages as-is
+            - "sokrates": Sokrates speaking - transform AIfred's messages
+            - "aifred": AIfred speaking - transform Sokrates's messages
+            - "salomo": Salomo speaking - transform others' messages
+            - "observer": Neutral observer - all as 'user' with labels
+
+    Returns:
+        list: Messages in Ollama format [{"role": "...", "content": "..."}, ...]
+    """
+    if not llm_history:
+        messages = []
+    elif not perspective:
+        # Standard mode: Use messages as-is
+        messages = llm_history.copy()
+    else:
+        # Multi-Agent perspective transformation
+        messages = []
+        perspective_lower = perspective.lower()
+        user_label = get_user_name() or "USER"
+
+        for msg in llm_history:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+
+            if role == "system":
+                # System messages (summaries) stay as system
+                messages.append({"role": "system", "content": content})
+                continue
+
+            # Detect speaker from content labels
+            is_sokrates = content.startswith("[SOKRATES]:")
+            is_aifred = content.startswith("[AIFRED]:")
+            is_salomo = content.startswith("[SALOMO]:")
+            is_user = role == "user" and not (is_sokrates or is_aifred or is_salomo)
+
+            if perspective_lower == "observer":
+                # Observer sees everything as 'user' with labels
+                if is_user:
+                    messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
+                else:
+                    messages.append({"role": "user", "content": content})
+
+            elif perspective_lower == "sokrates":
+                if is_sokrates:
+                    # Sokrates sees his own messages as 'assistant'
+                    clean_content = content.replace("[SOKRATES]: ", "").strip()
+                    messages.append({"role": "assistant", "content": clean_content})
+                elif is_user:
+                    messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
+                else:
+                    # Others (AIfred, Salomo) as 'user'
+                    messages.append({"role": "user", "content": content})
+
+            elif perspective_lower == "aifred":
+                if is_aifred:
+                    # AIfred sees his own messages as 'assistant'
+                    clean_content = content.replace("[AIFRED]: ", "").strip()
+                    messages.append({"role": "assistant", "content": clean_content})
+                elif is_user:
+                    messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
+                else:
+                    # Others (Sokrates, Salomo) as 'user'
+                    messages.append({"role": "user", "content": content})
+
+            elif perspective_lower == "salomo":
+                if is_salomo:
+                    # Salomo sees his own messages as 'assistant'
+                    clean_content = content.replace("[SALOMO]: ", "").strip()
+                    messages.append({"role": "assistant", "content": clean_content})
+                elif is_user:
+                    messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
+                else:
+                    # Others (Sokrates, AIfred) as 'user'
+                    messages.append({"role": "user", "content": content})
+
+            else:
+                # Unknown perspective - use as-is
+                messages.append(msg.copy())
+
+    # Add current user message if provided
+    if current_user_text:
+        messages.append({"role": "user", "content": current_user_text})
+
+    return messages
+
+
 def build_system_prompt(language: str = "de") -> Dict[str, str]:
     """
     Build system prompt with current date and time
