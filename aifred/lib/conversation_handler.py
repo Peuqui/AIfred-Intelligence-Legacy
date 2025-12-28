@@ -1242,7 +1242,7 @@ async def chat_interactive_mode(
             log_message(f"📊 Main-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
 
             # Console: LLM starts
-            yield {"type": "debug", "message": f"🤖 Main-LLM starting: {model_choice}"}
+            yield {"type": "debug", "message": f"🎩 Main-LLM starting: {model_choice}"}
 
             # Build main LLM options (include enable_thinking from user settings)
             main_llm_options = {
@@ -1607,7 +1607,7 @@ async def chat_interactive_mode(
                 log_message(f"📊 Main-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
 
                 # Console: LLM starts
-                yield {"type": "debug", "message": f"🤖 Main-LLM starting: {model_choice}"}
+                yield {"type": "debug", "message": f"🎩 Main-LLM starting: {model_choice}"}
 
                 # Calculate dynamic num_predict: Available output space after input tokens
                 available_output = max(
