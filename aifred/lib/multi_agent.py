@@ -437,8 +437,8 @@ async def run_sokrates_direct_response(
         )
 
         # Determine Sokrates model
-        sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.selected_model_id
-        sokrates_display = state.sokrates_model if state.sokrates_model else state.selected_model
+        sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.aifred_model_id
+        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
 
         # Calculate context limit
@@ -615,8 +615,8 @@ async def run_salomo_direct_response(
         )
 
         # Determine Salomo model
-        salomo_model = state.salomo_model_id if state.salomo_model_id else state.selected_model_id
-        salomo_display = state.salomo_model if state.salomo_model else state.selected_model
+        salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
+        salomo_display = state.salomo_model if state.salomo_model else state.aifred_model
         state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
         # Calculate context limit
@@ -799,9 +799,9 @@ async def run_sokrates_analysis(
         )
 
         # Determine models
-        sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.selected_model_id
-        sokrates_display = state.sokrates_model if state.sokrates_model else state.selected_model
-        alfred_model = state.selected_model_id
+        sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.aifred_model_id
+        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model
+        alfred_model = state.aifred_model_id
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
 
         # Mode labels for display (i18n)
@@ -994,8 +994,8 @@ async def run_sokrates_analysis(
             # === AUTO-CONSENSUS (TRIALOG): Salomo synthesizes and decides ===
             if state.multi_agent_mode == "auto_consensus":
                 # Determine Salomo model
-                salomo_model = state.salomo_model_id if state.salomo_model_id else state.selected_model_id
-                salomo_display = state.salomo_model if state.salomo_model else state.selected_model
+                salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
+                salomo_display = state.salomo_model if state.salomo_model else state.aifred_model
 
                 if round_num == 1:
                     state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
@@ -1133,7 +1133,7 @@ async def run_sokrates_analysis(
                     )
 
                     # Estimate tokens
-                    alfred_msg_tokens = estimate_tokens(alfred_messages, model_name=state.selected_model_id)
+                    alfred_msg_tokens = estimate_tokens(alfred_messages, model_name=state.aifred_model_id)
                     alfred_ctx = alfred_options.num_ctx if alfred_options and alfred_options.num_ctx else 32768
                     state.add_debug(
                         f"📊 AIfred R{round_num + 1}: {format_number(alfred_msg_tokens)} / "
@@ -1251,11 +1251,11 @@ async def run_tribunal(
         )
 
         # Determine models
-        sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.selected_model_id
-        sokrates_display = state.sokrates_model if state.sokrates_model else state.selected_model
-        salomo_model = state.salomo_model_id if state.salomo_model_id else state.selected_model_id
-        salomo_display = state.salomo_model if state.salomo_model else state.selected_model
-        alfred_model = state.selected_model_id
+        sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.aifred_model_id
+        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model
+        salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
+        salomo_display = state.salomo_model if state.salomo_model else state.aifred_model
+        alfred_model = state.aifred_model_id
 
         state.add_debug("⚖️ Tribunal mode started")
         state.add_debug(f"🏛️ Sokrates LLM: {sokrates_display}")

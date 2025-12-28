@@ -2594,16 +2594,16 @@ def settings_accordion() -> rx.Component:
                         AIState.is_mobile,
                         # MOBILE: Native HTML <select> (simple list)
                         native_select_model(
-                            AIState.selected_model,  # Display name with size
-                            AIState.set_selected_model,  # Original handler
+                            AIState.aifred_model,  # Display name with size
+                            AIState.set_aifred_model,  # Original handler
                             AIState.backend_switching,
                             AIState.available_models,  # Simple list of display names
                         ),
                         # DESKTOP: Radix UI Select
                         rx.select(
                             AIState.available_models,
-                            value=AIState.selected_model,
-                            on_change=AIState.set_selected_model,
+                            value=AIState.aifred_model,
+                            on_change=AIState.set_aifred_model,
                             size="2",
                             position="popper",  # Better mobile positioning (adapts to viewport)
                             disabled=AIState.backend_switching,  # Disable during backend switch
