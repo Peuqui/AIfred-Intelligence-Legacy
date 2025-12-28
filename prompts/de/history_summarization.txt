@@ -1,117 +1,46 @@
 Du bist ein AI-Assistent, der Konversationen prägnant zusammenfasst.
 
-# 🎯 DEINE AUFGABE
+Prüfe zuerst: Enthält die Konversation **Sokrates**, **Salomo** oder **[WEITER]** / **[LGTM]**?
 
-Fasse die folgende Konversation zusammen. Die Zusammenfassung wird als **Kontext** für zukünftige Fragen verwendet.
-
-# 🔍 SCHRITT 1: ERKENNE DEN DIALOG-TYP
-
-Prüfe die Konversation:
-
-```
-Enthält sie eines dieser Wörter/Emojis?
-→ "AIfred" oder "🎩"
-→ "Sokrates" oder "🏛️"
-→ "Salomo" oder "👑"
-→ "[Auto-Konsens"
-→ "[Refinement"
-→ "[WEITER]"
-→ "[LGTM]"
-
-JA? → FORMAT A (Multi-Agenten-Tracking)
-NEIN? → FORMAT B (Standard-Kompression)
-```
+→ **JA?** Nutze **FORMAT A** (Multi-Agenten-Tracking mit R1/R2/R3)
+→ **NEIN?** Nutze **FORMAT B** (Kompakte Liste)
 
 ═══════════════════════════════════════════════════════════════════════════
-
 # FORMAT A: MULTI-AGENTEN-TRACKING
+═══════════════════════════════════════════════════════════════════════════
 
-**Du hast Sokrates/Salomo/[WEITER]/[LGTM] gefunden → Nutze diese Struktur!**
-
-## 📋 SCHRITT 2: EXTRAHIERE die Agenten-Nachrichten
-
-Durchsuche die Konversation und finde:
-
-1. **AIfred-Nachrichten** (erkennbar an: `🎩 AIfred` oder `🎩[Refinement` oder `🎩[Auto-Konsens`)
-   - Erste AIfred-Nachricht = R1
-   - Zweite AIfred-Nachricht (nach Sokrates/Salomo) = R2 Refinement
-   - Dritte AIfred-Nachricht = R3 Refinement
-
-2. **Sokrates-Nachrichten** (erkennbar an: `🏛️` oder `Sokrates`)
-   - Erste Sokrates-Nachricht = R1 Kritik
-   - Zweite Sokrates-Nachricht = R2 Kritik
-   - Dritte Sokrates-Nachricht = R3 Kritik
-
-3. **Salomo-Nachrichten** (erkennbar an: `👑` oder `Salomo`)
-   - Erste Salomo-Nachricht = R1 Synthese
-   - Zweite Salomo-Nachricht = R2 Synthese
-   - Dritte Salomo-Nachricht = R3 Synthese
-
-## 🔨 SCHRITT 3: EXTRAHIERE die Inhalte
-
-Für **JEDEN Agenten** in **JEDER Runde**:
-
-### AIfred:
-- **R1**: Was ist die Kernaussage? (1 Satz)
-- **R2+**: Was wurde [NEU] hinzugefügt? Was [BEIBEHALTEN]?
-
-### Sokrates:
-- **R1**: Welche Kritikpunkte nannte er? (nummeriert: 1. ..., 2. ...)
-- **R2+**: Was würdigte er im FORTSCHRITT? Was kritisiert er NEU?
-
-### Salomo:
-- **Jede Runde**: Was empfahl er? Endete er mit [LGTM] oder [WEITER]?
-
-## 📝 SCHRITT 4: FORMATIERE nach dieser PFLICHT-Struktur
+Nutze diese Struktur:
 
 ```
 R1:
 AIfred: [Kernaussage in 1 Satz]
 Sokrates kritisierte:
-  1. [Kritikpunkt]: [Kurze Beschreibung]
-  2. [Kritikpunkt]: [Kurze Beschreibung]
-Salomo: [Empfehlung in 1 Satz] → [LGTM/WEITER]
+  1. [Kritikpunkt]: [Kurzbeschreibung]
+  2. [Kritikpunkt]: [Kurzbeschreibung]
+Salomo: [Empfehlung] → [LGTM/WEITER]
 
 R2:
 AIfred Refinement:
-  [NEU] [Liste alle neuen Aspekte auf]
+  [NEU] [Was wurde hinzugefügt]
   [BEIBEHALTEN] [Was blieb gleich]
-Sokrates: [Würdigung] + [Neue Kritik]
+Sokrates: [Würdigung] + [Neue Kritik falls vorhanden]
 Salomo: [Synthese] → [LGTM/WEITER]
 
 R3:
 AIfred Refinement:
-  [NEU] [Liste alle neuen Aspekte auf]
+  [NEU] [Was wurde hinzugefügt]
   [BEIBEHALTEN] [Was blieb gleich]
-Sokrates: [Würdigung] + [Neue Kritik oder abschließendes Urteil]
+Sokrates: [Würdigung] + [Finale Bewertung]
 Salomo: [Finale Synthese] → [LGTM/WEITER]
 
 Status nach R[letzte Runde]:
-  1. [✅/⚠️/❌] [Kritikpunkt aus R1] - [Warum dieser Status?]
-  2. [✅/⚠️/❌] [Kritikpunkt aus R1] - [Warum dieser Status?]
+  1. ✅ ADRESSIERT - [Kritikpunkt]: [Warum adressiert]
+  2. ⚠️ TEILWEISE - [Kritikpunkt]: [Was fehlt noch]
+  3. ❌ OFFEN - [Kritikpunkt]: [Warum offen]
 ```
 
-## ⚠️ WICHTIGE REGELN
+**BEISPIEL:**
 
-1. **NUR Fakten extrahieren** - keine Interpretationen
-2. **Chronologisch arbeiten** - R1 → R2 → R3
-3. **Status erst am Ende** - zeige finale Bewertung aller R1-Kritikpunkte
-4. **Kurz halten** - max {max_tokens} Tokens
-5. **Jede Runde komplett** - AIfred UND Sokrates UND Salomo
-
-## 💡 KONKRETES BEISPIEL
-
-**EINGABE (Konversation):**
-```
-🎩 AIfred (1): Nudeln mit Ei und Schinken sind sättigend und schnell...
-🏛️[Auto-Konsens R1]: NEUE KRITIK: 1. Gesundheit fehlt, 2. Technik fehlt...
-👑[Synthese R1]: Empfiehlt Gesundheit + Technik → [WEITER]
-🎩[Refinement R2]: Vollkornnudeln, magerer Schinken, Ei-Technik...
-🏛️[Auto-Konsens R2]: FORTSCHRITT: Gesundheit besser. NEUE KRITIK: kcal fehlen...
-👑[Synthese R2]: Besser, aber Technik vage → [WEITER]
-```
-
-**AUSGABE (deine Zusammenfassung):**
 ```
 R1:
 AIfred: Nudeln mit Ei/Schinken empfohlen (sättigend, schnell, winterlich)
@@ -133,35 +62,29 @@ Status nach R2:
   3. ❌ OFFEN - Kochtechnik: Ei-Verquirl-Methode erwähnt, aber kein Schritt-für-Schritt-Rezept
 ```
 
+**REGELN:**
+- Maximal {max_tokens} Tokens
+- Status-Tags nur NACH der letzten Runde
+- Jede Runde vollständig (AIfred + Sokrates + Salomo)
+- Nur Fakten, keine Interpretationen
+
+═══════════════════════════════════════════════════════════════════════════
+# FORMAT B: STANDARD-KOMPRESSION
 ═══════════════════════════════════════════════════════════════════════════
 
-# FORMAT B: STANDARD-KOMPRESSION
+Erstelle eine **kompakte Liste** der Hauptpunkte:
 
-**Kein Sokrates/Salomo gefunden → Nutze kompakte Liste:**
+**ANFORDERUNGEN:**
+- Maximal {max_tokens} Tokens (ca. {max_words} Wörter)
+- Nur Fakten, keine Meinungen
+- Chronologische Reihenfolge
+- Keine Wiederholungen
+- Keine Höflichkeitsfloskeln
+- Keine Meta-Informationen
 
-## Anforderungen:
-1. **PRÄGNANT**: Maximal {max_tokens} Tokens (ca. {max_words} Wörter)
-2. **FAKTISCH**: Nur konkrete Informationen, keine Meinungen
-3. **CHRONOLOGISCH**: Behalte zeitliche Reihenfolge bei
-4. **VOLLSTÄNDIG**: Erwähne JEDES Thema mit 1-2 Sätzen
-5. **NUR FAKTEN**: Keine philosophischen Betrachtungen
-6. **KONTEXT-RELEVANT**: Was ist für zukünftige Fragen wichtig?
+**BEISPIEL:**
 
-## Verboten:
-- ❌ KEINE Wiederholungen
-- ❌ KEINE Höflichkeitsfloskeln
-- ❌ KEINE Meta-Informationen ("In dieser Konversation...")
-- ❌ KEINE wörtlichen Zitate
-- ❌ KEINE Interpretationen
-
-## Wichtig zu behalten:
-- ✅ **Fazits und Schlussfolgerungen**
-- ✅ Konkrete Empfehlungen
-- ✅ Entscheidungen
-
-## Beispiel:
-
-**EINGABE:**
+EINGABE:
 ```
 User: Wie ist das Wetter in Berlin morgen?
 AI: Morgen 15°C und sonnig. Leichter Wind aus Südwest.
@@ -171,36 +94,17 @@ User: Was ist wärmer?
 AI: München ist 3°C wärmer als Berlin.
 ```
 
-**GUTE AUSGABE:**
+AUSGABE:
 ```
 Wetter-Vergleich Deutschland (morgen): Berlin 15°C sonnig, München 18°C bewölkt mit Regen (60%), München 3°C wärmer, Wind SW.
 ```
 
-**SCHLECHTE AUSGABE:**
-```
-Der User fragte nach dem Wetter in Berlin für morgen. Die AI antwortete, dass es 15°C und sonnig wird...
-```
-
 ═══════════════════════════════════════════════════════════════════════════
-
-# 🎯 ZU ZUSAMMENFASSENDE KONVERSATION
+# ZU ZUSAMMENFASSENDE KONVERSATION
+═══════════════════════════════════════════════════════════════════════════
 
 {conversation}
 
 ═══════════════════════════════════════════════════════════════════════════
-
-# ⚠️ FINALE CHECKLISTE (vor dem Schreiben!)
-
-1. **Hast du Sokrates/Salomo/[WEITER]/[LGTM] gefunden?**
-   - JA → Nutze FORMAT A (Extrahiere Agenten, strukturiere nach R1/R2/R3)
-   - NEIN → Nutze FORMAT B (Kompakte Liste)
-
-2. **Bei FORMAT A: Hast du alle Runden erfasst?**
-   - ✅ R1: AIfred + Sokrates + Salomo
-   - ✅ R2 (falls vorhanden): AIfred Refinement + Sokrates + Salomo
-   - ✅ R3 (falls vorhanden): AIfred Refinement + Sokrates + Salomo
-   - ✅ Status nach letzter Runde
-
-3. **Maximal {max_tokens} Tokens eingehalten?**
 
 **DEINE ZUSAMMENFASSUNG:**

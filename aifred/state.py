@@ -152,7 +152,7 @@ _global_backend_initialized = False
 _global_backend_state: dict[str, Any] = {
     "backend_type": None,
     "backend_url": None,
-    "selected_model": None,
+    "aifred_model": None,
     "automatik_model": None,
     "available_models": [],
     "gpu_info": None,
@@ -293,8 +293,8 @@ class AIState(rx.State):
     }
 
     # NOTE: Models loaded from settings.json first, fallback to config.py only if settings don't exist
-    selected_model: str = ""  # Initialized in on_load() from settings.json or config.py [DEPRECATED]
-    selected_model_id: str = ""  # NEW: Pure model ID (synced with selected_model)
+    aifred_model: str = ""  # Initialized in on_load() from settings.json or config.py [DEPRECATED]
+    aifred_model_id: str = ""  # NEW: Pure model ID (synced with aifred_model)
 
     available_models: List[str] = []  # List of display labels [DEPRECATED]
     available_models_dict: Dict[str, str] = {}  # NEW: {model_id: display_label}
@@ -596,9 +596,9 @@ class AIState(rx.State):
 
     # Model Computed Properties
     @rx.var
-    def selected_model_label(self) -> str:
+    def aifred_model_label(self) -> str:
         """Get display label for selected model"""
-        return self.available_models_dict.get(self.selected_model_id, self.selected_model_id)
+        return self.available_models_dict.get(self.aifred_model_id, self.aifred_model_id)
 
     @rx.var
     def automatik_model_label(self) -> str:
@@ -1030,40 +1030,40 @@ class AIState(rx.State):
                 backend_models = saved_settings.get("backend_models", {})
                 if self.backend_id in backend_models:
                     # NEW: Load pure IDs (backward compatible - extract from old display format)
-                    selected_raw = backend_models[self.backend_id].get("selected_model", "")
+                    selected_raw = backend_models[self.backend_id].get("aifred_model", "")
                     automatik_raw = backend_models[self.backend_id].get("automatik_model", "")
                     vision_raw = backend_models[self.backend_id].get("vision_model", "")
 
                     # Extract pure IDs (handles both old "model (size)" and new "model" formats)
-                    self.selected_model_id = extract_model_name(selected_raw)
+                    self.aifred_model_id = extract_model_name(selected_raw)
                     self.automatik_model_id = extract_model_name(automatik_raw)
                     self.vision_model_id = extract_model_name(vision_raw)
 
                     # Load per-model RoPE 2x toggle from cache
-                    if self.backend_id == "ollama" and self.selected_model_id:
+                    if self.backend_id == "ollama" and self.aifred_model_id:
                         from .lib.model_vram_cache import get_use_extended_for_model
-                        self.calibrate_extended = get_use_extended_for_model(self.selected_model_id)
+                        self.calibrate_extended = get_use_extended_for_model(self.aifred_model_id)
 
                     # Sync deprecated variables (will be populated later after models load)
-                    self.selected_model = selected_raw
+                    self.aifred_model = selected_raw
                     self.automatik_model = automatik_raw
                     self.vision_model = vision_raw
                 else:
                     # Fallback: Use old-style global model settings
-                    selected_raw = saved_settings.get("selected_model", "")
+                    selected_raw = saved_settings.get("aifred_model", "")
                     automatik_raw = saved_settings.get("automatik_model", "")
                     vision_raw = saved_settings.get("vision_model", "")
 
-                    self.selected_model_id = extract_model_name(selected_raw)
+                    self.aifred_model_id = extract_model_name(selected_raw)
                     self.automatik_model_id = extract_model_name(automatik_raw)
                     self.vision_model_id = extract_model_name(vision_raw)
 
                     # Load per-model RoPE 2x toggle from cache
-                    if self.backend_id == "ollama" and self.selected_model_id:
+                    if self.backend_id == "ollama" and self.aifred_model_id:
                         from .lib.model_vram_cache import get_use_extended_for_model
-                        self.calibrate_extended = get_use_extended_for_model(self.selected_model_id)
+                        self.calibrate_extended = get_use_extended_for_model(self.aifred_model_id)
 
-                    self.selected_model = selected_raw
+                    self.aifred_model = selected_raw
                     self.automatik_model = automatik_raw
                     self.vision_model = vision_raw
 
@@ -1077,15 +1077,17 @@ class AIState(rx.State):
             # Apply config.py defaults as final fallback (only if settings.json didn't provide values)
             backend_defaults = config.BACKEND_DEFAULT_MODELS.get(self.backend_type, {})
 
-            if not self.selected_model:
-                self.selected_model = backend_defaults.get("selected_model", "")
-                if self.selected_model:
-                    self.add_debug(f"⚙️ Using default selected_model from config.py: {self.selected_model}")
+            if not self.aifred_model:
+                self.aifred_model = backend_defaults.get("aifred_model", "")
+                self.aifred_model_id = self.aifred_model  # Sync ID with display name
+                if self.aifred_model:
+                    self.add_debug(f"⚙️ Using default aifred_model from config.py: {self.aifred_model}")
                 else:
-                    self.add_debug("⚠️ No selected_model configured")
+                    self.add_debug("⚠️ No aifred_model configured")
 
             if not self.automatik_model:
                 self.automatik_model = backend_defaults.get("automatik_model", "")
+                self.automatik_model_id = self.automatik_model  # Sync ID with display name
                 if self.automatik_model:
                     self.add_debug(f"⚙️ Using default automatik_model from config.py: {self.automatik_model}")
                 else:
@@ -1093,17 +1095,31 @@ class AIState(rx.State):
 
             if not self.vision_model:
                 self.vision_model = backend_defaults.get("vision_model", "")
+                self.vision_model_id = self.vision_model  # Sync ID with display name
                 if self.vision_model:
                     self.add_debug(f"⚙️ Using default vision_model from config.py: {self.vision_model}")
                 else:
                     self.add_debug("ℹ️ No vision_model configured - will auto-detect first available vision model")
 
+            # Multi-Agent Models (optional - empty = use Main-LLM)
+            if not self.sokrates_model_id:
+                self.sokrates_model_id = backend_defaults.get("sokrates_model", "")
+                self.sokrates_model = self.sokrates_model_id
+                if self.sokrates_model_id:
+                    self.add_debug(f"⚙️ Using default sokrates_model from config.py: {self.sokrates_model_id}")
+
+            if not self.salomo_model_id:
+                self.salomo_model_id = backend_defaults.get("salomo_model", "")
+                self.salomo_model = self.salomo_model_id
+                if self.salomo_model_id:
+                    self.add_debug(f"⚙️ Using default salomo_model from config.py: {self.salomo_model_id}")
+
             # vLLM and TabbyAPI can only load ONE model at a time
-            # Ensure automatik_model = selected_model for these backends
+            # Ensure automatik_model = aifred_model for these backends
             if self.backend_type in ["vllm", "tabbyapi"]:
-                if self.automatik_model != self.selected_model:
-                    self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.selected_model} for both AIfred and Automatik")
-                    self.automatik_model = self.selected_model
+                if self.automatik_model != self.aifred_model:
+                    self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.aifred_model} for both AIfred and Automatik")
+                    self.automatik_model = self.aifred_model
 
             # Generate internal session ID (for Reflex, not displayed)
             if not self.session_id:
@@ -1233,18 +1249,18 @@ class AIState(rx.State):
             # The model IDs were already loaded from settings.json in on_load() before this call.
             # We only need to validate they exist and sync the display labels.
 
-            # Validate and sync selected_model (use settings, not global state)
-            if self.selected_model_id and self.selected_model_id in self.available_models_dict:
-                self.selected_model = self.available_models_dict[self.selected_model_id]
-            elif _global_backend_state.get("selected_model_id") in self.available_models_dict:
+            # Validate and sync aifred_model (use settings, not global state)
+            if self.aifred_model_id and self.aifred_model_id in self.available_models_dict:
+                self.aifred_model = self.available_models_dict[self.aifred_model_id]
+            elif _global_backend_state.get("aifred_model_id") in self.available_models_dict:
                 # Fallback to global state if settings model not found
-                self.selected_model_id = _global_backend_state["selected_model_id"]
-                self.selected_model = self.available_models_dict[self.selected_model_id]
+                self.aifred_model_id = _global_backend_state["aifred_model_id"]
+                self.aifred_model = self.available_models_dict[self.aifred_model_id]
             else:
                 # Last resort: first available model
                 first_id = next(iter(self.available_models_dict.keys()), "")
-                self.selected_model_id = first_id
-                self.selected_model = self.available_models_dict.get(first_id, first_id)
+                self.aifred_model_id = first_id
+                self.aifred_model = self.available_models_dict.get(first_id, first_id)
 
             # Validate and sync automatik_model (use settings, not global state)
             if self.automatik_model_id and self.automatik_model_id in self.available_models_dict:
@@ -1287,9 +1303,9 @@ class AIState(rx.State):
                 self.salomo_model = ""
 
             # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
-            if self.backend_type == "vllm" and self.automatik_model != self.selected_model:
-                self.automatik_model = self.selected_model
-                _global_backend_state["automatik_model"] = self.selected_model  # Update global state
+            if self.backend_type == "vllm" and self.automatik_model != self.aifred_model:
+                self.automatik_model = self.aifred_model
+                _global_backend_state["automatik_model"] = self.aifred_model  # Update global state
                 self._save_settings()  # Persist the correction
 
             # Check vLLM manager status if exists
@@ -1401,11 +1417,11 @@ class AIState(rx.State):
                             _global_backend_state["gguf_models"] = {m.name: m for m in gguf_models}
 
                             # Select first model by default
-                            if not self.selected_model or self.selected_model not in self.available_models:
-                                self.selected_model = gguf_models[0].name
+                            if not self.aifred_model or self.aifred_model not in self.available_models:
+                                self.aifred_model = gguf_models[0].name
 
                             # KoboldCPP can only load ONE model - Automatik uses same model
-                            self.automatik_model = self.selected_model
+                            self.automatik_model = self.aifred_model
                         else:
                             self.available_models_dict = {}
                             self.available_models = []
@@ -1449,15 +1465,15 @@ class AIState(rx.State):
                 # NEW: Sync deprecated display variables with IDs using dict lookup
                 # No more extract_model_name() needed - direct dict access!
 
-                # Validate and sync selected_model
-                if self.selected_model_id in self.available_models_dict:
-                    self.selected_model = self.available_models_dict[self.selected_model_id]
+                # Validate and sync aifred_model
+                if self.aifred_model_id in self.available_models_dict:
+                    self.aifred_model = self.available_models_dict[self.aifred_model_id]
                 elif self.available_models_dict:
                     # Fallback to first available model
                     first_id = next(iter(self.available_models_dict.keys()))
-                    log_message(f"⚠️ Configured model '{self.selected_model_id}' not found, using '{first_id}'")
-                    self.selected_model_id = first_id
-                    self.selected_model = self.available_models_dict[first_id]
+                    log_message(f"⚠️ Configured model '{self.aifred_model_id}' not found, using '{first_id}'")
+                    self.aifred_model_id = first_id
+                    self.aifred_model = self.available_models_dict[first_id]
 
                 # Validate and sync automatik_model
                 if self.automatik_model_id in self.available_models_dict:
@@ -1515,11 +1531,11 @@ class AIState(rx.State):
                 if self.backend_type.lower() in ["vllm", "koboldcpp", "tabbyapi"]:
                     # Compact format for Mobile: Multi-line with indentation
                     self.add_debug(f"✅ {len(self.available_models)} models available")
-                    self.add_debug(f"   AIfred: {format_model_with_ctx(self.selected_model, self.selected_model_id)}")
+                    self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")
                 else:
                     # Compact format for Mobile: Multi-line with indentation
                     self.add_debug(f"✅ {len(self.available_models)} models available")
-                    self.add_debug(f"   AIfred: {format_model_with_ctx(self.selected_model, self.selected_model_id)}")
+                    self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")
                     self.add_debug(f"   Automatik: {self.automatik_model}")
                     # Show Sokrates and Salomo models if multi-agent mode is active
                     if self.multi_agent_mode != "standard":
@@ -1530,7 +1546,7 @@ class AIState(rx.State):
 
                 # Cache min context limit for session-load display
                 context_limits = []
-                for model_id in [self.selected_model_id, self.sokrates_model_id, self.salomo_model_id]:
+                for model_id in [self.aifred_model_id, self.sokrates_model_id, self.salomo_model_id]:
                     if model_id:
                         ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
                         if ctx:
@@ -1549,15 +1565,15 @@ class AIState(rx.State):
             temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
             caps = temp_backend.get_capabilities()
 
-            if not caps.get("dynamic_models", True) and self.automatik_model != self.selected_model:
-                self.automatik_model = self.selected_model
+            if not caps.get("dynamic_models", True) and self.automatik_model != self.aifred_model:
+                self.automatik_model = self.aifred_model
                 self._save_settings()  # Persist the correction
 
             # Store in global state BEFORE starting servers (so fast path works on reload)
             _global_backend_state["backend_type"] = self.backend_type
             _global_backend_state["backend_url"] = self.backend_url
-            _global_backend_state["selected_model"] = self.selected_model
-            _global_backend_state["selected_model_id"] = self.selected_model_id
+            _global_backend_state["aifred_model"] = self.aifred_model
+            _global_backend_state["aifred_model_id"] = self.aifred_model_id
             _global_backend_state["automatik_model"] = self.automatik_model
             _global_backend_state["automatik_model_id"] = self.automatik_model_id
             _global_backend_state["available_models"] = self.available_models
@@ -1621,9 +1637,9 @@ class AIState(rx.State):
         # Only update backend models if we have valid model IDs
         # This prevents overwriting with empty strings during early initialization
         # (e.g., when UI language is switched before backend is fully loaded)
-        if self.selected_model_id and self.backend_id:
+        if self.aifred_model_id and self.backend_id:
             backend_models[self.backend_id] = {
-                "selected_model": self.selected_model_id,  # Pure ID: "qwen3:8b"
+                "aifred_model": self.aifred_model_id,  # Pure ID: "qwen3:8b"
                 "automatik_model": self.automatik_model_id,
                 "vision_model": self.vision_model_id,
             }
@@ -1751,22 +1767,22 @@ class AIState(rx.State):
             if new_backend in backend_models:
                 # Use saved models from backend_models.json
                 saved_models = backend_models[new_backend]
-                target_main_model = saved_models.get("selected_model")
+                target_main_model = saved_models.get("aifred_model")
                 target_auto_model = saved_models.get("automatik_model")
                 target_vision_model = saved_models.get("vision_model")
                 self.add_debug(f"📝 Found saved models for {new_backend}: AIfred={target_main_model}, Auto={target_auto_model}, Vision={target_vision_model}")
             else:
                 # Use backend-specific defaults from config.py
                 default_models = config.BACKEND_DEFAULT_MODELS.get(new_backend, {})
-                target_main_model = default_models.get("selected_model")
+                target_main_model = default_models.get("aifred_model")
                 target_auto_model = default_models.get("automatik_model")
                 self.add_debug(f"📝 Using default models for {new_backend}: AIfred={target_main_model}, Auto={target_auto_model}")
 
             # Set target models BEFORE initialize_backend() so validation doesn't override them
             # CRITICAL: Set BOTH display name AND ID - initialize_backend() uses _id for validation!
             if target_main_model:
-                self.selected_model = target_main_model
-                self.selected_model_id = target_main_model  # IDs are same as names in settings
+                self.aifred_model = target_main_model
+                self.aifred_model_id = target_main_model  # IDs are same as names in settings
             if target_auto_model:
                 self.automatik_model = target_auto_model
                 self.automatik_model_id = target_auto_model  # IDs are same as names in settings
@@ -1775,12 +1791,12 @@ class AIState(rx.State):
                 self.vision_model_id = target_vision_model  # IDs are same as names in settings
 
             # vLLM and TabbyAPI can only load ONE model at a time
-            # Set automatik_model = selected_model BEFORE initialize_backend() to prevent wrong model loading
+            # Set automatik_model = aifred_model BEFORE initialize_backend() to prevent wrong model loading
             if new_backend in ["vllm", "tabbyapi"]:
-                if self.automatik_model != self.selected_model:
-                    self.add_debug(f"⚠️ {new_backend} can only load one model - using {self.selected_model} for both AIfred and Automatik")
-                self.automatik_model = self.selected_model
-                self.automatik_model_id = self.selected_model_id  # Sync IDs too
+                if self.automatik_model != self.aifred_model:
+                    self.add_debug(f"⚠️ {new_backend} can only load one model - using {self.aifred_model} for both AIfred and Automatik")
+                self.automatik_model = self.aifred_model
+                self.automatik_model_id = self.aifred_model_id  # Sync IDs too
 
             # Switch backend and load models
             self.backend_type = new_backend
@@ -2145,7 +2161,7 @@ class AIState(rx.State):
             # IMPORTANT: vLLM cannot switch models like Ollama (requires full restart)
             # Therefore, start directly with the AIfred-Model (30B) to avoid slow restarts
             # Both Automatik and AIfred requests will use the same 30B model
-            startup_model = self.selected_model_id  # Pure ID
+            startup_model = self.aifred_model_id  # Pure ID
             self.add_debug(f"🚀 Starting vLLM server with {startup_model}...")
             self.add_debug("   (vLLM uses AIfred-Model for all requests - model switching requires slow restart)")
 
@@ -2259,9 +2275,9 @@ class AIState(rx.State):
         Force restart vLLM server with new configuration (model or YaRN changes)
 
         This explicitly stops the server, clears global state, and starts fresh.
-        Used by set_selected_model() and apply_yarn_factor() to ensure actual restart.
+        Used by set_aifred_model() and apply_yarn_factor() to ensure actual restart.
 
-        Note: This is called from async event handlers (apply_yarn_factor, set_selected_model)
+        Note: This is called from async event handlers (apply_yarn_factor, set_aifred_model)
         but cannot yield since it's a helper function. The caller should yield after calling.
         """
         global _global_backend_state
@@ -2277,7 +2293,7 @@ class AIState(rx.State):
             await self._start_vllm_server()
 
             # Step 4: Update global state with new configuration
-            _global_backend_state["selected_model"] = self.selected_model
+            _global_backend_state["aifred_model"] = self.aifred_model
             _global_backend_state["automatik_model"] = self.automatik_model
 
         except Exception as e:
@@ -2307,7 +2323,7 @@ class AIState(rx.State):
 
             # Get GGUF model info from global state
             # Extract pure model name (remove size suffix)
-            pure_model_name = self.selected_model_id  # Pure ID
+            pure_model_name = self.aifred_model_id  # Pure ID
             gguf_models = _global_backend_state.get("gguf_models", {})
 
             # If gguf_models not loaded yet (e.g. service restart), scan now
@@ -2336,7 +2352,7 @@ class AIState(rx.State):
 
             success, config_info = await koboldcpp_manager.start_with_auto_detection(
                 model_path=model_path,
-                model_name=self.selected_model_id,  # For cache lookup (pure ID)
+                model_name=self.aifred_model_id,  # For cache lookup (pure ID)
                 timeout=240,  # 4 minutes for large models (30B needs ~2-3 min to load)
                 feedback_callback=debug_callback
             )
@@ -2366,7 +2382,7 @@ class AIState(rx.State):
                 _global_backend_state["koboldcpp_manager"] = koboldcpp_manager
                 _global_backend_state["koboldcpp_context"] = config_info['context_size']
                 _global_backend_state["koboldcpp_native_context"] = config_info.get('native_context')
-                _global_backend_state["koboldcpp_selected_model"] = self.selected_model_id  # Pure ID for auto-restart lookup
+                _global_backend_state["koboldcpp_aifred_model"] = self.aifred_model_id  # Pure ID for auto-restart lookup
 
                 # Store context size in global cache for History compression
                 # (same as vLLM does in context_manager.py)
@@ -2446,7 +2462,7 @@ class AIState(rx.State):
         Force restart KoboldCPP server with new model
 
         This explicitly stops the server, clears global state, and starts fresh.
-        Used by set_selected_model() when switching GGUF models.
+        Used by set_aifred_model() when switching GGUF models.
         """
         global _global_backend_state
 
@@ -2461,7 +2477,7 @@ class AIState(rx.State):
             await self._start_koboldcpp_server()
 
             # Step 4: Update global state with new configuration
-            _global_backend_state["selected_model"] = self.selected_model
+            _global_backend_state["aifred_model"] = self.aifred_model
             _global_backend_state["automatik_model"] = self.automatik_model
 
         except Exception as e:
@@ -2798,7 +2814,7 @@ class AIState(rx.State):
                     user_text=original_user_text,  # CRITICAL: Use original (may be empty!), not display_user_msg
                     images=local_images,  # CRITICAL: Use local copy, NOT self.pending_images!
                     vision_model=self.vision_model_id,  # Pure ID
-                    main_model=self.selected_model_id,  # Pure ID
+                    main_model=self.aifred_model_id,  # Pure ID
                     backend_type=self.backend_type,
                     backend_url=self.backend_url,
                     num_ctx_mode=self.num_ctx_mode,
@@ -2927,7 +2943,7 @@ class AIState(rx.State):
                     async for item in chat_interactive_mode(
                         user_text=original_user_text,  # Actual user question
                         stt_time=0.0,  # No STT for Vision follow-up
-                        model_choice=self.selected_model_id,
+                        model_choice=self.aifred_model_id,
                         automatik_model=self.automatik_model_id,
                         history=self.chat_history[:-1],  # Exclude current temporary entry (CRITICAL!)
                         session_id=self.session_id,
@@ -3029,7 +3045,7 @@ class AIState(rx.State):
                 async for item in chat_interactive_mode(
                     user_text=user_msg,
                     stt_time=0.0,
-                    model_choice=self.selected_model_id,
+                    model_choice=self.aifred_model_id,
                     automatik_model=self.automatik_model_id,
                     history=self.chat_history[:-1],  # Exclude current temporary entry
                     session_id=self.session_id,
@@ -3155,7 +3171,7 @@ class AIState(rx.State):
                     user_text=user_msg,
                     stt_time=0.0,  # Kein STT in Reflex (noch)
                     mode=self.research_mode,
-                    model_choice=self.selected_model_id,  # Pure ID
+                    model_choice=self.aifred_model_id,  # Pure ID
                     automatik_model=self.automatik_model_id,  # Pure ID
                     history=self.chat_history[:-1],  # Exclude current temporary entry
                     session_id=self.session_id,
@@ -3302,7 +3318,7 @@ class AIState(rx.State):
                 )
 
                 # Extract pure model name (remove size suffix)
-                pure_model_name = self.selected_model_id  # Pure ID
+                pure_model_name = self.aifred_model_id  # Pure ID
 
                 # Import format_number for locale-aware number formatting (uses global ui_locale)
                 from .lib.formatting import format_number
@@ -3364,7 +3380,7 @@ class AIState(rx.State):
                 )
 
                 # Console: LLM starts (matching Automatik mode)
-                self.add_debug(f"🎩 AIfred-LLM starting: {self.selected_model}")
+                self.add_debug(f"🎩 AIfred-LLM starting: {self.aifred_model}")
                 yield
 
                 # Stream response directly from LLM
@@ -3421,14 +3437,14 @@ class AIState(rx.State):
                 from .lib.formatting import format_thinking_process, format_metadata
                 thinking_html = format_thinking_process(
                     full_response,
-                    model_name=self.selected_model_id,  # Use pure ID, not display name with size
+                    model_name=self.aifred_model_id,  # Use pure ID, not display name with size
                     inference_time=inference_time,
                     tokens_per_sec=tokens_per_sec
                 )
 
                 # Add metadata footer (Inference + Tok/s + Source + Model) like other modes
                 metadata = format_metadata(
-                    f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Training data ({self.selected_model_id})"
+                    f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Training data ({self.aifred_model_id})"
                 )
                 formatted_response = f"{thinking_html}  \n{metadata}"
 
@@ -4264,7 +4280,7 @@ class AIState(rx.State):
 
                 # IMPORTANT: Set model names from defaults (prevents fallback to available_models[0])
                 # The "model" and "automatik_model" keys come from get_default_settings()
-                self.selected_model = saved_settings.get("model", self.selected_model)
+                self.aifred_model = saved_settings.get("model", self.aifred_model)
                 self.automatik_model = saved_settings.get("automatik_model", self.automatik_model)
 
                 self.add_debug("🔄 Settings reloaded from file")
@@ -4417,7 +4433,7 @@ class AIState(rx.State):
 
                         load_response = httpx.post(
                             f"{self.backend_url}/v1/model/load",
-                            json={"name": self.selected_model},
+                            json={"name": self.aifred_model},
                             headers={"Content-Type": "application/json"},
                             timeout=30.0
                         )
@@ -4498,7 +4514,7 @@ class AIState(rx.State):
                 yield
 
                 # Restart KoboldCPP with current model (extract pure name for lookup)
-                pure_model_name = self.selected_model_id  # Pure ID
+                pure_model_name = self.aifred_model_id  # Pure ID
                 if pure_model_name in gguf_models:
                     self.add_debug(f"🚀 Restarting KoboldCPP with {pure_model_name}...")
                     yield
@@ -4506,7 +4522,7 @@ class AIState(rx.State):
                     # Trigger backend initialization (will start KoboldCPP)
                     await self._start_koboldcpp_server()
                 else:
-                    self.add_debug(f"⚠️ Model '{self.selected_model}' not found after rescan")
+                    self.add_debug(f"⚠️ Model '{self.aifred_model}' not found after rescan")
                     yield
 
         except Exception as e:
@@ -4526,10 +4542,10 @@ class AIState(rx.State):
         self.add_debug(f"🎚️ Calibration mode: {mode}")
 
         # Save to VRAM cache (per-model setting)
-        if self.selected_model_id:
+        if self.aifred_model_id:
             from .lib.model_vram_cache import set_use_extended_for_model, get_ollama_calibrated_max_context, get_use_extended_for_model
             from .lib.formatting import format_number
-            set_use_extended_for_model(self.selected_model_id, value)
+            set_use_extended_for_model(self.aifred_model_id, value)
 
             # Helper for context limit display (merge GB and ctx into one bracket)
             def format_model_with_ctx(model_display: str, model_id: str) -> str:
@@ -4546,7 +4562,7 @@ class AIState(rx.State):
                     return f"{model_display} (ctx not calibrated)"
 
             # Re-display all agent models with updated context limits
-            self.add_debug(f"   AIfred: {format_model_with_ctx(self.selected_model, self.selected_model_id)}")
+            self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")
             if self.multi_agent_mode != "standard":
                 if self.sokrates_model_id:
                     self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, self.sokrates_model_id)}")
@@ -4555,7 +4571,7 @@ class AIState(rx.State):
 
             # Update cached min context limit
             context_limits = []
-            for model_id in [self.selected_model_id, self.sokrates_model_id, self.salomo_model_id]:
+            for model_id in [self.aifred_model_id, self.sokrates_model_id, self.salomo_model_id]:
                 if model_id:
                     ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
                     if ctx:
@@ -4577,12 +4593,12 @@ class AIState(rx.State):
             # Warn if no calibration exists for this mode
             if value:
                 # Check if extended calibration exists
-                extended_ctx = get_ollama_calibrated_max_context(self.selected_model_id, extended=True)
+                extended_ctx = get_ollama_calibrated_max_context(self.aifred_model_id, extended=True)
                 if extended_ctx is None:
                     self.add_debug("⚠️ No RoPE 2x calibration found - please calibrate first!")
             else:
                 # Check if native calibration exists
-                native_ctx = get_ollama_calibrated_max_context(self.selected_model_id, extended=False)
+                native_ctx = get_ollama_calibrated_max_context(self.aifred_model_id, extended=False)
                 if native_ctx is None:
                     self.add_debug("⚠️ No native calibration found - please calibrate first!")
 
@@ -4599,7 +4615,7 @@ class AIState(rx.State):
             self.add_debug("⚠️ Calibration only available for Ollama")
             return
 
-        if not self.selected_model_id:
+        if not self.aifred_model_id:
             self.add_debug("⚠️ No model selected")
             return
 
@@ -4609,7 +4625,7 @@ class AIState(rx.State):
 
         self.is_calibrating = True
         mode_label = "RoPE 2x" if self.calibrate_extended else "Native"
-        self.add_debug(f"🔧 Starting {mode_label} calibration for {self.selected_model_id}...")
+        self.add_debug(f"🔧 Starting {mode_label} calibration for {self.aifred_model_id}...")
         yield
 
         try:
@@ -4622,7 +4638,7 @@ class AIState(rx.State):
 
             calibrated_ctx = None
             async for progress_msg in backend.calibrate_max_context_generator(
-                self.selected_model_id,
+                self.aifred_model_id,
                 extended=self.calibrate_extended  # Pass extended flag
             ):
                 # Check for result marker
@@ -4706,25 +4722,25 @@ class AIState(rx.State):
             yield  # Update UI even on error
 
 
-    async def set_selected_model(self, model: str):
+    async def set_aifred_model(self, model: str):
         """Set selected model and restart backend if needed"""
         from .lib.vision_utils import is_vision_model
 
-        old_model = self.selected_model
-        self.selected_model = model
-        # CRITICAL: Sync selected_model_id from display label
-        self.selected_model_id = extract_model_name(model)
+        old_model = self.aifred_model
+        self.aifred_model = model
+        # CRITICAL: Sync aifred_model_id from display label
+        self.aifred_model_id = extract_model_name(model)
         # Clear thinking mode warning when model changes
         self.thinking_mode_warning = ""
         self.add_debug(f"📝 AIfred-LLM: {model}")
 
         # Show calibration info for Ollama models
-        self._show_model_calibration_info(self.selected_model_id)
+        self._show_model_calibration_info(self.aifred_model_id)
 
         # Check if switching to non-vision model with pending images
         if len(self.pending_images) > 0:
             # Use ID directly - extract_model_name() not needed anymore
-            if not await is_vision_model(self, self.selected_model_id):
+            if not await is_vision_model(self, self.aifred_model_id):
                 self.image_upload_warning = "⚠️ Selected model doesn't support images. Images will be ignored when sending."
             else:
                 self.image_upload_warning = ""  # Clear warning
@@ -4954,7 +4970,7 @@ class AIState(rx.State):
                     return f"{model_display} (ctx not calibrated)"
 
             # Display auto limits
-            self.add_debug(f"   AIfred: {format_model_with_ctx(self.selected_model, self.selected_model_id)}")
+            self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")
             if self.multi_agent_mode != "standard":
                 if self.sokrates_model_id:
                     self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, self.sokrates_model_id)}")
@@ -4963,7 +4979,7 @@ class AIState(rx.State):
 
             # Calculate effective limit from calibrated values
             context_limits = []
-            for model_id in [self.selected_model_id, self.sokrates_model_id, self.salomo_model_id]:
+            for model_id in [self.aifred_model_id, self.sokrates_model_id, self.salomo_model_id]:
                 if model_id:
                     ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
                     if ctx:
@@ -5014,7 +5030,7 @@ class AIState(rx.State):
             return f"{model_display} ({format_number(ctx_value)} ctx)"
 
         self.add_debug("📊 Manual context calculation:")
-        self.add_debug(f"   AIfred: {format_model_with_ctx(self.selected_model, self.num_ctx_manual)}")
+        self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.num_ctx_manual)}")
         if self.multi_agent_mode != "standard":
             if self.sokrates_model_id:
                 self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, self.num_ctx_manual_sokrates)}")
@@ -5358,10 +5374,10 @@ class AIState(rx.State):
 
     # ===== NEW: ID-BASED MODEL HANDLERS FOR KEY-VALUE SYSTEM =====
 
-    async def set_selected_model_by_id(self, model_id: str):
+    async def set_aifred_model_by_id(self, model_id: str):
         """Set selected model using pure ID (new key-value system)"""
         # Update ID
-        self.selected_model_id = model_id
+        self.aifred_model_id = model_id
 
         # Load per-model RoPE 2x toggle from cache
         if self.backend_id == "ollama":
@@ -5370,10 +5386,10 @@ class AIState(rx.State):
 
         # Sync deprecated display variable
         display_label = self.available_models_dict.get(model_id, model_id)
-        self.selected_model = display_label
+        self.aifred_model = display_label
 
         # Call existing handler with display label (reuses all logic)
-        await self.set_selected_model(display_label)
+        await self.set_aifred_model(display_label)
 
     async def set_automatik_model_by_id(self, model_id: str):
         """Set automatik model using pure ID (new key-value system)"""

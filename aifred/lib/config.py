@@ -113,26 +113,42 @@ DEFAULT_SETTINGS = {
 # For performance comparisons: All backends use the same model sizes
 # - Main LLM: Qwen3-30B-A3B-Instruct-2507 (~18GB, MoE with 3B active)
 # - Automatik: Qwen3-4B-Instruct-2507 (~2.6GB)
+# - Multi-Agent (Sokrates, Salomo, AIfred): Qwen3-4B-Instruct-2507 (~2.6GB)
 BACKEND_DEFAULT_MODELS = {
     "ollama": {
-        "selected_model": "qwen3:30b-a3b-instruct-2507-q4_K_M",           # GGUF Q4_K_M, ~17.3GB
-        "automatik_model": "qwen3:4b-instruct-2507-q4_K_M",               # GGUF Q4_K_M, ~2.6GB
+        "aifred_model": "qwen3:4b-instruct-2507-q4_K_M",                  # AIfred Main-LLM: GGUF Q8_0, ~32GB
+        "automatik_model": "qwen3:4b-instruct-2507-q4_K_M",               # Automatik: GGUF Q4_K_M, ~2.6GB
+        "sokrates_model": "qwen3:4b-instruct-2507-q4_K_M",                # Sokrates: GGUF Q4_K_M, ~2.6GB
+        "salomo_model": "qwen3:4b-instruct-2507-q4_K_M",                  # Salomo: GGUF Q4_K_M, ~2.6GB
+        "vision_model": "qwen3-vl:8b",                                    # Vision: Qwen3-VL 8B
     },
     "vllm": {
-        "selected_model": "cpatonn/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit", # AWQ 4-bit, ~18GB (CONFIRMED)
-        "automatik_model": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",     # AWQ 4-bit, ~2.8GB (CONFIRMED)
+        "aifred_model": "cpatonn/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit",   # AIfred Main-LLM: AWQ 4-bit, ~18GB (CONFIRMED)
+        "automatik_model": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",     # Automatik: AWQ 4-bit, ~2.8GB (CONFIRMED)
+        "sokrates_model": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",      # Sokrates: AWQ 4-bit, ~2.8GB
+        "salomo_model": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",        # Salomo: AWQ 4-bit, ~2.8GB
+        "vision_model": "",                                                # Vision: Auto-detect
     },
     "tabbyapi": {
-        "selected_model": "turboderp/Qwen3-30B-A3B-exl3",                 # EXL3, ~18GB (CONFIRMED)
-        "automatik_model": "ArtusDev/Qwen_Qwen3-4B-Instruct-2507-EXL3",   # EXL3, ~2.8GB (CONFIRMED)
+        "aifred_model": "turboderp/Qwen3-30B-A3B-exl3",                   # AIfred Main-LLM: EXL3, ~18GB (CONFIRMED)
+        "automatik_model": "ArtusDev/Qwen_Qwen3-4B-Instruct-2507-EXL3",   # Automatik: EXL3, ~2.8GB (CONFIRMED)
+        "sokrates_model": "ArtusDev/Qwen_Qwen3-4B-Instruct-2507-EXL3",    # Sokrates: EXL3, ~2.8GB
+        "salomo_model": "ArtusDev/Qwen_Qwen3-4B-Instruct-2507-EXL3",      # Salomo: EXL3, ~2.8GB
+        "vision_model": "",                                                # Vision: Auto-detect
     },
     "koboldcpp": {
-        "selected_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",          # GGUF Q4_K_M, ~17.3GB (from ~/models/)
-        "automatik_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",         # KoboldCPP: only 1 model (same as selected)
+        "aifred_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",            # AIfred Main-LLM: GGUF Q4_K_M, ~17.3GB (from ~/models/)
+        "automatik_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",         # KoboldCPP: only 1 model (same as AIfred)
+        "sokrates_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",          # KoboldCPP: only 1 model
+        "salomo_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",            # KoboldCPP: only 1 model
+        "vision_model": "",                                                # Vision: Not supported
     },
     "llamacpp": {
-        "selected_model": "Qwen3-30B-A3B-Thinking-2507-Q4_K_M.gguf",      # GGUF Q4_K_M, ~17.3GB (from ~/models/)
-        "automatik_model": "Qwen3-8B-Q4_K_M.gguf",                        # GGUF Q4_K_M, ~4.7GB (for Automatik)
+        "aifred_model": "Qwen3-30B-A3B-Thinking-2507-Q4_K_M.gguf",        # AIfred Main-LLM: GGUF Q4_K_M, ~17.3GB (from ~/models/)
+        "automatik_model": "Qwen3-8B-Q4_K_M.gguf",                        # Automatik: GGUF Q4_K_M, ~4.7GB
+        "sokrates_model": "Qwen3-8B-Q4_K_M.gguf",                         # Sokrates: GGUF Q4_K_M, ~4.7GB
+        "salomo_model": "Qwen3-8B-Q4_K_M.gguf",                           # Salomo: GGUF Q4_K_M, ~4.7GB
+        "vision_model": "",                                                # Vision: Auto-detect
     },
 }
 

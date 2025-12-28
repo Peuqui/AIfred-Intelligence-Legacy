@@ -106,7 +106,7 @@ class KoboldCPPBackend(LLMBackend):
 
             # Get model info from global state (needed for restart)
             gguf_models = _global_backend_state.get("gguf_models", {})
-            selected_model = _global_backend_state.get("koboldcpp_selected_model")
+            aifred_model = _global_backend_state.get("koboldcpp_aifred_model")
 
             # If gguf_models not loaded yet (e.g. service restart), scan now
             if not gguf_models:
@@ -116,22 +116,22 @@ class KoboldCPPBackend(LLMBackend):
                 _global_backend_state["gguf_models"] = gguf_models
                 logger.info(f"🔍 GGUF models scanned: {len(gguf_models)} found")
 
-            if not selected_model or selected_model not in gguf_models:
+            if not aifred_model or aifred_model not in gguf_models:
                 raise BackendConnectionError(
                     "Cannot auto-restart: Model configuration not cached. "
                     "Please start server via UI first."
                 )
 
-            model_info = gguf_models[selected_model]
+            model_info = gguf_models[aifred_model]
             model_path = str(model_info.path)
 
             # Restart server with auto-detection (same logic as state.py)
-            logger.info(f"   Model: {selected_model}")
+            logger.info(f"   Model: {aifred_model}")
             logger.info(f"   Path: {model_path}")
 
             success, config_info = await manager.start_with_auto_detection(
                 model_path=model_path,
-                model_name=selected_model,
+                model_name=aifred_model,
                 timeout=240  # 4min timeout for large models
             )
 
