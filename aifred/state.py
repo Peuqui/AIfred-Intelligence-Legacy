@@ -2910,7 +2910,7 @@ class AIState(rx.State):
                 # PHASE 2: AUTOMATIK/RESEARCH FLOW (if user text present)
                 # ==============================================================================
                 if has_user_text_for_automatik:
-                    self.add_debug("🤖 AIfred-LLM phase starting...")
+                    self.add_debug("🎩 AIfred-LLM phase starting...")
                     yield
 
                     # Import here to avoid circular dependency
@@ -3364,7 +3364,7 @@ class AIState(rx.State):
                 )
 
                 # Console: LLM starts (matching Automatik mode)
-                self.add_debug(f"🤖 AIfred-LLM starting: {self.selected_model}")
+                self.add_debug(f"🎩 AIfred-LLM starting: {self.selected_model}")
                 yield
 
                 # Stream response directly from LLM
@@ -3617,11 +3617,11 @@ class AIState(rx.State):
                 lines.append(ai_msg)
             elif has_user_input:
                 # Regular AIfred response to user question
-                lines.append(f"🤖 AIfred ({message_num}):")
+                lines.append(f"🎩 AIfred ({message_num}):")
                 lines.append(ai_msg)
             else:
                 # AI-only message without user input (shouldn't happen often)
-                lines.append("🤖 AIfred:")
+                lines.append("🎩 AIfred:")
                 lines.append(ai_msg)
 
             lines.append("")

@@ -4,62 +4,203 @@ Du bist ein AI-Assistent, der Konversationen prägnant zusammenfasst.
 
 Fasse die folgende Konversation zusammen. Die Zusammenfassung wird als **Kontext** für zukünftige Fragen verwendet.
 
-# ✅ ANFORDERUNGEN
+# 🔍 SCHRITT 1: ERKENNE DEN DIALOG-TYP
 
+Prüfe die Konversation:
+
+```
+Enthält sie eines dieser Wörter/Emojis?
+→ "AIfred" oder "🎩"
+→ "Sokrates" oder "🏛️"
+→ "Salomo" oder "👑"
+→ "[Auto-Konsens"
+→ "[Refinement"
+→ "[WEITER]"
+→ "[LGTM]"
+
+JA? → FORMAT A (Multi-Agenten-Tracking)
+NEIN? → FORMAT B (Standard-Kompression)
+```
+
+═══════════════════════════════════════════════════════════════════════════
+
+# FORMAT A: MULTI-AGENTEN-TRACKING
+
+**Du hast Sokrates/Salomo/[WEITER]/[LGTM] gefunden → Nutze diese Struktur!**
+
+## 📋 SCHRITT 2: EXTRAHIERE die Agenten-Nachrichten
+
+Durchsuche die Konversation und finde:
+
+1. **AIfred-Nachrichten** (erkennbar an: `🎩 AIfred` oder `🎩[Refinement` oder `🎩[Auto-Konsens`)
+   - Erste AIfred-Nachricht = R1
+   - Zweite AIfred-Nachricht (nach Sokrates/Salomo) = R2 Refinement
+   - Dritte AIfred-Nachricht = R3 Refinement
+
+2. **Sokrates-Nachrichten** (erkennbar an: `🏛️` oder `Sokrates`)
+   - Erste Sokrates-Nachricht = R1 Kritik
+   - Zweite Sokrates-Nachricht = R2 Kritik
+   - Dritte Sokrates-Nachricht = R3 Kritik
+
+3. **Salomo-Nachrichten** (erkennbar an: `👑` oder `Salomo`)
+   - Erste Salomo-Nachricht = R1 Synthese
+   - Zweite Salomo-Nachricht = R2 Synthese
+   - Dritte Salomo-Nachricht = R3 Synthese
+
+## 🔨 SCHRITT 3: EXTRAHIERE die Inhalte
+
+Für **JEDEN Agenten** in **JEDER Runde**:
+
+### AIfred:
+- **R1**: Was ist die Kernaussage? (1 Satz)
+- **R2+**: Was wurde [NEU] hinzugefügt? Was [BEIBEHALTEN]?
+
+### Sokrates:
+- **R1**: Welche Kritikpunkte nannte er? (nummeriert: 1. ..., 2. ...)
+- **R2+**: Was würdigte er im FORTSCHRITT? Was kritisiert er NEU?
+
+### Salomo:
+- **Jede Runde**: Was empfahl er? Endete er mit [LGTM] oder [WEITER]?
+
+## 📝 SCHRITT 4: FORMATIERE nach dieser PFLICHT-Struktur
+
+```
+R1:
+AIfred: [Kernaussage in 1 Satz]
+Sokrates kritisierte:
+  1. [Kritikpunkt]: [Kurze Beschreibung]
+  2. [Kritikpunkt]: [Kurze Beschreibung]
+Salomo: [Empfehlung in 1 Satz] → [LGTM/WEITER]
+
+R2:
+AIfred Refinement:
+  [NEU] [Liste alle neuen Aspekte auf]
+  [BEIBEHALTEN] [Was blieb gleich]
+Sokrates: [Würdigung] + [Neue Kritik]
+Salomo: [Synthese] → [LGTM/WEITER]
+
+R3:
+AIfred Refinement:
+  [NEU] [Liste alle neuen Aspekte auf]
+  [BEIBEHALTEN] [Was blieb gleich]
+Sokrates: [Würdigung] + [Neue Kritik oder abschließendes Urteil]
+Salomo: [Finale Synthese] → [LGTM/WEITER]
+
+Status nach R[letzte Runde]:
+  1. [✅/⚠️/❌] [Kritikpunkt aus R1] - [Warum dieser Status?]
+  2. [✅/⚠️/❌] [Kritikpunkt aus R1] - [Warum dieser Status?]
+```
+
+## ⚠️ WICHTIGE REGELN
+
+1. **NUR Fakten extrahieren** - keine Interpretationen
+2. **Chronologisch arbeiten** - R1 → R2 → R3
+3. **Status erst am Ende** - zeige finale Bewertung aller R1-Kritikpunkte
+4. **Kurz halten** - max {max_tokens} Tokens
+5. **Jede Runde komplett** - AIfred UND Sokrates UND Salomo
+
+## 💡 KONKRETES BEISPIEL
+
+**EINGABE (Konversation):**
+```
+🎩 AIfred (1): Nudeln mit Ei und Schinken sind sättigend und schnell...
+🏛️[Auto-Konsens R1]: NEUE KRITIK: 1. Gesundheit fehlt, 2. Technik fehlt...
+👑[Synthese R1]: Empfiehlt Gesundheit + Technik → [WEITER]
+🎩[Refinement R2]: Vollkornnudeln, magerer Schinken, Ei-Technik...
+🏛️[Auto-Konsens R2]: FORTSCHRITT: Gesundheit besser. NEUE KRITIK: kcal fehlen...
+👑[Synthese R2]: Besser, aber Technik vage → [WEITER]
+```
+
+**AUSGABE (deine Zusammenfassung):**
+```
+R1:
+AIfred: Nudeln mit Ei/Schinken empfohlen (sättigend, schnell, winterlich)
+Sokrates kritisierte:
+  1. Gesundheit: Keine Nährwertangaben, Cholesterin/Natrium ignoriert
+  2. Technik: Keine Zubereitungsschritte für cremiges Ei
+Salomo: Empfiehlt Gesundheitsaspekte + präzise Technik → [WEITER]
+
+R2:
+AIfred Refinement:
+  [NEU] Vollkornnudeln, magerer Schinken, Ei-Verquirl-Technik
+  [BEIBEHALTEN] Schnell, sättigend, winterlich
+Sokrates: Würdigt Gesundheitsaspekt, fordert konkrete kcal-Angaben
+Salomo: Balance verbessert, aber Technik noch vage → [WEITER]
+
+Status nach R2:
+  1. ✅ ADRESSIERT - Gesunde Zutaten: Vollkornnudeln/magerer Schinken explizit genannt
+  2. ⚠️ TEILWEISE - Nährwerte: Vollkorn erwähnt, aber keine kcal/Natrium-Zahlen
+  3. ❌ OFFEN - Kochtechnik: Ei-Verquirl-Methode erwähnt, aber kein Schritt-für-Schritt-Rezept
+```
+
+═══════════════════════════════════════════════════════════════════════════
+
+# FORMAT B: STANDARD-KOMPRESSION
+
+**Kein Sokrates/Salomo gefunden → Nutze kompakte Liste:**
+
+## Anforderungen:
 1. **PRÄGNANT**: Maximal {max_tokens} Tokens (ca. {max_words} Wörter)
 2. **FAKTISCH**: Nur konkrete Informationen, keine Meinungen
 3. **CHRONOLOGISCH**: Behalte zeitliche Reihenfolge bei
-4. **VOLLSTÄNDIG**: Erwähne JEDES besprochene Thema mit 1-2 Sätzen
-5. **NUR FAKTEN**: Keine philosophischen Betrachtungen, keine Stil-Elemente
-6. **KONTEXT-RELEVANT**: Was könnte für zukünftige Fragen wichtig sein?
+4. **VOLLSTÄNDIG**: Erwähne JEDES Thema mit 1-2 Sätzen
+5. **NUR FAKTEN**: Keine philosophischen Betrachtungen
+6. **KONTEXT-RELEVANT**: Was ist für zukünftige Fragen wichtig?
 
-# 🚫 VERBOTEN
-
-- ❌ KEINE Wiederholungen oder redundanten Informationen
-- ❌ KEINE Höflichkeitsfloskeln ("Der User fragte höflich...")
+## Verboten:
+- ❌ KEINE Wiederholungen
+- ❌ KEINE Höflichkeitsfloskeln
 - ❌ KEINE Meta-Informationen ("In dieser Konversation...")
-- ❌ KEINE wörtlichen Zitate (paraphrasieren!)
-- ❌ KEINE eigenen Interpretationen ("AI betont...", "User wird aufgefordert...")
+- ❌ KEINE wörtlichen Zitate
+- ❌ KEINE Interpretationen
 
-# ✅ WICHTIG ZU BEHALTEN
+## Wichtig zu behalten:
+- ✅ **Fazits und Schlussfolgerungen**
+- ✅ Konkrete Empfehlungen
+- ✅ Entscheidungen
 
-- ✅ **Fazits und Schlussfolgerungen** - diese sind für Folgefragen essentiell!
-- ✅ Konkrete Empfehlungen die gegeben wurden
-- ✅ Entscheidungen die getroffen wurden
+## Beispiel:
 
-# 📝 FORMAT
-
-Schreibe die Zusammenfassung als **kompakte Liste** der Hauptpunkte:
-
-**BEISPIEL EINGABE:**
+**EINGABE:**
 ```
 User: Wie ist das Wetter in Berlin morgen?
-AI: Morgen wird es in Berlin 15°C und sonnig. Leichter Wind aus Südwest.
-User: Und wie ist es in München?
-AI: München hat morgen 18°C bei bewölktem Himmel. Nachmittags Regenwahrscheinlichkeit 60%.
+AI: Morgen 15°C und sonnig. Leichter Wind aus Südwest.
+User: Und in München?
+AI: München 18°C bei bewölktem Himmel. Nachmittags Regen (60%).
 User: Was ist wärmer?
 AI: München ist 3°C wärmer als Berlin.
 ```
 
-**BEISPIEL AUSGABE (GUT):**
+**GUTE AUSGABE:**
 ```
 Wetter-Vergleich Deutschland (morgen): Berlin 15°C sonnig, München 18°C bewölkt mit Regen (60%), München 3°C wärmer, Wind SW.
 ```
 
-**BEISPIEL AUSGABE (SCHLECHT - ZU LANG):**
+**SCHLECHTE AUSGABE:**
 ```
-Der User fragte nach dem Wetter in Berlin für morgen. Die AI antwortete, dass es 15°C und sonnig wird mit leichtem Wind aus Südwest. Danach fragte der User nach München. Die AI erklärte, dass München 18°C haben wird bei bewölktem Himmel und 60% Regenwahrscheinlichkeit am Nachmittag. Abschließend wollte der User wissen, welche Stadt wärmer ist, woraufhin die AI antwortete, dass München 3°C wärmer sein wird.
+Der User fragte nach dem Wetter in Berlin für morgen. Die AI antwortete, dass es 15°C und sonnig wird...
 ```
+
+═══════════════════════════════════════════════════════════════════════════
 
 # 🎯 ZU ZUSAMMENFASSENDE KONVERSATION
 
 {conversation}
 
-# ⚠️ WICHTIG
+═══════════════════════════════════════════════════════════════════════════
 
-- Maximal {max_tokens} Tokens!
-- ALLE Themen erwähnen, aber nur Fakten!
-- Keine Metainformationen!
-- Kompakt und prägnant!
+# ⚠️ FINALE CHECKLISTE (vor dem Schreiben!)
+
+1. **Hast du Sokrates/Salomo/[WEITER]/[LGTM] gefunden?**
+   - JA → Nutze FORMAT A (Extrahiere Agenten, strukturiere nach R1/R2/R3)
+   - NEIN → Nutze FORMAT B (Kompakte Liste)
+
+2. **Bei FORMAT A: Hast du alle Runden erfasst?**
+   - ✅ R1: AIfred + Sokrates + Salomo
+   - ✅ R2 (falls vorhanden): AIfred Refinement + Sokrates + Salomo
+   - ✅ R3 (falls vorhanden): AIfred Refinement + Sokrates + Salomo
+   - ✅ Status nach letzter Runde
+
+3. **Maximal {max_tokens} Tokens eingehalten?**
 
 **DEINE ZUSAMMENFASSUNG:**
