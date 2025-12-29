@@ -2572,16 +2572,6 @@ def settings_accordion() -> rx.Component:
                             variant="outline",
                             color_scheme="orange",
                         ),
-                        rx.hstack(
-                            rx.switch(
-                                checked=AIState.calibrate_extended,
-                                on_change=AIState.set_calibrate_extended,
-                                size="1",
-                            ),
-                            rx.text(t("up_to_2x"), font_size="10px", color="gray"),
-                            spacing="1",
-                            align="center",
-                        ),
                         spacing="2",
                         align="center",
                     ),
@@ -2611,6 +2601,27 @@ def settings_accordion() -> rx.Component:
                     ),
                     spacing="3",
                     align="center",
+                ),
+
+                # AIfred RoPE Scaling - Only visible for Ollama
+                rx.cond(
+                    AIState.backend_id == "ollama",
+                    rx.hstack(
+                        rx.text("  └─ RoPE:", font_size="10px", color="gray"),
+                        rx.select.root(
+                            rx.select.trigger(placeholder=AIState.rope_factor_display),
+                            rx.select.content(
+                                rx.select.item("1.0x", value="1.0x"),
+                                rx.select.item("1.5x", value="1.5x"),
+                                rx.select.item("2.0x", value="2.0x"),
+                            ),
+                            value=AIState.rope_factor_display,
+                            on_change=AIState.set_aifred_rope_factor,
+                            size="1",
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
                 ),
 
                 # Sokrates LLM Selection - Only visible when multi-agent mode is not "standard"
@@ -2647,6 +2658,27 @@ def settings_accordion() -> rx.Component:
                             ),
                         ),
                         spacing="3",
+                        align="center",
+                    ),
+                ),
+
+                # Sokrates RoPE Scaling - Only visible for Ollama and multi-agent mode != standard
+                rx.cond(
+                    (AIState.backend_id == "ollama") & (AIState.multi_agent_mode != "standard") & AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text("  └─ RoPE:", font_size="10px", color="gray"),
+                        rx.select.root(
+                            rx.select.trigger(placeholder=AIState.sokrates_rope_display),
+                            rx.select.content(
+                                rx.select.item("1.0x", value="1.0x"),
+                                rx.select.item("1.5x", value="1.5x"),
+                                rx.select.item("2.0x", value="2.0x"),
+                            ),
+                            value=AIState.sokrates_rope_display,
+                            on_change=AIState.set_sokrates_rope_factor,
+                            size="1",
+                        ),
+                        spacing="2",
                         align="center",
                     ),
                 ),
@@ -2689,6 +2721,27 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
+                # Salomo RoPE Scaling - Only visible for Ollama and auto_consensus/tribunal modes
+                rx.cond(
+                    (AIState.backend_id == "ollama") & ((AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal")) & AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text("  └─ RoPE:", font_size="10px", color="gray"),
+                        rx.select.root(
+                            rx.select.trigger(placeholder=AIState.salomo_rope_display),
+                            rx.select.content(
+                                rx.select.item("1.0x", value="1.0x"),
+                                rx.select.item("1.5x", value="1.5x"),
+                                rx.select.item("2.0x", value="2.0x"),
+                            ),
+                            value=AIState.salomo_rope_display,
+                            on_change=AIState.set_salomo_rope_factor,
+                            size="1",
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
+                ),
+
                 # Automatik LLM Selection - Hidden for KoboldCPP (single model only)
                 rx.cond(
                     AIState.backend_supports_dynamic_models,
@@ -2718,6 +2771,27 @@ def settings_accordion() -> rx.Component:
                             ),
                         ),
                         spacing="3",
+                        align="center",
+                    ),
+                ),
+
+                # Automatik RoPE Scaling - Only visible for Ollama
+                rx.cond(
+                    (AIState.backend_id == "ollama") & AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text("  └─ RoPE:", font_size="10px", color="gray"),
+                        rx.select.root(
+                            rx.select.trigger(placeholder=AIState.automatik_rope_display),
+                            rx.select.content(
+                                rx.select.item("1.0x", value="1.0x"),
+                                rx.select.item("1.5x", value="1.5x"),
+                                rx.select.item("2.0x", value="2.0x"),
+                            ),
+                            value=AIState.automatik_rope_display,
+                            on_change=AIState.set_automatik_rope_factor,
+                            size="1",
+                        ),
+                        spacing="2",
                         align="center",
                     ),
                 ),
@@ -2752,6 +2826,27 @@ def settings_accordion() -> rx.Component:
                             ),
                         ),
                         spacing="3",
+                        align="center",
+                    ),
+                ),
+
+                # Vision RoPE Scaling - Only visible for Ollama
+                rx.cond(
+                    (AIState.backend_id == "ollama") & AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text("  └─ RoPE:", font_size="10px", color="gray"),
+                        rx.select.root(
+                            rx.select.trigger(placeholder=AIState.vision_rope_display),
+                            rx.select.content(
+                                rx.select.item("1.0x", value="1.0x"),
+                                rx.select.item("1.5x", value="1.5x"),
+                                rx.select.item("2.0x", value="2.0x"),
+                            ),
+                            value=AIState.vision_rope_display,
+                            on_change=AIState.set_vision_rope_factor,
+                            size="1",
+                        ),
+                        spacing="2",
                         align="center",
                     ),
                 ),

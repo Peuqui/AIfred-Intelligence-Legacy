@@ -226,7 +226,6 @@ class TranslationManager:
             # Context Calibration
             "calibrate_context": "Context kalibrieren",
             "calibrating": "Kalibriere...",
-            "up_to_2x": "RoPE bis 2x",
         },
         "en": {
             # UI Labels
@@ -410,7 +409,6 @@ class TranslationManager:
             # Context Calibration
             "calibrate_context": "Calibrate context",
             "calibrating": "Calibrating...",
-            "up_to_2x": "RoPE up to 2x",
         }
     }
 
