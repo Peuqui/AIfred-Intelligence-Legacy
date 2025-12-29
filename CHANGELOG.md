@@ -5,6 +5,51 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.4] - 2025-12-29
+
+### 📐 Smart RoPE Calibration & VRAM Optimization
+
+**Intelligente Kalibrierung aller RoPE-Faktoren mit automatischer VRAM-Limit-Erkennung.**
+
+#### Added
+
+- **Full RoPE Calibration** ([state.py](aifred/state.py)):
+  - Kalibriert jetzt alle drei RoPE-Faktoren (1.0x, 1.5x, 2.0x) sequenziell
+  - Jeder Faktor wird einzeln getestet und im Cache gespeichert
+  - Separator-Linien zwischen Kalibrierungen für bessere Lesbarkeit
+
+- **VRAM-Limited Auto-Detection** ([state.py](aifred/state.py)):
+  - Erkennt automatisch wenn VRAM der Flaschenhals ist (calibrated < native)
+  - Bei VRAM-Limit: RoPE-Scaling bringt keinen Vorteil
+  - Setzt 1.5x und 2.0x automatisch auf den 1.0x-Wert
+  - Überspringt unnötige Kalibrierungs-Tests → schnellerer Startup
+  - Markiert auto-gesetzte Werte mit "(auto)" im Summary
+
+- **Dynamic VRAM Stabilization** ([ollama.py](aifred/backends/ollama.py)):
+  - Neue Funktion `wait_for_vram_stable()` ersetzt fixen 2s Sleep
+  - Pollt VRAM bis es stabil ist (2 konsekutive Messungen < 100MB Änderung)
+  - Funktioniert mit langsamen GPUs wie Tesla P40
+  - Timeout nach 10 Sekunden mit Fallback
+
+#### Changed
+
+- **Disabled Manual Model Unload** ([ollama.py](aifred/backends/ollama.py)):
+  - `unload_all_models()` vor Kalibrierung deaktiviert
+  - Ollama verwaltet VRAM automatisch via LRU
+  - Unnötige Unloads verursachten Wartezeiten ohne Nutzen
+
+- **Removed Auto-Set RoPE 2x Logic** ([ollama.py](aifred/backends/ollama.py)):
+  - Alte Logik setzte automatisch RoPE 2x wenn 1x kalibriert wurde
+  - Redundant mit neuer sequenzieller Kalibrierung
+  - Entfernt um doppelte Console-Ausgaben zu vermeiden
+
+#### Fixed
+
+- **Debug Console Formatting**:
+  - Separator-Linie nach "Desktop device detected" für klaren Startup-Abschluss
+  - Leerzeile vor Summary entfernt
+  - Abschließende Separator-Linie nach Kalibrierungs-Summary
+
 ## [2.14.3] - 2025-12-28
 
 ### 🎯 Intent Detection Improvements & Performance Optimizations

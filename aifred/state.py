@@ -4123,6 +4123,11 @@ class AIState(rx.State):
         device_type = "📱 Mobile" if is_mobile else "🖥️ Desktop"
         self.add_debug(f"{device_type} device detected")
 
+        # Add separator after browser/device detection (marks end of startup)
+        from aifred.lib.logging_utils import console_separator
+        console_separator()  # File log
+        self.debug_messages.append("────────────────────")  # UI
+
     # ============================================================
     # AUDIO UPLOAD HANDLER (STT)
     # ============================================================
@@ -4688,33 +4693,91 @@ class AIState(rx.State):
             return
 
         self.is_calibrating = True
-        mode_label = "RoPE 2x" if self.aifred_rope_factor else "Native"
-        self.add_debug(f"🔧 Starting {mode_label} calibration for {self.aifred_model_id}...")
+        self.add_debug(f"🔧 Starting calibration for {self.aifred_model_id}...")
         yield
 
         try:
             from .backends import BackendFactory
+            from .lib.formatting import format_number
+            from .lib.model_vram_cache import add_ollama_calibration
+            from .lib.gpu_utils import get_gpu_model_name
 
             backend = BackendFactory.create(
                 self.backend_type,
                 base_url=self.backend_url
             )
 
+            # Get native context limit first
+            native_ctx, _ = await backend.get_model_context_limit(self.aifred_model_id)
+            calibration_results = {}
+            vram_limited = False
+
+            # === STEP 1: Calibrate Native (1.0x) ===
+            self.add_debug("📐 Calibrating Native (1.0x)...")
+            yield
+
             calibrated_ctx = None
             async for progress_msg in backend.calibrate_max_context_generator(
                 self.aifred_model_id,
-                rope_factor=self.aifred_rope_factor  # Pass extended flag
+                rope_factor=1.0
             ):
-                # Check for result marker
                 if progress_msg.startswith("__RESULT__:"):
                     calibrated_ctx = int(progress_msg.split(":")[1])
+                    calibration_results[1.0] = calibrated_ctx
                 else:
                     self.add_debug(f"📊 {progress_msg}")
-                    yield  # Update UI after each progress message
+                    yield
 
-            if calibrated_ctx:
-                self.add_debug("   → Value will be used automatically on next inference")
-                self.add_debug("─" * 40)
+            # === STEP 2: Check if VRAM-limited ===
+            if calibrated_ctx and calibrated_ctx < native_ctx:
+                # VRAM is the bottleneck - RoPE scaling won't help
+                vram_limited = True
+                self.add_debug(f"{'─' * 40}")
+                self.add_debug(f"⚡ VRAM-limited: {format_number(calibrated_ctx)} < {format_number(native_ctx)} native")
+                self.add_debug("   → RoPE scaling won't increase context (same VRAM limit)")
+                self.add_debug(f"   → Auto-setting RoPE 1.5x and 2.0x to {format_number(calibrated_ctx)}")
+                yield
+
+                # Save same value for 1.5x and 2.0x
+                gpu_model = get_gpu_model_name() or "Unknown"
+                for rope_factor in [1.5, 2.0]:
+                    add_ollama_calibration(
+                        model_name=self.aifred_model_id,
+                        max_context_gpu_only=calibrated_ctx,
+                        native_context=native_ctx,
+                        gpu_model=gpu_model,
+                        rope_factor=rope_factor
+                    )
+                    calibration_results[rope_factor] = calibrated_ctx
+
+            else:
+                # === STEP 3: Calibrate RoPE 1.5x and 2.0x (only if not VRAM-limited) ===
+                for rope_factor in [1.5, 2.0]:
+                    self.add_debug(f"{'─' * 40}")
+                    self.add_debug(f"📐 Calibrating RoPE {rope_factor}x...")
+                    yield
+
+                    calibrated_ctx = None
+                    async for progress_msg in backend.calibrate_max_context_generator(
+                        self.aifred_model_id,
+                        rope_factor=rope_factor
+                    ):
+                        if progress_msg.startswith("__RESULT__:"):
+                            calibrated_ctx = int(progress_msg.split(":")[1])
+                            calibration_results[rope_factor] = calibrated_ctx
+                        else:
+                            self.add_debug(f"📊 {progress_msg}")
+                            yield
+
+            # Summary
+            self.add_debug(f"{'═' * 40}")
+            self.add_debug(f"✅ Calibration complete for {self.aifred_model_id}:")
+            for factor, ctx in calibration_results.items():
+                label = "Native" if factor == 1.0 else f"RoPE {factor}x"
+                suffix = " (auto)" if vram_limited and factor > 1.0 else ""
+                self.add_debug(f"   {label}: {format_number(ctx)} tok{suffix}")
+            self.add_debug("   → Values will be used automatically based on RoPE setting")
+            self.add_debug(f"{'─' * 40}")
 
         except Exception as e:
             self.add_debug(f"❌ Calibration failed: {e}")

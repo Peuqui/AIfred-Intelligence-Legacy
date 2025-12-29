@@ -23,6 +23,65 @@ from ..lib.config import HYBRID_MIN_CONTEXT, RAM_RESERVE_MIN
 logger = logging.getLogger(__name__)
 
 
+async def wait_for_vram_stable(
+    max_wait_seconds: float = 10.0,
+    stability_threshold_mb: int = 100,
+    check_interval: float = 0.5
+) -> tuple[bool, float, int]:
+    """
+    Wait for VRAM to stabilize after model unloading.
+
+    Instead of a fixed sleep, this polls VRAM until it stops changing.
+    This handles slower GPUs (like P40) that take longer to release memory.
+
+    Args:
+        max_wait_seconds: Maximum time to wait (default 10s)
+        stability_threshold_mb: VRAM change below this = stable (default 100MB)
+        check_interval: Time between checks (default 0.5s)
+
+    Returns:
+        tuple: (stabilized: bool, wait_time: float, final_vram_mb: int)
+    """
+    import asyncio
+    from ..lib.gpu_utils import get_free_vram_mb
+
+    start_time = time.time()
+    last_vram = get_free_vram_mb()
+    stable_count = 0
+    required_stable_checks = 2  # Need 2 consecutive stable readings
+
+    if last_vram is None:
+        # No VRAM info available, just wait a bit
+        await asyncio.sleep(2.0)
+        return (True, 2.0, 0)
+
+    while (time.time() - start_time) < max_wait_seconds:
+        await asyncio.sleep(check_interval)
+        current_vram = get_free_vram_mb()
+
+        if current_vram is None:
+            continue
+
+        vram_change = abs(current_vram - last_vram)
+
+        if vram_change < stability_threshold_mb:
+            stable_count += 1
+            if stable_count >= required_stable_checks:
+                # VRAM is stable
+                wait_time = time.time() - start_time
+                return (True, wait_time, current_vram)
+        else:
+            # VRAM still changing, reset counter
+            stable_count = 0
+
+        last_vram = current_vram
+
+    # Timeout - return current state
+    wait_time = time.time() - start_time
+    final_vram = get_free_vram_mb() or 0
+    return (False, wait_time, final_vram)
+
+
 class OllamaBackend(LLMBackend):
     """Ollama backend implementation"""
 
@@ -526,7 +585,7 @@ class OllamaBackend(LLMBackend):
                 "options": options
             }
 
-            log_message(f"⏱️ preload_model: Sending request to Ollama...")
+            log_message("⏱️ preload_model: Sending request to Ollama...")
             response = await self.client.post(
                 f"{self.base_url}/api/chat",
                 json=payload
@@ -761,7 +820,6 @@ class OllamaBackend(LLMBackend):
         Returns:
             tuple[int, list[str]]: (context_limit, debug_messages)
         """
-        import asyncio
         from ..lib.gpu_utils import calculate_vram_based_context, get_model_size_from_cache
 
         debug_msgs = []
@@ -892,7 +950,13 @@ class OllamaBackend(LLMBackend):
         # 2. Unload all models for clean VRAM state
         yield "Unloading all models..."
         await self.unload_all_models()
-        await asyncio.sleep(2.0)
+
+        # Wait for VRAM to stabilize (handles slower GPUs like P40)
+        stabilized, wait_time, free_vram = await wait_for_vram_stable()
+        if stabilized:
+            yield f"VRAM stable after {wait_time:.1f}s"
+        else:
+            yield f"VRAM stabilization timeout ({wait_time:.1f}s)"
 
         # === HYBRID MODE DETECTION ===
         # Check if model is larger than available VRAM (requires CPU offloading)
@@ -900,7 +964,6 @@ class OllamaBackend(LLMBackend):
             get_free_vram_mb, get_free_ram_mb, get_dynamic_ram_reserve, is_moe_model
         )
         from ..lib.config import (
-            HYBRID_MIN_CONTEXT, RAM_RESERVE_MIN,
             VRAM_CONTEXT_RATIO_MOE, VRAM_CONTEXT_RATIO_DENSE
         )
 
@@ -924,14 +987,14 @@ class OllamaBackend(LLMBackend):
         elif model_size_mb > free_vram_mb:
             # Model larger than VRAM → Hybrid mode with direct calculation
             yield f"⚠️ Model ({format_number(model_size_mb / 1024, 1)} GB) > VRAM ({format_number(free_vram_mb / 1024, 1)} GB)"
-            yield f"→ Hybrid mode: CPU offload required"
+            yield "→ Hybrid mode: CPU offload required"
 
             # Check if model fits in VRAM + RAM
             total_available_mb = free_vram_mb + free_ram_mb - RAM_RESERVE_MIN
             if model_size_mb > total_available_mb:
                 yield f"❌ Model ({format_number(model_size_mb / 1024, 1)} GB) > available ({format_number(total_available_mb / 1024, 1)} GB)"
-                yield f"❌ ABORT: Model too large for system"
-                yield f"__RESULT__:0"
+                yield "❌ ABORT: Model too large for system"
+                yield "__RESULT__:0"
                 return
 
             # === DIRECT CALCULATION ===
@@ -954,7 +1017,7 @@ class OllamaBackend(LLMBackend):
             available_for_context = estimated_free_ram_after - dynamic_reserve
             if available_for_context <= 0:
                 yield f"❌ Not enough RAM for context (need {format_number(dynamic_reserve / 1024, 1)} GB reserve)"
-                yield f"__RESULT__:0"
+                yield "__RESULT__:0"
                 return
 
             calculated_tokens = int(available_for_context / ratio)
@@ -971,7 +1034,7 @@ class OllamaBackend(LLMBackend):
                 success, _ = await self.preload_model(model, num_ctx=HYBRID_MIN_CONTEXT)
                 if not success:
                     yield f"❌ Even {format_number(HYBRID_MIN_CONTEXT)} tokens failed"
-                    yield f"__RESULT__:0"
+                    yield "__RESULT__:0"
                     return
                 calculated_ctx = HYBRID_MIN_CONTEXT
 
@@ -1031,7 +1094,7 @@ class OllamaBackend(LLMBackend):
                         success, _ = await self.preload_model(model, num_ctx=reduce_ctx)
                         if not success:
                             yield f"❌ Reduction to {format_number(reduce_ctx)} failed"
-                            yield f"__RESULT__:0"
+                            yield "__RESULT__:0"
                             return
 
                         calculated_ctx = reduce_ctx
@@ -1052,7 +1115,7 @@ class OllamaBackend(LLMBackend):
                             yield f"→ Still below reserve: {format_number(check_ram / 1024, 1)} GB free (need {format_number(current_reserve / 1024, 1)} GB)"
 
                         if reduce_ctx == HYBRID_MIN_CONTEXT:
-                            yield f"⚠️ At minimum context - cannot reduce further"
+                            yield "⚠️ At minimum context - cannot reduce further"
                             break
 
             final_ctx = calculated_ctx
@@ -1076,16 +1139,7 @@ class OllamaBackend(LLMBackend):
 
             yield f"✅ Hybrid mode: {format_number(final_ctx)} tokens saved"
 
-            # Also save extended value (hybrid mode = same limit for both)
-            if rope_factor == 1.0:
-                add_ollama_calibration(
-                    model_name=model,
-                    max_context_gpu_only=final_ctx,
-                    native_context=native_ctx,
-                    gpu_model=gpu_model,
-                    rope_factor=2.0
-                )
-                yield f"ℹ️ RoPE 2x auto-set to {format_number(final_ctx)} (hybrid mode)"
+            # NOTE: No longer auto-setting RoPE 2x here - we calibrate all RoPE factors explicitly
 
             yield f"__RESULT__:{final_ctx}"
             return  # Skip normal binary search
@@ -1108,7 +1162,7 @@ class OllamaBackend(LLMBackend):
                 high = max_target
                 result = low
         else:
-            yield f"⚠️ Preload failed, starting binary search..."
+            yield "⚠️ Preload failed, starting binary search..."
             low = CALIBRATION_MIN_CONTEXT
             high = max_target
             result = low
@@ -1155,7 +1209,7 @@ class OllamaBackend(LLMBackend):
                             # Check if Ollama is still responsive
                             try:
                                 await self.unload_all_models()
-                                await asyncio.sleep(2.0)
+                                await wait_for_vram_stable(max_wait_seconds=5.0)
                             except Exception:
                                 yield "❌ Ollama unresponsive - please restart manually"
                                 return
@@ -1205,19 +1259,8 @@ class OllamaBackend(LLMBackend):
             rope_factor=rope_factor
         )
 
-        # 6. Auto-set extended value if native calibration is VRAM-limited
-        # If native calibration < native context limit, VRAM is the bottleneck
-        # → RoPE 2x wouldn't help, so set extended = native calibrated value
-        if rope_factor == 1.0 and final_ctx < native_ctx:
-            add_ollama_calibration(
-                model_name=model,
-                max_context_gpu_only=final_ctx,
-                native_context=native_ctx,
-                gpu_model=gpu_model,
-                rope_factor=2.0  # Also save as extended value
-            )
-            yield f"ℹ️ VRAM-limited ({format_number(final_ctx)} < {format_number(native_ctx)} native)"
-            yield f"   → RoPE 2x auto-set to {format_number(final_ctx)} (no benefit from scaling)"
+        # NOTE: No longer auto-setting RoPE 2x here - we calibrate all RoPE factors explicitly
+        # Each RoPE factor (1.0x, 1.5x, 2.0x) is calibrated separately in state.py
 
         # Final yield with result marker
         yield f"__RESULT__:{final_ctx}"

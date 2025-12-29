@@ -84,3 +84,6 @@ assets/tts_audio/
 
 # Uploaded Files (TTS audio, HTML preview, etc.)
 uploaded_files/
+
+# Test Directory (local test files)
+Test/
