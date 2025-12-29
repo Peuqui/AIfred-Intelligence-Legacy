@@ -316,7 +316,8 @@ def add_ollama_calibration(
     max_context_gpu_only: int,
     native_context: int,
     gpu_model: str = "Unknown",
-    rope_factor: float = 1.0
+    rope_factor: float = 1.0,
+    is_hybrid: bool = False
 ) -> bool:
     """
     Add a calibration point for an Ollama model.
@@ -336,6 +337,7 @@ def add_ollama_calibration(
         native_context: Model's architectural context limit
         gpu_model: GPU model name (e.g., "NVIDIA GeForce RTX 3090 Ti")
         rope_factor: RoPE scaling factor (1.0, 1.5, or 2.0)
+        is_hybrid: True if using CPU+GPU hybrid mode (CPU offload)
 
     Returns:
         True if successfully added, False otherwise
@@ -376,6 +378,7 @@ def add_ollama_calibration(
     # Add calibration point
     calibration = {
         field_name: max_context_gpu_only,
+        "is_hybrid": is_hybrid,
         "measured_at": datetime.now().isoformat()
     }
 
@@ -386,12 +389,51 @@ def add_ollama_calibration(
         cache[model_name]["ollama_calibrations"] = \
             cache[model_name]["ollama_calibrations"][-5:]
 
+    hybrid_label = " [HYBRID]" if is_hybrid else ""
     logger.info(
-        f"📊 Ollama calibration saved ({mode_label}): {model_name} → "
+        f"📊 Ollama calibration saved ({mode_label}{hybrid_label}): {model_name} → "
         f"{max_context_gpu_only:,} tokens (native: {native_context:,})"
     )
 
     return save_cache(cache)
+
+
+def get_ollama_calibration(model_name: str, rope_factor: float = 1.0) -> Optional[int]:
+    """
+    Get the calibrated max context for an Ollama model from persistent cache.
+
+    Args:
+        model_name: Ollama model name (e.g., "qwen3:8b")
+        rope_factor: RoPE scaling factor (1.0, 1.5, or 2.0)
+
+    Returns:
+        Calibrated max context tokens, or None if not found
+    """
+    cache = load_cache()
+
+    if model_name not in cache:
+        return None
+
+    model_data = cache[model_name]
+    calibrations = model_data.get("ollama_calibrations", [])
+
+    if not calibrations:
+        return None
+
+    # Determine field name based on RoPE factor
+    if rope_factor == 1.5:
+        field_name = "max_context_1.5x"
+    elif rope_factor == 2.0:
+        field_name = "max_context_2.0x"
+    else:
+        field_name = "max_context_1.0x"
+
+    # Get latest calibration with the requested RoPE factor
+    for cal in reversed(calibrations):
+        if field_name in cal:
+            return cal[field_name]
+
+    return None
 
 
 def get_rope_factor_for_model(model_name: str) -> float:

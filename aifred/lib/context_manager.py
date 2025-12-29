@@ -31,6 +31,99 @@ from .config import (
 _tokenizer_cache = {}
 
 
+def parse_model_size_from_name(model_name: str) -> float:
+    """
+    Extract model size (in billions of parameters) from model name.
+
+    Supports common naming patterns:
+    - "qwen3:8b" → 8.0
+    - "gemma2:2b" → 2.0
+    - "llama3.1:70b-instruct-q4_K_M" → 70.0
+    - "phi3:3.8b" → 3.8
+    - "mistral:7b" → 7.0
+    - "qwen2.5-coder:32b" → 32.0
+
+    Args:
+        model_name: Model identifier (e.g., "qwen3:8b", "gemma2:2b-instruct")
+
+    Returns:
+        float: Size in billions (e.g., 8.0 for 8B), or 0.0 if not parseable
+    """
+    if not model_name:
+        return 0.0
+
+    # Convert to lowercase for matching
+    name_lower = model_name.lower()
+
+    # Pattern: look for number followed by 'b' (billions)
+    # Matches: 8b, 70b, 3.8b, 0.5b, etc.
+    pattern = r'[:\-_]?(\d+(?:\.\d+)?)\s*b(?:[^a-z]|$)'
+    match = re.search(pattern, name_lower)
+
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            pass
+
+    # Fallback: check for size in the tag after colon
+    if ':' in model_name:
+        tag = model_name.split(':')[1].lower()
+        # Try to find number followed by 'b' in tag
+        simple_match = re.search(r'^(\d+(?:\.\d+)?)\s*b', tag)
+        if simple_match:
+            try:
+                return float(simple_match.group(1))
+            except ValueError:
+                pass
+
+    return 0.0
+
+
+def get_largest_compression_model(
+    aifred_model: str,
+    sokrates_model: str,
+    salomo_model: str
+) -> str:
+    """
+    Select the largest model from AIfred, Sokrates, and Salomo for compression.
+
+    Compression quality is critical - use the most capable model available.
+    Falls back to aifred_model if sizes cannot be determined.
+
+    Args:
+        aifred_model: AIfred's model ID
+        sokrates_model: Sokrates' model ID
+        salomo_model: Salomo's model ID
+
+    Returns:
+        str: Model ID of the largest model (by parameter count)
+    """
+    candidates = [
+        (aifred_model, parse_model_size_from_name(aifred_model)),
+        (sokrates_model, parse_model_size_from_name(sokrates_model)),
+        (salomo_model, parse_model_size_from_name(salomo_model)),
+    ]
+
+    # Filter out empty models and sort by size (descending)
+    valid_candidates = [(m, s) for m, s in candidates if m and s > 0]
+
+    if not valid_candidates:
+        # Fallback: return first non-empty model
+        for model, _ in candidates:
+            if model:
+                return model
+        return aifred_model  # Ultimate fallback
+
+    # Sort by size descending, return largest
+    valid_candidates.sort(key=lambda x: x[1], reverse=True)
+    largest_model, largest_size = valid_candidates[0]
+
+    log_message(f"🗜️ Compression model: {largest_model} ({largest_size}B) - largest of AIfred/Sokrates/Salomo")
+
+    return largest_model
+
+
 def count_tokens_with_tokenizer(text: str, model_name: str) -> int:
     """
     Count tokens using HuggingFace AutoTokenizer (cached, fast after first load)

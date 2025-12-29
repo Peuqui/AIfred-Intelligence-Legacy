@@ -418,9 +418,10 @@ AUTOMATIK_LLM_NUM_CTX = 4096  # 4K context for all Automatik tasks
 NUM_CTX_MANUAL_MAX = 2097152  # 2M tokens
 
 # Minimum context for Ollama calibration binary search
-# This is the lower bound - calibration will find values >= this
-# Set low (512) to support large models (70B+) on limited VRAM
-CALIBRATION_MIN_CONTEXT = 512  # Minimum tokens for calibration
+# This is the lower bound - models with context < this are unusable for conversation
+# 8K ensures models can handle multi-turn conversations and summaries
+# If GPU-only calibration yields < 8K, Hybrid calibration is triggered
+CALIBRATION_MIN_CONTEXT = 8192  # 8K minimum for usable context
 
 # ============================================================
 # VISION/OCR CONTEXT CONSTANTS

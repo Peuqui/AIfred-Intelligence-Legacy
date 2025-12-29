@@ -24,6 +24,7 @@ from .context_manager import (
     estimate_tokens,
     strip_thinking_blocks,
     summarize_history_if_needed,
+    get_largest_compression_model,
     _last_vram_limit_cache
 )
 from .prompt_loader import (
@@ -377,11 +378,18 @@ async def _check_compression_if_needed(
         system_prompt_tokens: Estimated tokens for current agent's system prompt (v2.14.0+)
     """
     try:
+        # Select largest model for compression (AIfred/Sokrates/Salomo)
+        compression_model = get_largest_compression_model(
+            aifred_model=state.aifred_model_id,
+            sokrates_model=state.sokrates_model_id,
+            salomo_model=state.salomo_model_id
+        )
+
         # Run compression check (yields events if compression happens) - DUAL-HISTORY
         async for event in summarize_history_if_needed(
             history=state.chat_history,
             llm_client=llm_client,
-            model_name=state.automatik_model_id,  # Pure model ID (not display name!)
+            model_name=compression_model,  # Use largest available model for quality
             context_limit=context_limit,
             llm_history=state.llm_history,
             system_prompt_tokens=system_prompt_tokens
