@@ -41,7 +41,26 @@ from .prompt_loader import (
     get_salomo_judge_prompt,
 )
 from .logging_utils import log_message, console_separator
+from .config import DEBUG_LOG_RAW_MESSAGES
 from ..backends.base import LLMOptions
+
+
+def _log_raw_messages(agent_name: str, round_num: int, messages: list) -> None:
+    """
+    Log RAW messages sent to an LLM (debug.log only).
+
+    Only logs when DEBUG_LOG_RAW_MESSAGES is True in config.py.
+    Useful for debugging prompt injection and agent confusion issues.
+    """
+    if not DEBUG_LOG_RAW_MESSAGES:
+        return
+
+    log_message(f"📤 [RAW] {agent_name} R{round_num} - {len(messages)} messages:")
+    for i, msg in enumerate(messages):
+        role = msg.get("role", "?")
+        content = msg.get("content", "")
+        preview = content[:200].replace("\n", "\\n") if content else ""
+        log_message(f"   [{i}] role={role}, len={len(content)}: {preview}...")
 
 if TYPE_CHECKING:
     from ..state import AIState
@@ -359,7 +378,7 @@ async def _stream_salomo_to_history(
 async def _check_compression_if_needed(
     state: 'AIState',
     llm_client: LLMClient,
-    context_limit: int,
+    agent_context_limit: int,
     system_prompt_tokens: int = 0
 ) -> AsyncGenerator[None, None]:
     """
@@ -369,12 +388,16 @@ async def _check_compression_if_needed(
     This function handles compression DURING long debates where the debate itself
     might push context usage above threshold.
 
-    Compression triggers at 70% of context_limit (HISTORY_COMPRESSION_TRIGGER).
+    Compression triggers at 70% of agent_context_limit (HISTORY_COMPRESSION_TRIGGER).
+
+    IMPORTANT (v2.14.4+): Use the CURRENT AGENT's context limit, not min_ctx!
+    Each agent (AIfred, Sokrates, Salomo) may have different context windows.
+    Compression should trigger based on the NEXT agent's limit to prevent overflow.
 
     Args:
         state: AIState instance
         llm_client: LLM client for compression
-        context_limit: Context window limit
+        agent_context_limit: Context window limit OF THE NEXT AGENT (not min_ctx!)
         system_prompt_tokens: Estimated tokens for current agent's system prompt (v2.14.0+)
     """
     try:
@@ -390,7 +413,7 @@ async def _check_compression_if_needed(
             history=state.chat_history,
             llm_client=llm_client,
             model_name=compression_model,  # Use largest available model for quality
-            context_limit=context_limit,
+            context_limit=agent_context_limit,  # Use agent-specific limit, not min_ctx!
             llm_history=state.llm_history,
             system_prompt_tokens=system_prompt_tokens
         ):
@@ -463,8 +486,13 @@ async def run_sokrates_direct_response(
         # Load system prompt from file (no hardcoded prompts!)
         system_prompt = get_sokrates_direct_prompt(lang=detected_lang)
 
-        # Build messages from LLM history (compressed, not full chat_history)
-        messages: list[dict[str, Any]] = build_messages_from_llm_history(state.llm_history[:-1], user_query)
+        # Build messages from LLM history with Sokrates perspective
+        # Sokrates sees his own messages as 'assistant', others as 'user'
+        messages: list[dict[str, Any]] = build_messages_from_llm_history(
+            state.llm_history[:-1],
+            user_query,
+            perspective="sokrates"
+        )
 
         # Prepend system message
         messages.insert(0, {"role": "system", "content": system_prompt})
@@ -642,8 +670,13 @@ async def run_salomo_direct_response(
         # Load system prompt from file (no hardcoded prompts!)
         system_prompt = get_salomo_direct_prompt(lang=detected_lang)
 
-        # Build messages from LLM history (compressed, not full chat_history)
-        messages: list[dict[str, Any]] = build_messages_from_llm_history(state.llm_history[:-1], user_query)
+        # Build messages from LLM history with Salomo perspective
+        # Salomo sees his own messages as 'assistant', others as 'user'
+        messages: list[dict[str, Any]] = build_messages_from_llm_history(
+            state.llm_history[:-1],
+            user_query,
+            perspective="salomo"
+        )
 
         # Prepend system message
         messages.insert(0, {"role": "system", "content": system_prompt})
@@ -836,29 +869,47 @@ async def run_sokrates_analysis(
             if aifred_cached == 0:
                 state.add_debug("⚠️ No cached AIfred VRAM limit found, using fallback 32K")
 
-        # Sokrates context
+        # Import VRAM cache functions (used for all agents in auto mode)
+        from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+
+        # Sokrates context - read from VRAM cache
         if getattr(state, 'num_ctx_manual_sokrates_enabled', False):
             sokrates_num_ctx = state.num_ctx_manual_sokrates if state.num_ctx_manual_sokrates else 4096
             state.add_debug(f"🔧 Sokrates num_ctx: {sokrates_num_ctx:,} (manual)")
         else:
-            # Auto mode: Calculate VRAM limit for Sokrates model
-            sokrates_num_ctx, sokrates_vram_msgs = await calculate_dynamic_num_ctx(
-                llm_client, sokrates_model, [], None,
-                enable_vram_limit=True
-            )
-            for vram_msg in sokrates_vram_msgs:
-                state.add_debug(f"   {vram_msg}")  # Indent to show it's for Sokrates
+            # Read from VRAM cache (already calibrated)
+            rope_factor = get_rope_factor_for_model(sokrates_model)
+            sokrates_num_ctx = get_ollama_calibration(sokrates_model, rope_factor)
+            if sokrates_num_ctx:
+                state.add_debug(f"   🎯 Calibrated: {sokrates_num_ctx:,} tok (from VRAM cache)")
+            else:
+                sokrates_num_ctx = 32768  # Fallback if not calibrated
+                state.add_debug("⚠️ Sokrates model not calibrated, using fallback 32K")
+
+        # Salomo context - read from VRAM cache
+        salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
+        if getattr(state, 'num_ctx_manual_salomo_enabled', False):
+            salomo_num_ctx = state.num_ctx_manual_salomo if hasattr(state, 'num_ctx_manual_salomo') else 4096
+            state.add_debug(f"🔧 Salomo num_ctx: {salomo_num_ctx:,} (manual)")
+        else:
+            # Read from VRAM cache (already calibrated)
+            rope_factor = get_rope_factor_for_model(salomo_model)
+            salomo_num_ctx = get_ollama_calibration(salomo_model, rope_factor)
+            if not salomo_num_ctx:
+                salomo_num_ctx = 32768  # Fallback if not calibrated
 
         # Store separate limits for each agent
         _last_vram_limit_cache["aifred_limit"] = main_llm_ctx
         _last_vram_limit_cache["sokrates_limit"] = sokrates_num_ctx
+        _last_vram_limit_cache["salomo_limit"] = salomo_num_ctx
 
-        # Update global limit with MINIMUM of both (for history compression)
-        min_ctx = min(sokrates_num_ctx, main_llm_ctx)
+        # Update global limit with MINIMUM of all (for history compression)
+        min_ctx = min(sokrates_num_ctx, main_llm_ctx, salomo_num_ctx)
         _last_vram_limit_cache["limit"] = min_ctx
         state.add_debug(
             f"📊 Context limits: AIfred={format_number(main_llm_ctx/1000, 3)}k, "
             f"Sokrates={format_number(sokrates_num_ctx/1000, 3)}k, "
+            f"Salomo={format_number(salomo_num_ctx/1000, 3)}k, "
             f"Compression={format_number(min_ctx/1000, 3)}k"
         )
 
@@ -932,8 +983,9 @@ async def run_sokrates_analysis(
 
             # PRE-SOKRATES: Check if compression needed before Sokrates call
             # Include Sokrates system prompt in token calculation (v2.14.0+)
+            # IMPORTANT (v2.14.4+): Use SOKRATES' context limit, not min_ctx!
             sokrates_prompt_tokens = _estimate_prompt_tokens(system_prompt)
-            async for _ in _check_compression_if_needed(state, llm_client, min_ctx, sokrates_prompt_tokens):
+            async for _ in _check_compression_if_needed(state, llm_client, sokrates_num_ctx, sokrates_prompt_tokens):
                 yield
 
             # Add placeholder for Sokrates
@@ -951,6 +1003,9 @@ async def run_sokrates_analysis(
                 f"📊 Sokrates R{round_num}: {format_number(sokrates_msg_tokens)} / "
                 f"{format_number(sokrates_ctx)} tokens"
             )
+
+            # DEBUG: Log RAW messages sent to Sokrates (controlled by DEBUG_LOG_RAW_MESSAGES)
+            _log_raw_messages("Sokrates", round_num, sokrates_messages)
 
             # Stream Sokrates response
             async for _ in _stream_sokrates_to_history(
@@ -1046,8 +1101,9 @@ async def run_sokrates_analysis(
 
                 # PRE-SALOMO: Check if compression needed before Salomo call
                 # Include Salomo system prompt in token calculation (v2.14.0+)
+                # IMPORTANT (v2.14.4+): Use SALOMO's context limit, not min_ctx!
                 salomo_prompt_tokens = _estimate_prompt_tokens(salomo_system)
-                async for _ in _check_compression_if_needed(state, llm_client, min_ctx, salomo_prompt_tokens):
+                async for _ in _check_compression_if_needed(state, llm_client, salomo_num_ctx, salomo_prompt_tokens):
                     yield
 
                 # Estimate tokens for Salomo (consistent with Sokrates debug output)
@@ -1056,6 +1112,9 @@ async def run_sokrates_analysis(
                     f"📊 Salomo R{round_num}: {format_number(salomo_msg_tokens)} / "
                     f"{format_number(salomo_num_ctx)} tokens"
                 )
+
+                # DEBUG: Log RAW messages sent to Salomo (controlled by DEBUG_LOG_RAW_MESSAGES)
+                _log_raw_messages("Salomo", round_num, salomo_messages)
 
                 # Add placeholder for Salomo
                 salomo_marker = f"👑[{t('salomo_synthesis_label', lang=state.ui_language).rstrip(':')} R{round_num}]"
@@ -1127,16 +1186,19 @@ async def run_sokrates_analysis(
                 # If no consensus and more rounds available: AIfred refines based on Salomo's feedback
                 if round_num < max_rounds:
                     # Build refinement prompt FIRST (needed for accurate token estimation)
+                    # IMPORTANT: Clean <think> tags from Salomo's response before embedding in prompt!
+                    cleaned_salomo_text = clean_content_for_llm(salomo_response_text)
                     refinement_prompt = get_sokrates_refinement_prompt(
-                        critique=salomo_response_text,  # Use Salomo's synthesis as guidance
+                        critique=cleaned_salomo_text,  # Use Salomo's synthesis as guidance (cleaned)
                         user_interjection=""
                     )
 
                     # PRE-AIFRED: Check if compression needed before AIfred refinement
                     # Include AIfred system prompt + refinement prompt in token calculation (v2.14.1+)
+                    # IMPORTANT (v2.14.4+): Use AIFRED's context limit, not min_ctx!
                     aifred_system_prompt = load_prompt('aifred/system_minimal', lang=state.ui_language)
                     aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
-                    async for _ in _check_compression_if_needed(state, llm_client, min_ctx, aifred_prompt_tokens):
+                    async for _ in _check_compression_if_needed(state, llm_client, main_llm_ctx, aifred_prompt_tokens):
                         yield
 
                     # Build messages with AIfred's perspective
@@ -1168,6 +1230,9 @@ async def run_sokrates_analysis(
                     state.chat_history.append(("", alfred_marker))
                     alfred_index = len(state.chat_history) - 1
                     yield
+
+                    # DEBUG: Log RAW messages sent to AIfred (controlled by DEBUG_LOG_RAW_MESSAGES)
+                    _log_raw_messages("AIfred", round_num + 1, alfred_messages)
 
                     # Stream AIfred refinement
                     async for _ in _stream_alfred_refinement(
@@ -1373,8 +1438,9 @@ async def run_tribunal(
 
             # PRE-SOKRATES: Check if compression needed before Sokrates call
             # Include Sokrates system prompt in token calculation (v2.14.0+)
+            # IMPORTANT (v2.14.4+): Use SOKRATES' context limit, not min_ctx!
             sokrates_prompt_tokens = _estimate_prompt_tokens(system_prompt)
-            async for _ in _check_compression_if_needed(state, llm_client, min_ctx, sokrates_prompt_tokens):
+            async for _ in _check_compression_if_needed(state, llm_client, sokrates_num_ctx, sokrates_prompt_tokens):
                 yield
 
             # Use llm_history (compressed) instead of chat_history (full UI)
@@ -1432,16 +1498,19 @@ async def run_tribunal(
             # --- AIFRED RESPONSE (if not last round) ---
             if round_num < max_rounds:
                 # Build refinement prompt FIRST (needed for accurate token estimation)
+                # IMPORTANT: Clean <think> tags from Sokrates' response before embedding in prompt!
+                cleaned_sokrates_text = clean_content_for_llm(sokrates_response_text)
                 refinement_prompt = get_sokrates_refinement_prompt(
-                    critique=sokrates_response_text,
+                    critique=cleaned_sokrates_text,
                     user_interjection=""
                 )
 
                 # PRE-AIFRED: Check if compression needed before AIfred refinement
                 # Include AIfred system prompt + refinement prompt in token calculation (v2.14.1+)
+                # IMPORTANT (v2.14.4+): Use AIFRED's context limit, not min_ctx!
                 aifred_system_prompt = load_prompt('aifred/system_minimal', lang=state.ui_language)
                 aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
-                async for _ in _check_compression_if_needed(state, llm_client, min_ctx, aifred_prompt_tokens):
+                async for _ in _check_compression_if_needed(state, llm_client, main_llm_ctx, aifred_prompt_tokens):
                     yield
 
                 # Use llm_history (compressed) instead of chat_history (full UI)
@@ -1509,8 +1578,9 @@ async def run_tribunal(
 
         # PRE-SALOMO: Check if compression needed before Salomo verdict
         # Include Salomo system prompt in token calculation (v2.14.0+)
+        # IMPORTANT (v2.14.4+): Use SALOMO's context limit, not min_ctx!
         salomo_prompt_tokens = _estimate_prompt_tokens(salomo_system)
-        async for _ in _check_compression_if_needed(state, llm_client, min_ctx, salomo_prompt_tokens):
+        async for _ in _check_compression_if_needed(state, llm_client, salomo_num_ctx, salomo_prompt_tokens):
             yield
 
         # Use llm_history (compressed) instead of chat_history (full UI)

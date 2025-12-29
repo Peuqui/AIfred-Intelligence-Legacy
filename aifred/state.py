@@ -3832,10 +3832,18 @@ class AIState(rx.State):
 
         Args:
             content: Raw AI response (may contain HTML, metadata, etc.)
+
+        Note: Always adds [AIFRED]: label for consistency with Multi-Agent history.
+              This ensures Sokrates/Salomo can reference AIfred's responses correctly
+              even in Standard mode or when switching modes mid-conversation.
         """
         from .lib.message_builder import clean_content_for_llm
         cleaned = clean_content_for_llm(content)
         if cleaned:
+            # Add [AIFRED]: label if not already present (for Multi-Agent compatibility)
+            # This ensures all AIfred responses are labeled consistently in llm_history
+            if not cleaned.startswith("[AIFRED]:") and not cleaned.startswith("[SOKRATES]:") and not cleaned.startswith("[SALOMO]:"):
+                cleaned = f"[AIFRED]: {cleaned}"
             self.llm_history.append({"role": "assistant", "content": cleaned})
 
     def _save_current_session(self):
@@ -5197,10 +5205,16 @@ class AIState(rx.State):
 
         def format_model_with_ctx(model_display: str, ctx_value: int, mode: str) -> str:
             """Format model display with context info and mode indicator"""
-            ctx_str = format_number(ctx_value) if ctx_value > 0 else "?"
+            if ctx_value > 0:
+                ctx_str = format_number(ctx_value)
+                mode_str = mode
+            else:
+                # Not calibrated - show clear indication
+                ctx_str = "n/a"
+                mode_str = "nicht kalibriert" if mode == "auto" else mode
             if model_display.endswith(")"):
-                return model_display[:-1] + f", {ctx_str} ctx, {mode})"
-            return f"{model_display} ({ctx_str} ctx, {mode})"
+                return model_display[:-1] + f", {ctx_str} ctx, {mode_str})"
+            return f"{model_display} ({ctx_str} ctx, {mode_str})"
 
         self.add_debug("📊 Context configuration:")
 

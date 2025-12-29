@@ -24,7 +24,7 @@ from .config import (
     HISTORY_MAX_SUMMARIES,
     HISTORY_SUMMARY_MAX_RATIO,
     HISTORY_SUMMARY_TEMPERATURE,
-    HISTORY_SUMMARY_CONTEXT_LIMIT
+    DEBUG_LOG_RAW_MESSAGES
 )
 
 # Global tokenizer cache (model_name -> tokenizer)
@@ -722,6 +722,10 @@ async def summarize_history_if_needed(
 
     # DYNAMIC: Collect messages from front until remaining fits in target
     # IMPORTANT: Skip existing summaries - they should be preserved!
+    #
+    # CRITICAL FIX (v2.14.3+): Use llm_history for token calculation to match trigger!
+    # The trigger uses estimate_tokens_from_llm_history(llm_history), so the loop must too.
+    # Otherwise: Trigger fires at 70% but loop calculates different tokens and compresses 0 messages.
     messages_to_compress = []
     preserved_summaries = []  # Summaries at the front that we keep
     remaining_messages = history[:]
@@ -735,12 +739,33 @@ async def summarize_history_if_needed(
         else:
             break  # Stop at first non-summary message
 
-    # Now collect non-summary messages for compression
-    current_tokens = estimate_tokens_from_history(preserved_summaries + remaining_messages)
+    # Build parallel llm_history lists for accurate token calculation
+    # We need to track which llm_history entries correspond to which chat_history entries
+    if llm_history is not None:
+        # Create working copies of llm_history for token calculation
+        # Skip summary entries (role=system, content starts with [Summary])
+        llm_preserved_summaries = []
+        llm_remaining = []
+        for msg in llm_history:
+            if msg.get("role") == "system" and msg.get("content", "").startswith("[Summary]"):
+                llm_preserved_summaries.append(msg)
+            else:
+                llm_remaining.append(msg)
 
-    while current_tokens > target_threshold and len(remaining_messages) > 1:
-        messages_to_compress.append(remaining_messages.pop(0))
+        llm_to_compress = []
+        current_tokens = estimate_tokens_from_llm_history(llm_preserved_summaries + llm_remaining)
+
+        # Compress until we're below target, keeping at least 1 message
+        while current_tokens > target_threshold and len(remaining_messages) > 1 and len(llm_remaining) > 1:
+            messages_to_compress.append(remaining_messages.pop(0))
+            llm_to_compress.append(llm_remaining.pop(0))
+            current_tokens = estimate_tokens_from_llm_history(llm_preserved_summaries + llm_remaining)
+    else:
+        # Fallback: No llm_history, use old method (less accurate but functional)
         current_tokens = estimate_tokens_from_history(preserved_summaries + remaining_messages)
+        while current_tokens > target_threshold and len(remaining_messages) > 1:
+            messages_to_compress.append(remaining_messages.pop(0))
+            current_tokens = estimate_tokens_from_history(preserved_summaries + remaining_messages)
 
     # Safety: Must keep at least 1 message
     if len(remaining_messages) == 0 and messages_to_compress:
@@ -786,7 +811,21 @@ async def summarize_history_if_needed(
     # LLM Summarization
     import datetime
     start_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+
+    # Get num_ctx from VRAM cache (calibrated value for compression model)
+    # IMPORTANT: Always use VRAM cache value, NOT manual settings!
+    # Manual num_ctx is for testing agents, not for compression.
+    from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+    rope_factor = get_rope_factor_for_model(model_name)
+    compression_num_ctx = get_ollama_calibration(model_name, rope_factor)
+    if not compression_num_ctx:
+        # Fallback: use context_limit (min of all agents) if not calibrated
+        compression_num_ctx = context_limit
+        log_message(f"⚠️ Compression model {model_name} not calibrated, using context_limit={context_limit}")
+
     log_message(f"🗜️ [START {start_timestamp}] Compressing {len(messages_to_compress)} messages with {model_name}...")
+    log_message(f"   └─ Compression LLM: {model_name} (num_ctx={format_number(compression_num_ctx)}, from VRAM cache)")
+    yield {"type": "debug", "message": f"🗜️ Compression LLM: {model_name} (num_ctx={format_number(compression_num_ctx)})"}
     summary_start = time.time()
 
     summary_text = ""
@@ -799,9 +838,15 @@ async def summarize_history_if_needed(
         messages = [LLMMessage(role="system", content=summary_prompt)]
         options = LLMOptions(
             temperature=HISTORY_SUMMARY_TEMPERATURE,
-            num_ctx=HISTORY_SUMMARY_CONTEXT_LIMIT,
+            num_ctx=compression_num_ctx,
             enable_thinking=False
         )
+
+        # DEBUG: Log RAW messages sent to Compression LLM (controlled by DEBUG_LOG_RAW_MESSAGES)
+        if DEBUG_LOG_RAW_MESSAGES:
+            log_message("📤 [RAW] Compression - 1 message:")
+            preview = summary_prompt[:300].replace("\n", "\\n") if summary_prompt else ""
+            log_message(f"   [0] role=system, len={len(summary_prompt)}: {preview}...")
 
         response = await llm_client.chat(
             model=model_name,

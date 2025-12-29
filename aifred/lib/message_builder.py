@@ -248,7 +248,10 @@ def clean_content_for_llm(content: str) -> str:
     clean = re.sub(r'^🎩\[[^\]]+\]', '[AIFRED]: ', clean)
     clean = re.sub(r'^👑\[[^\]]+\]', '[SALOMO]: ', clean)
 
-    # 2. Remove thinking collapsibles (<details>...</details>)
+    # 2. Remove thinking blocks - both raw <think> tags AND formatted <details> collapsibles
+    # Raw <think>...</think> comes directly from LLM output (Qwen3 thinking mode)
+    clean = re.sub(r'<think>.*?</think>', '', clean, flags=re.DOTALL)
+    # Formatted <details>...</details> comes from format_thinking_process()
     clean = re.sub(r'<details[^>]*>.*?</details>', '', clean, flags=re.DOTALL)
 
     # 3. Remove metadata spans (<span style="...">( Inference: ... )</span>)
@@ -323,6 +326,7 @@ def build_messages_from_llm_history(
                 continue
 
             # Detect speaker from content labels
+            # ALL agent responses have labels: [AIFRED]:, [SOKRATES]:, [SALOMO]:
             is_sokrates = content.startswith("[SOKRATES]:")
             is_aifred = content.startswith("[AIFRED]:")
             is_salomo = content.startswith("[SALOMO]:")
@@ -333,6 +337,7 @@ def build_messages_from_llm_history(
                 if is_user:
                     messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
                 else:
+                    # All agent messages as 'user' (keep their labels)
                     messages.append({"role": "user", "content": content})
 
             elif perspective_lower == "sokrates":
@@ -343,7 +348,7 @@ def build_messages_from_llm_history(
                 elif is_user:
                     messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
                 else:
-                    # Others (AIfred, Salomo) as 'user'
+                    # Others (AIfred, Salomo) as 'user' (keep their labels)
                     messages.append({"role": "user", "content": content})
 
             elif perspective_lower == "aifred":
@@ -354,7 +359,7 @@ def build_messages_from_llm_history(
                 elif is_user:
                     messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
                 else:
-                    # Others (Sokrates, Salomo) as 'user'
+                    # Others (Sokrates, Salomo) as 'user' (keep their labels)
                     messages.append({"role": "user", "content": content})
 
             elif perspective_lower == "salomo":
@@ -365,7 +370,7 @@ def build_messages_from_llm_history(
                 elif is_user:
                     messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
                 else:
-                    # Others (Sokrates, AIfred) as 'user'
+                    # Others (Sokrates, AIfred) as 'user' (keep their labels)
                     messages.append({"role": "user", "content": content})
 
             else:

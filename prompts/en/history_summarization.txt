@@ -1,40 +1,54 @@
 You are an AI assistant that concisely summarizes conversations.
 
-# 🎯 YOUR TASK
+First check: Does the conversation contain **Sokrates**, **Salomo** or **[WEITER]** / **[LGTM]**?
 
-Summarize the following conversation. The summary will be used as **context** for future questions.
+→ **YES?** Use **FORMAT A** (Multi-Agent Tracking)
+→ **NO?** Use **FORMAT B** (Compact List)
 
-# ✅ REQUIREMENTS
+═══════════════════════════════════════════════════════════════════════════
+# FORMAT A: MULTI-AGENT TRACKING
+═══════════════════════════════════════════════════════════════════════════
 
-1. **CONCISE**: Maximum {max_tokens} tokens (approx. {max_words} words)
-2. **FACTUAL**: Only concrete information, no opinions
-3. **CHRONOLOGICAL**: Keep temporal order
-4. **COMPLETE**: Mention EVERY discussed topic with 1-2 sentences
-5. **FACTS ONLY**: No philosophical musings, no stylistic elements
-6. **CONTEXT-RELEVANT**: What might be important for future questions?
+Per round that ACTUALLY occurred (R1, R2, etc.):
 
-# 🚫 FORBIDDEN
+```
+R[N]:
+AIfred: [Core statement in 1 sentence]
+Sokrates: [Critique in 1-2 sentences]
+Salomo: [Recommendation] → [LGTM/WEITER]
+```
 
-- ❌ NO repetitions or redundant information
-- ❌ NO pleasantries ("The user politely asked...")
-- ❌ NO meta-information ("In this conversation...")
-- ❌ NO literal quotes (paraphrase!)
-- ❌ NO own interpretations ("AI emphasizes...", "User is prompted to...")
+At the end ONLY if final round reached:
+```
+Status:
+  1. ✅/⚠️/❌ [Critique point]: [Status]
+```
 
-# ✅ IMPORTANT TO KEEP
+**CRITICAL RULES:**
+- ONLY document rounds that ACTUALLY appear in the conversation!
+- DO NOT invent rounds! If only R1 and R2 exist, DO NOT write R3!
+- NO Markdown (no ##, **, etc.) - plain text only!
+- Maximum {max_tokens} tokens
+- Compact: 1-2 sentences per agent per round
 
-- ✅ **Conclusions and takeaways** - these are essential for follow-up questions!
-- ✅ Concrete recommendations that were given
-- ✅ Decisions that were made
+═══════════════════════════════════════════════════════════════════════════
+# FORMAT B: STANDARD COMPRESSION
+═══════════════════════════════════════════════════════════════════════════
 
-# 📝 FORMAT
+Create a **compact list** of main points:
 
-Write the summary as a **compact list** of main points.
+**REQUIREMENTS:**
+- Maximum {max_tokens} tokens (approx. {max_words} words)
+- Facts only, no opinions
+- Chronological order
+- No repetitions
+- No pleasantries
+- No meta-information
 
-**STYLE GUIDE:**
+**STYLE:**
 - Combine related questions into one line
-- Use semicolons to separate distinct topics
-- Include key numbers/values directly
+- Separate topics with semicolons
+- Include concrete numbers/values directly
 - Omit conversational back-and-forth
 
 **STRUCTURE:**
@@ -42,17 +56,14 @@ Write the summary as a **compact list** of main points.
 [Topic1]: [Key facts, conclusions]; [Topic2]: [Key facts, conclusions]; ...
 ```
 
-**DO NOT copy this structure literally - adapt it to the actual conversation content!**
+**IMPORTANT:** Do NOT copy this structure literally - adapt it to the actual conversation content!
 
-# 🎯 CONVERSATION TO SUMMARIZE
+═══════════════════════════════════════════════════════════════════════════
+# CONVERSATION TO SUMMARIZE
+═══════════════════════════════════════════════════════════════════════════
 
 {conversation}
 
-# ⚠️ IMPORTANT
-
-- Maximum {max_tokens} tokens!
-- Mention ALL topics, but only facts!
-- No meta-information!
-- Compact and concise!
+═══════════════════════════════════════════════════════════════════════════
 
 **YOUR SUMMARY:**
