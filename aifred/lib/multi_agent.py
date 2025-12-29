@@ -226,10 +226,10 @@ async def _stream_sokrates_to_history(
     }
 
     # DUAL-HISTORY: Sync Sokrates response to llm_history
-    # Agent-only entries become system messages with speaker label
+    # Agent responses are assistant messages with speaker label (NOT system!)
     cleaned = clean_content_for_llm(full_response)
     if cleaned:
-        state.llm_history.append({"role": "system", "content": f"[SOKRATES]: {cleaned}"})
+        state.llm_history.append({"role": "assistant", "content": f"[SOKRATES]: {cleaned}"})
 
 
 async def _stream_alfred_refinement(
@@ -279,10 +279,10 @@ async def _stream_alfred_refinement(
     }
 
     # DUAL-HISTORY: Sync AIfred refinement to llm_history
-    # Agent-only entries become system messages with speaker label
+    # Agent responses are assistant messages with speaker label (NOT system!)
     cleaned = clean_content_for_llm(full_response)
     if cleaned:
-        state.llm_history.append({"role": "system", "content": f"[AIFRED]: {cleaned}"})
+        state.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {cleaned}"})
 
 
 async def _stream_salomo_to_history(
@@ -349,10 +349,10 @@ async def _stream_salomo_to_history(
     }
 
     # DUAL-HISTORY: Sync Salomo response to llm_history
-    # Agent-only entries become system messages with speaker label
+    # Agent responses are assistant messages with speaker label (NOT system!)
     cleaned = clean_content_for_llm(full_response)
     if cleaned:
-        state.llm_history.append({"role": "system", "content": f"[SALOMO]: {cleaned}"})
+        state.llm_history.append({"role": "assistant", "content": f"[SALOMO]: {cleaned}"})
 
 
 async def _check_compression_if_needed(
@@ -551,9 +551,10 @@ async def run_sokrates_direct_response(
         state.chat_history[sokrates_index] = ("", final_content)
 
         # DUAL-HISTORY: Sync Sokrates direct response to llm_history
+        # Agent responses are assistant messages with speaker label (NOT system!)
         cleaned = clean_content_for_llm(full_response)
         if cleaned:
-            state.llm_history.append({"role": "system", "content": f"[SOKRATES]: {cleaned}"})
+            state.llm_history.append({"role": "assistant", "content": f"[SOKRATES]: {cleaned}"})
 
         # Remove the waiting message from user entry, keep only user question
         # Since Sokrates answered, no AIfred response needed
@@ -729,9 +730,10 @@ async def run_salomo_direct_response(
         state.chat_history[salomo_index] = ("", final_content)
 
         # DUAL-HISTORY: Sync Salomo direct response to llm_history
+        # Agent responses are assistant messages with speaker label (NOT system!)
         cleaned = clean_content_for_llm(full_response)
         if cleaned:
-            state.llm_history.append({"role": "system", "content": f"[SALOMO]: {cleaned}"})
+            state.llm_history.append({"role": "assistant", "content": f"[SALOMO]: {cleaned}"})
 
         # Remove the waiting message from user entry, keep only user question
         # Since Salomo answered, no AIfred response needed
@@ -812,15 +814,13 @@ async def run_sokrates_analysis(
         }
         mode_label = mode_labels.get(state.multi_agent_mode, state.multi_agent_mode)
 
-        # Get context limits for both models (respect manual mode for each)
-        if state.num_ctx_mode == "manual":
-            # Manual mode: Use separate values for AIfred and Sokrates
+        # Get context limits for both models (respect per-LLM manual toggles)
+        # AIfred context
+        if getattr(state, 'num_ctx_manual_aifred_enabled', False):
             main_llm_ctx = state.num_ctx_manual if state.num_ctx_manual else 4096
-            sokrates_num_ctx = state.num_ctx_manual_sokrates if state.num_ctx_manual_sokrates else 4096
-            state.add_debug(f"🔧 Manual num_ctx: AIfred={main_llm_ctx:,}, Sokrates={sokrates_num_ctx:,}")
+            state.add_debug(f"🔧 AIfred num_ctx: {main_llm_ctx:,} (manual)")
         else:
-            # Auto mode: Get AIfred's limit FIRST (before Sokrates calculation could overwrite)
-            # Try aifred_limit first, fall back to general limit
+            # Auto mode: Get AIfred's limit from cache
             aifred_cached = _last_vram_limit_cache.get("aifred_limit", 0)
             if aifred_cached == 0:
                 aifred_cached = _last_vram_limit_cache.get("limit", 0)
@@ -828,7 +828,12 @@ async def run_sokrates_analysis(
             if aifred_cached == 0:
                 state.add_debug("⚠️ No cached AIfred VRAM limit found, using fallback 32K")
 
-            # THEN calculate VRAM limit for Sokrates model
+        # Sokrates context
+        if getattr(state, 'num_ctx_manual_sokrates_enabled', False):
+            sokrates_num_ctx = state.num_ctx_manual_sokrates if state.num_ctx_manual_sokrates else 4096
+            state.add_debug(f"🔧 Sokrates num_ctx: {sokrates_num_ctx:,} (manual)")
+        else:
+            # Auto mode: Calculate VRAM limit for Sokrates model
             sokrates_num_ctx, sokrates_vram_msgs = await calculate_dynamic_num_ctx(
                 llm_client, sokrates_model, [], None,
                 enable_vram_limit=True
@@ -1000,9 +1005,11 @@ async def run_sokrates_analysis(
                 if round_num == 1:
                     state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
-                # Calculate Salomo context
-                if state.num_ctx_mode == "manual":
+                # Calculate Salomo context (respect per-LLM manual toggle)
+                if getattr(state, 'num_ctx_manual_salomo_enabled', False):
                     salomo_num_ctx = state.num_ctx_manual_salomo if hasattr(state, 'num_ctx_manual_salomo') else 4096
+                    if round_num == 1:
+                        state.add_debug(f"🔧 Salomo num_ctx: {salomo_num_ctx:,} (manual)")
                 else:
                     salomo_num_ctx, _ = await calculate_dynamic_num_ctx(
                         llm_client, salomo_model, [], None,
@@ -1126,11 +1133,19 @@ async def run_sokrates_analysis(
 
                     # Build messages with AIfred's perspective
                     # Use llm_history (compressed) instead of chat_history (full UI)
-                    alfred_messages: list[dict[str, str]] = build_messages_from_llm_history(
+                    history_messages: list[dict[str, str]] = build_messages_from_llm_history(
                         state.llm_history,
                         current_user_text=refinement_prompt,
                         perspective="aifred"
                     )
+
+                    # Build final message list: AIfred system prompt + history
+                    # (Same pattern as Sokrates - agent needs system prompt for identity)
+                    alfred_messages: list[dict[str, str]] = [{"role": "system", "content": aifred_system_prompt}]
+                    for msg in history_messages:
+                        # Keep all messages except non-summary system messages
+                        if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
+                            alfred_messages.append(msg)
 
                     # Estimate tokens
                     alfred_msg_tokens = estimate_tokens(alfred_messages, model_name=state.aifred_model_id)
@@ -1261,21 +1276,31 @@ async def run_tribunal(
         state.add_debug(f"🏛️ Sokrates LLM: {sokrates_display}")
         state.add_debug(f"👑 Salomo LLM: {salomo_display}")
 
-        # Get context limits
-        if state.num_ctx_mode == "manual":
+        # Get context limits (respect per-LLM manual toggles)
+        # AIfred context
+        if getattr(state, 'num_ctx_manual_aifred_enabled', False):
             main_llm_ctx = state.num_ctx_manual if state.num_ctx_manual else 4096
-            sokrates_num_ctx = state.num_ctx_manual_sokrates if state.num_ctx_manual_sokrates else 4096
-            salomo_num_ctx = state.num_ctx_manual_salomo if state.num_ctx_manual_salomo else 4096
-            state.add_debug(f"🔧 Manual num_ctx: AIfred={main_llm_ctx:,}, Sokrates={sokrates_num_ctx:,}, Salomo={salomo_num_ctx:,}")
+            state.add_debug(f"🔧 AIfred num_ctx: {main_llm_ctx:,} (manual)")
         else:
             aifred_cached = _last_vram_limit_cache.get("aifred_limit", 0)
             if aifred_cached == 0:
                 aifred_cached = _last_vram_limit_cache.get("limit", 0)
             main_llm_ctx = aifred_cached if aifred_cached > 0 else 32768
 
+        # Sokrates context
+        if getattr(state, 'num_ctx_manual_sokrates_enabled', False):
+            sokrates_num_ctx = state.num_ctx_manual_sokrates if state.num_ctx_manual_sokrates else 4096
+            state.add_debug(f"🔧 Sokrates num_ctx: {sokrates_num_ctx:,} (manual)")
+        else:
             sokrates_num_ctx, _ = await calculate_dynamic_num_ctx(
                 llm_client, sokrates_model, [], None, enable_vram_limit=True
             )
+
+        # Salomo context
+        if getattr(state, 'num_ctx_manual_salomo_enabled', False):
+            salomo_num_ctx = state.num_ctx_manual_salomo if state.num_ctx_manual_salomo else 4096
+            state.add_debug(f"🔧 Salomo num_ctx: {salomo_num_ctx:,} (manual)")
+        else:
             salomo_num_ctx, _ = await calculate_dynamic_num_ctx(
                 llm_client, salomo_model, [], None, enable_vram_limit=True
             )
@@ -1412,11 +1437,19 @@ async def run_tribunal(
                     yield
 
                 # Use llm_history (compressed) instead of chat_history (full UI)
-                alfred_messages: list[dict[str, str]] = build_messages_from_llm_history(
+                history_messages: list[dict[str, str]] = build_messages_from_llm_history(
                     state.llm_history,
                     current_user_text=refinement_prompt,
                     perspective="aifred"
                 )
+
+                # Build final message list: AIfred system prompt + history
+                # (Same pattern as Sokrates - agent needs system prompt for identity)
+                alfred_messages: list[dict[str, str]] = [{"role": "system", "content": aifred_system_prompt}]
+                for msg in history_messages:
+                    # Keep all messages except non-summary system messages
+                    if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
+                        alfred_messages.append(msg)
 
                 alfred_marker = f"🎩[Tribunal R{round_num + 1}]"
                 state.chat_history.append(("", alfred_marker))
