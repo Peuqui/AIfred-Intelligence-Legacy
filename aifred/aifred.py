@@ -928,25 +928,24 @@ def llm_parameters_accordion() -> rx.Component:
                         font_size="12px"
                     ),
 
-                    # Radio Buttons für Mode Selection (nur Deutsch für Konsistenz)
-                    rx.radio(
-                        ["🎯 Auto", "🔧 Manuell"],
-                        value=AIState.num_ctx_mode_display,
-                        on_change=AIState.set_num_ctx_mode_from_display,
-                        direction="column",
-                        spacing="2",
-                        size="2",
-                    ),
-
-                    # Manual Input - Three compact fields (AIfred + Sokrates + Salomo)
+                    # Per-LLM Context Control - Three columns with toggle + input
                     rx.hstack(
                         # AIfred num_ctx
                         rx.vstack(
-                            rx.text(
-                                "🎩 AIfred",
-                                font_size="11px",
-                                font_weight="bold",
-                                color=COLORS["text_secondary"],
+                            rx.hstack(
+                                rx.text(
+                                    "🎩 AIfred",
+                                    font_size="11px",
+                                    font_weight="bold",
+                                    color=COLORS["text_secondary"],
+                                ),
+                                rx.switch(
+                                    checked=AIState.num_ctx_manual_aifred_enabled,
+                                    on_change=AIState.toggle_num_ctx_manual_aifred,
+                                    size="1",
+                                ),
+                                spacing="1",
+                                align="center",
                             ),
                             rx.input(
                                 placeholder="16384",
@@ -954,9 +953,9 @@ def llm_parameters_accordion() -> rx.Component:
                                 on_change=AIState.set_num_ctx_manual,
                                 type="number",
                                 width="75px",
-                                disabled=AIState.num_ctx_mode != "manual",
+                                disabled=~AIState.num_ctx_manual_aifred_enabled,
                                 opacity=rx.cond(
-                                    AIState.num_ctx_mode == "manual",
+                                    AIState.num_ctx_manual_aifred_enabled,
                                     "1.0",
                                     "0.5"
                                 ),
@@ -965,11 +964,20 @@ def llm_parameters_accordion() -> rx.Component:
                         ),
                         # Sokrates num_ctx
                         rx.vstack(
-                            rx.text(
-                                "🏛️ Sokrates",
-                                font_size="11px",
-                                font_weight="bold",
-                                color=COLORS["text_secondary"],
+                            rx.hstack(
+                                rx.text(
+                                    "🏛️ Sokrates",
+                                    font_size="11px",
+                                    font_weight="bold",
+                                    color=COLORS["text_secondary"],
+                                ),
+                                rx.switch(
+                                    checked=AIState.num_ctx_manual_sokrates_enabled,
+                                    on_change=AIState.toggle_num_ctx_manual_sokrates,
+                                    size="1",
+                                ),
+                                spacing="1",
+                                align="center",
                             ),
                             rx.input(
                                 placeholder="16384",
@@ -977,9 +985,9 @@ def llm_parameters_accordion() -> rx.Component:
                                 on_change=AIState.set_num_ctx_manual_sokrates,
                                 type="number",
                                 width="75px",
-                                disabled=AIState.num_ctx_mode != "manual",
+                                disabled=~AIState.num_ctx_manual_sokrates_enabled,
                                 opacity=rx.cond(
-                                    AIState.num_ctx_mode == "manual",
+                                    AIState.num_ctx_manual_sokrates_enabled,
                                     "1.0",
                                     "0.5"
                                 ),
@@ -988,11 +996,20 @@ def llm_parameters_accordion() -> rx.Component:
                         ),
                         # Salomo num_ctx
                         rx.vstack(
-                            rx.text(
-                                "👑 Salomo",
-                                font_size="11px",
-                                font_weight="bold",
-                                color=COLORS["text_secondary"],
+                            rx.hstack(
+                                rx.text(
+                                    "👑 Salomo",
+                                    font_size="11px",
+                                    font_weight="bold",
+                                    color=COLORS["text_secondary"],
+                                ),
+                                rx.switch(
+                                    checked=AIState.num_ctx_manual_salomo_enabled,
+                                    on_change=AIState.toggle_num_ctx_manual_salomo,
+                                    size="1",
+                                ),
+                                spacing="1",
+                                align="center",
                             ),
                             rx.input(
                                 placeholder="16384",
@@ -1000,9 +1017,9 @@ def llm_parameters_accordion() -> rx.Component:
                                 on_change=AIState.set_num_ctx_manual_salomo,
                                 type="number",
                                 width="75px",
-                                disabled=AIState.num_ctx_mode != "manual",
+                                disabled=~AIState.num_ctx_manual_salomo_enabled,
                                 opacity=rx.cond(
-                                    AIState.num_ctx_mode == "manual",
+                                    AIState.num_ctx_manual_salomo_enabled,
                                     "1.0",
                                     "0.5"
                                 ),

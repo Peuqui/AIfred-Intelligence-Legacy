@@ -29,27 +29,20 @@ Summarize the following conversation. The summary will be used as **context** fo
 
 # 📝 FORMAT
 
-Write the summary as a **compact list** of main points:
+Write the summary as a **compact list** of main points.
 
-**EXAMPLE INPUT:**
-```
-User: What's the weather in Berlin tomorrow?
-AI: Tomorrow in Berlin it will be 15°C and sunny. Light wind from southwest.
-User: And how is it in Munich?
-AI: Munich will have 18°C with cloudy skies tomorrow. 60% chance of rain in the afternoon.
-User: Which is warmer?
-AI: Munich is 3°C warmer than Berlin.
-```
+**STYLE GUIDE:**
+- Combine related questions into one line
+- Use semicolons to separate distinct topics
+- Include key numbers/values directly
+- Omit conversational back-and-forth
 
-**EXAMPLE OUTPUT (GOOD):**
+**STRUCTURE:**
 ```
-Weather comparison Germany (tomorrow): Berlin 15°C sunny, Munich 18°C cloudy with rain (60%), Munich 3°C warmer, wind SW.
+[Topic1]: [Key facts, conclusions]; [Topic2]: [Key facts, conclusions]; ...
 ```
 
-**EXAMPLE OUTPUT (BAD - TOO LONG):**
-```
-The user asked about the weather in Berlin for tomorrow. The AI responded that it will be 15°C and sunny with light wind from southwest. Then the user asked about Munich. The AI explained that Munich will have 18°C with cloudy skies and 60% chance of rain in the afternoon. Finally, the user wanted to know which city is warmer, and the AI answered that Munich is 3°C warmer.
-```
+**DO NOT copy this structure literally - adapt it to the actual conversation content!**
 
 # 🎯 CONVERSATION TO SUMMARIZE
 

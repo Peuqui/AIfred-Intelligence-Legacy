@@ -328,10 +328,14 @@ class AIState(rx.State):
     num_ctx: int = 32768
 
     # Context Window Control (NOT saved in settings.json - reset on every start)
-    num_ctx_mode: str = "auto"  # "auto" | "manual" (RoPE extension via rope_factor)
+    num_ctx_mode: str = "auto"  # "auto" | "manual" (RoPE extension via rope_factor) - LEGACY, kept for compatibility
     num_ctx_manual: int = 4096  # Manual value for AIfred (only if mode="manual") - Ollama default
     num_ctx_manual_sokrates: int = 4096  # Manual value for Sokrates (only if mode="manual")
     num_ctx_manual_salomo: int = 4096  # Manual value for Salomo (only if mode="manual")
+    # Per-LLM manual toggle (True = use manual value, False = use auto-calibrated)
+    num_ctx_manual_aifred_enabled: bool = False
+    num_ctx_manual_sokrates_enabled: bool = False
+    num_ctx_manual_salomo_enabled: bool = False
 
     # Cached Model Metadata (to avoid repeated API calls)
     _automatik_model_context_limit: int = 0  # Cached context limit for automatik model
@@ -2659,7 +2663,7 @@ class AIState(rx.State):
         )
 
         if self.chat_history:
-            from .lib.context_manager import summarize_history_if_needed
+            from .lib.context_manager import summarize_history_if_needed, get_largest_compression_model
 
             # Determine effective context limit
             # Priority: 1. Manual mode → min of all manual limits, 2. Cached min limit, 3. Model limit
@@ -2684,11 +2688,18 @@ class AIState(rx.State):
             detected_lang = detect_language(user_msg) if user_msg else "de"
             system_prompt_tokens = get_max_system_prompt_tokens(self.multi_agent_mode, detected_lang)
 
+            # Select largest model for compression (AIfred/Sokrates/Salomo)
+            compression_model = get_largest_compression_model(
+                aifred_model=self.aifred_model_id,
+                sokrates_model=self.sokrates_model_id,
+                salomo_model=self.salomo_model_id
+            )
+
             # Check and compress if needed (DUAL-HISTORY)
             async for event in summarize_history_if_needed(
                 history=self.chat_history,
                 llm_client=llm_client,
-                model_name=self.automatik_model_id,
+                model_name=compression_model,  # Use largest available model for quality
                 context_limit=context_limit,
                 llm_history=self.llm_history,
                 system_prompt_tokens=system_prompt_tokens
@@ -4710,35 +4721,63 @@ class AIState(rx.State):
             # Get native context limit first
             native_ctx, _ = await backend.get_model_context_limit(self.aifred_model_id)
             calibration_results = {}
-            vram_limited = False
 
             # === STEP 1: Calibrate Native (1.0x) ===
             self.add_debug("📐 Calibrating Native (1.0x)...")
             yield
 
             calibrated_ctx = None
+            is_hybrid_mode = False  # Track if 1.0x resulted in hybrid mode
             async for progress_msg in backend.calibrate_max_context_generator(
                 self.aifred_model_id,
                 rope_factor=1.0
             ):
                 if progress_msg.startswith("__RESULT__:"):
-                    calibrated_ctx = int(progress_msg.split(":")[1])
+                    # Parse result: __RESULT__:{ctx}:{mode} where mode is gpu/hybrid/error
+                    parts = progress_msg.split(":")
+                    calibrated_ctx = int(parts[1])
                     calibration_results[1.0] = calibrated_ctx
+                    if len(parts) > 2 and parts[2] == "hybrid":
+                        is_hybrid_mode = True
                 else:
                     self.add_debug(f"📊 {progress_msg}")
                     yield
 
-            # === STEP 2: Check if VRAM-limited ===
-            if calibrated_ctx and calibrated_ctx < native_ctx:
-                # VRAM is the bottleneck - RoPE scaling won't help
-                vram_limited = True
+            # === STEP 2: Check calibration result ===
+            # Determine if RoPE calibration makes sense
+            skip_rope_calibration = False
+
+            # Check for calibration failure (model doesn't fit)
+            if not calibrated_ctx or calibrated_ctx == 0:
                 self.add_debug(f"{'─' * 40}")
-                self.add_debug(f"⚡ VRAM-limited: {format_number(calibrated_ctx)} < {format_number(native_ctx)} native")
-                self.add_debug("   → RoPE scaling won't increase context (same VRAM limit)")
+                self.add_debug("❌ Calibration failed - model doesn't fit in memory")
+                self.add_debug("   → Skipping RoPE calibration")
+                yield
+                skip_rope_calibration = True
+            elif calibrated_ctx < native_ctx:
+                # Memory is the bottleneck (VRAM or RAM) - RoPE scaling won't help
+                # This applies to BOTH GPU-only and Hybrid mode
+                skip_rope_calibration = True
+                self.add_debug(f"{'─' * 40}")
+                if is_hybrid_mode:
+                    self.add_debug(f"🔀 Hybrid mode: {format_number(calibrated_ctx)} < {format_number(native_ctx)} native")
+                    self.add_debug("   → RAM is the limit - RoPE scaling won't increase context")
+                else:
+                    self.add_debug(f"⚡ VRAM-limited: {format_number(calibrated_ctx)} < {format_number(native_ctx)} native")
+                    self.add_debug("   → VRAM is the limit - RoPE scaling won't increase context")
                 self.add_debug(f"   → Auto-setting RoPE 1.5x and 2.0x to {format_number(calibrated_ctx)}")
                 yield
+            elif is_hybrid_mode:
+                # Hybrid mode but native context fits - RoPE might give us more!
+                self.add_debug(f"{'─' * 40}")
+                self.add_debug(f"🔀 Hybrid mode: {format_number(calibrated_ctx)} (native fits)")
+                self.add_debug("   → Testing if RoPE scaling can extend context further...")
+                yield
+                # Don't skip - let it calibrate RoPE 1.5x and 2.0x
 
-                # Save same value for 1.5x and 2.0x
+            if skip_rope_calibration and calibrated_ctx:
+                # Save same value for 1.5x and 2.0x (no separate calibration needed)
+                # Only if we have a valid context (not on error)
                 gpu_model = get_gpu_model_name() or "Unknown"
                 for rope_factor in [1.5, 2.0]:
                     add_ollama_calibration(
@@ -4746,35 +4785,47 @@ class AIState(rx.State):
                         max_context_gpu_only=calibrated_ctx,
                         native_context=native_ctx,
                         gpu_model=gpu_model,
-                        rope_factor=rope_factor
+                        rope_factor=rope_factor,
+                        is_hybrid=is_hybrid_mode
                     )
                     calibration_results[rope_factor] = calibrated_ctx
 
-            else:
-                # === STEP 3: Calibrate RoPE 1.5x and 2.0x (only if not VRAM-limited) ===
+            elif not skip_rope_calibration:
+                # === STEP 3: Calibrate RoPE 1.5x and 2.0x ===
+                # Start from 1.0x result, then use previous RoPE result as new minimum
+                from .lib.config import CALIBRATION_MIN_CONTEXT
+                prev_ctx = calibration_results.get(1.0, CALIBRATION_MIN_CONTEXT)
+
                 for rope_factor in [1.5, 2.0]:
                     self.add_debug(f"{'─' * 40}")
                     self.add_debug(f"📐 Calibrating RoPE {rope_factor}x...")
                     yield
 
-                    calibrated_ctx = None
+                    rope_calibrated_ctx = None
                     async for progress_msg in backend.calibrate_max_context_generator(
                         self.aifred_model_id,
-                        rope_factor=rope_factor
+                        rope_factor=rope_factor,
+                        min_context=prev_ctx,  # Start from previous result (1.0x or 1.5x)
+                        force_hybrid=is_hybrid_mode  # Continue in hybrid mode if 1.0x was hybrid
                     ):
                         if progress_msg.startswith("__RESULT__:"):
-                            calibrated_ctx = int(progress_msg.split(":")[1])
-                            calibration_results[rope_factor] = calibrated_ctx
+                            # Parse result: __RESULT__:{ctx}:{mode}
+                            parts = progress_msg.split(":")
+                            rope_calibrated_ctx = int(parts[1])
+                            calibration_results[rope_factor] = rope_calibrated_ctx
+                            # Update prev_ctx for next iteration (2.0x uses 1.5x result)
+                            prev_ctx = rope_calibrated_ctx
                         else:
                             self.add_debug(f"📊 {progress_msg}")
                             yield
 
             # Summary
             self.add_debug(f"{'═' * 40}")
-            self.add_debug(f"✅ Calibration complete for {self.aifred_model_id}:")
+            mode_info = " (Hybrid)" if is_hybrid_mode else ""
+            self.add_debug(f"✅ Calibration complete for {self.aifred_model_id}{mode_info}:")
             for factor, ctx in calibration_results.items():
                 label = "Native" if factor == 1.0 else f"RoPE {factor}x"
-                suffix = " (auto)" if vram_limited and factor > 1.0 else ""
+                suffix = " (auto)" if skip_rope_calibration and factor > 1.0 else ""
                 self.add_debug(f"   {label}: {format_number(ctx)} tok{suffix}")
             self.add_debug("   → Values will be used automatically based on RoPE setting")
             self.add_debug(f"{'─' * 40}")
@@ -5132,41 +5183,67 @@ class AIState(rx.State):
 
     def calculate_manual_context(self):
         """
-        Calculate and display manual context limits.
-        Called when user clicks "Calculate" button in manual mode.
-        Shows preview of context utilization and compression warnings.
+        Calculate and display context limits.
+        Called when user clicks "Calculate" button.
+        Shows all LLM context values (manual or auto-calibrated from persistent cache).
         """
-        if self.num_ctx_mode != "manual":
-            self.add_debug("⚠️ Calculate only works in manual mode")
-            return
-
         from .lib.formatting import format_number
         from .lib.context_manager import estimate_tokens_from_history
+        from .lib.model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
         from .lib.config import HISTORY_COMPRESSION_TRIGGER
 
-        # Take minimum of all agent manual limits
-        manual_limits = [self.num_ctx_manual]
-        if self.multi_agent_mode != "standard":
-            if self.num_ctx_manual_sokrates > 0:
-                manual_limits.append(self.num_ctx_manual_sokrates)
-            if self.num_ctx_manual_salomo > 0:
-                manual_limits.append(self.num_ctx_manual_salomo)
-        effective_limit = min(manual_limits) if manual_limits else self.num_ctx_manual
+        # Collect effective limits for compression calculation
+        effective_limits = []
 
-        # Display manual limits (merge GB and ctx into one bracket)
-        # e.g., "qwen3:8b (4.9 GB)" + "4.096 ctx" -> "qwen3:8b (4.9 GB, 4.096 ctx)"
-        def format_model_with_ctx(model_display: str, ctx_value: int) -> str:
+        def format_model_with_ctx(model_display: str, ctx_value: int, mode: str) -> str:
+            """Format model display with context info and mode indicator"""
+            ctx_str = format_number(ctx_value) if ctx_value > 0 else "?"
             if model_display.endswith(")"):
-                return model_display[:-1] + f", {format_number(ctx_value)} ctx)"
-            return f"{model_display} ({format_number(ctx_value)} ctx)"
+                return model_display[:-1] + f", {ctx_str} ctx, {mode})"
+            return f"{model_display} ({ctx_str} ctx, {mode})"
 
-        self.add_debug("📊 Manual context calculation:")
-        self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.num_ctx_manual)}")
-        if self.multi_agent_mode != "standard":
-            if self.sokrates_model_id:
-                self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, self.num_ctx_manual_sokrates)}")
-            if self.salomo_model_id:
-                self.add_debug(f"   Salomo: {format_model_with_ctx(self.salomo_model, self.num_ctx_manual_salomo)}")
+        self.add_debug("📊 Context configuration:")
+
+        # AIfred - get auto value from persistent cache if not manual
+        if self.num_ctx_manual_aifred_enabled:
+            aifred_ctx = self.num_ctx_manual
+            mode = "manual"
+        else:
+            rope_factor = get_rope_factor_for_model(self.aifred_model_id)
+            aifred_ctx = get_ollama_calibration(self.aifred_model_id, rope_factor) or 0
+            mode = "auto"
+        self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, aifred_ctx, mode)}")
+        if aifred_ctx > 0:
+            effective_limits.append(aifred_ctx)
+
+        # Sokrates (only in multi-agent modes)
+        if self.multi_agent_mode != "standard" and self.sokrates_model_id:
+            if self.num_ctx_manual_sokrates_enabled:
+                sokrates_ctx = self.num_ctx_manual_sokrates
+                mode = "manual"
+            else:
+                rope_factor = get_rope_factor_for_model(self.sokrates_model_id)
+                sokrates_ctx = get_ollama_calibration(self.sokrates_model_id, rope_factor) or 0
+                mode = "auto"
+            self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, sokrates_ctx, mode)}")
+            if sokrates_ctx > 0:
+                effective_limits.append(sokrates_ctx)
+
+        # Salomo (only in auto_consensus/tribunal modes)
+        if self.multi_agent_mode in ["auto_consensus", "tribunal"] and self.salomo_model_id:
+            if self.num_ctx_manual_salomo_enabled:
+                salomo_ctx = self.num_ctx_manual_salomo
+                mode = "manual"
+            else:
+                rope_factor = get_rope_factor_for_model(self.salomo_model_id)
+                salomo_ctx = get_ollama_calibration(self.salomo_model_id, rope_factor) or 0
+                mode = "auto"
+            self.add_debug(f"   Salomo: {format_model_with_ctx(self.salomo_model, salomo_ctx, mode)}")
+            if salomo_ctx > 0:
+                effective_limits.append(salomo_ctx)
+
+        # Calculate effective limit (minimum of all active limits)
+        effective_limit = min(effective_limits) if effective_limits else 0
 
         # Update cached min context limit
         self._min_agent_context_limit = effective_limit
@@ -5256,6 +5333,36 @@ class AIState(rx.State):
             self.add_debug(f"🔧 Manual num_ctx (Salomo): {format_number(num_value)}")
         except (ValueError, TypeError):
             self.add_debug(f"❌ Invalid num_ctx value: {value}")
+
+    def toggle_num_ctx_manual_aifred(self, enabled: bool):
+        """Toggle manual context for AIfred"""
+        self.num_ctx_manual_aifred_enabled = enabled
+        # Update legacy mode for compatibility
+        self._update_legacy_num_ctx_mode()
+        status = "Manual" if enabled else "Auto"
+        self.add_debug(f"🎩 AIfred Context: {status}")
+
+    def toggle_num_ctx_manual_sokrates(self, enabled: bool):
+        """Toggle manual context for Sokrates"""
+        self.num_ctx_manual_sokrates_enabled = enabled
+        self._update_legacy_num_ctx_mode()
+        status = "Manual" if enabled else "Auto"
+        self.add_debug(f"🏛️ Sokrates Context: {status}")
+
+    def toggle_num_ctx_manual_salomo(self, enabled: bool):
+        """Toggle manual context for Salomo"""
+        self.num_ctx_manual_salomo_enabled = enabled
+        self._update_legacy_num_ctx_mode()
+        status = "Manual" if enabled else "Auto"
+        self.add_debug(f"👑 Salomo Context: {status}")
+
+    def _update_legacy_num_ctx_mode(self):
+        """Update legacy num_ctx_mode based on per-LLM toggles"""
+        # If ANY LLM is manual, set legacy mode to manual (for UI display compatibility)
+        if self.num_ctx_manual_aifred_enabled or self.num_ctx_manual_sokrates_enabled or self.num_ctx_manual_salomo_enabled:
+            self.num_ctx_mode = "manual"
+        else:
+            self.num_ctx_mode = "auto"
 
     def set_research_mode(self, mode: str):
         """Set research mode"""

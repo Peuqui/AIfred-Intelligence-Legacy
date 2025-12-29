@@ -39,28 +39,7 @@ Status nach R[letzte Runde]:
   3. ❌ OFFEN - [Kritikpunkt]: [Warum offen]
 ```
 
-**BEISPIEL:**
-
-```
-R1:
-AIfred: Nudeln mit Ei/Schinken empfohlen (sättigend, schnell, winterlich)
-Sokrates kritisierte:
-  1. Gesundheit: Keine Nährwertangaben, Cholesterin/Natrium ignoriert
-  2. Technik: Keine Zubereitungsschritte für cremiges Ei
-Salomo: Empfiehlt Gesundheitsaspekte + präzise Technik → [WEITER]
-
-R2:
-AIfred Refinement:
-  [NEU] Vollkornnudeln, magerer Schinken, Ei-Verquirl-Technik
-  [BEIBEHALTEN] Schnell, sättigend, winterlich
-Sokrates: Würdigt Gesundheitsaspekt, fordert konkrete kcal-Angaben
-Salomo: Balance verbessert, aber Technik noch vage → [WEITER]
-
-Status nach R2:
-  1. ✅ ADRESSIERT - Gesunde Zutaten: Vollkornnudeln/magerer Schinken explizit genannt
-  2. ⚠️ TEILWEISE - Nährwerte: Vollkorn erwähnt, aber keine kcal/Natrium-Zahlen
-  3. ❌ OFFEN - Kochtechnik: Ei-Verquirl-Methode erwähnt, aber kein Schritt-für-Schritt-Rezept
-```
+**WICHTIG:** Kopiere NIEMALS diese Struktur wörtlich! Fülle sie mit dem TATSÄCHLICHEN Inhalt der Konversation.
 
 **REGELN:**
 - Maximal {max_tokens} Tokens
@@ -82,22 +61,18 @@ Erstelle eine **kompakte Liste** der Hauptpunkte:
 - Keine Höflichkeitsfloskeln
 - Keine Meta-Informationen
 
-**BEISPIEL:**
+**STIL:**
+- Verwandte Fragen in einer Zeile kombinieren
+- Themen mit Semikolon trennen
+- Konkrete Zahlen/Werte direkt einbauen
+- Konversationelles Hin-und-Her weglassen
 
-EINGABE:
+**STRUKTUR:**
 ```
-User: Wie ist das Wetter in Berlin morgen?
-AI: Morgen 15°C und sonnig. Leichter Wind aus Südwest.
-User: Und in München?
-AI: München 18°C bei bewölktem Himmel. Nachmittags Regen (60%).
-User: Was ist wärmer?
-AI: München ist 3°C wärmer als Berlin.
+[Thema1]: [Kernfakten, Schlussfolgerungen]; [Thema2]: [Kernfakten, Schlussfolgerungen]; ...
 ```
 
-AUSGABE:
-```
-Wetter-Vergleich Deutschland (morgen): Berlin 15°C sonnig, München 18°C bewölkt mit Regen (60%), München 3°C wärmer, Wind SW.
-```
+**WICHTIG:** Kopiere diese Struktur NICHT wörtlich - passe sie an den tatsächlichen Konversationsinhalt an!
 
 ═══════════════════════════════════════════════════════════════════════════
 # ZU ZUSAMMENFASSENDE KONVERSATION

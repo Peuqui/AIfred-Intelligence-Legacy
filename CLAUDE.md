@@ -12,12 +12,15 @@
 
 ---
 
-## ⚠️ KRITISCH: Keine Fallbacks ohne Absprache
+## ⚠️ KRITISCH: Keine Fallbacks oder Backward-Compatibility
 
 - **NIEMALS** automatisch Fallback-Logik einbauen
-- Fallbacks (für alte Datenformate, fehlende Felder, Migration etc.) nur nach Absprache mit User
-- Im Zweifel: Alte Daten löschen und sauber neu starten
-- GRUND: Fallbacks verkomplizieren den Code und verstecken Probleme
+- **NIEMALS** Backward-Compatibility-Aliase erstellen (z.B. `new_func = old_func`)
+- Fallbacks (für alte Datenformate, fehlende Felder, Migration etc.) nur nach **expliziter** Absprache mit User
+- Backward-Compatibility nur wenn User es **ausdrücklich** wünscht
+- Im Zweifel: Alte Daten/Code löschen und sauber neu starten
+- GRUND: Fallbacks und Aliase verkomplizieren den Code und verstecken Probleme
+- **IMMER mit User abklären - GRUNDSÄTZLICH - WICHTIG!**
 
 ---
 

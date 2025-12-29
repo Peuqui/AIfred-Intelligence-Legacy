@@ -904,14 +904,16 @@ class OllamaBackend(LLMBackend):
     async def calibrate_max_context_generator(
         self,
         model: str,
-        rope_factor: float = 1.0
+        rope_factor: float = 1.0,
+        min_context: int | None = None,
+        force_hybrid: bool = False
     ):
         """
-        Calibrate maximum context window without CPU offloading via binary search.
+        Calibrate maximum context window via binary search.
 
         This is an async generator that yields progress messages for UI updates.
         Uses /api/ps to detect if model fits entirely in VRAM (size == size_vram).
-        Binary search finds the largest num_ctx that still fits in GPU memory.
+        Binary search finds the largest num_ctx that fits in memory.
 
         Supports RoPE scaling:
         - 1.0x: Native context limit (no RoPE scaling)
@@ -921,9 +923,14 @@ class OllamaBackend(LLMBackend):
         Args:
             model: Model name (e.g., "qwen3:8b")
             rope_factor: RoPE scaling factor (1.0, 1.5, or 2.0)
+            min_context: Minimum context for binary search (default: CALIBRATION_MIN_CONTEXT)
+                         Use this when continuing from a previous calibration result
+            force_hybrid: If True, skip GPU-only detection and go directly to hybrid mode
+                          Use this when 1.0x already determined hybrid is needed
 
         Yields:
-            str: Progress messages (prefix "__RESULT__:" indicates final result)
+            str: Progress messages. Final result format: "__RESULT__:{ctx}:{mode}"
+                 where mode is "gpu", "hybrid", or "error"
         """
         import asyncio
         from ..lib.model_vram_cache import add_ollama_calibration
@@ -976,6 +983,87 @@ class OllamaBackend(LLMBackend):
         ram_str = f"{format_number(free_ram_mb / 1024, 1)} GB" if free_ram_mb else "N/A"
         yield f"Model: {format_number(model_size_mb / 1024, 1)} GB | VRAM: {vram_str} | RAM: {ram_str}"
 
+        # Set effective minimum context for binary search
+        effective_min_context = min_context if min_context is not None else CALIBRATION_MIN_CONTEXT
+
+        # === FORCE HYBRID MODE (for RoPE calibration after 1.0x was hybrid) ===
+        if force_hybrid:
+            yield "🔀 Hybrid mode (continuing from 1.0x calibration)"
+            yield f"→ Binary search range: {format_number(effective_min_context)} → {format_number(max_target)} tok"
+
+            # Test max target first
+            yield f"[1] Testing {format_number(max_target)}..."
+            success, _ = await self.preload_model(model, num_ctx=max_target)
+
+            if success:
+                await asyncio.sleep(2.0)
+                # Check RAM reserve
+                check_ram = get_free_ram_mb()
+                dynamic_reserve = get_dynamic_ram_reserve(int(check_ram)) if check_ram else 0
+                if check_ram and check_ram >= dynamic_reserve:
+                    yield f"✅ {format_number(max_target)} fits in RAM"
+                    # Save and return
+                    gpu_model = get_gpu_model_name() or "Unknown"
+                    add_ollama_calibration(
+                        model_name=model,
+                        max_context_gpu_only=max_target,
+                        native_context=native_ctx,
+                        gpu_model=gpu_model,
+                        rope_factor=rope_factor,
+                        is_hybrid=True
+                    )
+                    yield f"__RESULT__:{max_target}:hybrid"
+                    return
+                else:
+                    yield f"✗ {format_number(max_target)} exceeds RAM reserve"
+            else:
+                yield f"✗ {format_number(max_target)} failed to load"
+
+            # Binary search between min_context and max_target
+            low = effective_min_context
+            high = max_target
+            result = low
+
+            iteration = 1
+            while high - low > 512:
+                iteration += 1
+                mid = (low + high) // 2
+
+                yield f"[{iteration}] Testing {format_number(mid)}..."
+                await self.unload_all_models()
+                await asyncio.sleep(1.0)
+
+                success, _ = await self.preload_model(model, num_ctx=mid)
+                if success:
+                    await asyncio.sleep(2.0)
+                    check_ram = get_free_ram_mb()
+                    dynamic_reserve = get_dynamic_ram_reserve(int(check_ram)) if check_ram else 0
+                    if check_ram and check_ram >= dynamic_reserve:
+                        result = mid
+                        low = mid
+                        yield f"✓ {format_number(mid)} fits"
+                    else:
+                        high = mid
+                        yield f"✗ {format_number(mid)} exceeds RAM reserve"
+                else:
+                    high = mid
+                    yield f"✗ {format_number(mid)} failed"
+
+            # Save result
+            final_ctx = result
+            gpu_model = get_gpu_model_name() or "Unknown"
+            add_ollama_calibration(
+                model_name=model,
+                max_context_gpu_only=final_ctx,
+                native_context=native_ctx,
+                gpu_model=gpu_model,
+                rope_factor=rope_factor,
+                is_hybrid=True
+            )
+            yield f"✅ Hybrid calibrated: {format_number(final_ctx)} tok"
+            yield f"__RESULT__:{final_ctx}:hybrid"
+            return
+
         # Check if we can do hybrid mode detection
         if model_size_mb == 0:
             yield "⚠️ Model size unknown - using binary search"
@@ -994,7 +1082,7 @@ class OllamaBackend(LLMBackend):
             if model_size_mb > total_available_mb:
                 yield f"❌ Model ({format_number(model_size_mb / 1024, 1)} GB) > available ({format_number(total_available_mb / 1024, 1)} GB)"
                 yield "❌ ABORT: Model too large for system"
-                yield "__RESULT__:0"
+                yield "__RESULT__:0:error"
                 return
 
             # === DIRECT CALCULATION ===
@@ -1017,7 +1105,7 @@ class OllamaBackend(LLMBackend):
             available_for_context = estimated_free_ram_after - dynamic_reserve
             if available_for_context <= 0:
                 yield f"❌ Not enough RAM for context (need {format_number(dynamic_reserve / 1024, 1)} GB reserve)"
-                yield "__RESULT__:0"
+                yield "__RESULT__:0:error"
                 return
 
             calculated_tokens = int(available_for_context / ratio)
@@ -1034,7 +1122,7 @@ class OllamaBackend(LLMBackend):
                 success, _ = await self.preload_model(model, num_ctx=HYBRID_MIN_CONTEXT)
                 if not success:
                     yield f"❌ Even {format_number(HYBRID_MIN_CONTEXT)} tokens failed"
-                    yield "__RESULT__:0"
+                    yield "__RESULT__:0:error"
                     return
                 calculated_ctx = HYBRID_MIN_CONTEXT
 
@@ -1094,7 +1182,7 @@ class OllamaBackend(LLMBackend):
                         success, _ = await self.preload_model(model, num_ctx=reduce_ctx)
                         if not success:
                             yield f"❌ Reduction to {format_number(reduce_ctx)} failed"
-                            yield "__RESULT__:0"
+                            yield "__RESULT__:0:error"
                             return
 
                         calculated_ctx = reduce_ctx
@@ -1134,14 +1222,15 @@ class OllamaBackend(LLMBackend):
                 max_context_gpu_only=final_ctx,
                 native_context=native_ctx,
                 gpu_model=gpu_model,
-                rope_factor=rope_factor
+                rope_factor=rope_factor,
+                is_hybrid=True  # Mark as hybrid mode (CPU offload)
             )
 
             yield f"✅ Hybrid mode: {format_number(final_ctx)} tokens saved"
 
             # NOTE: No longer auto-setting RoPE 2x here - we calibrate all RoPE factors explicitly
 
-            yield f"__RESULT__:{final_ctx}"
+            yield f"__RESULT__:{final_ctx}:hybrid"
             return  # Skip normal binary search
 
         # === NORMAL MODE (model fits in VRAM) ===
@@ -1169,7 +1258,6 @@ class OllamaBackend(LLMBackend):
 
         # 4. Binary search (only if max target didn't fit)
         if low != high:
-            granularity = 4096  # Start with 4k steps
             yield f"Binary search range: {format_number(low)} → {format_number(high)} tok"
 
             iteration = 1  # Already did iteration 1 with max target
@@ -1178,13 +1266,8 @@ class OllamaBackend(LLMBackend):
 
             while high - low > 512:  # End condition: 512 token precision
                 iteration += 1
-                # Adaptive granularity: narrow down as we get closer
-                if high - low < 8192:
-                    granularity = 512
-                elif high - low < 16384:
-                    granularity = 1024
-
-                mid = ((low + high) // 2 // granularity) * granularity  # Align to granularity
+                # Pure binary search: always take the middle
+                mid = (low + high) // 2
 
                 yield f"[{iteration}] Testing {format_number(mid)}..."
 
@@ -1246,24 +1329,77 @@ class OllamaBackend(LLMBackend):
 
         # 4. Result (no safety buffer - Ollama handles memory management internally)
         final_ctx = result
+        is_hybrid = False  # GPU-only mode by default
 
-        yield f"✅ Calibrated ({mode_label}): {format_number(final_ctx)} tok"
+        # 5. Check if GPU-only context is too small → switch to Hybrid mode
+        # Use <= because exactly at threshold is also borderline (Hybrid likely does better)
+        if final_ctx <= CALIBRATION_MIN_CONTEXT and free_ram_mb is not None:
+            yield f"⚠️ GPU-only context ({format_number(final_ctx)}) <= minimum ({format_number(CALIBRATION_MIN_CONTEXT)})"
+            yield "→ Switching to Hybrid mode for usable context..."
 
-        # 5. Save to cache
+            # === HYBRID FALLBACK ===
+            # Model technically fits in VRAM but with unusably small context
+            # Use RAM offload to get more context
+
+            # Reuse model_size_mb from earlier (already calculated)
+            is_moe = await is_moe_model(model, self.base_url)
+            ratio = VRAM_CONTEXT_RATIO_MOE if is_moe else VRAM_CONTEXT_RATIO_DENSE
+
+            # Available RAM for context (after accounting for model in VRAM)
+            # Since model fits in VRAM, we have free_ram_mb available for context
+            dynamic_reserve = get_dynamic_ram_reserve(int(free_ram_mb))
+            available_for_context = free_ram_mb - dynamic_reserve
+
+            if available_for_context > 0:
+                calculated_tokens = int(available_for_context / ratio)
+                hybrid_ctx = min(calculated_tokens, max_target)
+
+                if hybrid_ctx > final_ctx:
+                    yield f"→ Hybrid calculation: {format_number(hybrid_ctx)} tokens"
+                    yield "→ Testing hybrid context..."
+
+                    await self.unload_all_models()
+                    await asyncio.sleep(1.0)
+
+                    success, _ = await self.preload_model(model, num_ctx=hybrid_ctx)
+                    if success:
+                        await asyncio.sleep(2.0)
+                        # Verify RAM is within reserve
+                        check_ram = get_free_ram_mb()
+                        if check_ram and check_ram >= get_dynamic_ram_reserve(check_ram):
+                            final_ctx = hybrid_ctx
+                            is_hybrid = True
+                            yield f"✅ Hybrid mode: {format_number(final_ctx)} tokens"
+                        else:
+                            yield f"⚠️ Hybrid context too tight, using GPU-only: {format_number(result)} tokens"
+                            final_ctx = result
+                    else:
+                        yield f"⚠️ Hybrid load failed, using GPU-only: {format_number(result)} tokens"
+                        final_ctx = result
+                else:
+                    yield f"⚠️ Hybrid wouldn't improve, using GPU-only: {format_number(final_ctx)} tokens"
+            else:
+                yield f"⚠️ Not enough RAM for hybrid, using GPU-only: {format_number(final_ctx)} tokens"
+        else:
+            yield f"✅ Calibrated ({mode_label}): {format_number(final_ctx)} tok"
+
+        # 6. Save to cache
         gpu_model = get_gpu_model_name() or "Unknown"
         add_ollama_calibration(
             model_name=model,
             max_context_gpu_only=final_ctx,
             native_context=native_ctx,
             gpu_model=gpu_model,
-            rope_factor=rope_factor
+            rope_factor=rope_factor,
+            is_hybrid=is_hybrid
         )
 
         # NOTE: No longer auto-setting RoPE 2x here - we calibrate all RoPE factors explicitly
         # Each RoPE factor (1.0x, 1.5x, 2.0x) is calibrated separately in state.py
 
-        # Final yield with result marker
-        yield f"__RESULT__:{final_ctx}"
+        # Final yield with result marker (format: __RESULT__:context:mode)
+        mode_suffix = "hybrid" if is_hybrid else "gpu"
+        yield f"__RESULT__:{final_ctx}:{mode_suffix}"
 
     async def close(self):
         """Close HTTP client"""

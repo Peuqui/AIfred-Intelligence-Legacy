@@ -5,6 +5,55 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.5] - 2025-12-29
+
+### 🔀 Hybrid-Mode RoPE Calibration
+
+**Inkrementelle RoPE-Kalibrierung mit Hybrid-Mode-Kontinuität für erweiterte Kontextfenster.**
+
+#### Added
+
+- **force_hybrid Parameter** ([ollama.py](aifred/backends/ollama.py)):
+  - Neuer Parameter `force_hybrid=True` überspringt GPU-only Erkennung
+  - Wenn 1.0x Hybrid war, starten 1.5x/2.0x direkt im Hybrid-Mode
+  - Vermeidet unnötige Binary-Search von 8K
+
+- **min_context Parameter** ([ollama.py](aifred/backends/ollama.py)):
+  - Neuer Parameter `min_context` setzt untere Grenze für Binary Search
+  - RoPE 1.5x startet beim 1.0x Ergebnis (nicht bei 8K)
+  - RoPE 2.0x startet beim 1.5x Ergebnis (inkrementell)
+
+- **Inkrementeller RoPE-Loop** ([state.py](aifred/state.py)):
+  - `prev_ctx` Variable speichert vorheriges Ergebnis
+  - Jeder RoPE-Faktor startet beim Ergebnis des vorherigen
+  - Beispiel: 40K → 61K → 81K statt 8K → 8K → 8K
+
+- **Hybrid-Mode Kontinuität** ([state.py](aifred/state.py)):
+  - `is_hybrid_mode` Flag wird aus 1.0x Ergebnis extrahiert
+  - Wird an alle RoPE-Kalibrierungen weitergegeben
+  - Cache speichert `is_hybrid: true/false` pro Kalibrierung
+
+#### Changed
+
+- **__RESULT__ Protokoll** ([ollama.py](aifred/backends/ollama.py)):
+  - Neues Format: `__RESULT__:{ctx}:{mode}` (vorher: `__RESULT__:{ctx}`)
+  - `mode` ist `gpu`, `hybrid`, oder `error`
+  - Ermöglicht Hybrid-Mode-Erkennung im Caller
+
+- **Skip-Logik bei Memory-Limit** ([state.py](aifred/state.py)):
+  - RoPE wird nur übersprungen wenn `calibrated_ctx < native_ctx`
+  - Hybrid-Mode mit vollem Native-Context testet weiterhin RoPE
+  - RAM könnte mehr Headroom haben als VRAM
+
+#### Documentation
+
+- **Neues Flussdiagramm** ([OLLAMA_CONTEXT_CALIBRATION.md](docs/plans/OLLAMA_CONTEXT_CALIBRATION.md)):
+  - ASCII-Flowchart mit kompletter Entscheidungslogik
+  - Tabellen für Nach-1.0x-Entscheidungen
+  - Beispiel-Log von erfolgreicher Kalibrierung
+
+- **README.de.md**: Kalibrierungs-Sektion gekürzt mit Link zur Detail-Dokumentation
+
 ## [2.14.4] - 2025-12-29
 
 ### 📐 Smart RoPE Calibration & VRAM Optimization
