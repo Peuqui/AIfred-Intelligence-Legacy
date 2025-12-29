@@ -4757,7 +4757,7 @@ class AIState(rx.State):
 
             # Check for calibration failure (model doesn't fit)
             if not calibrated_ctx or calibrated_ctx == 0:
-                self.add_debug(f"{'─' * 40}")
+                self.add_debug(CONSOLE_SEPARATOR)
                 self.add_debug("❌ Calibration failed - model doesn't fit in memory")
                 self.add_debug("   → Skipping RoPE calibration")
                 yield
@@ -4766,7 +4766,7 @@ class AIState(rx.State):
                 # Memory is the bottleneck (VRAM or RAM) - RoPE scaling won't help
                 # This applies to BOTH GPU-only and Hybrid mode
                 skip_rope_calibration = True
-                self.add_debug(f"{'─' * 40}")
+                self.add_debug(CONSOLE_SEPARATOR)
                 if is_hybrid_mode:
                     self.add_debug(f"🔀 Hybrid mode: {format_number(calibrated_ctx)} < {format_number(native_ctx)} native")
                     self.add_debug("   → RAM is the limit - RoPE scaling won't increase context")
@@ -4777,7 +4777,7 @@ class AIState(rx.State):
                 yield
             elif is_hybrid_mode:
                 # Hybrid mode but native context fits - RoPE might give us more!
-                self.add_debug(f"{'─' * 40}")
+                self.add_debug(CONSOLE_SEPARATOR)
                 self.add_debug(f"🔀 Hybrid mode: {format_number(calibrated_ctx)} (native fits)")
                 self.add_debug("   → Testing if RoPE scaling can extend context further...")
                 yield
@@ -4805,7 +4805,7 @@ class AIState(rx.State):
                 prev_ctx = calibration_results.get(1.0, CALIBRATION_MIN_CONTEXT)
 
                 for rope_factor in [1.5, 2.0]:
-                    self.add_debug(f"{'─' * 40}")
+                    self.add_debug(CONSOLE_SEPARATOR)
                     self.add_debug(f"📐 Calibrating RoPE {rope_factor}x...")
                     yield
 
@@ -4828,7 +4828,7 @@ class AIState(rx.State):
                             yield
 
             # Summary
-            self.add_debug(f"{'═' * 40}")
+            self.add_debug("═" * 20)
             mode_info = " (Hybrid)" if is_hybrid_mode else ""
             self.add_debug(f"✅ Calibration complete for {self.aifred_model_id}{mode_info}:")
             for factor, ctx in calibration_results.items():
@@ -4836,7 +4836,7 @@ class AIState(rx.State):
                 suffix = " (auto)" if skip_rope_calibration and factor > 1.0 else ""
                 self.add_debug(f"   {label}: {format_number(ctx)} tok{suffix}")
             self.add_debug("   → Values will be used automatically based on RoPE setting")
-            self.add_debug(f"{'─' * 40}")
+            self.add_debug(CONSOLE_SEPARATOR)
 
         except Exception as e:
             self.add_debug(f"❌ Calibration failed: {e}")
