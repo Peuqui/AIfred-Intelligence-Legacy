@@ -263,7 +263,7 @@ def get_measurement_count(model_name: str) -> int:
 
 def get_ollama_calibrated_max_context(
     model_name: str,
-    extended: bool = False
+    rope_factor: float = 1.0
 ) -> Optional[int]:
     """
     Get calibrated max context for an Ollama model.
@@ -271,13 +271,14 @@ def get_ollama_calibrated_max_context(
     Returns the experimentally measured maximum context that fits in GPU memory
     without CPU offloading. This is more accurate than dynamic VRAM calculation.
 
-    Supports two calibration modes:
-    - Native (extended=False): Returns max_context_gpu_only (up to native limit)
-    - Extended (extended=True): Returns max_context_extended (up to 2x native, RoPE scaling)
+    Supports RoPE scaling factors:
+    - 1.0x: Native context limit (no RoPE scaling)
+    - 1.5x: Extended context (1.5x RoPE scaling)
+    - 2.0x: Maximum context (2.0x RoPE scaling)
 
     Args:
         model_name: Ollama model name (e.g., "qwen3:30b-a3b-instruct-2507-q8_0")
-        extended: If True, returns extended (RoPE 2x) calibration value
+        rope_factor: RoPE scaling factor (1.0, 1.5, or 2.0)
 
     Returns:
         Calibrated max context tokens, or None if no calibration exists
@@ -291,8 +292,15 @@ def get_ollama_calibrated_max_context(
     if not calibrations:
         return None
 
-    # Determine field name based on mode
-    field_name = "max_context_extended" if extended else "max_context_gpu_only"
+    # Determine field name based on RoPE factor
+    if rope_factor == 1.0:
+        field_name = "max_context_1.0x"
+    elif rope_factor == 1.5:
+        field_name = "max_context_1.5x"
+    elif rope_factor == 2.0:
+        field_name = "max_context_2.0x"
+    else:
+        field_name = "max_context_1.0x"  # Fallback
 
     # Search backwards for the most recent calibration with this field
     for cal in reversed(calibrations):
@@ -308,7 +316,7 @@ def add_ollama_calibration(
     max_context_gpu_only: int,
     native_context: int,
     gpu_model: str = "Unknown",
-    extended: bool = False
+    rope_factor: float = 1.0
 ) -> bool:
     """
     Add a calibration point for an Ollama model.
@@ -317,16 +325,17 @@ def add_ollama_calibration(
     in GPU memory (no CPU offloading). This is determined via binary search
     using Ollama's /api/ps endpoint (size == size_vram check).
 
-    Supports two calibration modes:
-    - Native (extended=False): Calibrates up to native context limit
-    - Extended (extended=True): Calibrates up to 2x native (RoPE scaling)
+    Supports RoPE scaling factors:
+    - 1.0x: Native context limit (no RoPE scaling)
+    - 1.5x: Extended context (1.5x RoPE scaling)
+    - 2.0x: Maximum context (2.0x RoPE scaling)
 
     Args:
         model_name: Ollama model name (e.g., "qwen3:8b")
         max_context_gpu_only: Maximum context tokens without CPU offload
         native_context: Model's architectural context limit
         gpu_model: GPU model name (e.g., "NVIDIA GeForce RTX 3090 Ti")
-        extended: If True, saves as extended (RoPE 2x) calibration
+        rope_factor: RoPE scaling factor (1.0, 1.5, or 2.0)
 
     Returns:
         True if successfully added, False otherwise
@@ -350,9 +359,19 @@ def add_ollama_calibration(
     cache[model_name]["native_context"] = native_context
     cache[model_name]["gpu_model"] = gpu_model
 
-    # Determine field name based on mode
-    field_name = "max_context_extended" if extended else "max_context_gpu_only"
-    mode_label = "extended (RoPE 2x)" if extended else "native"
+    # Determine field name based on RoPE factor
+    if rope_factor == 1.0:
+        field_name = "max_context_1.0x"
+        mode_label = "1.0x (native)"
+    elif rope_factor == 1.5:
+        field_name = "max_context_1.5x"
+        mode_label = "1.5x (RoPE)"
+    elif rope_factor == 2.0:
+        field_name = "max_context_2.0x"
+        mode_label = "2.0x (RoPE)"
+    else:
+        field_name = "max_context_1.0x"
+        mode_label = "1.0x (native, fallback)"
 
     # Add calibration point
     calibration = {
@@ -375,33 +394,33 @@ def add_ollama_calibration(
     return save_cache(cache)
 
 
-def get_use_extended_for_model(model_name: str) -> bool:
+def get_rope_factor_for_model(model_name: str) -> float:
     """
-    Get the use_extended toggle value for a specific Ollama model.
+    Get the RoPE scaling factor for a specific Ollama model.
 
-    This allows per-model configuration of RoPE 2x scaling.
+    This allows per-model configuration of RoPE scaling (1.0x, 1.5x, or 2.0x).
 
     Args:
         model_name: Ollama model name (e.g., "qwen3:14b")
 
     Returns:
-        True if RoPE 2x should be used for this model, False otherwise
+        RoPE scaling factor (1.0, 1.5, or 2.0). Default: 1.0
     """
     cache = load_cache()
 
     if model_name not in cache:
-        return False
+        return 1.0
 
-    return cache[model_name].get("use_extended", False)
+    return float(cache[model_name].get("rope_factor", 1.0))
 
 
-def set_use_extended_for_model(model_name: str, use_extended: bool) -> bool:
+def set_rope_factor_for_model(model_name: str, rope_factor: float) -> bool:
     """
-    Set the use_extended toggle for a specific Ollama model.
+    Set the RoPE scaling factor for a specific Ollama model.
 
     Args:
         model_name: Ollama model name (e.g., "qwen3:14b")
-        use_extended: True to use RoPE 2x calibration, False for native
+        rope_factor: RoPE scaling factor (1.0, 1.5, or 2.0)
 
     Returns:
         True if successfully saved, False otherwise
@@ -414,12 +433,12 @@ def set_use_extended_for_model(model_name: str, use_extended: bool) -> bool:
             "backend": "ollama",
             "native_context": 0,
             "gpu_model": "Unknown",
-            "use_extended": use_extended
+            "rope_factor": rope_factor
         }
     else:
-        cache[model_name]["use_extended"] = use_extended
+        cache[model_name]["rope_factor"] = rope_factor
 
-    logger.info(f"📊 Set use_extended={use_extended} for {model_name}")
+    logger.info(f"📊 Set rope_factor={rope_factor}x for {model_name}")
     return save_cache(cache)
 
 

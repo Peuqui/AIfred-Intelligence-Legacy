@@ -846,7 +846,7 @@ class OllamaBackend(LLMBackend):
     async def calibrate_max_context_generator(
         self,
         model: str,
-        extended: bool = False
+        rope_factor: float = 1.0
     ):
         """
         Calibrate maximum context window without CPU offloading via binary search.
@@ -855,13 +855,14 @@ class OllamaBackend(LLMBackend):
         Uses /api/ps to detect if model fits entirely in VRAM (size == size_vram).
         Binary search finds the largest num_ctx that still fits in GPU memory.
 
-        Supports two calibration modes:
-        - Native (extended=False): Calibrates up to native context limit
-        - Extended (extended=True): Calibrates up to 2x native (RoPE scaling)
+        Supports RoPE scaling:
+        - 1.0x: Native context limit (no RoPE scaling)
+        - 1.5x: Extended context (1.5x RoPE scaling)
+        - 2.0x: Maximum context (2.0x RoPE scaling)
 
         Args:
             model: Model name (e.g., "qwen3:8b")
-            extended: If True, calibrate up to 2x native context (RoPE scaling)
+            rope_factor: RoPE scaling factor (1.0, 1.5, or 2.0)
 
         Yields:
             str: Progress messages (prefix "__RESULT__:" indicates final result)
@@ -874,8 +875,16 @@ class OllamaBackend(LLMBackend):
 
         # 1. Get native context limit AND model size
         native_ctx, model_size_bytes = await self.get_model_context_limit(model)
-        max_target = native_ctx * 2 if extended else native_ctx
-        mode_label = "RoPE 2x" if extended else "Native"
+        max_target = int(native_ctx * rope_factor)
+
+        if rope_factor == 1.0:
+            mode_label = "Native (1.0x)"
+        elif rope_factor == 1.5:
+            mode_label = "RoPE 1.5x"
+        elif rope_factor == 2.0:
+            mode_label = "RoPE 2.0x"
+        else:
+            mode_label = f"RoPE {rope_factor}x"
 
         yield f"{mode_label} calibration: target {format_number(max_target)} tok"
         yield f"Native context: {format_number(native_ctx)} tok"
@@ -1062,19 +1071,19 @@ class OllamaBackend(LLMBackend):
                 max_context_gpu_only=final_ctx,
                 native_context=native_ctx,
                 gpu_model=gpu_model,
-                extended=extended
+                rope_factor=rope_factor
             )
 
             yield f"✅ Hybrid mode: {format_number(final_ctx)} tokens saved"
 
             # Also save extended value (hybrid mode = same limit for both)
-            if not extended:
+            if rope_factor == 1.0:
                 add_ollama_calibration(
                     model_name=model,
                     max_context_gpu_only=final_ctx,
                     native_context=native_ctx,
                     gpu_model=gpu_model,
-                    extended=True
+                    rope_factor=2.0
                 )
                 yield f"ℹ️ RoPE 2x auto-set to {format_number(final_ctx)} (hybrid mode)"
 
@@ -1193,19 +1202,19 @@ class OllamaBackend(LLMBackend):
             max_context_gpu_only=final_ctx,
             native_context=native_ctx,
             gpu_model=gpu_model,
-            extended=extended
+            rope_factor=rope_factor
         )
 
         # 6. Auto-set extended value if native calibration is VRAM-limited
         # If native calibration < native context limit, VRAM is the bottleneck
         # → RoPE 2x wouldn't help, so set extended = native calibrated value
-        if not extended and final_ctx < native_ctx:
+        if rope_factor == 1.0 and final_ctx < native_ctx:
             add_ollama_calibration(
                 model_name=model,
                 max_context_gpu_only=final_ctx,
                 native_context=native_ctx,
                 gpu_model=gpu_model,
-                extended=True  # Also save as extended value
+                rope_factor=2.0  # Also save as extended value
             )
             yield f"ℹ️ VRAM-limited ({format_number(final_ctx)} < {format_number(native_ctx)} native)"
             yield f"   → RoPE 2x auto-set to {format_number(final_ctx)} (no benefit from scaling)"

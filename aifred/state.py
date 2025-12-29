@@ -248,7 +248,13 @@ class AIState(rx.State):
     is_compressing: bool = False  # Shows if history compression is running
     is_uploading_image: bool = False  # Shows spinner during image upload
     is_calibrating: bool = False  # Shows spinner during context calibration
-    calibrate_extended: bool = False  # Toggle for RoPE 2x calibration mode
+
+    # Per-Model RoPE Scaling Factors (1.0x, 1.5x, 2.0x)
+    aifred_rope_factor: float = 1.0      # AIfred Main-LLM RoPE scaling
+    automatik_rope_factor: float = 1.0   # Automatik-LLM RoPE scaling
+    sokrates_rope_factor: float = 1.0    # Sokrates-LLM RoPE scaling
+    salomo_rope_factor: float = 1.0      # Salomo-LLM RoPE scaling
+    vision_rope_factor: float = 1.0      # Vision-LLM RoPE scaling
 
     # Image Upload State
     pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "base64": "...", "url": "...", "original_bytes": bytes}]
@@ -322,7 +328,7 @@ class AIState(rx.State):
     num_ctx: int = 32768
 
     # Context Window Control (NOT saved in settings.json - reset on every start)
-    num_ctx_mode: str = "auto"  # "auto" | "manual" (RoPE extension via calibrate_extended toggle)
+    num_ctx_mode: str = "auto"  # "auto" | "manual" (RoPE extension via rope_factor)
     num_ctx_manual: int = 4096  # Manual value for AIfred (only if mode="manual") - Ollama default
     num_ctx_manual_sokrates: int = 4096  # Manual value for Sokrates (only if mode="manual")
     num_ctx_manual_salomo: int = 4096  # Manual value for Salomo (only if mode="manual")
@@ -558,6 +564,31 @@ class AIState(rx.State):
         # Map IDs to display names using available_models_dict
         return [self.available_models_dict.get(mid, mid) for mid in self.vision_models_cache
                 if mid in self.available_models_dict]
+
+    @rx.var
+    def rope_factor_display(self) -> str:
+        """Display value for AIfred RoPE factor select (e.g., '1.0x', '2.0x')"""
+        return f"{self.aifred_rope_factor}x"
+
+    @rx.var
+    def automatik_rope_display(self) -> str:
+        """Display value for Automatik RoPE factor select"""
+        return f"{self.automatik_rope_factor}x"
+
+    @rx.var
+    def sokrates_rope_display(self) -> str:
+        """Display value for Sokrates RoPE factor select"""
+        return f"{self.sokrates_rope_factor}x"
+
+    @rx.var
+    def salomo_rope_display(self) -> str:
+        """Display value for Salomo RoPE factor select"""
+        return f"{self.salomo_rope_factor}x"
+
+    @rx.var
+    def vision_rope_display(self) -> str:
+        """Display value for Vision RoPE factor select"""
+        return f"{self.vision_rope_factor}x"
 
     # ===== NEW: KEY-VALUE COMPUTED PROPERTIES FOR MOBILE NATIVE SELECTS =====
 
@@ -1041,8 +1072,8 @@ class AIState(rx.State):
 
                     # Load per-model RoPE 2x toggle from cache
                     if self.backend_id == "ollama" and self.aifred_model_id:
-                        from .lib.model_vram_cache import get_use_extended_for_model
-                        self.calibrate_extended = get_use_extended_for_model(self.aifred_model_id)
+                        from .lib.model_vram_cache import get_rope_factor_for_model
+                        self.aifred_rope_factor = get_rope_factor_for_model(self.aifred_model_id)
 
                     # Sync deprecated variables (will be populated later after models load)
                     self.aifred_model = selected_raw
@@ -1060,8 +1091,8 @@ class AIState(rx.State):
 
                     # Load per-model RoPE 2x toggle from cache
                     if self.backend_id == "ollama" and self.aifred_model_id:
-                        from .lib.model_vram_cache import get_use_extended_for_model
-                        self.calibrate_extended = get_use_extended_for_model(self.aifred_model_id)
+                        from .lib.model_vram_cache import get_rope_factor_for_model
+                        self.aifred_rope_factor = get_rope_factor_for_model(self.aifred_model_id)
 
                     self.aifred_model = selected_raw
                     self.automatik_model = automatik_raw
@@ -1509,7 +1540,7 @@ class AIState(rx.State):
 
                 # For backends without model switching (vLLM, KoboldCPP, TabbyAPI), show only Main model
                 # Import VRAM cache for calibrated context limits
-                from .lib.model_vram_cache import get_ollama_calibrated_max_context, get_use_extended_for_model
+                from .lib.model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model
                 from .lib.formatting import format_number
 
                 def format_model_with_ctx(model_display: str, model_id: str) -> str:
@@ -1518,7 +1549,7 @@ class AIState(rx.State):
                     """
                     if not model_id:
                         return model_display
-                    ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                    ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                     if ctx:
                         if model_display.endswith(")"):
                             return model_display[:-1] + f", {format_number(ctx)} ctx)"
@@ -1548,7 +1579,7 @@ class AIState(rx.State):
                 context_limits = []
                 for model_id in [self.aifred_model_id, self.sokrates_model_id, self.salomo_model_id]:
                     if model_id:
-                        ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                        ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                         if ctx:
                             context_limits.append(ctx)
                 self._min_agent_context_limit = min(context_limits) if context_limits else 0
@@ -1703,8 +1734,8 @@ class AIState(rx.State):
         from .lib.model_vram_cache import get_ollama_calibrated_max_context
         from .lib.formatting import format_number
 
-        native_ctx = get_ollama_calibrated_max_context(model_id, extended=False)
-        extended_ctx = get_ollama_calibrated_max_context(model_id, extended=True)
+        native_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=1.0)
+        extended_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=2.0)
 
         if native_ctx is not None or extended_ctx is not None:
             # Show calibrated values
@@ -4535,23 +4566,24 @@ class AIState(rx.State):
         """Legacy method - calls restart_backend()"""
         await self.restart_backend()
 
-    def set_calibrate_extended(self, value: bool):
-        """Toggle RoPE 2x extended calibration mode and save to cache"""
-        self.calibrate_extended = value
-        mode = "RoPE 2x" if value else "Native"
-        self.add_debug(f"🎚️ Calibration mode: {mode}")
+    def set_aifred_rope_factor(self, value: str):
+        """Set RoPE scaling factor for AIfred-LLM"""
+        # Convert UI string to float
+        factor = float(value.replace("x", ""))
+        self.aifred_rope_factor = factor
+        self.add_debug(f"🎚️ AIfred RoPE Factor: {value}")
 
         # Save to VRAM cache (per-model setting)
         if self.aifred_model_id:
-            from .lib.model_vram_cache import set_use_extended_for_model, get_ollama_calibrated_max_context, get_use_extended_for_model
+            from .lib.model_vram_cache import set_rope_factor_for_model, get_ollama_calibrated_max_context, get_rope_factor_for_model
             from .lib.formatting import format_number
-            set_use_extended_for_model(self.aifred_model_id, value)
+            set_rope_factor_for_model(self.aifred_model_id, factor)
 
             # Helper for context limit display (merge GB and ctx into one bracket)
             def format_model_with_ctx(model_display: str, model_id: str) -> str:
                 if not model_id:
                     return model_display
-                ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                 if ctx:
                     if model_display.endswith(")"):
                         return model_display[:-1] + f", {format_number(ctx)} ctx)"
@@ -4573,7 +4605,7 @@ class AIState(rx.State):
             context_limits = []
             for model_id in [self.aifred_model_id, self.sokrates_model_id, self.salomo_model_id]:
                 if model_id:
-                    ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                    ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                     if ctx:
                         context_limits.append(ctx)
             self._min_agent_context_limit = min(context_limits) if context_limits else 0
@@ -4591,16 +4623,48 @@ class AIState(rx.State):
                     self.add_debug(f"⚠️ History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
 
             # Warn if no calibration exists for this mode
-            if value:
+            if value >= 2.0:
                 # Check if extended calibration exists
-                extended_ctx = get_ollama_calibrated_max_context(self.aifred_model_id, extended=True)
+                extended_ctx = get_ollama_calibrated_max_context(self.aifred_model_id, rope_factor=2.0)
                 if extended_ctx is None:
                     self.add_debug("⚠️ No RoPE 2x calibration found - please calibrate first!")
             else:
                 # Check if native calibration exists
-                native_ctx = get_ollama_calibrated_max_context(self.aifred_model_id, extended=False)
+                native_ctx = get_ollama_calibrated_max_context(self.aifred_model_id, rope_factor=1.0)
                 if native_ctx is None:
                     self.add_debug("⚠️ No native calibration found - please calibrate first!")
+
+    def set_automatik_rope_factor(self, value: str):
+        """Set RoPE scaling factor for Automatik-LLM"""
+        factor = float(value.replace("x", ""))
+        self.automatik_rope_factor = factor
+        if self.automatik_model_id:
+            from .lib.model_vram_cache import set_rope_factor_for_model
+            set_rope_factor_for_model(self.automatik_model_id, factor)
+
+    def set_sokrates_rope_factor(self, value: str):
+        """Set RoPE scaling factor for Sokrates-LLM"""
+        factor = float(value.replace("x", ""))
+        self.sokrates_rope_factor = factor
+        if self.sokrates_model_id:
+            from .lib.model_vram_cache import set_rope_factor_for_model
+            set_rope_factor_for_model(self.sokrates_model_id, factor)
+
+    def set_salomo_rope_factor(self, value: str):
+        """Set RoPE scaling factor for Salomo-LLM"""
+        factor = float(value.replace("x", ""))
+        self.salomo_rope_factor = factor
+        if self.salomo_model_id:
+            from .lib.model_vram_cache import set_rope_factor_for_model
+            set_rope_factor_for_model(self.salomo_model_id, factor)
+
+    def set_vision_rope_factor(self, value: str):
+        """Set RoPE scaling factor for Vision-LLM"""
+        factor = float(value.replace("x", ""))
+        self.vision_rope_factor = factor
+        if self.vision_model_id:
+            from .lib.model_vram_cache import set_rope_factor_for_model
+            set_rope_factor_for_model(self.vision_model_id, factor)
 
     async def calibrate_context(self):
         """
@@ -4609,7 +4673,7 @@ class AIState(rx.State):
         Uses binary search with /api/ps to find the largest context
         that fits entirely in VRAM without CPU offloading.
 
-        If calibrate_extended=True, calibrates up to 2x native context (RoPE scaling).
+        If rope_factor=2.0, calibrates up to 2x native context (RoPE scaling).
         """
         if self.backend_id != "ollama":
             self.add_debug("⚠️ Calibration only available for Ollama")
@@ -4624,7 +4688,7 @@ class AIState(rx.State):
             return
 
         self.is_calibrating = True
-        mode_label = "RoPE 2x" if self.calibrate_extended else "Native"
+        mode_label = "RoPE 2x" if self.aifred_rope_factor else "Native"
         self.add_debug(f"🔧 Starting {mode_label} calibration for {self.aifred_model_id}...")
         yield
 
@@ -4639,7 +4703,7 @@ class AIState(rx.State):
             calibrated_ctx = None
             async for progress_msg in backend.calibrate_max_context_generator(
                 self.aifred_model_id,
-                extended=self.calibrate_extended  # Pass extended flag
+                rope_factor=self.aifred_rope_factor  # Pass extended flag
             ):
                 # Check for result marker
                 if progress_msg.startswith("__RESULT__:"):
@@ -4733,6 +4797,10 @@ class AIState(rx.State):
         # Clear thinking mode warning when model changes
         self.thinking_mode_warning = ""
         self.add_debug(f"📝 AIfred-LLM: {model}")
+
+        # Load saved RoPE factor for this model
+        from .lib.model_vram_cache import get_rope_factor_for_model
+        self.aifred_rope_factor = get_rope_factor_for_model(self.aifred_model_id)
 
         # Show calibration info for Ollama models
         self._show_model_calibration_info(self.aifred_model_id)
@@ -4940,7 +5008,7 @@ class AIState(rx.State):
         Set num_ctx mode (NOT saved in settings.json - resets on every start)
 
         Modes:
-        - auto: Auto mode (uses calibration, extended if calibrate_extended=True)
+        - auto: Auto mode (uses calibration, extended if rope_factor=2.0)
         - manual: Manual value from num_ctx_manual (user must click "Calculate" button to see preview)
         """
         self.num_ctx_mode = mode
@@ -4950,7 +5018,7 @@ class AIState(rx.State):
         # For auto mode: immediately recalculate and display
         # For manual mode: user must click "Calculate" button for preview
         if mode == "auto":
-            from .lib.model_vram_cache import get_ollama_calibrated_max_context, get_use_extended_for_model
+            from .lib.model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model
             from .lib.formatting import format_number
             from .lib.context_manager import estimate_tokens_from_history
             from .lib.config import HISTORY_COMPRESSION_TRIGGER
@@ -4959,7 +5027,7 @@ class AIState(rx.State):
             def format_model_with_ctx(model_display: str, model_id: str) -> str:
                 if not model_id:
                     return model_display
-                ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                 if ctx:
                     if model_display.endswith(")"):
                         return model_display[:-1] + f", {format_number(ctx)} ctx)"
@@ -4981,7 +5049,7 @@ class AIState(rx.State):
             context_limits = []
             for model_id in [self.aifred_model_id, self.sokrates_model_id, self.salomo_model_id]:
                 if model_id:
-                    ctx = get_ollama_calibrated_max_context(model_id, get_use_extended_for_model(model_id))
+                    ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                     if ctx:
                         context_limits.append(ctx)
             effective_limit = min(context_limits) if context_limits else 0
@@ -5190,6 +5258,12 @@ class AIState(rx.State):
         self.sokrates_model = model
         # Extract pure model ID (remove size suffix)
         self.sokrates_model_id = extract_model_name(model)
+
+        # Load per-model RoPE factor from cache
+        if self.backend_id == "ollama" and self.sokrates_model_id:
+            from .lib.model_vram_cache import get_rope_factor_for_model
+            self.sokrates_rope_factor = get_rope_factor_for_model(self.sokrates_model_id)
+
         self._save_settings()
         if model:
             self.add_debug(f"🧠 Sokrates-LLM: {model}")
@@ -5203,6 +5277,12 @@ class AIState(rx.State):
         self.salomo_model = model
         # Extract pure model ID (remove size suffix)
         self.salomo_model_id = extract_model_name(model)
+
+        # Load per-model RoPE factor from cache
+        if self.backend_id == "ollama" and self.salomo_model_id:
+            from .lib.model_vram_cache import get_rope_factor_for_model
+            self.salomo_rope_factor = get_rope_factor_for_model(self.salomo_model_id)
+
         self._save_settings()
         if model:
             self.add_debug(f"👑 Salomo-LLM: {model}")
@@ -5381,8 +5461,8 @@ class AIState(rx.State):
 
         # Load per-model RoPE 2x toggle from cache
         if self.backend_id == "ollama":
-            from .lib.model_vram_cache import get_use_extended_for_model
-            self.calibrate_extended = get_use_extended_for_model(model_id)
+            from .lib.model_vram_cache import get_rope_factor_for_model
+            self.aifred_rope_factor = get_rope_factor_for_model(model_id)
 
         # Sync deprecated display variable
         display_label = self.available_models_dict.get(model_id, model_id)
@@ -5396,6 +5476,11 @@ class AIState(rx.State):
         # Update ID
         self.automatik_model_id = model_id
 
+        # Load per-model RoPE factor from cache
+        if self.backend_id == "ollama":
+            from .lib.model_vram_cache import get_rope_factor_for_model
+            self.automatik_rope_factor = get_rope_factor_for_model(model_id)
+
         # Sync deprecated display variable
         display_label = self.available_models_dict.get(model_id, model_id)
         self.automatik_model = display_label
@@ -5407,6 +5492,11 @@ class AIState(rx.State):
         """Set vision model using pure ID (new key-value system)"""
         # Update ID
         self.vision_model_id = model_id
+
+        # Load per-model RoPE factor from cache
+        if self.backend_id == "ollama":
+            from .lib.model_vram_cache import get_rope_factor_for_model
+            self.vision_rope_factor = get_rope_factor_for_model(model_id)
 
         # Sync deprecated display variable
         display_label = self.available_models_dict.get(model_id, model_id)

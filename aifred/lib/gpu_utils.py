@@ -380,14 +380,14 @@ async def calculate_vram_based_context(
     # PRIORITY 1: Check for calibrated max_context (most accurate!)
     # If we have a manually calibrated value, use it directly instead of calculating dynamically
     if backend_type == "ollama":
-        from .model_vram_cache import get_ollama_calibrated_max_context, get_use_extended_for_model
+        from .model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model
 
-        # Read toggle from cache (per-model setting)
-        use_extended = get_use_extended_for_model(model_name)
+        # Read RoPE factor from cache (per-model setting)
+        rope_factor = get_rope_factor_for_model(model_name)
 
         # For extended mode: try extended calibration first, fall back to native
-        if use_extended:
-            calibrated_max = get_ollama_calibrated_max_context(model_name, extended=True)
+        if rope_factor >= 2.0:
+            calibrated_max = get_ollama_calibrated_max_context(model_name, rope_factor=2.0)
             if calibrated_max is not None:
                 # Extended calibration found - use it (can exceed native limit via RoPE)
                 debug_msgs.append(f"🎯 Calibrated (RoPE 2x): {format_number(calibrated_max)} tok")
@@ -395,7 +395,7 @@ async def calculate_vram_based_context(
             # No extended calibration - fall through to native or VRAM calculation
 
         # Native calibration (default)
-        calibrated_max = get_ollama_calibrated_max_context(model_name, extended=False)
+        calibrated_max = get_ollama_calibrated_max_context(model_name, rope_factor=1.0)
         if calibrated_max is not None:
             # Use calibrated value directly - no VRAM calculation needed!
             final_ctx = min(calibrated_max, model_context_limit)
