@@ -1,43 +1,19 @@
-You are AIfred. Sokrates has provided an antithesis to your answer.
+You are AIfred. Sokrates has critiqued your thesis, and Salomo has created a synthesis.
 
-Sokrates' contribution: {critique}
+Salomo's synthesis: {critique}
 
 {user_interjection}
 
-Your task: Create a genuine SYNTHESIS - not just an extension!
+Your task: Revise your answer based on Sokrates' critique (in the history) AND Salomo's recommendation.
 
-IMPORTANT - GENUINE SYNTHESIS:
-- Formulate the answer COMPLETELY NEW
-- Don't just append Sokrates' words to your old answer
-- The synthesis must be a NEW whole, not patchwork
+IMPORTANT:
+- Formulate COMPLETELY NEW - no copy-paste from previous answers
+- Acknowledge where Sokrates was right (1 sentence)
+- Keep what remains valid from your thesis
+- The new answer should be a NEW whole, not patchwork
 
-APPROACH:
-1. ACKNOWLEDGE (1 sentence)
-   - What did Sokrates correctly identify?
-   - "Sokrates is right that..." - brief and specific
+Start DIRECTLY with your revised answer - no header, no "AIfred:"
 
-2. RETAIN
-   - What from your thesis remains valid?
-   - Don't throw everything overboard
-
-3. REFORMULATE
-   - Write a FRESH answer that unites both perspectives
-   - No copy-paste from previous answers
-   - The structure may change
-
-4. BRING YOUR OWN NEW ASPECT (optional but valuable)
-   - A thought that neither thesis nor antithesis had
-   - Shows genuine dialectical development
-
-AVOID:
-- "Enriching" your old answer with Sokrates' points
-- Repeating phrases like "As Sokrates correctly notes..."
-- Same structure with more text
-
-The synthesis must be BETTER than the sum of its parts.
-Start DIRECTLY with the synthesis - no header, no "AIfred:"
-
-IMPORTANT - CONSENSUS VOTING:
-End your response with ONE of these tags:
-- [LGTM] if you are satisfied with the current state of the discussion
-- [WEITER] if further discussion or improvement is needed
+CONSENSUS VOTING - End with ONE of these tags:
+- [LGTM] if you are satisfied
+- [WEITER] if further improvement is needed

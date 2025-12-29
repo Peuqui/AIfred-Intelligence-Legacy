@@ -486,15 +486,17 @@ INTENT_TEMPERATURE_KREATIV = 1.0
 SOKRATES_TEMPERATURE_OFFSET = 0.2  # Sokrates = AIfred + 0.2
 SALOMO_TEMPERATURE_OFFSET = 0.3   # Salomo = AIfred + 0.3 (wisest, most creative)
 
-# Context limit for Summary-LLM (should not be too large)
-HISTORY_SUMMARY_CONTEXT_LIMIT = 4096
-
 # ============================================================
 # DEBUG LOG PERSISTENCE
 # ============================================================
 # Maximum number of debug log entries to persist in session
 # Allows debug log to survive browser refresh during long inferences
 DEBUG_LOG_MAX_ENTRIES = 250
+
+# Log RAW messages sent to LLMs (debug.log only)
+# Useful for debugging prompt injection issues
+# Shows full message list with role and content preview for each LLM call
+DEBUG_LOG_RAW_MESSAGES = True
 
 # ============================================================
 # VRAM MANAGEMENT (Dynamic Context Calculation)

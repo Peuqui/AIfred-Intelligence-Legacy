@@ -5,6 +5,50 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.6] - 2025-12-29
+
+### 🔧 Multi-Agent Compression & Debugging
+
+**Agent-spezifische Kompression und verbessertes RAW Message Debugging.**
+
+#### Fixed
+
+- **Agent-spezifische Compression** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - Compression verwendet jetzt das Context-Limit des NÄCHSTEN Agenten statt `min_ctx`
+  - PRE-SOKRATES: Verwendet `sokrates_num_ctx`
+  - PRE-SALOMO: Verwendet `salomo_num_ctx`
+  - PRE-AIFRED: Verwendet `main_llm_ctx`
+  - Verhindert Context-Overflow bei Agenten mit unterschiedlichen Limits
+
+- **Direct Response Perspektiven** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - `run_sokrates_direct_response()` verwendet jetzt `perspective="sokrates"`
+  - `run_salomo_direct_response()` verwendet jetzt `perspective="salomo"`
+  - Korrekte Rollenzuweisung auch bei direkter Ansprache
+
+#### Added
+
+- **RAW Message Logging** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - Neue Funktion `_log_raw_messages()` für Debug-Logging
+  - Zeigt alle Messages die an LLMs gesendet werden
+  - Kontrolliert durch `DEBUG_LOG_RAW_MESSAGES` in config.py
+  - Hilft bei Debugging von Prompt-Injection und Agent-Confusion
+
+- **Salomo Context Cache** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - `_last_vram_limit_cache["salomo_limit"]` speichert Salomo's Context-Limit
+  - Konsistente 3-Agent-Konfiguration mit separaten Limits
+
+#### Changed
+
+- **Refinement Prompts** ([prompts/de/aifred/refinement.txt](prompts/de/aifred/refinement.txt)):
+  - Vereinfacht und fokussiert auf Kernaufgabe
+  - Entfernt überflüssige Formatierungsanweisungen
+  - Konsistente Struktur für DE und EN
+
+- **History Summarization** ([prompts/de/history_summarization.txt](prompts/de/history_summarization.txt)):
+  - Klarere FORMAT A/B Unterscheidung
+  - Explizite Regel: NUR tatsächliche Runden dokumentieren
+  - Keine erfundenen Runden mehr
+
 ## [2.14.5] - 2025-12-29
 
 ### 🔀 Hybrid-Mode RoPE Calibration
