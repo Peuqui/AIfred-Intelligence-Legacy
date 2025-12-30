@@ -3618,7 +3618,7 @@ class AIState(rx.State):
             return  # Kein Debug-Log für Retry-Callback
         self._session_initialized = True
 
-        from .lib.session_storage import load_session, generate_device_id
+        from .lib.session_storage import load_session, generate_device_id, create_empty_session
         from .lib.browser_storage import set_device_id_script
 
         # Validiere device_id Format (muss 32 hex chars sein)
@@ -3631,6 +3631,7 @@ class AIState(rx.State):
                 self.add_debug(f"⚠️ Invalid Device-ID ({device_id[:8]}...), generating new one")
             self.device_id = generate_device_id()
             self.session_restored = False
+            create_empty_session(self.device_id)  # Save immediately for API access
             self.add_debug(f"🆕 New session: {self.device_id[:8]}...")
             console_separator()  # File log
             self.debug_messages.append("────────────────────")  # UI
@@ -3667,6 +3668,7 @@ class AIState(rx.State):
                     log_message(f"   └─ History: {format_number(estimated_tokens)} tokens")
         else:
             self.session_restored = False
+            create_empty_session(device_id)  # Save immediately for API access
             self.add_debug(f"🆕 Empty session: {device_id[:8]}...")
 
         # Separator after session restore
