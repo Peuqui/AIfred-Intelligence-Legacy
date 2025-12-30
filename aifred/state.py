@@ -1250,115 +1250,55 @@ class AIState(rx.State):
             self.backend_info = f"{self.backend_type} initializing..."
             self.add_debug(f"⚡ Backend: {self.backend_type} (skip health check)")
 
-            # Load models SYNCHRONOUSLY via httpx (no async deadlock!)
-            import httpx
+            # Load models using centralized discovery module
+            from .lib.model_discovery import discover_models
             try:
-                # For vLLM/TabbyAPI: Get models from HuggingFace cache (local files)
-                # For Ollama: Get models from server API
+                # Discover models based on backend type
                 if self.backend_type in ["vllm", "tabbyapi"]:
-                    # Scan HuggingFace cache for downloaded models
-                    from pathlib import Path
-                    hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+                    unsorted_dict = discover_models(
+                        self.backend_type,
+                        is_compatible_fn=is_backend_compatible
+                    )
+                    self.available_models_dict = sort_models_grouped(unsorted_dict)
+                    self.available_models = list(self.available_models_dict.values())
+                    self.add_debug(f"📂 Found {len(self.available_models)} {self.backend_type}-compatible models")
 
-                    if hf_cache.exists():
-                        # Find all model directories (format: models--Org--ModelName)
-                        model_dirs = [d for d in hf_cache.iterdir() if d.is_dir() and d.name.startswith("models--")]
+                elif self.backend_type == "koboldcpp":
+                    self.add_debug("🔍 Searching for GGUF models on filesystem...")
+                    unsorted_dict = discover_models(self.backend_type)
 
-                        # Filter models by reading config.json and calculate sizes
-                        unsorted_dict = {}
-                        for model_dir in model_dirs:
-                            if is_backend_compatible(model_dir, self.backend_type):
-                                model_id = model_dir.name.replace("models--", "").replace("--", "/", 1)
-
-                                # Calculate size using blob-based calculation (avoids counting duplicates)
-                                try:
-                                    from .lib.vllm_manager import get_model_size_bytes
-                                    total_size = get_model_size_bytes(model_id)
-                                    size_gb = total_size / (1024**3)
-                                    unsorted_dict[model_id] = f"{model_id} ({size_gb:.1f} GB)"
-                                except Exception:
-                                    # Fallback: show without size if calculation fails
-                                    unsorted_dict[model_id] = model_id
-
-                        # Sort by model family, then by size
+                    if unsorted_dict:
                         self.available_models_dict = sort_models_grouped(unsorted_dict)
-                        # Keep list for compatibility (DEPRECATED)
                         self.available_models = list(self.available_models_dict.values())
 
-                        self.add_debug(f"📂 Found {len(self.available_models)} {self.backend_type}-compatible models ({len(model_dirs)} total in cache)")
+                        # Store full model info in global state for KoboldCPP
+                        from aifred.lib.gguf_utils import find_all_gguf_models
+                        gguf_models = find_all_gguf_models()
+                        _global_backend_state["gguf_models"] = {m.name: m for m in gguf_models}
+
+                        # Select first model by default
+                        if not self.aifred_model or self.aifred_model not in self.available_models:
+                            first_id = next(iter(self.available_models_dict.keys()))
+                            self.aifred_model = first_id
+
+                        # KoboldCPP can only load ONE model - Automatik uses same model
+                        self.automatik_model = self.aifred_model
                     else:
                         self.available_models_dict = {}
                         self.available_models = []
-                        self.add_debug("⚠️ HuggingFace cache not found")
-
-                elif self.backend_type == "koboldcpp":
-                    # KoboldCPP: Discover GGUF models from filesystem
-                    from aifred.lib.gguf_utils import find_all_gguf_models
-
-                    self.add_debug("🔍 Searching for GGUF models on filesystem...")
-
-                    try:
-                        gguf_models = find_all_gguf_models()
-
-                        if gguf_models:
-                            # Build dict: {model_id: display_label}
-                            unsorted_dict = {
-                                m.name: f"{m.name} ({m.size_gb:.1f} GB)"
-                                for m in gguf_models
-                            }
-                            # Sort by model family, then by size
-                            self.available_models_dict = sort_models_grouped(unsorted_dict)
-                            # Keep list for compatibility (DEPRECATED)
-                            self.available_models = list(self.available_models_dict.values())
-
-                            # Store full model info in global state (keyed by pure name)
-                            _global_backend_state["gguf_models"] = {m.name: m for m in gguf_models}
-
-                            # Select first model by default
-                            if not self.aifred_model or self.aifred_model not in self.available_models:
-                                self.aifred_model = gguf_models[0].name
-
-                            # KoboldCPP can only load ONE model - Automatik uses same model
-                            self.automatik_model = self.aifred_model
-                        else:
-                            self.available_models_dict = {}
-                            self.available_models = []
-                            self.add_debug("⚠️ No GGUF models found")
-                            self.add_debug("💡 Download GGUF models:")
-                            self.add_debug("   huggingface-cli download bartowski/Qwen3-30B-Instruct-2507-GGUF \\")
-                            self.add_debug("       Qwen3-30B-Instruct-2507-Q4_K_M.gguf --local-dir ~/models/")
-
-                    except Exception as e:
-                        self.available_models_dict = {}
-                        self.available_models = []
-                        self.add_debug(f"❌ GGUF discovery failed: {e}")
-                        import traceback
-                        self.add_debug(f"   {traceback.format_exc()}")
+                        self.add_debug("⚠️ No GGUF models found")
+                        self.add_debug("💡 Download GGUF models:")
+                        self.add_debug("   huggingface-cli download bartowski/Qwen3-30B-Instruct-2507-GGUF \\")
+                        self.add_debug("       Qwen3-30B-Instruct-2507-Q4_K_M.gguf --local-dir ~/models/")
 
                 else:
                     # Ollama: Query server API
-                    endpoint = f'{self.backend_url}/api/tags'
-
-                    # Synchronous httpx call to get model list (replaces subprocess+curl)
-                    try:
-                        response = httpx.get(endpoint, timeout=5.0)
-                        if response.status_code == 200:
-                            data = response.json()
-                            # Build dict: {model_id: display_label}
-                            unsorted_dict = {
-                                m['name']: f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
-                                for m in data.get("models", [])
-                            }
-                            # Sort by model family, then by size
-                            self.available_models_dict = sort_models_grouped(unsorted_dict)
-                            # Keep list for compatibility (DEPRECATED)
-                            self.available_models = list(self.available_models_dict.values())
-                        else:
-                            self.available_models_dict = {}
-                            self.available_models = []
-                    except httpx.RequestError:
-                        self.available_models_dict = {}
-                        self.available_models = []
+                    unsorted_dict = discover_models(
+                        self.backend_type,
+                        backend_url=self.backend_url
+                    )
+                    self.available_models_dict = sort_models_grouped(unsorted_dict)
+                    self.available_models = list(self.available_models_dict.values())
 
                 # NEW: Sync deprecated display variables with IDs using dict lookup
                 # No more extract_model_name() needed - direct dict access!
