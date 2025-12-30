@@ -505,32 +505,21 @@ class KoboldCPPProcessManager:
         config = gpu_config["config"]
 
         # Get free VRAM (sum across all GPUs for dual-GPU setups)
-        try:
-            import pynvml
-            pynvml.nvmlInit()
-            gpu_count = pynvml.nvmlDeviceGetCount()
+        from aifred.lib.gpu_utils import get_all_gpus_memory_info
+        gpu_info = get_all_gpus_memory_info()
 
-            # Sum VRAM across all GPUs (KoboldCPP distributes automatically)
-            total_vram_mb = 0
-            free_vram_mb = 0
-            gpu_models = []
+        if gpu_info:
+            total_vram_mb = gpu_info["total_mb"]
+            free_vram_mb = gpu_info["free_mb"]
+            gpu_count = gpu_info["gpu_count"]
+            gpu_model = gpu_info["gpu_models"][0] if gpu_info["gpu_models"] else "Unknown"
 
-            for i in range(gpu_count):
-                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                total_vram_mb += int(mem_info.total / (1024 * 1024))
-                free_vram_mb += int(mem_info.free / (1024 * 1024))
-                gpu_models.append(pynvml.nvmlDeviceGetName(handle))
-
-            pynvml.nvmlShutdown()
-
-            gpu_model = gpu_models[0] if gpu_models else "Unknown"
             if gpu_count > 1:
                 log_feedback(f"📊 VRAM: {format_number(total_vram_mb)}MB total ({gpu_count}x GPUs), {format_number(free_vram_mb)}MB free")
             else:
                 log_feedback(f"📊 VRAM: {format_number(total_vram_mb)}MB total, {format_number(free_vram_mb)}MB free")
-        except Exception as e:
-            log_feedback(f"⚠️ Could not query GPU: {e}")
+        else:
+            log_feedback("⚠️ Could not query GPU")
             gpu_model = "Unknown"
             free_vram_mb = 20480  # Conservative default
 
@@ -592,7 +581,7 @@ class KoboldCPPProcessManager:
                 # Fall through to STRATEGY 2
 
         # STRATEGY 2: No cache or cache failed - use smart calibration with VRAM pre-check
-        log_feedback(f"🔬 No cached calibrations found (or cache failed) - starting calibration...")
+        log_feedback("🔬 No cached calibrations found (or cache failed) - starting calibration...")
         log_feedback(f"   Cache file: {CACHE_FILE}")
 
         # Determine MB/token for VRAM estimation
