@@ -3713,10 +3713,14 @@ class AIState(rx.State):
 
         # DEBUG-PERSISTENCE (v2.14.0+): debug_messages wiederherstellen
         # WICHTIG: Startup-Messages behalten, gespeicherte Messages hinzufügen
-        if "debug_messages" in data and data["debug_messages"]:
-            # Startup-Messages (bereits in self.debug_messages) + Separator + gespeicherte Messages
-            startup_messages = self.debug_messages.copy()
-            self.debug_messages = startup_messages + ["────────────────────"] + data["debug_messages"]
+        if "debug_messages" in data:
+            if data["debug_messages"]:
+                # Startup-Messages (bereits in self.debug_messages) + Separator + gespeicherte Messages
+                startup_messages = self.debug_messages.copy()
+                self.debug_messages = startup_messages + ["────────────────────"] + data["debug_messages"]
+            else:
+                # Explizit gelöscht (z.B. via API clear_chat) → auch Startup-Messages entfernen
+                self.debug_messages = []
 
     def _sync_llm_history_assistant(self, content: str):
         """
