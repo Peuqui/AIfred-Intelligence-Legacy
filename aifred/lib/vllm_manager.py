@@ -723,14 +723,9 @@ class vLLMProcessManager:
             for i in range(30):  # Poll for up to 30 seconds
                 await asyncio.sleep(1)
 
-                try:
-                    import pynvml
-                    pynvml.nvmlInit()
-                    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                    mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                    current_free_vram_mb = mem_info.free / (1024 * 1024)
-                    pynvml.nvmlShutdown()
-
+                gpu_poll = get_gpu_memory_info()
+                if gpu_poll:
+                    current_free_vram_mb = gpu_poll["free_mb"]
                     vram_diff = abs(current_free_vram_mb - baseline_vram_mb)
 
                     # Check if VRAM is back to baseline (±2GB tolerance)
@@ -741,28 +736,18 @@ class vLLMProcessManager:
 
                     if i % 5 == 0 and i > 0:
                         log_feedback(f"   Still waiting... (current: {current_free_vram_mb:.0f}MB, target: ~{baseline_vram_mb:.0f}MB, Δ={vram_diff:.0f}MB)")
-                except Exception:
-                    pass
 
             if not vram_released:
                 log_feedback("⚠️ VRAM not fully released after 30s (may cause issues)")
 
             # Force GPU memory cleanup
-            try:
-                import torch
-                torch.cuda.empty_cache()
-                log_feedback("🧹 GPU cache cleared")
-            except Exception:
-                pass
+            from aifred.lib.process_utils import cleanup_gpu_memory
+            cleanup_gpu_memory()
 
             # Re-measure VRAM before Attempt 2 (may have changed during waiting)
-            try:
-                import pynvml
-                pynvml.nvmlInit()
-                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                current_free_vram_mb_before_attempt2 = mem_info.free / (1024 * 1024)
-                pynvml.nvmlShutdown()
+            gpu_remeasure = get_gpu_memory_info()
+            if gpu_remeasure:
+                current_free_vram_mb_before_attempt2 = gpu_remeasure["free_mb"]
 
                 # Compare with original baseline to detect VRAM changes
                 vram_change = current_free_vram_mb_before_attempt2 - baseline_vram_mb
@@ -778,8 +763,6 @@ class vLLMProcessManager:
 
                 # Update free_vram_mb for cache storage
                 free_vram_mb = current_free_vram_mb_before_attempt2
-            except Exception:
-                pass
 
             log_feedback(f"🚀 Attempt 2: Starting with hardware limit ({max_possible:,} tokens)")
             self.max_model_len = max_possible

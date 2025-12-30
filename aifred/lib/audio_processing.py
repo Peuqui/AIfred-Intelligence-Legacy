@@ -12,7 +12,7 @@ import subprocess
 import asyncio
 import atexit
 import edge_tts
-from .config import VOICES, PIPER_MODEL_PATH, PROJECT_ROOT
+from .config import PIPER_MODEL_PATH, PROJECT_ROOT
 from .logging_utils import log_message
 
 
@@ -38,7 +38,6 @@ def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> bool:
     Reflex's event loop, causing crashes. Running in a fresh event loop
     in a thread avoids this issue.
     """
-    import asyncio
 
     async def _do_tts():
         tts = edge_tts.Communicate(text, voice, rate=rate)
@@ -316,7 +315,6 @@ def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
         int: Number of deleted files
     """
     import time
-    from pathlib import Path
 
     if not TTS_AUDIO_DIR.exists():
         return 0
@@ -442,11 +440,8 @@ def unload_whisper_model():
     global _whisper_model
     if _whisper_model is not None:
         _whisper_model = None
-        import gc
-        import torch
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        from .process_utils import cleanup_gpu_memory
+        cleanup_gpu_memory()
         log_message("🗑️ Whisper: Model unloaded from memory")
     else:
         log_message("⚠️ Whisper: No model loaded")

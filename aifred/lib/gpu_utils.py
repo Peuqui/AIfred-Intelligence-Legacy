@@ -176,6 +176,76 @@ def get_gpu_model_name(gpu_index: int = 0) -> Optional[str]:
         return None
 
 
+def get_all_gpus_memory_info() -> Optional[Dict]:
+    """
+    Query memory info for ALL GPUs in the system.
+
+    Returns aggregated stats plus per-GPU details.
+    Useful for multi-GPU setups like KoboldCPP.
+
+    Returns:
+        Dict with keys:
+        - gpu_count: Number of GPUs
+        - total_mb: Total VRAM summed across all GPUs
+        - free_mb: Free VRAM summed across all GPUs
+        - used_mb: Used VRAM summed across all GPUs
+        - gpu_models: List of GPU model names
+        - per_gpu: List of dicts with per-GPU info
+        Or None if unavailable
+    """
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+
+        gpu_count = pynvml.nvmlDeviceGetCount()
+
+        total_mb = 0
+        free_mb = 0
+        used_mb = 0
+        gpu_models = []
+        per_gpu = []
+
+        for i in range(gpu_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            gpu_name = pynvml.nvmlDeviceGetName(handle)
+
+            gpu_total = int(mem_info.total / (1024 * 1024))
+            gpu_free = int(mem_info.free / (1024 * 1024))
+            gpu_used = int(mem_info.used / (1024 * 1024))
+
+            total_mb += gpu_total
+            free_mb += gpu_free
+            used_mb += gpu_used
+            gpu_models.append(gpu_name)
+
+            per_gpu.append({
+                "index": i,
+                "gpu_model": gpu_name,
+                "total_mb": gpu_total,
+                "free_mb": gpu_free,
+                "used_mb": gpu_used
+            })
+
+        pynvml.nvmlShutdown()
+
+        return {
+            "gpu_count": gpu_count,
+            "total_mb": total_mb,
+            "free_mb": free_mb,
+            "used_mb": used_mb,
+            "gpu_models": gpu_models,
+            "per_gpu": per_gpu
+        }
+
+    except ImportError:
+        logger.warning("pynvml not installed")
+        return None
+    except Exception as e:
+        logger.debug(f"Could not query GPUs via pynvml: {e}")
+        return None
+
+
 def get_free_ram_mb() -> Optional[int]:
     """
     Query free system RAM using psutil.
