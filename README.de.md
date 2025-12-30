@@ -634,17 +634,22 @@ AIfred bietet eine vollständige REST-API für programmatische Steuerung - ermö
 
 ### API Endpoints
 
+Die API ermöglicht **reine Fernsteuerung** - Messages werden in Browser-Sessions injiziert, der Browser führt die vollständige Verarbeitung durch (Intent Detection, Multi-Agent, Research, etc.). So sieht der User alles live im Browser.
+
 | Endpoint | Methode | Beschreibung |
 |----------|---------|--------------|
 | `/api/health` | GET | Health-Check mit Backend-Status |
 | `/api/settings` | GET | Alle Einstellungen abrufen |
 | `/api/settings` | PATCH | Einstellungen ändern (partielles Update) |
 | `/api/models` | GET | Verfügbare Modelle auflisten |
-| `/api/chat/send` | POST | Nachricht senden und Antwort erhalten |
+| `/api/chat/inject` | POST | Nachricht in Browser-Session injizieren |
+| `/api/chat/status` | GET | Inferenz-Status abfragen (is_generating, message_count) |
 | `/api/chat/history` | GET | Chat-Verlauf abrufen |
-| `/api/chat/clear` | DELETE | Chat-Verlauf löschen |
+| `/api/chat/clear` | POST | Chat-Verlauf löschen |
 | `/api/sessions` | GET | Alle Browser-Sessions auflisten |
-| `/api/system/restart` | POST | AIfred neustarten (systemd) |
+| `/api/system/restart-ollama` | POST | Ollama neustarten |
+| `/api/system/restart-aifred` | POST | AIfred neustarten |
+| `/api/calibrate` | POST | Kontext-Kalibrierung starten |
 
 ### Browser-Synchronisation
 
@@ -666,10 +671,13 @@ curl -X PATCH http://localhost:8002/api/settings \
   -H "Content-Type: application/json" \
   -d '{"aifred_model": "qwen3:14b", "sokrates_rope_factor": 2.0}'
 
-# Nachricht senden (mit Browser-Sync)
-curl -X POST http://localhost:8002/api/chat/send \
+# Nachricht injizieren (Browser verarbeitet und zeigt live)
+curl -X POST http://localhost:8002/api/chat/inject \
   -H "Content-Type: application/json" \
   -d '{"message": "Was ist Python?", "device_id": "abc123..."}'
+
+# Inferenz-Status abfragen
+curl "http://localhost:8002/api/chat/status?device_id=abc123..."
 
 # Alle Browser-Sessions auflisten
 curl http://localhost:8002/api/sessions

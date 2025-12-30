@@ -2,25 +2,28 @@
 AIfred REST API Module
 
 Provides HTTP API endpoints for remote control of AIfred.
-Uses FastAPI and integrates with Reflex via api_transformer.
+Uses FastAPI and is mounted at /api by Reflex's app.api.mount().
 
-Endpoints:
-- GET  /api/health         - Health check
-- GET  /api/settings       - Get all settings
-- PATCH /api/settings      - Update settings
-- GET  /api/models         - List available models
-- POST /api/chat/inject    - Inject message into browser session
-- POST /api/chat/clear     - Clear chat history
-- GET  /api/chat/history   - Get chat history
-- POST /api/system/restart-ollama   - Restart Ollama service
-- POST /api/system/restart-aifred   - Restart AIfred service
-- POST /api/system/clear-vectordb   - Clear Vector DB
-- POST /api/system/reset-defaults   - Reset to default settings
-- POST /api/calibrate      - Run context calibration
+API Documentation: http://localhost:8002/api/docs
+
+Endpoints (all prefixed with /api):
+- GET  /health              - Health check
+- GET  /settings            - Get all settings
+- PATCH /settings           - Update settings
+- GET  /models              - List available models
+- GET  /sessions            - List all sessions
+- POST /chat/inject         - Inject message into browser session
+- GET  /chat/status         - Get chat/generation status
+- POST /chat/clear          - Clear chat history
+- GET  /chat/history        - Get chat history
+- POST /system/restart-ollama   - Restart Ollama service
+- POST /system/restart-aifred   - Restart AIfred service
+- POST /system/clear-vectordb   - Clear Vector DB
+- POST /system/reset-defaults   - Reset to default settings
+- POST /calibrate           - Run context calibration
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import asyncio
@@ -165,19 +168,15 @@ api_app = FastAPI(
     title="AIfred Intelligence API",
     description="REST API for remote control of AIfred Intelligence",
     version="2.15.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json"
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
 
-# CORS middleware for cross-origin requests
-api_app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for local use
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# NOTE: CORS middleware is NOT added here.
+# Reflex handles CORS via its own middleware when using api_transformer.
+# Adding CORSMiddleware here causes "ASGI flow error: Connection already upgraded"
+# because it conflicts with Reflex's WebSocket upgrade handling.
 
 
 # ============================================================
@@ -211,7 +210,7 @@ def get_active_session_state():
 # Health Endpoint
 # ============================================================
 
-@api_app.get("/api/health", response_model=HealthResponse, tags=["Health"])
+@api_app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
     """
     Health check endpoint.
@@ -233,7 +232,7 @@ async def health_check():
 # Settings Endpoints
 # ============================================================
 
-@api_app.get("/api/settings", response_model=SettingsResponse, tags=["Settings"])
+@api_app.get("/settings", response_model=SettingsResponse, tags=["Settings"])
 async def get_settings():
     """
     Get all current settings.
@@ -285,7 +284,7 @@ async def get_settings():
     )
 
 
-@api_app.patch("/api/settings", response_model=SettingsResponse, tags=["Settings"])
+@api_app.patch("/settings", response_model=SettingsResponse, tags=["Settings"])
 async def update_settings(update: SettingsUpdate):
     """
     Update settings.
@@ -334,7 +333,7 @@ async def update_settings(update: SettingsUpdate):
 # Models Endpoints
 # ============================================================
 
-@api_app.get("/api/models", response_model=ModelsResponse, tags=["Models"])
+@api_app.get("/models", response_model=ModelsResponse, tags=["Models"])
 async def get_available_models():
     """
     Get list of available models.
@@ -399,7 +398,7 @@ class ChatInjectResponse(BaseModel):
     queued: bool = True
 
 
-@api_app.post("/api/chat/inject", response_model=ChatInjectResponse, tags=["Chat"])
+@api_app.post("/chat/inject", response_model=ChatInjectResponse, tags=["Chat"])
 async def inject_message(request: ChatInjectRequest):
     """
     Inject a message into a browser session.
@@ -443,7 +442,7 @@ class ChatStatusResponse(BaseModel):
     session_id: str = ""
 
 
-@api_app.get("/api/chat/status", response_model=ChatStatusResponse, tags=["Chat"])
+@api_app.get("/chat/status", response_model=ChatStatusResponse, tags=["Chat"])
 async def get_chat_status(device_id: str):
     """
     Get current chat status for a session.
@@ -475,7 +474,7 @@ class ChatClearRequest(BaseModel):
     device_id: Optional[str] = Field(None, description="Browser session device_id to clear")
 
 
-@api_app.post("/api/chat/clear", response_model=SystemActionResponse, tags=["Chat"])
+@api_app.post("/chat/clear", response_model=SystemActionResponse, tags=["Chat"])
 async def clear_chat(request: ChatClearRequest = ChatClearRequest()):
     """
     Clear chat history for a browser session.
@@ -534,7 +533,7 @@ class SessionsListResponse(BaseModel):
     sessions: List[SessionInfo]
 
 
-@api_app.get("/api/sessions", response_model=SessionsListResponse, tags=["Chat"])
+@api_app.get("/sessions", response_model=SessionsListResponse, tags=["Chat"])
 async def list_all_sessions():
     """
     List all available sessions.
@@ -550,7 +549,7 @@ async def list_all_sessions():
     )
 
 
-@api_app.get("/api/chat/history", response_model=ChatHistoryResponse, tags=["Chat"])
+@api_app.get("/chat/history", response_model=ChatHistoryResponse, tags=["Chat"])
 async def get_chat_history(device_id: Optional[str] = None):
     """
     Get chat history for a session.
@@ -606,7 +605,7 @@ async def get_chat_history(device_id: Optional[str] = None):
 # System Endpoints
 # ============================================================
 
-@api_app.post("/api/system/restart-ollama", response_model=SystemActionResponse, tags=["System"])
+@api_app.post("/system/restart-ollama", response_model=SystemActionResponse, tags=["System"])
 async def restart_ollama():
     """
     Restart Ollama service.
@@ -663,7 +662,7 @@ async def restart_ollama():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_app.post("/api/system/restart-aifred", response_model=SystemActionResponse, tags=["System"])
+@api_app.post("/system/restart-aifred", response_model=SystemActionResponse, tags=["System"])
 async def restart_aifred(background_tasks: BackgroundTasks):
     """
     Restart AIfred service.
@@ -689,7 +688,7 @@ async def restart_aifred(background_tasks: BackgroundTasks):
     )
 
 
-@api_app.post("/api/system/clear-vectordb", response_model=SystemActionResponse, tags=["System"])
+@api_app.post("/system/clear-vectordb", response_model=SystemActionResponse, tags=["System"])
 async def clear_vector_db():
     """
     Clear Vector DB (ChromaDB).
@@ -726,7 +725,7 @@ async def clear_vector_db():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_app.post("/api/system/reset-defaults", response_model=SystemActionResponse, tags=["System"])
+@api_app.post("/system/reset-defaults", response_model=SystemActionResponse, tags=["System"])
 async def reset_to_defaults():
     """
     Reset all settings to defaults.
@@ -749,7 +748,7 @@ async def reset_to_defaults():
         raise HTTPException(status_code=500, detail="Failed to reset settings")
 
 
-@api_app.post("/api/calibrate", response_model=SystemActionResponse, tags=["System"])
+@api_app.post("/calibrate", response_model=SystemActionResponse, tags=["System"])
 async def run_calibration():
     """
     Run context window calibration.
