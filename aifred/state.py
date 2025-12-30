@@ -23,7 +23,8 @@ from .lib.conversation_handler import extract_model_name
 from .lib import config
 from .lib.config import (
     EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES,
-    SOKRATES_TEMPERATURE_OFFSET, SALOMO_TEMPERATURE_OFFSET
+    SOKRATES_TEMPERATURE_OFFSET, SALOMO_TEMPERATURE_OFFSET,
+    DEBUG_MESSAGES_MAX
 )
 from .lib.vllm_manager import vLLMProcessManager
 from .lib.model_manager import (
@@ -285,7 +286,7 @@ class AIState(rx.State):
     multi_agent_help_open: bool = False  # Show help modal?
 
     # Backend Settings
-    backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi" [DEPRECATED - use backend_id]
+    backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi", "koboldcpp"
     backend_id: str = "ollama"  # NEW: Pure backend ID (synced with backend_type for compatibility)
     current_backend_label: str = "Ollama"  # NEW: Display label for current backend (synced with backend_id)
     backend_url: str = "http://localhost:11434"  # Default Ollama URL
@@ -299,10 +300,10 @@ class AIState(rx.State):
     }
 
     # NOTE: Models loaded from settings.json first, fallback to config.py only if settings don't exist
-    aifred_model: str = ""  # Initialized in on_load() from settings.json or config.py [DEPRECATED]
+    aifred_model: str = ""  # Initialized in on_load() from settings.json or config.py
     aifred_model_id: str = ""  # NEW: Pure model ID (synced with aifred_model)
 
-    available_models: List[str] = []  # List of display labels [DEPRECATED]
+    available_models: List[str] = []  # List of display labels for UI dropdowns
     available_models_dict: Dict[str, str] = {}  # NEW: {model_id: display_label}
 
     vision_models_cache: List[str] = []  # Cached list of vision model IDs (populated by initialize_backend)
@@ -310,12 +311,12 @@ class AIState(rx.State):
 
     # Automatik-LLM (for decision and query optimization)
     # NOTE: Loaded from settings.json first, fallback to config.py only if settings don't exist
-    automatik_model: str = ""  # Initialized in on_load() from settings.json or config.py [DEPRECATED]
+    automatik_model: str = ""  # Initialized in on_load() from settings.json or config.py
     automatik_model_id: str = ""  # NEW: Pure model ID (synced with automatik_model)
 
     # Vision-LLM (for image analysis/OCR - specialized for structured data extraction)
     # NOTE: Loaded from settings.json first, fallback to first available vision model
-    vision_model: str = ""  # Initialized in on_load() from settings.json or auto-detect [DEPRECATED]
+    vision_model: str = ""  # Initialized in on_load() from settings.json or auto-detect
     vision_model_id: str = ""  # NEW: Pure model ID (synced with vision_model)
 
     # LLM Options
@@ -328,7 +329,7 @@ class AIState(rx.State):
     num_ctx: int = 32768
 
     # Context Window Control (NOT saved in settings.json - reset on every start)
-    num_ctx_mode: str = "auto"  # "auto" | "manual" (RoPE extension via rope_factor) - LEGACY, kept for compatibility
+    num_ctx_mode: str = "auto"  # "auto" (RoPE calibration) | "manual" (fixed value per LLM)
     num_ctx_manual: int = 4096  # Manual value for AIfred (only if mode="manual") - Ollama default
     num_ctx_manual_sokrates: int = 4096  # Manual value for Sokrates (only if mode="manual")
     num_ctx_manual_salomo: int = 4096  # Manual value for Salomo (only if mode="manual")
@@ -771,11 +772,8 @@ class AIState(rx.State):
         alfred_marker_pattern = r'^🎩\[([^\]]+)\]'
         # Salomo marker pattern: 👑[Mode]Content (e.g., 👑[Synthese R1] or 👑[Urteil])
         salomo_marker_pattern = r'^👑\[([^\]]+)\]'
-        # Summary marker patterns:
-        # New format: [📊 Summary #N|X Messages|Timestamp]
-        # Old format: [📊 Compressed: N Messages] or [📊 Komprimiert: N Messages]
-        summary_new_pattern = r'^\[📊 Summary #(\d+)\|(\d+) Messages\|([^\]]+)\]'
-        summary_old_pattern = r'^\[📊 (?:Compressed|Komprimiert): (\d+) Messages\]'
+        # Summary marker pattern: [📊 Summary #N|X Messages|Timestamp]
+        summary_pattern = r'^\[📊 Summary #(\d+)\|(\d+) Messages\|([^\]]+)\]'
 
         def extract_summary_info(user_msg: str, ai_text: str) -> dict:
             """Extract summary info from message.
@@ -783,29 +781,15 @@ class AIState(rx.State):
             if user_msg != "":
                 return {"is_summary": False, "summary_number": "", "summary_count": "", "summary_timestamp": "", "summary_content": ""}
 
-            # Try new format first
-            new_match = re.match(summary_new_pattern, ai_text)
-            if new_match:
+            match = re.match(summary_pattern, ai_text)
+            if match:
                 header_end = ai_text.find("]\n")
                 content = ai_text[header_end + 2:] if header_end > 0 else ai_text
                 return {
                     "is_summary": True,
-                    "summary_number": new_match.group(1),
-                    "summary_count": new_match.group(2),
-                    "summary_timestamp": new_match.group(3),
-                    "summary_content": content
-                }
-
-            # Try old format
-            old_match = re.match(summary_old_pattern, ai_text)
-            if old_match:
-                header_end = ai_text.find("]\n")
-                content = ai_text[header_end + 2:] if header_end > 0 else ai_text
-                return {
-                    "is_summary": True,
-                    "summary_number": "?",  # Old format doesn't have number
-                    "summary_count": old_match.group(1),
-                    "summary_timestamp": "",  # Old format doesn't have timestamp
+                    "summary_number": match.group(1),
+                    "summary_count": match.group(2),
+                    "summary_timestamp": match.group(3),
                     "summary_content": content
                 }
 
@@ -1884,9 +1868,9 @@ class AIState(rx.State):
         # Also add to lib console (for agent_core logging)
         log_message(message)
 
-        # Keep only last 500 messages
-        if len(self.debug_messages) > 500:
-            self.debug_messages = self.debug_messages[-500:]
+        # Keep only last N messages (configurable in config.py)
+        if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
+            self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
 
     def _reload_settings_from_file(self):
         """
@@ -3130,8 +3114,8 @@ class AIState(rx.State):
                         # (EXACT same pattern as normal flow in line 2029-2068)
                         if item["type"] == "debug":
                             self.debug_messages.append(format_debug_message(item["message"]))
-                            if len(self.debug_messages) > 500:
-                                self.debug_messages = self.debug_messages[-500:]
+                            if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
+                                self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
                             yield  # Update UI immediately for each debug message
 
                         elif item["type"] == "content":
@@ -3230,8 +3214,8 @@ class AIState(rx.State):
                     # Route messages based on type
                     if item["type"] == "debug":
                         self.debug_messages.append(format_debug_message(item["message"]))
-                        if len(self.debug_messages) > 500:
-                            self.debug_messages = self.debug_messages[-500:]
+                        if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
+                            self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
                         yield  # IMPORTANT: Update UI immediately for each debug message
                     elif item["type"] == "content":
                         self.current_ai_response += item["text"]
@@ -3353,9 +3337,8 @@ class AIState(rx.State):
                     # Route messages based on type
                     if item["type"] == "debug":
                         self.debug_messages.append(format_debug_message(item["message"]))
-                        # Limit debug messages
-                        if len(self.debug_messages) > 500:
-                            self.debug_messages = self.debug_messages[-500:]
+                        if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
+                            self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
                         yield  # Update UI immediately for each debug message
                     elif item["type"] == "content":
                         # REAL-TIME streaming to UI!

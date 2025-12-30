@@ -29,6 +29,7 @@ BACKEND_API_URL = "https://narnia.spdns.de:8443" if _is_prod else "http://172.30
 # DEBUG CONFIGURATION
 # ============================================================
 DEBUG_ENABLED = True  # Set to False to disable debug output
+DEBUG_MESSAGES_MAX = 500  # Maximum number of debug messages to keep in UI console
 
 # ============================================================
 # LOGGING CONFIGURATION (Unified System)

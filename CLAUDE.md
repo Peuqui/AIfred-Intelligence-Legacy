@@ -24,6 +24,17 @@
 
 ---
 
+## ⚠️ Keep It Simple - Auch bei Race Conditions und Edge Cases
+
+- **Bei Race Conditions:** Erst strukturell vermeiden, dann Locks/Mutexe wenn nötig
+- **Bei Edge Cases:** Prüfen ob der Edge Case überhaupt eintreten kann
+- **Vor jedem Fallback fragen:** "Ist das wirklich nötig oder kann ich das Problem anders lösen?"
+- Oft ist die einfachste Lösung: Code so strukturieren, dass das Problem gar nicht erst entsteht
+- Locks/Mutexe sind OK wenn wirklich unvermeidbar - aber **IMMER mit User besprechen**
+- GRUND: Jeder Fallback und jeder Lock ist potentiell versteckte Komplexität
+
+---
+
 ## Bereits integrierte Features (NICHT vergessen!)
 
 - **ChromaDB Vector Cache** - Semantischer Cache für Web-Research (Docker)

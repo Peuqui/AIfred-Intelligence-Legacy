@@ -10,6 +10,7 @@ from .ollama import OllamaBackend
 from .vllm import vLLMBackend
 from .tabbyapi import TabbyAPIBackend
 from .koboldcpp import KoboldCPPBackend
+from ..lib.config import BACKEND_URLS
 
 
 class BackendFactory:
@@ -18,8 +19,8 @@ class BackendFactory:
 
     Usage:
         backend = BackendFactory.create("ollama")
-        backend = BackendFactory.create("vllm", base_url="http://localhost:8000/v1")
-        backend = BackendFactory.create("tabbyapi", base_url="http://localhost:5000/v1")
+        backend = BackendFactory.create("vllm")  # Uses BACKEND_URLS from config.py
+        backend = BackendFactory.create("tabbyapi", base_url="http://custom:5000/v1")
     """
 
     _backends = {
@@ -62,16 +63,9 @@ class BackendFactory:
 
         backend_class = cls._backends[backend_type]
 
-        # Default URLs per backend
-        default_urls = {
-            "ollama": "http://localhost:11434",
-            "vllm": "http://localhost:8000/v1",
-            "tabbyapi": "http://localhost:5000/v1",
-            "koboldcpp": "http://localhost:5001/v1",
-        }
-
+        # Use centralized BACKEND_URLS from config.py
         if base_url is None:
-            base_url = default_urls.get(backend_type, "http://localhost:8000")
+            base_url = BACKEND_URLS.get(backend_type, "http://localhost:8000")
 
         # Create instance
         if backend_type in ["vllm", "tabbyapi", "koboldcpp", "openai"]:
