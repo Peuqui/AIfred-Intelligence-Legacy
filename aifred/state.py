@@ -73,11 +73,7 @@ class ChatMessageParsed(TypedDict):
 # ============================================================
 # Vector Cache - Now in aifred/lib/vector_cache.py
 # ============================================================
-from .lib.vector_cache import (
-    get_cache,
-    initialize_vector_cache,
-    cleanup_expired_cache_task
-)
+from .lib.vector_cache import initialize_vector_cache
 
 
 # ============================================================
@@ -4300,7 +4296,6 @@ class AIState(rx.State):
 
     async def restart_backend(self):
         """Restart current LLM backend service and reload model list"""
-        import subprocess
         import httpx
         import asyncio
         global _global_backend_state
@@ -4319,7 +4314,8 @@ class AIState(rx.State):
             yield  # Update UI
 
             if self.backend_type == "ollama":
-                subprocess.run(["systemctl", "restart", "ollama"], check=True)
+                from .lib.process_utils import restart_service
+                restart_service("ollama", check=True)
                 self.add_debug(f"✅ {backend_name} service restarted")
                 yield  # Update UI after restart
 
@@ -4789,7 +4785,6 @@ class AIState(rx.State):
 
     def restart_aifred(self):
         """Restart AIfred service via systemctl"""
-        import subprocess
         import threading
 
         try:
@@ -4797,12 +4792,14 @@ class AIState(rx.State):
 
             # Schedule systemd restart in background thread
             # This allows us to return rx.call_script() BEFORE the service dies
-            def restart_service_delayed():
+            from .lib.process_utils import restart_service as do_restart_service
+
+            def delayed_restart():
                 import time
                 time.sleep(0.5)  # Short delay to let browser script execute first
-                subprocess.run(["systemctl", "restart", "aifred-intelligence"], check=False)
+                do_restart_service("aifred-intelligence", check=False)
 
-            thread = threading.Thread(target=restart_service_delayed, daemon=True)
+            thread = threading.Thread(target=delayed_restart, daemon=True)
             thread.start()
 
             self.add_debug("✅ AIfred service restart initiated")

@@ -502,18 +502,15 @@ class vLLMProcessManager:
             })
 
         # STRATEGY 1: Get current free VRAM and check cache for interpolation
-        try:
-            import pynvml
-            pynvml.nvmlInit()
-            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            total_vram_mb = mem_info.total / (1024 * 1024)
-            free_vram_mb = mem_info.free / (1024 * 1024)
-            gpu_model = pynvml.nvmlDeviceGetName(handle)
-            pynvml.nvmlShutdown()
-            log_feedback(f"📊 VRAM: {total_vram_mb:.0f}MB total, {free_vram_mb:.0f}MB free")
-        except Exception as e:
-            log_feedback(f"⚠️ Could not query GPU: {e}")
+        from aifred.lib.gpu_utils import get_gpu_memory_info
+        gpu_info = get_gpu_memory_info()
+        if gpu_info:
+            total_vram_mb = gpu_info["total_mb"]
+            free_vram_mb = gpu_info["free_mb"]
+            gpu_model = gpu_info["gpu_model"]
+            log_feedback(f"📊 VRAM: {total_vram_mb}MB total, {free_vram_mb}MB free")
+        else:
+            log_feedback("⚠️ Could not query GPU")
             gpu_model = "Unknown"
             total_vram_mb = 0
             free_vram_mb = 0

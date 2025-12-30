@@ -12,7 +12,6 @@ and koboldcpp_manager.py.
 
 import subprocess
 import asyncio
-from typing import Optional
 from .logging_utils import log_message
 
 
