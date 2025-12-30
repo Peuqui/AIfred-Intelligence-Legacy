@@ -747,10 +747,12 @@ async def restart_aifred(background_tasks: BackgroundTasks):
     """
     log_message("🔄 API: AIfred restart requested...")
 
+    from .process_utils import restart_service
+
     def delayed_restart():
         import time
         time.sleep(1)
-        subprocess.run(["systemctl", "restart", "aifred-intelligence"], check=False)
+        restart_service("aifred-intelligence", check=False)
 
     background_tasks.add_task(delayed_restart)
 
