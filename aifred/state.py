@@ -1818,6 +1818,18 @@ class AIState(rx.State):
             yield
             return
 
+        # Check for pending message from API (message injection)
+        if self.device_id and not self.is_generating:
+            from .lib.session_storage import get_and_clear_pending_message
+            pending_msg = get_and_clear_pending_message(self.device_id)
+            if pending_msg:
+                self.current_user_input = pending_msg
+                self.add_debug("📨 API: Message injected")
+                yield
+                # Trigger send_message via Reflex event chain
+                # return <EventHandler> chains to that handler after this one completes
+                return AIState.send_message
+
         # Check for API update flag (only if device_id is set)
         if self.device_id:
             from .lib.session_storage import check_and_clear_update_flag, load_session
@@ -3747,7 +3759,8 @@ class AIState(rx.State):
             chat_history=self.chat_history,
             chat_summaries=None,  # Aktuell nicht persistiert
             llm_history=self.llm_history,  # DUAL-HISTORY: LLM-komprimierte History
-            debug_messages=debug_to_save  # DEBUG-PERSISTENCE: Last N debug entries
+            debug_messages=debug_to_save,  # DEBUG-PERSISTENCE: Last N debug entries
+            is_generating=self.is_generating  # API status check
         )
 
     # ============================================================

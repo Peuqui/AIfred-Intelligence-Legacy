@@ -5,6 +5,25 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.9] - 2025-12-30
+
+### Refactoring
+
+- **API: Browser Remote Control Architektur** ([api.py](aifred/lib/api.py), [session_storage.py](aifred/lib/session_storage.py), [state.py](aifred/state.py)):
+  - API führt keine eigene LLM-Inferenz mehr aus - stattdessen werden Messages in Browser-Sessions injiziert
+  - Neuer Endpoint `POST /api/chat/inject` ersetzt `/api/chat/send`
+  - Neuer Endpoint `GET /api/chat/status` für Inferenz-Status-Polling
+  - Browser pollt pending_messages und führt volle Pipeline aus (Intent Detection, Multi-Agent, Research...)
+  - **Vorteile:** Ein Code-Pfad, alle Features funktionieren, ~120 Zeilen LLM-Code entfernt, User sieht Streaming live
+
+### Fixed
+
+- **Diskussionsmodus-Dropdown zeigte keinen Wert** ([aifred.py](aifred/aifred.py)):
+  - `rx.select.trigger(placeholder="...")` überschrieb die Wertanzeige
+  - Fix: Leerer Trigger wie bei anderen funktionierenden Dropdowns
+
+---
+
 ## [2.15.8] - 2025-12-30
 
 ### Fixed

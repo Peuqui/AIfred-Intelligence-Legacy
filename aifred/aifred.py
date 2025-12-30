@@ -540,7 +540,7 @@ def text_input_section() -> rx.Component:
                         ),
                         # DESKTOP: Radix UI Select
                         rx.select.root(
-                            rx.select.trigger(placeholder="Modus wählen..."),
+                            rx.select.trigger(),
                             rx.select.content(
                                 rx.select.item(
                                     rx.cond(AIState.ui_language == "de", "Standard", "Standard"),
@@ -833,19 +833,42 @@ def temperature_control_section() -> rx.Component:
                     width="100%",
                     align_items="center",
                 ),
+                # Salomo Slider
+                rx.hstack(
+                    rx.text(
+                        "⚖️ Salomo:",
+                        font_size="11px",
+                        width="85px",
+                        font_weight="500",
+                    ),
+                    rx.slider(
+                        value=[AIState.salomo_temperature],
+                        min=0.0,
+                        max=2.0,
+                        step=0.1,
+                        on_change=AIState.set_salomo_temperature,
+                        flex="1",
+                    ),
+                    rx.text(
+                        f"{AIState.salomo_temperature:.1f}",
+                        font_size="11px",
+                        width="30px",
+                        text_align="right",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    align_items="center",
+                ),
                 spacing="2",
                 width="100%",
                 padding_top="2",
             ),
-            # Auto Mode: Offset slider for Sokrates
+            # Auto Mode: Offset sliders for Sokrates and Salomo
             rx.vstack(
+                # Sokrates Offset
                 rx.hstack(
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "🏛️ Sokrates Offset:",
-                            "🏛️ Sokrates Offset:"
-                        ),
+                        "🏛️ Sokrates Offset:",
                         font_size="11px",
                         width="110px",
                         font_weight="500",
@@ -868,11 +891,37 @@ def temperature_control_section() -> rx.Component:
                     width="100%",
                     align_items="center",
                 ),
+                # Salomo Offset
+                rx.hstack(
+                    rx.text(
+                        "⚖️ Salomo Offset:",
+                        font_size="11px",
+                        width="110px",
+                        font_weight="500",
+                    ),
+                    rx.slider(
+                        value=[AIState.salomo_temperature_offset],
+                        min=0.0,
+                        max=0.5,
+                        step=0.1,
+                        on_change=AIState.set_salomo_temperature_offset,
+                        flex="1",
+                    ),
+                    rx.text(
+                        f"+{AIState.salomo_temperature_offset:.1f}",
+                        font_size="11px",
+                        width="35px",
+                        text_align="right",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    align_items="center",
+                ),
                 rx.text(
                     rx.cond(
                         AIState.ui_language == "de",
-                        "Sokrates = Intent-Temp + Offset (max 1.0)",
-                        "Sokrates = Intent Temp + Offset (max 1.0)"
+                        "Agent-Temp = Intent-Temp + Offset (max 1.0)",
+                        "Agent Temp = Intent Temp + Offset (max 1.0)"
                     ),
                     font_size="10px",
                     color=COLORS["text_secondary"],
