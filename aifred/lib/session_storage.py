@@ -144,6 +144,22 @@ def _write_session_file(path: Path, session: Dict[str, Any]) -> bool:
         return False
 
 
+def create_empty_session(device_id: str) -> bool:
+    """
+    Create an empty session file for a new device.
+
+    This is called when a browser connects and no session file exists yet.
+    Creates the file immediately so the API can inject messages right away.
+
+    Args:
+        device_id: Device identifier
+
+    Returns:
+        True on success, False on error
+    """
+    return save_session(device_id, {"data": {}})
+
+
 def save_session(device_id: str, session_data: Dict[str, Any]) -> bool:
     """
     Save session for Device-ID.
