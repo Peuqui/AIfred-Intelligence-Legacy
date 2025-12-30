@@ -71,77 +71,13 @@ class ChatMessageParsed(TypedDict):
 
 
 # ============================================================
-# Module-Level Vector Cache (ChromaDB Server Mode)
+# Vector Cache - Now in aifred/lib/vector_cache.py
 # ============================================================
-# NEW: Using ChromaDB server mode via Docker - thread-safe by design
-from .lib.vector_cache import get_cache
-
-async def cleanup_expired_cache_task():
-    """
-    Background task: Runs every CACHE_CLEANUP_INTERVAL_HOURS to delete expired cache entries.
-    Uses AsyncIO (not threading) for Reflex compatibility.
-    """
-    from .lib.vector_cache import get_cache
-    from .lib.config import CACHE_CLEANUP_INTERVAL_HOURS
-    import asyncio
-    from datetime import datetime
-
-    log_message(f"🗑️ Cache cleanup task started (interval: {CACHE_CLEANUP_INTERVAL_HOURS}h)")
-
-    while True:
-        try:
-            # Wait for interval
-            await asyncio.sleep(CACHE_CLEANUP_INTERVAL_HOURS * 3600)
-
-            # Run cleanup
-            cache = get_cache()
-            deleted_count = await cache.delete_expired_entries()
-
-            if deleted_count > 0:
-                log_message(f"🗑️ Cache cleanup: {deleted_count} expired entries deleted at {datetime.now().strftime('%H:%M:%S')}")
-
-        except Exception as e:
-            log_message(f"⚠️ Cache cleanup task error: {e}")
-            # Continue running despite errors
-
-
-def initialize_vector_cache():
-    """
-    Initialize Vector Cache (Server Mode)
-
-    Connects to ChromaDB Docker container via HTTP.
-    Thread-safe by design - no worker threads needed.
-
-    Also starts:
-    - Startup cleanup (if enabled)
-    - Background cleanup task
-    """
-    import asyncio
-    from .lib.config import CACHE_STARTUP_CLEANUP, CACHE_CLEANUP_INTERVAL_HOURS
-
-    try:
-        log_message(f"🚀 Vector Cache: Connecting to ChromaDB server (PID: {os.getpid()})")
-        cache = get_cache()
-        log_message("✅ Vector Cache: Connected successfully")
-
-        # Startup cleanup if enabled
-        if CACHE_STARTUP_CLEANUP:
-            async def startup_cleanup():
-                deleted_count = await cache.delete_expired_entries()
-                if deleted_count > 0:
-                    log_message(f"🗑️ Startup cleanup: {deleted_count} expired entries deleted")
-
-            asyncio.create_task(startup_cleanup())
-
-        # Start background cleanup task
-        asyncio.create_task(cleanup_expired_cache_task())
-        log_message(f"🗑️ Background cleanup task started (every {CACHE_CLEANUP_INTERVAL_HOURS}h)")
-
-        return cache
-    except Exception as e:
-        log_message(f"⚠️ Vector Cache connection failed: {e}")
-        log_message("💡 Make sure ChromaDB is running: docker-compose up -d chromadb")
-        return None
+from .lib.vector_cache import (
+    get_cache,
+    initialize_vector_cache,
+    cleanup_expired_cache_task
+)
 
 
 # ============================================================
@@ -166,67 +102,14 @@ _backend_init_lock = asyncio.Lock()
 
 
 # ============================================================
-# Module-Level Whisper Model (Global across all sessions)
+# Whisper STT - Now in aifred/lib/audio_processing.py
 # ============================================================
-_whisper_model = None  # Shared WhisperModel instance
-
-
-def unload_whisper_model():
-    """Unload Whisper model from memory (free GPU/RAM)"""
-    global _whisper_model
-    if _whisper_model is not None:
-        _whisper_model = None
-        import gc
-        import torch
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        log_message("🗑️ Whisper: Model unloaded from memory")
-    else:
-        log_message("⚠️ Whisper: No model loaded")
-
-
-def initialize_whisper_model(model_name: str = "small"):
-    """
-    Initialize Whisper STT model (module-level, shared across sessions)
-
-    Args:
-        model_name: Whisper model size (tiny, base, small, medium, large)
-
-    Returns:
-        WhisperModel instance or None on failure
-    """
-    global _whisper_model
-
-    if _whisper_model is not None:
-        log_message(f"✅ Whisper: Model already loaded ({model_name})")
-        return _whisper_model
-
-    try:
-        from faster_whisper import WhisperModel
-        from .lib.config import WHISPER_MODELS, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
-
-        # Extract model ID from display name (e.g., "small (466MB, ...)" -> "small")
-        model_id = WHISPER_MODELS.get(model_name, model_name)
-
-        log_message(f"🎤 Whisper: Loading model '{model_id}'...")
-
-        # Use device and compute type from config.py
-        # Default: CPU to preserve GPU VRAM for LLM inference
-        device = WHISPER_DEVICE
-        compute_type = WHISPER_COMPUTE_TYPE
-
-        _whisper_model = WhisperModel(model_id, device=device, compute_type=compute_type)
-
-        log_message(f"✅ Whisper: Model '{model_id}' loaded on {device} ({compute_type})")
-        return _whisper_model
-
-    except ImportError as e:
-        log_message(f"⚠️ Whisper: Import failed - {str(e)}")
-        return None
-    except Exception as e:
-        log_message(f"❌ Whisper: Failed to load model: {e}")
-        return None
+# Import from audio_processing module
+from .lib.audio_processing import (
+    initialize_whisper_model,
+    unload_whisper_model,
+    get_whisper_model
+)
 
 
 class ChatMessage(BaseModel):
@@ -403,7 +286,7 @@ class AIState(rx.State):
     whisper_model_key: str = "small"  # Whisper model key (tiny/base/small/medium/large)
     # whisper_device removed - now configured in config.py (WHISPER_DEVICE)
     show_transcription: bool = False  # Show transcribed text for editing before sending
-    _whisper_model = None  # Loaded WhisperModel instance (module-level, shared across sessions)
+    # NOTE: Whisper model is now managed in aifred/lib/audio_processing.py (use get_whisper_model())
     tts_audio_path: str = ""  # Path to generated TTS audio file (TODO: UI player missing)
     tts_trigger_counter: int = 0  # Incremented to trigger TTS playback in frontend
 
@@ -2636,11 +2519,12 @@ class AIState(rx.State):
         Args:
             old_backend: Backend type to clean up ("ollama", "vllm", etc.)
         """
+        from .lib.process_utils import stop_backend_process
+
         if old_backend == "ollama":
             # Unload all Ollama models from VRAM
             self.add_debug("🧹 Unloading Ollama models from VRAM...")
             try:
-                # Create Ollama backend instance to call unload_all_models
                 from .lib.llm_client import LLMClient
                 llm_client = LLMClient(backend_type="ollama", base_url="http://localhost:11434")
                 backend = llm_client._get_backend()
@@ -2656,80 +2540,28 @@ class AIState(rx.State):
                 self.add_debug(f"⚠️ Error unloading Ollama models: {e}")
 
         elif old_backend == "vllm":
-            # Stop vLLM server to free VRAM - ALWAYS use pkill for reliability
             self.add_debug("🛑 Stopping vLLM server...")
-            try:
-                import subprocess
-                import asyncio
-
-                # Check if vLLM is running
-                result = subprocess.run(["pgrep", "-f", "vllm serve"], capture_output=True, text=True)
-                if result.returncode == 0:
-                    # Kill vLLM process
-                    subprocess.run(["pkill", "-f", "vllm serve"])
-                    self.add_debug("✅ vLLM server stopped")
-
-                    # Wait for VRAM to be freed (GPU driver needs time to release memory)
-                    await asyncio.sleep(2)
-                    self.add_debug("⏳ Waited for VRAM to be released")
-
-                    # Clean up manager reference
-                    _global_backend_state["vllm_manager"] = None
-                else:
-                    self.add_debug("ℹ️ vLLM server was not running")
-
-            except Exception as e:
-                self.add_debug(f"❌ Failed to stop vLLM: {e}")
+            if await stop_backend_process("vllm"):
+                self.add_debug("✅ vLLM server stopped")
+                _global_backend_state["vllm_manager"] = None
+            else:
+                self.add_debug("ℹ️ vLLM server was not running")
 
         elif old_backend == "tabbyapi":
-            # Stop TabbyAPI server to free VRAM
             self.add_debug("🛑 Stopping TabbyAPI server...")
-            try:
-                import subprocess
-                import asyncio
-
-                # Check if TabbyAPI is running (main.py or start.sh)
-                result = subprocess.run(["pgrep", "-f", "tabbyapi"], capture_output=True, text=True)
-                if result.returncode == 0:
-                    # Kill TabbyAPI process
-                    subprocess.run(["pkill", "-f", "tabbyapi"])
-                    self.add_debug("✅ TabbyAPI server stopped")
-
-                    # Wait for VRAM to be freed (GPU driver needs time to release memory)
-                    await asyncio.sleep(2)
-                    self.add_debug("⏳ Waited for VRAM to be released")
-                else:
-                    self.add_debug("ℹ️ TabbyAPI server was not running")
-
-            except Exception as e:
-                self.add_debug(f"❌ Failed to stop TabbyAPI: {e}")
+            if await stop_backend_process("tabbyapi"):
+                self.add_debug("✅ TabbyAPI server stopped")
+            else:
+                self.add_debug("ℹ️ TabbyAPI server was not running")
 
         elif old_backend == "koboldcpp":
-            # Stop KoboldCPP server to free VRAM
             self.add_debug("🛑 Stopping KoboldCPP server...")
-            try:
-                import subprocess
-                import asyncio
-
-                # Check if KoboldCPP is running
-                result = subprocess.run(["pgrep", "-f", "koboldcpp"], capture_output=True, text=True)
-                if result.returncode == 0:
-                    # Kill KoboldCPP process
-                    subprocess.run(["pkill", "-f", "koboldcpp"])
-                    self.add_debug("✅ KoboldCPP server stopped")
-
-                    # Wait for VRAM to be freed (GPU driver needs time to release memory)
-                    await asyncio.sleep(2)
-                    self.add_debug("⏳ Waited for VRAM to be released")
-
-                    # Clean up manager reference
-                    _global_backend_state["koboldcpp_manager"] = None
-                    _global_backend_state["koboldcpp_context"] = None
-                else:
-                    self.add_debug("ℹ️ KoboldCPP server was not running")
-
-            except Exception as e:
-                self.add_debug(f"❌ Failed to stop KoboldCPP: {e}")
+            if await stop_backend_process("koboldcpp"):
+                self.add_debug("✅ KoboldCPP server stopped")
+                _global_backend_state["koboldcpp_manager"] = None
+                _global_backend_state["koboldcpp_context"] = None
+            else:
+                self.add_debug("ℹ️ KoboldCPP server was not running")
 
     async def send_message(self):
         """
@@ -4264,13 +4096,12 @@ class AIState(rx.State):
 
     async def handle_audio_upload(self, files: List[rx.UploadFile]):
         """Handle audio file uploads and transcribe with Whisper STT"""
-        global _whisper_model
-
         # Lazy load Whisper model if not already loaded
-        if _whisper_model is None:
+        whisper_model = get_whisper_model()
+        if whisper_model is None:
             self.add_debug("🎤 Loading Whisper model...")
-            initialize_whisper_model(self.whisper_model_key)
-            if _whisper_model is None:
+            whisper_model = initialize_whisper_model(self.whisper_model_key)
+            if whisper_model is None:
                 self.add_debug("❌ Failed to load Whisper model")
                 return
 
@@ -4318,7 +4149,7 @@ class AIState(rx.State):
 
             self.add_debug(f"🎤 Transcribing audio: {file.filename} ({size_display})...")
 
-            user_text, stt_time = transcribe_audio(tmp_path, _whisper_model, self.ui_language)
+            user_text, stt_time = transcribe_audio(tmp_path, whisper_model, self.ui_language)
 
             if user_text:
                 # Set transcribed text as user input
@@ -5891,13 +5722,12 @@ class AIState(rx.State):
         Args:
             model_display_name: Display name from dropdown (e.g., "small (466MB, bessere Qualität, multilingual)")
         """
-        global _whisper_model
         # Extract key from display name (e.g., "small (466MB, ...)" -> "small")
         model_key = model_display_name.split("(")[0].strip() if "(" in model_display_name else model_display_name
         self.whisper_model_key = model_key
         self.add_debug(f"🎤 Whisper Model: {model_key} (reload required)")
         # Reload Whisper model with new selection
-        _whisper_model = None  # Clear old model
+        unload_whisper_model()  # Clear old model from memory
         initialize_whisper_model(model_key)
         self._save_settings()
 

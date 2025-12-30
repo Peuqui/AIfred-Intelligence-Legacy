@@ -428,3 +428,76 @@ try:
     cleanup_old_tts_audio(max_age_hours=24)
 except Exception:
     pass
+
+
+# ============================================================
+# WHISPER STT MODEL MANAGEMENT
+# ============================================================
+# Module-level Whisper model (shared across all sessions for efficiency)
+_whisper_model = None
+
+
+def unload_whisper_model():
+    """Unload Whisper model from memory (free GPU/RAM)"""
+    global _whisper_model
+    if _whisper_model is not None:
+        _whisper_model = None
+        import gc
+        import torch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        log_message("🗑️ Whisper: Model unloaded from memory")
+    else:
+        log_message("⚠️ Whisper: No model loaded")
+
+
+def initialize_whisper_model(model_name: str = "small"):
+    """
+    Initialize Whisper STT model (module-level, shared across sessions)
+
+    Args:
+        model_name: Whisper model size (tiny, base, small, medium, large)
+
+    Returns:
+        WhisperModel instance or None on failure
+    """
+    global _whisper_model
+
+    if _whisper_model is not None:
+        log_message(f"✅ Whisper: Model already loaded ({model_name})")
+        return _whisper_model
+
+    try:
+        from faster_whisper import WhisperModel
+        from .config import WHISPER_MODELS, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
+
+        # Extract model ID from display name (e.g., "small (466MB, ...)" -> "small")
+        model_id = WHISPER_MODELS.get(model_name, model_name)
+
+        log_message(f"🎤 Whisper: Loading model '{model_id}'...")
+
+        # Use device and compute type from config.py
+        # Default: CPU to preserve GPU VRAM for LLM inference
+        device = WHISPER_DEVICE
+        compute_type = WHISPER_COMPUTE_TYPE
+
+        _whisper_model = WhisperModel(model_id, device=device, compute_type=compute_type)
+
+        log_message(f"✅ Whisper: Model '{model_id}' loaded on {device} ({compute_type})")
+        return _whisper_model
+
+    except ImportError as e:
+        log_message(f"❌ Whisper: faster-whisper not installed: {e}")
+        log_message("   Install with: pip install faster-whisper")
+        return None
+
+    except Exception as e:
+        log_message(f"❌ Whisper: Failed to load model: {e}")
+        return None
+
+
+def get_whisper_model():
+    """Get the currently loaded Whisper model (or None if not loaded)"""
+    global _whisper_model
+    return _whisper_model

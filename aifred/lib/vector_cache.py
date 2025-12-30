@@ -849,3 +849,76 @@ def format_ttl_hours(hours: float) -> str:
     else:
         days = hours / 24
         return f"{int(days)}d"
+
+
+# ============================================================
+# CACHE INITIALIZATION AND CLEANUP TASKS
+# ============================================================
+
+async def cleanup_expired_cache_task():
+    """
+    Background task: Runs every CACHE_CLEANUP_INTERVAL_HOURS to delete expired cache entries.
+    Uses AsyncIO (not threading) for Reflex compatibility.
+    """
+    from .config import CACHE_CLEANUP_INTERVAL_HOURS
+    from datetime import datetime as dt
+
+    log_message(f"🗑️ Cache cleanup task started (interval: {CACHE_CLEANUP_INTERVAL_HOURS}h)")
+
+    while True:
+        try:
+            # Wait for interval
+            await asyncio.sleep(CACHE_CLEANUP_INTERVAL_HOURS * 3600)
+
+            # Run cleanup
+            cache = get_cache()
+            deleted_count = await cache.delete_expired_entries()
+
+            if deleted_count > 0:
+                log_message(f"🗑️ Cache cleanup: {deleted_count} expired entries deleted at {dt.now().strftime('%H:%M:%S')}")
+
+        except Exception as e:
+            log_message(f"⚠️ Cache cleanup task error: {e}")
+            # Continue running despite errors
+
+
+def initialize_vector_cache():
+    """
+    Initialize Vector Cache (Server Mode)
+
+    Connects to ChromaDB Docker container via HTTP.
+    Thread-safe by design - no worker threads needed.
+
+    Also starts:
+    - Startup cleanup (if enabled)
+    - Background cleanup task
+
+    Returns:
+        VectorCache instance or None on failure
+    """
+    import os
+    from .config import CACHE_STARTUP_CLEANUP, CACHE_CLEANUP_INTERVAL_HOURS
+
+    try:
+        log_message(f"🚀 Vector Cache: Connecting to ChromaDB server (PID: {os.getpid()})")
+        cache = get_cache()
+        log_message("✅ Vector Cache: Connected successfully")
+
+        # Startup cleanup if enabled
+        if CACHE_STARTUP_CLEANUP:
+            async def startup_cleanup():
+                deleted_count = await cache.delete_expired_entries()
+                if deleted_count > 0:
+                    log_message(f"🗑️ Startup cleanup: {deleted_count} expired entries deleted")
+
+            asyncio.create_task(startup_cleanup())
+
+        # Start background cleanup task
+        asyncio.create_task(cleanup_expired_cache_task())
+        log_message(f"🗑️ Background cleanup task started (every {CACHE_CLEANUP_INTERVAL_HOURS}h)")
+
+        return cache
+    except Exception as e:
+        log_message(f"⚠️ Vector Cache connection failed: {e}")
+        log_message("💡 Make sure ChromaDB is running: docker-compose up -d chromadb")
+        return None
