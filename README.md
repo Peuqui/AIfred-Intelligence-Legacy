@@ -684,6 +684,70 @@ USER INPUT
 
 ---
 
+## 🌐 REST API (Remote Control)
+
+AIfred provides a complete REST API for programmatic control - enabling remote operation via Cloud, automation systems, and third-party integrations.
+
+### Key Features
+
+- **Full Remote Control**: Control AIfred from anywhere via HTTPS
+- **Live Browser Sync**: API changes automatically appear in the browser UI (no refresh needed)
+- **Session Management**: Access and manage multiple browser sessions
+- **OpenAPI Documentation**: Interactive Swagger UI at `/docs`
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/health` | GET | Health check with backend status |
+| `/api/settings` | GET | Retrieve all settings |
+| `/api/settings` | PATCH | Update settings (partial update) |
+| `/api/models` | GET | List available models |
+| `/api/chat/send` | POST | Send message and receive response |
+| `/api/chat/history` | GET | Get chat history |
+| `/api/chat/clear` | DELETE | Clear chat history |
+| `/api/sessions` | GET | List all browser sessions |
+| `/api/system/restart` | POST | Restart AIfred (systemd) |
+
+### Browser Synchronization
+
+When you change settings or send messages via API, the browser UI updates automatically:
+
+- **Chat Sync**: Messages sent via API appear in the browser within 2 seconds
+- **Settings Sync**: Model changes, RoPE factors, temperature etc. update live in the UI
+
+This enables true remote control - change AIfred's configuration from another device and see the changes reflected immediately in any connected browser.
+
+### Example Usage
+
+```bash
+# Get current settings
+curl http://localhost:8002/api/settings
+
+# Change model and RoPE factor
+curl -X PATCH http://localhost:8002/api/settings \
+  -H "Content-Type: application/json" \
+  -d '{"aifred_model": "qwen3:14b", "sokrates_rope_factor": 2.0}'
+
+# Send a message (with browser sync)
+curl -X POST http://localhost:8002/api/chat/send \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What is Python?", "device_id": "abc123..."}'
+
+# List all browser sessions
+curl http://localhost:8002/api/sessions
+```
+
+### Use Cases
+
+- **Cloud Control**: Operate AIfred from anywhere via HTTPS/API
+- **Home Automation**: Integration with Home Assistant, Node-RED, etc.
+- **Voice Assistants**: Alexa/Google Home can send AIfred queries
+- **Batch Processing**: Automated queries via scripts
+- **Mobile Apps**: Custom apps can use the API
+
+---
+
 ## 🚀 Installation
 
 ### Prerequisites

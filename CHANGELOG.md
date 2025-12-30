@@ -5,6 +5,78 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.0] - 2025-12-30
+
+### 🌐 REST API für Remote-Steuerung
+
+**Vollständige REST-API für programmatische Steuerung von AIfred - ermöglicht Fernsteuerung via Cloud, Automatisierung und Drittanbieter-Integration.**
+
+#### Added
+
+- **REST API** ([api.py](aifred/lib/api.py)):
+  - FastAPI-basierte REST-Schnittstelle auf Port 8002
+  - OpenAPI/Swagger-Dokumentation unter `/docs`
+  - CORS-Unterstützung für Cross-Origin-Requests
+
+- **API Endpoints**:
+  - `GET /api/health` - Health-Check mit Backend-Status
+  - `GET /api/settings` - Alle Einstellungen abrufen
+  - `PATCH /api/settings` - Einstellungen ändern (partielles Update)
+  - `GET /api/models` - Verfügbare Modelle auflisten
+  - `POST /api/chat/send` - Nachricht senden und Antwort erhalten
+  - `GET /api/chat/history` - Chat-Verlauf abrufen
+  - `DELETE /api/chat/clear` - Chat-Verlauf löschen
+  - `GET /api/sessions` - Alle Browser-Sessions auflisten
+  - `POST /api/system/restart` - AIfred neustarten (Systemd)
+
+- **Browser-Synchronisation** ([session_storage.py](aifred/lib/session_storage.py), [state.py](aifred/state.py)):
+  - **Chat-Sync**: API-Änderungen erscheinen automatisch im Browser (per-session Flag)
+  - **Settings-Sync**: Einstellungsänderungen via API werden live im Browser aktualisiert (globales Flag)
+  - Flag-File-Polling alle 2 Sekunden via `refresh_debug_console()`
+  - Keine manuelle Browser-Aktualisierung nötig
+
+- **Session-Discovery** ([session_storage.py](aifred/lib/session_storage.py)):
+  - `list_sessions()` - Alle verfügbaren Sessions mit device_id, last_seen, message_count
+  - `get_latest_session_file()` - Zuletzt aktive Session für API-Zugriff
+
+- **Settings Update Flags** ([session_storage.py](aifred/lib/session_storage.py)):
+  - `set_settings_update_flag()` - Globales Flag für alle Browser
+  - `check_and_clear_settings_update_flag()` - Flag-Prüfung und Löschung
+  - Separate Flags für Chat (per-session) und Settings (global)
+
+- **State Reload** ([state.py](aifred/state.py)):
+  - `_reload_settings_from_file()` - Lädt alle Settings aus settings.json neu
+  - Aktualisiert Model-IDs, RoPE-Faktoren, Temperature, Multi-Agent-Mode, TTS, etc.
+  - Integration in `refresh_debug_console()` für automatische Updates
+
+#### Use Cases
+
+- **Cloud-Steuerung**: AIfred von überall steuern via HTTPS/API
+- **Home-Automation**: Integration mit Home Assistant, Node-RED, etc.
+- **Voice Assistants**: Alexa/Google Home können AIfred-Anfragen senden
+- **Batch-Processing**: Automatisierte Abfragen via Scripts
+- **Mobile Apps**: Custom-Apps können die API nutzen
+
+#### API Beispiele
+
+```bash
+# Einstellungen abrufen
+curl http://localhost:8002/api/settings
+
+# Model ändern
+curl -X PATCH http://localhost:8002/api/settings \
+  -H "Content-Type: application/json" \
+  -d '{"aifred_model": "qwen3:14b", "sokrates_rope_factor": 2.0}'
+
+# Nachricht senden (mit Browser-Sync)
+curl -X POST http://localhost:8002/api/chat/send \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Was ist Python?", "device_id": "abc123..."}'
+
+# Alle Sessions auflisten
+curl http://localhost:8002/api/sessions
+```
+
 ## [2.14.6] - 2025-12-29
 
 ### 🔧 Multi-Agent Compression & Debugging
