@@ -3358,10 +3358,8 @@ class AIState(rx.State):
                 self.add_debug(f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tokens, {format_number(tokens_per_sec, 1)} tok/s)")
                 yield
 
-                # Separator after Main-LLM (matching other modes)
-                console_separator()
-                self.add_debug("────────────────────")
-                yield
+                # Separator wird am Ende der Funktion gesetzt (Zeile ~3409 für Standard-Modus)
+                # Multi-Agent-Modi haben eigene Separatoren in multi_agent.py
 
                 # Format <think> tags as collapsible (if present)
                 from .lib.formatting import format_thinking_process, format_metadata
