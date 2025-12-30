@@ -29,7 +29,7 @@ from .context_manager import (
 )
 from .prompt_loader import (
     detect_language,
-    load_prompt,
+    get_aifred_system_minimal,
     get_sokrates_system_minimal,
     get_sokrates_direct_prompt,
     get_sokrates_critic_prompt,
@@ -1196,7 +1196,7 @@ async def run_sokrates_analysis(
                     # PRE-AIFRED: Check if compression needed before AIfred refinement
                     # Include AIfred system prompt + refinement prompt in token calculation (v2.14.1+)
                     # IMPORTANT (v2.14.4+): Use AIFRED's context limit, not min_ctx!
-                    aifred_system_prompt = load_prompt('aifred/system_minimal', lang=state.ui_language)
+                    aifred_system_prompt = get_aifred_system_minimal(lang=state.ui_language)
                     aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
                     async for _ in _check_compression_if_needed(state, llm_client, main_llm_ctx, aifred_prompt_tokens):
                         yield
@@ -1346,8 +1346,8 @@ async def run_tribunal(
         alfred_model = state.aifred_model_id
 
         state.add_debug("⚖️ Tribunal mode started")
-        state.add_debug(f"🏛️ Sokrates LLM: {sokrates_display}")
-        state.add_debug(f"👑 Salomo LLM: {salomo_display}")
+        state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
+        state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
         # Get context limits (respect per-LLM manual toggles)
         # AIfred context
@@ -1508,7 +1508,7 @@ async def run_tribunal(
                 # PRE-AIFRED: Check if compression needed before AIfred refinement
                 # Include AIfred system prompt + refinement prompt in token calculation (v2.14.1+)
                 # IMPORTANT (v2.14.4+): Use AIFRED's context limit, not min_ctx!
-                aifred_system_prompt = load_prompt('aifred/system_minimal', lang=state.ui_language)
+                aifred_system_prompt = get_aifred_system_minimal(lang=state.ui_language)
                 aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
                 async for _ in _check_compression_if_needed(state, llm_client, main_llm_ctx, aifred_prompt_tokens):
                     yield

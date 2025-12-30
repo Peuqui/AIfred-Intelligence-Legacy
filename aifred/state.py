@@ -136,6 +136,11 @@ class AIState(rx.State):
     salomo_rope_factor: float = 1.0      # Salomo-LLM RoPE scaling
     vision_rope_factor: float = 1.0      # Vision-LLM RoPE scaling
 
+    # Per-Agent Personality Toggles (True = Butler/Philosopher/Judge style, False = factual)
+    aifred_personality: bool = True      # 🎩 AIfred Butler style
+    sokrates_personality: bool = True    # 🏛️ Sokrates philosophical style
+    salomo_personality: bool = True      # 👑 Salomo judge style
+
     # Image Upload State
     pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "base64": "...", "url": "...", "original_bytes": bytes}]
     image_upload_warning: str = ""  # Warning message if non-vision model selected
@@ -1776,6 +1781,11 @@ class AIState(rx.State):
         self.automatik_rope_factor = settings.get("automatik_rope_factor", self.automatik_rope_factor)
         self.vision_rope_factor = settings.get("vision_rope_factor", self.vision_rope_factor)
 
+        # Personality toggles
+        self.aifred_personality = settings.get("aifred_personality", self.aifred_personality)
+        self.sokrates_personality = settings.get("sokrates_personality", self.sokrates_personality)
+        self.salomo_personality = settings.get("salomo_personality", self.salomo_personality)
+
         # TTS settings
         self.enable_tts = settings.get("enable_tts", self.enable_tts)
         self.tts_voice = settings.get("voice", self.tts_voice)
@@ -3229,14 +3239,14 @@ class AIState(rx.State):
                 )
 
                 # Inject system prompt with timestamp (from load_prompt - automatically includes date/time)
-                from .lib.prompt_loader import load_prompt, detect_language, get_aifred_direct_prompt
+                from .lib.prompt_loader import load_prompt, detect_language, get_aifred_direct_prompt, get_aifred_system_minimal
                 detected_language = detect_language(user_msg)
 
                 # Use AIfred direct prompt if user addressed AIfred directly
                 if use_aifred_direct_prompt:
                     system_prompt = get_aifred_direct_prompt(lang=detected_language)
                 else:
-                    system_prompt = load_prompt('aifred/system_minimal', lang=detected_language)
+                    system_prompt = get_aifred_system_minimal(lang=detected_language)
 
                 messages.insert(0, {"role": "system", "content": system_prompt})
 
@@ -4591,6 +4601,36 @@ class AIState(rx.State):
         if self.vision_model_id:
             from .lib.model_vram_cache import set_rope_factor_for_model
             set_rope_factor_for_model(self.vision_model_id, factor)
+
+    def toggle_aifred_personality(self):
+        """Toggle AIfred Butler personality style on/off"""
+        self.aifred_personality = not self.aifred_personality
+        status = "AN" if self.aifred_personality else "AUS"
+        self.add_debug(f"🎩 AIfred Persönlichkeit: {status}")
+        self._save_personality_settings()
+
+    def toggle_sokrates_personality(self):
+        """Toggle Sokrates philosophical personality style on/off"""
+        self.sokrates_personality = not self.sokrates_personality
+        status = "AN" if self.sokrates_personality else "AUS"
+        self.add_debug(f"🏛️ Sokrates Persönlichkeit: {status}")
+        self._save_personality_settings()
+
+    def toggle_salomo_personality(self):
+        """Toggle Salomo judge personality style on/off"""
+        self.salomo_personality = not self.salomo_personality
+        status = "AN" if self.salomo_personality else "AUS"
+        self.add_debug(f"👑 Salomo Persönlichkeit: {status}")
+        self._save_personality_settings()
+
+    def _save_personality_settings(self):
+        """Save personality toggle states to settings.json"""
+        from .lib.settings import load_settings, save_settings
+        settings = load_settings() or {}
+        settings["aifred_personality"] = self.aifred_personality
+        settings["sokrates_personality"] = self.sokrates_personality
+        settings["salomo_personality"] = self.salomo_personality
+        save_settings(settings)
 
     async def calibrate_context(self):
         """
