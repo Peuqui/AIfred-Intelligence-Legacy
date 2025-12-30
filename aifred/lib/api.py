@@ -320,10 +320,11 @@ async def update_settings(update: SettingsUpdate):
 
     log_message(f"✅ API: Settings saved ({len(update_dict)} fields updated)")
 
-    # Set global settings update flag to trigger browser reload
+    # Set global settings update timestamp to trigger browser reload
+    # NEW: Timestamp-based system - all browsers will see the update (no race condition)
     from .session_storage import set_settings_update_flag
     set_settings_update_flag()
-    log_message("🔄 API: Settings update flag set for all browsers")
+    log_message("🔄 API: Settings update timestamp set for all browsers")
 
     # Return updated settings
     return await get_settings()

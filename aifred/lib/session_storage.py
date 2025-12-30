@@ -508,16 +508,21 @@ def check_and_clear_update_flag(device_id: str) -> bool:
         return False
 
 
-# Global settings flag (not per-session, as settings apply to all browsers)
-_SETTINGS_FLAG_FILE = "settings.update"
+# Global settings timestamp file (not per-session, as settings apply to all browsers)
+# Contains a Unix timestamp that browsers compare against their last-seen value
+_SETTINGS_TIMESTAMP_FILE = "settings.timestamp"
 
 
 def set_settings_update_flag() -> bool:
     """
-    Set global settings update flag.
+    Set global settings update timestamp.
 
     Called by API after modifying settings.json.
-    All browser sessions will reload settings on next poll.
+    Writes current Unix timestamp to file. All browser sessions will
+    compare against their last-seen timestamp and reload if newer.
+
+    This is NON-DESTRUCTIVE: Multiple browsers can read the same timestamp
+    without race conditions. Each browser tracks its own last-seen value.
 
     Returns:
         True on success
@@ -525,33 +530,62 @@ def set_settings_update_flag() -> bool:
     _ensure_session_dir()
 
     try:
-        flag_path = SESSION_DIR / _SETTINGS_FLAG_FILE
-        flag_path.touch()
+        import time
+        timestamp_path = SESSION_DIR / _SETTINGS_TIMESTAMP_FILE
+        current_time = time.time()
+        with open(timestamp_path, 'w') as f:
+            f.write(str(current_time))
         return True
     except IOError:
         return False
 
 
-def check_and_clear_settings_update_flag() -> bool:
+def get_settings_update_timestamp() -> float:
     """
-    Check if global settings update flag exists and clear it.
+    Get the current settings update timestamp.
 
-    Called by browser timer to detect API settings changes.
-    Returns True if flag was present (browser should reload settings).
+    Called by browser timer to check if settings have been updated.
+    Returns 0.0 if no timestamp file exists.
+
+    This is NON-DESTRUCTIVE: Multiple browsers can read without race conditions.
 
     Returns:
-        True if flag was present (now cleared), False otherwise
+        Unix timestamp of last settings update, or 0.0 if none
     """
     _ensure_session_dir()
 
     try:
-        flag_path = SESSION_DIR / _SETTINGS_FLAG_FILE
-        if flag_path.exists():
-            flag_path.unlink()
-            return True
-        return False
+        timestamp_path = SESSION_DIR / _SETTINGS_TIMESTAMP_FILE
+        if timestamp_path.exists():
+            with open(timestamp_path, 'r') as f:
+                return float(f.read().strip())
+        return 0.0
+    except (IOError, ValueError):
+        return 0.0
+
+
+def check_and_clear_settings_update_flag() -> bool:
+    """
+    DEPRECATED: Legacy function for backwards compatibility.
+
+    Use get_settings_update_timestamp() instead for multi-browser support.
+    This function now always returns False to prevent accidental use.
+
+    The old flag-based system had a race condition: the first browser to
+    see the flag would delete it, and other browsers would miss the update.
+
+    Returns:
+        Always False (use get_settings_update_timestamp instead)
+    """
+    # Legacy: Clean up old flag file if it exists
+    try:
+        old_flag_path = SESSION_DIR / "settings.update"
+        if old_flag_path.exists():
+            old_flag_path.unlink()
     except IOError:
-        return False
+        pass
+
+    return False  # Always return False - use new timestamp system
 
 
 # ============================================================
