@@ -4402,14 +4402,15 @@ console.log('✂️ Crop handler loaded');
 # 3. Everything happens in one place (cleaner architecture)
 
 
-# Import REST API for api_transformer
-from .lib.api import get_api_app
-
-# Create app with REST API integration
-# The api_transformer mounts FastAPI endpoints at /api/*
+# Create app (API routes are mounted separately below)
 app = rx.App(
     stylesheets=[
         "/custom.css",  # Custom CSS for dark theme
     ],
-    api_transformer=get_api_app(),
 )
+
+# Mount REST API routes directly on Reflex's backend
+# This avoids the "ASGI flow error: Connection already upgraded" bug
+# that occurs when using api_transformer with WebSocket connections
+from .lib.api import api_app
+app._api.mount("/api", api_app)
