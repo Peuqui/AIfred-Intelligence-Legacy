@@ -168,7 +168,7 @@ class AIState(rx.State):
     backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi", "koboldcpp"
     backend_id: str = "ollama"  # NEW: Pure backend ID (synced with backend_type for compatibility)
     current_backend_label: str = "Ollama"  # NEW: Display label for current backend (synced with backend_id)
-    backend_url: str = "http://localhost:11434"  # Default Ollama URL
+    backend_url: str = config.DEFAULT_OLLAMA_URL  # Default Ollama URL
 
     # Backend ID/Label Mapping (static - all possible backends)
     available_backends_dict: Dict[str, str] = {
@@ -1237,7 +1237,7 @@ class AIState(rx.State):
 
         try:
             # Update URL based on backend type (from centralized config)
-            self.backend_url = config.BACKEND_URLS.get(self.backend_type, "http://localhost:11434")
+            self.backend_url = config.BACKEND_URLS.get(self.backend_type, config.DEFAULT_OLLAMA_URL)
 
             # add_debug() already logs to file, so we only need one call
             self.add_debug(f"🔧 Creating backend: {self.backend_type}")
@@ -2462,7 +2462,7 @@ class AIState(rx.State):
             self.add_debug("🧹 Unloading Ollama models from VRAM...")
             try:
                 from .lib.llm_client import LLMClient
-                llm_client = LLMClient(backend_type="ollama", base_url="http://localhost:11434")
+                llm_client = LLMClient(backend_type="ollama", base_url=config.DEFAULT_OLLAMA_URL)
                 backend = llm_client._get_backend()
 
                 if hasattr(backend, 'unload_all_models'):

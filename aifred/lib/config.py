@@ -157,11 +157,17 @@ BACKEND_DEFAULT_MODELS = {
 # BACKEND URLs
 # ============================================================
 # Default URLs for each backend type (localhost development)
+# Use these constants instead of hardcoding URLs!
+DEFAULT_OLLAMA_URL = "http://localhost:11434"
+DEFAULT_VLLM_URL = "http://localhost:8001/v1"
+DEFAULT_TABBYAPI_URL = "http://localhost:5000/v1"
+DEFAULT_KOBOLDCPP_URL = "http://localhost:5001/v1"
+
 BACKEND_URLS = {
-    "ollama": "http://localhost:11434",
-    "vllm": "http://localhost:8001/v1",      # Port 8001 for dev (8000 on production MiniPC)
-    "tabbyapi": "http://localhost:5000/v1",
-    "koboldcpp": "http://localhost:5001/v1",
+    "ollama": DEFAULT_OLLAMA_URL,
+    "vllm": DEFAULT_VLLM_URL,      # Port 8001 for dev (8000 on production MiniPC)
+    "tabbyapi": DEFAULT_TABBYAPI_URL,
+    "koboldcpp": DEFAULT_KOBOLDCPP_URL,
 }
 
 # Backend display labels (for UI dropdowns)
