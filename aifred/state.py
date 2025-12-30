@@ -142,7 +142,7 @@ class AIState(rx.State):
     max_images_per_message: int = 5  # Limit concurrent uploads
     camera_available: bool = False  # True if browser supports camera access (set by JavaScript)
     _camera_detection_done: bool = False  # Internal flag to prevent duplicate logging from Reflex hydration
-    _last_settings_timestamp: float = 0.0  # Last seen settings update timestamp (for multi-browser sync)
+    _last_settings_mtime: float = 0.0  # Last seen settings.json mtime (for multi-browser sync)
 
     # Failed Sources State (shown as clickable bubble before AI response)
     failed_sources: List[Dict[str, str]] = []  # [{"url": "...", "error": "...", "method": "..."}]
@@ -1810,19 +1810,21 @@ class AIState(rx.State):
         Also checks for API update flags - if flag exists for this device_id,
         triggers browser reload to sync session data from API changes.
         """
-        # Check for global settings update timestamp (applies to all browsers)
-        # NEW: Timestamp-based system is NON-DESTRUCTIVE - multiple browsers can
-        # read the same timestamp without race conditions. Each browser tracks
-        # its own last-seen value in _last_settings_timestamp.
-        from .lib.session_storage import get_settings_update_timestamp
-        current_settings_ts = get_settings_update_timestamp()
-        if current_settings_ts > self._last_settings_timestamp:
-            # New settings available - reload from file
-            self._reload_settings_from_file()
-            self._last_settings_timestamp = current_settings_ts
-            self.add_debug("⚙️ API update: Settings reloaded")
-            yield
-            return
+        # Check if settings.json was modified (mtime-based, multi-browser safe)
+        # Each browser tracks its own last-seen mtime - no race conditions
+        import os
+        from pathlib import Path
+        settings_path = Path.home() / ".config/aifred/settings.json"
+        try:
+            current_mtime = os.path.getmtime(settings_path)
+            if current_mtime > self._last_settings_mtime:
+                self._reload_settings_from_file()
+                self._last_settings_mtime = current_mtime
+                self.add_debug("⚙️ API update: Settings reloaded")
+                yield
+                return
+        except OSError:
+            pass  # File doesn't exist or not accessible
 
         # Check for pending message from API (message injection)
         if self.device_id and not self.is_generating:

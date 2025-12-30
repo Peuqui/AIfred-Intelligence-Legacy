@@ -319,12 +319,7 @@ async def update_settings(update: SettingsUpdate):
         raise HTTPException(status_code=500, detail="Failed to save settings")
 
     log_message(f"✅ API: Settings saved ({len(update_dict)} fields updated)")
-
-    # Set global settings update timestamp to trigger browser reload
-    # NEW: Timestamp-based system - all browsers will see the update (no race condition)
-    from .session_storage import set_settings_update_flag
-    set_settings_update_flag()
-    log_message("🔄 API: Settings update timestamp set for all browsers")
+    # Browser detects changes via settings.json mtime (no extra flag needed)
 
     # Return updated settings
     return await get_settings()
