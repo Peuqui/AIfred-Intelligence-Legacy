@@ -8,6 +8,8 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, AsyncIterator, Union, Any
 from dataclasses import dataclass
 
+from aifred.lib.config import DEFAULT_OLLAMA_URL
+
 
 @dataclass
 class LLMMessage:
@@ -61,7 +63,7 @@ class LLMBackend(ABC):
     Implementations: OllamaBackend, vLLMBackend, LlamaCppBackend, OpenAIBackend
     """
 
-    def __init__(self, base_url: str = "http://localhost:11434", api_key: Optional[str] = None):
+    def __init__(self, base_url: str = DEFAULT_OLLAMA_URL, api_key: Optional[str] = None):
         self.base_url = base_url
         self.api_key = api_key
         self._available_models: List[str] = []

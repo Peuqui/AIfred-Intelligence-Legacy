@@ -18,7 +18,7 @@ from .base import (
     BackendInferenceError
 )
 from ..lib.logging_utils import log_message
-from ..lib.config import HYBRID_MIN_CONTEXT, RAM_RESERVE_MIN
+from ..lib.config import HYBRID_MIN_CONTEXT, RAM_RESERVE_MIN, DEFAULT_OLLAMA_URL
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ async def wait_for_vram_stable(
 class OllamaBackend(LLMBackend):
     """Ollama backend implementation"""
 
-    def __init__(self, base_url: str = "http://localhost:11434"):
+    def __init__(self, base_url: str = DEFAULT_OLLAMA_URL):
         super().__init__(base_url=base_url)
         # Timeout: None = UNLIMITED (Reflex will handle timeouts, not httpx)
         # Limits: Increase connection limits to avoid pooling issues

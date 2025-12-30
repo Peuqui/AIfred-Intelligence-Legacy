@@ -35,7 +35,8 @@ from .config import (
     DYNAMIC_NUM_PREDICT_SAFETY_MARGIN,
     DYNAMIC_NUM_PREDICT_MINIMUM,
     DYNAMIC_NUM_PREDICT_HARD_LIMIT,
-    AUTOMATIK_LLM_NUM_CTX
+    AUTOMATIK_LLM_NUM_CTX,
+    DEFAULT_OLLAMA_URL
 )
 from .intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
 from .research import perform_agent_research
@@ -573,8 +574,8 @@ async def chat_with_vision_pipeline(
 
     # Ensure backend_url is set (fallback to default Ollama URL)
     if not backend_url:
-        backend_url = "http://localhost:11434"
-        log_message("⚠️ No backend_url provided, using default: http://localhost:11434")
+        backend_url = DEFAULT_OLLAMA_URL
+        log_message(f"⚠️ No backend_url provided, using default: {DEFAULT_OLLAMA_URL}")
 
     log_message(f"📐 Reading model capabilities for Vision-LLM ({vision_model})...")
     supports_chat_template, intrinsic_num_ctx = await get_vision_model_capabilities(backend_url, vision_model)

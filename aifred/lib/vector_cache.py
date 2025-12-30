@@ -37,14 +37,15 @@ from .config import (
     CACHE_DISTANCE_HIGH,
     CACHE_DISTANCE_DUPLICATE,
     CACHE_DISTANCE_RAG,
-    TTL_HOURS
+    TTL_HOURS,
+    DEFAULT_OLLAMA_URL
 )
 from datetime import datetime, timedelta
 import uuid
 
 # Ollama Embedding Configuration
 OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
-OLLAMA_HOST = "http://localhost:11434"
+OLLAMA_HOST = DEFAULT_OLLAMA_URL
 
 
 class OllamaCPUEmbeddingFunction(EmbeddingFunction[Documents]):

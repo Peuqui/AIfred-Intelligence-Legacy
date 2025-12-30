@@ -28,6 +28,7 @@ import subprocess
 
 from .settings import load_settings, save_settings, get_default_settings
 from .logging_utils import log_message
+from .config import DEFAULT_OLLAMA_URL
 
 
 # ============================================================
@@ -46,7 +47,7 @@ class SettingsResponse(BaseModel):
     """Current settings response"""
     # Backend
     backend_type: str = "ollama"
-    backend_url: str = "http://localhost:11434"
+    backend_url: str = DEFAULT_OLLAMA_URL
 
     # Models
     aifred_model: str = ""
@@ -263,7 +264,7 @@ async def get_settings():
     backend_models = settings.get("backend_models", {}).get(backend_type, {})
 
     # Get backend URL with proper fallback (global_state may have None values)
-    backend_url = global_state.get("backend_url") or "http://localhost:11434"
+    backend_url = global_state.get("backend_url") or DEFAULT_OLLAMA_URL
 
     return SettingsResponse(
         backend_type=backend_type,
@@ -368,7 +369,7 @@ async def get_available_models():
         try:
             import httpx
             if backend_type == "ollama":
-                backend_url = settings.get("backend_url", "http://localhost:11434")
+                backend_url = settings.get("backend_url", DEFAULT_OLLAMA_URL)
                 response = httpx.get(f"{backend_url}/api/tags", timeout=5.0)
                 if response.status_code == 200:
                     data = response.json()
@@ -422,7 +423,7 @@ async def send_chat_message(request: ChatSendRequest, background_tasks: Backgrou
 
     # Get backend configuration
     backend_type = settings.get("backend_type", "ollama")
-    backend_url = global_state.get("backend_url") or "http://localhost:11434"
+    backend_url = global_state.get("backend_url") or DEFAULT_OLLAMA_URL
     model = settings.get("model", "qwen3:8b")
     temperature = settings.get("temperature", 0.3)
     enable_thinking = settings.get("enable_thinking", True)
@@ -708,7 +709,7 @@ async def restart_ollama():
         # Wait for Ollama to be ready
         import httpx
         settings = load_settings() or {}
-        backend_url = settings.get("backend_url", "http://localhost:11434")
+        backend_url = settings.get("backend_url", DEFAULT_OLLAMA_URL)
 
         for attempt in range(20):  # 10 seconds max
             await asyncio.sleep(0.5)

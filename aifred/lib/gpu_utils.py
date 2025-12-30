@@ -13,7 +13,8 @@ from .config import (
     VRAM_CONTEXT_RATIO_DENSE,
     VRAM_CONTEXT_RATIO_MOE,
     ENABLE_VRAM_CONTEXT_CALCULATION,
-    KOBOLDCPP_QUANTKV
+    KOBOLDCPP_QUANTKV,
+    DEFAULT_OLLAMA_URL
 )
 from .formatting import format_number
 
@@ -290,7 +291,7 @@ def get_dynamic_ram_reserve(free_ram_mb: int) -> int:
         return 2048  # 2 GB reserve (minimum)
 
 
-async def is_moe_model(model_name: str, ollama_url: str = "http://localhost:11434") -> bool:
+async def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
     """
     Detect if model is MoE (Mixture of Experts) architecture
 
