@@ -484,7 +484,7 @@ async def send_chat_message(request: ChatSendRequest, background_tasks: Backgrou
         # AUFFÄLLIGE Warnung damit User sieht dass externe Inferenz läuft
         from .logging_utils import CONSOLE_SEPARATOR
         log_message(f"⚠️ {'═' * len(CONSOLE_SEPARATOR)}")
-        log_message(f"⚠️  API-INFERENZ GESTARTET")
+        log_message("⚠️  API-INFERENZ GESTARTET")
         log_message(f"⚠️  Model: {model}")
         log_message(f"⚠️ {'═' * len(CONSOLE_SEPARATOR)}")
 
@@ -500,7 +500,7 @@ async def send_chat_message(request: ChatSendRequest, background_tasks: Backgrou
 
         # AUFFÄLLIGE Entwarnung
         log_message(f"✅ {'═' * len(CONSOLE_SEPARATOR)}")
-        log_message(f"✅  API-INFERENZ ABGESCHLOSSEN")
+        log_message("✅  API-INFERENZ ABGESCHLOSSEN")
         log_message(f"✅  {len(llm_cleaned_response)} chars")
         log_message(f"✅ {'═' * len(CONSOLE_SEPARATOR)}")
 
@@ -509,10 +509,13 @@ async def send_chat_message(request: ChatSendRequest, background_tasks: Backgrou
         # Save to session if device_id provided
         session_id = request.device_id or "api-session"
         if request.device_id:
+            # Format response for UI (convert <think> tags to collapsibles)
+            from .formatting import format_thinking_process
+            formatted_response = format_thinking_process(full_response, model)
+
             # Update chat_history (UI format: list of tuples)
-            # WICHTIG: full_response MIT <think> Tags für UI-Anzeige (Collapsible)
             new_chat_history = list(existing_chat_history)
-            new_chat_history.append((request.message, full_response.strip()))
+            new_chat_history.append((request.message, formatted_response.strip()))
 
             # Update llm_history (LLM format: list of dicts)
             # WICHTIG: llm_cleaned_response OHNE <think> Tags (sonst wiederholt LLM sich)
@@ -560,7 +563,7 @@ async def clear_chat(request: ChatClearRequest = ChatClearRequest()):
     The browser will auto-reload and show empty chat.
     """
     from .session_storage import (
-        load_session, update_chat_data, set_update_flag, get_latest_session_file
+        update_chat_data, set_update_flag, get_latest_session_file
     )
 
     # Determine which session to clear

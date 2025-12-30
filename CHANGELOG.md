@@ -5,6 +5,77 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.8] - 2025-12-30
+
+### Fixed
+
+- **API: `<think>` Tags werden jetzt als Collapsibles formatiert** ([api.py](aifred/lib/api.py)):
+  - API-Responses nutzen jetzt `format_thinking_process()` für UI-Anzeige
+  - `<think>` Tags werden zu klickbaren "Denkprozess" Collapsibles
+  - Vorher: Rohe `<think>` Tags wurden ungefiltert angezeigt
+
+---
+
+## [2.15.7] - 2025-12-30
+
+### Refactoring
+
+- **Centralize DEFAULT_OLLAMA_URL constant** ([config.py](aifred/config.py)):
+  - URL-Konstante zentral in config.py definiert
+  - Vermeidet Hardcodierungen in mehreren Dateien
+
+---
+
+## [2.15.6] - 2025-12-30
+
+### Refactoring
+
+- **Extract model discovery to reusable module** ([model_discovery.py](aifred/lib/model_discovery.py)):
+  - Backend-agnostische Model-Discovery aus state.py extrahiert
+  - Unterstützt Ollama, vLLM, TabbyAPI, KoboldCPP
+
+---
+
+## [2.15.5] - 2025-12-30
+
+### Refactoring
+
+- **Consolidate GPU queries and cleanup functions** ([gpu_utils.py](aifred/lib/gpu_utils.py)):
+  - GPU-Abfragen in eigenes Modul konsolidiert
+  - Cleanup-Funktionen zentralisiert
+
+---
+
+## [2.15.4] - 2025-12-30
+
+### Refactoring
+
+- **Cleanup redundant code in state.py**:
+  - Entfernung von ungenutztem Code
+  - Vereinfachung der State-Logik
+
+---
+
+## [2.15.3] - 2025-12-30
+
+### Refactoring
+
+- **Misc code quality improvements**:
+  - Kleinere Verbesserungen und Aufräumarbeiten
+
+---
+
+## [2.15.2] - 2025-12-30
+
+### Refactoring
+
+- **Code-Cleanup und Keep-It-Simple Verbesserungen** ([state.py](aifred/state.py)):
+  - Entfernung von 233 Zeilen totem Code
+  - Zentralisierung von URL-Konstanten in `config.py`
+  - Nutzung von `model_discovery.py` für Backend-Model-Discovery
+
+---
+
 ## [2.15.1] - 2025-12-30
 
 ### 🔧 API Fixes & Improvements
