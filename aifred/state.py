@@ -1833,9 +1833,9 @@ class AIState(rx.State):
             if pending_msg:
                 self.current_user_input = pending_msg
                 self.add_debug(f"📨 API: Message injected ({len(pending_msg)} chars)")
-                yield  # Update UI with debug message
-                yield AIState.send_message  # Chain to send_message handler
-                return
+                yield  # Update UI with debug message and input field
+                # Trigger send_message as next event in chain
+                return AIState.send_message
 
         # Check for API update flag (only if device_id is set)
         if self.device_id:
