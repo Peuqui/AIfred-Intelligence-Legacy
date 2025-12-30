@@ -177,7 +177,8 @@ def update_chat_data(
     chat_history: List[Tuple[str, str]],
     chat_summaries: Optional[List[str]] = None,
     llm_history: Optional[List[Dict[str, str]]] = None,
-    debug_messages: Optional[List[str]] = None
+    debug_messages: Optional[List[str]] = None,
+    is_generating: Optional[bool] = None
 ) -> bool:
     """
     Update chat data of a session.
@@ -191,6 +192,7 @@ def update_chat_data(
         chat_summaries: Optional - List of summary strings
         llm_history: Optional - List of {"role": ..., "content": ...} dicts (LLM - komprimiert)
         debug_messages: Optional - List of debug log entries (last N entries)
+        is_generating: Optional - Current generation status (for API polling)
 
     Returns:
         True on success
@@ -219,6 +221,10 @@ def update_chat_data(
     # DEBUG-PERSISTENCE (v2.14.0+): Store last N debug entries
     if debug_messages is not None:
         session["data"]["debug_messages"] = debug_messages
+
+    # API STATUS (v2.15.9+): Store is_generating for API polling
+    if is_generating is not None:
+        session["data"]["is_generating"] = is_generating
 
     return save_session(device_id, session)
 
@@ -530,3 +536,101 @@ def check_and_clear_settings_update_flag() -> bool:
         return False
     except IOError:
         return False
+
+
+# ============================================================
+# Pending Message (API → Browser Message Injection)
+# ============================================================
+
+def set_pending_message(device_id: str, message: str) -> bool:
+    """
+    Set pending message for browser to process.
+
+    Called by API to inject a message into a browser session.
+    Browser polls for .pending flag, reads message, triggers send_message().
+
+    Args:
+        device_id: Device identifier
+        message: User message to inject
+
+    Returns:
+        True on success
+    """
+    _ensure_session_dir()
+
+    try:
+        safe_id = _sanitize_device_id(device_id)
+
+        # Load existing session or create minimal structure
+        session_path = get_session_path(device_id)
+        if session_path.exists():
+            with open(session_path, 'r', encoding='utf-8') as f:
+                session = json.load(f)
+        else:
+            session = {"device_id": device_id, "data": {}}
+
+        # Set pending message in session data
+        if "data" not in session:
+            session["data"] = {}
+        session["data"]["pending_message"] = message
+
+        # Save session
+        with open(session_path, 'w', encoding='utf-8') as f:
+            json.dump(session, f, ensure_ascii=False, indent=2)
+
+        # Set .pending flag file
+        flag_path = SESSION_DIR / f"{safe_id}.pending"
+        flag_path.touch()
+
+        return True
+    except (ValueError, IOError, json.JSONDecodeError):
+        return False
+
+
+def get_and_clear_pending_message(device_id: str) -> Optional[str]:
+    """
+    Get pending message and clear it.
+
+    Called by browser to check for API-injected messages.
+    Returns the message if present, clears it from session.
+
+    Args:
+        device_id: Device identifier
+
+    Returns:
+        Pending message string, or None if no pending message
+    """
+    _ensure_session_dir()
+
+    try:
+        safe_id = _sanitize_device_id(device_id)
+        flag_path = SESSION_DIR / f"{safe_id}.pending"
+
+        # Check flag first (fast path)
+        if not flag_path.exists():
+            return None
+
+        # Flag exists - clear it
+        flag_path.unlink()
+
+        # Load session and extract message
+        session_path = get_session_path(device_id)
+        if not session_path.exists():
+            return None
+
+        with open(session_path, 'r', encoding='utf-8') as f:
+            session = json.load(f)
+
+        pending_msg = session.get("data", {}).get("pending_message")
+        if not pending_msg:
+            return None
+
+        # Clear pending_message from session
+        session["data"]["pending_message"] = None
+        with open(session_path, 'w', encoding='utf-8') as f:
+            json.dump(session, f, ensure_ascii=False, indent=2)
+
+        return pending_msg
+
+    except (ValueError, IOError, json.JSONDecodeError):
+        return None

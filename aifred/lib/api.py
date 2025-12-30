@@ -9,7 +9,7 @@ Endpoints:
 - GET  /api/settings       - Get all settings
 - PATCH /api/settings      - Update settings
 - GET  /api/models         - List available models
-- POST /api/chat/send      - Send chat message
+- POST /api/chat/inject    - Inject message into browser session
 - POST /api/chat/clear     - Clear chat history
 - GET  /api/chat/history   - Get chat history
 - POST /api/system/restart-ollama   - Restart Ollama service
@@ -137,22 +137,10 @@ class ModelsResponse(BaseModel):
     vision_models: List[str]  # List of vision-capable model IDs
 
 
-class ChatSendRequest(BaseModel):
-    """Chat send request"""
-    message: str = Field(..., min_length=1, description="User message to send")
-    device_id: Optional[str] = Field(None, description="Browser session device_id for sync")
-    research_mode: Optional[str] = None  # Override research mode for this message
-    multi_agent_mode: Optional[str] = None  # Override multi-agent mode
-    wait_for_completion: bool = Field(default=True, description="Wait for LLM response")
-
-
-class ChatSendResponse(BaseModel):
-    """Chat send response"""
-    success: bool
-    user_message: str
-    ai_response: str = ""
-    session_id: str = ""
-    processing: bool = False  # True if still processing (wait_for_completion=False)
+class ChatInjectRequest(BaseModel):
+    """Chat inject request - injects message into browser session"""
+    message: str = Field(..., min_length=1, description="User message to inject")
+    device_id: str = Field(..., description="Browser session device_id (required)")
 
 
 class ChatHistoryResponse(BaseModel):
@@ -403,149 +391,83 @@ async def get_available_models():
 # Chat Endpoints
 # ============================================================
 
-@api_app.post("/api/chat/send", response_model=ChatSendResponse, tags=["Chat"])
-async def send_chat_message(request: ChatSendRequest, background_tasks: BackgroundTasks):
+class ChatInjectResponse(BaseModel):
+    """Chat inject response"""
+    success: bool
+    message: str
+    session_id: str = ""
+    queued: bool = True
+
+
+@api_app.post("/api/chat/inject", response_model=ChatInjectResponse, tags=["Chat"])
+async def inject_message(request: ChatInjectRequest):
     """
-    Send a chat message to AIfred.
+    Inject a message into a browser session.
 
-    By default, waits for the complete AI response (wait_for_completion=True).
-    Set wait_for_completion=False to return immediately with processing=True.
+    The message is queued for the browser to process. The browser will
+    automatically pick up the message and run the full pipeline:
+    - Intent Detection
+    - Research/Automatik Mode
+    - Multi-Agent (Sokrates/Tribunal)
+    - History Compression
 
-    If device_id is provided, the message and response are saved to that browser
-    session. Refresh the browser to see the new messages.
+    This ensures the API uses the exact same code path as manual browser input.
+    The user sees everything live in the browser - streaming, debug messages, etc.
+
+    Requires device_id to identify the target browser session.
+    Use GET /api/sessions to list available sessions.
     """
-    from .llm_client import LLMClient
-    from .prompt_loader import load_prompt, set_user_name
-    from .session_storage import load_session, update_chat_data, set_update_flag
+    from .session_storage import set_pending_message
 
-    settings = load_settings() or get_default_settings()
-    global_state = get_global_backend_state()
+    log_message(f"📨 API: Injecting message to {request.device_id[:8]}...")
 
-    # Get backend configuration
-    backend_type = settings.get("backend_type", "ollama")
-    backend_url = global_state.get("backend_url") or DEFAULT_OLLAMA_URL
-    model = settings.get("model", "qwen3:8b")
-    temperature = settings.get("temperature", 0.3)
-    enable_thinking = settings.get("enable_thinking", True)
-    ui_language = settings.get("ui_language", "de")
-    user_name = settings.get("user_name", "")
+    success = set_pending_message(request.device_id, request.message)
 
-    # Load existing session if device_id provided
-    existing_chat_history = []
-    existing_llm_history = []
-    if request.device_id:
-        session = load_session(request.device_id)
-        if session and "data" in session:
-            # Convert stored lists back to tuples for chat_history
-            stored_history = session["data"].get("chat_history", [])
-            existing_chat_history = [tuple(msg) for msg in stored_history]
-            existing_llm_history = session["data"].get("llm_history", [])
-            log_message(f"📂 API: Loaded session {request.device_id[:8]}... ({len(existing_chat_history)} messages)")
-
-    log_message(f"📨 API: Received chat message: {request.message[:50]}...")
-
-    try:
-        # Create LLM client
-        llm_client = LLMClient(
-            backend_type=backend_type,
-            base_url=backend_url
-        )
-
-        # Set user name for prompt personalization
-        if user_name:
-            set_user_name(user_name)
-
-        # Load system prompt from file
-        system_prompt = load_prompt(
-            "aifred/system_minimal",
-            lang=ui_language,
-            user_text=request.message
-        )
-
-        # Build messages for LLM (include history if available)
-        messages = [{"role": "system", "content": system_prompt}]
-
-        # Add existing LLM history (already in correct format)
-        for msg in existing_llm_history:
-            if msg.get("role") != "system":  # Skip old system prompts
-                messages.append(msg)
-
-        # Add current user message
-        messages.append({"role": "user", "content": request.message})
-
-        # Generate response (non-streaming for API simplicity)
-        from ..backends.base import LLMOptions
-        options = LLMOptions(
-            temperature=temperature,
-            enable_thinking=enable_thinking
-        )
-
-        # Log inference start (visible in debug console and log file)
-        # AUFFÄLLIGE Warnung damit User sieht dass externe Inferenz läuft
-        from .logging_utils import CONSOLE_SEPARATOR
-        log_message(f"⚠️ {'═' * len(CONSOLE_SEPARATOR)}")
-        log_message("⚠️  API-INFERENZ GESTARTET")
-        log_message(f"⚠️  Model: {model}")
-        log_message(f"⚠️ {'═' * len(CONSOLE_SEPARATOR)}")
-
-        response = await llm_client.chat(model, messages, options)
-
-        # Extract text from response
-        full_response = response.text if response else ""
-
-        # Clean response for LLM history (without <think> tags)
-        # UI (chat_history) keeps full response WITH <think> tags for display
-        from .message_builder import clean_content_for_llm
-        llm_cleaned_response = clean_content_for_llm(full_response)
-
-        # AUFFÄLLIGE Entwarnung
-        log_message(f"✅ {'═' * len(CONSOLE_SEPARATOR)}")
-        log_message("✅  API-INFERENZ ABGESCHLOSSEN")
-        log_message(f"✅  {len(llm_cleaned_response)} chars")
-        log_message(f"✅ {'═' * len(CONSOLE_SEPARATOR)}")
-
-        await llm_client.close()
-
-        # Save to session if device_id provided
-        session_id = request.device_id or "api-session"
-        if request.device_id:
-            # Format response for UI (convert <think> tags to collapsibles)
-            from .formatting import format_thinking_process
-            formatted_response = format_thinking_process(full_response, model)
-
-            # Update chat_history (UI format: list of tuples)
-            new_chat_history = list(existing_chat_history)
-            new_chat_history.append((request.message, formatted_response.strip()))
-
-            # Update llm_history (LLM format: list of dicts)
-            # WICHTIG: llm_cleaned_response OHNE <think> Tags (sonst wiederholt LLM sich)
-            new_llm_history = list(existing_llm_history)
-            new_llm_history.append({"role": "user", "content": request.message})
-            new_llm_history.append({"role": "assistant", "content": llm_cleaned_response})
-
-            # Persist to session file
-            update_chat_data(
-                device_id=request.device_id,
-                chat_history=new_chat_history,
-                llm_history=new_llm_history
-            )
-            log_message(f"💾 API: Saved to session {request.device_id[:8]}... (now {len(new_chat_history)} messages)")
-
-            # Set update flag to trigger browser auto-reload
-            set_update_flag(request.device_id)
-            log_message(f"🔄 API: Update flag set for {request.device_id[:8]}...")
-
-        return ChatSendResponse(
+    if success:
+        log_message(f"✅ API: Message queued for {request.device_id[:8]}...")
+        return ChatInjectResponse(
             success=True,
-            user_message=request.message,
-            ai_response=llm_cleaned_response,  # API returns cleaned response (no <think> tags)
-            session_id=session_id,
-            processing=False
+            message="Message queued for browser processing",
+            session_id=request.device_id,
+            queued=True
         )
+    else:
+        log_message(f"❌ API: Failed to queue message for {request.device_id[:8]}...")
+        raise HTTPException(status_code=500, detail="Failed to queue message")
 
-    except Exception as e:
-        log_message(f"❌ API: Chat error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+
+class ChatStatusResponse(BaseModel):
+    """Chat status response"""
+    is_generating: bool = False
+    message_count: int = 0
+    session_id: str = ""
+
+
+@api_app.get("/api/chat/status", response_model=ChatStatusResponse, tags=["Chat"])
+async def get_chat_status(device_id: str):
+    """
+    Get current chat status for a session.
+
+    Use this to poll for completion after injecting a message.
+    When is_generating becomes False, the response is complete.
+
+    Args:
+        device_id: Browser session device_id
+    """
+    from .session_storage import load_session
+
+    session = load_session(device_id)
+    if not session or "data" not in session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    data = session["data"]
+    chat_history = data.get("chat_history", [])
+
+    return ChatStatusResponse(
+        is_generating=data.get("is_generating", False),
+        message_count=len(chat_history),
+        session_id=device_id
+    )
 
 
 class ChatClearRequest(BaseModel):

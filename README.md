@@ -684,14 +684,38 @@ USER INPUT
 
 ---
 
-## 🌐 REST API (Remote Control)
+## 🌐 REST API (Browser Remote Control)
 
 AIfred provides a complete REST API for programmatic control - enabling remote operation via Cloud, automation systems, and third-party integrations.
 
+### Architecture: Browser as Execution Engine
+
+The API acts as a **Browser Remote Control** - it doesn't run LLM inference itself, but injects messages into the browser session which then executes the full pipeline:
+
+```
+API Request ──→ set_pending_message() ──→ Browser polls (1s)
+                                              │
+                                              ↓
+                                    send_message() pipeline
+                                              │
+                                              ↓
+                              Intent Detection, Multi-Agent, Research...
+                                              │
+                                              ↓
+                              Response visible in Browser + API
+```
+
+**Benefits:**
+- **One code path**: API uses exactly the same code as manual browser input
+- **All features work**: Multi-Agent, Research Mode, Vision, History Compression
+- **Live feedback**: User sees streaming output in browser while API waits
+- **Less code**: No duplicate LLM logic in API layer
+
 ### Key Features
 
-- **Full Remote Control**: Control AIfred from anywhere via HTTPS
-- **Live Browser Sync**: API changes automatically appear in the browser UI (no refresh needed)
+- **Full Remote Control**: Control all AIfred settings from anywhere
+- **Live Browser Sync**: API changes automatically appear in the browser UI
+- **Message Injection**: Queue messages that browser processes with full pipeline
 - **Session Management**: Access and manage multiple browser sessions
 - **OpenAPI Documentation**: Interactive Swagger UI at `/docs`
 
@@ -703,7 +727,8 @@ AIfred provides a complete REST API for programmatic control - enabling remote o
 | `/api/settings` | GET | Retrieve all settings |
 | `/api/settings` | PATCH | Update settings (partial update) |
 | `/api/models` | GET | List available models |
-| `/api/chat/send` | POST | Send message and receive response |
+| `/api/chat/inject` | POST | Inject message into browser session |
+| `/api/chat/status` | GET | Check if inference is running |
 | `/api/chat/history` | GET | Get chat history |
 | `/api/chat/clear` | DELETE | Clear chat history |
 | `/api/sessions` | GET | List all browser sessions |
@@ -711,10 +736,11 @@ AIfred provides a complete REST API for programmatic control - enabling remote o
 
 ### Browser Synchronization
 
-When you change settings or send messages via API, the browser UI updates automatically:
+When you change settings or inject messages via API, the browser UI updates automatically:
 
-- **Chat Sync**: Messages sent via API appear in the browser within 2 seconds
-- **Settings Sync**: Model changes, RoPE factors, temperature etc. update live in the UI
+- **Chat Sync**: Injected messages trigger full inference in browser within 2 seconds
+- **Settings Sync**: Model changes, Multi-Agent mode, temperature etc. update live in the UI
+- **Status Polling**: Use `/api/chat/status` to wait for inference completion
 
 This enables true remote control - change AIfred's configuration from another device and see the changes reflected immediately in any connected browser.
 
@@ -724,17 +750,24 @@ This enables true remote control - change AIfred's configuration from another de
 # Get current settings
 curl http://localhost:8002/api/settings
 
-# Change model and RoPE factor
+# Change model and Multi-Agent mode
 curl -X PATCH http://localhost:8002/api/settings \
   -H "Content-Type: application/json" \
-  -d '{"aifred_model": "qwen3:14b", "sokrates_rope_factor": 2.0}'
+  -d '{"aifred_model": "qwen3:14b", "multi_agent_mode": "devils_advocate"}'
 
-# Send a message (with browser sync)
-curl -X POST http://localhost:8002/api/chat/send \
+# Inject a message (browser runs full pipeline)
+curl -X POST http://localhost:8002/api/chat/inject \
   -H "Content-Type: application/json" \
   -d '{"message": "What is Python?", "device_id": "abc123..."}'
 
-# List all browser sessions
+# Poll until inference is complete
+curl "http://localhost:8002/api/chat/status?device_id=abc123..."
+# Returns: {"is_generating": false, "message_count": 5}
+
+# Get the response
+curl "http://localhost:8002/api/chat/history?device_id=abc123..."
+
+# List all browser sessions (to get device_id)
 curl http://localhost:8002/api/sessions
 ```
 
@@ -745,6 +778,7 @@ curl http://localhost:8002/api/sessions
 - **Voice Assistants**: Alexa/Google Home can send AIfred queries
 - **Batch Processing**: Automated queries via scripts
 - **Mobile Apps**: Custom apps can use the API
+- **Remote Maintenance**: Test and monitor AIfred on headless systems
 
 ---
 
