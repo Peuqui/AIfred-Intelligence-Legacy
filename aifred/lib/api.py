@@ -479,18 +479,29 @@ async def send_chat_message(request: ChatSendRequest, background_tasks: Backgrou
             enable_thinking=enable_thinking
         )
 
+        # Log inference start (visible in debug console and log file)
+        # AUFFÄLLIGE Warnung damit User sieht dass externe Inferenz läuft
+        from .logging_utils import CONSOLE_SEPARATOR
+        log_message(f"⚠️ {'═' * len(CONSOLE_SEPARATOR)}")
+        log_message(f"⚠️  API-INFERENZ GESTARTET")
+        log_message(f"⚠️  Model: {model}")
+        log_message(f"⚠️ {'═' * len(CONSOLE_SEPARATOR)}")
+
         response = await llm_client.chat(model, messages, options)
 
         # Extract text from response
         full_response = response.text if response else ""
 
-        # Strip thinking tags if present (keep for LLM history, strip for display)
-        display_response = full_response
-        if "<think>" in display_response:
-            import re
-            display_response = re.sub(r'<think>.*?</think>\s*', '', display_response, flags=re.DOTALL)
+        # Clean response for LLM history (without <think> tags)
+        # UI (chat_history) keeps full response WITH <think> tags for display
+        from .message_builder import clean_content_for_llm
+        llm_cleaned_response = clean_content_for_llm(full_response)
 
-        log_message(f"✅ API: Response generated ({len(display_response)} chars)")
+        # AUFFÄLLIGE Entwarnung
+        log_message(f"✅ {'═' * len(CONSOLE_SEPARATOR)}")
+        log_message(f"✅  API-INFERENZ ABGESCHLOSSEN")
+        log_message(f"✅  {len(llm_cleaned_response)} chars")
+        log_message(f"✅ {'═' * len(CONSOLE_SEPARATOR)}")
 
         await llm_client.close()
 
@@ -498,13 +509,15 @@ async def send_chat_message(request: ChatSendRequest, background_tasks: Backgrou
         session_id = request.device_id or "api-session"
         if request.device_id:
             # Update chat_history (UI format: list of tuples)
+            # WICHTIG: full_response MIT <think> Tags für UI-Anzeige (Collapsible)
             new_chat_history = list(existing_chat_history)
-            new_chat_history.append((request.message, display_response.strip()))
+            new_chat_history.append((request.message, full_response.strip()))
 
             # Update llm_history (LLM format: list of dicts)
+            # WICHTIG: llm_cleaned_response OHNE <think> Tags (sonst wiederholt LLM sich)
             new_llm_history = list(existing_llm_history)
             new_llm_history.append({"role": "user", "content": request.message})
-            new_llm_history.append({"role": "assistant", "content": full_response})
+            new_llm_history.append({"role": "assistant", "content": llm_cleaned_response})
 
             # Persist to session file
             update_chat_data(
@@ -521,7 +534,7 @@ async def send_chat_message(request: ChatSendRequest, background_tasks: Backgrou
         return ChatSendResponse(
             success=True,
             user_message=request.message,
-            ai_response=display_response.strip(),
+            ai_response=llm_cleaned_response,  # API returns cleaned response (no <think> tags)
             session_id=session_id,
             processing=False
         )
@@ -531,20 +544,56 @@ async def send_chat_message(request: ChatSendRequest, background_tasks: Backgrou
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ChatClearRequest(BaseModel):
+    """Chat clear request"""
+    device_id: Optional[str] = Field(None, description="Browser session device_id to clear")
+
+
 @api_app.post("/api/chat/clear", response_model=SystemActionResponse, tags=["Chat"])
-async def clear_chat():
+async def clear_chat(request: ChatClearRequest = ChatClearRequest()):
     """
-    Clear API chat session.
+    Clear chat history for a browser session.
 
-    NOTE: This only clears the API session, not browser UI sessions.
-    Browser sessions are independent and managed by Reflex state.
+    If device_id is provided, clears that session's chat history.
+    Otherwise clears the most recently modified session.
+    The browser will auto-reload and show empty chat.
     """
-    log_message("🗑️ API: Chat session cleared")
-
-    return SystemActionResponse(
-        success=True,
-        message="Chat session cleared"
+    from .session_storage import (
+        load_session, update_chat_data, set_update_flag, get_latest_session_file
     )
+
+    # Determine which session to clear
+    device_id = request.device_id
+    if not device_id:
+        session_file = get_latest_session_file()
+        if session_file:
+            device_id = session_file.stem
+        else:
+            return SystemActionResponse(
+                success=False,
+                message="No sessions found to clear"
+            )
+
+    # Clear the session's chat data
+    success = update_chat_data(
+        device_id=device_id,
+        chat_history=[],
+        llm_history=[]
+    )
+
+    if success:
+        # Set update flag to trigger browser reload
+        set_update_flag(device_id)
+        log_message(f"🗑️ API: Chat session {device_id[:8]}... cleared")
+        return SystemActionResponse(
+            success=True,
+            message=f"Chat session {device_id[:8]}... cleared"
+        )
+    else:
+        return SystemActionResponse(
+            success=False,
+            message=f"Failed to clear session {device_id[:8]}..."
+        )
 
 
 class SessionInfo(BaseModel):

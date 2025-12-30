@@ -3935,11 +3935,13 @@ class AIState(rx.State):
         # Chat-History wiederherstellen
         # WICHTIG: JSON serialisiert Tuples als Listen, hier zurückkonvertieren!
         # PRE-MESSAGE Check in send_message() prüft automatisch ob Kompression nötig ist
-        if "chat_history" in data and data["chat_history"]:
+        # WICHTIG: Auch leere Listen setzen (für API-Clear)!
+        if "chat_history" in data:
             self.chat_history = [tuple(msg) for msg in data["chat_history"]]
 
         # DUAL-HISTORY (v2.13.0+): llm_history laden
-        if "llm_history" in data and data["llm_history"]:
+        # WICHTIG: Auch leere Listen setzen (für API-Clear)!
+        if "llm_history" in data:
             self.llm_history = data["llm_history"]
         else:
             # Keine llm_history → leere Liste (alte Sessions werden nicht migriert)
