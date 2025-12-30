@@ -1820,7 +1820,7 @@ class AIState(rx.State):
             if current_mtime > self._last_settings_mtime:
                 self._reload_settings_from_file()
                 self._last_settings_mtime = current_mtime
-                self.add_debug("⚙️ API update: Settings reloaded")
+                self.add_debug("⚙️ Settings reloaded")
                 yield
                 return
         except OSError:
