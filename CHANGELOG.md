@@ -5,6 +5,30 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.1] - 2025-12-30
+
+### 🔧 API Fixes & Improvements
+
+#### Fixed
+
+- **`<think>` Tag Handling** ([api.py](aifred/lib/api.py)):
+  - `chat_history` (UI) enthält jetzt korrekt die vollständige Antwort MIT `<think>` Tags
+  - `llm_history` (LLM) enthält die bereinigte Antwort OHNE `<think>` Tags
+  - Vorher war es vertauscht - führte zu LLM-Wiederholungen
+
+- **Session Clear via API** ([state.py](aifred/state.py)):
+  - `_restore_session()` setzt jetzt auch leere Listen korrekt
+  - Vorher: Leere `chat_history=[]` wurde ignoriert, alte History blieb erhalten
+
+#### Added
+
+- **API-Inferenz Logging** ([api.py](aifred/lib/api.py)):
+  - Auffällige Start/Ende-Markierungen in Debug-Console und Log-Datei
+  - `⚠️ API-INFERENZ GESTARTET` / `✅ API-INFERENZ ABGESCHLOSSEN`
+  - Nutzt standardisierte `CONSOLE_SEPARATOR` Länge
+
+---
+
 ## [2.15.0] - 2025-12-30
 
 ### 🌐 REST API für Remote-Steuerung
