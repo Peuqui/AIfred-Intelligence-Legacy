@@ -4,6 +4,11 @@ Prompt Loader Module with i18n Support
 Loads prompts from language-specific directories (de/ or en/).
 Supports automatic language detection.
 No fallbacks - prompts must exist in both languages.
+
+Personality System (v2.15.3+):
+- Each agent has a personality.txt file with their speech style
+- Personality can be toggled on/off per agent via settings
+- When enabled, personality is appended after identity + task prompts
 """
 
 from pathlib import Path
@@ -19,6 +24,13 @@ _current_language = "auto"  # "auto", "de", "en"
 # Global user name (set once when settings are loaded)
 _current_user_name = ""
 
+# Global personality toggle states (loaded from settings)
+_personality_enabled = {
+    "aifred": True,
+    "sokrates": True,
+    "salomo": True
+}
+
 # Cache for system prompt token counts (populated at startup)
 # Format: {"aifred": {"de": tokens, "en": tokens}, "sokrates": {...}, ...}
 _system_prompt_token_cache: dict[str, dict[str, int]] = {}
@@ -33,6 +45,75 @@ def set_user_name(name: str):
 def get_user_name() -> str:
     """Get the current user name"""
     return _current_user_name
+
+
+def set_personality_enabled(agent: str, enabled: bool):
+    """
+    Set personality toggle state for an agent.
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+        enabled: True to enable personality style, False for factual responses
+    """
+    global _personality_enabled
+    if agent in _personality_enabled:
+        _personality_enabled[agent] = enabled
+
+
+def get_personality_enabled(agent: str) -> bool:
+    """
+    Get personality toggle state for an agent.
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+
+    Returns:
+        True if personality is enabled, False otherwise
+    """
+    return _personality_enabled.get(agent, True)
+
+
+def sync_personality_from_settings():
+    """
+    Sync personality toggle states from settings.json.
+
+    Called at startup and when settings change.
+    """
+    global _personality_enabled
+    from .settings import load_settings
+
+    settings = load_settings() or {}
+    _personality_enabled["aifred"] = settings.get("aifred_personality", True)
+    _personality_enabled["sokrates"] = settings.get("sokrates_personality", True)
+    _personality_enabled["salomo"] = settings.get("salomo_personality", True)
+
+
+def load_personality(agent: str, lang: Optional[str] = None) -> str:
+    """
+    Load personality prompt for an agent.
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+        lang: Language code, defaults to current language
+
+    Returns:
+        Personality prompt text, or empty string if not found/disabled
+    """
+    if not get_personality_enabled(agent):
+        return ""
+
+    if lang is None:
+        lang = _current_language
+    if lang == "auto":
+        lang = "de"  # Default to German
+
+    personality_file = PROMPTS_DIR / lang / agent / "personality.txt"
+
+    if not personality_file.exists():
+        return ""
+
+    with open(personality_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
 
 
 def detect_language(text: str) -> str:
@@ -319,14 +400,39 @@ def get_followup_intent_prompt(original_query: str, followup_query: str, lang: O
     )
 
 
+def get_aifred_system_minimal(lang: Optional[str] = None) -> str:
+    """
+    Load AIfred minimal system prompt with optional personality suffix.
+
+    Args:
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        AIfred system prompt (base instructions + personality style if enabled)
+    """
+    base_prompt = load_prompt('aifred/system_minimal', lang=lang)
+
+    # Append AIfred personality (style) after identity + task instructions
+    personality = load_personality("aifred", lang)
+    if personality:
+        return f"{base_prompt}\n\n{personality}"
+    return base_prompt
+
+
 def get_system_rag_prompt(context: str, user_text: str = "", lang: Optional[str] = None) -> str:
-    """Load system RAG prompt (timestamp injected automatically by load_prompt)"""
-    return load_prompt(
+    """Load system RAG prompt with optional personality suffix"""
+    base_prompt = load_prompt(
         'aifred/system_rag',
         lang=lang,
         user_text=user_text,
         context=context
     )
+
+    # Append AIfred personality (style) after task instructions
+    personality = load_personality("aifred", lang)
+    if personality:
+        return f"{base_prompt}\n\n{personality}"
+    return base_prompt
 
 
 # Cache metadata prompt removed - will be replaced with Vector DB embeddings
@@ -401,17 +507,21 @@ def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) 
 
 def get_sokrates_system_minimal(lang: Optional[str] = None) -> str:
     """
-    Load Sokrates minimal system prompt (base personality + style rules).
-
-    This is prepended to all Sokrates prompts, similar to AIfred's system_minimal.
+    Load Sokrates minimal system prompt with optional personality suffix.
 
     Args:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Sokrates minimal system prompt
+        Sokrates system prompt (base instructions + personality style if enabled)
     """
-    return load_prompt('sokrates/system_minimal', lang=lang)
+    base_prompt = load_prompt('sokrates/system_minimal', lang=lang)
+
+    # Append Sokrates personality (style) after identity + task instructions
+    personality = load_personality("sokrates", lang)
+    if personality:
+        return f"{base_prompt}\n\n{personality}"
+    return base_prompt
 
 
 def get_sokrates_critic_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
@@ -514,17 +624,21 @@ def get_salomo_direct_prompt(lang: Optional[str] = None) -> str:
 
 def get_salomo_system_minimal(lang: Optional[str] = None) -> str:
     """
-    Load Salomo minimal system prompt (base personality + style rules).
-
-    This is prepended to all Salomo prompts.
+    Load Salomo minimal system prompt with optional personality suffix.
 
     Args:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Salomo minimal system prompt
+        Salomo system prompt (base instructions + personality style if enabled)
     """
-    return load_prompt('salomo/system_minimal', lang=lang)
+    base_prompt = load_prompt('salomo/system_minimal', lang=lang)
+
+    # Append Salomo personality (style) after identity + task instructions
+    personality = load_personality("salomo", lang)
+    if personality:
+        return f"{base_prompt}\n\n{personality}"
+    return base_prompt
 
 
 def get_salomo_mediator_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
@@ -585,22 +699,22 @@ def init_system_prompt_cache() -> dict[str, dict[str, int]]:
 
     for lang in ["de", "en"]:
         try:
-            # AIfred system prompt
-            aifred_prompt = load_prompt('aifred/system_minimal', lang=lang)
+            # AIfred system prompt (with personality for worst-case token count)
+            aifred_prompt = get_aifred_system_minimal(lang=lang)
             if "aifred" not in _system_prompt_token_cache:
                 _system_prompt_token_cache["aifred"] = {}
             _system_prompt_token_cache["aifred"][lang] = _estimate_tokens(aifred_prompt)
 
-            # Sokrates system prompt (minimal + critic as worst case)
-            sokrates_minimal = load_prompt('sokrates/system_minimal', lang=lang)
+            # Sokrates system prompt (minimal + personality + critic as worst case)
+            sokrates_minimal = get_sokrates_system_minimal(lang=lang)
             sokrates_critic = load_prompt('sokrates/critic', lang=lang, round_num=1)
             sokrates_combined = f"{sokrates_minimal}\n\n{sokrates_critic}"
             if "sokrates" not in _system_prompt_token_cache:
                 _system_prompt_token_cache["sokrates"] = {}
             _system_prompt_token_cache["sokrates"][lang] = _estimate_tokens(sokrates_combined)
 
-            # Salomo system prompt (minimal + mediator as worst case)
-            salomo_minimal = load_prompt('salomo/system_minimal', lang=lang)
+            # Salomo system prompt (minimal + personality + mediator as worst case)
+            salomo_minimal = get_salomo_system_minimal(lang=lang)
             salomo_mediator = load_prompt('salomo/mediator', lang=lang, round_num=1)
             salomo_combined = f"{salomo_minimal}\n\n{salomo_mediator}"
             if "salomo" not in _system_prompt_token_cache:

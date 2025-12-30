@@ -2685,6 +2685,15 @@ def settings_accordion() -> rx.Component:
                             on_change=AIState.set_aifred_rope_factor,
                             size="1",
                         ),
+                        # 🎩 AIfred Personality Toggle
+                        rx.text("🎩", font_size="14px"),
+                        rx.checkbox(
+                            checked=AIState.aifred_personality,
+                            on_change=lambda _: AIState.toggle_aifred_personality(),
+                            size="1",
+                            color_scheme="orange",
+                            variant="classic",
+                        ),
                         spacing="2",
                         align="center",
                     ),
@@ -2744,6 +2753,15 @@ def settings_accordion() -> rx.Component:
                             on_change=AIState.set_sokrates_rope_factor,
                             size="1",
                         ),
+                        # 🏛️ Sokrates Personality Toggle
+                        rx.text("🏛️", font_size="14px"),
+                        rx.checkbox(
+                            checked=AIState.sokrates_personality,
+                            on_change=lambda _: AIState.toggle_sokrates_personality(),
+                            size="1",
+                            color_scheme="orange",
+                            variant="classic",
+                        ),
                         spacing="2",
                         align="center",
                     ),
@@ -2802,6 +2820,15 @@ def settings_accordion() -> rx.Component:
                             value=AIState.salomo_rope_display,
                             on_change=AIState.set_salomo_rope_factor,
                             size="1",
+                        ),
+                        # 👑 Salomo Personality Toggle
+                        rx.text("👑", font_size="14px"),
+                        rx.checkbox(
+                            checked=AIState.salomo_personality,
+                            on_change=lambda _: AIState.toggle_salomo_personality(),
+                            size="1",
+                            color_scheme="orange",
+                            variant="classic",
                         ),
                         spacing="2",
                         align="center",
