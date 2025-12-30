@@ -499,11 +499,12 @@ async def clear_chat(request: ChatClearRequest = ChatClearRequest()):
                 message="No sessions found to clear"
             )
 
-    # Clear the session's chat data
+    # Clear the session's chat data (including debug console, like browser button)
     success = update_chat_data(
         device_id=device_id,
         chat_history=[],
-        llm_history=[]
+        llm_history=[],
+        debug_messages=[]  # Clear debug console too!
     )
 
     if success:
