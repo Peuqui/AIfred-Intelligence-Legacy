@@ -621,6 +621,70 @@ USER INPUT
 
 ---
 
+## 🌐 REST API (Fernsteuerung)
+
+AIfred bietet eine vollständige REST-API für programmatische Steuerung - ermöglicht Fernbedienung via Cloud, Automatisierungs-Systeme und Drittanbieter-Integrationen.
+
+### Hauptmerkmale
+
+- **Vollständige Fernsteuerung**: AIfred von überall via HTTPS steuern
+- **Live Browser-Sync**: API-Änderungen erscheinen automatisch im Browser (kein Refresh nötig)
+- **Session-Management**: Zugriff und Verwaltung mehrerer Browser-Sessions
+- **OpenAPI Dokumentation**: Interaktive Swagger UI unter `/docs`
+
+### API Endpoints
+
+| Endpoint | Methode | Beschreibung |
+|----------|---------|--------------|
+| `/api/health` | GET | Health-Check mit Backend-Status |
+| `/api/settings` | GET | Alle Einstellungen abrufen |
+| `/api/settings` | PATCH | Einstellungen ändern (partielles Update) |
+| `/api/models` | GET | Verfügbare Modelle auflisten |
+| `/api/chat/send` | POST | Nachricht senden und Antwort erhalten |
+| `/api/chat/history` | GET | Chat-Verlauf abrufen |
+| `/api/chat/clear` | DELETE | Chat-Verlauf löschen |
+| `/api/sessions` | GET | Alle Browser-Sessions auflisten |
+| `/api/system/restart` | POST | AIfred neustarten (systemd) |
+
+### Browser-Synchronisation
+
+Wenn du Einstellungen änderst oder Nachrichten via API sendest, aktualisiert sich das Browser-UI automatisch:
+
+- **Chat-Sync**: Via API gesendete Nachrichten erscheinen im Browser innerhalb von 2 Sekunden
+- **Settings-Sync**: Model-Änderungen, RoPE-Faktoren, Temperatur etc. werden live im UI aktualisiert
+
+Dies ermöglicht echte Fernsteuerung - ändere AIfred's Konfiguration von einem anderen Gerät und sieh die Änderungen sofort in jedem verbundenen Browser.
+
+### Beispiel-Verwendung
+
+```bash
+# Aktuelle Einstellungen abrufen
+curl http://localhost:8002/api/settings
+
+# Model und RoPE-Faktor ändern
+curl -X PATCH http://localhost:8002/api/settings \
+  -H "Content-Type: application/json" \
+  -d '{"aifred_model": "qwen3:14b", "sokrates_rope_factor": 2.0}'
+
+# Nachricht senden (mit Browser-Sync)
+curl -X POST http://localhost:8002/api/chat/send \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Was ist Python?", "device_id": "abc123..."}'
+
+# Alle Browser-Sessions auflisten
+curl http://localhost:8002/api/sessions
+```
+
+### Anwendungsfälle
+
+- **Cloud-Steuerung**: AIfred von überall via HTTPS/API bedienen
+- **Home-Automation**: Integration mit Home Assistant, Node-RED, etc.
+- **Sprachassistenten**: Alexa/Google Home können AIfred-Anfragen senden
+- **Batch-Verarbeitung**: Automatisierte Abfragen via Scripts
+- **Mobile Apps**: Custom-Apps können die API nutzen
+
+---
+
 ## 🚀 Installation
 
 ### Voraussetzungen

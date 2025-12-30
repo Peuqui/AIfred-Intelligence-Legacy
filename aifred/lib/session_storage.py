@@ -341,6 +341,65 @@ def get_session_with_pin(device_id: str, pin: str) -> Optional[Dict[str, Any]]:
 
 
 # ============================================================
+# Session Discovery (for API access)
+# ============================================================
+
+def get_latest_session_file() -> Optional[Path]:
+    """
+    Get the most recently modified session file.
+
+    Useful for API access when device_id is not known.
+    Returns the session file with the newest modification time.
+
+    Returns:
+        Path to newest session file, or None if no sessions exist
+    """
+    _ensure_session_dir()
+
+    session_files = list(SESSION_DIR.glob("*.json"))
+    if not session_files:
+        return None
+
+    # Sort by modification time, newest first
+    session_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    return session_files[0]
+
+
+def list_sessions() -> List[Dict[str, Any]]:
+    """
+    List all sessions with basic info.
+
+    Returns list of dicts with:
+    - device_id: Session identifier
+    - last_seen: Last activity timestamp
+    - message_count: Number of chat messages
+
+    Returns:
+        List of session info dicts, sorted by last_seen (newest first)
+    """
+    _ensure_session_dir()
+
+    sessions = []
+    for session_file in SESSION_DIR.glob("*.json"):
+        try:
+            with open(session_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            chat_history = data.get("data", {}).get("chat_history", [])
+            sessions.append({
+                "device_id": session_file.stem,
+                "last_seen": data.get("last_seen", ""),
+                "message_count": len(chat_history)
+            })
+        except (json.JSONDecodeError, IOError):
+            continue
+
+    # Sort by last_seen, newest first
+    sessions.sort(key=lambda s: s.get("last_seen", ""), reverse=True)
+    return sessions
+
+
+# ============================================================
 # Cleanup (for background task)
 # ============================================================
 
@@ -370,3 +429,104 @@ def cleanup_old_sessions(max_age_days: int = 30) -> int:
             pass
 
     return deleted_count
+
+
+# ============================================================
+# API Update Flags (for Browser Auto-Reload)
+# ============================================================
+
+def set_update_flag(device_id: str) -> bool:
+    """
+    Set update flag file to signal browser should reload.
+
+    Called by API after modifying session data.
+    Browser timer checks for this flag and triggers reload.
+
+    Args:
+        device_id: Device identifier
+
+    Returns:
+        True on success
+    """
+    _ensure_session_dir()
+
+    try:
+        safe_id = _sanitize_device_id(device_id)
+        flag_path = SESSION_DIR / f"{safe_id}.update"
+        flag_path.touch()
+        return True
+    except (ValueError, IOError):
+        return False
+
+
+def check_and_clear_update_flag(device_id: str) -> bool:
+    """
+    Check if update flag exists and clear it.
+
+    Called by browser timer to detect API updates.
+    Returns True if flag was present (browser should reload).
+
+    Args:
+        device_id: Device identifier
+
+    Returns:
+        True if flag was present (now cleared), False otherwise
+    """
+    _ensure_session_dir()
+
+    try:
+        safe_id = _sanitize_device_id(device_id)
+        flag_path = SESSION_DIR / f"{safe_id}.update"
+
+        if flag_path.exists():
+            flag_path.unlink()
+            return True
+        return False
+    except (ValueError, IOError):
+        return False
+
+
+# Global settings flag (not per-session, as settings apply to all browsers)
+_SETTINGS_FLAG_FILE = "settings.update"
+
+
+def set_settings_update_flag() -> bool:
+    """
+    Set global settings update flag.
+
+    Called by API after modifying settings.json.
+    All browser sessions will reload settings on next poll.
+
+    Returns:
+        True on success
+    """
+    _ensure_session_dir()
+
+    try:
+        flag_path = SESSION_DIR / _SETTINGS_FLAG_FILE
+        flag_path.touch()
+        return True
+    except IOError:
+        return False
+
+
+def check_and_clear_settings_update_flag() -> bool:
+    """
+    Check if global settings update flag exists and clear it.
+
+    Called by browser timer to detect API settings changes.
+    Returns True if flag was present (browser should reload settings).
+
+    Returns:
+        True if flag was present (now cleared), False otherwise
+    """
+    _ensure_session_dir()
+
+    try:
+        flag_path = SESSION_DIR / _SETTINGS_FLAG_FILE
+        if flag_path.exists():
+            flag_path.unlink()
+            return True
+        return False
+    except IOError:
+        return False

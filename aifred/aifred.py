@@ -4353,9 +4353,14 @@ console.log('✂️ Crop handler loaded');
 # 3. Everything happens in one place (cleaner architecture)
 
 
-# Create app
+# Import REST API for api_transformer
+from .lib.api import get_api_app
+
+# Create app with REST API integration
+# The api_transformer mounts FastAPI endpoints at /api/*
 app = rx.App(
     stylesheets=[
         "/custom.css",  # Custom CSS for dark theme
     ],
+    api_transformer=get_api_app(),
 )

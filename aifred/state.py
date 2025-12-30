@@ -1888,6 +1888,107 @@ class AIState(rx.State):
         if len(self.debug_messages) > 500:
             self.debug_messages = self.debug_messages[-500:]
 
+    def _reload_settings_from_file(self):
+        """
+        Reload settings from settings.json file.
+
+        Called when API update flag is detected. Updates all UI-visible settings
+        to reflect changes made via REST API.
+        """
+        from .lib.settings import load_settings
+        from .lib import TranslationManager
+
+        settings = load_settings()
+        if not settings:
+            return
+
+        # Core settings
+        self.temperature = settings.get("temperature", self.temperature)
+        self.temperature_mode = settings.get("temperature_mode", self.temperature_mode)
+        self.enable_thinking = settings.get("enable_thinking", self.enable_thinking)
+
+        # Research mode
+        self.research_mode = settings.get("research_mode", self.research_mode)
+        self.research_mode_display = TranslationManager.get_research_mode_display(
+            self.research_mode, self.ui_language
+        )
+
+        # Multi-Agent settings
+        self.multi_agent_mode = settings.get("multi_agent_mode", self.multi_agent_mode)
+        self.max_debate_rounds = settings.get("max_debate_rounds", self.max_debate_rounds)
+        self.consensus_type = settings.get("consensus_type", self.consensus_type)
+
+        # Model IDs - update both ID and display variables
+        # AIfred model (top-level "model" field in settings.json)
+        if "model" in settings:
+            model_id = settings["model"]
+            self.aifred_model_id = model_id
+            # Update display name if we have the models dict
+            if model_id in self.available_models_dict:
+                self.aifred_model = self.available_models_dict[model_id]
+            else:
+                self.aifred_model = model_id
+
+        # Sokrates model
+        if "sokrates_model" in settings:
+            model_id = settings["sokrates_model"]
+            self.sokrates_model_id = model_id
+            if model_id in self.available_models_dict:
+                self.sokrates_model = self.available_models_dict[model_id]
+            else:
+                self.sokrates_model = model_id
+
+        # Salomo model
+        if "salomo_model" in settings:
+            model_id = settings["salomo_model"]
+            self.salomo_model_id = model_id
+            if model_id in self.available_models_dict:
+                self.salomo_model = self.available_models_dict[model_id]
+            else:
+                self.salomo_model = model_id
+
+        # Automatik model
+        if "automatik_model" in settings:
+            model_id = settings["automatik_model"]
+            self.automatik_model_id = model_id
+            if model_id in self.available_models_dict:
+                self.automatik_model = self.available_models_dict[model_id]
+            else:
+                self.automatik_model = model_id
+
+        # Vision model
+        if "vision_model" in settings:
+            model_id = settings["vision_model"]
+            self.vision_model_id = model_id
+            if model_id in self.available_models_dict:
+                self.vision_model = self.available_models_dict[model_id]
+            else:
+                self.vision_model = model_id
+
+        # RoPE factors
+        self.aifred_rope_factor = settings.get("aifred_rope_factor", self.aifred_rope_factor)
+        self.sokrates_rope_factor = settings.get("sokrates_rope_factor", self.sokrates_rope_factor)
+        self.salomo_rope_factor = settings.get("salomo_rope_factor", self.salomo_rope_factor)
+        self.automatik_rope_factor = settings.get("automatik_rope_factor", self.automatik_rope_factor)
+        self.vision_rope_factor = settings.get("vision_rope_factor", self.vision_rope_factor)
+
+        # TTS settings
+        self.enable_tts = settings.get("enable_tts", self.enable_tts)
+        self.tts_voice = settings.get("voice", self.tts_voice)
+        self.tts_engine = settings.get("tts_engine", self.tts_engine)
+
+        # UI language
+        new_ui_lang = settings.get("ui_language", self.ui_language)
+        if new_ui_lang != self.ui_language and new_ui_lang in ["de", "en"]:
+            self.ui_language = new_ui_lang
+            from .lib.formatting import set_ui_locale
+            set_ui_locale(new_ui_lang)
+
+        # User name
+        self.user_name = settings.get("user_name", self.user_name)
+        from .lib.prompt_loader import set_user_name
+        set_user_name(self.user_name)
+
     def set_user_input(self, text: str):
         """Update user input"""
         self.current_user_input = text
@@ -1901,7 +2002,32 @@ class AIState(rx.State):
         forces a UI refresh by yielding.
 
         Called periodically from UI via rx.moment() interval.
+
+        Also checks for API update flags - if flag exists for this device_id,
+        triggers browser reload to sync session data from API changes.
         """
+        # Check for global settings update flag (applies to all browsers)
+        from .lib.session_storage import check_and_clear_settings_update_flag
+        if check_and_clear_settings_update_flag():
+            # Reload settings from file
+            self._reload_settings_from_file()
+            self.add_debug("⚙️ API update: Settings reloaded")
+            yield
+            return
+
+        # Check for API update flag (only if device_id is set)
+        if self.device_id:
+            from .lib.session_storage import check_and_clear_update_flag, load_session
+            if check_and_clear_update_flag(self.device_id):
+                # Load session directly from file (no browser reload needed!)
+                session = load_session(self.device_id)
+                if session and session.get("data"):
+                    self._restore_session(session)
+                    msg_count = len(self.chat_history)
+                    self.add_debug(f"🔄 API update: Session reloaded ({msg_count} messages)")
+                yield
+                return
+
         # Just yield to propagate any state changes to UI
         # No need to modify anything - self.debug_messages already has the data
         yield
