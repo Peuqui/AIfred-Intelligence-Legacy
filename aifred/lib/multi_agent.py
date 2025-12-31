@@ -201,13 +201,15 @@ async def _stream_sokrates_to_history(
     full_response = ""
     token_count = 0
     start_time = time.time()
-    ttft = None
+    ttft = 0.0
     first_token = False
 
     async for chunk in llm_client.chat_stream(model, messages, options):
         if chunk["type"] == "content":
             if not first_token:
                 ttft = time.time() - start_time
+                log_message(f"⚡ Sokrates TTFT: {ttft:.2f}s")
+                state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                 first_token = True
 
             full_response += chunk["text"]
@@ -227,7 +229,12 @@ async def _stream_sokrates_to_history(
     inference_time = time.time() - start_time
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
+    # Log completion metrics
+    log_message(f"✅ Sokrates done ({inference_time:.1f}s, {token_count} tok, {tokens_per_sec:.1f} tok/s)")
+    state.add_debug(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s)")
+
     metadata = format_metadata(
+        f"TTFT: {format_number(ttft, 2)}s    "
         f"Inference: {format_number(inference_time, 1)}s    "
         f"{format_number(tokens_per_sec, 1)} tok/s    "
         f"Source: Sokrates ({model})"
@@ -265,11 +272,15 @@ async def _stream_alfred_refinement(
     full_response = ""
     token_count = 0
     start_time = time.time()
+    ttft = 0.0
     first_token = False
 
     async for chunk in llm_client.chat_stream(model, messages, options):
         if chunk["type"] == "content":
             if not first_token:
+                ttft = time.time() - start_time
+                log_message(f"⚡ AIfred Refinement TTFT: {ttft:.2f}s")
+                state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                 first_token = True
             full_response += chunk["text"]
             token_count += 1
@@ -286,7 +297,12 @@ async def _stream_alfred_refinement(
     inference_time = time.time() - start_time
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
+    # Log completion metrics
+    log_message(f"✅ AIfred Refinement done ({inference_time:.1f}s, {token_count} tok, {tokens_per_sec:.1f} tok/s)")
+    state.add_debug(f"✅ AIfred Refinement done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s)")
+
     metadata = format_metadata(
+        f"TTFT: {format_number(ttft, 2)}s    "
         f"Inference: {format_number(inference_time, 1)}s    "
         f"{format_number(tokens_per_sec, 1)} tok/s    "
         f"Source: AIfred ({model})"
@@ -295,7 +311,7 @@ async def _stream_alfred_refinement(
     state._stream_result = {
         "text": full_response,
         "metadata": metadata,
-        "metrics": {"time": inference_time, "tokens": token_count, "tok_per_sec": tokens_per_sec}
+        "metrics": {"time": inference_time, "tokens": token_count, "tok_per_sec": tokens_per_sec, "ttft": ttft}
     }
 
     # DUAL-HISTORY: Sync AIfred refinement to llm_history
@@ -324,13 +340,15 @@ async def _stream_salomo_to_history(
     full_response = ""
     token_count = 0
     start_time = time.time()
-    ttft = None
+    ttft = 0.0
     first_token = False
 
     async for chunk in llm_client.chat_stream(model, messages, options):
         if chunk["type"] == "content":
             if not first_token:
                 ttft = time.time() - start_time
+                log_message(f"⚡ Salomo TTFT: {ttft:.2f}s")
+                state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                 first_token = True
 
             full_response += chunk["text"]
@@ -350,7 +368,12 @@ async def _stream_salomo_to_history(
     inference_time = time.time() - start_time
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
+    # Log completion metrics
+    log_message(f"✅ Salomo done ({inference_time:.1f}s, {token_count} tok, {tokens_per_sec:.1f} tok/s)")
+    state.add_debug(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s)")
+
     metadata = format_metadata(
+        f"TTFT: {format_number(ttft, 2)}s    "
         f"Inference: {format_number(inference_time, 1)}s    "
         f"{format_number(tokens_per_sec, 1)} tok/s    "
         f"Source: Salomo ({model})"
@@ -532,6 +555,7 @@ async def run_sokrates_direct_response(
         token_count = 0
         start_time = time.time()
         first_token = False
+        sokrates_ttft = 0.0
 
         async for chunk in llm_client.chat_stream(sokrates_model, messages, sokrates_options):
             chunk_type = chunk.get("type", "")
@@ -543,8 +567,10 @@ async def run_sokrates_direct_response(
                     if ttft < 0:
                         log_message(f"⚠️ Negative TTFT detected: {ttft:.3f}s - possible WSL2 time sync issue")
                         ttft = 0.0
-                    state.add_debug(f"⚡ TTFT: {ttft:.2f}s")
+                    log_message(f"⚡ Sokrates TTFT: {ttft:.2f}s")
+                    state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                     first_token = True
+                    sokrates_ttft = ttft  # Save for metadata
 
                 content = chunk.get("text", "")  # Key is "text", not "content"
                 full_response += content
@@ -575,8 +601,9 @@ async def run_sokrates_direct_response(
             inference_time=inference_time
         )
 
-        # Build metadata
+        # Build metadata (with TTFT like AIfred)
         metadata = format_metadata(
+            f"TTFT: {format_number(sokrates_ttft, 2)}s    "
             f"Inference: {format_number(inference_time, 1)}s    "
             f"{format_number(tokens_per_sec, 1)} tok/s    "
             f"Source: Sokrates ({sokrates_model})"
@@ -716,6 +743,7 @@ async def run_salomo_direct_response(
         token_count = 0
         start_time = time.time()
         first_token = False
+        salomo_ttft = 0.0
 
         async for chunk in llm_client.chat_stream(salomo_model, messages, salomo_options):
             chunk_type = chunk.get("type", "")
@@ -727,8 +755,10 @@ async def run_salomo_direct_response(
                     if ttft < 0:
                         log_message(f"⚠️ Negative TTFT detected: {ttft:.3f}s - possible WSL2 time sync issue")
                         ttft = 0.0
-                    state.add_debug(f"⚡ TTFT: {ttft:.2f}s")
+                    log_message(f"⚡ Salomo TTFT: {ttft:.2f}s")
+                    state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                     first_token = True
+                    salomo_ttft = ttft  # Save for metadata
 
                 content = chunk.get("text", "")  # Key is "text", not "content"
                 full_response += content
@@ -759,8 +789,9 @@ async def run_salomo_direct_response(
             inference_time=inference_time
         )
 
-        # Build metadata
+        # Build metadata (with TTFT like AIfred)
         metadata = format_metadata(
+            f"TTFT: {format_number(salomo_ttft, 2)}s    "
             f"Inference: {format_number(inference_time, 1)}s    "
             f"{format_number(tokens_per_sec, 1)} tok/s    "
             f"Source: Salomo ({salomo_model})"
