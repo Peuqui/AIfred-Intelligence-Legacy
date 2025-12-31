@@ -88,9 +88,8 @@ async def orchestrate_scraping(
             return (success, load_time, [])
 
         preload_task = asyncio.create_task(unload_and_preload())
-        ctx_info = f", num_ctx={calibrated_num_ctx:,}" if calibrated_num_ctx else ""
-        log_message(f"🚀 AIfred-LLM ({model_choice}) preloading in parallel...{ctx_info}")
-        yield {"type": "debug", "message": f"🚀 AIfred-LLM ({model_choice}) preloading..."}
+        log_message(f"🚀 AIfred-LLM ({model_choice}) preloading... [PRELOAD num_ctx={calibrated_num_ctx}]")
+        yield {"type": "debug", "message": f"🚀 AIfred-LLM preloading... [num_ctx={calibrated_num_ctx}]"}
     else:
         log_message(f"ℹ️ AIfred-LLM ({model_choice}) already loaded (Backend: {llm_client.backend_type})")
         yield {"type": "debug", "message": f"ℹ️ AIfred-LLM ({model_choice}) already loaded"}
