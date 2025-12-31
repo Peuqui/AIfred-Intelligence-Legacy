@@ -192,7 +192,7 @@ async def handle_cache_hit(
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
     # Console: LLM starts
-    yield {"type": "debug", "message": f"🤖 AIfred-LLM starting: {model_choice} (cache data)"}
+    yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} (cache data)"}
 
     # Show LLM generation phase
     yield {"type": "progress", "phase": "llm"}

@@ -208,7 +208,7 @@ async def _stream_sokrates_to_history(
         if chunk["type"] == "content":
             if not first_token:
                 ttft = time.time() - start_time
-                log_message(f"⚡ Sokrates TTFT: {ttft:.2f}s")
+                log_message(f"⚡ Sokrates TTFT: {format_number(ttft, 2)}s")
                 state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                 first_token = True
 
@@ -229,9 +229,9 @@ async def _stream_sokrates_to_history(
     inference_time = time.time() - start_time
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
-    # Log completion metrics
-    log_message(f"✅ Sokrates done ({inference_time:.1f}s, {token_count} tok, {tokens_per_sec:.1f} tok/s)")
-    state.add_debug(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s)")
+    # Log completion metrics (include chars for complete info)
+    log_message(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+    state.add_debug(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
 
     metadata = format_metadata(
         f"TTFT: {format_number(ttft, 2)}s    "
@@ -279,7 +279,7 @@ async def _stream_alfred_refinement(
         if chunk["type"] == "content":
             if not first_token:
                 ttft = time.time() - start_time
-                log_message(f"⚡ AIfred Refinement TTFT: {ttft:.2f}s")
+                log_message(f"⚡ AIfred Refinement TTFT: {format_number(ttft, 2)}s")
                 state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                 first_token = True
             full_response += chunk["text"]
@@ -297,9 +297,9 @@ async def _stream_alfred_refinement(
     inference_time = time.time() - start_time
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
-    # Log completion metrics
-    log_message(f"✅ AIfred Refinement done ({inference_time:.1f}s, {token_count} tok, {tokens_per_sec:.1f} tok/s)")
-    state.add_debug(f"✅ AIfred Refinement done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s)")
+    # Log completion metrics (include chars for complete info)
+    log_message(f"✅ AIfred Refinement done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+    state.add_debug(f"✅ AIfred Refinement done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
 
     metadata = format_metadata(
         f"TTFT: {format_number(ttft, 2)}s    "
@@ -347,7 +347,7 @@ async def _stream_salomo_to_history(
         if chunk["type"] == "content":
             if not first_token:
                 ttft = time.time() - start_time
-                log_message(f"⚡ Salomo TTFT: {ttft:.2f}s")
+                log_message(f"⚡ Salomo TTFT: {format_number(ttft, 2)}s")
                 state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                 first_token = True
 
@@ -368,9 +368,9 @@ async def _stream_salomo_to_history(
     inference_time = time.time() - start_time
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
-    # Log completion metrics
-    log_message(f"✅ Salomo done ({inference_time:.1f}s, {token_count} tok, {tokens_per_sec:.1f} tok/s)")
-    state.add_debug(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s)")
+    # Log completion metrics (include chars for complete info)
+    log_message(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+    state.add_debug(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
 
     metadata = format_metadata(
         f"TTFT: {format_number(ttft, 2)}s    "
@@ -565,9 +565,9 @@ async def run_sokrates_direct_response(
                     ttft = time.time() - start_time
                     # Guard against negative TTFT (can happen with WSL2 time sync issues)
                     if ttft < 0:
-                        log_message(f"⚠️ Negative TTFT detected: {ttft:.3f}s - possible WSL2 time sync issue")
+                        log_message(f"⚠️ Negative TTFT detected: {format_number(ttft, 3)}s - possible WSL2 time sync issue")
                         ttft = 0.0
-                    log_message(f"⚡ Sokrates TTFT: {ttft:.2f}s")
+                    log_message(f"⚡ Sokrates TTFT: {format_number(ttft, 2)}s")
                     state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                     first_token = True
                     sokrates_ttft = ttft  # Save for metadata
@@ -593,6 +593,10 @@ async def run_sokrates_direct_response(
         # Calculate final metrics
         inference_time = time.time() - start_time
         tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
+
+        # Log completion metrics (include chars for complete info)
+        log_message(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+        state.add_debug(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
 
         # Format thinking blocks if present
         formatted_response = format_thinking_process(
@@ -622,8 +626,6 @@ async def run_sokrates_direct_response(
         # Remove the waiting message from user entry, keep only user question
         # Since Sokrates answered, no AIfred response needed
         state.chat_history[history_index] = (original_user_msg, "")
-
-        state.add_debug(f"🏛️ Sokrates: {len(full_response)} chars, {tokens_per_sec:.1f} tok/s")
 
         # INCREMENTAL SAVE: Persist after response to survive browser refresh
         state._save_current_session()
@@ -753,9 +755,9 @@ async def run_salomo_direct_response(
                     ttft = time.time() - start_time
                     # Guard against negative TTFT (can happen with WSL2 time sync issues)
                     if ttft < 0:
-                        log_message(f"⚠️ Negative TTFT detected: {ttft:.3f}s - possible WSL2 time sync issue")
+                        log_message(f"⚠️ Negative TTFT detected: {format_number(ttft, 3)}s - possible WSL2 time sync issue")
                         ttft = 0.0
-                    log_message(f"⚡ Salomo TTFT: {ttft:.2f}s")
+                    log_message(f"⚡ Salomo TTFT: {format_number(ttft, 2)}s")
                     state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                     first_token = True
                     salomo_ttft = ttft  # Save for metadata
@@ -781,6 +783,10 @@ async def run_salomo_direct_response(
         # Calculate final metrics
         inference_time = time.time() - start_time
         tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
+
+        # Log completion metrics (include chars for complete info)
+        log_message(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+        state.add_debug(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
 
         # Format thinking blocks if present
         formatted_response = format_thinking_process(
@@ -810,8 +816,6 @@ async def run_salomo_direct_response(
         # Remove the waiting message from user entry, keep only user question
         # Since Salomo answered, no AIfred response needed
         state.chat_history[history_index] = (original_user_msg, "")
-
-        state.add_debug(f"👑 Salomo: {len(full_response)} chars, {tokens_per_sec:.1f} tok/s")
 
         # INCREMENTAL SAVE: Persist after response to survive browser refresh
         state._save_current_session()
@@ -1056,11 +1060,6 @@ async def run_sokrates_analysis(
             metadata = result["metadata"]
             metrics = result["metrics"]
 
-            state.add_debug(
-                f"🏛️ Sokrates R{round_num}: {len(sokrates_response_text)} chars, "
-                f"{metrics['tok_per_sec']:.1f} tok/s"
-            )
-
             # Format <think> tags as collapsible (if present)
             formatted_sokrates = format_thinking_process(
                 sokrates_response_text,
@@ -1170,11 +1169,6 @@ async def run_sokrates_analysis(
                 salomo_response_text = salomo_result["text"]
                 salomo_metadata = salomo_result["metadata"]
                 salomo_metrics = salomo_result["metrics"]
-
-                state.add_debug(
-                    f"👑 Salomo R{round_num}: {len(salomo_response_text)} chars, "
-                    f"{salomo_metrics['tok_per_sec']:.1f} tok/s"
-                )
 
                 # Format <think> tags as collapsible
                 formatted_salomo = format_thinking_process(
@@ -1293,11 +1287,6 @@ async def run_sokrates_analysis(
                     # Update history with metadata
                     final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
                     state.chat_history[alfred_index] = ("", final_alfred)
-
-                    state.add_debug(
-                        f"🎩 AIfred R{round_num + 1}: {len(current_answer)} chars, "
-                        f"{alfred_metrics.get('tok_per_sec', 0):.1f} tok/s"
-                    )
                     yield
 
                     # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
@@ -1505,11 +1494,6 @@ async def run_tribunal(
             metadata = result["metadata"]
             metrics = result["metrics"]
 
-            state.add_debug(
-                f"🏛️ Sokrates R{round_num}: {len(sokrates_response_text)} chars, "
-                f"{metrics['tok_per_sec']:.1f} tok/s"
-            )
-
             formatted_sokrates = format_thinking_process(
                 sokrates_response_text,
                 model_name=f"Sokrates ({sokrates_model})",
@@ -1587,11 +1571,6 @@ async def run_tribunal(
                 )
                 final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
                 state.chat_history[alfred_index] = ("", final_alfred)
-
-                state.add_debug(
-                    f"🎩 AIfred R{round_num + 1}: {len(current_answer)} chars, "
-                    f"{alfred_metrics.get('tok_per_sec', 0):.1f} tok/s"
-                )
                 yield
 
                 # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
