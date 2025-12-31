@@ -53,7 +53,8 @@ async def build_and_generate_response(
     stt_time: float,
     num_ctx_mode: str = "auto",
     num_ctx_manual: int = 16384,
-    user_name: Optional[str] = None
+    user_name: Optional[str] = None,
+    detected_intent: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Build context and generate LLM response
@@ -77,6 +78,7 @@ async def build_and_generate_response(
         temperature: Temperature value (if manual)
         agent_start: Start time for timing
         stt_time: STT processing time (if applicable)
+        detected_intent: Pre-detected intent (FAKTISCH/KREATIV/GEMISCHT) - avoids duplicate detection
 
     Yields:
         Dict: Debug messages, content chunks, final result
@@ -171,7 +173,8 @@ async def build_and_generate_response(
     model_limit, _ = await llm_client.get_model_context_limit(model_choice)
 
     # Show compact context info (like Automatik-LLM)
-    yield {"type": "debug", "message": f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
+    log_message(f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok [INFERENCE num_ctx={final_num_ctx}]")
+    yield {"type": "debug", "message": f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok [num_ctx={final_num_ctx}]"}
 
     # VRAM Warning: Check if VRAM change detected AND content doesn't fit
     vram_warning = llm_options.get('_vram_warning') if llm_options else None
@@ -219,13 +222,19 @@ async def build_and_generate_response(
         final_temperature = temperature
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
     else:
-        # Auto: Intent detection for RAG research (factual/mixed/creative)
-        rag_intent = await detect_query_intent(
-            user_query=user_text,
-            automatik_model=automatik_model,
-            llm_client=automatik_llm_client,
-            llm_options=llm_options
-        )
+        # Auto: Use pre-detected intent from state.py (avoids duplicate LLM call)
+        if detected_intent:
+            rag_intent = detected_intent
+            log_message(f"🌡️ Using pre-detected intent: {rag_intent}")
+        else:
+            # Fallback: Detect intent if not provided (should not happen in normal flow)
+            rag_intent = await detect_query_intent(
+                user_query=user_text,
+                automatik_model=automatik_model,
+                llm_client=automatik_llm_client,
+                llm_options=llm_options
+            )
+            log_message(f"🌡️ Fallback intent detection: {rag_intent}")
         final_temperature = get_temperature_for_intent(rag_intent)
         temp_label = get_temperature_label(rag_intent)
         log_message(f"🌡️ RAG Temperature: {final_temperature} (Intent: {rag_intent})")

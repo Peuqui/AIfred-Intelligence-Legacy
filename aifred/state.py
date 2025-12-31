@@ -3142,7 +3142,8 @@ class AIState(rx.State):
                     llm_options=llm_options,
                     backend_type=self.backend_type,
                     backend_url=self.backend_url,
-                    user_name=self.user_name  # For personalized prompts
+                    user_name=self.user_name,  # For personalized prompts
+                    detected_intent=detected_intent  # Pass pre-detected intent (avoids duplicate LLM call)
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
