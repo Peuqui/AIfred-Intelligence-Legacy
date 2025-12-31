@@ -587,9 +587,15 @@ def get_sokrates_direct_prompt(lang: Optional[str] = None) -> str:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Sokrates direct response system prompt with timestamp prefix
+        Sokrates direct response system prompt with personality suffix
     """
-    return load_prompt('sokrates/direct', lang=lang)
+    base_prompt = load_prompt('sokrates/direct', lang=lang)
+
+    # Append Sokrates personality (style) after task instructions
+    personality = load_personality("sokrates", lang)
+    if personality:
+        return f"{base_prompt}\n\n{personality}"
+    return base_prompt
 
 
 def get_aifred_direct_prompt(lang: Optional[str] = None) -> str:
@@ -600,9 +606,15 @@ def get_aifred_direct_prompt(lang: Optional[str] = None) -> str:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        AIfred direct response system prompt with timestamp prefix
+        AIfred direct response system prompt with personality suffix
     """
-    return load_prompt('aifred/direct', lang=lang)
+    base_prompt = load_prompt('aifred/direct', lang=lang)
+
+    # Append AIfred personality (style) after task instructions
+    personality = load_personality("aifred", lang)
+    if personality:
+        return f"{base_prompt}\n\n{personality}"
+    return base_prompt
 
 
 # ============================================================
@@ -617,9 +629,15 @@ def get_salomo_direct_prompt(lang: Optional[str] = None) -> str:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Salomo direct response system prompt with timestamp prefix
+        Salomo direct response system prompt with personality suffix
     """
-    return load_prompt('salomo/direct', lang=lang)
+    base_prompt = load_prompt('salomo/direct', lang=lang)
+
+    # Append Salomo personality (style) after task instructions
+    personality = load_personality("salomo", lang)
+    if personality:
+        return f"{base_prompt}\n\n{personality}"
+    return base_prompt
 
 
 def get_salomo_system_minimal(lang: Optional[str] = None) -> str:
