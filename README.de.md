@@ -2,7 +2,7 @@
 
 ---
 
-# 🤖 AIfred Intelligence - Fortschrittlicher KI-Assistent
+# 🎩 AIfred Intelligence - Fortschrittlicher KI-Assistent
 
 **KI-Assistent mit Multi-LLM-Unterstützung, Web-Recherche & Sprachschnittstelle**
 
@@ -31,7 +31,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **LaTeX & Chemie**: KaTeX für Mathe-Formeln, mhchem-Erweiterung für Chemie (`\ce{H2O}`, Reaktionen, Strukturformeln)
 - **Multi-Agent Debate System**: AIfred + Sokrates als kritischer Diskussionspartner für verbesserte Antwortqualität
 
-### 🤖 Multi-Agent Diskussionsmodi
+### 🎩 Multi-Agent Diskussionsmodi
 
 AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Salomo (Richter):
 
