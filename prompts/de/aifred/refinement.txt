@@ -1,4 +1,4 @@
-Du bist AIfred. Sokrates hat deine These kritisiert, und Salomo hat eine Synthese erstellt.
+Sokrates hat deine These kritisiert, und Salomo hat eine Synthese erstellt.
 
 Salomos Synthese: {critique}
 

@@ -83,11 +83,11 @@ async def orchestrate_scraping(
             return (success, load_time, [])
 
         preload_task = asyncio.create_task(unload_and_preload())
-        log_message(f"🚀 Main-LLM ({model_choice}) preloading in parallel...")
-        yield {"type": "debug", "message": f"🚀 Main-LLM ({model_choice}) preloading..."}
+        log_message(f"🚀 AIfred-LLM ({model_choice}) preloading in parallel...")
+        yield {"type": "debug", "message": f"🚀 AIfred-LLM ({model_choice}) preloading..."}
     else:
-        log_message(f"ℹ️ Main-LLM ({model_choice}) already loaded (Backend: {llm_client.backend_type})")
-        yield {"type": "debug", "message": f"ℹ️ Main-LLM ({model_choice}) already loaded"}
+        log_message(f"ℹ️ AIfred-LLM ({model_choice}) already loaded (Backend: {llm_client.backend_type})")
+        yield {"type": "debug", "message": f"ℹ️ AIfred-LLM ({model_choice}) already loaded"}
         preload_message_sent = True  # Skip preload messages
 
     # Parallel Scraping
@@ -133,12 +133,12 @@ async def orchestrate_scraping(
 
                     # Then show preload result (log_message via add_debug when yield processed)
                     if success:
-                        yield {"type": "debug", "message": f"✅ Main-LLM preloaded ({load_time:.1f}s)"}
+                        yield {"type": "debug", "message": f"✅ AIfred-LLM preloaded ({load_time:.1f}s)"}
                     else:
-                        yield {"type": "debug", "message": f"⚠️ Main-LLM preload failed ({load_time:.1f}s)"}
+                        yield {"type": "debug", "message": f"⚠️ AIfred-LLM preload failed ({load_time:.1f}s)"}
                     preload_message_sent = True
                 except Exception as e:
-                    log_message(f"⚠️ Main-LLM preload exception: {e}")
+                    log_message(f"⚠️ AIfred-LLM preload exception: {e}")
                     preload_message_sent = True
 
             # Update progress
@@ -180,11 +180,11 @@ async def orchestrate_scraping(
 
             # log_message via add_debug when yield processed
             if success:
-                yield {"type": "debug", "message": f"✅ Main-LLM preloaded ({load_time:.1f}s)"}
+                yield {"type": "debug", "message": f"✅ AIfred-LLM preloaded ({load_time:.1f}s)"}
             else:
-                yield {"type": "debug", "message": f"⚠️ Main-LLM preload failed ({load_time:.1f}s)"}
+                yield {"type": "debug", "message": f"⚠️ AIfred-LLM preload failed ({load_time:.1f}s)"}
         except Exception as e:
-            log_message(f"⚠️ Main-LLM preload exception: {e}")
+            log_message(f"⚠️ AIfred-LLM preload exception: {e}")
 
     # Return results
     yield {"type": "scraping_result", "data": (scraped_results, tool_results)}

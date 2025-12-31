@@ -1,4 +1,4 @@
-You are AIfred. Sokrates has critiqued your thesis, and Salomo has created a synthesis.
+Sokrates has critiqued your thesis, and Salomo has created a synthesis.
 
 Salomo's synthesis: {critique}
 

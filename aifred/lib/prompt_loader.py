@@ -88,9 +88,40 @@ def sync_personality_from_settings():
     _personality_enabled["salomo"] = settings.get("salomo_personality", True)
 
 
+def load_identity(agent: str, lang: Optional[str] = None) -> str:
+    """
+    Load identity prompt for an agent (always loaded).
+
+    Identity defines WHO the agent is - this is always included,
+    regardless of personality toggle state.
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+        lang: Language code, defaults to current language
+
+    Returns:
+        Identity prompt text, or empty string if not found
+    """
+    if lang is None:
+        lang = _current_language
+    if lang == "auto":
+        lang = "de"  # Default to German
+
+    identity_file = PROMPTS_DIR / lang / agent / "identity.txt"
+
+    if not identity_file.exists():
+        return ""
+
+    with open(identity_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
 def load_personality(agent: str, lang: Optional[str] = None) -> str:
     """
     Load personality prompt for an agent.
+
+    Personality defines HOW the agent speaks (style) - this is optional
+    and can be toggled on/off via settings.
 
     Args:
         agent: Agent name ("aifred", "sokrates", "salomo")
@@ -400,39 +431,70 @@ def get_followup_intent_prompt(original_query: str, followup_query: str, lang: O
     )
 
 
+def _merge_prompt_layers(agent: str, task_prompt: str, lang: Optional[str] = None) -> str:
+    """
+    Merge prompt layers in correct order: Identity + Personality + Task.
+
+    This is the core 3-layer prompt system:
+    1. Identity (WHO am I) - always loaded
+    2. Personality (HOW do I speak) - toggleable via settings
+    3. Task prompt (WHAT should I do) - situational
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+        task_prompt: The task-specific prompt (already loaded with timestamp)
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Merged prompt string with all applicable layers
+    """
+    parts = []
+
+    # Layer 1: Identity (always)
+    identity = load_identity(agent, lang)
+    if identity:
+        parts.append(identity)
+
+    # Layer 2: Personality (if enabled)
+    personality = load_personality(agent, lang)
+    if personality:
+        parts.append(personality)
+
+    # Layer 3: Task prompt (always)
+    parts.append(task_prompt)
+
+    return "\n\n".join(parts)
+
+
 def get_aifred_system_minimal(lang: Optional[str] = None) -> str:
     """
-    Load AIfred minimal system prompt with optional personality suffix.
+    Load AIfred minimal system prompt with 3-layer merging.
+
+    Layers: Identity + Personality (if enabled) + Task prompt
 
     Args:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        AIfred system prompt (base instructions + personality style if enabled)
+        AIfred system prompt (identity + optional style + task instructions)
     """
-    base_prompt = load_prompt('aifred/system_minimal', lang=lang)
-
-    # Append AIfred personality (style) after identity + task instructions
-    personality = load_personality("aifred", lang)
-    if personality:
-        return f"{base_prompt}\n\n{personality}"
-    return base_prompt
+    task_prompt = load_prompt('aifred/system_minimal', lang=lang)
+    return _merge_prompt_layers("aifred", task_prompt, lang)
 
 
 def get_system_rag_prompt(context: str, user_text: str = "", lang: Optional[str] = None) -> str:
-    """Load system RAG prompt with optional personality suffix"""
-    base_prompt = load_prompt(
+    """
+    Load system RAG prompt with 3-layer merging.
+
+    Layers: Identity + Personality (if enabled) + RAG task prompt
+    """
+    task_prompt = load_prompt(
         'aifred/system_rag',
         lang=lang,
         user_text=user_text,
         context=context
     )
-
-    # Append AIfred personality (style) after task instructions
-    personality = load_personality("aifred", lang)
-    if personality:
-        return f"{base_prompt}\n\n{personality}"
-    return base_prompt
+    return _merge_prompt_layers("aifred", task_prompt, lang)
 
 
 # Cache metadata prompt removed - will be replaced with Vector DB embeddings
@@ -507,21 +569,18 @@ def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) 
 
 def get_sokrates_system_minimal(lang: Optional[str] = None) -> str:
     """
-    Load Sokrates minimal system prompt with optional personality suffix.
+    Load Sokrates minimal system prompt with 3-layer merging.
+
+    Layers: Identity + Personality (if enabled) + Task prompt
 
     Args:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Sokrates system prompt (base instructions + personality style if enabled)
+        Sokrates system prompt (identity + optional style + task instructions)
     """
-    base_prompt = load_prompt('sokrates/system_minimal', lang=lang)
-
-    # Append Sokrates personality (style) after identity + task instructions
-    personality = load_personality("sokrates", lang)
-    if personality:
-        return f"{base_prompt}\n\n{personality}"
-    return base_prompt
+    task_prompt = load_prompt('sokrates/system_minimal', lang=lang)
+    return _merge_prompt_layers("sokrates", task_prompt, lang)
 
 
 def get_sokrates_critic_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
@@ -581,40 +640,34 @@ get_sokrates_refinement_prompt = get_aifred_refinement_prompt
 
 def get_sokrates_direct_prompt(lang: Optional[str] = None) -> str:
     """
-    Load Sokrates Direct Response prompt for when user addresses Sokrates directly.
+    Load Sokrates Direct Response prompt with 3-layer merging.
+
+    Layers: Identity + Personality (if enabled) + Direct task prompt
 
     Args:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Sokrates direct response system prompt with personality suffix
+        Sokrates direct response system prompt (identity + optional style + task)
     """
-    base_prompt = load_prompt('sokrates/direct', lang=lang)
-
-    # Append Sokrates personality (style) after task instructions
-    personality = load_personality("sokrates", lang)
-    if personality:
-        return f"{base_prompt}\n\n{personality}"
-    return base_prompt
+    task_prompt = load_prompt('sokrates/direct', lang=lang)
+    return _merge_prompt_layers("sokrates", task_prompt, lang)
 
 
 def get_aifred_direct_prompt(lang: Optional[str] = None) -> str:
     """
-    Load AIfred Direct Response prompt for when user addresses AIfred directly.
+    Load AIfred Direct Response prompt with 3-layer merging.
+
+    Layers: Identity + Personality (if enabled) + Direct task prompt
 
     Args:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        AIfred direct response system prompt with personality suffix
+        AIfred direct response system prompt (identity + optional style + task)
     """
-    base_prompt = load_prompt('aifred/direct', lang=lang)
-
-    # Append AIfred personality (style) after task instructions
-    personality = load_personality("aifred", lang)
-    if personality:
-        return f"{base_prompt}\n\n{personality}"
-    return base_prompt
+    task_prompt = load_prompt('aifred/direct', lang=lang)
+    return _merge_prompt_layers("aifred", task_prompt, lang)
 
 
 # ============================================================
@@ -623,40 +676,34 @@ def get_aifred_direct_prompt(lang: Optional[str] = None) -> str:
 
 def get_salomo_direct_prompt(lang: Optional[str] = None) -> str:
     """
-    Load Salomo Direct Response prompt for when user addresses Salomo directly.
+    Load Salomo Direct Response prompt with 3-layer merging.
+
+    Layers: Identity + Personality (if enabled) + Direct task prompt
 
     Args:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Salomo direct response system prompt with personality suffix
+        Salomo direct response system prompt (identity + optional style + task)
     """
-    base_prompt = load_prompt('salomo/direct', lang=lang)
-
-    # Append Salomo personality (style) after task instructions
-    personality = load_personality("salomo", lang)
-    if personality:
-        return f"{base_prompt}\n\n{personality}"
-    return base_prompt
+    task_prompt = load_prompt('salomo/direct', lang=lang)
+    return _merge_prompt_layers("salomo", task_prompt, lang)
 
 
 def get_salomo_system_minimal(lang: Optional[str] = None) -> str:
     """
-    Load Salomo minimal system prompt with optional personality suffix.
+    Load Salomo minimal system prompt with 3-layer merging.
+
+    Layers: Identity + Personality (if enabled) + Task prompt
 
     Args:
         lang: Language code (de/en), defaults to current language
 
     Returns:
-        Salomo system prompt (base instructions + personality style if enabled)
+        Salomo system prompt (identity + optional style + task instructions)
     """
-    base_prompt = load_prompt('salomo/system_minimal', lang=lang)
-
-    # Append Salomo personality (style) after identity + task instructions
-    personality = load_personality("salomo", lang)
-    if personality:
-        return f"{base_prompt}\n\n{personality}"
-    return base_prompt
+    task_prompt = load_prompt('salomo/system_minimal', lang=lang)
+    return _merge_prompt_layers("salomo", task_prompt, lang)
 
 
 def get_salomo_mediator_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
