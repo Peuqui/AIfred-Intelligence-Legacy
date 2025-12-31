@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, AsyncIterator
 
 from ..agent_tools import build_context
 # Cache system removed - will be replaced with Vector DB
-from ..prompt_loader import load_prompt
+from ..prompt_loader import get_system_rag_prompt
 from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens
 from ..message_builder import build_messages_from_history
 from ..formatting import format_thinking_process, build_debug_accordion, format_metadata, format_number
@@ -123,12 +123,11 @@ async def build_and_generate_response(
     from ..prompt_loader import detect_language
     detected_user_language = detect_language(user_text)
 
-    # System prompt (timestamp injected automatically by load_prompt)
-    system_prompt = load_prompt(
-        'aifred/system_rag',
-        lang=detected_user_language,
+    # System prompt with personality (if enabled)
+    system_prompt = get_system_rag_prompt(
+        context=context,
         user_text=user_text,
-        context=context
+        lang=detected_user_language
     )
 
     yield {"type": "debug", "message": "✅ System prompt created"}
@@ -172,7 +171,7 @@ async def build_and_generate_response(
     model_limit, _ = await llm_client.get_model_context_limit(model_choice)
 
     # Show compact context info (like Automatik-LLM)
-    yield {"type": "debug", "message": f"📊 Main-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
+    yield {"type": "debug", "message": f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
 
     # VRAM Warning: Check if VRAM change detected AND content doesn't fit
     vram_warning = llm_options.get('_vram_warning') if llm_options else None
@@ -233,7 +232,7 @@ async def build_and_generate_response(
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
     # LLM Inference
-    yield {"type": "debug", "message": f"🤖 Main-LLM starting: {model_choice}"}
+    yield {"type": "debug", "message": f"🤖 AIfred-LLM starting: {model_choice}"}
     yield {"type": "progress", "phase": "llm"}
 
     # Calculate dynamic num_predict: Available output space after input tokens
@@ -289,7 +288,7 @@ async def build_and_generate_response(
         extracted = volatility_match.group(1).strip().upper()
         if extracted in TTL_HOURS:
             volatility = extracted
-            log_message(f"✅ Main-LLM Volatility: {volatility}")
+            log_message(f"✅ AIfred-LLM Volatility: {volatility}")
             yield {"type": "debug", "message": f"✅ Volatility: {volatility}"}
         else:
             log_message(f"⚠️ Unknown volatility '{extracted}', fallback to DAILY")

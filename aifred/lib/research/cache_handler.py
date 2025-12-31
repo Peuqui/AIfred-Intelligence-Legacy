@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, AsyncIterator
 
 from ..cache_manager import get_cached_research
 from ..agent_tools import build_context
-from ..prompt_loader import load_prompt
+from ..prompt_loader import load_prompt, load_personality
 from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx
 from ..intent_detector import detect_cache_followup_intent, get_temperature_for_intent, get_temperature_label
 from ..formatting import format_thinking_process, format_number, format_metadata
@@ -96,8 +96,8 @@ async def handle_cache_hit(
     from ..prompt_loader import detect_language
     detected_user_language = detect_language(user_text)
 
-    # System prompt for cache hit: Use separate prompt file
-    system_prompt = load_prompt(
+    # System prompt for cache hit with personality (if enabled)
+    base_prompt = load_prompt(
         'aifred/system_rag_cache_hit',
         lang=detected_user_language,
         original_question=cache_entry.get('user_text', 'N/A'),
@@ -106,6 +106,9 @@ async def handle_cache_hit(
         current_date=time.strftime("%d.%m.%Y"),
         context=context
     )
+    # Append AIfred personality (style) after task instructions
+    personality = load_personality("aifred", detected_user_language)
+    system_prompt = f"{base_prompt}\n\n{personality}" if personality else base_prompt
 
     # Generate response with cache data
     messages = []
@@ -126,8 +129,8 @@ async def handle_cache_hit(
     # Query main model context limit (if not manually set)
     if not (llm_options and llm_options.get('num_ctx')):
         model_limit, _ = await llm_client.get_model_context_limit(model_choice)
-        log_message(f"📊 Main-LLM ({model_choice}): Max. Context = {format_number(model_limit)} tok (Model parameter from Ollama)")
-        yield {"type": "debug", "message": f"📊 Main-LLM ({model_choice}): Max. Context = {format_number(model_limit)} tok"}
+        log_message(f"📊 AIfred-LLM ({model_choice}): Max. Context = {format_number(model_limit)} tok (Model parameter from Ollama)")
+        yield {"type": "debug", "message": f"📊 AIfred-LLM ({model_choice}): Max. Context = {format_number(model_limit)} tok"}
 
     # Count actual input tokens (using real tokenizer)
     input_tokens = estimate_tokens(messages, model_name=model_choice)
@@ -180,7 +183,7 @@ async def handle_cache_hit(
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
     # Console: LLM starts
-    yield {"type": "debug", "message": f"🤖 Main-LLM starting: {model_choice} (cache data)"}
+    yield {"type": "debug", "message": f"🤖 AIfred-LLM starting: {model_choice} (cache data)"}
 
     # Show LLM generation phase
     yield {"type": "progress", "phase": "llm"}
@@ -231,7 +234,7 @@ async def handle_cache_hit(
 
     # Console: LLM finished (Cache-specific with total time)
     tokens_generated = metrics.get("tokens_generated", 0)
-    yield {"type": "debug", "message": f"✅ Main-LLM done ({format_number(llm_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s, Cache-Total: {format_number(total_time, 1)}s)"}
+    yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(llm_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s, Cache-Total: {format_number(total_time, 1)}s)"}
 
     # Format <think> tags as collapsible (if present)
     final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time, tokens_per_sec=tokens_per_sec)
