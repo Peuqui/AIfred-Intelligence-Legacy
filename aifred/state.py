@@ -876,8 +876,16 @@ class AIState(rx.State):
                 # Load user name
                 self.user_name = saved_settings.get("user_name", self.user_name)
                 # Sync to prompt_loader for automatic injection into system prompts
-                from .lib.prompt_loader import set_user_name, init_system_prompt_cache
+                from .lib.prompt_loader import set_user_name, init_system_prompt_cache, set_personality_enabled
                 set_user_name(self.user_name)
+
+                # Load and sync personality toggles to prompt_loader
+                self.aifred_personality = saved_settings.get("aifred_personality", self.aifred_personality)
+                self.sokrates_personality = saved_settings.get("sokrates_personality", self.sokrates_personality)
+                self.salomo_personality = saved_settings.get("salomo_personality", self.salomo_personality)
+                set_personality_enabled("aifred", self.aifred_personality)
+                set_personality_enabled("sokrates", self.sokrates_personality)
+                set_personality_enabled("salomo", self.salomo_personality)
 
                 # Initialize system prompt token cache (v2.14.0+)
                 # This caches all prompt sizes for accurate compression calculations
@@ -1785,6 +1793,11 @@ class AIState(rx.State):
         self.aifred_personality = settings.get("aifred_personality", self.aifred_personality)
         self.sokrates_personality = settings.get("sokrates_personality", self.sokrates_personality)
         self.salomo_personality = settings.get("salomo_personality", self.salomo_personality)
+        # Sync to prompt_loader
+        from .lib.prompt_loader import set_personality_enabled
+        set_personality_enabled("aifred", self.aifred_personality)
+        set_personality_enabled("sokrates", self.sokrates_personality)
+        set_personality_enabled("salomo", self.salomo_personality)
 
         # TTS settings
         self.enable_tts = settings.get("enable_tts", self.enable_tts)
@@ -4608,6 +4621,9 @@ class AIState(rx.State):
         status = "AN" if self.aifred_personality else "AUS"
         self.add_debug(f"🎩 AIfred Persönlichkeit: {status}")
         self._save_personality_settings()
+        # Sync to prompt_loader
+        from .lib.prompt_loader import set_personality_enabled
+        set_personality_enabled("aifred", self.aifred_personality)
 
     def toggle_sokrates_personality(self):
         """Toggle Sokrates philosophical personality style on/off"""
@@ -4615,6 +4631,9 @@ class AIState(rx.State):
         status = "AN" if self.sokrates_personality else "AUS"
         self.add_debug(f"🏛️ Sokrates Persönlichkeit: {status}")
         self._save_personality_settings()
+        # Sync to prompt_loader
+        from .lib.prompt_loader import set_personality_enabled
+        set_personality_enabled("sokrates", self.sokrates_personality)
 
     def toggle_salomo_personality(self):
         """Toggle Salomo judge personality style on/off"""
@@ -4622,6 +4641,9 @@ class AIState(rx.State):
         status = "AN" if self.salomo_personality else "AUS"
         self.add_debug(f"👑 Salomo Persönlichkeit: {status}")
         self._save_personality_settings()
+        # Sync to prompt_loader
+        from .lib.prompt_loader import set_personality_enabled
+        set_personality_enabled("salomo", self.salomo_personality)
 
     def _save_personality_settings(self):
         """Save personality toggle states to settings.json"""
