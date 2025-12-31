@@ -75,10 +75,8 @@ async def orchestrate_scraping(
     if needs_preload:
         backend = llm_client._get_backend()
 
-        # Get calibrated num_ctx from VRAM cache (same value context_builder will use later)
-        from ..model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model
-        rope_factor = get_rope_factor_for_model(model_choice)
-        calibrated_num_ctx = get_ollama_calibrated_max_context(model_choice, rope_factor)
+        # Get num_ctx the same way as inference does: via backend.calculate_practical_context()
+        calibrated_num_ctx, _ = await backend.calculate_practical_context(model_choice)
 
         async def unload_and_preload():
             """Preload main LLM with calibrated num_ctx to avoid reload later"""
