@@ -3019,7 +3019,8 @@ class AIState(rx.State):
                     num_ctx_mode=self.num_ctx_mode,
                     num_ctx_manual=self.num_ctx_manual,
                     pending_images=self.pending_images if len(self.pending_images) > 0 else None,
-                    user_name=self.user_name  # For personalized prompts
+                    user_name=self.user_name,  # For personalized prompts
+                    detected_intent=detected_intent  # Pass pre-detected intent (avoids duplicate LLM call)
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
