@@ -73,17 +73,21 @@ async def orchestrate_scraping(
     unloaded_models = []
 
     if needs_preload:
-        # STEP 1: Unload all models (e.g., Automatik-LLM from decision) - parallel with scraping
         backend = llm_client._get_backend()
 
+        # Get calibrated num_ctx from VRAM cache (same value context_builder will use later)
+        from ..model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model
+        rope_factor = get_rope_factor_for_model(model_choice)
+        calibrated_num_ctx = get_ollama_calibrated_max_context(model_choice, rope_factor)
+
         async def unload_and_preload():
-            """Preload main LLM (unload disabled - Ollama manages VRAM automatically)"""
-            # unload_success, models = await backend.unload_all_models()  # DISABLED
-            success, load_time = await backend.preload_model(model_choice)
+            """Preload main LLM with calibrated num_ctx to avoid reload later"""
+            success, load_time = await backend.preload_model(model_choice, num_ctx=calibrated_num_ctx)
             return (success, load_time, [])
 
         preload_task = asyncio.create_task(unload_and_preload())
-        log_message(f"🚀 AIfred-LLM ({model_choice}) preloading in parallel...")
+        ctx_info = f", num_ctx={calibrated_num_ctx:,}" if calibrated_num_ctx else ""
+        log_message(f"🚀 AIfred-LLM ({model_choice}) preloading in parallel...{ctx_info}")
         yield {"type": "debug", "message": f"🚀 AIfred-LLM ({model_choice}) preloading..."}
     else:
         log_message(f"ℹ️ AIfred-LLM ({model_choice}) already loaded (Backend: {llm_client.backend_type})")
