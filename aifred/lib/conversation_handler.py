@@ -851,7 +851,8 @@ async def chat_interactive_mode(
     num_ctx_manual: int = 16384,
     pending_images: Optional[List[Dict[str, str]]] = None,
     vision_json_context: Optional[dict] = None,
-    user_name: Optional[str] = None
+    user_name: Optional[str] = None,
+    detected_intent: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Automatik mode: AI decides whether web research is needed
@@ -1031,7 +1032,8 @@ async def chat_interactive_mode(
                 num_ctx_mode=num_ctx_mode,
                 num_ctx_manual=num_ctx_manual,
                 vision_json_context=vision_json_context,  # CRITICAL: Pass Vision JSON to Research flow
-                user_name=user_name  # For personalized prompts
+                user_name=user_name,  # For personalized prompts
+                detected_intent=detected_intent  # Pass pre-detected intent (avoids duplicate LLM call)
             ):
                 yield item
             return  # Generator ends after forwarding all items
@@ -1498,7 +1500,8 @@ async def chat_interactive_mode(
                     num_ctx_mode=num_ctx_mode,
                     num_ctx_manual=num_ctx_manual,
                     vision_json_context=vision_json_context,  # CRITICAL: Pass Vision JSON to Research flow
-                    user_name=user_name  # For personalized prompts
+                    user_name=user_name,  # For personalized prompts
+                    detected_intent=detected_intent  # Pass pre-detected intent (avoids duplicate LLM call)
                 ):
                     yield item
                 return
