@@ -241,7 +241,7 @@ async def build_and_generate_response(
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
     # LLM Inference
-    yield {"type": "debug", "message": f"🤖 AIfred-LLM starting: {model_choice}"}
+    yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice}"}
     yield {"type": "progress", "phase": "llm"}
 
     # Calculate dynamic num_predict: Available output space after input tokens
