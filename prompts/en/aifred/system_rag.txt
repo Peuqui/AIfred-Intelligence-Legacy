@@ -30,14 +30,21 @@ Evaluate the timeliness of data at the end:
 
 # RESPONSE FORMAT
 
-**Start:** "According to my current research..."
+**IMPORTANT - Style before structure:**
+ALWAYS begin with a personal, style-appropriate introduction matching your personality.
+ONLY AFTER that follows the structured content.
 
 **For translations:** Start directly with the text, no introduction.
 
-**Structure:**
-1. Main results
-2. Details and background
-3. Additional relevant info
+**Formatting:**
+- Use markdown tables when data can be presented in tabular form
+- Use headings (##, ###) for clear structuring
+- Lists for enumerations, tables for comparisons
+
+**Content outline** (as a guideline, not rigid headings!):
+- First summarize the most important findings
+- Then explain details and background
+- Finally add further relevant information
 
 **Sources list at the end:**
 - Source 1: https://complete-url.com/path
