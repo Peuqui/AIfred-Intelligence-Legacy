@@ -252,7 +252,7 @@ async def generate_cache_metadata(
         # Use config constant for Automatik-LLM context (4K)
         metadata_num_ctx = min(AUTOMATIK_LLM_NUM_CTX, haupt_llm_context_limit)
 
-        log_message(f"Total Messages: {len(messages)}, Temperature: 0.1, num_ctx: {metadata_num_ctx} (Main-LLM-Limit: {haupt_llm_context_limit}), num_predict: 100")
+        log_message(f"Total Messages: {len(messages)}, Temperature: 0.1, num_ctx: {metadata_num_ctx} (AIfred-LLM-Limit: {haupt_llm_context_limit}), num_predict: 100")
         log_message("=" * 60)
 
         metadata_start = time.time()

@@ -1078,10 +1078,10 @@ async def prepare_main_llm(
             preload_success, preload_time = await backend.preload_model(model_name, num_ctx=final_num_ctx)
 
             if preload_success:
-                yield {"type": "debug", "message": f"✅ Main LLM preloaded ({preload_time:.1f}s)"}
+                yield {"type": "debug", "message": f"✅ AIfred-LLM preloaded ({preload_time:.1f}s)"}
                 # Note: log_message() is called via add_debug() when yield is processed
             else:
-                yield {"type": "debug", "message": f"⚠️ Main LLM preload failed ({preload_time:.1f}s)"}
+                yield {"type": "debug", "message": f"⚠️ AIfred-LLM preload failed ({preload_time:.1f}s)"}
                 # Note: log_message() is called via add_debug() when yield is processed
 
         log_message(f"✅ prepare_main_llm: Done (num_ctx={final_num_ctx:,}, preload={preload_success})")
