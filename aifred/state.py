@@ -3438,12 +3438,11 @@ class AIState(rx.State):
 
                 await llm_client.close()
 
-            # Separator (PRE-MESSAGE Check in send_message() handles compression now)
-            # Multi-Agent mode hat bereits Separator nach Main-LLM (Zeile ~3158)
-            if self.multi_agent_mode == "standard":
-                console_separator()  # Schreibt in Log-File
-                self.add_debug("────────────────────")  # Zeigt in Debug-Console
-                yield
+                # Separator for Standard mode (Automatik/Research modes send their own via conversation_handler/context_builder)
+                if self.multi_agent_mode == "standard":
+                    console_separator()  # Schreibt in Log-File
+                    self.add_debug("────────────────────")  # Zeigt in Debug-Console
+                    yield
 
             # Clear response display
             self.current_ai_response = ""
@@ -4113,11 +4112,12 @@ class AIState(rx.State):
 
         # DEBUG-PERSISTENCE (v2.14.0+): debug_messages wiederherstellen
         # WICHTIG: Startup-Messages behalten, gespeicherte Messages hinzufügen
+        # Note: No separator needed here - set_mobile_status already added one after "device detected"
         if "debug_messages" in data:
             if data["debug_messages"]:
-                # Startup-Messages (bereits in self.debug_messages) + Separator + gespeicherte Messages
+                # Startup-Messages (bereits in self.debug_messages) + gespeicherte Messages
                 startup_messages = self.debug_messages.copy()
-                self.debug_messages = startup_messages + ["────────────────────"] + data["debug_messages"]
+                self.debug_messages = startup_messages + data["debug_messages"]
             else:
                 # Explizit gelöscht (z.B. via API clear_chat) → auch Startup-Messages entfernen
                 self.debug_messages = []
