@@ -36,32 +36,32 @@ docker compose restart
 ## Details
 
 - **Port**: 8888 (Host) → 8080 (Container)
-- **Auto-restart**: Container startet automatisch beim Reboot
-- **Logs**: Max 10MB × 3 Dateien (Rotation)
-- **Default Language**: Deutsch (de)
+- **Auto-restart**: Container starts automatically on reboot
+- **Logs**: Max 10MB × 3 files (rotation)
+- **Default Language**: German (de)
 - **Enabled Engines**: Google, Bing, DuckDuckGo, Wikipedia, News
-- **Disabled**: Reddit, Twitter, YouTube (für schnellere Antworten)
+- **Disabled**: Reddit, Twitter, YouTube (for faster responses)
 
 ## Troubleshooting
 
-**Port bereits belegt?**
+**Port already in use?**
 ```bash
-# Port in compose.yml ändern:
+# Change port in compose.yml:
 ports:
-  - "8889:8080"  # statt 8888
+  - "8889:8080"  # instead of 8888
 ```
 
-**Container läuft nicht?**
+**Container not running?**
 ```bash
 docker compose logs searxng
 ```
 
-**Secret Key ändern?**
+**Change secret key?**
 ```bash
-# Neuen Secret generieren:
+# Generate new secret:
 openssl rand -hex 32
 
-# In settings.yml eintragen:
+# Add to settings.yml:
 server:
-  secret_key: "dein_neuer_secret_hier"
+  secret_key: "your_new_secret_here"
 ```

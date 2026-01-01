@@ -78,6 +78,13 @@ else
 fi
 
 echo ""
+
+# Install Playwright browser for JS-heavy web scraping
+echo "🌐 Installiere Playwright Browser..."
+playwright install chromium
+echo -e "${GREEN}✅ Playwright Chromium installiert${NC}"
+
+echo ""
 echo "=================================================="
 echo -e "${GREEN}✅ Python Setup abgeschlossen!${NC}"
 echo "=================================================="

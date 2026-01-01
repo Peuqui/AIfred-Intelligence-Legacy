@@ -1,131 +1,126 @@
-# Hybrid-Modus Kalibrierung: Diskussion und Optionen
+# Hybrid Mode Calibration: Discussion and Options
 
-**Datum:** 2025-12-29
-**Status:** Diskussion / Noch nicht implementiert
+**Date:** 2025-12-29
+**Status:** Discussion / Not yet implemented
 
-## Hintergrund
+## Background
 
-Die aktuelle Kalibrierung funktioniert so:
-1. **GPU-only zuerst**: Versucht, maximalen Kontext rein im VRAM zu finden
-2. **Automatischer Hybrid-Fallback**: Wenn das Modell gar nicht ins VRAM passt (120B, 70B), wechselt es automatisch in den Hybrid-Modus
-3. **Kein optionaler Hybrid**: Modelle die *gerade so* ins VRAM passen (z.B. 32B mit 40K Kontext) bekommen keinen Hybrid-Modus angeboten
+The current calibration works as follows:
+1. **GPU-only first**: Attempts to find maximum context purely in VRAM
+2. **Automatic Hybrid Fallback**: If the model doesn't fit in VRAM at all (120B, 70B), it automatically switches to hybrid mode
+3. **No optional Hybrid**: Models that *just barely* fit in VRAM (e.g., 32B with 40K context) are not offered hybrid mode
 
-## Das Problem
+## The Problem
 
-Beispiel: `qwen3:32b`
-- Passt komplett ins VRAM (18.8 GB)
-- Kalibriert auf ~40.960 Token (GPU-only)
-- Könnte mit Hybrid-Modus vielleicht 80-100K Token erreichen
-- **Aber**: Der User hat keine Möglichkeit, das zu wählen
+Example: `qwen3:32b`
+- Fits completely in VRAM (18.8 GB)
+- Calibrates to ~40,960 tokens (GPU-only)
+- Could potentially reach 80-100K tokens with hybrid mode
+- **But**: The user has no way to choose this
 
-Größere Modelle mit kleinem GPU-only Kontext könnten von Hybrid profitieren, aber der User weiß das nicht und hat keine Option es zu aktivieren.
+Larger models with small GPU-only context could benefit from hybrid, but the user doesn't know this and has no option to activate it.
 
-## Mögliche Lösungsansätze
+## Possible Solutions
 
-### Option A: "Erweiterte Kalibrierung" Button
+### Option A: "Extended Calibration" Button
 
 ```
-[Kalibrieren] [Hybrid kalibrieren]
+[Calibrate] [Calibrate Hybrid]
 ```
 
-- Separater Button für Hybrid-Kalibrierung
-- User entscheidet bewusst: "Ich will mehr Kontext, akzeptiere langsamere Performance"
+- Separate button for hybrid calibration
+- User consciously decides: "I want more context, accept slower performance"
 
-| Pro | Contra |
-|-----|--------|
-| Explizite User-Kontrolle | UI-Komplexität erhöht |
-| Einfach zu verstehen | Zwei Buttons für ähnliche Funktion |
+| Pro | Con |
+|-----|-----|
+| Explicit user control | Increased UI complexity |
+| Easy to understand | Two buttons for similar function |
 
 ---
 
-### Option B: Automatische Hybrid-Empfehlung
+### Option B: Automatic Hybrid Recommendation
 
-Nach GPU-only Kalibrierung:
+After GPU-only calibration:
 ```
-✅ GPU-only: 40.960 tok
-💡 Mit Hybrid-Modus wären ~95.000 tok möglich
-   [Hybrid kalibrieren?]
+GPU-only: 40,960 tok
+With Hybrid mode ~95,000 tok would be possible
+   [Calibrate Hybrid?]
 ```
 
-- System berechnet, ob Hybrid sich lohnen würde
-- Zeigt potentiellen Gewinn an
+- System calculates whether hybrid would be worthwhile
+- Shows potential gain
 
-| Pro | Contra |
-|-----|--------|
-| Informiert User über Möglichkeiten | Mehr Logik nötig |
-| Unaufdringlich | Schätzung könnte ungenau sein |
-| Nur wenn relevant |  |
+| Pro | Con |
+|-----|-----|
+| Informs user about possibilities | More logic needed |
+| Unobtrusive | Estimate could be inaccurate |
+| Only when relevant |  |
 
 ---
 
-### Option C: Memory-Modus Dropdown (analog zu RoPE)
+### Option C: Memory Mode Dropdown (similar to RoPE)
 
 ```
-Memory-Modus: [GPU-only ▼]
-              [GPU-only]
-              [Hybrid (CPU+GPU)]
+Memory Mode: [GPU-only]
+             [GPU-only]
+             [Hybrid (CPU+GPU)]
 ```
 
-- Analog zum RoPE-Dropdown
-- Per-Model Einstellung
-- Kalibrierte Werte für jeden Modus separat gespeichert
+- Similar to the RoPE dropdown
+- Per-model setting
+- Calibrated values stored separately for each mode
 
-| Pro | Contra |
-|-----|--------|
-| Konsistente UI (wie RoPE) | Noch mehr Dropdowns in Settings |
-| Flexible Kontrolle pro Modell | Kann User überfordern |
-| Transparenz | Komplexere State-Logik |
+| Pro | Con |
+|-----|-----|
+| Consistent UI (like RoPE) | Even more dropdowns in settings |
+| Flexible per-model control | Could overwhelm users |
+| Transparency | More complex state logic |
 
 **Implementation:**
-- Neues State-Feld `aifred_memory_mode: str = "gpu"` (gpu/hybrid)
-- VRAM-Cache speichert beide Werte: `max_context_gpu_only` und `max_context_hybrid`
-- UI zeigt Dropdown unter dem Model-Select (wie RoPE)
-- Bei Wechsel wird der entsprechende kalibrierte Wert verwendet
+- New state field `aifred_memory_mode: str = "gpu"` (gpu/hybrid)
+- VRAM cache stores both values: `max_context_gpu_only` and `max_context_hybrid`
+- UI shows dropdown under model select (like RoPE)
+- On change, the corresponding calibrated value is used
 
 ---
 
-### Option D: Intelligente Auto-Entscheidung
+### Option D: Intelligent Auto-Decision
 
-- System entscheidet basierend auf:
-  - Verfügbarem RAM
-  - Gewinn durch Hybrid (>50% mehr Kontext?)
-  - Performance-Tradeoff
+- System decides based on:
+  - Available RAM
+  - Gain from hybrid (>50% more context?)
+  - Performance tradeoff
 
-| Pro | Contra |
-|-----|--------|
-| "Es funktioniert einfach" | Weniger User-Kontrolle |
-| Keine UI-Änderungen nötig | Schwer vorhersagbar |
-|  | Magic behaviour (unerwünscht) |
+| Pro | Con |
+|-----|-----|
+| "It just works" | Less user control |
+| No UI changes needed | Hard to predict |
+|  | Magic behavior (undesirable) |
 
 ---
 
-## Empfehlung
+## Recommendation
 
-**Option C (Memory-Modus Dropdown)** erscheint am sinnvollsten:
+**Option C (Memory Mode Dropdown)** appears most sensible:
 
-1. **Konsistenz**: Passt zum RoPE-Dropdown-Pattern das bereits existiert
-2. **Transparenz**: User sieht explizit, welchen Modus er nutzt
-3. **Flexibilität**: Kann pro Modell unterschiedlich sein
-4. **Kalibrierung**: Jeder Modus hat seinen eigenen kalibrierten Wert
+1. **Consistency**: Matches the existing RoPE dropdown pattern
+2. **Transparency**: User explicitly sees which mode they're using
+3. **Flexibility**: Can be different per model
+4. **Calibration**: Each mode has its own calibrated value
 
-**Alternative**: Option B (Empfehlung nach Kalibrierung) als Mittelweg - zeigt die Option, ohne die UI zu überladen.
+**Alternative**: Option B (recommendation after calibration) as a middle ground - shows the option without overloading the UI.
 
-## Offene Fragen
+## Open Questions
 
-1. Soll Hybrid-Modus pro Agent einstellbar sein (AIfred, Sokrates, Salomo)?
-2. Wie kommunizieren wir den Performance-Tradeoff dem User?
-3. Brauchen wir eine "Reset to GPU-only" Option wenn Hybrid zu langsam ist?
-4. Soll die Kalibrierung beide Modi gleichzeitig ermitteln oder sequenziell?
+1. Should hybrid mode be configurable per agent (AIfred, Sokrates, Salomo)?
+2. How do we communicate the performance tradeoff to the user?
+3. Do we need a "Reset to GPU-only" option if hybrid is too slow?
+4. Should calibration determine both modes simultaneously or sequentially?
 
-## Betroffene Dateien (geschätzt)
+## Affected Files (estimated)
 
-- `aifred/state.py` - Neue State-Felder, Memory-Mode Handling
-- `aifred/aifred.py` - UI für Memory-Mode Dropdown
-- `aifred/backends/ollama.py` - Kalibrierungslogik erweitern
-- `aifred/lib/model_vram_cache.py` - Neues Feld für Hybrid-Kontext
-- `aifred/lib/gpu_utils.py` - calculate_vram_based_context anpassen
-
-## Verwandte Dokumentation
-
-- [OLLAMA_CONTEXT_CALIBRATION.md](./OLLAMA_CONTEXT_CALIBRATION.md)
-- [HYBRID_MODE_GUIDE.md](../llm/HYBRID_MODE_GUIDE.md)
+- `aifred/state.py` - New state fields, memory mode handling
+- `aifred/aifred.py` - UI for memory mode dropdown
+- `aifred/backends/ollama.py` - Extend calibration logic
+- `aifred/lib/model_vram_cache.py` - New field for hybrid context
+- `aifred/lib/gpu_utils.py` - Adjust calculate_vram_based_context

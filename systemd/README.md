@@ -1,131 +1,131 @@
-# Systemd Service Files für AIfred Intelligence
+# Systemd Service Files for AIfred Intelligence
 
-Dieses Verzeichnis enthält die Systemd-Service-Dateien für den produktiven Betrieb von AIfred Intelligence.
+This directory contains the systemd service files for running AIfred Intelligence in production.
 
-## 📦 Enthaltene Services
+## Included Services
 
 ### 1. `aifred-chromadb.service`
-Startet und verwaltet den ChromaDB Docker-Container für den Vector Cache.
+Starts and manages the ChromaDB Docker container for the vector cache.
 
 **Features:**
-- Startet automatisch beim Systemstart
-- Wartet auf Docker-Service
-- Neustart bei Fehlern
+- Starts automatically on system boot
+- Waits for Docker service
+- Restarts on failure
 
 ### 2. `aifred-intelligence.service`
-Der Haupt-AIfred-Service (Reflex-App).
+The main AIfred service (Reflex app).
 
 **Features:**
-- Wartet auf Ollama und ChromaDB
-- Setzt `AIFRED_ENV=prod` für MiniPC-Betrieb
-- Automatischer Neustart bei Fehlern
+- Waits for Ollama and ChromaDB
+- Sets `AIFRED_ENV=prod` for production mode
+- Automatic restart on failure
 - Logging via journalctl
 
-## 🚀 Installation
+## Installation
 
-### Erstinstallation
+### First-time Setup
 
 ```bash
-# 1. Service-Dateien kopieren
+# 1. Copy service files
 sudo cp systemd/aifred-chromadb.service /etc/systemd/system/
 sudo cp systemd/aifred-intelligence.service /etc/systemd/system/
 
-# 2. Services aktivieren
+# 2. Enable services
 sudo systemctl daemon-reload
 sudo systemctl enable aifred-chromadb.service
 sudo systemctl enable aifred-intelligence.service
 
-# 3. Services starten
+# 3. Start services
 sudo systemctl start aifred-chromadb.service
 sudo systemctl start aifred-intelligence.service
 
-# 4. Status prüfen
+# 4. Check status
 systemctl status aifred-chromadb.service
 systemctl status aifred-intelligence.service
 ```
 
-### Nach Code-Updates
+### After Code Updates
 
 ```bash
-# Nur AIfred neu starten (ChromaDB bleibt laufen)
+# Restart AIfred only (ChromaDB keeps running)
 sudo systemctl restart aifred-intelligence.service
 ```
 
-### Nach Service-Datei-Änderungen
+### After Service File Changes
 
 ```bash
-# Service-Dateien neu kopieren
+# Copy updated service files
 sudo cp systemd/*.service /etc/systemd/system/
 
-# Daemon neu laden und Services neu starten
+# Reload daemon and restart services
 sudo systemctl daemon-reload
 sudo systemctl restart aifred-chromadb.service
 sudo systemctl restart aifred-intelligence.service
 ```
 
-## 📊 Monitoring
+## Monitoring
 
-### Logs ansehen
+### View Logs
 
 ```bash
-# AIfred Logs (live)
+# AIfred logs (live)
 journalctl -u aifred-intelligence.service -f
 
-# ChromaDB Logs
+# ChromaDB logs
 journalctl -u aifred-chromadb.service -f
 
-# Beide zusammen
+# Both together
 journalctl -u aifred-intelligence.service -u aifred-chromadb.service -f
 
-# Letzte 100 Zeilen
+# Last 100 lines
 journalctl -u aifred-intelligence.service -n 100
 ```
 
-### Service-Status
+### Service Status
 
 ```bash
-# Alle AIfred-Services auf einen Blick
+# All AIfred services at a glance
 systemctl status aifred-*
 
-# Detaillierter Status
+# Detailed status
 systemctl status aifred-intelligence.service
 systemctl status aifred-chromadb.service
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
-### AIfred startet nicht
+### AIfred Won't Start
 
 ```bash
-# 1. ChromaDB-Status prüfen
+# 1. Check ChromaDB status
 systemctl status aifred-chromadb.service
 docker ps | grep chromadb
 
-# 2. Ollama-Status prüfen
+# 2. Check Ollama status
 systemctl status ollama.service
 
-# 3. Logs prüfen
+# 3. Check logs
 journalctl -u aifred-intelligence.service -n 50
 ```
 
-### ChromaDB-Container läuft nicht
+### ChromaDB Container Not Running
 
 ```bash
-# Container manuell starten
+# Start container manually
 cd /home/mp/Projekte/AIfred-Intelligence/docker
 docker compose up -d chromadb
 
-# Oder über Service
+# Or via service
 sudo systemctl restart aifred-chromadb.service
 ```
 
-### Nach Systemstart funktioniert AIfred nicht
+### AIfred Not Working After System Boot
 
 ```bash
-# Start-Reihenfolge prüfen
+# Check startup dependencies
 systemctl list-dependencies aifred-intelligence.service
 
-# Sollte zeigen:
+# Should show:
 # aifred-intelligence.service
 # ├─aifred-chromadb.service
 # │ └─docker.service
@@ -133,50 +133,50 @@ systemctl list-dependencies aifred-intelligence.service
 # └─network.target
 ```
 
-## ⚙️ Konfiguration
+## Configuration
 
-### Umgebungsvariablen
+### Environment Variables
 
-Die wichtigste Umgebungsvariable ist **`AIFRED_ENV=prod`** in `aifred-intelligence.service`:
+The key environment variable is **`AIFRED_ENV=prod`** in `aifred-intelligence.service`:
 
-- `AIFRED_ENV=dev`: API-URL = `http://172.30.8.72:8002` (Hauptrechner/WSL)
-- `AIFRED_ENV=prod`: API-URL = `https://narnia.spdns.de:8443` (MiniPC)
+- `AIFRED_ENV=dev`: API URL = `http://172.30.8.72:8002` (development machine/WSL)
+- `AIFRED_ENV=prod`: API URL = `https://narnia.spdns.de:8443` (production server)
 
-**⚠️ WICHTIG**: Ohne `AIFRED_ENV=prod` werden alle API-Requests an den Entwicklungsrechner weitergeleitet!
+**Important**: Without `AIFRED_ENV=prod`, all API requests are routed to the development machine!
 
-### Service anpassen
+### Modifying Services
 
-Wenn du die Service-Dateien anpasst:
-1. Bearbeite die Dateien in diesem `systemd/` Verzeichnis
-2. Kopiere sie nach `/etc/systemd/system/`
-3. Führe `sudo systemctl daemon-reload` aus
-4. Starte die Services neu
+When modifying service files:
+1. Edit files in this `systemd/` directory
+2. Copy them to `/etc/systemd/system/`
+3. Run `sudo systemctl daemon-reload`
+4. Restart the services
 
-## 🔄 Service-Befehle Übersicht
+## Command Reference
 
 ```bash
-# Starten
+# Start
 sudo systemctl start aifred-intelligence.service
 
-# Stoppen
+# Stop
 sudo systemctl stop aifred-intelligence.service
 
-# Neu starten
+# Restart
 sudo systemctl restart aifred-intelligence.service
 
 # Status
 systemctl status aifred-intelligence.service
 
-# Beim Boot aktivieren
+# Enable on boot
 sudo systemctl enable aifred-intelligence.service
 
-# Beim Boot deaktivieren
+# Disable on boot
 sudo systemctl disable aifred-intelligence.service
 ```
 
-## 📝 Hinweise
+## Notes
 
-- ChromaDB muss vor AIfred starten (wird durch `Requires=` sichergestellt)
-- AIfred startet automatisch neu bei Fehlern (`Restart=always`)
-- Logs werden persistent in journald gespeichert
-- Die Services werden beim Systemstart automatisch gestartet (wenn enabled)
+- ChromaDB must start before AIfred (ensured via `Requires=`)
+- AIfred restarts automatically on failure (`Restart=always`)
+- Logs are persistently stored in journald
+- Services start automatically on system boot (when enabled)
