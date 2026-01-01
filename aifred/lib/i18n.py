@@ -230,6 +230,17 @@ class TranslationManager:
             # Context Calibration
             "calibrate_context": "Context kalibrieren",
             "calibrating": "Kalibriere...",
+            # Collapsible Labels (XML tags, debug accordion)
+            "collapsible_thinking": "Denkprozess",
+            "collapsible_data": "Strukturierte Daten",
+            "collapsible_python": "Python Code",
+            "collapsible_code": "Code",
+            "collapsible_sql": "SQL Query",
+            "collapsible_json": "JSON Daten",
+            "collapsible_show_html": "📄 HTML Code anzeigen",
+            "collapsible_query_optimization": "🔍 Query-Optimierung",
+            "collapsible_thinking_process": "💭 Denkprozess Antwort",
+            "collapsible_summary": "Zusammenfassung",
         },
         "en": {
             # UI Labels
@@ -417,6 +428,17 @@ class TranslationManager:
             # Context Calibration
             "calibrate_context": "Calibrate context",
             "calibrating": "Calibrating...",
+            # Collapsible Labels (XML tags, debug accordion)
+            "collapsible_thinking": "Thinking Process",
+            "collapsible_data": "Structured Data",
+            "collapsible_python": "Python Code",
+            "collapsible_code": "Code",
+            "collapsible_sql": "SQL Query",
+            "collapsible_json": "JSON Data",
+            "collapsible_show_html": "📄 Show HTML Code",
+            "collapsible_query_optimization": "🔍 Query Optimization",
+            "collapsible_thinking_process": "💭 Final Answer Thinking Process",
+            "collapsible_summary": "Summary",
         }
     }
 

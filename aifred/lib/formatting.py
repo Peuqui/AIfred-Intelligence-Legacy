@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 from collections import OrderedDict
 from .logging_utils import log_message
-from .config import XML_TAG_CONFIG  # Import from central config
+from .config import get_xml_tag_config  # Import function instead of static config
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
 
@@ -299,7 +299,7 @@ def cleanup_old_html_previews(max_age_hours: int = 24) -> int:
     return deleted
 
 
-def format_html_preview(text: str) -> str:
+def format_html_preview(text: str, lang: str = None) -> str:
     """
     Detect ```html code blocks, save them as files and generate preview buttons.
 
@@ -308,6 +308,7 @@ def format_html_preview(text: str) -> str:
 
     Args:
         text: Text with optional ```html code blocks
+        lang: Language for collapsible labels (de/en). If None, uses get_ui_locale()
 
     Returns:
         Text with HTML preview buttons and collapsible code
@@ -316,6 +317,16 @@ def format_html_preview(text: str) -> str:
         Input:  "Here is HTML:\n```html\n<h1>Hello</h1>\n```\nDone!"
         Output: "Here is HTML:\n[🌐 Open in Browser](/html_preview/abc123.html)\n<details>...</details>\nDone!"
     """
+    # Import i18n for labels
+    from .i18n import t
+
+    # Use current UI locale if no lang specified
+    if lang is None:
+        lang = get_ui_locale()
+
+    # Get translated label
+    show_html_label = t("collapsible_show_html", lang=lang)
+
     # Pattern for ```html code blocks (with optional whitespace/newline)
     # Made robust: \s* allows any whitespace (including none) after "html"
     html_block_pattern = r'```html\s*([\s\S]*?)```'
@@ -333,7 +344,7 @@ def format_html_preview(text: str) -> str:
 <a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="font-weight: bold; color: #58a6ff; text-decoration: none;">🌐 Open in Browser</a> <em>(New Tab)</em>
 
 <details style="font-size: 0.9em; border: 1px solid #30363d; border-radius: 6px;">
-<summary style="cursor: pointer; font-weight: bold; color: #58a6ff; padding: 0.5em;">📄 Show HTML Code</summary>
+<summary style="cursor: pointer; font-weight: bold; color: #58a6ff; padding: 0.5em;">{show_html_label}</summary>
 <div style="padding: 0.5em;">
 
 ```html
@@ -455,11 +466,11 @@ def format_debug_message(message: str) -> str:
     return f"{timestamp} | {message}"
 
 
-def format_thinking_process(ai_response, model_name=None, inference_time=None, tokens_per_sec=None):
+def format_thinking_process(ai_response, model_name=None, inference_time=None, tokens_per_sec=None, lang=None):
     """
     Format XML tags as collapsible accordions (GENERIC).
 
-    Supports ALL tags defined in XML_TAG_CONFIG dynamically.
+    Supports ALL tags defined in get_xml_tag_config() dynamically.
     No more hardcoding - new tags can be added via config!
 
     Args:
@@ -467,11 +478,12 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
         model_name: Name of the model used (e.g., "qwen3:1.7b")
         inference_time: Inference time in seconds
         tokens_per_sec: Tokens per second (optional)
+        lang: Language for collapsible labels (de/en). If None, uses get_ui_locale()
 
     Returns:
         Formatted string with collapsibles for all detected XML tags
 
-    Supported Tags (via XML_TAG_CONFIG):
+    Supported Tags (via get_xml_tag_config):
         <think>: Thinking process (DeepSeek Reasoning)
         <data>: Structured data (Vision-LLM JSON)
         <python>: Python Code
@@ -483,6 +495,12 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
         Input: "<think>reasoning</think> Answer <python>code</python>"
         Output: 2 collapsibles (Thinking Process + Python Code) + "Answer"
     """
+    # Use current UI locale if no lang specified
+    if lang is None:
+        lang = get_ui_locale()
+
+    # Get XML tag config with i18n labels
+    xml_tag_config = get_xml_tag_config(lang)
 
     # DEBUG: Log COMPLETE RAW Response
     log_message("=" * 80)
@@ -500,7 +518,7 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
     # Build collapsibles for each detected tag (if any)
     collapsibles = []
     for tag_name, content in xml_tags:
-        config = XML_TAG_CONFIG.get(tag_name)
+        config = xml_tag_config.get(tag_name)
 
         if config:
             # Known tag → Use config (nice icon + label)
@@ -511,7 +529,7 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
             # Unknown tag → SKIP (don't format as collapsible!)
             # Smaller models often output tags like <result>, <function>,
             # which are not intended to be collapsibles
-            log_message(f"ℹ️ Skipping unknown XML tag: <{tag_name}> (not in XML_TAG_CONFIG)")
+            log_message(f"ℹ️ Skipping unknown XML tag: <{tag_name}> (not in xml_tag_config)")
             continue
 
         # Build summary with icon + label
@@ -538,7 +556,7 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
     clean_response = ai_response
     for tag_name, _ in xml_tags:
         # Only remove if tag is in config (i.e., a collapsible was created)
-        if tag_name in XML_TAG_CONFIG:
+        if tag_name in xml_tag_config:
             pattern = rf'<{tag_name}>.*?</{tag_name}>'
             clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
     clean_response = clean_response.strip()
@@ -558,7 +576,7 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
     return result
 
 
-def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model, query_time=None, final_time=None):
+def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model, query_time=None, final_time=None, lang=None):
     """
     Build debug accordion for agent research with all AI thinking processes.
 
@@ -571,10 +589,17 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
         main_model: Name of Main model (for final answer)
         query_time: Inference time for Query Optimization (optional)
         final_time: Inference time for final answer (optional)
+        lang: Language for collapsible labels (de/en). If None, uses get_ui_locale()
 
     Returns:
         Formatted AI response with debug accordion prepended
     """
+    # Import i18n for labels
+    from .i18n import t
+
+    # Use current UI locale if no lang specified
+    if lang is None:
+        lang = get_ui_locale()
 
     # DEBUG: Log COMPLETE RAW Response
     log_message("=" * 80)
@@ -590,8 +615,9 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
     # 1. Query Optimization Reasoning (if present)
     if query_reasoning:
         time_suffix = f" • {query_time:.1f}s" if query_time else ""
+        query_opt_label = t("collapsible_query_optimization", lang=lang)
         debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">🔍 Query Optimization ({automatik_model}){time_suffix}</summary>
+<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{query_opt_label} ({automatik_model}){time_suffix}</summary>
 <div class="thinking-compact">
 
 {query_reasoning}
@@ -606,8 +632,9 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
         if tag_name == "think":
             # <think> tag → Add as debug collapsible
             time_suffix = f" • {final_time:.1f}s" if final_time else ""
+            thinking_label = t("collapsible_thinking_process", lang=lang)
             debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">💭 Final Answer Thinking Process ({main_model}){time_suffix}</summary>
+<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{thinking_label} ({main_model}){time_suffix}</summary>
 <div class="thinking-compact">
 
 {content}

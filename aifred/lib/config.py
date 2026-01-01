@@ -686,14 +686,29 @@ CACHE_EXCLUDE_VOLATILE = _load_volatile_keywords()
 # Config dictionary defines icon, label and CSS class per tag
 # ALL XML tags are recognized - this list is only for nice icons!
 # Unknown tags automatically get "📄 Tagname" as fallback
-XML_TAG_CONFIG = {
-    "think": {"icon": "💭", "label": "Denkprozess", "class": "thinking-compact"},
-    "data": {"icon": "📊", "label": "Strukturierte Daten", "class": "thinking-compact"},
-    "python": {"icon": "🐍", "label": "Python Code", "class": "thinking-compact"},
-    "code": {"icon": "💻", "label": "Code", "class": "thinking-compact"},
-    "sql": {"icon": "🗃️", "label": "SQL Query", "class": "thinking-compact"},
-    "json": {"icon": "📋", "label": "JSON Daten", "class": "thinking-compact"},
-}
+def get_xml_tag_config(lang: str = "de") -> dict:
+    """
+    Get XML tag config with i18n labels.
+
+    Args:
+        lang: Language code ("de" or "en")
+
+    Returns:
+        Config dict with icon, label and CSS class per tag
+    """
+    # Import here to avoid circular imports
+    from .i18n import t
+
+    return {
+        "think": {"icon": "💭", "label": t("collapsible_thinking", lang=lang), "class": "thinking-compact"},
+        "data": {"icon": "📊", "label": t("collapsible_data", lang=lang), "class": "thinking-compact"},
+        "python": {"icon": "🐍", "label": t("collapsible_python", lang=lang), "class": "thinking-compact"},
+        "code": {"icon": "💻", "label": t("collapsible_code", lang=lang), "class": "thinking-compact"},
+        "sql": {"icon": "🗃️", "label": t("collapsible_sql", lang=lang), "class": "thinking-compact"},
+        "json": {"icon": "📋", "label": t("collapsible_json", lang=lang), "class": "thinking-compact"},
+    }
+
+
 
 # ============================================================
 # VISION/OCR CONFIGURATION
