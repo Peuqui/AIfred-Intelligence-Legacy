@@ -3055,6 +3055,11 @@ class AIState(rx.State):
                         # The message is already in the history from the streaming, no need to re-add
                         yield  # Update UI to show new history entry
 
+                        # DUAL-HISTORY: Sync AIfred response to llm_history (Automatik mode)
+                        # This ensures Sokrates/Salomo can see AIfred's answer in Multi-Agent mode
+                        if ai_text:
+                            self._sync_llm_history_assistant(ai_text)
+
                         # ============================================================
                         # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not skipped)
                         # skip_sokrates_analysis is set when user directly addresses AIfred
@@ -3074,7 +3079,7 @@ class AIState(rx.State):
                         yield  # Force immediate UI update to clear both windows
                         # NOTE: Loop continues for cache metadata generation (important!)
                     elif item["type"] == "progress":
-                        # Update processing progress
+                        # Update processing progress (Automatik mode)
                         if item.get("clear", False):
                             self.clear_progress()
                         else:
@@ -3178,6 +3183,11 @@ class AIState(rx.State):
                         self.chat_history = updated_history
                         # The message is already in the history from the streaming, no need to re-add
                         yield  # Update UI to show new history entry
+
+                        # DUAL-HISTORY: Sync AIfred response to llm_history (Research mode)
+                        # This ensures Sokrates/Salomo can see AIfred's answer in Multi-Agent mode
+                        if ai_text:
+                            self._sync_llm_history_assistant(ai_text)
 
                         # ============================================================
                         # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not skipped)
