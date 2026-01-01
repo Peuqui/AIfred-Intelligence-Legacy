@@ -1141,7 +1141,7 @@ async def chat_interactive_mode(
         # ============================================================
         if rag_context:
             log_message(f"✅ RAG context available ({num_sources} relevant entries) → Bypass Automatik-LLM, direct to main LLM")
-            yield {"type": "debug", "message": f"⚡ RAG Bypass: {num_sources}/{num_checked} relevant entries → Skip Automatik-LLM"}
+            yield {"type": "debug", "message": f"⚡ RAG Bypass: {num_sources}/{num_checked} relevant entries → Skip Automatic-LLM"}
 
             # Language detection for user input
             from .prompt_loader import detect_language
@@ -1352,8 +1352,9 @@ async def chat_interactive_mode(
 
             # AI response with timing + source (RAG) + model name
             source_label = f"Cache+LLM RAG ({model_choice})"
-            metadata = format_metadata(f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
-            ai_with_source = f"{thinking_html}  \n{metadata}"
+            ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
+            metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
+            ai_with_source = f"{thinking_html}\n\n{metadata}"
 
             # Add to history (WITH thinking collapsible + source!)
             history.append((user_with_time, ai_with_source))
@@ -1430,7 +1431,7 @@ async def chat_interactive_mode(
             input_tokens = estimate_tokens(decision_messages_dict, model_name=automatik_model)
 
             # Show compact context info
-            yield {"type": "debug", "message": f"📊 Automatik-LLM: {format_number(input_tokens)} / {format_number(decision_num_ctx)} tok (Model Max: {format_number(automatik_limit)} tok)"}
+            yield {"type": "debug", "message": f"📊 Automatic-LLM: {format_number(input_tokens)} / {format_number(decision_num_ctx)} tok (Model Max: {format_number(automatik_limit)} tok)"}
             log_message(f"📊 Automatik-LLM ({automatik_model}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(decision_num_ctx)}, max: {format_number(automatik_limit)}")
 
             decision_start = time.time()
@@ -1643,6 +1644,7 @@ async def chat_interactive_mode(
                 metrics = {}
                 inference_time = 0.0
                 tokens_per_sec = 0.0
+                ttft = None
 
                 async for chunk in stream_llm_response(
                     llm_client, model_choice, llm_messages_no_rag, main_llm_options,
@@ -1660,6 +1662,7 @@ async def chat_interactive_mode(
                         metrics = chunk["metrics"]
                         inference_time = chunk["inference_time"]
                         tokens_per_sec = metrics.get("tokens_per_second", 0)
+                        ttft = chunk.get("ttft")
 
                 # Console: LLM finished
                 yield log_llm_completion(inference_time, metrics)
@@ -1685,8 +1688,9 @@ async def chat_interactive_mode(
                 else:
                     source_label = f"LLM ({model_choice})"
 
-                metadata = format_metadata(f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
-                ai_with_source = f"{thinking_html}  \n{metadata}"
+                ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
+                metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
+                ai_with_source = f"{thinking_html}\n\n{metadata}"
 
                 # Add to history (WITH Thinking Collapsible + Source!)
                 history.append((user_with_time, ai_with_source))

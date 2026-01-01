@@ -2668,10 +2668,12 @@ class AIState(rx.State):
                 self.automatik_model_id,
                 llm_client
             )
-            # Show raw LLM response + parsed result in debug console (English)
-            addressee_display = addressed_to.capitalize() if addressed_to else "–"
-            self.add_debug(f"🎯 Intent: \"{intent_raw}\" → {detected_intent}, Addressee: {addressee_display}")
-            yield
+            # Log to file only (not UI debug console) - respects DEBUG_LOG_RAW_MESSAGES flag
+            from .lib.config import DEBUG_LOG_RAW_MESSAGES
+            if DEBUG_LOG_RAW_MESSAGES:
+                from .lib.logging_utils import log_message as _log
+                addressee_display = addressed_to.capitalize() if addressed_to else "–"
+                _log(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}")
 
             # Track if Sokrates should be skipped (AIfred direct addressing)
             skip_sokrates_analysis = False
@@ -3412,9 +3414,10 @@ class AIState(rx.State):
                     tokens_per_sec=tokens_per_sec
                 )
 
-                # Add metadata footer (Inference + Tok/s + Source + Model) like other modes
+                # Add metadata footer (TTFT + Inference + Tok/s + Source + Model) like other modes
+                ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
                 metadata = format_metadata(
-                    f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Training data ({self.aifred_model_id})"
+                    f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Training data ({self.aifred_model_id})"
                 )
                 formatted_response = f"{thinking_html}\n\n{metadata}"
 

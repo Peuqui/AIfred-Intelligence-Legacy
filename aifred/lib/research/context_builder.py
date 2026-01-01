@@ -268,6 +268,7 @@ async def build_and_generate_response(
     metrics = {}
     inference_time = 0.0
     tokens_per_sec = 0.0
+    ttft = None
 
     async for chunk in stream_llm_response(
         llm_client, model_choice, messages, research_llm_options,
@@ -285,6 +286,7 @@ async def build_and_generate_response(
             metrics = chunk["metrics"]
             inference_time = chunk["inference_time"]
             tokens_per_sec = metrics.get("tokens_per_second", 0)
+            ttft = chunk.get("ttft")
 
     # Log completion
     yield log_llm_completion(inference_time, metrics)
@@ -333,7 +335,8 @@ async def build_and_generate_response(
 
     # Update history
     total_time = time.time() - agent_start
-    metadata = format_metadata(f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Web Research")
+    ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
+    metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Web Research")
 
     if stt_time > 0:
         user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s    Agent: {mode}    {len(scraped_only)} sources")
@@ -342,7 +345,7 @@ async def build_and_generate_response(
         user_metadata = format_metadata(f"Agent: {mode}    {len(scraped_only)} sources")
         user_with_time = f"{user_text}  \n{user_metadata}"
 
-    history.append((user_with_time, thinking_html + "  \n" + metadata))
+    history.append((user_with_time, f"{thinking_html}\n\n{metadata}"))
 
     log_message(f"✅ AI response generated ({len(ai_text)} chars, inference: {format_number(inference_time, 1)}s)")
 
