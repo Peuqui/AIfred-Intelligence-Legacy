@@ -1977,7 +1977,6 @@ class AIState(rx.State):
                 if koboldcpp_busy:
                     # Requests in KoboldCPP queue - treat as active
                     if self.gpu_consecutive_idle_checks > 0:
-                        from aifred.lib.logging_utils import log_message
                         log_message(
                             f"🔒 KoboldCPP busy (queue active) - idle timer reset "
                             f"(was at {self.gpu_consecutive_idle_checks}/{idle_checks_needed} checks)"
@@ -1996,7 +1995,6 @@ class AIState(rx.State):
                             f"(was at {self.gpu_consecutive_idle_checks}/{idle_checks_needed} checks)"
                         )
                         # Also log to file
-                        from aifred.lib.logging_utils import log_message
                         log_message(
                             f"🔄 GPU activity detected - idle timer reset "
                             f"(was at {self.gpu_consecutive_idle_checks}/{idle_checks_needed} checks)"
@@ -2020,7 +2018,6 @@ class AIState(rx.State):
                         pass  # If we can't query, proceed with shutdown
 
                     if koboldcpp_busy_final:
-                        from aifred.lib.logging_utils import log_message
                         log_message(
                             "🔒 Shutdown aborted - KoboldCPP queue active"
                         )
@@ -2042,7 +2039,6 @@ class AIState(rx.State):
                     )
 
                     # Log to file
-                    from aifred.lib.logging_utils import log_message
                     log_message(
                         f"🛑 KoboldCPP shutting down due to inactivity "
                         f"(GPUs were {idle_duration}s idle, Timeout: {KOBOLDCPP_INACTIVITY_TIMEOUT}s)"
@@ -2086,7 +2082,6 @@ class AIState(rx.State):
                 f"❌ GPU monitoring error: {e}"
             )
             self.gpu_monitoring_active = False
-            from aifred.lib.logging_utils import log_message
             log_message(f"❌ GPU monitoring error: {e}")
 
     async def _ensure_backend_initialized(self):
@@ -2671,9 +2666,8 @@ class AIState(rx.State):
             # Log to file only (not UI debug console) - respects DEBUG_LOG_RAW_MESSAGES flag
             from .lib.config import DEBUG_LOG_RAW_MESSAGES
             if DEBUG_LOG_RAW_MESSAGES:
-                from .lib.logging_utils import log_message as _log
                 addressee_display = addressed_to.capitalize() if addressed_to else "–"
-                _log(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}")
+                log_message(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}")
 
             # Track if Sokrates should be skipped (AIfred direct addressing)
             skip_sokrates_analysis = False
@@ -2781,8 +2775,6 @@ class AIState(rx.State):
                 # ==============================================================================
                 # PHASE 1: VISION EXTRACTION (Process Vision-LLM items only)
                 # ==============================================================================
-                from .lib.logging_utils import log_message
-
                 async for item in chat_with_vision_pipeline(
                     user_text=original_user_text,  # CRITICAL: Use original (may be empty!), not display_user_msg
                     images=local_images,  # CRITICAL: Use local copy, NOT self.pending_images!
@@ -3358,7 +3350,6 @@ class AIState(rx.State):
                 yield
 
                 # Stream response directly from LLM
-                from .lib.logging_utils import log_message
                 log_message(f"🔬 DEBUG: Setting inference_start at {time.time()}")
                 inference_start = time.time()
                 log_message(f"🔬 DEBUG: inference_start = {inference_start}")
@@ -3500,7 +3491,6 @@ class AIState(rx.State):
                         self.add_debug("────────────────────")
                 except Exception as tts_error:
                     self.add_debug(f"⚠️ TTS generation failed: {tts_error}")
-                    from .lib.logging_utils import log_message
                     log_message(f"❌ TTS error in finally block: {tts_error}")
 
             # Auto-Save: Session nach jeder Chat-Nachricht speichern
