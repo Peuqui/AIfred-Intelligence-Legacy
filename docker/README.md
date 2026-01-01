@@ -1,85 +1,85 @@
-# Docker Services für AIfred Intelligence
+# Docker Services for AIfred Intelligence
 
-Diese Datei enthält alle Docker-Services die AIfred Intelligence benötigt.
+This directory contains all Docker services required by AIfred Intelligence.
 
 ## Services
 
 ### 1. ChromaDB (Essential)
-Vector Database für semantischen Cache von Web-Recherchen.
+Vector database for semantic caching of web research results.
 
-**Starten:**
+**Start:**
 ```bash
 docker compose up -d chromadb
 ```
 
-**Stoppen:**
+**Stop:**
 ```bash
 docker compose stop chromadb
 ```
 
-**Status prüfen:**
+**Check status:**
 ```bash
 docker compose ps
 ```
 
 ### 2. SearXNG (Optional)
-Lokale Meta-Suchmaschine für Web-Recherchen.
+Local meta-search engine for web research.
 
-**Starten (mit ChromaDB):**
+**Start (with ChromaDB):**
 ```bash
 docker compose --profile full up -d
 ```
 
-**Zugriff:** http://localhost:8888
+**Access:** http://localhost:8888
 
-## Verwaltung
+## Management
 
-### Alle Services starten
+### Start all services
 ```bash
-# Nur ChromaDB (Standard)
+# ChromaDB only (default)
 docker compose up -d chromadb
 
 # ChromaDB + SearXNG
 docker compose --profile full up -d
 ```
 
-### Alle Services stoppen
+### Stop all services
 ```bash
 docker compose down
 ```
 
-### Logs anzeigen
+### View logs
 ```bash
-# Alle Services
+# All services
 docker compose logs -f
 
-# Nur ChromaDB
+# ChromaDB only
 docker compose logs -f chromadb
 
-# Nur SearXNG
+# SearXNG only
 docker compose logs -f searxng
 ```
 
-### ChromaDB Cache zurücksetzen
+### Reset ChromaDB cache
 ```bash
-# Option 1: Container neu starten + Daten löschen
+# Option 1: Restart container + delete data
 docker compose stop chromadb
 cd ..
 rm -rf aifred_vector_cache/
 cd docker
 docker compose up -d chromadb
 
-# Option 2: Nur Collection löschen (siehe Haupt-README)
+# Option 2: Delete collection only (see main README)
 ```
 
-## Netzwerk
+## Network
 
-Alle Services laufen im gemeinsamen `aifred-network`, sodass sie untereinander kommunizieren können.
+All services run in the shared `aifred-network`, allowing inter-service communication.
 
 - ChromaDB: `http://localhost:8000`
-- SearXNG: `http://localhost:8888` (nur mit `--profile full`)
+- SearXNG: `http://localhost:8888` (only with `--profile full`)
 
 ## Volumes
 
-- `../aifred_vector_cache/` - Persistenter Storage für ChromaDB
-- `./searxng/settings.yml` - SearXNG Konfiguration
+- `../aifred_vector_cache/` - Persistent storage for ChromaDB
+- `./searxng/settings.yml` - SearXNG configuration

@@ -28,7 +28,6 @@ This directory contains documentation related to vLLM backend configuration, tro
 
 ## Related Documentation
 
-- [GPU_COMPATIBILITY.md](../GPU_COMPATIBILITY.md) - GPU compatibility matrix for all backends
 - [CHANGELOG.md](../../CHANGELOG.md) - Main project changelog
 
 ## Quick Links

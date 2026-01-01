@@ -13,17 +13,15 @@ pynvml>=11.0.0          # NVIDIA GPU monitoring for VRAM detection
 psutil>=5.9.0           # System resource monitoring (RAM for hybrid mode)
 
 # Web Search & Scraping
-beautifulsoup4>=4.12.0  # HTML parsing
-trafilatura>=1.13.0     # Web content extraction
+trafilatura>=1.13.0     # Web content extraction (includes lxml)
 playwright>=1.50.0      # JavaScript-heavy page scraping
-searxng-search>=0.1.0   # SearXNG meta-search integration
-requests>=2.31.0        # HTTP requests for search APIs
-lxml>=5.0.0             # XML/HTML parser (trafilatura dependency)
+requests>=2.31.0        # HTTP requests for search APIs (Brave, SearXNG)
 pymupdf>=1.26.0         # PDF text extraction (AWMF guidelines, PubMed PDFs)
 
 # Vector Database & Semantic Search
 chromadb>=0.4.24        # Vector database for semantic caching
 ollama>=0.4.0           # Ollama Python client for embeddings
+numpy>=1.24.0           # Required by chromadb embeddings
 
 # Audio Processing (STT/TTS)
 edge-tts==7.2.1         # Text-to-Speech (7.2.3 has NoAudioReceived bug)

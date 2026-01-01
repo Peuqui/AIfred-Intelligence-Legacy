@@ -5,6 +5,35 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.10] - 2026-01-01
+
+### Documentation
+
+- **Major docs cleanup: README.md as single source of truth**
+  - Deleted 55+ documentation files that duplicated README content
+  - Deleted 16 obsolete scripts (download scripts, test scripts, etc.)
+  - Moved `AGENT_PIPELINE_USAGE.md` to `.claude/` (internal docs)
+  - Kept only `docs/vllm/` for GPU-specific vLLM documentation
+  - Kept `docs/plans/HYBRID_MODE_CALIBRATION_DISCUSSION.md` as referenced roadmap item
+
+- **Translated all German documentation to English**
+  - `docker/README.md` - Docker services documentation
+  - `systemd/README.md` - Systemd service installation and monitoring
+  - `prompts/README.md` - **Completely rewritten** to reflect current i18n prompt structure
+  - `docker/searxng/README.md` - SearXNG setup guide
+  - `TODO.md` - Roadmap and planned features
+  - `docs/plans/HYBRID_MODE_CALIBRATION_DISCUSSION.md` - Hybrid mode planning document
+
+- **Fixed broken links**
+  - `docs/vllm/README.md` - Removed reference to deleted `GPU_COMPATIBILITY.md`
+  - `prompts/README.md` - Removed outdated reference to `lib/agent_core.py`
+
+- **Scripts cleanup**
+  - Added Playwright installation to `scripts/setup-python.sh`
+  - Kept essential scripts: `install-all.sh`, `install-services.sh`, `install_koboldcpp.sh`, `setup-python.sh`, `chroma_maintenance.py`
+
+---
+
 ## [2.15.9] - 2025-12-30
 
 ### Refactoring
