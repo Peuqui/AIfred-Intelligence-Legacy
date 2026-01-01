@@ -27,7 +27,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **Session Persistence**: Mobile chat history survives browser background/restart (cookie-based)
-- **Share Chat**: Copy entire conversation to clipboard as formatted text (🔗 button)
+- **Share Chat**: Export conversation as styled HTML file (opens in new browser tab)
 - **HTML Preview**: AI-generated HTML code opens directly in browser (new tab)
 - **LaTeX & Chemistry**: KaTeX for math formulas, mhchem extension for chemistry (`\ce{H2O}`, reactions, structure formulas)
 - **Multi-Agent Debate System**: AIfred + Sokrates as critical discussion partner for improved answer quality

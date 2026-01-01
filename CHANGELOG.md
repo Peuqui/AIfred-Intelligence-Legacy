@@ -5,6 +5,23 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.11] - 2026-01-01
+
+### Added
+
+- **Share Chat: HTML Export** ([state.py](aifred/state.py)):
+  - Chat export now opens as styled HTML in new browser tab (instead of clipboard copy)
+  - Dark theme matching AIfred UI with agent-specific colors (🎩 AIfred, 🏛️ Sokrates, 👑 Salomo)
+  - Working `<details>` collapsibles for thinking processes in exported HTML
+  - Files saved to `uploaded_files/html_preview/` with LRU cache (max 50 files)
+
+- **i18n: Collapsible Labels** ([i18n.py](aifred/lib/i18n.py), [config.py](aifred/lib/config.py), [formatting.py](aifred/lib/formatting.py)):
+  - All collapsible labels now translatable (Thinking Process, Structured Data, Summary, etc.)
+  - `get_xml_tag_config(lang)` replaces static `XML_TAG_CONFIG` dict
+  - Labels respect UI language setting (DE: "Denkprozess", EN: "Thinking Process")
+
+---
+
 ## [2.15.10] - 2026-01-01
 
 ### Documentation

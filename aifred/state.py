@@ -3254,7 +3254,7 @@ class AIState(rx.State):
                 )
 
                 # Inject system prompt with timestamp (from load_prompt - automatically includes date/time)
-                from .lib.prompt_loader import load_prompt, detect_language, get_aifred_direct_prompt, get_aifred_system_minimal
+                from .lib.prompt_loader import detect_language, get_aifred_direct_prompt, get_aifred_system_minimal
                 detected_language = detect_language(user_msg)
 
                 # Use AIfred direct prompt if user addressed AIfred directly
@@ -3539,26 +3539,27 @@ class AIState(rx.State):
         self._save_current_session()
 
     def share_chat(self):
-        """Share chat history - copy to clipboard as formatted text
+        """Share chat history - export as HTML and open in new browser tab
 
-        Handles multi-agent debate messages correctly:
-        - Regular messages: (user_msg, ai_msg) where user_msg is non-empty
-        - Sokrates/AIfred refinements: ("", ai_msg) where ai_msg starts with agent marker
+        Creates a standalone HTML file with embedded CSS that looks like the AIfred UI.
+        Uses the existing html_preview infrastructure for file management.
         """
+        from datetime import datetime
+        from .lib.formatting import _save_html_to_assets
+
         if not self.chat_history:
             self.add_debug("⚠️ No chat to share")
             return
 
-        # Format chat history as readable text
-        lines = ["═" * 50, "🎩 AIfred Intelligence - Chat Export", "═" * 50, ""]
+        # Build HTML document
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        html_parts = [self._get_export_html_header(timestamp)]
 
-        message_num = 0
         for user_msg, ai_msg in self.chat_history:
             ai_msg_stripped = ai_msg.strip()
 
-            # Determine message type based on content (new marker format)
+            # Determine message type based on content
             is_sokrates = ai_msg_stripped.startswith("🏛️")
-            is_alfred_refinement = ai_msg_stripped.startswith("🎩[")
             is_salomo = ai_msg_stripped.startswith("👑")
             is_summary = (
                 ai_msg_stripped.startswith("[📊 Komprimiert") or
@@ -3568,69 +3569,236 @@ class AIState(rx.State):
             has_user_input = bool(user_msg and user_msg.strip())
 
             if has_user_input:
-                # Regular user message followed by AI response
-                message_num += 1
-                lines.append(f"👤 User ({message_num}):")
-                lines.append(user_msg)
-                lines.append("")
+                # User message bubble
+                html_parts.append(f'''
+                <div class="message user-message">
+                    <div class="message-header">👤 User</div>
+                    <div class="message-content">{self._escape_html(user_msg)}</div>
+                </div>
+                ''')
 
-            # Skip empty AI responses (e.g., when Sokrates answers directly)
+            # Skip empty AI responses
             if not ai_msg_stripped:
                 continue
 
-            # Determine AI label based on message type
+            # Determine agent and styling
             if is_summary:
-                # Summary (compressed messages) - use special marker
-                lines.append("📊 [Komprimierte History]:")
-                lines.append(ai_msg)
+                agent_class = "summary-message"
+                header = "📊 Summary"
             elif is_sokrates:
-                # Sokrates message - already has proper header with emoji
-                lines.append(ai_msg)
-            elif is_alfred_refinement:
-                # AIfred refinement - already has proper header
-                lines.append(ai_msg)
+                agent_class = "sokrates-message"
+                header = "🏛️ Sokrates"
             elif is_salomo:
-                # Salomo message - already has proper header with emoji
-                lines.append(ai_msg)
-            elif has_user_input:
-                # Regular AIfred response to user question
-                lines.append(f"🎩 AIfred ({message_num}):")
-                lines.append(ai_msg)
+                agent_class = "salomo-message"
+                header = "👑 Salomo"
             else:
-                # AI-only message without user input (shouldn't happen often)
-                lines.append("🎩 AIfred:")
-                lines.append(ai_msg)
+                agent_class = "aifred-message"
+                header = "🎩 AIfred"
 
-            lines.append("")
-            lines.append(CONSOLE_SEPARATOR)
-            lines.append("")
+            # AI message (content already contains HTML with collapsibles)
+            html_parts.append(f'''
+            <div class="message {agent_class}">
+                <div class="message-header">{header}</div>
+                <div class="message-content">{ai_msg}</div>
+            </div>
+            ''')
 
-        # Remove trailing separator (last 3 lines: empty, separator, empty)
-        if len(lines) >= 3 and lines[-2] == CONSOLE_SEPARATOR:
-            lines = lines[:-3]
-            lines.append("")  # Keep one trailing newline
+        html_parts.append(self._get_export_html_footer())
+        html_content = "\n".join(html_parts)
 
-        chat_text = "\n".join(lines)
+        # Save HTML file and get URL
+        preview_url = _save_html_to_assets(html_content)
 
-        # Sicheres Escaping via JSON (verhindert XSS)
-        import json
-        escaped_text = json.dumps(chat_text)
+        self.add_debug(f"📋 Chat exported as HTML ({len(self.chat_history)} messages)")
 
-        # Copy to clipboard via JavaScript
-        # JSON-escaped string ist sicher gegen XSS (kein Template Literal nötig)
-        js_script = f"""
-        (async () => {{
-            try {{
-                await navigator.clipboard.writeText({escaped_text});
-                console.log('Chat copied to clipboard');
-            }} catch (err) {{
-                console.error('Failed to copy:', err);
-            }}
-        }})();
-        """
-
-        self.add_debug(f"📋 Chat copied to clipboard ({len(self.chat_history)} messages)")
+        # Open in new browser tab via JavaScript
+        js_script = f'window.open("{preview_url}", "_blank");'
         return rx.call_script(js_script)
+
+    def _escape_html(self, text: str) -> str:
+        """Escape HTML special characters in user input"""
+        return (text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&#39;")
+            .replace("\n", "<br>"))
+
+    def _get_export_html_header(self, timestamp: str) -> str:
+        """Generate HTML header with embedded CSS for chat export"""
+        return f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎩 AIfred Intelligence - Chat Export</title>
+    <style>
+        * {{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background-color: #0d1117;
+            color: #e6edf3;
+            line-height: 1.6;
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }}
+        .header {{
+            text-align: center;
+            padding: 20px;
+            border-bottom: 1px solid #30363d;
+            margin-bottom: 20px;
+        }}
+        .header h1 {{
+            color: #e67700;
+            font-size: 1.8em;
+            margin-bottom: 5px;
+        }}
+        .header .timestamp {{
+            color: #7d8590;
+            font-size: 0.9em;
+        }}
+        .message {{
+            margin-bottom: 15px;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+        }}
+        .message-header {{
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 0.95em;
+        }}
+        .message-content {{
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }}
+        .user-message {{
+            background-color: #21262d;
+            border-left: 3px solid #58a6ff;
+        }}
+        .user-message .message-header {{
+            color: #58a6ff;
+        }}
+        .aifred-message {{
+            background-color: #161b22;
+            border-left: 3px solid #e67700;
+        }}
+        .aifred-message .message-header {{
+            color: #e67700;
+        }}
+        .sokrates-message {{
+            background-color: #161b22;
+            border-left: 3px solid #a371f7;
+        }}
+        .sokrates-message .message-header {{
+            color: #a371f7;
+        }}
+        .salomo-message {{
+            background-color: #161b22;
+            border-left: 3px solid #d29922;
+        }}
+        .salomo-message .message-header {{
+            color: #d29922;
+        }}
+        .summary-message {{
+            background-color: #1c1c1c;
+            border-left: 3px solid #7d8590;
+        }}
+        .summary-message .message-header {{
+            color: #7d8590;
+        }}
+        /* Collapsible details styling */
+        details {{
+            margin: 10px 0;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            background-color: #0d1117;
+        }}
+        summary {{
+            cursor: pointer;
+            padding: 10px;
+            font-weight: bold;
+            color: #7d8590;
+            background-color: #161b22;
+            border-radius: 6px 6px 0 0;
+        }}
+        summary:hover {{
+            background-color: #21262d;
+        }}
+        details[open] summary {{
+            border-bottom: 1px solid #30363d;
+            border-radius: 6px 6px 0 0;
+        }}
+        details > div {{
+            padding: 10px;
+        }}
+        .thinking-compact {{
+            color: #aaa;
+            font-size: 0.9em;
+        }}
+        .thinking-compact p {{
+            margin: 0.5em 0;
+        }}
+        /* Footer */
+        .footer {{
+            text-align: center;
+            padding: 20px;
+            border-top: 1px solid #30363d;
+            margin-top: 20px;
+            color: #7d8590;
+            font-size: 0.85em;
+        }}
+        .footer a {{
+            color: #58a6ff;
+            text-decoration: none;
+        }}
+        .footer a:hover {{
+            text-decoration: underline;
+        }}
+        /* Metrics styling */
+        em {{
+            color: #7d8590;
+            font-style: normal;
+            font-size: 0.85em;
+        }}
+        /* Code blocks */
+        pre, code {{
+            background-color: #161b22;
+            border-radius: 4px;
+            font-family: 'Courier New', Consolas, monospace;
+        }}
+        pre {{
+            padding: 10px;
+            overflow-x: auto;
+        }}
+        code {{
+            padding: 2px 5px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎩 AIfred Intelligence</h1>
+        <div class="timestamp">Chat Export • {timestamp}</div>
+    </div>
+'''
+
+    def _get_export_html_footer(self) -> str:
+        """Generate HTML footer for chat export"""
+        return '''
+    <div class="footer">
+        <p>Exported from <a href="https://github.com/Peuqui/AIfred-Intelligence" target="_blank">AIfred Intelligence</a></p>
+        <p>AI at your service • Multi-Agent Debate System</p>
+    </div>
+</body>
+</html>
+'''
 
     # ============================================================
     # Session Persistence (Cookie-based device identification)
