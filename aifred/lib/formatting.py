@@ -248,8 +248,7 @@ def _save_html_to_assets(html_code: str) -> str:
 
     log_message(f"🌐 HTML Preview: File saved → {filepath} (Cache: {len(_html_file_cache)}/{MAX_HTML_FILES})")
 
-    # Return FULL URL with backend host (frontend doesn't serve /_upload/)
-    # Same pattern as TTS audio in audio_processing.py
+    # Return full URL with auto-detected backend host
     return f"{BACKEND_API_URL}/_upload/html_preview/{filename}"
 
 

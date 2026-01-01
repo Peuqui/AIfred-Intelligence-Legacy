@@ -19,10 +19,9 @@ SSL_CERTFILE = PROJECT_ROOT / "ssl" / "fullchain.pem"
 # ============================================================
 # BACKEND API URL (for TTS audio URLs, HTML preview, etc.)
 # ============================================================
-# Read from environment variable (set in .env file)
+# Import from rxconfig (single source of truth - auto-detects local IP)
 # The /_upload/ endpoint is only served by the backend, not frontend
-import os
-BACKEND_API_URL = os.getenv("AIFRED_API_URL", "http://localhost:8002")
+from rxconfig import API_URL as BACKEND_API_URL
 
 # ============================================================
 # DEBUG CONFIGURATION

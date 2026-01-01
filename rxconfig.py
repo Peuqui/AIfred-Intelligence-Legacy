@@ -2,18 +2,33 @@
 
 import reflex as rx
 import os
+import socket
 
 # ============================================================
 # API URL Configuration
 # ============================================================
-# Set AIFRED_API_URL environment variable to your backend URL
-# Examples:
-#   - Local dev: http://localhost:8002 (default)
-#   - LAN access: http://192.168.1.100:8002
-#   - Production: https://your-domain.com:8443
+# The backend URL is auto-detected from the machine's IP address.
+# Override with AIFRED_API_URL environment variable if needed.
 #
-# You can set this in a .env file (which is gitignored)
-API_URL = os.getenv("AIFRED_API_URL", "http://localhost:8002")
+# Examples for .env file:
+#   AIFRED_API_URL=https://your-domain.com:8443  # Production with SSL/nginx
+#   AIFRED_API_URL=http://192.168.1.100:8002     # Specific IP
+
+def _get_local_ip() -> str:
+    """Get the local IP address of this machine."""
+    try:
+        # Connect to external host to determine local IP (doesn't actually send data)
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "localhost"
+
+BACKEND_PORT = 8002
+_default_api_url = f"http://{_get_local_ip()}:{BACKEND_PORT}"
+API_URL = os.getenv("AIFRED_API_URL", _default_api_url)
 
 # Environment mode (affects Reflex optimizations)
 is_prod = os.getenv("AIFRED_ENV", "dev") == "prod"
