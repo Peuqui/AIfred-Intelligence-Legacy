@@ -27,7 +27,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
 - **Session-Persistenz**: Mobile Chat-History überlebt Browser-Hintergrund/Neustart (Cookie-basiert)
-- **Chat teilen**: Gesamte Konversation als formatierten Text in die Zwischenablage kopieren (🔗 Button)
+- **Chat teilen**: Export als portable HTML-Datei in neuem Browser-Tab (KaTeX-Fonts inline eingebettet, funktioniert offline)
 - **HTML-Vorschau**: KI-generierter HTML-Code öffnet direkt im Browser (neuer Tab)
 - **LaTeX & Chemie**: KaTeX für Mathe-Formeln, mhchem-Erweiterung für Chemie (`\ce{H2O}`, Reaktionen, Strukturformeln)
 - **Multi-Agent Debate System**: AIfred + Sokrates als kritischer Diskussionspartner für verbesserte Antwortqualität

@@ -5,6 +5,32 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.12] - 2026-01-01
+
+### Changed
+
+- **Share Chat: Portable HTML Export** ([state.py](aifred/state.py), [formatting.py](aifred/lib/formatting.py)):
+  - KaTeX CSS, JS and all fonts now embedded inline as Base64 (single-file export)
+  - Exports work completely offline without any external dependencies
+  - New `get_katex_inline_assets()` function with caching for efficient embedding
+  - Removed `examples/` folder, exports now go to `uploaded_files/exports/`
+
+### Fixed
+
+- **AIfred Metadata Spacing** ([state.py](aifred/state.py)):
+  - Added missing blank line between AIfred's response and metadata footer
+  - Now consistent with other agents (Vision, Sokrates, Salomo)
+
+- **HTML Export CSS** ([state.py](aifred/state.py)):
+  - Removed `white-space: pre-wrap` which caused excessive spacing
+  - Improved margins for paragraphs, headings, lists, tables
+
+### Removed
+
+- **rxconfig.py**: Removed invalid `reload_excludes` option (not supported by Reflex)
+
+---
+
 ## [2.15.11] - 2026-01-01
 
 ### Added

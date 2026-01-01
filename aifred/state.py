@@ -1030,7 +1030,7 @@ class AIState(rx.State):
             # Ensure automatik_model = aifred_model for these backends
             if self.backend_type in ["vllm", "tabbyapi"]:
                 if self.automatik_model != self.aifred_model:
-                    self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.aifred_model} for both AIfred and Automatik")
+                    self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.aifred_model} for both AIfred and Automatic")
                     self.automatik_model = self.aifred_model
 
             # Generate internal session ID (for Reflex, not displayed)
@@ -1388,7 +1388,7 @@ class AIState(rx.State):
                     # Compact format for Mobile: Multi-line with indentation
                     self.add_debug(f"✅ {len(self.available_models)} models available")
                     self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")
-                    self.add_debug(f"   Automatik: {self.automatik_model}")
+                    self.add_debug(f"   Automatic: {self.automatik_model}")
                     # Show Sokrates and Salomo models if multi-agent mode is active
                     if self.multi_agent_mode != "standard":
                         if self.sokrates_model_id:
@@ -1543,6 +1543,15 @@ class AIState(rx.State):
         settings["tts_voices_per_language"][engine_key][lang] = self.tts_voice
         save_settings(settings)
 
+        # Update mtime tracker to prevent immediate reload by check_for_updates()
+        import os
+        from pathlib import Path
+        settings_path = Path.home() / ".config/aifred/settings.json"
+        try:
+            self._last_settings_mtime = os.path.getmtime(settings_path)
+        except OSError:
+            pass
+
     def _show_model_calibration_info(self, model_id: str):
         """Show calibration info for Ollama models in debug console.
 
@@ -1646,7 +1655,7 @@ class AIState(rx.State):
             # Set automatik_model = aifred_model BEFORE initialize_backend() to prevent wrong model loading
             if new_backend in ["vllm", "tabbyapi"]:
                 if self.automatik_model != self.aifred_model:
-                    self.add_debug(f"⚠️ {new_backend} can only load one model - using {self.aifred_model} for both AIfred and Automatik")
+                    self.add_debug(f"⚠️ {new_backend} can only load one model - using {self.aifred_model} for both AIfred and Automatic")
                 self.automatik_model = self.aifred_model
                 self.automatik_model_id = self.aifred_model_id  # Sync IDs too
 
@@ -3407,7 +3416,7 @@ class AIState(rx.State):
                 metadata = format_metadata(
                     f"Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Training data ({self.aifred_model_id})"
                 )
-                formatted_response = f"{thinking_html}  \n{metadata}"
+                formatted_response = f"{thinking_html}\n\n{metadata}"
 
                 # Update chat history with formatted response + metadata
                 self.chat_history[temp_history_index] = (user_msg, formatted_response)
@@ -3545,15 +3554,24 @@ class AIState(rx.State):
         Uses the existing html_preview infrastructure for file management.
         """
         from datetime import datetime
-        from .lib.formatting import _save_html_to_assets
+        import mistune
+        from .lib.formatting import _save_html_to_assets, get_katex_inline_assets
+
+        # Create markdown renderer with table support
+        md = mistune.create_markdown(plugins=['table', 'strikethrough'])
 
         if not self.chat_history:
             self.add_debug("⚠️ No chat to share")
             return
 
+        import re
+
         # Build HTML document
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         html_parts = [self._get_export_html_header(timestamp)]
+
+        # Get username for display
+        display_name = self.user_name if self.user_name else "User"
 
         for user_msg, ai_msg in self.chat_history:
             ai_msg_stripped = ai_msg.strip()
@@ -3561,6 +3579,7 @@ class AIState(rx.State):
             # Determine message type based on content
             is_sokrates = ai_msg_stripped.startswith("🏛️")
             is_salomo = ai_msg_stripped.startswith("👑")
+            is_aifred_marker = ai_msg_stripped.startswith("🎩")
             is_summary = (
                 ai_msg_stripped.startswith("[📊 Komprimiert") or
                 ai_msg_stripped.startswith("[📊 Compressed") or
@@ -3569,10 +3588,10 @@ class AIState(rx.State):
             has_user_input = bool(user_msg and user_msg.strip())
 
             if has_user_input:
-                # User message bubble
+                # User message bubble with actual username
                 html_parts.append(f'''
                 <div class="message user-message">
-                    <div class="message-header">👤 User</div>
+                    <div class="message-header">{display_name} 🙋</div>
                     <div class="message-content">{self._escape_html(user_msg)}</div>
                 </div>
                 ''')
@@ -3581,25 +3600,58 @@ class AIState(rx.State):
             if not ai_msg_stripped:
                 continue
 
-            # Determine agent and styling
+            # Determine agent and styling, extract mode marker
+            ai_msg_content = ai_msg_stripped
+            mode_text = ""
+
             if is_summary:
                 agent_class = "summary-message"
                 header = "📊 Summary"
             elif is_sokrates:
                 agent_class = "sokrates-message"
-                header = "🏛️ Sokrates"
+                # Extract mode like [Tribunal R1], [Auto-Consensus R1], etc.
+                mode_match = re.match(r'🏛️\s*\[([^\]]+)\]', ai_msg_stripped)
+                if mode_match:
+                    mode_text = f" ({mode_match.group(1)})"
+                    # Remove the emoji and mode marker from content
+                    ai_msg_content = re.sub(r'^🏛️\s*\[[^\]]+\]\s*', '', ai_msg_stripped)
+                else:
+                    # Just remove the leading emoji
+                    ai_msg_content = ai_msg_stripped[2:].lstrip()
+                header = f"🏛️ Sokrates{mode_text}"
             elif is_salomo:
                 agent_class = "salomo-message"
-                header = "👑 Salomo"
+                # Extract mode like [Synthesis R1], [Verdict], etc.
+                mode_match = re.match(r'👑\s*\[([^\]]+)\]', ai_msg_stripped)
+                if mode_match:
+                    mode_text = f" ({mode_match.group(1)})"
+                    ai_msg_content = re.sub(r'^👑\s*\[[^\]]+\]\s*', '', ai_msg_stripped)
+                else:
+                    ai_msg_content = ai_msg_stripped[2:].lstrip()
+                header = f"👑 Salomo{mode_text}"
+            elif is_aifred_marker:
+                agent_class = "aifred-message"
+                # Extract mode like [Refinement R2], etc.
+                mode_match = re.match(r'🎩\s*\[([^\]]+)\]', ai_msg_stripped)
+                if mode_match:
+                    mode_text = f" ({mode_match.group(1)})"
+                    ai_msg_content = re.sub(r'^🎩\s*\[[^\]]+\]\s*', '', ai_msg_stripped)
+                else:
+                    ai_msg_content = ai_msg_stripped[2:].lstrip()
+                header = f"🎩 AIfred{mode_text}"
             else:
                 agent_class = "aifred-message"
                 header = "🎩 AIfred"
 
-            # AI message (content already contains HTML with collapsibles)
+            # Convert markdown to HTML (tables, bold, italic, lists, etc.)
+            # Preserve existing HTML (like <details> collapsibles)
+            ai_msg_html = self._convert_markdown_preserve_html(ai_msg_content, md)
+
+            # AI message
             html_parts.append(f'''
             <div class="message {agent_class}">
                 <div class="message-header">{header}</div>
-                <div class="message-content">{ai_msg}</div>
+                <div class="message-content">{ai_msg_html}</div>
             </div>
             ''')
 
@@ -3615,6 +3667,60 @@ class AIState(rx.State):
         js_script = f'window.open("{preview_url}", "_blank");'
         return rx.call_script(js_script)
 
+    def _convert_markdown_preserve_html(self, text: str, md) -> str:
+        """Convert markdown to HTML while preserving existing HTML elements.
+
+        The AI response may contain:
+        - Existing HTML (<details>, <span>, etc.) - preserve these
+        - Markdown syntax (tables, **bold**, etc.) - convert to HTML
+
+        Strategy: Extract HTML blocks, convert remaining markdown, restore HTML blocks.
+        """
+        import re
+
+        # Extract and replace HTML blocks with unique placeholders
+        placeholders = {}
+        counter = [0]
+
+        def extract_tag(tag_name: str, text: str) -> str:
+            """Extract all occurrences of a specific HTML tag"""
+            # Match opening tag with any attributes, content (including newlines), and closing tag
+            pattern = re.compile(
+                rf'<{tag_name}[^>]*>.*?</{tag_name}>',
+                re.DOTALL | re.IGNORECASE
+            )
+
+            def replace_match(match):
+                placeholder = f"HTML_BLOCK_{counter[0]}"
+                placeholders[placeholder] = match.group(0)
+                counter[0] += 1
+                return placeholder
+
+            return pattern.sub(replace_match, text)
+
+        # Extract HTML tags in order (most complex first)
+        text_with_placeholders = text
+        for tag in ['details', 'div', 'span', 'table']:
+            text_with_placeholders = extract_tag(tag, text_with_placeholders)
+
+        # Convert markdown to HTML
+        html_output = md(text_with_placeholders)
+
+        # Restore preserved HTML blocks
+        # Note: mistune may wrap placeholders in <p> tags, so we need to handle that
+        for placeholder, original_html in placeholders.items():
+            # Try various wrapper combinations that mistune might create
+            html_output = html_output.replace(f"<p>{placeholder}</p>", original_html)
+            html_output = html_output.replace(f"<p>{placeholder}\n</p>", original_html)
+            html_output = html_output.replace(placeholder, original_html)
+
+        # Convert metrics lines from <em>( ... )</em> to <span class="metrics">...</span>
+        # Metrics pattern: *( Inference: Xs    Y tok/s    Source: ... )*
+        metrics_pattern = re.compile(r'<em>\(\s*((?:TTFT|Inference):[^)]+)\s*\)</em>')
+        html_output = metrics_pattern.sub(r'<span class="metrics">( \1 )</span>', html_output)
+
+        return html_output
+
     def _escape_html(self, text: str) -> str:
         """Escape HTML special characters in user input"""
         return (text
@@ -3627,12 +3733,37 @@ class AIState(rx.State):
 
     def _get_export_html_header(self, timestamp: str) -> str:
         """Generate HTML header with embedded CSS for chat export"""
+        # KaTeX Assets inline einbetten (Fonts als Base64)
+        from .lib.formatting import get_katex_inline_assets
+        katex_assets = get_katex_inline_assets()
+        katex_css = katex_assets.get('css', '')
+        katex_js = katex_assets.get('js', '')
+        mhchem_js = katex_assets.get('mhchem_js', '')
+        autorender_js = katex_assets.get('autorender_js', '')
+
         return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🎩 AIfred Intelligence - Chat Export</title>
+    <!-- KaTeX CSS mit eingebetteten Fonts -->
+    <style>{katex_css}</style>
+    <!-- KaTeX JavaScript -->
+    <script>{katex_js}</script>
+    <script>{mhchem_js}</script>
+    <script>{autorender_js}</script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {{
+            renderMathInElement(document.body, {{
+                delimiters: [
+                    {{left: '$$', right: '$$', display: true}},
+                    {{left: '$', right: '$', display: false}}
+                ],
+                throwOnError: false
+            }});
+        }});
+    </script>
     <style>
         * {{
             box-sizing: border-box;
@@ -3643,7 +3774,7 @@ class AIState(rx.State):
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
             background-color: #0d1117;
             color: #e6edf3;
-            line-height: 1.6;
+            line-height: 1.4;
             padding: 20px;
             max-width: 900px;
             margin: 0 auto;
@@ -3667,40 +3798,84 @@ class AIState(rx.State):
             margin-bottom: 15px;
             padding: 15px;
             border-radius: 8px;
-            border: 1px solid #30363d;
         }}
         .message-header {{
             font-weight: bold;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             font-size: 0.95em;
         }}
         .message-content {{
-            white-space: pre-wrap;
             word-wrap: break-word;
         }}
+        /* Kompakte Abstände für Content-Elemente */
+        .message-content p,
+        .message-content ul,
+        .message-content ol,
+        .message-content table,
+        .message-content details {{
+            margin: 0 0 1em 0;
+        }}
+        /* Überschriften: mehr Abstand oben (Trennung), etwas Abstand unten */
+        .message-content h1,
+        .message-content h2,
+        .message-content h3,
+        .message-content h4 {{
+            margin: 0.9em 0 0.3em 0;
+            color: #e6edf3;
+        }}
+        .message-content h2 {{
+            font-size: 1.3em;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 0.1em;
+        }}
+        .message-content h3 {{
+            font-size: 1.1em;
+        }}
+        .message-content ul, .message-content ol {{
+            padding-left: 1.5em;
+        }}
+        .message-content li {{
+            margin: 0.1em 0;
+        }}
+        .message-content table {{
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 0.95em;
+        }}
+        /* User: box with border */
         .user-message {{
             background-color: #21262d;
-            border-left: 3px solid #58a6ff;
+            border: 1px solid #30363d;
+            text-align: right;
+            padding-right: 85px;
         }}
         .user-message .message-header {{
             color: #58a6ff;
+            text-align: right;
+            margin-right: -70px;
         }}
+        /* AIfred: box with border + left accent */
         .aifred-message {{
             background-color: #161b22;
+            border: 1px solid #30363d;
             border-left: 3px solid #e67700;
         }}
         .aifred-message .message-header {{
             color: #e67700;
         }}
+        /* Sokrates: full box with border */
         .sokrates-message {{
             background-color: #161b22;
+            border: 1px solid #30363d;
             border-left: 3px solid #a371f7;
         }}
         .sokrates-message .message-header {{
             color: #a371f7;
         }}
+        /* Salomo: full box with border */
         .salomo-message {{
             background-color: #161b22;
+            border: 1px solid #30363d;
             border-left: 3px solid #d29922;
         }}
         .salomo-message .message-header {{
@@ -3715,14 +3890,13 @@ class AIState(rx.State):
         }}
         /* Collapsible details styling */
         details {{
-            margin: 10px 0;
             border: 1px solid #30363d;
             border-radius: 6px;
             background-color: #0d1117;
         }}
         summary {{
             cursor: pointer;
-            padding: 10px;
+            padding: 8px;
             font-weight: bold;
             color: #7d8590;
             background-color: #161b22;
@@ -3736,14 +3910,15 @@ class AIState(rx.State):
             border-radius: 6px 6px 0 0;
         }}
         details > div {{
-            padding: 10px;
+            padding: 8px;
         }}
         .thinking-compact {{
             color: #aaa;
             font-size: 0.9em;
+            line-height: 1.3;
         }}
         .thinking-compact p {{
-            margin: 0.5em 0;
+            margin: 0.3em 0;
         }}
         /* Footer */
         .footer {{
@@ -3761,11 +3936,18 @@ class AIState(rx.State):
         .footer a:hover {{
             text-decoration: underline;
         }}
-        /* Metrics styling */
+        /* Italic text (normal markdown *text*) */
         em {{
+            font-style: italic;
+            color: inherit;
+        }}
+        /* Metrics styling (wrapped in .metrics class) */
+        .metrics {{
             color: #7d8590;
             font-style: normal;
             font-size: 0.85em;
+            display: block;
+            margin-top: 8px;
         }}
         /* Code blocks */
         pre, code {{
@@ -3774,11 +3956,37 @@ class AIState(rx.State):
             font-family: 'Courier New', Consolas, monospace;
         }}
         pre {{
-            padding: 10px;
+            padding: 8px;
             overflow-x: auto;
+            margin: 0.3em 0;
         }}
         code {{
             padding: 2px 5px;
+        }}
+        /* Tables (from markdown) */
+        th, td {{
+            border: 1px solid #30363d;
+            padding: 6px 10px;
+            text-align: left;
+        }}
+        th {{
+            background-color: #21262d;
+            font-weight: bold;
+            color: #e6edf3;
+        }}
+        tr:nth-child(even) {{
+            background-color: #161b22;
+        }}
+        tr:hover {{
+            background-color: #21262d;
+        }}
+        /* Bold and italic */
+        strong {{
+            color: #f0f6fc;
+        }}
+        /* KaTeX Block-Formeln zentrieren */
+        .katex-display {{
+            margin: 0.5em 0;
         }}
     </style>
 </head>
@@ -5524,8 +5732,8 @@ class AIState(rx.State):
 
         # Use translation manager to get the internal mode value
         self.research_mode_display = display_value
-        self.research_mode = TranslationManager.get_research_mode_value(display_value)
-        self.add_debug(f"🔍 Research mode: {self.research_mode}")
+        self.research_mode = TranslationManager.get_research_mode_value(display_value, self.ui_language)
+        self.add_debug(f"🔍 Research mode: {self.research_mode} (from: '{display_value}')")
         self._save_settings()  # Persist research mode to settings.json
 
     # ===== Multi-Agent Settings =====
@@ -5744,16 +5952,16 @@ class AIState(rx.State):
         self.automatik_model = model
         # CRITICAL: Sync automatik_model_id from display label
         self.automatik_model_id = extract_model_name(model)
-        self.add_debug(f"⚡ Automatik-LLM: {model}")
+        self.add_debug(f"⚡ Automatic-LLM: {model}")
         # Show calibration info for Ollama models
         self._show_model_calibration_info(self.automatik_model_id)
         self._save_settings()
 
         # vLLM/TabbyAPI: Auto-restart backend for model change
         if self.backend_type in ["vllm", "tabbyapi"] and old_model != model:
-            self.add_debug("🔄 Backend restart for Automatik model switch...")
+            self.add_debug("🔄 Backend restart for Automatic model switch...")
             await self.initialize_backend()
-            self.add_debug("✅ New Automatik model loaded")
+            self.add_debug("✅ New Automatic model loaded")
 
         # Note: Models are loaded on-demand during first inference (saves VRAM)
         # Context limit will be queried on first use (fast ~30ms) and cached by httpx

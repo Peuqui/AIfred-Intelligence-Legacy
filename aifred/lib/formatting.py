@@ -265,6 +265,66 @@ def _cleanup_html_cache():
         _html_file_cache.clear()
 
 
+# KaTeX inline embedding cache (loaded once, reused for all exports)
+_katex_inline_cache: dict[str, str] = {}
+
+
+def get_katex_inline_assets() -> dict[str, str]:
+    """
+    Load KaTeX assets and convert them to inline format for portable HTML export.
+
+    Returns dict with:
+        - 'css': KaTeX CSS with fonts embedded as Base64 data URLs
+        - 'js': KaTeX main JS
+        - 'mhchem_js': mhchem extension JS
+        - 'autorender_js': auto-render extension JS
+
+    Results are cached after first call.
+    """
+    import base64
+
+    if _katex_inline_cache:
+        return _katex_inline_cache
+
+    katex_dir = PROJECT_ROOT / "assets" / "katex"
+    fonts_dir = katex_dir / "fonts"
+
+    # Load CSS and embed fonts as Base64
+    css_path = katex_dir / "katex.min.css"
+    if css_path.exists():
+        css_content = css_path.read_text(encoding='utf-8')
+
+        # Replace font URLs with Base64 data URLs (only woff2 for smaller size)
+        for font_file in fonts_dir.glob("*.woff2"):
+            font_name = font_file.name
+            font_data = base64.b64encode(font_file.read_bytes()).decode('ascii')
+            data_url = f"data:font/woff2;base64,{font_data}"
+            # Replace all URL patterns for this font
+            css_content = css_content.replace(f"url(/katex/fonts/{font_name})", f"url({data_url})")
+
+        # Remove woff and ttf references (browser will use woff2)
+        css_content = re.sub(r',url\([^)]+\.woff\)[^,}]*', '', css_content)
+        css_content = re.sub(r',url\([^)]+\.ttf\)[^,}]*', '', css_content)
+
+        _katex_inline_cache['css'] = css_content
+    else:
+        _katex_inline_cache['css'] = ""
+
+    # Load JS files
+    js_path = katex_dir / "katex.min.js"
+    _katex_inline_cache['js'] = js_path.read_text(encoding='utf-8') if js_path.exists() else ""
+
+    mhchem_path = katex_dir / "mhchem.min.js"
+    _katex_inline_cache['mhchem_js'] = mhchem_path.read_text(encoding='utf-8') if mhchem_path.exists() else ""
+
+    autorender_path = katex_dir / "auto-render.min.js"
+    _katex_inline_cache['autorender_js'] = autorender_path.read_text(encoding='utf-8') if autorender_path.exists() else ""
+
+    log_message(f"📐 KaTeX: Loaded assets for inline embedding (CSS: {len(_katex_inline_cache['css'])/1024:.1f}KB)")
+
+    return _katex_inline_cache
+
+
 def cleanup_old_html_previews(max_age_hours: int = 24) -> int:
     """
     Deletes old HTML preview files from assets/html_preview/.
