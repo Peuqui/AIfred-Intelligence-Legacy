@@ -1752,24 +1752,41 @@ def render_chat_message(msg: dict) -> rx.Component:
                     rx.hstack(
                         rx.spacer(),
                         rx.box(
+                            # Header mit Username (wie im HTML-Export) - weinrot wie ClearChat
+                            rx.hstack(
+                                rx.spacer(),
+                                rx.text(
+                                    rx.cond(
+                                        AIState.user_name != "",
+                                        AIState.user_name,
+                                        "User",
+                                    ),
+                                    font_weight="bold",
+                                    font_size="12px",
+                                    color="#c06050",  # Weinrot (passend zu HTML-Export)
+                                ),
+                                rx.text("🙋", font_size="12px"),
+                                spacing="1",
+                                align="center",
+                                margin_bottom="1",
+                            ),
                             # Image thumbnails (if present) above the text
                             render_image_thumbnails(msg["images"]),
                             # User text
                             rx.markdown(msg["user_msg"], color=COLORS["user_text"], font_size="13px"),
-                            background_color=COLORS["user_msg"],
                             padding="3",
                             border_radius="6px",
                             max_width="70%",
                         ),
-                        rx.text("👤", font_size="13px"),
                         spacing="2",
                         align="start",
                         justify="end",
                         width="100%",
                     ),
-                    background_color="rgba(255, 255, 255, 0.03)",
+                    background_color=COLORS["user_msg"],
                     padding="2",
                     border_radius="8px",
+                    border="1px solid rgba(255, 255, 255, 0.1)",
                     width="100%",
                 ),
                 # Failed Sources (wenn vorhanden) - ZWISCHEN User und AI Message
@@ -1808,6 +1825,7 @@ def render_chat_message(msg: dict) -> rx.Component:
                         background_color="rgba(255, 255, 255, 0.03)",
                         padding="2",
                         border_radius="8px",
+                        border="1px solid rgba(255, 255, 255, 0.1)",
                         width="100%",
                     ),
                 ),
