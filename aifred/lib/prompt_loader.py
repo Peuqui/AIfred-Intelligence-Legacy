@@ -149,22 +149,20 @@ def load_personality(agent: str, lang: Optional[str] = None) -> str:
 
 def detect_language(text: str) -> str:
     """
-    Simple language detection based on keywords
+    Detect if text is German - used for prompt selection only.
+
+    Returns "de" only if German is clearly detected.
+    All other languages (English, Portuguese, French, etc.) return "en"
+    because English prompts are universal and contain instructions to
+    respond in the user's actual language.
 
     Args:
         text: Text to analyze
 
     Returns:
-        "en" or "de"
+        "de" if German detected, "en" otherwise
     """
-    # Common English indicators
-    english_patterns = [
-        r'\b(the|is|are|what|where|when|how|why|can|could|would|should)\b',
-        r'\b(weather|today|tomorrow|please|thanks|hello)\b',
-        r'\b(I|you|he|she|it|we|they|my|your)\b'
-    ]
-
-    # Common German indicators
+    # German indicators
     german_patterns = [
         r'\b(der|die|das|ein|eine|ist|sind|was|wo|wann|wie|warum)\b',
         r'\b(wetter|heute|morgen|bitte|danke|hallo)\b',
@@ -173,13 +171,10 @@ def detect_language(text: str) -> str:
     ]
 
     text_lower = text.lower()
-
-    # Count matches
-    en_score = sum(1 for pattern in english_patterns if re.search(pattern, text_lower, re.IGNORECASE))
     de_score = sum(1 for pattern in german_patterns if re.search(pattern, text_lower, re.IGNORECASE))
 
-    # Default to German if unclear (since AIfred is primarily German)
-    return "en" if en_score > de_score else "de"
+    # Only German prompts if German detected, else English (universal)
+    return "de" if de_score > 0 else "en"
 
 
 def set_language(lang: str):
