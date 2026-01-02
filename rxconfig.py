@@ -4,6 +4,13 @@ import reflex as rx
 import os
 import socket
 
+# Load .env file for environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed, rely on system env vars
+
 # ============================================================
 # API URL Configuration
 # ============================================================
@@ -46,6 +53,8 @@ config = rx.Config(
     disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
     # Performance optimizations
     compile_timeout=90,  # Increase compilation timeout (default: 60s)
+    # Hide "Built with Reflex" badge
+    show_built_with_reflex=False,
     # KaTeX for LaTeX rendering in Markdown (locally hosted)
     stylesheets=[
         "/katex/katex.min.css",

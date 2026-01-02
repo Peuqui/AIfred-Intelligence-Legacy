@@ -1335,20 +1335,22 @@ ExecStop=/usr/bin/docker compose stop chromadb
 **2. AIfred Intelligence Service** (`systemd/aifred-intelligence.service`):
 ```ini
 [Unit]
-Description=AIfred Intelligence Voice Assistant
+Description=AIfred Intelligence Voice Assistant (Reflex Version)
 After=network.target ollama.service aifred-chromadb.service
-Requires=ollama.service aifred-chromadb.service
+Wants=ollama.service
+Requires=aifred-chromadb.service
 
 [Service]
 Type=simple
-User=mp
-Group=mp
-WorkingDirectory=/home/mp/Projekte/AIfred-Intelligence
-Environment="PATH=/home/mp/Projekte/AIfred-Intelligence/venv/bin:/usr/local/bin:/usr/bin:/bin"
+User=__USER__
+Group=__USER__
+WorkingDirectory=__PROJECT_DIR__
+Environment="PATH=__PROJECT_DIR__/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
-Environment="AIFRED_ENV=prod"
-ExecStart=/home/mp/Projekte/AIfred-Intelligence/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
+ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --env prod --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
+KillMode=control-group
+ExecStopPost=/usr/bin/pkill -f koboldcpp || true
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
@@ -1357,11 +1359,47 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-**Environment Variable `AIFRED_ENV` Explained**:
-- `AIFRED_ENV=dev` (default): API-URL = `http://172.30.8.72:8002` (main machine/WSL with RTX 3060)
-- `AIFRED_ENV=prod`: API-URL = `https://narnia.spdns.de:8443` (MiniPC with Tesla P40)
+**⚠️ Important: Replace placeholders** `__USER__` and `__PROJECT_DIR__` with your actual values!
 
-Without `AIFRED_ENV=prod`, all API requests are forwarded to the development machine, even if Nginx is correctly configured!
+#### Environment Configuration (.env)
+
+For production/external access, create a `.env` file in the project root (this file is gitignored and NOT pushed to the repository):
+
+```bash
+# Environment Mode (required for production)
+AIFRED_ENV=prod
+
+# Backend API URL for external access via nginx reverse proxy
+# Set this to your external domain/IP for HTTPS access
+AIFRED_API_URL=https://your-domain.com:8443
+
+# API Keys for web search (optional)
+BRAVE_API_KEY=your_brave_api_key
+TAVILY_API_KEY=your_tavily_api_key
+
+# Ollama Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+**Why is `AIFRED_API_URL` needed?**
+
+The Reflex frontend needs to know where the backend is located. Without this setting:
+- The frontend auto-detects the local IP (e.g., `http://192.168.0.252:8002`)
+- This works for local network access but fails for external HTTPS access
+- External users would see WebSocket connection errors to `localhost`
+
+With `AIFRED_API_URL=https://your-domain.com:8443`:
+- All API/WebSocket connections go through your nginx reverse proxy
+- HTTPS works correctly for external access
+- Local HTTP access continues to work
+
+**Why `--env prod`?**
+
+The `--env prod` flag in ExecStart:
+- Disables Vite Hot Module Replacement (HMR) WebSocket
+- Prevents "failed to connect to websocket localhost:3002" errors
+- Reduces resource usage (no dev server overhead)
+- Still recompiles on restart when code changes
 
 **Optional: Polkit Rule for Restart Without sudo**
 

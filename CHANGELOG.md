@@ -5,6 +5,33 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.13] - 2026-01-02
+
+### Added
+
+- **Production Mode for External HTTPS Access** ([rxconfig.py](rxconfig.py), [systemd/aifred-intelligence.service](systemd/aifred-intelligence.service)):
+  - Added `--env prod` flag to systemd service for production mode
+  - Disables Vite Hot Module Replacement (HMR) WebSocket that caused connection errors
+  - External HTTPS access now works correctly via nginx reverse proxy
+  - Added dotenv loading in `rxconfig.py` for `.env` configuration
+
+- **Environment Configuration via .env** ([README.md](README.md), [README.de.md](README.de.md)):
+  - New `AIFRED_API_URL` variable for external domain configuration
+  - Documentation for production deployment with reverse proxy
+  - `.env` file is gitignored (machine-specific configuration)
+
+### Changed
+
+- **Systemd Service Improvements** ([systemd/aifred-intelligence.service](systemd/aifred-intelligence.service)):
+  - Added `KillMode=control-group` for proper process termination
+  - Added `ExecStopPost` to cleanup koboldcpp processes on stop
+  - Environment variables now read from `.env` instead of service file
+
+- **Hide "Built with Reflex" Badge** ([rxconfig.py](rxconfig.py)):
+  - Added `show_built_with_reflex=False` for cleaner UI
+
+---
+
 ## [2.15.12] - 2026-01-01
 
 ### Changed

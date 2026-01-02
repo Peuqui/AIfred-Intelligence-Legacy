@@ -11,9 +11,10 @@ Group=__USER__
 WorkingDirectory=__PROJECT_DIR__
 Environment="PATH=__PROJECT_DIR__/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
-Environment="AIFRED_ENV=prod"
-ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
+ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --env prod --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
+KillMode=control-group
+ExecStopPost=/usr/bin/pkill -f koboldcpp || true
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
