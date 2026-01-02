@@ -867,11 +867,12 @@ class AIState(rx.State):
                 self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)
                 self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
 
-                # Load UI language and update global locale
+                # Load UI language and update global locale + prompt language
                 saved_ui_lang = saved_settings.get("ui_language", self.ui_language)
                 if saved_ui_lang in ["de", "en"]:
                     self.ui_language = saved_ui_lang
                     set_ui_locale(saved_ui_lang)
+                    set_language(saved_ui_lang)  # Sync prompt language
 
                 # Load user name
                 self.user_name = saved_settings.get("user_name", self.user_name)
@@ -1819,6 +1820,7 @@ class AIState(rx.State):
             self.ui_language = new_ui_lang
             from .lib.formatting import set_ui_locale
             set_ui_locale(new_ui_lang)
+            set_language(new_ui_lang)  # Sync prompt language
 
         # User name
         self.user_name = settings.get("user_name", self.user_name)
@@ -6156,6 +6158,8 @@ class AIState(rx.State):
             # Update global locale for number formatting
             from .lib.formatting import set_ui_locale
             set_ui_locale(lang)
+            # Update prompt language for LLM responses
+            set_language(lang)
             # Update research_mode_display to match new language
             from .lib import TranslationManager
             self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode, lang)
