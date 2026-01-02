@@ -219,12 +219,14 @@ EDGE_TTS_VOICES = {
 # Format: Display Name -> (model_filename, language_code)
 # Models stored in ~/.local/share/piper/
 PIPER_VOICES = {
-    # Deutsch
+    # Deutsch - Männliche Stimmen
     "Deutsch (Thorsten)": ("de_DE-thorsten-high.onnx", "de"),
+    "Deutsch (Karlsson)": ("de_DE-karlsson-low.onnx", "de"),
+    # Deutsch - Weibliche Stimmen
     "Deutsch (Ramona)": ("de_DE-ramona-low.onnx", "de"),
-    # Englisch (British)
-    "English (Alba)": ("en_GB-alba-medium.onnx", "en"),
-    "English (Alan)": ("en_GB-alan-medium.onnx", "en"),
+    "Deutsch (Kerstin)": ("de_DE-kerstin-low.onnx", "de"),
+    "Deutsch (Eva K)": ("de_DE-eva_k-x_low.onnx", "de"),
+    "Deutsch (MLS)": ("de_DE-mls-medium.onnx", "de"),  # Multi-speaker
 }
 
 # Legacy compatibility - defaults to Edge TTS voices

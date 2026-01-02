@@ -25,7 +25,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
 - **Automatic Context Calibration**: VRAM-aware context sizing with RoPE scaling (1.0x, 1.5x, 2.0x), hybrid mode for oversized models (CPU offload)
-- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, Piper, espeak) with multiple voices, smart filtering (code blocks, tables, LaTeX formulas excluded from speech)
+- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **Session Persistence**: Mobile chat history survives browser background/restart (cookie-based)

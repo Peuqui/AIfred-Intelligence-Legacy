@@ -5,6 +5,43 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.16] - 2026-01-03
+
+### Added
+
+- **TTS Pitch Control** ([audio_processing.py](aifred/lib/audio_processing.py), [aifred.py](aifred/aifred.py)):
+  - New pitch slider in TTS settings (0.8 to 1.2)
+  - Pitch adjustment via ffmpeg post-processing (asetrate/aresample)
+  - Persisted in user settings
+
+- **Piper TTS German Voices** ([config.py](aifred/lib/config.py)):
+  - Added Karlsson, Kerstin, Eva K, MLS voices
+  - Removed English voices (Alba, Alan) - focus on German TTS
+  - Removed Pavoque (had persistent "Höh" artifact)
+
+- **Date/Time in Agent Prompts** ([system_minimal.txt](prompts/de/aifred/system_minimal.txt)):
+  - All agents (AIfred, Sokrates, Salomo) now receive current date/time
+  - Consistent across DE and EN prompts
+
+### Fixed
+
+- **German Language Enforcement** ([personality.txt](prompts/de/aifred/personality.txt)):
+  - Restructured prompt with language instruction at END (LLMs follow last instruction most strongly)
+  - Added FALSCH/RICHTIG examples to prevent English output
+  - Fixes issue where Qwen3-4B Thinking model drifted to English during long reasoning
+
+- **Piper TTS Artifacts** ([audio_processing.py](aifred/lib/audio_processing.py)):
+  - Fixed "PFFT/HÖH" sound at end of audio by ensuring proper trailing punctuation
+  - Added timing metadata filter (STT, TTFT, Inference, tok/s, etc.)
+  - Added zero-width Unicode character removal
+  - Decorative separator lines (═══, ───) now replaced with pause
+
+- **Intent Detection Visibility** ([state.py](aifred/state.py)):
+  - Language detection now logged to UI debug console (was file-only)
+  - Shows: `🎯 Intent: FAKTISCH, Addressee: –, Lang: DE`
+
+---
+
 ## [2.15.15] - 2026-01-02
 
 ### Added

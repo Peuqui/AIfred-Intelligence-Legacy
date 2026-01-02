@@ -199,9 +199,14 @@ def load_prompt(
     **kwargs
 ) -> str:
     """
-    Load a prompt from a file with language support
+    Load a prompt from a file with language support.
 
-    Automatically injects current date/time at the beginning of every prompt.
+    Provides automatic placeholder replacement for date/time values:
+    - {current_year} → "2025"
+    - {current_date} → "Montag, 02.01.2025" (DE) or "Monday, 2025-01-02" (EN)
+    - {current_time} → "14:30:45"
+    - {current_weekday} → "Montag" (DE) or "Monday" (EN)
+    - {user_name} → User's configured name (if set)
 
     Args:
         prompt_name: Name of the prompt file (without .txt extension)
@@ -210,7 +215,7 @@ def load_prompt(
         **kwargs: Keyword arguments for string formatting
 
     Returns:
-        Formatted prompt string with timestamp prefix
+        Formatted prompt string with placeholders replaced
 
     Raises:
         FileNotFoundError: If prompt file doesn't exist
@@ -237,61 +242,49 @@ def load_prompt(
         prompt_template = f.read()
 
     # ============================================================
-    # INJECT CURRENT DATE/TIME
+    # BUILD STANDARD PLACEHOLDERS (date/time/user)
     # ============================================================
     now = datetime.now()
 
+    # German weekday translation
+    weekday_map = {
+        "Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch",
+        "Thursday": "Donnerstag", "Friday": "Freitag",
+        "Saturday": "Samstag", "Sunday": "Sonntag"
+    }
+
     if lang == "de":
-        # German weekday translation
-        weekday_map = {
-            "Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch",
-            "Thursday": "Donnerstag", "Friday": "Freitag",
-            "Saturday": "Samstag", "Sunday": "Sonntag"
-        }
-        weekday_de = weekday_map.get(now.strftime("%A"), now.strftime("%A"))
+        weekday = weekday_map.get(now.strftime("%A"), now.strftime("%A"))
+        current_date = f"{weekday}, {now.strftime('%d.%m.%Y')}"
+    else:
+        weekday = now.strftime("%A")
+        current_date = f"{weekday}, {now.strftime('%Y-%m-%d')}"
 
-        timestamp_prefix = f"""AKTUELLES DATUM UND UHRZEIT:
-- Datum: {weekday_de}, {now.strftime('%d.%m.%Y')}
-- Uhrzeit: {now.strftime('%H:%M:%S')} Uhr
+    # Standard placeholders - always available
+    standard_placeholders = {
+        'current_year': now.strftime('%Y'),
+        'current_date': current_date,
+        'current_time': now.strftime('%H:%M:%S'),
+        'current_weekday': weekday,
+        'user_name': _current_user_name if _current_user_name else "",
+    }
 
-"""
-    else:  # English
-        timestamp_prefix = f"""CURRENT DATE AND TIME:
-- Date: {now.strftime('%A')}, {now.strftime('%Y-%m-%d')}
-- Time: {now.strftime('%H:%M:%S')}
+    # Merge standard placeholders with kwargs (kwargs override standard)
+    all_placeholders = {**standard_placeholders, **kwargs}
 
-"""
+    # Merge user_text into placeholders if not already there
+    if user_text and 'user_text' not in all_placeholders:
+        all_placeholders['user_text'] = user_text
 
-    # Prepend timestamp to prompt
-    prompt_template = timestamp_prefix + prompt_template
-
-    # ============================================================
-    # INJECT USER NAME (if set globally)
-    # ============================================================
-    if _current_user_name:
-        if lang == "de":
-            user_prefix = f"BENUTZER-NAME: {_current_user_name}\n\n"
-        else:
-            user_prefix = f"USER NAME: {_current_user_name}\n\n"
-        prompt_template = user_prefix + prompt_template
-
-    # Format with kwargs if provided
-    if kwargs or user_text:
-        try:
-            # Merge user_text into kwargs if not already there
-            if user_text and 'user_text' not in kwargs:
-                kwargs['user_text'] = user_text
-            # Always provide current_year for prompts that need it
-            if 'current_year' not in kwargs:
-                kwargs['current_year'] = now.strftime('%Y')
-            return prompt_template.format(**kwargs)
-        except KeyError as e:
-            raise KeyError(
-                f"Missing placeholder in prompt '{prompt_name}': {e}\n"
-                f"Provided kwargs: {list(kwargs.keys())}"
-            )
-
-    return prompt_template
+    # Format prompt with all placeholders
+    try:
+        return prompt_template.format(**all_placeholders)
+    except KeyError as e:
+        raise KeyError(
+            f"Missing placeholder in prompt '{prompt_name}': {e}\n"
+            f"Provided kwargs: {list(kwargs.keys())}\n"
+            f"Standard placeholders: {list(standard_placeholders.keys())}"
+        )
 
 
 def list_available_prompts() -> list:

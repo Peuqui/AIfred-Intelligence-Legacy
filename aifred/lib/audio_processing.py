@@ -30,6 +30,88 @@ TTS_AUDIO_DIR = PROJECT_ROOT / "uploaded_files" / "tts_audio"
 TTS_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def apply_pitch_adjustment(input_file: str, pitch: float) -> str | None:
+    """
+    Apply pitch adjustment to audio file using ffmpeg.
+
+    The pitch adjustment works by changing the sample rate (asetrate) and then
+    resampling back to the original rate (aresample). This changes pitch without
+    changing tempo.
+
+    Args:
+        input_file: Path to input audio file (wav or mp3)
+        pitch: Pitch factor (0.8 = 20% lower, 1.0 = unchanged, 1.2 = 20% higher)
+
+    Returns:
+        Path to pitch-adjusted file, or original file if pitch is 1.0 or on error
+    """
+    # Skip if pitch is 1.0 (no change needed)
+    if abs(pitch - 1.0) < 0.01:
+        return input_file
+
+    try:
+        # Check if ffmpeg is available
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
+        if result.returncode != 0:
+            log_message("⚠️ Pitch: ffmpeg not available, skipping pitch adjustment")
+            return input_file
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        log_message("⚠️ Pitch: ffmpeg not installed, skipping pitch adjustment")
+        return input_file
+
+    try:
+        # Determine output format based on input
+        input_ext = os.path.splitext(input_file)[1].lower()
+        output_file = input_file.replace(input_ext, f"_pitch{input_ext}")
+
+        # Get original sample rate (default 22050 for Piper, 24000 for Edge TTS)
+        # We'll use ffprobe to detect it, or fall back to a reasonable default
+        sample_rate = 22050  # Default for Piper
+        try:
+            probe_result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "stream=sample_rate",
+                 "-of", "default=noprint_wrappers=1:nokey=1", input_file],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if probe_result.returncode == 0 and probe_result.stdout.strip():
+                sample_rate = int(probe_result.stdout.strip())
+        except (subprocess.CalledProcessError, ValueError, OSError):
+            pass  # Use default
+
+        # Apply pitch adjustment:
+        # asetrate changes playback rate (affects both pitch and tempo)
+        # aresample brings it back to original rate (restores tempo, keeps new pitch)
+        new_rate = int(sample_rate * pitch)
+
+        log_message(f"🎵 Pitch: Adjusting {pitch}x (sample rate {sample_rate} → {new_rate} → {sample_rate})")
+
+        ffmpeg_result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", input_file,
+                "-af", f"asetrate={new_rate},aresample={sample_rate}",
+                output_file
+            ],
+            capture_output=True,
+            timeout=30
+        )
+
+        if ffmpeg_result.returncode == 0 and os.path.exists(output_file):
+            # Replace original file with pitch-adjusted version
+            os.replace(output_file, input_file)
+            log_message(f"✅ Pitch: Applied {pitch}x adjustment")
+            return input_file
+        else:
+            error_msg = ffmpeg_result.stderr.decode() if ffmpeg_result.stderr else "Unknown error"
+            log_message(f"⚠️ Pitch: ffmpeg failed: {error_msg[:200]}")
+            return input_file
+
+    except Exception as e:
+        log_message(f"⚠️ Pitch: Error during adjustment: {e}")
+        return input_file
+
+
 def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> bool:
     """
     Synchronous Edge TTS wrapper - runs in separate event loop.
@@ -312,6 +394,15 @@ def clean_text_for_tts(text):
     )
     clean_text = emoji_pattern.sub(r'', clean_text).strip()
 
+    # Replace decorative separator lines with pause (cause crackling in Piper TTS)
+    # Unicode box-drawing characters: ─ (U+2500), ═ (U+2550), │ (U+2502), etc.
+    # Replace with newline to create a natural pause in speech
+    clean_text = re.sub(r'[─━═┄┅┈┉╌╍]+', '\n', clean_text)  # Horizontal lines → pause
+    clean_text = re.sub(r'[│┃║┆┇┊┋╎╏]+', '', clean_text)   # Vertical lines → remove
+    clean_text = re.sub(r'[-]{3,}', '\n', clean_text)  # ASCII dashes (---) → pause
+    clean_text = re.sub(r'[=]{3,}', '\n', clean_text)  # ASCII equals (===) → pause
+    clean_text = re.sub(r'[_]{3,}', '\n', clean_text)  # ASCII underscores (___) → pause
+
     # Remove markdown formatting and special characters
     clean_text = re.sub(r'\*\*', '', clean_text)  # Bold **text**
     clean_text = re.sub(r'\*', '', clean_text)    # Italic *text* or bullet points
@@ -326,7 +417,26 @@ def clean_text_for_tts(text):
     # Remove timing information in parentheses (TTS should not read these!)
     # Examples: "(STT: 2.5s)", "(Inference: 1.3s)", "(Agent: 45.2s, Quick, 5 sources)",
     #           "(Cache-Hit: 2.5s = LLM 2.3s)", "(Decision: 2.5s, Inference: 1.3s)"
-    clean_text = re.sub(r'\s*\([^)]*\b(STT|Inference|Inferenz|Agent|Cache-Hit|Decision|Entscheidung|TTS)[^)]*\)', '', clean_text)
+    #           "( TTFT: 0,32s  Inference: 6,6s  133,4 tok/s  Source: Training data )"
+    clean_text = re.sub(r'\s*\([^)]*\b(STT|TTFT|Inference|Inferenz|Agent|Cache-Hit|Decision|Entscheidung|TTS|tok/s|Source)[^)]*\)', '', clean_text)
+
+    # Remove any remaining parentheses with numbers/timing patterns
+    # Catches edge cases like "(2.5s)" or "(123 tok/s)" that might slip through
+    clean_text = re.sub(r'\s*\(\s*[\d,\.]+\s*(s|ms|tok/s)?\s*\)', '', clean_text)
+
+    # Remove problematic Unicode characters that Piper can't handle
+    # Zero-width characters, non-breaking spaces, etc.
+    clean_text = re.sub(r'[\u200b\u200c\u200d\u2060\ufeff]', '', clean_text)  # Zero-width chars
+    clean_text = re.sub(r'\u00a0', ' ', clean_text)  # Non-breaking space → normal space
+
+    # Clean up trailing whitespace and excessive newlines (Piper crackling fix)
+    clean_text = re.sub(r'\n{3,}', '\n\n', clean_text)  # Max 2 newlines
+    clean_text = clean_text.strip()  # Remove leading/trailing whitespace
+
+    # Ensure text ends with proper punctuation (fixes Piper "PFFT/HÖ" artifacts)
+    # Piper needs a clear sentence ending, otherwise it produces artifacts
+    if clean_text and clean_text[-1] not in '.!?:;':
+        clean_text += '.'
 
     return clean_text
 
@@ -394,7 +504,7 @@ def transcribe_audio(audio_path, whisper_model, language="de"):
     return user_text, stt_time
 
 
-async def generate_tts(text, voice_choice, speed_choice, tts_engine):
+async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: float = 1.0):
     """
     Generate TTS audio from text (Edge, Piper or eSpeak).
 
@@ -403,6 +513,7 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine):
         voice_choice: Voice display name (e.g. "Deutsch (Katja)" for Edge, "Deutsch (Thorsten)" for Piper)
         speed_choice: Speed multiplier (e.g. 1.25)
         tts_engine: Engine name (e.g. "Edge TTS (Cloud, best quality)")
+        pitch: Pitch factor (0.8 = 20% lower, 1.0 = unchanged, 1.2 = 20% higher)
 
     Returns:
         str: Path to generated audio file, or None
@@ -410,25 +521,39 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine):
     from .config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
 
     try:
+        audio_url = None
+
         if "Piper" in tts_engine:
             # Piper TTS (local) - synchronous subprocess call
             # Use Piper-specific voice, fallback to first available if not found
             if voice_choice not in PIPER_VOICES:
                 voice_choice = list(PIPER_VOICES.keys())[0] if PIPER_VOICES else "Deutsch (Thorsten)"
                 log_message(f"⚠️ TTS: Voice not available for Piper, using: {voice_choice}")
-            return generate_speech_piper(text, speed_choice, voice_choice)
+            audio_url = generate_speech_piper(text, speed_choice, voice_choice)
         elif "eSpeak" in tts_engine:
             # eSpeak TTS (local, robotic) - synchronous subprocess call
             if voice_choice not in ESPEAK_VOICES:
                 voice_choice = list(ESPEAK_VOICES.keys())[0] if ESPEAK_VOICES else "Deutsch (Roboter)"
                 log_message(f"⚠️ TTS: Voice not available for eSpeak, using: {voice_choice}")
-            return generate_speech_espeak(text, speed_choice, voice_choice)
+            audio_url = generate_speech_espeak(text, speed_choice, voice_choice)
         else:
             # Edge TTS (Cloud) - async API call
             rate = f"+{int((speed_choice - 1.0) * 100)}%"
             # Use Edge-specific voice, fallback if not found
             voice_id = EDGE_TTS_VOICES.get(voice_choice, "de-DE-KatjaNeural")
-            return await generate_speech_edge(text, voice_id, rate)
+            audio_url = await generate_speech_edge(text, voice_id, rate)
+
+        # Apply pitch adjustment if needed (works for all engines via ffmpeg)
+        if audio_url and abs(pitch - 1.0) >= 0.01:
+            # Extract local file path from URL
+            # URL format: http://host:port/_upload/tts_audio/filename.ext
+            filename = audio_url.split("/")[-1]
+            local_path = str(TTS_AUDIO_DIR / filename)
+            apply_pitch_adjustment(local_path, pitch)
+            # URL stays the same, file was modified in-place
+
+        return audio_url
+
     except Exception as e:
         log_message(f"❌ TTS Error: {e}")
         import traceback

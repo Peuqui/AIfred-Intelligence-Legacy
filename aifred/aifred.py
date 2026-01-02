@@ -3299,6 +3299,29 @@ def settings_accordion() -> rx.Component:
                                 align="center",
                                 width="100%",
                             ),
+                            # Pitch Selection (applied via ffmpeg post-processing)
+                            rx.hstack(
+                                rx.text(t("tts_pitch_label"), font_size="11px", font_weight="500", width="80px"),
+                                rx.cond(
+                                    AIState.is_mobile,
+                                    # Mobile: Native select
+                                    native_select_tts(
+                                        AIState.tts_pitch,
+                                        AIState.set_tts_pitch,
+                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
+                                    ),
+                                    # Desktop: Radix UI select
+                                    rx.select(
+                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
+                                        value=AIState.tts_pitch,
+                                        on_change=AIState.set_tts_pitch,
+                                        size="2",
+                                    ),
+                                ),
+                                spacing="2",
+                                align="center",
+                                width="100%",
+                            ),
                             # Auto-Play Toggle
                             rx.hstack(
                                 rx.text(t("tts_autoplay_label"), font_size="11px", font_weight="500", width="80px"),

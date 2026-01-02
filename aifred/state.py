@@ -285,6 +285,7 @@ class AIState(rx.State):
     tts_engine: str = "Edge TTS (Cloud, best quality)"  # TTS engine selection
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
     tts_playback_rate: str = "1.25x"  # Browser playback rate (persisted)
+    tts_pitch: str = "1.0"  # Pitch adjustment (0.8 = lower, 1.0 = normal, 1.2 = higher)
     whisper_model_key: str = "small"  # Whisper model key (tiny/base/small/medium/large)
     # whisper_device removed - now configured in config.py (WHISPER_DEVICE)
     show_transcription: bool = False  # Show transcribed text for editing before sending
@@ -898,6 +899,7 @@ class AIState(rx.State):
                 self.tts_engine = saved_settings.get("tts_engine", self.tts_engine)
                 self.tts_autoplay = saved_settings.get("tts_autoplay", self.tts_autoplay)
                 self.tts_playback_rate = saved_settings.get("tts_playback_rate", self.tts_playback_rate)
+                self.tts_pitch = saved_settings.get("tts_pitch", self.tts_pitch)
                 # Load whisper model key (backwards compatible: extract key from old display name)
                 saved_whisper = saved_settings.get("whisper_model", self.whisper_model_key)
                 # Extract key from display name if old format (e.g., "small (466MB, ...)" -> "small")
@@ -1531,6 +1533,7 @@ class AIState(rx.State):
             "tts_engine": self.tts_engine,
             "tts_autoplay": self.tts_autoplay,
             "tts_playback_rate": self.tts_playback_rate,
+            "tts_pitch": self.tts_pitch,
             "whisper_model": self.whisper_model_key,  # Save only key (tiny/base/small/medium/large)
             # whisper_device removed - now in config.py
             "show_transcription": self.show_transcription,
@@ -2599,11 +2602,9 @@ class AIState(rx.State):
             self.automatik_model_id,
             llm_client
         )
-        # Log to file only (not UI debug console) - respects DEBUG_LOG_RAW_MESSAGES flag
-        from .lib.config import DEBUG_LOG_RAW_MESSAGES
-        if DEBUG_LOG_RAW_MESSAGES:
-            addressee_display = addressed_to.capitalize() if addressed_to else "–"
-            log_message(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}, Lang: {detected_language.upper()}")
+        # Log Intent Detection result to UI debug console (always visible)
+        addressee_display = addressed_to.capitalize() if addressed_to else "–"
+        self.add_debug(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}, Lang: {detected_language.upper()}")
 
         # ============================================================
         # PRE-MESSAGE: History Compression Check
@@ -4605,11 +4606,14 @@ class AIState(rx.State):
 
             # Generate TTS audio (returns URL path like "/tts_audio/audio_123.mp3")
             # Note: speed_choice is always 1.0 - tempo control happens in browser via tts_playback_rate
+            # Pitch adjustment is applied via ffmpeg post-processing
+            pitch_value = float(self.tts_pitch) if self.tts_pitch else 1.0
             audio_url = await generate_tts(
                 text=clean_text,
                 voice_choice=self.tts_voice,
                 speed_choice=1.0,  # Always generate at normal speed
-                tts_engine=self.tts_engine
+                tts_engine=self.tts_engine,
+                pitch=pitch_value
             )
 
             if audio_url:
@@ -6133,6 +6137,12 @@ class AIState(rx.State):
         # Apply rate to current audio player via JavaScript
         rate_value = rate.replace("x", "")
         return rx.call_script(f"setTtsPlaybackRate({rate_value})")
+
+    def set_tts_pitch(self, pitch: str):
+        """Set TTS pitch adjustment (applied via ffmpeg post-processing)"""
+        self.tts_pitch = pitch
+        self.add_debug(f"🔊 TTS Pitch: {pitch}")
+        self._save_settings()
 
     async def resynthesize_tts(self):
         """Re-synthesize TTS for the last AI response"""
