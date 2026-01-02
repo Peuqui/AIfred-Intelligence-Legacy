@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIfred Intelligence - Examples</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            margin: 0;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 3rem;
+        }
+        .example-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .example-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+        }
+        .example-card h2 {
+            margin-top: 0;
+            color: #4ecdc4;
+        }
+        .example-card p {
+            color: #aaa;
+            line-height: 1.6;
+        }
+        .example-card a.btn {
+            display: inline-block;
+            background: #4ecdc4;
+            color: #1a1a2e;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            margin-top: 1rem;
+            margin-right: 0.5rem;
+            transition: background 0.2s;
+        }
+        .example-card a.btn:hover {
+            background: #45b7aa;
+        }
+        .example-card a.btn-secondary {
+            background: rgba(78, 205, 196, 0.2);
+            color: #4ecdc4;
+        }
+        .example-card a.btn-secondary:hover {
+            background: rgba(78, 205, 196, 0.3);
+        }
+        .tags {
+            margin-top: 1rem;
+        }
+        .tag {
+            display: inline-block;
+            background: rgba(78, 205, 196, 0.2);
+            color: #4ecdc4;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .tag-orange {
+            background: rgba(255, 165, 0, 0.2);
+            color: #ffa500;
+        }
+        .tag-purple {
+            background: rgba(147, 112, 219, 0.2);
+            color: #9370db;
+        }
+        .tag-green {
+            background: rgba(50, 205, 50, 0.2);
+            color: #32cd32;
+        }
+        .preview-img {
+            width: 100%;
+            border-radius: 8px;
+            margin-top: 1rem;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .back-link {
+            text-align: center;
+            margin-top: 3rem;
+        }
+        .back-link a {
+            color: #4ecdc4;
+            text-decoration: none;
+        }
+        .back-link a:hover {
+            text-decoration: underline;
+        }
+        .section-title {
+            font-size: 1.2rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin: 3rem 0 1.5rem 0;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AIfred Intelligence</h1>
+        <p class="subtitle">Example Conversations & Showcases</p>
+
+        <div class="section-title">Multi-Agent Debates</div>
+
+        <div class="example-card">
+            <h2>Tribunal: Cats vs Dogs</h2>
+            <p>
+                A simple question turns into a philosophical debate. Watch as AIfred (British butler),
+                Sokrates (ancient Greek philosopher), and Salomo (King Solomon) debate whether cats
+                are better than dogs. Features comparison tables, decision frameworks, and
+                delightfully pedantic philosophical critique.
+            </p>
+            <div class="tags">
+                <span class="tag tag-purple">Tribunal Mode</span>
+                <span class="tag">3 Agents</span>
+                <span class="tag">2 Rounds</span>
+                <span class="tag">Thinking Visible</span>
+            </div>
+            <a class="btn" href="examples/cats-vs-dogs-tribunal.html">View Full Debate</a>
+        </div>
+
+        <div class="section-title">Science & Math</div>
+
+        <div class="example-card">
+            <h2>Chemistry: Balancing Combustion Equations</h2>
+            <p>
+                AIfred explains how to balance the combustion of ethanol step-by-step,
+                with proper chemical notation rendered via mhchem. Features a coefficient table
+                and verification of the law of conservation of mass.
+            </p>
+            <img class="preview-img" src="examples/Chemie.png" alt="Chemistry Example">
+            <div class="tags">
+                <span class="tag tag-orange">Standard Mode</span>
+                <span class="tag">mhchem</span>
+                <span class="tag">gpt-oss:120b</span>
+            </div>
+            <a class="btn" href="examples/Chemie.html">View Full Chat</a>
+        </div>
+
+        <div class="example-card">
+            <h2>Physics: Schrodinger Equation for a Victorian Gentleman</h2>
+            <p>
+                "Explain the Schrodinger equation as if I'm a Victorian gentleman" - AIfred rises to the challenge
+                with historical context, elegant LaTeX formulas, and analogies to a gentleman's drawing-room.
+                A masterclass in making quantum mechanics accessible.
+            </p>
+            <img class="preview-img" src="examples/Math.png" alt="Math Example">
+            <div class="tags">
+                <span class="tag tag-orange">Standard Mode</span>
+                <span class="tag">KaTeX</span>
+                <span class="tag">gpt-oss:120b</span>
+            </div>
+            <a class="btn" href="examples/Math.html">View Full Chat</a>
+        </div>
+
+        <div class="section-title">Coding</div>
+
+        <div class="example-card">
+            <h2>Python: Prime Number Calculator</h2>
+            <p>
+                A refined implementation of the Sieve of Eratosthenes algorithm, complete with
+                type hints, docstrings, and Butler-style code comments. Shows AIfred's ability
+                to write clean, well-documented code while maintaining his characteristic charm.
+            </p>
+            <img class="preview-img" src="examples/Coding.png" alt="Coding Example">
+            <div class="tags">
+                <span class="tag tag-orange">Standard Mode</span>
+                <span class="tag">Python</span>
+                <span class="tag">gpt-oss:120b</span>
+            </div>
+            <a class="btn" href="examples/Coding.html">View Full Chat</a>
+        </div>
+
+        <div class="section-title">Web Research</div>
+
+        <div class="example-card">
+            <h2>Medical Research: Spinal Anesthesia Guidelines</h2>
+            <p>
+                A complex medical query about spinal anesthesia in patients with myasthenia gravis.
+                AIfred automatically searches medical literature, synthesizes findings from multiple
+                sources, and provides a cautious, well-referenced answer with proper citations.
+            </p>
+            <img class="preview-img" src="examples/WebResearch.png" alt="Web Research Example">
+            <div class="tags">
+                <span class="tag tag-green">Research Mode</span>
+                <span class="tag">4 Sources</span>
+                <span class="tag">qwen3:14b</span>
+            </div>
+            <a class="btn" href="examples/WebResearch.html">View Full Chat</a>
+        </div>
+
+        <div class="back-link">
+            <a href="https://github.com/Peuqui/AIfred-Intelligence">Back to GitHub Repository</a>
+        </div>
+    </div>
+</body>
+</html>
