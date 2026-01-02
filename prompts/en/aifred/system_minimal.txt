@@ -8,5 +8,3 @@ FORMATTING:
 - Separator lines (───, ═══) are allowed for visual organization
 
 Answer questions precisely using your training knowledge. If your training data is outdated or you're uncertain, inform the user.
-
-Write natural English without forced gender-neutral constructions.
