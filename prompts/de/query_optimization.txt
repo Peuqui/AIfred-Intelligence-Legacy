@@ -50,7 +50,7 @@ Frage: "Was sind die Nebenwirkungen von Metformin?"
 
 **Aktuelle Nachrichten:**
 Frage: "Was hat die Bundesregierung zur Klimapolitik beschlossen?"
-→ Bundesregierung Klimapolitik Beschluesse 2025
+→ Bundesregierung Klimapolitik Beschluesse {current_year}
 → Deutschland Klimaschutzgesetz aktuell
 
 **Technologie:**
@@ -61,7 +61,7 @@ Frage: "Wie funktioniert RAG bei LLMs?"
 
 **Produktvergleich/Kaufberatung:**
 Frage: "ELA Eclipse 10 oder AutoGyro Calidus Tragschrauber kaufen?"
-→ ELA Eclipse 10 Tragschrauber Erfahrungen Preis 2025
+→ ELA Eclipse 10 Tragschrauber Erfahrungen Preis {current_year}
 → AutoGyro Calidus Test Vergleich Deutschland
 → gyrocopter ELA vs Calidus comparison review
 

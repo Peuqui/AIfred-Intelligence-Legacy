@@ -584,3 +584,46 @@ div em {
 .username-input-subtle input::placeholder {
     color: rgba(184, 134, 11, 0.7) !important;
 }
+
+/* ============================================================
+   Markdown Table Styling - Better visibility and borders
+   ============================================================ */
+
+/* Universal table selector - catches all tables in markdown/chat */
+table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    margin: 1em 0 !important;
+    font-size: 0.9em !important;
+    table-layout: auto !important;  /* Columns adapt to content width */
+}
+
+/* Table cells - proper borders and padding */
+th, td {
+    border: 1px solid #30363d !important;
+    padding: 10px 14px !important;
+    text-align: left !important;
+    vertical-align: top !important;
+}
+
+/* Header row styling */
+th {
+    background-color: #21262d !important;
+    font-weight: bold !important;
+    color: #e6edf3 !important;
+    white-space: nowrap !important;  /* Headers don't wrap */
+}
+
+/* Alternating row colors for better readability */
+tr:nth-child(even) {
+    background-color: rgba(48, 54, 61, 0.4) !important;
+}
+
+tr:nth-child(odd) {
+    background-color: rgba(22, 27, 34, 0.6) !important;
+}
+
+/* Hover effect for rows */
+tr:hover {
+    background-color: rgba(88, 166, 255, 0.1) !important;
+}

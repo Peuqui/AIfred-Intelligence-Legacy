@@ -379,6 +379,19 @@ def build_messages_from_llm_history(
 
     # Add current user message if provided
     if current_user_text:
+        # Add personality reminder as prefix (v2.15.15+)
+        # Reinforces agent's speech style in long conversations
+        from .prompt_loader import load_personality_reminder, get_language
+
+        # Determine agent name: perspective if set, otherwise "aifred" (default)
+        agent_name = perspective.lower() if perspective else "aifred"
+        if agent_name == "observer":
+            agent_name = "salomo"  # Observer is Salomo's perspective
+
+        reminder = load_personality_reminder(agent_name, lang=get_language())
+        if reminder:
+            current_user_text = f"{reminder}\n\n{current_user_text}"
+
         messages.append({"role": "user", "content": current_user_text})
 
     return messages

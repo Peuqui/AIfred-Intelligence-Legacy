@@ -4527,6 +4527,10 @@ app = rx.App(
     stylesheets=[
         "/custom.css",  # Custom CSS for dark theme
     ],
+    head_components=[
+        # SVG Favicon - uses system emoji font for consistent 🎩 display
+        rx.el.link(rel="icon", type="image/svg+xml", href="/favicon.svg"),
+    ],
 )
 
 # Mount REST API routes directly on Reflex's backend

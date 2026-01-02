@@ -249,17 +249,43 @@ def generate_speech_espeak(text, speed=1.0, voice_choice="Deutsch (Roboter)"):
 
 def clean_text_for_tts(text):
     """
-    Prepare text for TTS output: Remove <think> tags, emojis,
-    markdown, URLs and other disruptive elements.
+    Prepare text for TTS output: Remove elements that sound bad when read aloud.
+
+    Removes:
+    - <think> tags (raw LLM thinking)
+    - <details> blocks (collapsible UI elements)
+    - Code blocks (``` ... ```) and inline code (`...`)
+    - Markdown tables (| ... |)
+    - LaTeX formulas ($...$ and $$...$$)
+    - Emojis, markdown formatting, URLs
+    - Timing metadata (Inference: X.Xs, etc.)
 
     Args:
         text: Raw text from AI response
 
     Returns:
-        str: Cleaned text for TTS
+        str: Cleaned text suitable for TTS
     """
-    # Remove <think> tags and content
+    # Remove <think> tags and content (raw thinking from LLM)
     clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+
+    # Remove <details> blocks (collapsible UI elements like thinking process, HTML preview)
+    # These contain debug info that should NOT be read aloud
+    clean_text = re.sub(r'<details[^>]*>.*?</details>', '', clean_text, flags=re.DOTALL).strip()
+
+    # Remove code blocks (``` ... ```) - code sounds terrible when read aloud
+    clean_text = re.sub(r'```[^`]*```', '', clean_text, flags=re.DOTALL).strip()
+
+    # Remove markdown tables (lines starting with |)
+    # Tables are unreadable as speech: "pipe Name pipe Age pipe newline pipe dash dash..."
+    clean_text = re.sub(r'^\|.*\|$', '', clean_text, flags=re.MULTILINE).strip()
+    # Clean up multiple empty lines left by table removal
+    clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
+
+    # Remove LaTeX formulas - both inline ($...$) and block ($$...$$)
+    # Formulas like "$E = mc^2$" sound like "dollar E equals m c caret 2 dollar"
+    clean_text = re.sub(r'\$\$[^$]+\$\$', '', clean_text, flags=re.DOTALL).strip()  # Block formulas
+    clean_text = re.sub(r'\$[^$]+\$', '', clean_text).strip()  # Inline formulas
 
     # Remove ALL emojis (comprehensive Unicode ranges)
     emoji_pattern = re.compile(
@@ -289,7 +315,8 @@ def clean_text_for_tts(text):
     # Remove markdown formatting and special characters
     clean_text = re.sub(r'\*\*', '', clean_text)  # Bold **text**
     clean_text = re.sub(r'\*', '', clean_text)    # Italic *text* or bullet points
-    clean_text = re.sub(r'`', '', clean_text)     # Code `text`
+    clean_text = re.sub(r'`[^`]+`', '', clean_text)  # Inline code `variable` - remove entirely
+    clean_text = re.sub(r'`', '', clean_text)     # Stray backticks
     clean_text = re.sub(r'#+\s', '', clean_text)  # Markdown Headers ### Text
 
     # Remove URLs (http://, https://, www.)

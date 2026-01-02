@@ -5,6 +5,40 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.15] - 2026-01-02
+
+### Added
+
+- **Personality Reminder System** ([message_builder.py](aifred/lib/message_builder.py), [prompt_loader.py](aifred/lib/prompt_loader.py)):
+  - New `reminder.txt` files for each agent (AIfred, Sokrates, Salomo)
+  - Short personality reminder automatically prefixed to user messages
+  - Reinforces agent speech style in long conversations where system prompt is far from current question
+  - New `load_personality_reminder()` function in prompt_loader
+
+- **TTS Smart Filtering** ([audio_processing.py](aifred/lib/audio_processing.py)):
+  - Code blocks (``` ... ```) excluded from speech output
+  - Markdown tables (| ... |) excluded from speech output
+  - LaTeX formulas ($...$ and $$...$$) excluded from speech output
+  - Inline code (`...`) excluded from speech output
+
+- **Dynamic Year Placeholder** ([prompt_loader.py](aifred/lib/prompt_loader.py)):
+  - New `{current_year}` placeholder available in all prompts
+  - Automatically injected via kwargs in `load_prompt()`
+
+### Fixed
+
+- **Query Optimization Year Bug** ([query_optimization.txt](prompts/de/query_optimization.txt), [prompts/en/query_optimization.txt](prompts/en/query_optimization.txt)):
+  - Replaced hardcoded "2025" with dynamic `{current_year}` placeholder
+  - Search queries now use correct current year
+
+### Changed
+
+- **Personality Prompts Simplified** ([personality.txt](prompts/de/aifred/personality.txt), [prompts/de/sokrates/personality.txt](prompts/de/sokrates/personality.txt)):
+  - Removed redundant style criticism prohibition (already in identity.txt)
+  - Cleaner separation between identity (who) and personality (how)
+
+---
+
 ## [2.15.14] - 2026-01-02
 
 ### Changed

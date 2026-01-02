@@ -25,7 +25,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Automatische Web-Recherche**: KI entscheidet selbst, wann Recherche nötig ist
 - **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung
 - **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße mit RoPE-Skalierung (1.0x, 1.5x, 2.0x), Hybrid-Modus für übergroße Modelle (CPU-Offload)
-- **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, Piper, espeak) mit verschiedenen Stimmen
+- **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, Piper, espeak) mit verschiedenen Stimmen, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen)
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
 - **Session-Persistenz**: Mobile Chat-History überlebt Browser-Hintergrund/Neustart (Cookie-basiert)
@@ -159,7 +159,8 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 
 ### ⚠️ Modell-Empfehlungen
 - **Automatik-LLM** (Intent-Erkennung, Query-Optimierung): Kleine Instruct-Modelle funktionieren am besten
-  - **Empfohlen**: `qwen3:4b` (Q4-Quantisierung ist ausreichend)
+  - **Empfohlen**: `qwen3:4b-instruct-2507` (Q4 oder Q8 Quantisierung)
+  - Dieses Modell folgt Instruktionen präzise - kritisch für Format-Erkennung (INTENT|ADDRESSEE|LANGUAGE)
   - Thinking-Modelle dauern zu lange für diese einfachen Entscheidungen
 - **Haupt-LLM**: Größere Modelle (14B+, idealerweise 30B+) für besseres Kontextverständnis und Prompt-Following
   - Sowohl Instruct- als auch Thinking-Modelle funktionieren gut

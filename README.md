@@ -25,7 +25,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
 - **Automatic Context Calibration**: VRAM-aware context sizing with RoPE scaling (1.0x, 1.5x, 2.0x), hybrid mode for oversized models (CPU offload)
-- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, Piper, espeak) with multiple voices
+- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, Piper, espeak) with multiple voices, smart filtering (code blocks, tables, LaTeX formulas excluded from speech)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **Session Persistence**: Mobile chat history survives browser background/restart (cookie-based)
@@ -185,7 +185,8 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 
 ### ⚠️ Model Recommendations
 - **Automatik-LLM** (Intent Detection, Query Optimization): Small instruct models work best
-  - **Recommended**: `qwen3:4b` (Q4 quantization is sufficient)
+  - **Recommended**: `qwen3:4b-instruct-2507` (Q4 or Q8 quantization)
+  - This model follows instructions precisely - critical for format detection (INTENT|ADDRESSEE|LANGUAGE)
   - Thinking models take too long for these simple decisions
 - **Main LLM**: Use larger models (14B+, ideally 30B+) for better context understanding and prompt following
   - Both Instruct and Thinking models work well

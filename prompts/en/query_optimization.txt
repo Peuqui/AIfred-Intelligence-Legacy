@@ -47,7 +47,7 @@ Question: "What are the side effects of metformin?"
 
 **Current News:**
 Question: "What did the federal government decide on climate policy?"
-→ federal government climate policy decisions 2025
+→ federal government climate policy decisions {current_year}
 → climate protection law current
 
 **Technology:**

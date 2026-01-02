@@ -142,6 +142,35 @@ def load_personality(agent: str, lang: Optional[str] = None) -> str:
         return f.read().strip()
 
 
+def load_personality_reminder(agent: str, lang: Optional[str] = None) -> str:
+    """
+    Load short personality reminder for user-message prefix.
+
+    Used to remind the LLM of the agent's speech style in long conversations,
+    where the system prompt is far from the current question.
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+        lang: Language code, defaults to current language
+
+    Returns:
+        Short reminder text (e.g., "[STIL: Britischer Butler]"), or empty string
+    """
+    if not get_personality_enabled(agent):
+        return ""
+
+    if lang is None:
+        lang = _current_language
+
+    reminder_file = PROMPTS_DIR / lang / agent / "reminder.txt"
+
+    if not reminder_file.exists():
+        return ""
+
+    with open(reminder_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
 def set_language(lang: str):
     """
     Set the global language for prompts.
@@ -252,6 +281,9 @@ def load_prompt(
             # Merge user_text into kwargs if not already there
             if user_text and 'user_text' not in kwargs:
                 kwargs['user_text'] = user_text
+            # Always provide current_year for prompts that need it
+            if 'current_year' not in kwargs:
+                kwargs['current_year'] = now.strftime('%Y')
             return prompt_template.format(**kwargs)
         except KeyError as e:
             raise KeyError(
@@ -407,13 +439,14 @@ def _merge_prompt_layers(agent: str, task_prompt: str, lang: Optional[str] = Non
     if identity:
         parts.append(identity)
 
-    # Layer 2: Personality (if enabled)
+    # Layer 2: Task prompt (always)
+    parts.append(task_prompt)
+
+    # Layer 3: Personality (if enabled) - LAST so LLM prioritizes it!
+    # LLMs tend to follow instructions at the end more strongly.
     personality = load_personality(agent, lang)
     if personality:
         parts.append(personality)
-
-    # Layer 3: Task prompt (always)
-    parts.append(task_prompt)
 
     return "\n\n".join(parts)
 

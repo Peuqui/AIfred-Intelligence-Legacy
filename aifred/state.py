@@ -924,6 +924,9 @@ class AIState(rx.State):
                 # NOTE: vllm_max_tokens and vllm_native_context are NEVER loaded from settings!
                 # They are calculated dynamically on every vLLM startup based on VRAM availability
 
+                # Load UI Settings
+                self.auto_refresh_enabled = saved_settings.get("auto_scroll", self.auto_refresh_enabled)
+
                 # Load Multi-Agent Settings
                 self.multi_agent_mode = saved_settings.get("multi_agent_mode", self.multi_agent_mode)
                 self.max_debate_rounds = saved_settings.get("max_debate_rounds", self.max_debate_rounds)
@@ -1533,6 +1536,8 @@ class AIState(rx.State):
             "show_transcription": self.show_transcription,
             # Language-specific TTS voices (user preferences per engine/language)
             "tts_voices_per_language": existing.get("tts_voices_per_language", {}),
+            # UI Settings
+            "auto_scroll": self.auto_refresh_enabled,
         }
         # Update tts_voices_per_language with current voice selection
         engine_key = self._get_engine_key()
@@ -3271,7 +3276,9 @@ class AIState(rx.State):
 
                 # Build messages from llm_history (v2.13.0+)
                 # llm_history is already cleaned and ready-to-use
+                # Personality reminder is automatically added as prefix by build_messages_from_llm_history()
                 from .lib.message_builder import build_messages_from_llm_history
+
                 messages = build_messages_from_llm_history(
                     llm_history=self.llm_history[:-1],  # Exclude current user message (already in llm_history)
                     current_user_text=user_msg
@@ -3603,10 +3610,12 @@ class AIState(rx.State):
 
             if has_user_input:
                 # User message bubble with actual username
+                # Convert markdown (for italic metadata like "*(Decision: 0,2s)*")
+                user_msg_html = self._convert_markdown_preserve_html(user_msg, md)
                 html_parts.append(f'''
                 <div class="message user-message">
                     <div class="message-header">{display_name} 🙋</div>
-                    <div class="message-content">{self._escape_html(user_msg)}</div>
+                    <div class="message-content">{user_msg_html}</div>
                 </div>
                 ''')
 
@@ -3855,6 +3864,21 @@ class AIState(rx.State):
             border-collapse: collapse;
             width: 100%;
             font-size: 0.95em;
+            margin: 1em 0;
+        }}
+        .message-content table th,
+        .message-content table td {{
+            border: 1px solid #30363d;
+            padding: 8px 12px;
+            text-align: left;
+        }}
+        .message-content table th {{
+            background-color: #21262d;
+            font-weight: bold;
+            color: #e6edf3;
+        }}
+        .message-content table tr:nth-child(even) {{
+            background-color: rgba(48, 54, 61, 0.3);
         }}
         /* User: box with border */
         .user-message {{
@@ -3864,7 +3888,7 @@ class AIState(rx.State):
             padding-right: 85px;
         }}
         .user-message .message-header {{
-            color: #58a6ff;
+            color: #c06050;
             text-align: right;
             margin-right: -70px;
         }}
@@ -4673,6 +4697,7 @@ class AIState(rx.State):
     def toggle_auto_refresh(self):
         """Toggle auto-scroll for all areas (Debug Console, Chat History, AI Response)"""
         self.auto_refresh_enabled = not self.auto_refresh_enabled
+        self._save_settings()
 
     async def restart_backend(self):
         """Restart current LLM backend service and reload model list"""
