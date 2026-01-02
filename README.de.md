@@ -10,7 +10,7 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md).
 
-**📺 [Beispiel-Showcases ansehen](https://peuqui.github.io/AIfred-Intelligence/)** - Interaktive Demos: Multi-Agent-Debatten, Chemie, Mathe, Coding und Web-Recherche.
+**📺 [Beispiel-Showcases ansehen](https://peuqui.github.io/AIfred-Intelligence/)** - Exportierte Chats (via Share-Chat-Button): Multi-Agent-Debatten, Chemie, Mathe, Coding und Web-Recherche.
 
 ---
 
