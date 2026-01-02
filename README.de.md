@@ -56,6 +56,7 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 - Persönlichkeit kann in den UI-Einstellungen ein-/ausgeschaltet werden (behält Identität, entfernt Stil)
 - 3-Schichten Prompt-System: Identität (wer) + Persönlichkeit (wie, optional) + Aufgabe (was)
 - Eigene Agenten erstellen oder bestehende Persönlichkeiten anpassen
+- **Mehrsprachig**: Agenten antworten in der Sprache des Users (deutsche Prompts für Deutsch, englische Prompts für alle anderen Sprachen)
 
 **Direkte Agenten-Ansprache** (NEU in v2.10):
 - Sokrates direkt ansprechen: "Sokrates, was denkst du über...?" → Sokrates antwortet mit sokratischer Methode

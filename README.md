@@ -56,6 +56,7 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 - Personality can be toggled on/off in UI settings (keeps identity, removes style)
 - 3-layer prompt system: Identity (who) + Personality (how, optional) + Task (what)
 - Easily create your own agents or modify existing personalities
+- **Multilingual**: Agents respond in the user's language (German prompts for German, English prompts for all other languages)
 
 **Direct Agent Addressing** (NEW in v2.10):
 - Address Sokrates directly: "Sokrates, what do you think about...?" → Sokrates answers with Socratic method
