@@ -1,32 +1,37 @@
-Analyze the intention of this user request:
+Analyze this user request:
 
 "{user_query}"
 
-**Categories:**
+**1. Intent (Category):**
 - FACTUAL: Research, news, weather, current events, definitions, explanations, facts
 - CREATIVE: Poems, stories, brainstorming, generating ideas, creative texts
 - MIXED: Both aspects combined (e.g. "Explain quantum physics like a fairy tale")
 
-**Addressee Detection:**
-Check if the user is DIRECTLY ADDRESSING a specific conversation partner (vocative):
-- aifred: Direct address to AIfred/Alfred/Eifred (e.g. "Alfred what do you think?", "Hey AIfred explain...")
-- sokrates: Direct address to Sokrates/Socrates (e.g. "Sokrates what's your take?", "Hey Socrates...")
-- salomo: Direct address to Salomo/Solomon (e.g. "Solomon judge this!", "What do you think Salomo?")
-- (empty): No direct address or just a mention (e.g. "What did Socrates say?" = NOT addressing!)
+**2. Addressee Detection:**
+WHO is being SPOKEN TO? Look for vocative (comma before/after name, "Hey X"):
+- aifred: User speaks TO AIfred/Alfred (comma or "Hey" indicates vocative)
+- sokrates: User speaks TO Sokrates/Socrates
+- salomo: User speaks TO Salomo/Solomon
+- (empty): Names are only MENTIONED as topics, not addressed
 
-**Intent Examples:**
-- "What's the weather like tomorrow?" → FACTUAL
-- "Write a poem about climate change" → CREATIVE
-- "Explain the theory of relativity as an exciting story" → MIXED
+⚠️ WHEN TWO NAMES APPEAR: The one with comma/vocative is the addressee!
+- "Sokrates, was denkst du über Salomo?" → sokrates (comma after Sokrates!)
+- "Alfred, what about Sokrates' opinion?" → aifred (comma after Alfred!)
+- "Was hältst du von Salomo, Sokrates?" → sokrates (Sokrates at end = vocative!)
+- "Hey Alfred, how would Sokrates respond?" → aifred (Hey + Alfred!)
+- "What did Socrates say about Solomon?" → (empty) (both just mentioned!)
 
-**Addressee Examples:**
-- "Sokrates what do you think about this?" → sokrates (direct address)
-- "Alfred please explain this to me" → aifred (direct address)
-- "What did Socrates say about this?" → (empty) (just a mention, not addressing!)
-- "Explain quantum physics to me" → (empty) (no address)
-- "Solomon, how would you judge this?" → salomo (direct address)
-- "Dear Sokrates, what do you think about Salomo?" → sokrates (Sokrates is addressed, Salomo is just the topic!)
-- "Hey Alfred, what does Sokrates think?" → aifred (Alfred is addressed, Sokrates is just the topic!)
+**3. Language of the request:**
+- DE: German text (contains: der, die, das, ich, du, was, wie, bitte, etc.)
+- EN: English text (or any other language)
 
-**IMPORTANT:** Answer ONLY in this format: INTENT|ADDRESSEE
-Examples: FACTUAL|sokrates, CREATIVE|, MIXED|aifred
+**Examples:**
+- "What's the weather like tomorrow?" → FACTUAL||EN
+- "Schreibe ein Gedicht über Klimawandel" → CREATIVE||DE
+- "Sokrates, what do you think?" → FACTUAL|sokrates|EN
+- "Alfred, erkläre mir das bitte" → FACTUAL|aifred|DE
+- "Was sagt Salomo dazu, Sokrates?" → FACTUAL|sokrates|DE
+- "Explain relativity as a story" → MIXED||EN
+
+**IMPORTANT:** Answer ONLY in this format: INTENT|ADDRESSEE|LANGUAGE
+Examples: FACTUAL|sokrates|DE, CREATIVE||EN, MIXED|aifred|DE

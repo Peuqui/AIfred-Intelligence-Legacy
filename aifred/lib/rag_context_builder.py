@@ -19,7 +19,8 @@ async def build_rag_context(
     cache,
     automatik_llm_client,
     automatik_model: str,
-    max_candidates: int = 5
+    max_candidates: int = 5,
+    detected_language: str = "de"
 ) -> Optional[Dict]:
     """
     Build RAG context from cache entries using LLM-based relevance filtering.
@@ -30,6 +31,7 @@ async def build_rag_context(
         automatik_llm_client: LLM client for relevance checking
         automatik_model: Model name for Automatik-LLM
         max_candidates: Max cache entries to check
+        detected_language: Language from Intent Detection ("de" or "en")
 
     Returns:
         Dict with:
@@ -84,9 +86,8 @@ async def build_rag_context(
         # Create preview of cached content (first 300 chars)
         content_preview = cached_answer[:300] + "..." if len(cached_answer) > 300 else cached_answer
 
-        # Spracherkennung für User-Query
-        from .prompt_loader import detect_language
-        detected_user_language = detect_language(user_query)
+        # Use detected_language from Intent Detection (passed from caller)
+        detected_user_language = detected_language
 
         # Load relevance check prompt with current date
         import time

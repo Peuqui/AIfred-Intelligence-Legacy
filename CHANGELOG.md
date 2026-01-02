@@ -5,6 +5,39 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.14] - 2026-01-02
+
+### Changed
+
+- **LLM-based Language Detection** ([intent_detector.py](aifred/lib/intent_detector.py), [state.py](aifred/state.py)):
+  - Language detection now uses LLM instead of Regex patterns
+  - Intent Detection returns 4 values: `(intent, addressee, detected_language, raw_response)`
+  - Format: `INTENT|ADDRESSEE|LANGUAGE` (e.g., `FACTUAL|sokrates|DE`, `CREATIVE||EN`)
+  - Single English prompt for intent detection (handles all languages universally)
+  - Deleted `prompts/de/intent_detection.txt` (no longer needed)
+
+- **Removed "auto" Language Mode** ([prompt_loader.py](aifred/lib/prompt_loader.py), [config.py](aifred/lib/config.py)):
+  - Removed Regex-based `detect_language()` function completely
+  - `DEFAULT_LANGUAGE` changed from "auto" to "de"
+  - `set_language()` now only accepts "de" or "en" (no "auto")
+  - All "auto" fallback logic removed from prompt loader
+
+- **Intent Detection Moved Earlier** ([state.py](aifred/state.py)):
+  - Intent Detection now runs BEFORE Pre-Compression-Check
+  - `detected_language` passed through entire call chain to all functions
+  - Vision Pipeline fallback: uses `ui_language` when no text present
+
+- **Multi-Agent Language Support** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - All agent functions now receive `detected_lang` parameter
+  - Sokrates, Salomo direct responses use LLM-detected language
+  - Tribunal and Analysis modes use consistent language detection
+
+### Fixed
+
+- **Consistent Response Language**: AIfred now responds in the language of the user's current question, not based on Regex patterns that could fail on short queries
+
+---
+
 ## [2.15.13] - 2026-01-02
 
 ### Added

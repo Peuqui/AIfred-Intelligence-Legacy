@@ -603,7 +603,8 @@ async def summarize_history_if_needed(
     context_limit: int,
     max_summaries: int = None,
     llm_history: List[Dict[str, str]] = None,
-    system_prompt_tokens: int = 0
+    system_prompt_tokens: int = 0,
+    detected_language: str = "de"
 ) -> AsyncIterator[Dict]:
     """
     Compress chat history when context utilization reaches trigger threshold.
@@ -794,10 +795,7 @@ async def summarize_history_if_needed(
         log_message(f"   └─ Msg {i}: User={len(user_msg)}→{len(clean_user_msg)}, AI={len(ai_msg)}→{len(clean_ai_msg)} chars")
         conversation_text += f"User: {clean_user_msg}\nAI: {clean_ai_msg}\n\n"
 
-    # Language detection
-    from .prompt_loader import detect_language
-    first_user_msg = messages_to_compress[0][0] if messages_to_compress else ""
-    detected_language = detect_language(first_user_msg) if first_user_msg else "de"
+    # Use detected_language from Intent Detection (passed from state.py)
 
     # Load summarization prompt with dynamic target
     summary_prompt = load_prompt(

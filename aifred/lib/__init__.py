@@ -17,7 +17,6 @@ from .prompt_loader import (
     load_prompt,
     set_language,
     get_language,
-    detect_language,
     get_query_optimization_prompt,
     get_decision_making_prompt,
     # get_cache_decision_addon removed - cache system deprecated
@@ -69,7 +68,6 @@ __all__ = [
     "load_prompt",
     "set_language",
     "get_language",
-    "detect_language",
     "get_query_optimization_prompt",
     "get_decision_making_prompt",
     # "get_cache_decision_addon",  # removed

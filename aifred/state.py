@@ -2576,17 +2576,34 @@ class AIState(rx.State):
         self.current_ai_response = ""
         self.failed_sources = []  # Clear failed sources from previous request
 
-        # ============================================================
-        # PRE-MESSAGE: History Compression Check
-        # ============================================================
-        # Check BEFORE adding new message - handles session restore, model changes, etc.
-
-        # Create LLM client once - used for compression AND intent detection
+        # Create LLM client once - used for ALL LLM operations
         from .lib.llm_client import LLMClient
         llm_client = LLMClient(
             backend_type=self.backend_type,
             base_url=self.backend_url
         )
+
+        # ============================================================
+        # INTENT + ADDRESSEE + LANGUAGE DETECTION (first LLM call)
+        # ============================================================
+        # Must run BEFORE compression check to get detected_language
+        from .lib.intent_detector import detect_query_intent_and_addressee
+
+        detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(
+            user_msg,
+            self.automatik_model_id,
+            llm_client
+        )
+        # Log to file only (not UI debug console) - respects DEBUG_LOG_RAW_MESSAGES flag
+        from .lib.config import DEBUG_LOG_RAW_MESSAGES
+        if DEBUG_LOG_RAW_MESSAGES:
+            addressee_display = addressed_to.capitalize() if addressed_to else "–"
+            log_message(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}, Lang: {detected_language.upper()}")
+
+        # ============================================================
+        # PRE-MESSAGE: History Compression Check
+        # ============================================================
+        # Check BEFORE adding new message - handles session restore, model changes, etc.
 
         if self.chat_history:
             from .lib.context_manager import summarize_history_if_needed, get_largest_compression_model
@@ -2610,9 +2627,8 @@ class AIState(rx.State):
 
             # Get system prompt tokens from cache (v2.14.0+)
             # Cache is populated at startup in on_load()
-            from .lib.prompt_loader import get_max_system_prompt_tokens, detect_language
-            detected_lang = detect_language(user_msg) if user_msg else "de"
-            system_prompt_tokens = get_max_system_prompt_tokens(self.multi_agent_mode, detected_lang)
+            from .lib.prompt_loader import get_max_system_prompt_tokens
+            system_prompt_tokens = get_max_system_prompt_tokens(self.multi_agent_mode, detected_language)
 
             # Select largest model for compression (AIfred/Sokrates/Salomo)
             compression_model = get_largest_compression_model(
@@ -2628,7 +2644,8 @@ class AIState(rx.State):
                 model_name=compression_model,  # Use largest available model for quality
                 context_limit=context_limit,
                 llm_history=self.llm_history,
-                system_prompt_tokens=system_prompt_tokens
+                system_prompt_tokens=system_prompt_tokens,
+                detected_language=detected_language  # From Intent Detection
             ):
                 if event["type"] == "history_update":
                     # DUAL-HISTORY: Update both histories
@@ -2654,22 +2671,8 @@ class AIState(rx.State):
 
         try:
             # ============================================================
-            # DIALOG ROUTING + INTENT DETECTION (combined in one LLM call)
+            # DIALOG ROUTING (uses intent/addressee from above)
             # ============================================================
-            from .lib.intent_detector import detect_query_intent_and_addressee
-
-            # Early intent + addressee detection (uses automatik_model)
-            # llm_client was created above before compression check
-            detected_intent, addressed_to, intent_raw = await detect_query_intent_and_addressee(
-                user_msg,
-                self.automatik_model_id,
-                llm_client
-            )
-            # Log to file only (not UI debug console) - respects DEBUG_LOG_RAW_MESSAGES flag
-            from .lib.config import DEBUG_LOG_RAW_MESSAGES
-            if DEBUG_LOG_RAW_MESSAGES:
-                addressee_display = addressed_to.capitalize() if addressed_to else "–"
-                log_message(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}")
 
             # Track if Sokrates should be skipped (AIfred direct addressing)
             skip_sokrates_analysis = False
@@ -2679,7 +2682,7 @@ class AIState(rx.State):
                 # User directly addresses Sokrates → Sokrates responds directly
                 self.add_debug("🏛️ Direct addressing: Sokrates")
                 yield  # Update UI immediately to show debug message
-                async for _ in run_sokrates_direct_response(self, user_msg, temp_history_index):
+                async for _ in run_sokrates_direct_response(self, user_msg, temp_history_index, detected_language):
                     yield
                 # Clean up and return - Sokrates handled everything
                 self.current_ai_response = ""
@@ -2701,7 +2704,7 @@ class AIState(rx.State):
                 # User directly addresses Salomo → Salomo responds directly
                 self.add_debug("👑 Direct addressing: Salomo")
                 yield  # Update UI immediately to show debug message
-                async for _ in run_salomo_direct_response(self, user_msg, temp_history_index):
+                async for _ in run_salomo_direct_response(self, user_msg, temp_history_index, detected_language):
                     yield
                 # Clean up and return - Salomo handled everything
                 self.current_ai_response = ""
@@ -2787,7 +2790,8 @@ class AIState(rx.State):
                     num_ctx_mode=self.num_ctx_mode,
                     num_ctx_manual=self.num_ctx_manual,
                     llm_options=llm_options,
-                    state=self  # Pass entire state object (for accessing config, not for calling functions)
+                    state=self,  # Pass entire state object (for accessing config, not for calling functions)
+                    detected_language=detected_language  # From Intent Detection
                 ):
 
                     # Route Vision-LLM items only (NOT Automatik items!)
@@ -2923,7 +2927,8 @@ class AIState(rx.State):
                         num_ctx_manual=self.num_ctx_manual,
                         pending_images=None,  # Images already processed
                         vision_json_context=extracted_vision_json,  # Pass Vision JSON!
-                        user_name=self.user_name  # For personalized prompts
+                        user_name=self.user_name,  # For personalized prompts
+                        detected_language=detected_language  # From Intent Detection
                     ):
                         # Handle Main-LLM items using NORMAL FLOW logic
                         # (EXACT same pattern as normal flow in line 2029-2068)
@@ -3025,7 +3030,8 @@ class AIState(rx.State):
                     num_ctx_manual=self.num_ctx_manual,
                     pending_images=self.pending_images if len(self.pending_images) > 0 else None,
                     user_name=self.user_name,  # For personalized prompts
-                    detected_intent=detected_intent  # Pass pre-detected intent (avoids duplicate LLM call)
+                    detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
+                    detected_language=detected_language  # From Intent Detection
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
@@ -3065,13 +3071,14 @@ class AIState(rx.State):
                         # ============================================================
                         # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not skipped)
                         # skip_sokrates_analysis is set when user directly addresses AIfred
+                        # detected_language comes from LLM-based intent detection
                         # ============================================================
                         if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
                             if self.multi_agent_mode == "tribunal":
-                                async for _ in run_tribunal(self, user_msg, ai_text):
+                                async for _ in run_tribunal(self, user_msg, ai_text, detected_language):
                                     yield  # Forward yields to update agent panels
                             else:
-                                async for _ in run_sokrates_analysis(self, user_msg, ai_text):
+                                async for _ in run_sokrates_analysis(self, user_msg, ai_text, detected_language):
                                     yield  # Forward yields to update Sokrates panel
 
                         # Clear AI response and user message windows IMMEDIATELY
@@ -3154,7 +3161,8 @@ class AIState(rx.State):
                     backend_type=self.backend_type,
                     backend_url=self.backend_url,
                     user_name=self.user_name,  # For personalized prompts
-                    detected_intent=detected_intent  # Pass pre-detected intent (avoids duplicate LLM call)
+                    detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
+                    detected_language=detected_language  # Pass LLM-detected language (avoids regex detection)
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
@@ -3194,13 +3202,14 @@ class AIState(rx.State):
                         # ============================================================
                         # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not skipped)
                         # skip_sokrates_analysis is set when user directly addresses AIfred
+                        # detected_language comes from LLM-based intent detection
                         # ============================================================
                         if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
                             if self.multi_agent_mode == "tribunal":
-                                async for _ in run_tribunal(self, user_msg, ai_text):
+                                async for _ in run_tribunal(self, user_msg, ai_text, detected_language):
                                     yield  # Forward yields to update agent panels
                             else:
-                                async for _ in run_sokrates_analysis(self, user_msg, ai_text):
+                                async for _ in run_sokrates_analysis(self, user_msg, ai_text, detected_language):
                                     yield  # Forward yields to update Sokrates panel
 
                         # Clear AI response and user message windows IMMEDIATELY
@@ -3269,8 +3278,8 @@ class AIState(rx.State):
                 )
 
                 # Inject system prompt with timestamp (from load_prompt - automatically includes date/time)
-                from .lib.prompt_loader import detect_language, get_aifred_direct_prompt, get_aifred_system_minimal
-                detected_language = detect_language(user_msg)
+                # detected_language comes from LLM-based intent detection (line ~2663)
+                from .lib.prompt_loader import get_aifred_direct_prompt, get_aifred_system_minimal
 
                 # Use AIfred direct prompt if user addressed AIfred directly
                 if use_aifred_direct_prompt:
@@ -3432,14 +3441,15 @@ class AIState(rx.State):
 
                 # ============================================================
                 # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not direct AIfred addressing)
+                # detected_language comes from LLM-based intent detection
                 # ============================================================
                 # skip_sokrates_analysis is True when user directly addresses AIfred
                 if self.multi_agent_mode != "standard" and full_response and not skip_sokrates_analysis:
                     if self.multi_agent_mode == "tribunal":
-                        async for _ in run_tribunal(self, user_msg, full_response):
+                        async for _ in run_tribunal(self, user_msg, full_response, detected_language):
                             yield  # Forward yields to update agent panels
                     else:
-                        async for _ in run_sokrates_analysis(self, user_msg, full_response):
+                        async for _ in run_sokrates_analysis(self, user_msg, full_response, detected_language):
                             yield  # Forward yields to update Sokrates panel
 
                 # Clear response windows
@@ -3559,7 +3569,7 @@ class AIState(rx.State):
         """
         from datetime import datetime
         import mistune
-        from .lib.formatting import _save_html_to_assets, get_katex_inline_assets
+        from .lib.formatting import _save_html_to_assets
 
         # Create markdown renderer with table support
         md = mistune.create_markdown(plugins=['table', 'strikethrough'])

@@ -33,7 +33,8 @@ async def handle_cache_hit(
     agent_start: float,
     num_ctx_mode: str = "auto",
     num_ctx_manual: int = 16384,
-    user_name: Optional[str] = None
+    user_name: Optional[str] = None,
+    detected_language: str = "de"
 ) -> AsyncIterator[Dict]:
     """
     Handles cache hit - uses cached research data to answer follow-up question
@@ -92,9 +93,8 @@ async def handle_cache_hit(
     # 6. Build context with dynamic limit
     context = build_context(user_text, scraped_only, max_context_tokens=max_rag_tokens)
 
-    # Language detection for user text
-    from ..prompt_loader import detect_language
-    detected_user_language = detect_language(user_text)
+    # Use detected_language from Intent Detection (passed from caller)
+    detected_user_language = detected_language
 
     # System prompt for cache hit with 3-layer merging:
     # Identity + Personality (if enabled) + Task prompt

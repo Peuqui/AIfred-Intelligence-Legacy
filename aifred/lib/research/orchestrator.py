@@ -32,7 +32,8 @@ async def perform_agent_research(
     num_ctx_manual: int = 16384,
     vision_json_context: Optional[dict] = None,
     user_name: Optional[str] = None,
-    detected_intent: Optional[str] = None
+    detected_intent: Optional[str] = None,
+    detected_language: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Agent research with query optimization and parallel web scraping
@@ -59,6 +60,8 @@ async def perform_agent_research(
         backend_url: Backend URL (optional, uses default if not provided)
         detected_intent: Pre-detected intent from state.py (FAKTISCH/KREATIV/GEMISCHT)
                         If provided, skips duplicate intent detection in context_builder
+        detected_language: Pre-detected language from state.py ("de" or "en")
+                          If provided, skips regex-based language detection
 
     Yields:
         Dict with: {"type": "debug"|"content"|"result", ...}
@@ -231,7 +234,8 @@ async def perform_agent_research(
         num_ctx_mode=num_ctx_mode,
         num_ctx_manual=num_ctx_manual,
         user_name=user_name,
-        detected_intent=detected_intent
+        detected_intent=detected_intent,
+        detected_language=detected_language
     ):
         yield item
 

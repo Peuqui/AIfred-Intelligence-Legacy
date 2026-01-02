@@ -28,7 +28,6 @@ from .context_manager import (
     _last_vram_limit_cache
 )
 from .prompt_loader import (
-    detect_language,
     get_aifred_system_minimal,
     get_sokrates_system_minimal,
     get_sokrates_direct_prompt,
@@ -468,7 +467,8 @@ async def _check_compression_if_needed(
 async def run_sokrates_direct_response(
     state: 'AIState',
     user_query: str,
-    history_index: int
+    history_index: int,
+    detected_lang: str = "en"
 ) -> AsyncGenerator[None, None]:
     """
     Sokrates responds directly to user (without AIfred's answer first).
@@ -482,6 +482,7 @@ async def run_sokrates_direct_response(
         state: The AIState object for accessing chat_history, add_debug, etc.
         user_query: The user's question (with or without addressing prefix)
         history_index: Index in chat_history where response should be placed
+        detected_lang: Language detected by LLM intent detection ("de" or "en")
     """
     try:
         # Create LLM client
@@ -503,10 +504,8 @@ async def run_sokrates_direct_response(
         for msg in sokrates_vram_msgs:
             state.add_debug(f"   {msg}")
 
-        # Detect language for response
-        detected_lang = detect_language(user_query)
-
         # Load system prompt from file (no hardcoded prompts!)
+        # detected_lang comes from LLM-based intent detection (passed from state.py)
         system_prompt = get_sokrates_direct_prompt(lang=detected_lang)
 
         # Build messages from LLM history with Sokrates perspective
@@ -658,7 +657,8 @@ async def run_sokrates_direct_response(
 async def run_salomo_direct_response(
     state: 'AIState',
     user_query: str,
-    history_index: int
+    history_index: int,
+    detected_lang: str = "en"
 ) -> AsyncGenerator[None, None]:
     """
     Salomo responds directly to user (without AIfred or Sokrates first).
@@ -672,6 +672,7 @@ async def run_salomo_direct_response(
         state: The AIState object for accessing chat_history, add_debug, etc.
         user_query: The user's question (with or without addressing prefix)
         history_index: Index in chat_history where response should be placed
+        detected_lang: Language detected by LLM intent detection ("de" or "en")
     """
     try:
         # Create LLM client
@@ -693,10 +694,8 @@ async def run_salomo_direct_response(
         for msg in salomo_vram_msgs:
             state.add_debug(f"   {msg}")
 
-        # Detect language for response
-        detected_lang = detect_language(user_query)
-
         # Load system prompt from file (no hardcoded prompts!)
+        # detected_lang comes from LLM-based intent detection (passed from state.py)
         system_prompt = get_salomo_direct_prompt(lang=detected_lang)
 
         # Build messages from LLM history with Salomo perspective
@@ -848,7 +847,8 @@ async def run_salomo_direct_response(
 async def run_sokrates_analysis(
     state: 'AIState',
     user_query: str,
-    alfred_answer: str
+    alfred_answer: str,
+    detected_lang: str = "en"
 ) -> AsyncGenerator[None, None]:
     """
     Run Sokrates analysis based on current multi_agent_mode
@@ -863,14 +863,14 @@ async def run_sokrates_analysis(
         state: The AIState object for accessing chat_history, add_debug, etc.
         user_query: The original user question
         alfred_answer: AIfred's answer to critique
+        detected_lang: Language detected by LLM intent detection ("de" or "en")
     """
     state.debate_in_progress = True
     state.sokrates_critique = ""  # Clear previous
     state.debate_round = 0
     yield  # Update UI
 
-    # Detect language from user query for prompt selection
-    detected_lang = detect_language(user_query)
+    # detected_lang comes from LLM-based intent detection (passed from state.py)
 
     try:
         # Create LLM client
@@ -1334,7 +1334,8 @@ async def run_sokrates_analysis(
 async def run_tribunal(
     state: 'AIState',
     user_query: str,
-    alfred_answer: str
+    alfred_answer: str,
+    detected_lang: str = "en"
 ) -> AsyncGenerator[None, None]:
     """
     Run Tribunal mode: AIfred and Sokrates debate, Salomo judges at end.
@@ -1348,6 +1349,7 @@ async def run_tribunal(
         state: The AIState object
         user_query: The original user question
         alfred_answer: AIfred's initial answer
+        detected_lang: Language detected by LLM intent detection ("de" or "en")
     """
     state.debate_in_progress = True
     state.sokrates_critique = ""
@@ -1355,8 +1357,7 @@ async def run_tribunal(
     state.debate_round = 0
     yield
 
-    # Detect language from user query for prompt selection
-    detected_lang = detect_language(user_query)
+    # detected_lang comes from LLM-based intent detection (passed from state.py)
 
     try:
         # Create LLM client

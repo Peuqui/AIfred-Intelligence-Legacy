@@ -54,7 +54,8 @@ async def build_and_generate_response(
     num_ctx_mode: str = "auto",
     num_ctx_manual: int = 16384,
     user_name: Optional[str] = None,
-    detected_intent: Optional[str] = None
+    detected_intent: Optional[str] = None,
+    detected_language: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Build context and generate LLM response
@@ -79,6 +80,7 @@ async def build_and_generate_response(
         agent_start: Start time for timing
         stt_time: STT processing time (if applicable)
         detected_intent: Pre-detected intent (FAKTISCH/KREATIV/GEMISCHT) - avoids duplicate detection
+        detected_language: Pre-detected language ("de" or "en") - avoids regex detection
 
     Yields:
         Dict: Debug messages, content chunks, final result
@@ -121,9 +123,8 @@ async def build_and_generate_response(
         preview = context[:800] + "..."
         log_message(f"📝 Context Preview (first 800 chars):\n{preview}")
 
-    # Language detection for user text
-    from ..prompt_loader import detect_language
-    detected_user_language = detect_language(user_text)
+    # Use pre-detected language from LLM intent detection, or fallback to English
+    detected_user_language = detected_language if detected_language else "en"
 
     # System prompt with personality (if enabled)
     system_prompt = get_system_rag_prompt(

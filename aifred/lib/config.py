@@ -59,11 +59,11 @@ WHISPER_COMPUTE_TYPE = "int8"  # int8 for CPU, float16 for GPU
 # ============================================================
 # LANGUAGE CONFIGURATION (i18n)
 # ============================================================
-# Language for prompts and UI
-# "auto" = Detect from user input
-# "de"   = German (Deutsch)
-# "en"   = English
-DEFAULT_LANGUAGE = "auto"
+# Language for prompts and UI (synced with ui_language in state.py)
+# Language detection is done via LLM-based Intent Detection
+# "de" = German (Deutsch)
+# "en" = English
+DEFAULT_LANGUAGE = "de"
 
 # ============================================================
 # DEFAULT SETTINGS

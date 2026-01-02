@@ -103,15 +103,18 @@ decision_prompt = get_decision_making_prompt(
 prompt = load_prompt('intent_detection', lang='de', user_query="...")
 ```
 
-## Auto-Detection
+## Language Detection
 
-When `set_language("auto")` is used, the system detects language from user input:
+Language detection is handled by LLM-based Intent Detection in `intent_detector.py`.
+The system prompt language is synced with `ui_language` from the UI settings.
 
 ```python
-from aifred.lib.prompt_loader import detect_language
+from aifred.lib.prompt_loader import set_language, get_language
 
-lang = detect_language("What is the weather?")  # Returns "en"
-lang = detect_language("Wie ist das Wetter?")   # Returns "de"
+set_language("de")  # Set German prompts
+set_language("en")  # Set English prompts
+
+current = get_language()  # Returns "de" or "en"
 ```
 
 ## Personality Toggle

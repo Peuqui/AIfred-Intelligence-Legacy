@@ -2,7 +2,7 @@
 Prompt Loader Module with i18n Support
 
 Loads prompts from language-specific directories (de/ or en/).
-Supports automatic language detection.
+Language is detected by LLM-based Intent Detection (see intent_detector.py).
 No fallbacks - prompts must exist in both languages.
 
 Personality System (v2.15.3+):
@@ -13,13 +13,12 @@ Personality System (v2.15.3+):
 
 from pathlib import Path
 from typing import Optional
-import re
 
 # Base directory for prompts (relative to project root)
 PROMPTS_DIR = Path(__file__).parent.parent.parent / 'prompts'
 
-# Global language setting (can be overridden)
-_current_language = "auto"  # "auto", "de", "en"
+# Global language setting (synced with UI language)
+_current_language = "de"  # "de" or "en" (synced from ui_language)
 
 # Global user name (set once when settings are loaded)
 _current_user_name = ""
@@ -104,8 +103,6 @@ def load_identity(agent: str, lang: Optional[str] = None) -> str:
     """
     if lang is None:
         lang = _current_language
-    if lang == "auto":
-        lang = "de"  # Default to German
 
     identity_file = PROMPTS_DIR / lang / agent / "identity.txt"
 
@@ -135,8 +132,6 @@ def load_personality(agent: str, lang: Optional[str] = None) -> str:
 
     if lang is None:
         lang = _current_language
-    if lang == "auto":
-        lang = "de"  # Default to German
 
     personality_file = PROMPTS_DIR / lang / agent / "personality.txt"
 
@@ -147,48 +142,20 @@ def load_personality(agent: str, lang: Optional[str] = None) -> str:
         return f.read().strip()
 
 
-def detect_language(text: str) -> str:
-    """
-    Detect if text is German - used for prompt selection only.
-
-    Returns "de" only if German is clearly detected.
-    All other languages (English, Portuguese, French, etc.) return "en"
-    because English prompts are universal and contain instructions to
-    respond in the user's actual language.
-
-    Args:
-        text: Text to analyze
-
-    Returns:
-        "de" if German detected, "en" otherwise
-    """
-    # German indicators
-    german_patterns = [
-        r'\b(der|die|das|ein|eine|ist|sind|was|wo|wann|wie|warum)\b',
-        r'\b(wetter|heute|morgen|bitte|danke|hallo)\b',
-        r'\b(ich|du|er|sie|es|wir|ihr|mein|dein)\b',
-        r'\b(können|könntest|würde|sollte)\b'
-    ]
-
-    text_lower = text.lower()
-    de_score = sum(1 for pattern in german_patterns if re.search(pattern, text_lower, re.IGNORECASE))
-
-    # Only German prompts if German detected, else English (universal)
-    return "de" if de_score > 0 else "en"
-
-
 def set_language(lang: str):
     """
-    Set the global language for prompts
+    Set the global language for prompts.
+
+    This is synced with ui_language from state.py.
 
     Args:
-        lang: "auto", "de", or "en"
+        lang: "de" or "en"
     """
     global _current_language
-    if lang in ["auto", "de", "en"]:
+    if lang in ["de", "en"]:
         _current_language = lang
     else:
-        raise ValueError(f"Unsupported language: {lang}. Use 'auto', 'de', or 'en'")
+        raise ValueError(f"Unsupported language: {lang}. Use 'de' or 'en'")
 
 
 def get_language() -> str:
@@ -209,8 +176,8 @@ def load_prompt(
 
     Args:
         prompt_name: Name of the prompt file (without .txt extension)
-        lang: Language override ("de", "en", or None for current setting)
-        user_text: User text for auto-detection (if lang="auto")
+        lang: Language override ("de" or "en", or None for current setting)
+        user_text: User text (passed through to kwargs for template formatting)
         **kwargs: Keyword arguments for string formatting
 
     Returns:
@@ -225,16 +192,6 @@ def load_prompt(
     # Determine language
     if lang is None:
         lang = _current_language
-
-    if lang == "auto":
-        # Need user_text for auto-detection
-        if user_text:
-            lang = detect_language(user_text)
-        elif 'user_text' in kwargs:
-            lang = detect_language(kwargs['user_text'])
-        else:
-            # Default to German if no text to analyze
-            lang = "de"
 
     # Load from language-specific directory only (no fallback)
     prompt_file = PROMPTS_DIR / lang / f"{prompt_name}.txt"
@@ -508,8 +465,6 @@ def get_vision_templateless_ocr_prompt(lang: Optional[str] = None) -> str:
     """
     if lang is None:
         lang = _current_language
-    if lang == "auto":
-        lang = "de"  # Default to German
 
     prompt_file = PROMPTS_DIR / lang / "vision_templateless_ocr.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
@@ -524,8 +479,6 @@ def get_vision_templateless_default_prompt(lang: Optional[str] = None) -> str:
     """
     if lang is None:
         lang = _current_language
-    if lang == "auto":
-        lang = "de"  # Default to German
 
     prompt_file = PROMPTS_DIR / lang / "vision_templateless_default.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
@@ -548,8 +501,6 @@ def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) 
     """
     if lang is None:
         lang = _current_language
-    if lang == "auto":
-        lang = "en"  # Cache metadata is always English for consistency
 
     prompt_file = PROMPTS_DIR / lang / "cache_metadata.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:

@@ -30,7 +30,7 @@ from .message_builder import (
 )
 from .formatting import format_thinking_process, format_metadata, format_number, format_age
 # Cache system removed - will be replaced with Vector DB
-from .context_manager import estimate_tokens, calculate_dynamic_num_ctx, prepare_main_llm
+from .context_manager import estimate_tokens, prepare_main_llm
 from .streaming_utils import stream_llm_response, log_llm_completion
 from .config import (
     DYNAMIC_NUM_PREDICT_SAFETY_MARGIN,
@@ -499,7 +499,8 @@ async def chat_with_vision_pipeline(
     num_ctx_mode: str = "auto",
     num_ctx_manual: int = 16384,
     llm_options: Optional[Dict] = None,
-    state=None  # AIState object (for Automatik routing if user_text present)
+    state=None,  # AIState object (for Automatik routing if user_text present)
+    detected_language: str = "de"  # Language from Intent Detection or UI setting
 ) -> AsyncIterator[Dict]:
     """
     3-Model Architecture: Vision-LLM extracts structured data, Main-LLM optionally formats it.
@@ -520,12 +521,11 @@ async def chat_with_vision_pipeline(
         num_ctx_mode: "auto" or "manual"
         num_ctx_manual: Manual context size if mode="manual"
         llm_options: Additional LLM options
+        detected_language: Language from LLM-based Intent Detection ("de" or "en")
 
     Yields:
         Dict with keys: "type" (status/response/debug/error), "content"
     """
-    from .prompt_loader import detect_language, get_language
-
     # === DEBUG: Log entry point with image count ===
     log_message(f"🚀 Vision Pipeline started: {len(images)} image(s)")
     for i, img in enumerate(images):
@@ -533,35 +533,9 @@ async def chat_with_vision_pipeline(
         img_size = len(img.get("base64", "")) // 1024  # KB
         log_message(f"   [{i+1}] {img_name} ({img_size} KB base64)")
 
-    # Detect language from user text, fallback to history or global setting
-    if user_text:
-        lang = detect_language(user_text)
-    else:
-        # No user text (image only) → try to detect from recent chat history
-        lang = None
-        if state and hasattr(state, 'chat_history') and state.chat_history:
-            # Check last 3 messages for language detection
-            for user_msg, _ in reversed(state.chat_history[-3:]):
-                if user_msg and len(user_msg.strip()) > 10:  # Meaningful text
-                    lang = detect_language(user_msg)
-                    log_message(f"🌐 Language detected from history: {lang.upper()}")
-                    break
-
-        # Fallback to global language setting if no history available
-        if not lang:
-            global_lang = get_language()
-            if global_lang == "auto":
-                # Auto mode + no history → default to German (AIfred's primary language)
-                lang = "de"
-                log_message("🌐 Language fallback: de (AIfred default)")
-            else:
-                # Fixed language mode (de/en) → use that
-                lang = global_lang
-                log_message(f"🌐 Language from config: {lang.upper()}")
-
-    # Ensure lang is always set (mypy type narrowing)
-    if not lang:
-        lang = "de"
+    # Use detected_language from Intent Detection (passed from state.py)
+    lang = detected_language
+    log_message(f"🌐 Vision Pipeline using language: {lang.upper()}")
 
     # Collect image names for display
     image_names = ", ".join([img.get("name", "unknown") for img in images])
@@ -852,7 +826,8 @@ async def chat_interactive_mode(
     pending_images: Optional[List[Dict[str, str]]] = None,
     vision_json_context: Optional[dict] = None,
     user_name: Optional[str] = None,
-    detected_intent: Optional[str] = None
+    detected_intent: Optional[str] = None,
+    detected_language: str = "de"
 ) -> AsyncIterator[Dict]:
     """
     Automatik mode: AI decides whether web research is needed
@@ -876,6 +851,7 @@ async def chat_interactive_mode(
         pending_images: List of images (for multimodal messages)
         vision_json_context: Structured data extracted from images by Vision-LLM (optional)
         user_name: User's name for personalized prompts (optional)
+        detected_language: Language from LLM-based Intent Detection ("de" or "en")
 
     Yields:
         Dict with: {"type": "debug"|"content"|"metrics"|"separator"|"result", ...}
@@ -1143,10 +1119,9 @@ async def chat_interactive_mode(
             log_message(f"✅ RAG context available ({num_sources} relevant entries) → Bypass Automatik-LLM, direct to main LLM")
             yield {"type": "debug", "message": f"⚡ RAG Bypass: {num_sources}/{num_checked} relevant entries → Skip Automatic-LLM"}
 
-            # Language detection for user input
-            from .prompt_loader import detect_language
-            detected_user_language = detect_language(user_text)
-            log_message(f"🌐 Language detection: User input is probably '{detected_user_language.upper()}' (for prompt selection)")
+            # Use detected_language from Intent Detection (passed from state.py)
+            detected_user_language = detected_language
+            log_message(f"🌐 Using language from Intent Detection: {detected_user_language.upper()}")
 
             # Clear progress - no web research needed, show LLM phase
             yield {"type": "progress", "phase": "llm"}
@@ -1380,10 +1355,9 @@ async def chat_interactive_mode(
         # No RAG context - proceed with normal Automatik-LLM decision
         # ============================================================
 
-        # Language detection for user input
-        from .prompt_loader import detect_language
-        detected_user_language = detect_language(user_text)
-        log_message(f"🌐 Language detection: User input is probably '{detected_user_language.upper()}' (for prompt selection)")
+        # Use detected_language from Intent Detection (passed from state.py)
+        detected_user_language = detected_language
+        log_message(f"🌐 Using language from Intent Detection: {detected_user_language.upper()}")
 
         # Step 1: Ask AI if research is needed (with timing!)
         # Check if images are present OR if Vision JSON context exists

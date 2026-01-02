@@ -27,7 +27,8 @@ async def optimize_search_query(
     llm_client,
     automatik_llm_context_limit: int,
     llm_options: Optional[Dict] = None,
-    vision_json_context: Optional[Dict] = None
+    vision_json_context: Optional[Dict] = None,
+    detected_language: str = "de"
 ) -> Tuple[List[str], Optional[str]]:
     """
     Extract optimized search terms from user question
@@ -40,15 +41,15 @@ async def optimize_search_query(
         automatik_llm_context_limit: Context limit for automatik LLM
         llm_options: Optional Dict with enable_thinking toggle
         vision_json_context: Optional Vision JSON from image extraction (for query context)
+        detected_language: Language from Intent Detection ("de" or "en")
 
     Returns:
         tuple: (list_of_optimized_queries, reasoning_content)
                Multiple queries for distribution across search APIs
     """
-    # Language detection for user input
-    from .prompt_loader import detect_language
-    detected_user_language = detect_language(user_text)
-    log_message(f"🌐 Language detection: User input is probably '{detected_user_language.upper()}' (for prompt selection)")
+    # Use detected_language from Intent Detection (passed from caller)
+    detected_user_language = detected_language
+    log_message(f"🌐 Query Optimizer using language: {detected_user_language.upper()}")
 
     prompt = get_query_optimization_prompt(
         user_text=user_text,

@@ -19,35 +19,33 @@ from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prom
 from .config import AUTOMATIK_LLM_NUM_CTX
 
 
-def parse_intent_and_addressee(
+def parse_intent_addressee_language(
     response_raw: str,
     context: str = "general"
-) -> Tuple[str, Optional[str]]:
+) -> Tuple[str, Optional[str], str]:
     """
-    Extract intent and addressee from LLM response.
+    Extract intent, addressee, and language from LLM response.
 
-    Expected format: "INTENT|ADDRESSEE" (e.g., "FAKTISCH|sokrates", "KREATIV|")
+    Expected format: "INTENT|ADDRESSEE|LANGUAGE" (e.g., "FAKTISCH|sokrates|DE", "KREATIV||EN")
 
     Args:
         response_raw: Raw LLM response
         context: Context for logging ("general" or "cache_followup")
 
     Returns:
-        Tuple[str, Optional[str]]: (intent, addressee)
+        Tuple[str, Optional[str], str]: (intent, addressee, language)
             - intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
             - addressee: "aifred", "sokrates", "salomo" or None
+            - language: "de" or "en"
     """
     raw = response_raw.strip()
 
-    # Try to parse pipe-separated format first
-    if "|" in raw:
-        parts = raw.split("|", 1)
-        intent_part = parts[0].strip().upper()
-        addressee_part = parts[1].strip().lower() if len(parts) > 1 else ""
-    else:
-        # Fallback: Just intent, no pipe
-        intent_part = raw.upper()
-        addressee_part = ""
+    # Parse pipe-separated format: INTENT|ADDRESSEE|LANGUAGE
+    parts = raw.split("|") if "|" in raw else [raw]
+
+    intent_part = parts[0].strip().upper() if len(parts) > 0 else ""
+    addressee_part = parts[1].strip().lower() if len(parts) > 1 else ""
+    language_part = parts[2].strip().upper() if len(parts) > 2 else ""
 
     # Parse intent (with English/German support)
     if "FAKTISCH" in intent_part or "FACTUAL" in intent_part:
@@ -73,6 +71,29 @@ def parse_intent_and_addressee(
             addressee = "salomo"
         # else: leave as None (unknown or empty)
 
+    # Parse language (default to "en" for universal prompts)
+    if language_part in ("DE", "DEUTSCH", "GERMAN"):
+        language = "de"
+    else:
+        # EN, ENGLISH, or anything else → English (universal prompts)
+        language = "en"
+
+    return (intent, addressee, language)
+
+
+def parse_intent_and_addressee(
+    response_raw: str,
+    context: str = "general"
+) -> Tuple[str, Optional[str]]:
+    """
+    Extract intent and addressee from LLM response (legacy wrapper).
+
+    For backwards compatibility. Use parse_intent_addressee_language() instead.
+
+    Returns:
+        Tuple[str, Optional[str]]: (intent, addressee)
+    """
+    intent, addressee, _ = parse_intent_addressee_language(response_raw, context)
     return (intent, addressee)
 
 
@@ -97,12 +118,13 @@ async def detect_query_intent_and_addressee(
     automatik_model: str,
     llm_client,
     llm_options: Optional[Dict] = None
-) -> Tuple[str, Optional[str], str]:
+) -> Tuple[str, Optional[str], str, str]:
     """
-    Detect intent and addressee of user query.
+    Detect intent, addressee, and language of user query.
 
-    Combines intent detection (for temperature selection) with addressee
-    detection (for dialog routing) in a single LLM call.
+    Combines intent detection (for temperature selection), addressee
+    detection (for dialog routing), and language detection (for prompt selection)
+    in a single LLM call.
 
     Args:
         user_query: User question
@@ -111,24 +133,22 @@ async def detect_query_intent_and_addressee(
         llm_options: Optional Dict with enable_thinking toggle
 
     Returns:
-        Tuple[str, Optional[str], str]: (intent, addressee, raw_response)
+        Tuple[str, Optional[str], str, str]: (intent, addressee, detected_language, raw_response)
             - intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
             - addressee: "aifred", "sokrates", "salomo" or None
+            - detected_language: "de" or "en" (LLM-detected from user query)
             - raw_response: Raw LLM output for debugging
     """
-    from .prompt_loader import detect_language
-    detected_user_language = detect_language(user_query)
-    log_message(f"🌐 Language detection: User input is probably '{detected_user_language.upper()}' (for prompt selection)")
-
-    prompt = get_intent_detection_prompt(user_query=user_query, lang=detected_user_language)
+    # Use English prompt for intent detection (universal, handles all languages)
+    prompt = get_intent_detection_prompt(user_query=user_query, lang="en")
 
     try:
-        log_message(f"🎯 Intent+Addressee detection for query: {user_query[:60]}...")
+        log_message(f"🎯 Intent+Addressee+Language detection for query: {user_query[:60]}...")
 
         intent_options = {
             'temperature': 0.2,  # Low for consistent detection
             'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit 4K context
-            'num_predict': 32,  # Short: "FAKTISCH|sokrates" = ~10 tokens
+            'num_predict': 32,  # Short: "FAKTISCH|sokrates|DE" = ~10 tokens
             'enable_thinking': False  # Fast detection without reasoning
         }
 
@@ -141,13 +161,13 @@ async def detect_query_intent_and_addressee(
         )
         response_raw = response.text
 
-        intent, addressee = parse_intent_and_addressee(response_raw, context="general")
-        log_message(f"✅ Intent: {intent}, Addressee: {addressee or 'none'}, Raw: '{response_raw}'")
-        return (intent, addressee, response_raw)
+        intent, addressee, detected_language = parse_intent_addressee_language(response_raw, context="general")
+        log_message(f"✅ Intent: {intent}, Addressee: {addressee or 'none'}, Language: {detected_language.upper()}, Raw: '{response_raw}'")
+        return (intent, addressee, detected_language, response_raw)
 
     except Exception as e:
-        log_message(f"❌ Intent detection error: {e} → Fallback: FAKTISCH, no addressee")
-        return ("FAKTISCH", None, "")
+        log_message(f"❌ Intent detection error: {e} → Fallback: FAKTISCH, no addressee, EN")
+        return ("FAKTISCH", None, "en", "")
 
 
 async def detect_query_intent(
@@ -164,7 +184,7 @@ async def detect_query_intent(
     Returns:
         str: "FAKTISCH", "KREATIV" or "GEMISCHT"
     """
-    intent, _, _ = await detect_query_intent_and_addressee(
+    intent, _, _, _ = await detect_query_intent_and_addressee(
         user_query, automatik_model, llm_client, llm_options
     )
     return intent
@@ -175,7 +195,8 @@ async def detect_cache_followup_intent(
     followup_query: str,
     automatik_model: str,
     llm_client,
-    llm_options: Optional[Dict] = None
+    llm_options: Optional[Dict] = None,
+    detected_language: str = "de"
 ) -> str:
     """
     Detect intent of follow-up question to cached research
@@ -186,14 +207,14 @@ async def detect_cache_followup_intent(
         automatik_model: LLM for intent detection
         llm_client: LLMClient instance
         llm_options: Optional Dict with enable_thinking toggle
+        detected_language: Language from Intent Detection ("de" or "en")
 
     Returns:
         str: "FAKTISCH", "KREATIV" or "GEMISCHT"
     """
-    # Language detection for follow-up
-    from .prompt_loader import detect_language
-    detected_user_language = detect_language(followup_query)
-    log_message(f"🌐 Language detection: Follow-up is probably '{detected_user_language.upper()}' (for prompt selection)")
+    # Use detected_language from Intent Detection (passed from caller)
+    detected_user_language = detected_language
+    log_message(f"🌐 Cache Followup using language: {detected_user_language.upper()}")
 
     prompt = get_followup_intent_prompt(
         original_query=original_query,
