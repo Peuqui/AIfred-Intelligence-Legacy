@@ -27,7 +27,7 @@ from ..config import (
     DYNAMIC_NUM_PREDICT_MINIMUM
 )
 from ..vector_cache import format_ttl_hours
-from ..intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
+from ..intent_detector import get_temperature_for_intent, get_temperature_label
 from .context_utils import get_rag_context_budget
 from ..streaming_utils import stream_llm_response, log_llm_completion
 
@@ -218,27 +218,15 @@ async def build_and_generate_response(
         yield {"type": "error", "message": error_msg}
         return
 
-    # Temperature
+    # Temperature decision: Manual Override or Auto (reuse pre-detected intent)
     if temperature_mode == 'manual':
         final_temperature = temperature
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
     else:
-        # Auto: Use pre-detected intent from state.py (avoids duplicate LLM call)
-        if detected_intent:
-            rag_intent = detected_intent
-            log_message(f"🌡️ Using pre-detected intent: {rag_intent}")
-        else:
-            # Fallback: Detect intent if not provided (should not happen in normal flow)
-            rag_intent = await detect_query_intent(
-                user_query=user_text,
-                automatik_model=automatik_model,
-                llm_client=automatik_llm_client,
-                llm_options=llm_options
-            )
-            log_message(f"🌡️ Fallback intent detection: {rag_intent}")
-        final_temperature = get_temperature_for_intent(rag_intent)
-        temp_label = get_temperature_label(rag_intent)
-        log_message(f"🌡️ RAG Temperature: {final_temperature} (Intent: {rag_intent})")
+        # Auto: Reuse detected_intent from state.py (no duplicate LLM call)
+        final_temperature = get_temperature_for_intent(detected_intent)
+        temp_label = get_temperature_label(detected_intent)
+        log_message(f"🌡️ RAG Temperature: {final_temperature} (Intent: {detected_intent})")
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
     # LLM Inference

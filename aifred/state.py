@@ -2934,6 +2934,7 @@ class AIState(rx.State):
                         pending_images=None,  # Images already processed
                         vision_json_context=extracted_vision_json,  # Pass Vision JSON!
                         user_name=self.user_name,  # For personalized prompts
+                        detected_intent=detected_intent,  # From Intent Detection (avoids duplicate LLM call)
                         detected_language=detected_language  # From Intent Detection
                     ):
                         # Handle Main-LLM items using NORMAL FLOW logic
