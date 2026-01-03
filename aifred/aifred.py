@@ -2361,6 +2361,7 @@ def debug_console() -> rx.Component:
                         on_change=AIState.toggle_auto_refresh,
                         color_scheme="orange",
                         high_contrast=True,
+                        id="autoscroll-switch",
                     ),
                     rx.text(
                         rx.cond(
@@ -3907,23 +3908,12 @@ function makeLinksOpenInNewTab() {
 }
 
 function isAutoScrollEnabled() {
-    // Find the auto-scroll switch by looking for the switch near the "Auto-Scroll" text
-    // The switch has data-state="checked" or "unchecked"
-    const switches = document.querySelectorAll('[role="switch"]');
-    for (let sw of switches) {
-        // Check if this switch is the auto-scroll switch (near "Auto-Scroll" text)
-        const parent = sw.closest('.rx-Flex');
-        if (parent && parent.textContent.includes('Auto-Scroll')) {
-            const isEnabled = sw.getAttribute('data-state') === 'checked';
-            return isEnabled;
-        }
-    }
-    return true; // Default to enabled if switch not found
+    const sw = document.getElementById('autoscroll-switch');
+    return sw && sw.getAttribute('data-state') === 'checked';
 }
 
 function autoScrollElement(element) {
     if (element) {
-        console.log('📜 Scrolling element:', element.id, 'scrollTop:', element.scrollTop, 'scrollHeight:', element.scrollHeight);
         element.scrollTop = element.scrollHeight;
     }
 }
@@ -3933,7 +3923,6 @@ const observerConfig = { childList: true, subtree: true };
 
 const callback = function(mutationsList, observer) {
     const enabled = isAutoScrollEnabled();
-    console.log('🔍 MutationObserver triggered, auto-scroll enabled:', enabled);
 
     // Make all links open in new tab (always, regardless of auto-scroll)
     makeLinksOpenInNewTab();
@@ -3943,17 +3932,12 @@ const callback = function(mutationsList, observer) {
         return;
     }
 
-    // Auto-scroll Debug Console
+    // Auto-scroll Debug Console only (Chat History uses rx.auto_scroll in Python)
     const debugBox = document.getElementById('debug-console-box');
     if (debugBox) {
         autoScrollElement(debugBox);
     }
-
-    // Auto-scroll Chat History
-    const chatBox = document.getElementById('chat-history-box');
-    if (chatBox) {
-        autoScrollElement(chatBox);
-    }
+    // Note: Chat History scrolling is handled by rx.auto_scroll() / rx.box() conditional in Python
 };
 
 function syncDebugConsoleHeight() {
@@ -3997,14 +3981,8 @@ function setupObservers() {
         console.warn('❌ debug-console-box not found');
     }
 
-    const chatBox = document.getElementById('chat-history-box');
-    if (chatBox) {
-        console.log('✅ Found chat-history-box');
-        const observer = new MutationObserver(callback);
-        observer.observe(chatBox, observerConfig);
-    } else {
-        console.warn('❌ chat-history-box not found');
-    }
+    // Note: Chat History scrolling is handled by rx.auto_scroll() / rx.box() in Python
+    // No JavaScript observer needed for chat-history-box
 
     // Sync heights on accordion open/close - observe settings-accordion by ID
     const settingsAccordion = document.getElementById('settings-accordion');

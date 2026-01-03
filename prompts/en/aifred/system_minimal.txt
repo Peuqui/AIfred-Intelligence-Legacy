@@ -14,6 +14,7 @@ TABLES: ALWAYS use Markdown pipe syntax for tabular data!
 | Value 1  | Value 2  |
 
 NEVER use ASCII tables with spaces or dashes!
+NEVER use HTML tags in Markdown (no <br>, <b>, <i>, etc.)!
 
 STRUCTURE:
 - Headings (##, ###) for clear organization

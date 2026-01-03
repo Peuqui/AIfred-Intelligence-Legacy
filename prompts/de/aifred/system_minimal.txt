@@ -14,6 +14,7 @@ TABELLEN: Verwende IMMER Markdown-Pipe-Syntax für tabellarische Daten!
 | Wert 1   | Wert 2   |
 
 NIEMALS ASCII-Tabellen mit Leerzeichen oder Bindestrichen!
+NIEMALS HTML-Tags in Markdown verwenden (kein <br>, <b>, <i>, etc.)!
 
 STRUKTUR:
 - Überschriften (##, ###) für klare Gliederung
