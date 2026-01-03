@@ -23,6 +23,9 @@ _current_language = "de"  # "de" or "en" (synced from ui_language)
 # Global user name (set once when settings are loaded)
 _current_user_name = ""
 
+# Global user gender for salutation (male/female)
+_current_user_gender = "male"
+
 # Global personality toggle states (loaded from settings)
 _personality_enabled = {
     "aifred": True,
@@ -44,6 +47,37 @@ def set_user_name(name: str):
 def get_user_name() -> str:
     """Get the current user name"""
     return _current_user_name
+
+
+def set_user_gender(gender: str):
+    """Set the global user gender for salutation (male/female)"""
+    global _current_user_gender
+    _current_user_gender = gender if gender in ("male", "female") else "male"
+
+
+def get_user_gender() -> str:
+    """Get the current user gender"""
+    return _current_user_gender
+
+
+def get_salutation() -> str:
+    """
+    Get proper salutation based on user name and gender.
+
+    Returns:
+        - "Herr {name}" / "Mr. {name}" for male
+        - "Frau {name}" / "Ms. {name}" for female
+        - Empty string if no name set
+    """
+    if not _current_user_name:
+        return ""
+
+    if _current_language == "de":
+        title = "Herr" if _current_user_gender == "male" else "Frau"
+    else:
+        title = "Mr." if _current_user_gender == "male" else "Ms."
+
+    return f"{title} {_current_user_name}"
 
 
 def set_personality_enabled(agent: str, enabled: bool):
@@ -94,6 +128,8 @@ def load_identity(agent: str, lang: Optional[str] = None) -> str:
     Identity defines WHO the agent is - this is always included,
     regardless of personality toggle state.
 
+    If user name and gender are set, appends proper salutation info.
+
     Args:
         agent: Agent name ("aifred", "sokrates", "salomo")
         lang: Language code, defaults to current language
@@ -110,7 +146,9 @@ def load_identity(agent: str, lang: Optional[str] = None) -> str:
         return ""
 
     with open(identity_file, 'r', encoding='utf-8') as f:
-        return f.read().strip()
+        identity = f.read().strip()
+
+    return identity
 
 
 def load_personality(agent: str, lang: Optional[str] = None) -> str:
@@ -267,6 +305,7 @@ def load_prompt(
         'current_time': now.strftime('%H:%M:%S'),
         'current_weekday': weekday,
         'user_name': _current_user_name if _current_user_name else "",
+        'user_salutation': get_salutation(),  # "Herr Name" / "Frau Name" / ""
     }
 
     # Merge standard placeholders with kwargs (kwargs override standard)

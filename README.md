@@ -17,7 +17,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 ## ✨ Features
 
 ### 🎯 Core Features
-- **Multi-Backend Support**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), KoboldCPP (GGUF)
+- **Multi-Backend Support**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), KoboldCPP (GGUF), **Cloud APIs** (Qwen, DeepSeek, Claude)
 - **Vision/OCR Support**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
 - **Image Crop Tool**: Interactive crop before OCR/analysis (8-point handles, 4K auto-resize)
 - **3-Model Architecture**: Specialized Vision-LLM for OCR, Main-LLM for interpretation
@@ -182,6 +182,29 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 - **Parallel Scraping**: ThreadPoolExecutor scrapes 3-7 URLs simultaneously, first successful results are used
 - **Failed Sources Display**: Shows unavailable URLs with error reasons (Cloudflare, 404, Timeout) - persisted in Vector Cache for cache hits
 - **PDF Support**: Direct extraction from PDF documents (AWMF guidelines, PubMed PDFs) via PyMuPDF with browser-like User-Agent
+
+### ☁️ Cloud API Support
+
+AIfred supports cloud LLM providers via OpenAI-compatible APIs:
+
+| Provider | Models | API Key Variable |
+|----------|--------|------------------|
+| **Qwen (DashScope)** | qwen-plus, qwen-turbo, qwen-max | `DASHSCOPE_API_KEY` |
+| **DeepSeek** | deepseek-chat, deepseek-reasoner | `DEEPSEEK_API_KEY` |
+| **Claude (Anthropic)** | claude-3.5-sonnet, claude-3-opus | `ANTHROPIC_API_KEY` |
+| **Kimi (Moonshot)** | moonshot-v1-8k, moonshot-v1-32k | `MOONSHOT_API_KEY` |
+
+**Features:**
+- Dynamic model fetching (models loaded from provider's `/models` endpoint)
+- Token usage tracking (prompt + completion tokens displayed in debug console)
+- Per-provider model memory (each provider remembers its last used model)
+- Vision model filtering (excludes `-vl` variants from main LLM dropdown)
+- Streaming support with real-time output
+
+**Note:** Cloud APIs don't require local GPU resources - ideal for:
+- Testing larger models without hardware investment
+- Mobile/laptop usage without dedicated GPU
+- Comparing cloud vs local model quality
 
 ### ⚠️ Model Recommendations
 - **Automatik-LLM** (Intent Detection, Query Optimization): Small instruct models work best
@@ -844,6 +867,12 @@ TAVILY_API_KEY=your_key_here
 
 # Ollama configuration
 OLLAMA_BASE_URL=http://localhost:11434
+
+# Cloud LLM API Keys (optional - only needed if using cloud backends)
+DASHSCOPE_API_KEY=your_key_here      # Qwen (DashScope) - https://dashscope.console.aliyun.com/
+DEEPSEEK_API_KEY=your_key_here       # DeepSeek - https://platform.deepseek.com/
+ANTHROPIC_API_KEY=your_key_here      # Claude (Anthropic) - https://console.anthropic.com/
+MOONSHOT_API_KEY=your_key_here       # Kimi (Moonshot) - https://platform.moonshot.cn/
 ```
 
 5. **Install LLM Models**:
@@ -1383,6 +1412,12 @@ TAVILY_API_KEY=your_tavily_api_key
 
 # Ollama Configuration
 OLLAMA_BASE_URL=http://localhost:11434
+
+# Cloud LLM API Keys (optional - only needed if using cloud backends)
+DASHSCOPE_API_KEY=your_key_here      # Qwen (DashScope)
+DEEPSEEK_API_KEY=your_key_here       # DeepSeek
+ANTHROPIC_API_KEY=your_key_here      # Claude (Anthropic)
+MOONSHOT_API_KEY=your_key_here       # Kimi (Moonshot)
 ```
 
 **Why is `AIFRED_API_URL` needed?**

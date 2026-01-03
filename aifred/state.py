@@ -24,8 +24,10 @@ from .lib import config
 from .lib.config import (
     EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES,
     SOKRATES_TEMPERATURE_OFFSET, SALOMO_TEMPERATURE_OFFSET,
-    DEBUG_MESSAGES_MAX
+    DEBUG_MESSAGES_MAX,
+    CLOUD_API_PROVIDERS
 )
+from .backends.cloud_api import is_cloud_api_configured
 from .lib.vllm_manager import vLLMProcessManager
 from .lib.model_manager import (
     sort_models_grouped,
@@ -171,17 +173,23 @@ class AIState(rx.State):
     multi_agent_help_open: bool = False  # Show help modal?
 
     # Backend Settings
-    backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi", "koboldcpp"
+    backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi", "koboldcpp", "cloud_api"
     backend_id: str = "ollama"  # NEW: Pure backend ID (synced with backend_type for compatibility)
     current_backend_label: str = "Ollama"  # NEW: Display label for current backend (synced with backend_id)
     backend_url: str = config.DEFAULT_OLLAMA_URL  # Default Ollama URL
+
+    # Cloud API Settings (only relevant when backend_type == "cloud_api")
+    cloud_api_provider: str = "qwen"  # "claude", "qwen", "kimi"
+    cloud_api_provider_label: str = "Qwen (DashScope)"  # Display label
+    cloud_api_key_configured: bool = False  # True if API key is set (from ENV or runtime)
 
     # Backend ID/Label Mapping (static - all possible backends)
     available_backends_dict: Dict[str, str] = {
         "ollama": "Ollama",
         "koboldcpp": "KoboldCPP",
         "tabbyapi": "TabbyAPI",
-        "vllm": "vLLM"
+        "vllm": "vLLM",
+        "cloud_api": "Cloud APIs",
     }
 
     # NOTE: Models loaded from settings.json first, fallback to config.py only if settings don't exist
@@ -277,6 +285,7 @@ class AIState(rx.State):
 
     # User Settings
     user_name: str = ""  # User's name for personalized responses (optional)
+    user_gender: str = "male"  # "male" or "female" - for proper salutation (Herr/Frau)
 
     # TTS/STT Settings
     enable_tts: bool = False
@@ -352,8 +361,8 @@ class AIState(rx.State):
     gpu_warnings: List[str] = []
     gpu_count: int = 1
     gpu_vram_gb: int = 0
-    available_backends: List[str] = ["ollama", "koboldcpp", "tabbyapi", "vllm"]  # Filtered by GPU compatibility (P40-compatible first)
-    available_backends_list: List[str] = ["Ollama", "KoboldCPP", "TabbyAPI", "vLLM"]  # NEW: Display names (synced with available_backends)
+    available_backends: List[str] = ["ollama", "koboldcpp", "tabbyapi", "vllm", "cloud_api"]  # Filtered by GPU compatibility (P40-compatible first) + cloud_api (always available)
+    available_backends_list: List[str] = ["Ollama", "KoboldCPP", "TabbyAPI", "vLLM", "Cloud APIs"]  # NEW: Display names (synced with available_backends)
 
     @rx.var
     def gpu_display_text(self) -> str:
@@ -854,6 +863,13 @@ class AIState(rx.State):
                 self.backend_type = saved_settings.get("backend_type", self.backend_type)
                 self.backend_id = self.backend_type  # Sync ID with type
                 self.current_backend_label = self.available_backends_dict.get(self.backend_id, self.backend_id)
+
+                # Cloud API provider
+                saved_provider = saved_settings.get("cloud_api_provider", self.cloud_api_provider)
+                if saved_provider in CLOUD_API_PROVIDERS:
+                    self.cloud_api_provider = saved_provider
+                    self.cloud_api_provider_label = CLOUD_API_PROVIDERS[saved_provider]["name"]
+
                 self.research_mode = saved_settings.get("research_mode", self.research_mode)
 
                 # Update research_mode_display to match loaded research_mode
@@ -875,11 +891,13 @@ class AIState(rx.State):
                     set_ui_locale(saved_ui_lang)
                     set_language(saved_ui_lang)  # Sync prompt language
 
-                # Load user name
+                # Load user name and gender
                 self.user_name = saved_settings.get("user_name", self.user_name)
+                self.user_gender = saved_settings.get("user_gender", self.user_gender)
                 # Sync to prompt_loader for automatic injection into system prompts
-                from .lib.prompt_loader import set_user_name, init_system_prompt_cache, set_personality_enabled
+                from .lib.prompt_loader import set_user_name, set_user_gender, init_system_prompt_cache, set_personality_enabled
                 set_user_name(self.user_name)
+                set_user_gender(self.user_gender)
 
                 # Load and sync personality toggles to prompt_loader
                 self.aifred_personality = saved_settings.get("aifred_personality", self.aifred_personality)
@@ -1066,7 +1084,11 @@ class AIState(rx.State):
                 # Filter available backends based on GPU compatibility
                 # Only show backends that are actually compatible with the GPU
                 if gpu_info.recommended_backends:
-                    self.available_backends = gpu_info.recommended_backends
+                    # Start with GPU-compatible backends
+                    self.available_backends = gpu_info.recommended_backends.copy()
+                    # Always add cloud_api (doesn't need GPU)
+                    if "cloud_api" not in self.available_backends:
+                        self.available_backends.append("cloud_api")
                     # Sync display names list
                     self.available_backends_list = [
                         self.available_backends_dict.get(bid, bid)
@@ -1311,6 +1333,47 @@ class AIState(rx.State):
                         self.add_debug("   huggingface-cli download bartowski/Qwen3-30B-Instruct-2507-GGUF \\")
                         self.add_debug("       Qwen3-30B-Instruct-2507-Q4_K_M.gguf --local-dir ~/models/")
 
+                elif self.backend_type == "cloud_api":
+                    # Cloud APIs: Fetch models dynamically from API
+                    provider_config = CLOUD_API_PROVIDERS.get(self.cloud_api_provider)
+                    if provider_config:
+                        # Check if API key is configured first
+                        self.cloud_api_key_configured = is_cloud_api_configured(self.cloud_api_provider)
+                        if self.cloud_api_key_configured:
+                            self.add_debug(f"✅ API key configured ({provider_config['env_key']})")
+                            # Fetch models dynamically from Cloud API
+                            try:
+                                from .backends.cloud_api import CloudAPIBackend, get_cloud_api_key
+                                api_key = get_cloud_api_key(self.cloud_api_provider)
+                                temp_backend = CloudAPIBackend(
+                                    base_url=provider_config["base_url"],
+                                    api_key=api_key or "",
+                                    provider=self.cloud_api_provider
+                                )
+                                models = await temp_backend.list_models()
+                                await temp_backend.close()
+
+                                if models:
+                                    self.available_models_dict = {m: m for m in models}
+                                    self.available_models = models.copy()
+                                    self.add_debug(f"☁️ {provider_config['name']}: {len(models)} models loaded")
+                                else:
+                                    self.available_models_dict = {}
+                                    self.available_models = []
+                                    self.add_debug(f"⚠️ No models returned from {provider_config['name']} API")
+                            except Exception as e:
+                                self.available_models_dict = {}
+                                self.available_models = []
+                                self.add_debug(f"⚠️ Failed to fetch models: {e}")
+                        else:
+                            self.available_models_dict = {}
+                            self.available_models = []
+                            self.add_debug(f"⚠️ API key missing: Set {provider_config['env_key']} in .env")
+                    else:
+                        self.available_models_dict = {}
+                        self.available_models = []
+                        self.add_debug(f"⚠️ Unknown cloud provider: {self.cloud_api_provider}")
+
                 else:
                     # Ollama: Query server API
                     unsorted_dict = discover_models(
@@ -1504,6 +1567,7 @@ class AIState(rx.State):
 
         settings = {
             "backend_type": self.backend_type,
+            "cloud_api_provider": self.cloud_api_provider,  # Cloud API provider (claude/qwen/kimi)
             "research_mode": self.research_mode,
             "temperature": self.temperature,
             "temperature_mode": self.temperature_mode,
@@ -1512,6 +1576,7 @@ class AIState(rx.State):
             "enable_thinking": self.enable_thinking,
             "ui_language": self.ui_language,  # UI language (de/en)
             "user_name": self.user_name,  # User's name for personalized responses
+            "user_gender": self.user_gender,  # Gender for salutation (male/female)
             "backend_models": backend_models,  # Merged: preserves all backends
             # Multi-Agent Settings
             "multi_agent_mode": self.multi_agent_mode,
@@ -1690,6 +1755,103 @@ class AIState(rx.State):
             self.debug_messages.append("────────────────────")  # UI (20 chars, matching pattern)
 
             yield  # Force UI update to re-enable controls and refresh model dropdowns
+
+    async def set_cloud_api_provider_by_label(self, label: str):
+        """Switch Cloud API provider using display label
+
+        Maps "Claude (Anthropic)" -> "claude", etc.
+        """
+        label_to_id = {
+            "Claude (Anthropic)": "claude",
+            "Qwen (DashScope)": "qwen",
+            "DeepSeek": "deepseek",
+            "Kimi (Moonshot)": "kimi",
+        }
+        provider_id = label_to_id.get(label, "qwen")
+        async for _ in self.set_cloud_api_provider(provider_id):
+            yield
+
+    async def set_cloud_api_provider(self, provider: str):
+        """Switch Cloud API provider (claude, qwen, kimi)
+
+        Only relevant when backend_type == "cloud_api".
+        Triggers model list refresh, vision model refresh, and API key check.
+        """
+        if provider not in CLOUD_API_PROVIDERS:
+            self.add_debug(f"⚠️ Unknown cloud provider: {provider}")
+            return
+
+        provider_config = CLOUD_API_PROVIDERS[provider]
+        self.cloud_api_provider = provider
+        self.cloud_api_provider_label = provider_config["name"]
+
+        # Check API key
+        self.cloud_api_key_configured = is_cloud_api_configured(provider)
+
+        self.add_debug(f"☁️ Switching to {provider_config['name']}...")
+
+        if self.cloud_api_key_configured:
+            self.add_debug(f"✅ API key found ({provider_config['env_key']})")
+            # Fetch models dynamically from Cloud API
+            try:
+                from .backends.cloud_api import CloudAPIBackend, get_cloud_api_key
+                api_key = get_cloud_api_key(provider)
+                temp_backend = CloudAPIBackend(
+                    base_url=provider_config["base_url"],
+                    api_key=api_key or "",
+                    provider=provider
+                )
+                models = await temp_backend.list_models()
+                await temp_backend.close()
+
+                if models:
+                    self.available_models_dict = {m: m for m in models}
+                    self.available_models = models.copy()
+                    self.add_debug(f"📋 {len(models)} models available")
+
+                    # For Cloud APIs: Filter by name patterns (no metadata API)
+                    from .lib.vision_utils import is_vision_model_sync
+                    vl_models = [m for m in models if is_vision_model_sync(m)]
+                    self.vision_models_cache = vl_models
+                    self.available_vision_models_list = vl_models
+                    if vl_models:
+                        self.add_debug(f"📷 {len(vl_models)} vision models")
+
+                    # Set default model (first in list)
+                    default_model = models[0]
+                    self.aifred_model = default_model
+                    self.aifred_model_id = default_model
+                    self.automatik_model = default_model
+                    self.automatik_model_id = default_model
+
+                    # Set default vision model (first VL model if available)
+                    if vl_models:
+                        self.vision_model = vl_models[0]
+                        self.vision_model_id = vl_models[0]
+                    else:
+                        self.vision_model = ""
+                        self.vision_model_id = ""
+                else:
+                    self.available_models_dict = {}
+                    self.available_models = []
+                    self.vision_models_cache = []
+                    self.available_vision_models_list = []
+                    self.add_debug(f"⚠️ No models returned from API")
+            except Exception as e:
+                self.available_models_dict = {}
+                self.available_models = []
+                self.vision_models_cache = []
+                self.available_vision_models_list = []
+                self.add_debug(f"⚠️ Failed to fetch models: {e}")
+        else:
+            self.available_models_dict = {}
+            self.available_models = []
+            self.vision_models_cache = []
+            self.available_vision_models_list = []
+            self.add_debug(f"⚠️ Set {provider_config['env_key']} in .env")
+
+        self._save_settings()
+        yield
 
     def set_progress(self, phase: str, current: int = 0, total: int = 0, failed: int = 0):
         """Update processing progress"""
@@ -2113,21 +2275,32 @@ class AIState(rx.State):
         """
         Detect vision-capable models using backend-specific metadata.
         Populates self.vision_models_cache for UI dropdown.
+
+        For Cloud APIs: Filter by name patterns (vl, vision, ocr, etc.) - no metadata API.
+        For local backends: Queries backend metadata for vision capabilities.
         """
         global _global_backend_state
-        from .lib.vision_utils import is_vision_model
+        from .lib.vision_utils import is_vision_model, is_vision_model_sync
 
-        vision_model_ids = []  # NEW: Store IDs, not display names
+        vision_model_ids = []  # Store IDs, not display names
 
-        # NEW: Iterate over dict items
-        for model_id, model_display in self.available_models_dict.items():
-            try:
-                # Query backend metadata to check vision capability
-                if await is_vision_model(self, model_id):  # model_id is already pure
-                    vision_model_ids.append(model_id)  # Store pure ID
-            except Exception as e:
-                # Fallback: skip on error (don't block initialization)
-                log_message(f"⚠️ Vision detection failed for {model_id}: {e}")
+        # === CLOUD API: Filter by name patterns (no metadata API available) ===
+        if self.backend_type == "cloud_api":
+            # Use comprehensive name-based detection from vision_utils
+            for model_id in self.available_models_dict.keys():
+                if is_vision_model_sync(model_id):
+                    vision_model_ids.append(model_id)
+
+        else:
+            # === LOCAL BACKENDS: Query metadata ===
+            for model_id, model_display in self.available_models_dict.items():
+                try:
+                    # Query backend metadata to check vision capability
+                    if await is_vision_model(self, model_id):  # model_id is already pure
+                        vision_model_ids.append(model_id)  # Store pure ID
+                except Exception as e:
+                    # Fallback: skip on error (don't block initialization)
+                    log_message(f"⚠️ Vision detection failed for {model_id}: {e}")
 
         self.vision_models_cache = vision_model_ids  # Store IDs
         _global_backend_state["vision_models_cache"] = vision_model_ids
@@ -2143,8 +2316,9 @@ class AIState(rx.State):
 
         # Auto-select vision_model if not set or empty
         if (not self.vision_model_id or self.vision_model_id.strip() == "") and vision_model_ids:
+            # Select first available vision model
             self.vision_model_id = vision_model_ids[0]
-            self.vision_model = self.available_models_dict[self.vision_model_id]  # Sync display
+            self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
             self.add_debug(f"⚙️ Auto-selected vision_model: {self.vision_model_id}")
             self._save_settings()
         # Validate existing vision_model is in cache
@@ -2156,7 +2330,7 @@ class AIState(rx.State):
                 # Saved model not found in vision models, auto-select first available
                 self.add_debug(f"⚠️ Saved vision_model '{self.vision_model_id}' not found in vision models, auto-selecting...")
                 self.vision_model_id = vision_model_ids[0]
-                self.vision_model = self.available_models_dict[self.vision_model_id]
+                self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
                 self._save_settings()
 
         # Show selected vision model (consistent with Main/Automatik format)
@@ -2935,7 +3109,8 @@ class AIState(rx.State):
                         vision_json_context=extracted_vision_json,  # Pass Vision JSON!
                         user_name=self.user_name,  # For personalized prompts
                         detected_intent=detected_intent,  # From Intent Detection (avoids duplicate LLM call)
-                        detected_language=detected_language  # From Intent Detection
+                        detected_language=detected_language,  # From Intent Detection
+                        cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None
                     ):
                         # Handle Main-LLM items using NORMAL FLOW logic
                         # (EXACT same pattern as normal flow in line 2029-2068)
@@ -3038,7 +3213,8 @@ class AIState(rx.State):
                     pending_images=self.pending_images if len(self.pending_images) > 0 else None,
                     user_name=self.user_name,  # For personalized prompts
                     detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
-                    detected_language=detected_language  # From Intent Detection
+                    detected_language=detected_language,  # From Intent Detection
+                    cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
@@ -3376,7 +3552,12 @@ class AIState(rx.State):
                 )
 
                 # Console: LLM starts (matching Automatik mode)
-                self.add_debug(f"🎩 AIfred-LLM starting: {self.aifred_model}")
+                # Show backend type: Cloud provider name or local backend
+                if self.backend_type == "cloud_api":
+                    backend_label = f"☁️ {self.cloud_api_provider_label}"
+                else:
+                    backend_label = self.backend_type.capitalize()
+                self.add_debug(f"🎩 AIfred-LLM starting: {self.aifred_model} [{backend_label}]")
                 yield
 
                 # Stream response directly from LLM
@@ -3415,12 +3596,18 @@ class AIState(rx.State):
                     elif chunk["type"] == "done":
                         metrics = chunk.get("metrics", {})
                         tokens_generated = metrics.get("tokens_generated", 0)
+                        tokens_prompt = metrics.get("tokens_prompt", 0)
 
                 inference_time = time.time() - inference_start
 
-                # Console: LLM finished (matching Automatik mode)
+                # Console: LLM finished
                 tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0
-                self.add_debug(f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tokens, {format_number(tokens_per_sec, 1)} tok/s)")
+                # Cloud APIs: Show output tokens + total (output for history, total for billing)
+                if self.backend_type == "cloud_api" and tokens_prompt > 0:
+                    total_tokens = tokens_prompt + tokens_generated
+                    self.add_debug(f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} out / {format_number(total_tokens)} total, {format_number(tokens_per_sec, 1)} tok/s)")
+                else:
+                    self.add_debug(f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tokens, {format_number(tokens_per_sec, 1)} tok/s)")
                 yield
 
                 # Separator wird am Ende der Funktion gesetzt (Zeile ~3409 für Standard-Modus)
@@ -6078,7 +6265,7 @@ class AIState(rx.State):
         await self.set_vision_model(display_label)
 
     # ============================================================
-    # USER NAME SETTINGS
+    # USER NAME & GENDER SETTINGS
     # ============================================================
 
     def set_user_name(self, name: str):
@@ -6093,6 +6280,17 @@ class AIState(rx.State):
         set_user_name(self.user_name)
         if self.user_name:
             self.add_debug(f"👤 User name: {self.user_name}")
+        self._save_settings()
+
+    def set_user_gender(self, gender: str | list[str]):
+        """Set user gender for salutation (male/female)"""
+        # Reflex segmented_control can return str or list[str]
+        if isinstance(gender, list):
+            gender = gender[0] if gender else "male"
+        self.user_gender = gender
+        from .lib.prompt_loader import set_user_gender
+        set_user_gender(gender)
+        self.add_debug(f"👤 Gender: {'♂ male' if gender == 'male' else '♀ female'}")
         self._save_settings()
 
     # ============================================================

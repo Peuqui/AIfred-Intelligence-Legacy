@@ -149,7 +149,50 @@ BACKEND_DEFAULT_MODELS = {
         "salomo_model": "Qwen3-8B-Q4_K_M.gguf",                           # Salomo: GGUF Q4_K_M, ~4.7GB
         "vision_model": "",                                                # Vision: Auto-detect
     },
+    "cloud_api": {
+        "aifred_model": "qwen-plus",                                          # Default: Qwen Plus (free tier)
+        "automatik_model": "qwen-turbo",                                      # Automatik: Qwen Turbo (faster, free)
+        "sokrates_model": "qwen-turbo",                                       # Sokrates: Qwen Turbo
+        "salomo_model": "qwen-turbo",                                         # Salomo: Qwen Turbo
+        "vision_model": "",                                                   # Vision: Not yet supported
+    },
 }
+
+# ============================================================
+# CLOUD API PROVIDERS
+# ============================================================
+# Configuration for cloud-based LLM APIs (OpenAI-compatible)
+# API keys are read from environment variables (not stored in settings!)
+CLOUD_API_PROVIDERS = {
+    "claude": {
+        "name": "Claude (Anthropic)",
+        "base_url": "https://api.anthropic.com/v1",
+        "env_key": "ANTHROPIC_API_KEY",
+        # Models are fetched dynamically from API - no hardcoded list!
+    },
+    "qwen": {
+        "name": "Qwen (DashScope)",
+        "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        "env_key": "DASHSCOPE_API_KEY",
+        # Models are fetched dynamically from API - no hardcoded list!
+    },
+    "deepseek": {
+        "name": "DeepSeek",
+        "base_url": "https://api.deepseek.com/v1",
+        "env_key": "DEEPSEEK_API_KEY",
+        # Models are fetched dynamically from API - no hardcoded list!
+    },
+    "kimi": {
+        "name": "Kimi (Moonshot)",
+        "base_url": "https://api.moonshot.cn/v1",
+        "env_key": "MOONSHOT_API_KEY",
+        # Models are fetched dynamically from API - no hardcoded list!
+    },
+}
+
+# Cloud API: No context calculation needed
+# Cloud providers manage context themselves - we don't need to track limits
+# History compression uses LOCAL models only (where we know actual limits)
 
 # ============================================================
 # BACKEND URLs
@@ -166,6 +209,7 @@ BACKEND_URLS = {
     "vllm": DEFAULT_VLLM_URL,      # Port 8001 for dev (8000 on production MiniPC)
     "tabbyapi": DEFAULT_TABBYAPI_URL,
     "koboldcpp": DEFAULT_KOBOLDCPP_URL,
+    "cloud_api": "",  # Dynamic - set based on provider selection
 }
 
 # Backend display labels (for UI dropdowns)
@@ -174,6 +218,7 @@ BACKEND_LABELS = {
     "koboldcpp": "KoboldCPP",
     "tabbyapi": "TabbyAPI",
     "vllm": "vLLM",
+    "cloud_api": "Cloud APIs",
 }
 
 # Backend dropdown special items (headers, separators)
@@ -181,13 +226,14 @@ BACKEND_DROPDOWN_ITEMS = {
     "header_universal": "─── Universal Compatibility (GGUF) ───",
     "separator": "─────────────────────────────────",
     "header_modern": "─── Modern GPUs (FP16) ───",
+    "header_cloud": "─── Cloud APIs ───",
 }
 
 # Non-selectable backend items (headers and separators)
-BACKEND_NON_SELECTABLE = ["header_universal", "separator", "header_modern"]
+BACKEND_NON_SELECTABLE = ["header_universal", "separator", "header_modern", "header_cloud"]
 
 # Default backend ordering (for dropdowns)
-BACKEND_ORDER = ["ollama", "koboldcpp", "llamacpp", "tabbyapi", "vllm"]
+BACKEND_ORDER = ["ollama", "koboldcpp", "llamacpp", "tabbyapi", "vllm", "cloud_api"]
 
 # ============================================================
 # AVAILABLE VOICES (Engine-specific)

@@ -827,7 +827,8 @@ async def chat_interactive_mode(
     vision_json_context: Optional[dict] = None,
     user_name: Optional[str] = None,
     detected_intent: Optional[str] = None,
-    detected_language: str = "de"
+    detected_language: str = "de",
+    cloud_provider_label: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Automatik mode: AI decides whether web research is needed
@@ -1204,8 +1205,12 @@ async def chat_interactive_mode(
             yield {"type": "debug", "message": f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
             log_message(f"📊 AIfred-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
 
-            # Console: LLM starts
-            yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice}"}
+            # Console: LLM starts - show backend type
+            if backend_type == "cloud_api" and cloud_provider_label:
+                backend_label = f"☁️ {cloud_provider_label}"
+            else:
+                backend_label = backend_type.capitalize()
+            yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} [{backend_label}]"}
 
             # Build main LLM options (include enable_thinking from user settings)
             main_llm_options = {
@@ -1265,8 +1270,14 @@ async def chat_interactive_mode(
 
             # Console: LLM finished
             tokens_generated = metrics.get("tokens_generated", 0)
+            tokens_prompt = metrics.get("tokens_prompt", 0)
             tokens_per_sec = metrics.get("tokens_per_second", 0)
-            yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s)"}
+            # Cloud APIs: Show output tokens + total (output for history, total for billing)
+            if backend_type == "cloud_api" and tokens_prompt > 0:
+                total_tokens = tokens_prompt + tokens_generated
+                yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} out / {format_number(total_tokens)} total, {format_number(tokens_per_sec, 1)} tok/s)"}
+            else:
+                yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s)"}
 
             # VRAM Monitoring: Log and save measurement
             if vram_measurement is not None:

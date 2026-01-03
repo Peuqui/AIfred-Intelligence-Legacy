@@ -2427,7 +2427,7 @@ def settings_accordion() -> rx.Component:
                         spacing="2",
                         align="center",
                     ),
-                    # User Name Input (Subtle Orange style)
+                    # User Name Input + Gender Toggle (Subtle Orange style)
                     rx.box(
                         rx.icon("user", size=16, color="#B8860B"),
                         rx.input(
@@ -2438,6 +2438,14 @@ def settings_accordion() -> rx.Component:
                             size="2",
                             width="100px",
                             class_name="username-input-subtle",
+                        ),
+                        # Gender Toggle (♂/♀)
+                        rx.segmented_control.root(
+                            rx.segmented_control.item("♂", value="male"),
+                            rx.segmented_control.item("♀", value="female"),
+                            value=AIState.user_gender,
+                            on_change=AIState.set_user_gender,
+                            size="1",
                         ),
                         display="flex",
                         align_items="center",
@@ -2511,6 +2519,23 @@ def settings_accordion() -> rx.Component:
                                     AIState.available_backends.contains("vllm"),
                                     rx.select.item("vLLM", value="vllm"),
                                 ),
+                                # Separator before Cloud APIs
+                                rx.select.item(
+                                    "─────────────────────────────────",
+                                    value="separator2",
+                                    disabled=True,
+                                    color="gray",
+                                ),
+                                # Cloud APIs Header
+                                rx.select.item(
+                                    "─── Cloud APIs ───",
+                                    value="header_cloud",
+                                    disabled=True,
+                                    font_weight="bold",
+                                    color="purple",
+                                ),
+                                # Cloud API Backend (always available)
+                                rx.select.item("☁️ Cloud APIs", value="cloud_api"),
                             ),
                             value=AIState.backend_type,
                             on_change=AIState.switch_backend,
@@ -2659,6 +2684,29 @@ def settings_accordion() -> rx.Component:
                         ),
                         spacing="2",
                         align="center",
+                    ),
+                ),
+
+                # Cloud API Provider Selection (only visible for cloud_api backend)
+                rx.cond(
+                    AIState.backend_type == "cloud_api",
+                    rx.hstack(
+                        rx.text(t("cloud_api_provider"), font_weight="bold", font_size="12px"),
+                        rx.select(
+                            ["Claude (Anthropic)", "Qwen (DashScope)", "DeepSeek", "Kimi (Moonshot)"],
+                            value=AIState.cloud_api_provider_label,
+                            on_change=AIState.set_cloud_api_provider_by_label,
+                            size="2",
+                        ),
+                        # API Key Status Badge
+                        rx.cond(
+                            AIState.cloud_api_key_configured,
+                            rx.badge(t("cloud_api_key_configured"), color_scheme="green", size="1"),
+                            rx.badge(t("cloud_api_key_missing"), color_scheme="red", size="1"),
+                        ),
+                        spacing="3",
+                        align="center",
+                        width="100%",
                     ),
                 ),
 

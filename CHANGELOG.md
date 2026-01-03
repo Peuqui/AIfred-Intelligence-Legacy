@@ -5,6 +5,35 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.17] - 2026-01-03
+
+### Added
+
+- **Cloud API Integration** ([cloud_api.py](aifred/backends/cloud_api.py), [config.py](aifred/lib/config.py)):
+  - New backend type `cloud_api` for cloud LLM providers
+  - Supported providers: **Qwen/DashScope**, **DeepSeek**, **Claude (Anthropic)**, **Kimi (Moonshot)**
+  - Dynamic model fetching from `/models` endpoint (no hardcoded model lists)
+  - Provider-specific base URLs and API key environment variables
+  - Vision model filtering (excludes `-vl` models from main LLM dropdown)
+  - Token usage display in debug console (prompt/completion tokens)
+  - OpenAI-compatible API implementation for all providers
+
+- **User Salutation System** ([prompt_loader.py](aifred/lib/prompt_loader.py), [system_minimal.txt](prompts/de/aifred/system_minimal.txt)):
+  - New `{user_salutation}` placeholder in prompts
+  - Gender-aware addressing (Herr/Frau + Name)
+  - Only in user-facing prompts (not internal agent communication)
+  - Natural variations allowed (e.g., "Mein lieber Herr Müller")
+  - Prevents generic double-forms ("Herr/Frau", "Dear Sir/Madam")
+
+### Changed
+
+- **Backend Selection UI** ([aifred.py](aifred/aifred.py)):
+  - Cloud API providers shown as separate options in backend dropdown
+  - Labels: "☁️ Qwen (DashScope)", "☁️ DeepSeek", "☁️ Claude (Anthropic)"
+  - Per-provider model memory (each cloud provider remembers its last used model)
+
+---
+
 ## [2.15.16] - 2026-01-03
 
 ### Added
