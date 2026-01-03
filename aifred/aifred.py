@@ -2042,59 +2042,36 @@ def chat_history_display() -> rx.Component:
         border=f"1px solid {COLORS['border']}",
     )
 
+    # Chat History Box - JavaScript-basiertes Autoscroll (nicht rx.auto_scroll)
+    # rx.auto_scroll ignoriert den Toggle während der Inferenz, daher JavaScript-Lösung
+    chat_history_box = rx.box(
+        rx.vstack(
+            # All chat messages including inline summaries
+            rx.foreach(
+                AIState.chat_history_parsed,
+                render_chat_message
+            ),
+            spacing="3",
+            width="100%",
+        ),
+        id="chat-history-box",
+        width="100%",
+        min_height="360px",
+        max_height="2400px",
+        overflow_y="auto",
+        padding="4",
+        background_color=COLORS["readonly_bg"],
+        border_radius="8px",
+        border=f"1px solid {COLORS['border']}",
+        style={
+            "transition": "all 0.4s ease-out",
+        },
+    )
+
     chat_content = rx.cond(
         AIState.backend_initializing | AIState.backend_switching | AIState.vllm_restarting | AIState.is_koboldcpp_auto_restarting | AIState.is_uploading_image,
         loading_spinner,  # Show spinner during initialization, backend switch, vLLM restart, KoboldCPP auto-restart, or image upload
-        rx.cond(
-            AIState.auto_refresh_enabled,
-            # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
-            rx.auto_scroll(
-                rx.vstack(
-                    # All chat messages including inline summaries
-                    rx.foreach(
-                        AIState.chat_history_parsed,
-                        render_chat_message
-                    ),
-                    spacing="3",
-                    width="100%",
-                ),
-                id="chat-history-box",
-                width="100%",
-                min_height="360px",  # Dreifache Höhe (120*3)
-                max_height="2400px",  # Höheres Maximum (1200*2)
-                padding="4",
-                background_color=COLORS["readonly_bg"],
-                border_radius="8px",
-                border=f"1px solid {COLORS['border']}",
-                style={
-                    "transition": "all 0.4s ease-out",
-                },
-            ),
-            # Auto-Scroll disabled: normale rx.box (kein Scroll)
-            rx.box(
-                rx.vstack(
-                    # All chat messages including inline summaries
-                    rx.foreach(
-                        AIState.chat_history_parsed,
-                        render_chat_message
-                    ),
-                    spacing="3",
-                    width="100%",
-                ),
-                id="chat-history-box",
-                width="100%",
-                min_height="360px",  # Dreifache Höhe (120*3)
-                max_height="2400px",  # Höheres Maximum (1200*2)
-                overflow_y="auto",
-                padding="4",
-                background_color=COLORS["readonly_bg"],
-                border_radius="8px",
-                border=f"1px solid {COLORS['border']}",
-                style={
-                    "transition": "all 0.4s ease-out",
-                },
-            ),
-        ),
+        chat_history_box,
     )
     
     return rx.accordion.root(
@@ -3980,12 +3957,17 @@ const callback = function(mutationsList, observer) {
         return;
     }
 
-    // Auto-scroll Debug Console only (Chat History uses rx.auto_scroll in Python)
+    // Auto-scroll Debug Console
     const debugBox = document.getElementById('debug-console-box');
     if (debugBox) {
         autoScrollElement(debugBox);
     }
-    // Note: Chat History scrolling is handled by rx.auto_scroll() / rx.box() conditional in Python
+
+    // Auto-scroll Chat History (JavaScript-basiert statt rx.auto_scroll)
+    const chatBox = document.getElementById('chat-history-box');
+    if (chatBox) {
+        autoScrollElement(chatBox);
+    }
 };
 
 function syncDebugConsoleHeight() {
@@ -4029,8 +4011,15 @@ function setupObservers() {
         console.warn('❌ debug-console-box not found');
     }
 
-    // Note: Chat History scrolling is handled by rx.auto_scroll() / rx.box() in Python
-    // No JavaScript observer needed for chat-history-box
+    // Chat History - JavaScript-basiertes Autoscroll (statt rx.auto_scroll)
+    const chatBox = document.getElementById('chat-history-box');
+    if (chatBox) {
+        console.log('✅ Found chat-history-box');
+        const chatObserver = new MutationObserver(callback);
+        chatObserver.observe(chatBox, observerConfig);
+    } else {
+        console.warn('❌ chat-history-box not found');
+    }
 
     // Sync heights on accordion open/close - observe settings-accordion by ID
     const settingsAccordion = document.getElementById('settings-accordion');

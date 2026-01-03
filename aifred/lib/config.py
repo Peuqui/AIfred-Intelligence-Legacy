@@ -12,9 +12,9 @@ from pathlib import Path
 # ============================================================
 PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()  # Go up to repo root
 PIPER_MODEL_PATH = PROJECT_ROOT / "piper_models" / "de_DE-thorsten-medium.onnx"
-SETTINGS_FILE = PROJECT_ROOT / "assistant_settings.json"
 SSL_KEYFILE = PROJECT_ROOT / "ssl" / "privkey.pem"
 SSL_CERTFILE = PROJECT_ROOT / "ssl" / "fullchain.pem"
+# Settings are stored in ~/.config/aifred/settings.json (see aifred/lib/settings.py)
 
 # ============================================================
 # BACKEND API URL (for TTS audio URLs, HTML preview, etc.)

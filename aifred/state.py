@@ -961,19 +961,24 @@ class AIState(rx.State):
                 self.salomo_temperature = saved_settings.get("salomo_temperature", self.salomo_temperature)
                 self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)
 
-                # Load per-backend models (if available)
+                # Load per-backend models (all 5 agents: AIfred, Automatik, Vision, Sokrates, Salomo)
                 from .lib.conversation_handler import extract_model_name
                 backend_models = saved_settings.get("backend_models", {})
                 if self.backend_id in backend_models:
-                    # NEW: Load pure IDs (backward compatible - extract from old display format)
-                    selected_raw = backend_models[self.backend_id].get("aifred_model", "")
-                    automatik_raw = backend_models[self.backend_id].get("automatik_model", "")
-                    vision_raw = backend_models[self.backend_id].get("vision_model", "")
+                    backend_data = backend_models[self.backend_id]
+                    # Load pure IDs (backward compatible - extract from old display format)
+                    selected_raw = backend_data.get("aifred_model", "")
+                    automatik_raw = backend_data.get("automatik_model", "")
+                    vision_raw = backend_data.get("vision_model", "")
+                    sokrates_raw = backend_data.get("sokrates_model", "")
+                    salomo_raw = backend_data.get("salomo_model", "")
 
                     # Extract pure IDs (handles both old "model (size)" and new "model" formats)
                     self.aifred_model_id = extract_model_name(selected_raw)
                     self.automatik_model_id = extract_model_name(automatik_raw)
                     self.vision_model_id = extract_model_name(vision_raw)
+                    self.sokrates_model_id = extract_model_name(sokrates_raw)
+                    self.salomo_model_id = extract_model_name(salomo_raw)
 
                     # Load per-model RoPE 2x toggle from cache
                     if self.backend_id == "ollama" and self.aifred_model_id:
@@ -984,15 +989,21 @@ class AIState(rx.State):
                     self.aifred_model = selected_raw
                     self.automatik_model = automatik_raw
                     self.vision_model = vision_raw
+                    self.sokrates_model = sokrates_raw
+                    self.salomo_model = salomo_raw
                 else:
-                    # Fallback: Use old-style global model settings
+                    # Fallback: Use old-style global model settings (legacy)
                     selected_raw = saved_settings.get("aifred_model", "")
                     automatik_raw = saved_settings.get("automatik_model", "")
                     vision_raw = saved_settings.get("vision_model", "")
+                    sokrates_raw = saved_settings.get("sokrates_model", "")
+                    salomo_raw = saved_settings.get("salomo_model", "")
 
                     self.aifred_model_id = extract_model_name(selected_raw)
                     self.automatik_model_id = extract_model_name(automatik_raw)
                     self.vision_model_id = extract_model_name(vision_raw)
+                    self.sokrates_model_id = extract_model_name(sokrates_raw)
+                    self.salomo_model_id = extract_model_name(salomo_raw)
 
                     # Load per-model RoPE 2x toggle from cache
                     if self.backend_id == "ollama" and self.aifred_model_id:
@@ -1002,6 +1013,8 @@ class AIState(rx.State):
                     self.aifred_model = selected_raw
                     self.automatik_model = automatik_raw
                     self.vision_model = vision_raw
+                    self.sokrates_model = sokrates_raw
+                    self.salomo_model = salomo_raw
 
                 self.add_debug(f"⚙️ Settings loaded (backend: {self.backend_type})")
 
@@ -1354,8 +1367,9 @@ class AIState(rx.State):
                                 await temp_backend.close()
 
                                 if models:
-                                    self.available_models_dict = {m: m for m in models}
-                                    self.available_models = models.copy()
+                                    unsorted_dict = {m: m for m in models}
+                                    self.available_models_dict = sort_models_grouped(unsorted_dict)
+                                    self.available_models = list(self.available_models_dict.values())
                                     self.add_debug(f"☁️ {provider_config['name']}: {len(models)} models loaded")
                                 else:
                                     self.available_models_dict = {}
@@ -1386,12 +1400,17 @@ class AIState(rx.State):
                 # NEW: Sync deprecated display variables with IDs using dict lookup
                 # No more extract_model_name() needed - direct dict access!
 
+                # Check if saved model still exists in backend
+                self.add_debug(f"🔍 Checking: '{self.aifred_model_id}' available in {self.backend_type}?")
+
                 # Validate and sync aifred_model
                 if self.aifred_model_id in self.available_models_dict:
                     self.aifred_model = self.available_models_dict[self.aifred_model_id]
+                    self.add_debug(f"✅ Model found: {self.aifred_model_id}")
                 elif self.available_models_dict:
-                    # Fallback to first available model
+                    # Model no longer available -> use first available
                     first_id = next(iter(self.available_models_dict.keys()))
+                    self.add_debug(f"⚠️ '{self.aifred_model_id}' not in {self.backend_type}! Using: '{first_id}'")
                     log_message(f"⚠️ Configured model '{self.aifred_model_id}' not found, using '{first_id}'")
                     self.aifred_model_id = first_id
                     self.aifred_model = self.available_models_dict[first_id]
@@ -1560,9 +1579,11 @@ class AIState(rx.State):
         # (e.g., when UI language is switched before backend is fully loaded)
         if self.aifred_model_id and self.backend_id:
             backend_models[self.backend_id] = {
-                "aifred_model": self.aifred_model_id,  # Pure ID: "qwen3:8b"
+                "aifred_model": self.aifred_model_id,
                 "automatik_model": self.automatik_model_id,
                 "vision_model": self.vision_model_id,
+                "sokrates_model": self.sokrates_model_id,
+                "salomo_model": self.salomo_model_id,
             }
 
         settings = {
@@ -1698,32 +1719,44 @@ class AIState(rx.State):
             target_main_model = None
             target_auto_model = None
             target_vision_model = None
+            target_sokrates_model = None
+            target_salomo_model = None
 
+            self.add_debug(f"🔍 Settings contains backends: {list(backend_models.keys())}")
             if new_backend in backend_models:
-                # Use saved models from backend_models.json
+                # Load saved models from settings.json
                 saved_models = backend_models[new_backend]
                 target_main_model = saved_models.get("aifred_model")
                 target_auto_model = saved_models.get("automatik_model")
                 target_vision_model = saved_models.get("vision_model")
-                self.add_debug(f"📝 Found saved models for {new_backend}: AIfred={target_main_model}, Auto={target_auto_model}, Vision={target_vision_model}")
+                target_sokrates_model = saved_models.get("sokrates_model", "")
+                target_salomo_model = saved_models.get("salomo_model", "")
+                self.add_debug(f"📝 Loading {new_backend} from settings: AIfred={target_main_model}, Auto={target_auto_model}, Vision={target_vision_model}, Sokrates={target_sokrates_model or '(Main)'}, Salomo={target_salomo_model or '(Main)'}")
             else:
-                # Use backend-specific defaults from config.py
+                # No entry in settings.json -> use config.py defaults
                 default_models = config.BACKEND_DEFAULT_MODELS.get(new_backend, {})
                 target_main_model = default_models.get("aifred_model")
                 target_auto_model = default_models.get("automatik_model")
-                self.add_debug(f"📝 Using default models for {new_backend}: AIfred={target_main_model}, Auto={target_auto_model}")
+                target_sokrates_model = default_models.get("sokrates_model", "")
+                target_salomo_model = default_models.get("salomo_model", "")
+                self.add_debug(f"📝 No settings for {new_backend}, using config.py defaults: AIfred={target_main_model}, Auto={target_auto_model}")
 
             # Set target models BEFORE initialize_backend() so validation doesn't override them
             # CRITICAL: Set BOTH display name AND ID - initialize_backend() uses _id for validation!
             if target_main_model:
                 self.aifred_model = target_main_model
-                self.aifred_model_id = target_main_model  # IDs are same as names in settings
+                self.aifred_model_id = target_main_model
             if target_auto_model:
                 self.automatik_model = target_auto_model
-                self.automatik_model_id = target_auto_model  # IDs are same as names in settings
+                self.automatik_model_id = target_auto_model
             if target_vision_model:
                 self.vision_model = target_vision_model
-                self.vision_model_id = target_vision_model  # IDs are same as names in settings
+                self.vision_model_id = target_vision_model
+            # Sokrates and Salomo can be empty (= use Main-LLM)
+            self.sokrates_model_id = target_sokrates_model or ""
+            self.sokrates_model = target_sokrates_model or ""
+            self.salomo_model_id = target_salomo_model or ""
+            self.salomo_model = target_salomo_model or ""
 
             # vLLM and TabbyAPI can only load ONE model at a time
             # Set automatik_model = aifred_model BEFORE initialize_backend() to prevent wrong model loading
