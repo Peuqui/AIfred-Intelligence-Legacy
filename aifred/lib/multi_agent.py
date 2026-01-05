@@ -930,21 +930,23 @@ async def run_sokrates_analysis(
         mode_label = mode_labels.get(state.multi_agent_mode, state.multi_agent_mode)
 
         # Get context limits for both models (respect per-LLM manual toggles)
+        # Import VRAM cache functions (used for all agents in auto mode)
+        from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+
         # AIfred context
+        alfred_model = state.aifred_model_id
         if getattr(state, 'num_ctx_manual_aifred_enabled', False):
             main_llm_ctx = state.num_ctx_manual if state.num_ctx_manual else 4096
             state.add_debug(f"🔧 AIfred num_ctx: {main_llm_ctx:,} (manual)")
         else:
-            # Auto mode: Get AIfred's limit from cache
-            aifred_cached = _last_vram_limit_cache.get("aifred_limit", 0)
-            if aifred_cached == 0:
-                aifred_cached = _last_vram_limit_cache.get("limit", 0)
-            main_llm_ctx = aifred_cached if aifred_cached > 0 else 32768
-            if aifred_cached == 0:
-                state.add_debug("⚠️ No cached AIfred VRAM limit found, using fallback 32K")
-
-        # Import VRAM cache functions (used for all agents in auto mode)
-        from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+            # Auto mode: Read from VRAM calibration cache
+            rope_factor = get_rope_factor_for_model(alfred_model)
+            main_llm_ctx = get_ollama_calibration(alfred_model, rope_factor)
+            if main_llm_ctx:
+                state.add_debug(f"   🎯 Calibrated: {main_llm_ctx:,} tok (from VRAM cache)")
+            else:
+                main_llm_ctx = 32768  # Fallback if not calibrated
+                state.add_debug("⚠️ AIfred model not calibrated, using fallback 32K")
 
         # Sokrates context - read from VRAM cache
         if getattr(state, 'num_ctx_manual_sokrates_enabled', False):
@@ -1309,8 +1311,14 @@ async def run_sokrates_analysis(
                     alfred_marker = f"🎩[Refinement R{round_num + 1}]"
                     final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
 
-                    # Append to chat_history (empty user msg = renders as AIfred panel)
-                    state.chat_history.append(("", final_alfred))
+                    # R1: Replace empty panel created in state.py, R2+: Append new panel
+                    if round_num == 0:
+                        # First refinement replaces the empty placeholder from state.py
+                        user_part, _ = state.chat_history[-1]  # Last entry is always the current one
+                        state.chat_history[-1] = (user_part, final_alfred)
+                    else:
+                        # Subsequent rounds append as separate panels
+                        state.chat_history.append(("", final_alfred))
                     yield
 
                     # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
@@ -1398,15 +1406,22 @@ async def run_tribunal(
         state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
         # Get context limits (respect per-LLM manual toggles)
+        # Import VRAM cache functions
+        from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+
         # AIfred context
         if getattr(state, 'num_ctx_manual_aifred_enabled', False):
             main_llm_ctx = state.num_ctx_manual if state.num_ctx_manual else 4096
             state.add_debug(f"🔧 AIfred num_ctx: {main_llm_ctx:,} (manual)")
         else:
-            aifred_cached = _last_vram_limit_cache.get("aifred_limit", 0)
-            if aifred_cached == 0:
-                aifred_cached = _last_vram_limit_cache.get("limit", 0)
-            main_llm_ctx = aifred_cached if aifred_cached > 0 else 32768
+            # Auto mode: Read from VRAM calibration cache
+            rope_factor = get_rope_factor_for_model(alfred_model)
+            main_llm_ctx = get_ollama_calibration(alfred_model, rope_factor)
+            if main_llm_ctx:
+                state.add_debug(f"   🎯 Calibrated: {main_llm_ctx:,} tok (from VRAM cache)")
+            else:
+                main_llm_ctx = 32768  # Fallback if not calibrated
+                state.add_debug("⚠️ AIfred model not calibrated, using fallback 32K")
 
         # Sokrates context
         if getattr(state, 'num_ctx_manual_sokrates_enabled', False):
@@ -1589,7 +1604,14 @@ async def run_tribunal(
                 alfred_marker = f"🎩[Tribunal R{round_num + 1}]"
                 final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
 
-                state.chat_history.append(("", final_alfred))
+                # R1: Replace empty panel created in state.py, R2+: Append new panel
+                if round_num == 0:
+                    # First tribunal response replaces the empty placeholder from state.py
+                    user_part, _ = state.chat_history[-1]
+                    state.chat_history[-1] = (user_part, final_alfred)
+                else:
+                    # Subsequent rounds append as separate panels
+                    state.chat_history.append(("", final_alfred))
                 yield
 
                 # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh

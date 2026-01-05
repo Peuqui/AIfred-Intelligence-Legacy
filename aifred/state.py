@@ -3669,12 +3669,14 @@ class AIState(rx.State):
                 formatted_response = f"{thinking_html}\n\n{metadata}"
 
                 # Update chat history with formatted response + metadata
-                self.chat_history[temp_history_index] = (user_msg, formatted_response)
-                # llm_history: full_response is raw LLM output, strip thinking blocks
+                # Skip UI update if multi-agent mode active (refinement will replace this later)
+                if self.multi_agent_mode == "standard" or skip_sokrates_analysis:
+                    self.chat_history[temp_history_index] = (user_msg, formatted_response)
+                    yield  # Update UI
+                # Always update llm_history (needed for internal logic)
                 response_clean = strip_thinking_blocks(full_response) if full_response else ""
                 if response_clean:
                     self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
-                yield  # Update UI
 
                 # ============================================================
                 # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not direct AIfred addressing)
