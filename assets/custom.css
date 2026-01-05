@@ -153,7 +153,7 @@ details {
     border-radius: 4px !important;
     padding: 0.5em !important;
     margin-bottom: 1em !important;
-    max-height: 450px !important;  /* ~15-20 Zeilen Text, verhindert Browser-Stretching */
+    max-height: var(--thinking-max-height-desktop) !important;  /* From config.py, responsive via media query */
     overflow-y: auto !important;  /* Scrollbar wenn zu lang */
 }
 
@@ -634,4 +634,34 @@ tr:nth-child(odd) {
 /* Hover effect for rows */
 tr:hover {
     background-color: rgba(88, 166, 255, 0.1) !important;
+}
+
+/* ============================================================
+   RESPONSIVE LAYOUT - Media Queries (Single Source: config.py)
+   ============================================================ */
+
+/* Desktop: Apply max-heights from config.py */
+@media (min-width: 769px) {
+    #chat-history-box {
+        max-height: var(--chat-max-height-desktop) !important;
+    }
+    
+    #debug-console-box {
+        max-height: var(--debug-max-height) !important;
+    }
+    
+    /* Thinking collapsible already uses --thinking-max-height-desktop by default */
+}
+
+/* Mobile: Switch to viewport-based heights */
+@media (max-width: 768px) {
+    #chat-history-box {
+        max-height: var(--chat-max-height-mobile) !important;
+    }
+    
+    details {
+        max-height: var(--thinking-max-height-mobile) !important;
+    }
+    
+    /* Debug console: Keep default behavior on mobile (no override needed) */
 }

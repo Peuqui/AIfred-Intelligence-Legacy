@@ -8,6 +8,14 @@ import reflex as rx
 from .state import AIState
 from .theme import COLORS
 from .lib.i18n import TranslationManager
+from .lib.config import (
+    UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP,
+    UI_CHAT_HISTORY_MAX_HEIGHT_MOBILE,
+    UI_THINKING_MAX_HEIGHT_DESKTOP,
+    UI_THINKING_MAX_HEIGHT_MOBILE,
+    UI_DEBUG_CONSOLE_MAX_HEIGHT,
+    UI_MOBILE_BREAKPOINT,
+)
 
 
 def t(key: str) -> rx.Var:
@@ -2060,8 +2068,9 @@ def chat_history_display() -> rx.Component:
     # rx.auto_scroll ignoriert den Toggle während der Inferenz, daher JavaScript-Lösung
     # Streaming element - shows current_ai_response during generation
     # This is a SEPARATE element from chat_history to avoid O(n) regex parsing on each token
+    # Only show for normal AIfred responses (NOT during multi-agent debate)
     streaming_ai_box = rx.cond(
-        AIState.is_generating & (AIState.current_ai_response != ""),
+        AIState.is_generating & (AIState.current_ai_response != "") & ~AIState.debate_in_progress,
         rx.box(
             rx.hstack(
                 rx.text("🎩", font_size="13px"),
@@ -4644,6 +4653,17 @@ app = rx.App(
     head_components=[
         # SVG Favicon - uses system emoji font for consistent 🎩 display
         rx.el.link(rel="icon", type="image/svg+xml", href="/favicon.svg"),
+        # CSS Custom Properties - inject UI layout constants from config.py
+        rx.el.style(f"""
+            :root {{
+                --chat-max-height-desktop: {UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP};
+                --chat-max-height-mobile: {UI_CHAT_HISTORY_MAX_HEIGHT_MOBILE};
+                --thinking-max-height-desktop: {UI_THINKING_MAX_HEIGHT_DESKTOP};
+                --thinking-max-height-mobile: {UI_THINKING_MAX_HEIGHT_MOBILE};
+                --debug-max-height: {UI_DEBUG_CONSOLE_MAX_HEIGHT};
+                --mobile-breakpoint: {UI_MOBILE_BREAKPOINT};
+            }}
+        """),
     ],
 )
 

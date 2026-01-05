@@ -775,6 +775,26 @@ VISION_MAX_IMAGE_DIMENSION = 3840  # 4K UHD - beste OCR-Qualität bei akzeptable
 # more context when VRAM allows it.
 
 # ============================================================
+# UI LAYOUT CONSTANTS (Single Source of Truth for CSS)
+# ============================================================
+# These constants are injected as CSS custom properties (:root variables)
+# and used in both Python (Reflex components) and CSS (media queries)
+
+# Chat History Box
+UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP = "2400px"  # Desktop: Large fixed height
+UI_CHAT_HISTORY_MAX_HEIGHT_MOBILE = "70vh"     # Mobile: 70% viewport, leaves 30% "grip space"
+
+# Thinking Process Collapsible (<details> tag)
+UI_THINKING_MAX_HEIGHT_DESKTOP = "450px"       # Desktop: ~15-20 lines of text
+UI_THINKING_MAX_HEIGHT_MOBILE = "40vh"         # Mobile: 40% viewport height
+
+# Debug Console
+UI_DEBUG_CONSOLE_MAX_HEIGHT = "1200px"         # Maximum height (prevents endless growth)
+
+# Media Query Breakpoint
+UI_MOBILE_BREAKPOINT = "768px"                 # Mobile: <= 768px, Desktop: > 768px
+
+# ============================================================
 # CONFIG VALIDATION (Safety Checks)
 # ============================================================
 # No validation needed - token-based compression handles all edge cases
