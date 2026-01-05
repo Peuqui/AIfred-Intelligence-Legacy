@@ -447,14 +447,8 @@ div em {
     width: 100%;
     max-width: 100%;
     overflow-x: hidden;
-    min-height: 500px;  /* Minimum für Desktop */
+    min-height: 1050px;  /* Minimum für Desktop */
     flex: 1 1 auto !important;  /* Wächst um Wrapper zu füllen */
-}
-
-/* Settings Accordion: Wächst natürlich mit Content */
-#settings-accordion {
-    height: auto !important;
-    flex: 0 0 auto !important;  /* Nicht stretchen, natürliche Höhe */
 }
 
 /* Mobile: Stack layout (1 Spalte) */

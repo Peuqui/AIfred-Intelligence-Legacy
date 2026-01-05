@@ -186,22 +186,23 @@ async def _stream_sokrates_to_history(
     model: str,
     messages: list,
     options: LLMOptions,
-    history_index: int,
-    sokrates_marker: str,
 ) -> AsyncGenerator[None, None]:
     """
-    Stream Sokrates response directly into chat_history.
+    Stream Sokrates response into current_ai_response (unified streaming).
 
-    Similar to _stream_llm_with_ui but specifically for Sokrates:
-    - Keeps the marker prefix during streaming (🏛️[Mode])
-    - Updates chat_history[history_index] directly
-    - No separate state variable needed
+    Performance-optimized: Does NOT update chat_history during streaming.
+    Only updates state.current_ai_response which is shown in unified streaming_box.
+    Caller is responsible for appending final result to chat_history.
     """
     full_response = ""
     token_count = 0
     start_time = time.time()
     ttft = 0.0
     first_token = False
+
+    # Set current agent for UI styling
+    state.current_agent = "sokrates"
+    state.current_ai_response = ""
 
     async for chunk in llm_client.chat_stream(model, messages, options):
         if chunk["type"] == "content":
@@ -214,11 +215,11 @@ async def _stream_sokrates_to_history(
             full_response += chunk["text"]
             token_count += 1
 
-            # Update chat_history directly with marker + current response
-            if history_index < len(state.chat_history):
-                state.chat_history[history_index] = ("", f"{sokrates_marker}{full_response}")
+            # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
+            # History is updated only at the end to avoid O(n) regex parsing on each token
+            state.current_ai_response += chunk["text"]
 
-            yield  # UI Update
+            yield  # UI Update - only current_ai_response changes, not chat_history
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
@@ -257,6 +258,10 @@ async def _stream_sokrates_to_history(
     if cleaned:
         state.llm_history.append({"role": "assistant", "content": f"[SOKRATES]: {cleaned}"})
 
+    # Clear streaming state (cleanup)
+    state.current_ai_response = ""
+    state.current_agent = ""
+
 
 async def _stream_alfred_refinement(
     state: 'AIState',
@@ -264,10 +269,18 @@ async def _stream_alfred_refinement(
     model: str,
     messages: list,
     options: LLMOptions,
-    history_index: int,
-    alfred_marker: str,
 ) -> AsyncGenerator[None, None]:
-    """Stream AIfred's refined answer into chat_history (for auto_consensus)."""
+    """
+    Stream AIfred's refined answer into current_ai_response (unified streaming).
+
+    Performance-optimized: Does NOT update chat_history during streaming.
+    Only updates state.current_ai_response which is shown in unified streaming_box.
+    Caller is responsible for appending final result to chat_history.
+    """
+    # Set current agent for UI styling
+    state.current_agent = "aifred"
+    state.current_ai_response = ""
+
     full_response = ""
     token_count = 0
     start_time = time.time()
@@ -284,10 +297,10 @@ async def _stream_alfred_refinement(
             full_response += chunk["text"]
             token_count += 1
 
-            # Update chat_history with current content
-            if history_index < len(state.chat_history):
-                state.chat_history[history_index] = ("", f"{alfred_marker}{full_response}")
-            yield  # UI Update
+            # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
+            # History is updated only at the end via "result" to avoid O(n) regex parsing on each token
+            state.current_ai_response += chunk["text"]
+            yield  # Update UI - only current_ai_response changes, not chat_history
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
@@ -319,6 +332,10 @@ async def _stream_alfred_refinement(
     if cleaned:
         state.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {cleaned}"})
 
+    # Clear streaming state (cleanup)
+    state.current_ai_response = ""
+    state.current_agent = ""
+
 
 async def _stream_salomo_to_history(
     state: 'AIState',
@@ -326,21 +343,23 @@ async def _stream_salomo_to_history(
     model: str,
     messages: list,
     options: LLMOptions,
-    history_index: int,
-    salomo_marker: str,
 ) -> AsyncGenerator[None, None]:
     """
-    Stream Salomo response directly into chat_history.
+    Stream Salomo response into current_ai_response (unified streaming).
 
-    Similar to _stream_sokrates_to_history but for Salomo:
-    - Keeps the marker prefix during streaming (👑[Mode])
-    - Updates chat_history[history_index] directly
+    Performance-optimized: Does NOT update chat_history during streaming.
+    Only updates state.current_ai_response which is shown in unified streaming_box.
+    Caller is responsible for appending final result to chat_history.
     """
     full_response = ""
     token_count = 0
     start_time = time.time()
     ttft = 0.0
     first_token = False
+
+    # Set current agent for UI styling
+    state.current_agent = "salomo"
+    state.current_ai_response = ""
 
     async for chunk in llm_client.chat_stream(model, messages, options):
         if chunk["type"] == "content":
@@ -353,11 +372,11 @@ async def _stream_salomo_to_history(
             full_response += chunk["text"]
             token_count += 1
 
-            # Update chat_history directly with marker + current response
-            if history_index < len(state.chat_history):
-                state.chat_history[history_index] = ("", f"{salomo_marker}{full_response}")
+            # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
+            # History is updated only at the end to avoid O(n) regex parsing on each token
+            state.current_ai_response += chunk["text"]
 
-            yield  # UI Update
+            yield  # UI Update - only current_ai_response changes, not chat_history
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
@@ -395,6 +414,10 @@ async def _stream_salomo_to_history(
     cleaned = strip_thinking_blocks(full_response)
     if cleaned:
         state.llm_history.append({"role": "assistant", "content": f"[SALOMO]: {cleaned}"})
+
+    # Clear streaming state (cleanup)
+    state.current_ai_response = ""
+    state.current_agent = ""
 
 
 async def _check_compression_if_needed(
@@ -543,11 +566,9 @@ async def run_sokrates_direct_response(
         # Keep user message in history with empty AI response (no AIfred panel)
         state.chat_history[history_index] = (original_user_msg, "")
 
-        # Add Sokrates response entry with empty user (triggers Sokrates panel styling)
-        sokrates_marker = "🏛️[Direkte Antwort]" if detected_lang == "de" else "🏛️[Direct Response]"
-        state.chat_history.append(("", sokrates_marker))
-        sokrates_index = len(state.chat_history) - 1
-        yield  # Show placeholder
+        # Set current agent for unified streaming UI
+        state.current_agent = "sokrates"
+        state.current_ai_response = ""
 
         # Streaming response
         full_response = ""
@@ -575,8 +596,8 @@ async def run_sokrates_direct_response(
                 full_response += content
                 token_count += 1
 
-                # Update Sokrates entry (empty user = renders as Sokrates panel)
-                state.chat_history[sokrates_index] = ("", f"{sokrates_marker}{full_response}")
+                # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
+                state.current_ai_response += content
                 yield
 
             elif chunk_type == "thinking":
@@ -612,9 +633,12 @@ async def run_sokrates_direct_response(
             f"Source: Sokrates ({sokrates_model})"
         )
 
-        # Final update: Sokrates in separate entry (empty user = Sokrates panel)
+        # Build final entry for chat_history
+        sokrates_marker = "🏛️[Direkte Antwort]" if detected_lang == "de" else "🏛️[Direct Response]"
         final_content = f"{sokrates_marker}{formatted_response}\n\n{metadata}"
-        state.chat_history[sokrates_index] = ("", final_content)
+
+        # Append to chat_history (empty user = Sokrates panel)
+        state.chat_history.append(("", final_content))
 
         # DUAL-HISTORY: Sync Sokrates direct response to llm_history
         # Agent responses are assistant messages with speaker label (NOT system!)
@@ -625,6 +649,10 @@ async def run_sokrates_direct_response(
         # Remove the waiting message from user entry, keep only user question
         # Since Sokrates answered, no AIfred response needed
         state.chat_history[history_index] = (original_user_msg, "")
+
+        # Clear streaming state (cleanup)
+        state.current_ai_response = ""
+        state.current_agent = ""
 
         # INCREMENTAL SAVE: Persist after response to survive browser refresh
         state._save_current_session()
@@ -733,11 +761,9 @@ async def run_salomo_direct_response(
         # Keep user message in history with empty AI response (no AIfred panel)
         state.chat_history[history_index] = (original_user_msg, "")
 
-        # Add Salomo response entry with empty user (triggers Salomo panel styling)
-        salomo_marker = "👑[Direkte Antwort]" if detected_lang == "de" else "👑[Direct Response]"
-        state.chat_history.append(("", salomo_marker))
-        salomo_index = len(state.chat_history) - 1
-        yield  # Show placeholder
+        # Set current agent for unified streaming UI
+        state.current_agent = "salomo"
+        state.current_ai_response = ""
 
         # Streaming response
         full_response = ""
@@ -765,8 +791,8 @@ async def run_salomo_direct_response(
                 full_response += content
                 token_count += 1
 
-                # Update Salomo entry (empty user = renders as Salomo panel)
-                state.chat_history[salomo_index] = ("", f"{salomo_marker}{full_response}")
+                # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
+                state.current_ai_response += content
                 yield
 
             elif chunk_type == "thinking":
@@ -802,9 +828,12 @@ async def run_salomo_direct_response(
             f"Source: Salomo ({salomo_model})"
         )
 
-        # Final update: Salomo in separate entry (empty user = Salomo panel)
+        # Build final entry for chat_history
+        salomo_marker = "👑[Direkte Antwort]" if detected_lang == "de" else "👑[Direct Response]"
         final_content = f"{salomo_marker}{formatted_response}\n\n{metadata}"
-        state.chat_history[salomo_index] = ("", final_content)
+
+        # Append to chat_history (empty user = Salomo panel)
+        state.chat_history.append(("", final_content))
 
         # DUAL-HISTORY: Sync Salomo direct response to llm_history
         # Agent responses are assistant messages with speaker label (NOT system!)
@@ -815,6 +844,10 @@ async def run_salomo_direct_response(
         # Remove the waiting message from user entry, keep only user question
         # Since Salomo answered, no AIfred response needed
         state.chat_history[history_index] = (original_user_msg, "")
+
+        # Clear streaming state (cleanup)
+        state.current_ai_response = ""
+        state.current_agent = ""
 
         # INCREMENTAL SAVE: Persist after response to survive browser refresh
         state._save_current_session()
@@ -868,6 +901,9 @@ async def run_sokrates_analysis(
     state.debate_in_progress = True
     state.sokrates_critique = ""  # Clear previous
     state.debate_round = 0
+
+    # DEBUG: Log entry to verify function is called
+    state.add_debug(f"🔍 run_sokrates_analysis START: mode={state.multi_agent_mode}, alfred_answer_len={len(alfred_answer)}")
     yield  # Update UI
 
     # detected_lang comes from LLM-based intent detection (passed from state.py)
@@ -1026,14 +1062,6 @@ async def run_sokrates_analysis(
             async for _ in _check_compression_if_needed(state, llm_client, sokrates_num_ctx, sokrates_prompt_tokens):
                 yield
 
-            # Add placeholder for Sokrates
-            # Minimal marker for UI detection (🏛️), mode info stored in metadata
-            round_suffix = f" R{round_num}" if max_rounds > 1 else ""
-            sokrates_marker = f"🏛️[{mode_label}{round_suffix}]"  # Marker for UI parsing
-            state.chat_history.append(("", sokrates_marker))
-            sokrates_index = len(state.chat_history) - 1
-            yield  # Show placeholder
-
             # Estimate tokens in messages (using proper tokenizer estimation)
             sokrates_msg_tokens = estimate_tokens(sokrates_messages, model_name=sokrates_model)
             sokrates_ctx = sokrates_options.num_ctx if sokrates_options and sokrates_options.num_ctx else 8192
@@ -1045,15 +1073,13 @@ async def run_sokrates_analysis(
             # DEBUG: Log RAW messages sent to Sokrates (controlled by DEBUG_LOG_RAW_MESSAGES)
             _log_raw_messages("Sokrates", round_num, sokrates_messages)
 
-            # Stream Sokrates response
+            # Stream Sokrates response (unified streaming box shows content)
             async for _ in _stream_sokrates_to_history(
                 state=state,
                 llm_client=llm_client,
                 model=sokrates_model,
                 messages=sokrates_messages,
                 options=sokrates_options,
-                history_index=sokrates_index,
-                sokrates_marker=sokrates_marker
             ):
                 yield  # Forward UI updates
 
@@ -1070,10 +1096,14 @@ async def run_sokrates_analysis(
                 inference_time=metrics.get("time", 0)
             )
 
-            # Final update with metadata
-            # Format: "🏛️[Mode]Content\n\nMetadata" - UI parses mode from bracket
+            # Build final entry for chat_history
+            # Minimal marker for UI detection (🏛️), mode info stored in metadata
+            round_suffix = f" R{round_num}" if max_rounds > 1 else ""
+            sokrates_marker = f"🏛️[{mode_label}{round_suffix}]"  # Marker for UI parsing
             final_content = f"{sokrates_marker}{formatted_sokrates}\n\n{metadata}"
-            state.chat_history[sokrates_index] = ("", final_content)
+
+            # Append to chat_history (empty user msg = renders as Sokrates panel)
+            state.chat_history.append(("", final_content))
             state.sokrates_critique = sokrates_response_text  # Keep raw text for logic checks
             yield
 
@@ -1149,21 +1179,13 @@ async def run_sokrates_analysis(
                 # DEBUG: Log RAW messages sent to Salomo (controlled by DEBUG_LOG_RAW_MESSAGES)
                 _log_raw_messages("Salomo", round_num, salomo_messages)
 
-                # Add placeholder for Salomo
-                salomo_marker = f"👑[{t('salomo_synthesis_label', lang=state.ui_language).rstrip(':')} R{round_num}]"
-                state.chat_history.append(("", salomo_marker))
-                salomo_index = len(state.chat_history) - 1
-                yield
-
-                # Stream Salomo response
+                # Stream Salomo response (unified streaming box shows content)
                 async for _ in _stream_salomo_to_history(
                     state=state,
                     llm_client=llm_client,
                     model=salomo_model,
                     messages=salomo_messages,
                     options=salomo_options,
-                    history_index=salomo_index,
-                    salomo_marker=salomo_marker
                 ):
                     yield
 
@@ -1180,9 +1202,12 @@ async def run_sokrates_analysis(
                     inference_time=salomo_metrics.get("time", 0)
                 )
 
-                # Final update with metadata
+                # Build final entry for chat_history
+                salomo_marker = f"👑[{t('salomo_synthesis_label', lang=state.ui_language).rstrip(':')} R{round_num}]"
                 final_salomo = f"{salomo_marker}{formatted_salomo}\n\n{salomo_metadata}"
-                state.chat_history[salomo_index] = ("", final_salomo)
+
+                # Append to chat_history (empty user msg = renders as Salomo panel)
+                state.chat_history.append(("", final_salomo))
                 state.salomo_synthesis = salomo_response_text
                 yield
 
@@ -1254,24 +1279,16 @@ async def run_sokrates_analysis(
                         f"{format_number(alfred_ctx)} tokens"
                     )
 
-                    # Add placeholder for AIfred refinement
-                    alfred_marker = f"🎩[Refinement R{round_num + 1}]"
-                    state.chat_history.append(("", alfred_marker))
-                    alfred_index = len(state.chat_history) - 1
-                    yield
-
                     # DEBUG: Log RAW messages sent to AIfred (controlled by DEBUG_LOG_RAW_MESSAGES)
                     _log_raw_messages("AIfred", round_num + 1, alfred_messages)
 
-                    # Stream AIfred refinement
+                    # Stream AIfred refinement (unified streaming box shows content)
                     async for _ in _stream_alfred_refinement(
                         state=state,
                         llm_client=llm_client,
                         model=alfred_model,
                         messages=alfred_messages,
                         options=alfred_options,
-                        history_index=alfred_index,
-                        alfred_marker=alfred_marker
                     ):
                         yield
 
@@ -1288,9 +1305,12 @@ async def run_sokrates_analysis(
                         inference_time=alfred_metrics.get("time", 0)
                     )
 
-                    # Update history with metadata
+                    # Build final entry for chat_history
+                    alfred_marker = f"🎩[Refinement R{round_num + 1}]"
                     final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
-                    state.chat_history[alfred_index] = ("", final_alfred)
+
+                    # Append to chat_history (empty user msg = renders as AIfred panel)
+                    state.chat_history.append(("", final_alfred))
                     yield
 
                     # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
@@ -1481,19 +1501,12 @@ async def run_tribunal(
                 if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
                     sokrates_messages.append(msg)
 
-            sokrates_marker = f"🏛️[Tribunal R{round_num}]"
-            state.chat_history.append(("", sokrates_marker))
-            sokrates_index = len(state.chat_history) - 1
-            yield
-
             async for _ in _stream_sokrates_to_history(
                 state=state,
                 llm_client=llm_client,
                 model=sokrates_model,
                 messages=sokrates_messages,
                 options=sokrates_options,
-                history_index=sokrates_index,
-                sokrates_marker=sokrates_marker
             ):
                 yield
 
@@ -1507,8 +1520,10 @@ async def run_tribunal(
                 model_name=f"Sokrates ({sokrates_model})",
                 inference_time=metrics.get("time", 0)
             )
+            sokrates_marker = f"🏛️[Tribunal R{round_num}]"
             final_content = f"{sokrates_marker}{formatted_sokrates}\n\n{metadata}"
-            state.chat_history[sokrates_index] = ("", final_content)
+
+            state.chat_history.append(("", final_content))
             state.sokrates_critique = sokrates_response_text
             yield
 
@@ -1552,19 +1567,12 @@ async def run_tribunal(
                     if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
                         alfred_messages.append(msg)
 
-                alfred_marker = f"🎩[Tribunal R{round_num + 1}]"
-                state.chat_history.append(("", alfred_marker))
-                alfred_index = len(state.chat_history) - 1
-                yield
-
                 async for _ in _stream_alfred_refinement(
                     state=state,
                     llm_client=llm_client,
                     model=alfred_model,
                     messages=alfred_messages,
                     options=alfred_options,
-                    history_index=alfred_index,
-                    alfred_marker=alfred_marker
                 ):
                     yield
 
@@ -1578,8 +1586,10 @@ async def run_tribunal(
                     model_name=f"AIfred ({alfred_model})",
                     inference_time=alfred_metrics.get("time", 0)
                 )
+                alfred_marker = f"🎩[Tribunal R{round_num + 1}]"
                 final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
-                state.chat_history[alfred_index] = ("", final_alfred)
+
+                state.chat_history.append(("", final_alfred))
                 yield
 
                 # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
@@ -1616,19 +1626,12 @@ async def run_tribunal(
             f"{format_number(salomo_num_ctx)} tokens"
         )
 
-        salomo_marker = f"👑[{t('salomo_verdict_label', lang=state.ui_language).rstrip(':')}]"
-        state.chat_history.append(("", salomo_marker))
-        salomo_index = len(state.chat_history) - 1
-        yield
-
         async for _ in _stream_salomo_to_history(
             state=state,
             llm_client=llm_client,
             model=salomo_model,
             messages=salomo_messages,
             options=salomo_options,
-            history_index=salomo_index,
-            salomo_marker=salomo_marker
         ):
             yield
 
@@ -1647,8 +1650,10 @@ async def run_tribunal(
             model_name=f"Salomo ({salomo_model})",
             inference_time=salomo_metrics.get("time", 0)
         )
+        salomo_marker = f"👑[{t('salomo_verdict_label', lang=state.ui_language).rstrip(':')}]"
         final_salomo = f"{salomo_marker}{formatted_salomo}\n\n{salomo_metadata}"
-        state.chat_history[salomo_index] = ("", final_salomo)
+
+        state.chat_history.append(("", final_salomo))
         state.salomo_synthesis = salomo_response_text
         yield
 

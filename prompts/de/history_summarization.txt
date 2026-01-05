@@ -11,18 +11,14 @@ Prüfe zuerst: Enthält die Konversation **Sokrates**, **Salomo** oder **[WEITER
 
 Pro Runde die TATSÄCHLICH stattfand (R1, R2, etc.):
 
-```
 R[N]:
 AIfred: [Kernaussage in 1 Satz]
 Sokrates: [Kritik in 1-2 Sätzen]
 Salomo: [Empfehlung] → [LGTM/WEITER]
-```
 
 Am Ende NUR wenn letzte Runde erreicht:
-```
 Status:
   1. ✅/⚠️/❌ [Kritikpunkt]: [Status]
-```
 
 **KRITISCHE REGELN:**
 - NUR Runden dokumentieren die TATSÄCHLICH in der Konversation vorkommen!
@@ -35,28 +31,17 @@ Status:
 # FORMAT B: STANDARD-KOMPRESSION
 ═══════════════════════════════════════════════════════════════════════════
 
-Erstelle eine **kompakte Liste** der Hauptpunkte:
+Erstelle eine kompakte Zusammenfassung (maximal {max_tokens} Tokens / ca. {max_words} Wörter).
 
-**ANFORDERUNGEN:**
-- Maximal {max_tokens} Tokens (ca. {max_words} Wörter)
-- Nur Fakten, keine Meinungen
-- Chronologische Reihenfolge
-- Keine Wiederholungen
-- Keine Höflichkeitsfloskeln
-- Keine Meta-Informationen
+**REGELN:**
+- Nur Fakten aus der Konversation, chronologisch
+- Verwandte Themen mit Semikolon trennen
+- Konkrete Zahlen/Werte einbauen
+- KEINE Meinungen, Wiederholungen, Höflichkeitsfloskeln
+- KEINE Listen, Bulletpoints oder Struktur-Beschreibungen
 
-**STIL:**
-- Verwandte Fragen in einer Zeile kombinieren
-- Themen mit Semikolon trennen
-- Konkrete Zahlen/Werte direkt einbauen
-- Konversationelles Hin-und-Her weglassen
-
-**STRUKTUR:**
-```
-[Thema1]: [Kernfakten, Schlussfolgerungen]; [Thema2]: [Kernfakten, Schlussfolgerungen]; ...
-```
-
-**WICHTIG:** Kopiere diese Struktur NICHT wörtlich - passe sie an den tatsächlichen Konversationsinhalt an!
+**BEISPIEL-FORMAT:**
+Coanda-Effekt: Fluidstrahl bleibt an Oberfläche haften; Viskosität und Grenzschicht sind Ursachen; Anwendungen in Aerodynamik, Automobilbau; Unterschied zu Magnus-Effekt; Reynolds-Zahl beeinflusst Strömungsverhalten
 
 ═══════════════════════════════════════════════════════════════════════════
 # ZU ZUSAMMENFASSENDE KONVERSATION

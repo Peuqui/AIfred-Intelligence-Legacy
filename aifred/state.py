@@ -126,7 +126,8 @@ class AIState(rx.State):
     llm_history: List[Dict[str, str]] = []  # [{"role": "user/assistant/system", "content": "..."}] - LLM komprimiert
     current_user_input: str = ""
     current_user_message: str = ""  # The message currently being processed
-    current_ai_response: str = ""
+    current_ai_response: str = ""  # Shared streaming buffer for all agents (AIfred, Sokrates, Salomo)
+    current_agent: str = ""  # Current streaming agent: "aifred" | "sokrates" | "salomo" | ""
     is_generating: bool = False
     is_compressing: bool = False  # Shows if history compression is running
     is_uploading_image: bool = False  # Shows spinner during image upload
@@ -2790,6 +2791,7 @@ class AIState(rx.State):
         self.current_user_message = user_msg  # Zeige sofort die Eingabe an
         self.is_generating = True
         self.current_ai_response = ""
+        self.current_agent = "aifred"  # Set current agent for unified streaming UI
         self.failed_sources = []  # Clear failed sources from previous request
 
         # Create LLM client once - used for ALL LLM operations
@@ -3290,6 +3292,9 @@ class AIState(rx.State):
                         # skip_sokrates_analysis is set when user directly addresses AIfred
                         # detected_language comes from LLM-based intent detection
                         # ============================================================
+                        # DEBUG: Log multi-agent decision
+                        self.add_debug(f"🔍 Multi-Agent Check: mode={self.multi_agent_mode}, ai_text={bool(ai_text)}, skip={skip_sokrates_analysis}")
+                        yield
                         if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
                             if self.multi_agent_mode == "tribunal":
                                 async for _ in run_tribunal(self, user_msg, ai_text, detected_language):
@@ -3419,6 +3424,9 @@ class AIState(rx.State):
                         # skip_sokrates_analysis is set when user directly addresses AIfred
                         # detected_language comes from LLM-based intent detection
                         # ============================================================
+                        # DEBUG: Log multi-agent decision
+                        self.add_debug(f"🔍 Multi-Agent Check: mode={self.multi_agent_mode}, ai_text={bool(ai_text)}, skip={skip_sokrates_analysis}")
+                        yield
                         if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
                             if self.multi_agent_mode == "tribunal":
                                 async for _ in run_tribunal(self, user_msg, ai_text, detected_language):
@@ -3673,6 +3681,9 @@ class AIState(rx.State):
                 # detected_language comes from LLM-based intent detection
                 # ============================================================
                 # skip_sokrates_analysis is True when user directly addresses AIfred
+                # DEBUG: Log multi-agent decision
+                self.add_debug(f"🔍 Multi-Agent Check (direct): mode={self.multi_agent_mode}, full_response={bool(full_response)}, skip={skip_sokrates_analysis}")
+                yield
                 if self.multi_agent_mode != "standard" and full_response and not skip_sokrates_analysis:
                     if self.multi_agent_mode == "tribunal":
                         async for _ in run_tribunal(self, user_msg, full_response, detected_language):
@@ -3745,6 +3756,10 @@ class AIState(rx.State):
 
             # Auto-Save: Session nach jeder Chat-Nachricht speichern
             self._save_current_session()
+
+            # Final cleanup: Clear streaming state
+            self.current_agent = ""
+            self.current_ai_response = ""
 
 
     def clear_chat(self):

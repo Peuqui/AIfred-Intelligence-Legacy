@@ -8,18 +8,21 @@ Analyze this user request:
 - MIXED: Both aspects combined (e.g. "Explain quantum physics like a fairy tale")
 
 **2. Addressee Detection:**
-WHO is being SPOKEN TO? Look for vocative (comma before/after name, "Hey X"):
-- aifred: User speaks TO AIfred/Alfred (comma or "Hey" indicates vocative)
-- sokrates: User speaks TO Sokrates/Socrates
-- salomo: User speaks TO Salomo/Solomon
-- (empty): Names are only MENTIONED as topics, not addressed
+CRITICAL: ONLY detect addressee if one of these EXACT names appears in the query:
+- aifred: AIfred, Alfred, Eifred (including STT variations)
+- sokrates: Sokrates, Socrates
+- salomo: Salomo, Solomon
 
-⚠️ WHEN TWO NAMES APPEAR: The one with comma/vocative is the addressee!
-- "Sokrates, was denkst du über Salomo?" → sokrates (comma after Sokrates!)
-- "Alfred, what about Sokrates' opinion?" → aifred (comma after Alfred!)
-- "Was hältst du von Salomo, Sokrates?" → sokrates (Sokrates at end = vocative!)
-- "Hey Alfred, how would Sokrates respond?" → aifred (Hey + Alfred!)
-- "What did Socrates say about Solomon?" → (empty) (both just mentioned!)
+⚠️ IF NO NAME APPEARS → addressee MUST be (empty)!
+⚠️ DO NOT infer addressee from context, style, or associated words!
+
+EXAMPLES:
+- "Describe the Casimir effect for a Victorian gentleman" → (empty) - NO name mentioned!
+- "Alfred, explain quantum physics" → aifred - Name present!
+- "Hey Sokrates, what do you think?" → sokrates - Name present!
+- "What would Salomo say about this?" → (empty) - Name mentioned as topic, not addressed!
+- "Sokrates, was denkst du über Salomo?" → sokrates - Comma indicates addressing Sokrates!
+- "Tell me about British butlers" → (empty) - NO name, even if contextually related!
 
 **3. Language of the request:**
 - DE: German text (contains: der, die, das, ich, du, was, wie, bitte, etc.)
@@ -32,6 +35,7 @@ WHO is being SPOKEN TO? Look for vocative (comma before/after name, "Hey X"):
 - "Alfred, erkläre mir das bitte" → FACTUAL|aifred|DE
 - "Was sagt Salomo dazu, Sokrates?" → FACTUAL|sokrates|DE
 - "Explain relativity as a story" → MIXED||EN
+- "Describe the Casimir effect for a Victorian gentleman" → FACTUAL||EN
 
 **IMPORTANT:** Answer ONLY in this format: INTENT|ADDRESSEE|LANGUAGE
 Examples: FACTUAL|sokrates|DE, CREATIVE||EN, MIXED|aifred|DE

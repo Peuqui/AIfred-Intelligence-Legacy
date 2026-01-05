@@ -2066,52 +2066,70 @@ def chat_history_display() -> rx.Component:
 
     # Chat History Box - JavaScript-basiertes Autoscroll (nicht rx.auto_scroll)
     # rx.auto_scroll ignoriert den Toggle während der Inferenz, daher JavaScript-Lösung
-    # Streaming element - shows current_ai_response during generation
+    # Unified Streaming Element - shows current_ai_response for ANY agent (AIfred, Sokrates, Salomo)
     # This is a SEPARATE element from chat_history to avoid O(n) regex parsing on each token
-    # Only show for normal AIfred responses (NOT during multi-agent debate)
-    streaming_ai_box = rx.cond(
-        AIState.is_generating & (AIState.current_ai_response != "") & ~AIState.debate_in_progress,
-        rx.box(
-            rx.hstack(
-                rx.text("🎩", font_size="13px"),
-                rx.box(
-                    # Header with AIfred name + streaming indicator
-                    rx.hstack(
-                        rx.text(
-                            "AIfred",
-                            font_weight="bold",
-                            font_size="12px",
-                            color=COLORS["primary"],
+    # Styling adapts based on AIState.current_agent ("aifred" | "sokrates" | "salomo")
+    streaming_box = rx.cond(
+        AIState.is_generating & (AIState.current_ai_response != ""),
+        rx.cond(
+            # AIfred Streaming (Orange)
+            AIState.current_agent == "aifred",
+            rx.box(
+                rx.hstack(
+                    rx.text("🎩", font_size="13px"),
+                    rx.box(
+                        rx.hstack(
+                            rx.text("AIfred", font_weight="bold", font_size="12px", color=COLORS["primary"]),
+                            rx.text("▌", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
+                            spacing="1", margin_bottom="1",
                         ),
-                        rx.text(
-                            "▌",  # Cursor blink effect
-                            font_size="14px",
-                            color=COLORS["primary"],
-                            animation="blink 1s infinite",
-                        ),
-                        spacing="1",
-                        margin_bottom="1",
+                        rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px"),
+                        background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
                     ),
-                    rx.markdown(
-                        AIState.current_ai_response,
-                        color=COLORS["ai_text"],
-                        font_size="13px"
-                    ),
-                    background_color=COLORS["ai_msg"],
-                    padding="3",
-                    border_radius="6px",
-                    width="100%",
+                    spacing="2", align="start", width="100%",
                 ),
-                spacing="2",
-                align="start",
-                justify="start",
-                width="100%",
+                background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
+                border=f"1px solid {COLORS['primary']}", width="100%",
             ),
-            background_color="rgba(255, 255, 255, 0.03)",
-            padding="2",
-            border_radius="8px",
-            border=f"1px solid {COLORS['primary']}",  # Orange border for active streaming
-            width="100%",
+            rx.cond(
+                # Sokrates Streaming (Kupfer/Bronze)
+                AIState.current_agent == "sokrates",
+                rx.box(
+                    rx.hstack(
+                        rx.text("🏛️", font_size="13px"),
+                        rx.box(
+                            rx.hstack(
+                                rx.text("Sokrates", font_weight="bold", font_size="12px", color="#cd7f32"),
+                                rx.text("▌", font_size="14px", color="#cd7f32", animation="blink 1s infinite"),
+                                spacing="1", margin_bottom="1",
+                            ),
+                            rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px"),
+                            background_color="rgba(205, 127, 50, 0.08)", padding="3", border_radius="6px", width="100%",
+                        ),
+                        spacing="2", align="start", width="100%",
+                    ),
+                    background_color="rgba(205, 127, 50, 0.03)", padding="2", border_radius="8px",
+                    border="1px solid rgba(205, 127, 50, 0.3)", width="100%",
+                ),
+                # Salomo Streaming (Gold)
+                rx.box(
+                    rx.hstack(
+                        rx.text("👑", font_size="13px"),
+                        rx.box(
+                            rx.hstack(
+                                rx.text("Salomo", font_weight="bold", font_size="12px", color="#daa520"),
+                                rx.text("▌", font_size="14px", color="#daa520", animation="blink 1s infinite"),
+                                spacing="1", margin_bottom="1",
+                            ),
+                            rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px"),
+                            background_color="rgba(218, 165, 32, 0.08)", padding="3", border_radius="6px", width="100%",
+                        ),
+                        spacing="2", align="start", width="100%",
+                    ),
+                    background_color="rgba(218, 165, 32, 0.03)", padding="2", border_radius="8px",
+                    border="1px solid rgba(218, 165, 32, 0.3)", width="100%",
+                ),
+            ),
         ),
     )
 
@@ -2122,8 +2140,8 @@ def chat_history_display() -> rx.Component:
                 AIState.chat_history_parsed,
                 render_chat_message
             ),
-            # Streaming element at the end (only visible during generation)
-            streaming_ai_box,
+            # Unified streaming element at the end (adapts to current_agent)
+            streaming_box,
             spacing="3",
             width="100%",
         ),
@@ -2350,7 +2368,6 @@ def debug_console() -> rx.Component:
         ),
         id="debug-console-box",
         width="100%",
-        min_height="500px",  # Minimum height - CSS Grid stretch handles actual height
         overflow_y="auto",
         padding="3",
         background_color=COLORS["debug_bg"],
@@ -4057,34 +4074,8 @@ const callback = function(mutationsList, observer) {
     }
 };
 
-function syncDebugConsoleHeight() {
-    // Find elements by ID (simple and reliable)
-    const settingsAccordion = document.getElementById('settings-accordion');
-    const debugBox = document.getElementById('debug-console-box');
-
-    if (settingsAccordion && debugBox) {
-        // Get the full height of the settings accordion (including all expanded sections)
-        const settingsHeight = settingsAccordion.scrollHeight || settingsAccordion.getBoundingClientRect().height;
-
-        // Set Debug Console to match (minimum 900px, maximum 1600px)
-        const targetHeight = Math.min(1600, Math.max(900, settingsHeight));
-        debugBox.style.height = targetHeight + 'px';
-
-        // Log only if height changed significantly
-        const currentHeight = parseInt(debugBox.style.height) || 900;
-        if (Math.abs(currentHeight - targetHeight) > 10) {
-            console.log('📏 Synced heights - Settings:', settingsHeight, 'Target:', targetHeight);
-        }
-    } else {
-        // Fallback: set a reasonable default matching Python height
-        if (debugBox) {
-            debugBox.style.height = '955px';
-        }
-        if (!settingsAccordion) {
-            console.warn('⚠️ settings-accordion not found');
-        }
-    }
-}
+// Debug Console height is now controlled by CSS Grid (flex: 1)
+// No manual JavaScript height sync needed - removed to prevent conflicts
 
 function setupObservers() {
     console.log('🚀 Setting up observers...');
@@ -4115,38 +4106,18 @@ function setupObservers() {
     // Sync heights on accordion open/close - observe settings-accordion by ID
     const settingsAccordion = document.getElementById('settings-accordion');
     if (settingsAccordion) {
-        // ResizeObserver for size changes
-        const resizeObserver = new ResizeObserver(() => {
-            syncDebugConsoleHeight();
-        });
-        resizeObserver.observe(settingsAccordion);
+        // Height sync removed - CSS Grid handles it automatically via flex: 1
 
-        // MutationObserver for accordion open/close
-        const mutationObserver = new MutationObserver(() => {
-            // Delay to allow animation to complete
-            setTimeout(syncDebugConsoleHeight, 100);
-            setTimeout(syncDebugConsoleHeight, 300);
-        });
-        mutationObserver.observe(settingsAccordion, { childList: true, subtree: true, attributes: true });
+        // Accordion observer removed - no manual height sync needed
 
-        // Click handler for accordion triggers
-        const triggers = settingsAccordion.querySelectorAll('.rt-AccordionTrigger');
-        triggers.forEach(trigger => {
-            trigger.addEventListener('click', () => {
-                // Sync after accordion animation (multiple times for smooth transition)
-                setTimeout(syncDebugConsoleHeight, 50);
-                setTimeout(syncDebugConsoleHeight, 150);
-                setTimeout(syncDebugConsoleHeight, 350);
-            });
-        });
+        // Click handler removed - CSS Grid auto-adjusts height
 
         console.log('✅ Height sync observers attached to settings-accordion');
     } else {
         console.warn('⚠️ settings-accordion not found for observers');
     }
 
-    // Also observe on window resize
-    window.addEventListener('resize', syncDebugConsoleHeight);
+    // Window resize handler removed - CSS Grid handles responsive height
 }
 
 // Initialize immediately or wait for DOMContentLoaded
@@ -4158,15 +4129,13 @@ function initialize() {
 
     setupObservers();
 
-    // Initial height sync
-    syncDebugConsoleHeight();
+    // Height sync removed - CSS Grid handles it automatically
 
     // Einmaliger Retry nach 1.5s für Elemente die erst nach Backend-Init erscheinen
     // (chat-history-box wird durch rx.cond erst gerendert wenn backend_initializing=False)
     setTimeout(() => {
         setupObservers();
         makeLinksOpenInNewTab();
-        syncDebugConsoleHeight();
     }, 1500);
 }
 

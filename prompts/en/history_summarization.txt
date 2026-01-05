@@ -11,18 +11,14 @@ First check: Does the conversation contain **Sokrates**, **Salomo** or **[WEITER
 
 Per round that ACTUALLY occurred (R1, R2, etc.):
 
-```
 R[N]:
 AIfred: [Core statement in 1 sentence]
 Sokrates: [Critique in 1-2 sentences]
 Salomo: [Recommendation] → [LGTM/WEITER]
-```
 
 At the end ONLY if final round reached:
-```
 Status:
   1. ✅/⚠️/❌ [Critique point]: [Status]
-```
 
 **CRITICAL RULES:**
 - ONLY document rounds that ACTUALLY appear in the conversation!
@@ -35,28 +31,17 @@ Status:
 # FORMAT B: STANDARD COMPRESSION
 ═══════════════════════════════════════════════════════════════════════════
 
-Create a **compact list** of main points:
+Create a compact summary (maximum {max_tokens} tokens / approx. {max_words} words).
 
-**REQUIREMENTS:**
-- Maximum {max_tokens} tokens (approx. {max_words} words)
-- Facts only, no opinions
-- Chronological order
-- No repetitions
-- No pleasantries
-- No meta-information
+**RULES:**
+- Only facts from the conversation, chronological order
+- Separate related topics with semicolons
+- Include concrete numbers/values
+- NO opinions, repetitions, pleasantries
+- NO lists, bullet points, or structure descriptions
 
-**STYLE:**
-- Combine related questions into one line
-- Separate topics with semicolons
-- Include concrete numbers/values directly
-- Omit conversational back-and-forth
-
-**STRUCTURE:**
-```
-[Topic1]: [Key facts, conclusions]; [Topic2]: [Key facts, conclusions]; ...
-```
-
-**IMPORTANT:** Do NOT copy this structure literally - adapt it to the actual conversation content!
+**EXAMPLE FORMAT:**
+Coanda effect: Fluid jet adheres to surface; Viscosity and boundary layer are causes; Applications in aerodynamics, automotive; Difference to Magnus effect; Reynolds number affects flow behavior
 
 ═══════════════════════════════════════════════════════════════════════════
 # CONVERSATION TO SUMMARIZE
