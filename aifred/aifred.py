@@ -2058,6 +2058,54 @@ def chat_history_display() -> rx.Component:
 
     # Chat History Box - JavaScript-basiertes Autoscroll (nicht rx.auto_scroll)
     # rx.auto_scroll ignoriert den Toggle während der Inferenz, daher JavaScript-Lösung
+    # Streaming element - shows current_ai_response during generation
+    # This is a SEPARATE element from chat_history to avoid O(n) regex parsing on each token
+    streaming_ai_box = rx.cond(
+        AIState.is_generating & (AIState.current_ai_response != ""),
+        rx.box(
+            rx.hstack(
+                rx.text("🎩", font_size="13px"),
+                rx.box(
+                    # Header with AIfred name + streaming indicator
+                    rx.hstack(
+                        rx.text(
+                            "AIfred",
+                            font_weight="bold",
+                            font_size="12px",
+                            color=COLORS["primary"],
+                        ),
+                        rx.text(
+                            "▌",  # Cursor blink effect
+                            font_size="14px",
+                            color=COLORS["primary"],
+                            animation="blink 1s infinite",
+                        ),
+                        spacing="1",
+                        margin_bottom="1",
+                    ),
+                    rx.markdown(
+                        AIState.current_ai_response,
+                        color=COLORS["ai_text"],
+                        font_size="13px"
+                    ),
+                    background_color=COLORS["ai_msg"],
+                    padding="3",
+                    border_radius="6px",
+                    width="100%",
+                ),
+                spacing="2",
+                align="start",
+                justify="start",
+                width="100%",
+            ),
+            background_color="rgba(255, 255, 255, 0.03)",
+            padding="2",
+            border_radius="8px",
+            border=f"1px solid {COLORS['primary']}",  # Orange border for active streaming
+            width="100%",
+        ),
+    )
+
     chat_history_box = rx.box(
         rx.vstack(
             # All chat messages including inline summaries
@@ -2065,6 +2113,8 @@ def chat_history_display() -> rx.Component:
                 AIState.chat_history_parsed,
                 render_chat_message
             ),
+            # Streaming element at the end (only visible during generation)
+            streaming_ai_box,
             spacing="3",
             width="100%",
         ),

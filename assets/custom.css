@@ -153,6 +153,8 @@ details {
     border-radius: 4px !important;
     padding: 0.5em !important;
     margin-bottom: 1em !important;
+    max-height: 450px !important;  /* ~15-20 Zeilen Text, verhindert Browser-Stretching */
+    overflow-y: auto !important;  /* Scrollbar wenn zu lang */
 }
 
 details summary {
@@ -222,6 +224,12 @@ li a:hover,
 
 .thinking-warning-pulse {
     animation: pulse-warning 2s ease-in-out infinite;
+}
+
+/* Streaming cursor blink animation */
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
 }
 
 /* Metadata-Text in Markdown (kursiv) - grauer und dezenter */

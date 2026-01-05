@@ -3158,11 +3158,10 @@ class AIState(rx.State):
                             yield  # Update UI immediately for each debug message
 
                         elif item["type"] == "content":
+                            # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
+                            # History is updated only at the end via "result" to avoid O(n) regex parsing on each token
                             self.current_ai_response += item["text"]
-                            # Update the temporary entry in chat history with the new content
-                            if temp_history_index_main < len(self.chat_history):
-                                self.chat_history[temp_history_index_main] = (user_msg, self.current_ai_response)
-                            yield  # CRITICAL: Update UI to prevent backpressure during fast streaming
+                            yield  # Update UI - only current_ai_response changes, not chat_history
 
                         elif item["type"] == "result":
                             result_data = item["data"]
@@ -3261,11 +3260,10 @@ class AIState(rx.State):
                             self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
                         yield  # IMPORTANT: Update UI immediately for each debug message
                     elif item["type"] == "content":
+                        # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
+                        # History is updated only at the end via "result" to avoid O(n) regex parsing on each token
                         self.current_ai_response += item["text"]
-                        # Update the temporary entry in chat history with the new content
-                        if temp_history_index < len(self.chat_history):
-                            self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
-                        yield  # CRITICAL: Update UI to prevent backpressure during fast streaming
+                        yield  # Update UI - only current_ai_response changes, not chat_history
                     elif item["type"] == "result":
                         result_data = item["data"]
                         # Extract and update history IMMEDIATELY
@@ -3391,12 +3389,10 @@ class AIState(rx.State):
                             self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
                         yield  # Update UI immediately for each debug message
                     elif item["type"] == "content":
-                        # REAL-TIME streaming to UI!
+                        # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
+                        # History is updated only at the end via "result" to avoid O(n) regex parsing on each token
                         self.current_ai_response += item["text"]
-                        # Update the temporary entry in chat history with the new content
-                        if temp_history_index < len(self.chat_history):
-                            self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
-                        yield  # CRITICAL: Update UI to prevent backpressure during fast streaming
+                        yield  # Update UI - only current_ai_response changes, not chat_history
                     elif item["type"] == "result":
                         result_data = item["data"]
                         # Extract and update history IMMEDIATELY
@@ -3623,13 +3619,11 @@ class AIState(rx.State):
                             self.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                             yield
 
-                        # Stream content to UI in real-time
+                        # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
+                        # History is updated only at the end to avoid O(n) regex parsing on each token
                         self.current_ai_response += chunk["text"]
                         full_response += chunk["text"]
-                        # Update the temporary entry in chat history
-                        if temp_history_index < len(self.chat_history):
-                            self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
-                        yield  # Update UI
+                        yield  # Update UI - only current_ai_response changes, not chat_history
                     elif chunk["type"] == "done":
                         metrics = chunk.get("metrics", {})
                         tokens_generated = metrics.get("tokens_generated", 0)
