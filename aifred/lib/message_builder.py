@@ -22,6 +22,74 @@ AGENT_MARKERS = {
     # Extensible for additional agents
 }
 
+# ============================================================
+# CENTRAL TIMING PATTERNS (Single Source of Truth)
+# ============================================================
+# Format: "*( Label: Time    tok/s    Source: ... )*" (italic, in parentheses)
+# These patterns are stripped from LLM history to prevent imitation
+TIMING_PATTERNS = (
+    "*( STT:",           # Speech-to-Text time
+    "*( Agent:",         # Agent Research time
+    "*( Inference:",     # LLM Inference time
+    "*( TTFT:",          # Time To First Token
+    "*( Vision:",        # Vision-LLM time
+    "*( TTS:",           # Text-to-Speech time
+    "*( Decision:",      # Automatik Decision time
+    "*( Cache-Hit:",     # Cache Hit time
+)
+
+
+def _clean_content(content: str, strip_img_markers: bool = True) -> str:
+    """
+    Central content cleaning function (Single Source of Truth).
+
+    Removes all metadata and formatting that should not go to the LLM:
+    - Multi-Agent markers → Speaker labels (🏛️[...] → [SOKRATES]: )
+    - Raw thinking blocks (<think>...</think>)
+    - Formatted thinking collapsibles (<details>...</details>)
+    - Metadata spans (<span style="...">...</span>)
+    - Timing patterns (*( Inference: ... )*)
+    - [IMG:...] markers (optional)
+    - Multiple blank lines → single blank line
+
+    Args:
+        content: Raw content string
+        strip_img_markers: Whether to remove [IMG:...] markers (default: True)
+
+    Returns:
+        Cleaned content suitable for LLM context
+    """
+    if not content:
+        return ""
+
+    clean = content
+
+    # 1. Transform Multi-Agent markers to speaker labels
+    clean = re.sub(r'^🏛️\[[^\]]+\]', '[SOKRATES]: ', clean)
+    clean = re.sub(r'^🎩\[[^\]]+\]', '[AIFRED]: ', clean)
+    clean = re.sub(r'^👑\[[^\]]+\]', '[SALOMO]: ', clean)
+
+    # 2. Remove thinking blocks - both raw <think> tags AND formatted <details>
+    clean = re.sub(r'<think>.*?</think>', '', clean, flags=re.DOTALL)
+    clean = re.sub(r'<details[^>]*>.*?</details>', '', clean, flags=re.DOTALL)
+
+    # 3. Remove metadata spans (<span style="...">( Inference: ... )</span>)
+    clean = re.sub(r'<span[^>]*>\s*\([^)]+\)\s*</span>', '', clean, flags=re.DOTALL)
+
+    # 4. Remove text timing patterns (fallback if HTML missing)
+    for pattern in TIMING_PATTERNS:
+        if pattern in clean:
+            clean = clean.split(pattern)[0]
+
+    # 5. Remove [IMG:...] markers (optional)
+    if strip_img_markers:
+        clean = re.sub(r'\[IMG:[^\]]*\]', '', clean)
+
+    # 6. Cleanup: Remove multiple blank lines and normalize whitespace
+    clean = re.sub(r'\n\n+', '\n\n', clean.strip())
+
+    return clean
+
 
 def build_messages_from_history(
     history: List[Tuple[str, str]],
@@ -78,18 +146,6 @@ def build_messages_from_history(
     """
     messages = []
 
-    # List of all known timing patterns (robust against new patterns)
-    # Format: "*( Label: Time    tok/s    Source: ... )*" (italic, in parentheses)
-    timing_patterns = [
-        "*( STT:",           # Speech-to-Text time
-        "*( Agent:",         # Agent Research time
-        "*( Inference:",     # LLM Inference time
-        "*( Vision:",        # Vision-LLM time
-        "*( TTS:",           # Text-to-Speech time
-        "*( Decision:",      # Automatik Decision time
-        "*( Cache-Hit:",     # Cache Hit time
-    ]
-
     # Limit history if desired (e.g., only last 3 turns)
     history_to_process = history[-max_turns:] if max_turns else history
 
@@ -110,41 +166,11 @@ def build_messages_from_history(
         is_agent_only = (user_turn == "" and
                         (ai_turn.startswith("🏛️") or ai_turn.startswith("🎩") or ai_turn.startswith("👑")))
 
-        # Clean AI message (remove HTML tags AND text metadata)
-        clean_ai = ai_turn
-
-        # 1. Transform Multi-Agent markers to keep speaker attribution
-        # Instead of removing, replace with clear speaker labels for LLM context
-        # Sokrates: 🏛️[Mode] → "[SOKRATES]: "
-        # AIfred: 🎩[Mode] → "[AIFRED]: "
-        # Salomo: 👑[Mode] → "[SALOMO]: "
-        clean_ai = re.sub(r'^🏛️\[[^\]]+\]', '[SOKRATES]: ', clean_ai)  # Sokrates marker
-        clean_ai = re.sub(r'^🎩\[[^\]]+\]', '[AIFRED]: ', clean_ai)   # AIfred marker
-        clean_ai = re.sub(r'^👑\[[^\]]+\]', '[SALOMO]: ', clean_ai)   # Salomo marker
-
-        # 2. Remove thinking collapsibles (<details>...</details>)
-        clean_ai = re.sub(r'<details[^>]*>.*?</details>', '', clean_ai, flags=re.DOTALL)
-
-        # 3. Remove metadata spans (<span style="...">( Inference: ... )</span>)
-        clean_ai = re.sub(r'<span[^>]*>\s*\([^)]+\)\s*</span>', '', clean_ai, flags=re.DOTALL)
-
-        # 4. Fallback: Remove remaining text metadata (if HTML tags missing)
-        for pattern in timing_patterns:
-            if pattern in clean_ai:
-                # Cut everything from the first timing pattern
-                clean_ai = clean_ai.split(pattern)[0]
-
-        # 5. Cleanup: Remove multiple blank lines and whitespace
-        clean_ai = re.sub(r'\n\n+', '\n\n', clean_ai.strip())
+        # Clean AI message using central cleaning function
+        clean_ai = _clean_content(ai_turn, strip_img_markers=True)
 
         # Clean user message (needed for both modes)
-        clean_user = user_turn
-        if not is_agent_only:
-            for pattern in timing_patterns:
-                if pattern in clean_user:
-                    clean_user = clean_user.split(pattern)[0]
-            # Remove [IMG:...] markers from user messages
-            clean_user = re.sub(r'\[IMG:[^\]]*\]', '', clean_user).strip()
+        clean_user = _clean_content(user_turn, strip_img_markers=True) if not is_agent_only else user_turn
 
         # === PERSPECTIVE-BASED ROLE ASSIGNMENT ===
         if perspective:
@@ -225,12 +251,16 @@ def clean_content_for_llm(content: str) -> str:
     """
     Clean content for LLM history storage.
 
+    This is a public wrapper around _clean_content() for external callers.
+    Uses the central cleaning function to ensure consistency.
+
     Removes:
     - Thinking collapsibles (<details>...</details>)
+    - Raw thinking blocks (<think>...</think>)
     - Metadata spans (<span style="...">...</span>)
     - Timing patterns (*( Inference: ... )*)
     - [IMG:...] markers
-    - Multi-agent markers (keeps label)
+    - Multi-agent markers (transforms to speaker labels)
 
     Args:
         content: Raw content (may contain HTML, metadata, etc.)
@@ -238,41 +268,7 @@ def clean_content_for_llm(content: str) -> str:
     Returns:
         Cleaned content suitable for LLM context
     """
-    if not content:
-        return ""
-
-    clean = content
-
-    # 1. Transform Multi-Agent markers to speaker labels
-    clean = re.sub(r'^🏛️\[[^\]]+\]', '[SOKRATES]: ', clean)
-    clean = re.sub(r'^🎩\[[^\]]+\]', '[AIFRED]: ', clean)
-    clean = re.sub(r'^👑\[[^\]]+\]', '[SALOMO]: ', clean)
-
-    # 2. Remove thinking blocks - both raw <think> tags AND formatted <details> collapsibles
-    # Raw <think>...</think> comes directly from LLM output (Qwen3 thinking mode)
-    clean = re.sub(r'<think>.*?</think>', '', clean, flags=re.DOTALL)
-    # Formatted <details>...</details> comes from format_thinking_process()
-    clean = re.sub(r'<details[^>]*>.*?</details>', '', clean, flags=re.DOTALL)
-
-    # 3. Remove metadata spans (<span style="...">( Inference: ... )</span>)
-    clean = re.sub(r'<span[^>]*>\s*\([^)]+\)\s*</span>', '', clean, flags=re.DOTALL)
-
-    # 4. Remove text timing patterns
-    timing_patterns = [
-        "*( STT:", "*( Agent:", "*( Inference:", "*( Vision:",
-        "*( TTS:", "*( Decision:", "*( Cache-Hit:",
-    ]
-    for pattern in timing_patterns:
-        if pattern in clean:
-            clean = clean.split(pattern)[0]
-
-    # 5. Remove [IMG:...] markers
-    clean = re.sub(r'\[IMG:[^\]]*\]', '', clean)
-
-    # 6. Cleanup: Remove multiple blank lines and whitespace
-    clean = re.sub(r'\n\n+', '\n\n', clean.strip())
-
-    return clean
+    return _clean_content(content, strip_img_markers=True)
 
 
 def build_messages_from_llm_history(

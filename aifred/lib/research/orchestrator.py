@@ -33,7 +33,8 @@ async def perform_agent_research(
     vision_json_context: Optional[dict] = None,
     user_name: Optional[str] = None,
     detected_intent: Optional[str] = None,
-    detected_language: Optional[str] = None
+    detected_language: Optional[str] = None,
+    pre_generated_queries: Optional[List[str]] = None
 ) -> AsyncIterator[Dict]:
     """
     Agent research with query optimization and parallel web scraping
@@ -62,6 +63,8 @@ async def perform_agent_research(
                         If provided, skips duplicate intent detection in context_builder
         detected_language: Pre-detected language from state.py ("de" or "en")
                           If provided, skips regex-based language detection
+        pre_generated_queries: Pre-generated search queries from research_decision
+                              If provided, skips Query-Optimization LLM call
 
     Yields:
         Dict with: {"type": "debug"|"content"|"result", ...}
@@ -126,7 +129,8 @@ async def perform_agent_research(
         automatik_model=automatik_model,
         automatik_llm_client=automatik_llm_client,
         llm_options=llm_options,
-        vision_json_context=vision_json_context
+        vision_json_context=vision_json_context,
+        pre_generated_queries=pre_generated_queries  # Skip Query-Opt if already generated
     ):
         if item["type"] == "query_result":
             optimized_query, query_reasoning, query_opt_time, related_urls, tool_results = item["data"]

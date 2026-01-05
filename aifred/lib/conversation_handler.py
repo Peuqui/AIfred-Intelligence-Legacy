@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, AsyncIterator
 from .llm_client import LLMClient
 from .logging_utils import log_message, CONSOLE_SEPARATOR
 from .prompt_loader import (
-    get_decision_making_prompt,
+    get_research_decision_prompt,
     get_vision_ocr_prompt,
     get_vision_templateless_ocr_prompt,
     get_vision_templateless_default_prompt,
@@ -36,7 +36,6 @@ from .config import (
     DYNAMIC_NUM_PREDICT_SAFETY_MARGIN,
     DYNAMIC_NUM_PREDICT_MINIMUM,
     DYNAMIC_NUM_PREDICT_HARD_LIMIT,
-    AUTOMATIK_LLM_NUM_CTX,
     DEFAULT_OLLAMA_URL
 )
 from .intent_detector import get_temperature_for_intent, get_temperature_label
@@ -487,6 +486,137 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
 
         # Last fallback: Return JSON as string
         return (json.dumps(corrected_json, indent=2, ensure_ascii=False), corrected_json)
+
+
+async def detect_research_decision(
+    user_text: str,
+    automatik_llm_client,
+    automatik_model: str,
+    has_images: bool = False,
+    vision_json_context: Optional[Dict] = None,
+    detected_language: str = "de"
+) -> Dict:
+    """
+    Combined Decision-Making + Query-Optimization in one LLM call.
+
+    Replaces two separate calls:
+    1. Decision-Making: <search>yes/no</search>
+    2. Query-Optimization: 3 optimized search queries
+
+    Args:
+        user_text: User query text
+        automatik_llm_client: LLM client for Automatik-Model
+        automatik_model: Automatik-LLM model name (e.g., "qwen3:4b")
+        has_images: Whether the message includes image(s)
+        vision_json_context: Structured data extracted from images
+        detected_language: Language from Intent Detection ("de" or "en")
+
+    Returns:
+        Dict with keys:
+        - "web": bool (True = web research needed)
+        - "queries": List[str] (3 optimized queries, only if web=True)
+        - "decision_time": float (LLM call duration in seconds)
+        - "raw_response": str (for debugging)
+    """
+    from .config import AUTOMATIK_LLM_NUM_CTX
+    from ..backends.base import LLMMessage
+
+    # Get the combined prompt
+    prompt = get_research_decision_prompt(
+        user_text=user_text,
+        has_images=has_images,
+        vision_json=vision_json_context,
+        lang=detected_language
+    )
+
+    # DEBUG: Show complete prompt
+    log_message("=" * 60)
+    log_message("📋 RESEARCH DECISION PROMPT:")
+    log_message("-" * 60)
+    log_message(prompt)
+    log_message("-" * 60)
+    log_message(f"Prompt length: {len(prompt)} chars, ~{len(prompt.split())} words")
+    log_message("=" * 60)
+
+    # Build message (no history for decision)
+    messages = [LLMMessage(role="user", content=prompt)]
+
+    # LLM options: JSON format for reliable parsing
+    options = {
+        "temperature": 0.2,  # Low for consistent decisions
+        "num_ctx": AUTOMATIK_LLM_NUM_CTX,  # 4K context
+        "num_predict": 256,  # JSON + 3 queries need more space
+        "enable_thinking": False,  # Fast decisions
+        "format": "json"  # Request JSON output format (Ollama)
+    }
+
+    decision_start = time.time()
+
+    try:
+        response = await automatik_llm_client.chat(
+            model=automatik_model,
+            messages=messages,
+            options=options
+        )
+        raw_response = response.text.strip()
+        decision_time = time.time() - decision_start
+
+        # DEBUG: Log raw response
+        log_message("=" * 60)
+        log_message("📝 RAW RESEARCH DECISION RESPONSE:")
+        log_message("-" * 60)
+        log_message(raw_response)
+        log_message("-" * 60)
+        log_message(f"Response length: {len(raw_response)} chars, time: {decision_time:.2f}s")
+        log_message("=" * 60)
+
+        # Parse JSON response
+        try:
+            # Try direct JSON parse
+            result = json.loads(raw_response)
+        except json.JSONDecodeError:
+            # Fallback: Extract JSON from response (LLM might add text around it)
+            json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+            else:
+                # Complete failure - assume no research needed
+                log_message("⚠️ Failed to parse JSON from research decision")
+                return {
+                    "web": False,
+                    "queries": [],
+                    "decision_time": decision_time,
+                    "raw_response": raw_response
+                }
+
+        # Normalize result
+        web_needed = result.get("web", False)
+        queries = result.get("queries", [])
+
+        # Validate queries if web research is needed
+        if web_needed and not queries:
+            log_message("⚠️ web=true but no queries, setting web=false")
+            web_needed = False
+
+        log_message(f"✅ Research Decision: web={web_needed}, {len(queries)} queries")
+
+        return {
+            "web": web_needed,
+            "queries": queries,
+            "decision_time": decision_time,
+            "raw_response": raw_response
+        }
+
+    except Exception as e:
+        decision_time = time.time() - decision_start
+        log_message(f"⚠️ Research decision failed: {e}")
+        log_message("   Fallback: web=false (direct LLM answer)")
+        return {
+            "web": False,
+            "queries": [],
+            "decision_time": decision_time,
+            "raw_response": str(e)
+        }
 
 
 async def chat_with_vision_pipeline(
@@ -1355,106 +1485,48 @@ async def chat_interactive_mode(
         detected_user_language = detected_language
         log_message(f"🌐 Using language from Intent Detection: {detected_user_language.upper()}")
 
-        # Step 1: Ask AI if research is needed (with timing!)
+        # Step 1: Combined Research Decision (Decision-Making + Query-Optimization in 1 call)
         # Check if images are present OR if Vision JSON context exists
         has_images = (pending_images is not None and len(pending_images) > 0) or (vision_json_context is not None)
 
-        decision_prompt = get_decision_making_prompt(
-            user_text=user_text,
-            has_images=has_images,
-            vision_json=vision_json_context,  # NEW: Pass Vision JSON to Automatik
-            lang=detected_user_language
-        )
-
-        # DEBUG: Show complete prompt for diagnosis (only in log, not in UI)
-        log_message("=" * 60)
-        log_message("📋 DECISION PROMPT:")
-        log_message("-" * 60)
-        log_message(decision_prompt)
-        log_message("-" * 60)
-        log_message(f"Prompt length: {len(decision_prompt)} chars, ~{len(decision_prompt.split())} words")
-        log_message("=" * 60)
-
         try:
             # Measure time for decision
-            log_message(f"🤖 Automatik decision with {automatik_model}")
+            log_message(f"🤖 Research Decision with {automatik_model}")
             yield {"type": "progress", "phase": "automatik"}
 
-            # IMPORTANT: NO History for Decision-Making!
-            decision_messages_dict = [{'role': 'user', 'content': decision_prompt}]
+            # NEW: Combined research decision (replaces Decision-Making + Query-Optimization)
+            research_result = await detect_research_decision(
+                user_text=user_text,
+                automatik_llm_client=automatik_llm_client,
+                automatik_model=automatik_model,
+                has_images=has_images,
+                vision_json_context=vision_json_context,
+                detected_language=detected_user_language
+            )
 
-            # Get model context limit (use RoPE-scaled value from KoboldCPP if available)
-            # For KoboldCPP: Use the actual context from global state (includes RoPE scaling)
-            # For other backends: Query the model
-            from ..state import _global_backend_state
+            decision_time = research_result["decision_time"]
+            web_research_needed = research_result["web"]
+            pre_generated_queries = research_result["queries"]
 
-            if backend_type == 'koboldcpp' and 'context_limit' in _global_backend_state:
-                # Use RoPE-scaled context from KoboldCPP startup
-                automatik_limit = _global_backend_state['context_limit']
-            else:
-                # Fallback: Query model (returns native limit without RoPE)
-                automatik_limit, _ = await automatik_llm_client.get_model_context_limit(automatik_model)
+            # User-friendly display
+            decision_label = "Web Research YES" if web_research_needed else "Web Research NO"
+            yield {"type": "debug", "message": f"🤖 Decision: {decision_label} ({format_number(decision_time, 1)}s)"}
 
-            decision_num_ctx = min(AUTOMATIK_LLM_NUM_CTX, automatik_limit)  # Use config constant (4K)
+            if web_research_needed and pre_generated_queries:
+                yield {"type": "debug", "message": f"🔎 {len(pre_generated_queries)} queries pre-generated"}
+                for i, q in enumerate(pre_generated_queries, 1):
+                    yield {"type": "debug", "message": f"   {i}. {q}"}
 
-            # Count input tokens (using real tokenizer)
-            input_tokens = estimate_tokens(decision_messages_dict, model_name=automatik_model)
-
-            # Show compact context info
-            yield {"type": "debug", "message": f"📊 Automatic-LLM: {format_number(input_tokens)} / {format_number(decision_num_ctx)} tok (Model Max: {format_number(automatik_limit)} tok)"}
-            log_message(f"📊 Automatik-LLM ({automatik_model}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(decision_num_ctx)}, max: {format_number(automatik_limit)}")
-
-            decision_start = time.time()
-            try:
-                # Build automatik options
-                automatik_options = {
-                    'temperature': 0.2,  # Low for consistent yes/no decisions
-                    'num_ctx': decision_num_ctx,  # Dynamic based on model
-                    'num_predict': 64,  # Short: "<search>yes</search>" = ~20 tokens (3x buffer)
-                    'enable_thinking': False  # Default: Fast decisions without reasoning
-                }
-
-                # Automatik tasks: Thinking is ALWAYS off (independent of user toggle)
-                log_message("🧠 Decision enable_thinking: False (Automatik-Task)")
-
-                # Convert decision messages to LLMMessage objects
-                from ..backends.base import LLMMessage
-                decision_messages = [
-                    LLMMessage(role=msg['role'], content=msg['content'])
-                    for msg in decision_messages_dict
-                ]
-
-                response = await automatik_llm_client.chat(
-                    model=automatik_model,
-                    messages=decision_messages,
-                    options=automatik_options
-                )
-
-                decision = response.text.strip().lower()
-                # Measure actual elapsed time instead of relying on backend's inference_time
-                decision_time = time.time() - decision_start
-
-                # Parse decision result for user-friendly display
-                decision_label = "Web Research YES" if ('<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision)) else "Web Research NO"
-
-                yield {"type": "debug", "message": f"🤖 Decision: {decision_label} ({format_number(decision_time, 1)}s)"}
-                log_message(f"🤖 AI decision: {decision_label} ({format_number(decision_time, 1)}s, raw: {decision[:50]}...)")
-            except Exception as e:
-                decision_time = time.time() - decision_start
-                log_message(f"⚠️ Automatik decision failed: {e}")
-                log_message("   Fallback: Direct answer without research")
-                yield {"type": "debug", "message": "⚠️ Decision failed, using fallback (direct answer)"}
-                # Fallback: Assume no research needed, proceed with direct LLM answer
-                decision = "no"
+            log_message(f"🤖 AI decision: {decision_label} ({format_number(decision_time, 1)}s)")
 
             # ============================================================
             # Parse decision AND respect it!
             # ============================================================
-            if '<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision):
+            if web_research_needed:
                 log_message("✅ AI decides: NEW web research needed")
-                # Debug message already yielded above (line 153)
 
                 # Start web research - Forward all yields
+                # Pass pre-generated queries to avoid duplicate Query-Optimization LLM call
                 async for item in perform_agent_research(
                     user_text=user_text,
                     stt_time=stt_time,
@@ -1470,14 +1542,13 @@ async def chat_interactive_mode(
                     backend_url=backend_url,
                     num_ctx_mode=num_ctx_mode,
                     num_ctx_manual=num_ctx_manual,
-                    vision_json_context=vision_json_context,  # CRITICAL: Pass Vision JSON to Research flow
-                    user_name=user_name,  # For personalized prompts
-                    detected_intent=detected_intent  # Pass pre-detected intent (avoids duplicate LLM call)
+                    vision_json_context=vision_json_context,
+                    user_name=user_name,
+                    detected_intent=detected_intent,
+                    pre_generated_queries=pre_generated_queries  # NEW: Skip Query-Opt if provided
                 ):
                     yield item
                 return
-
-            # Note: 'context' decision removed - cache system will be replaced with Vector DB
 
             else:
                 log_message("❌ AI decides: Own knowledge sufficient → No agent")

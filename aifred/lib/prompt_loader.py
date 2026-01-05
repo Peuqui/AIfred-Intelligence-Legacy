@@ -437,6 +437,64 @@ def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> 
     return load_prompt('intent_detection', lang=lang, user_query=user_query)
 
 
+def get_research_decision_prompt(
+    user_text: str,
+    has_images: bool = False,
+    vision_json: Optional[dict] = None,
+    lang: Optional[str] = None
+) -> str:
+    """
+    Load combined research decision prompt (Decision-Making + Query-Optimization).
+
+    This consolidates two LLM calls into one:
+    1. Decides if web research is needed
+    2. If yes, generates 3 optimized search queries
+
+    Output format is JSON:
+    - {"web": false} if no research needed
+    - {"web": true, "queries": ["q1", "q2", "q3"]} if research needed
+
+    Args:
+        user_text: User query text
+        has_images: Whether the message includes image(s)
+        vision_json: Structured data extracted from images by Vision-LLM
+        lang: Language override
+
+    Returns:
+        Formatted research decision prompt
+    """
+    # Build image context string
+    if has_images:
+        if lang == "en":
+            image_context = "\n\n⚠️ USER ATTACHED IMAGE(S) - This is an image analysis task!"
+        else:  # German (default)
+            image_context = "\n\n⚠️ BENUTZER HAT BILD(ER) ANGEHÄNGT - Dies ist eine Bildanalyse-Aufgabe!"
+    else:
+        image_context = ""
+
+    # Build Vision JSON context string
+    if vision_json:
+        import json
+        vision_json_context = f"""
+
+STRUKTURIERTE DATEN AUS BILD:
+```json
+{json.dumps(vision_json, ensure_ascii=False, indent=2)}
+```
+
+Diese Daten wurden automatisch aus dem Bild extrahiert."""
+    else:
+        vision_json_context = ""
+
+    return load_prompt(
+        'research_decision',
+        lang=lang,
+        user_text=user_text,
+        image_context=image_context,
+        vision_json_context=vision_json_context
+    )
+
+
 def get_followup_intent_prompt(original_query: str, followup_query: str, lang: Optional[str] = None) -> str:
     """Load followup intent detection prompt"""
     return load_prompt(

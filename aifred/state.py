@@ -3326,7 +3326,8 @@ class AIState(rx.State):
                         # Store failed sources for UI display AND persistent history
                         self.failed_sources = item["data"]
                         self._pending_failed_sources = item["data"]  # Will be embedded in message
-                        self.add_debug(f"⚠️ {len(item['data'])} sources unavailable")
+                        from .lib.i18n import t
+                        self.add_debug(f"⚠️ {t('sources_unavailable', count=len(item['data']))}")
                     elif item["type"] == "error":
                         # Handle error (e.g., context overflow, backend error)
                         error_msg = item.get("message", "Unknown error")
@@ -3457,7 +3458,8 @@ class AIState(rx.State):
                         # Store failed sources for UI display AND persistent history
                         self.failed_sources = item["data"]
                         self._pending_failed_sources = item["data"]  # Will be embedded in message
-                        self.add_debug(f"⚠️ {len(item['data'])} sources unavailable")
+                        from .lib.i18n import t
+                        self.add_debug(f"⚠️ {t('sources_unavailable', count=len(item['data']))}")
                     elif item["type"] == "error":
                         # Handle error (e.g., context overflow, backend error)
                         error_msg = item.get("message", "Unknown error")
@@ -3816,7 +3818,49 @@ class AIState(rx.State):
         # Get username for display
         display_name = self.user_name if self.user_name else "User"
 
+        # Import localization for failed sources
+        from .lib.i18n import t
+        from .lib.prompt_loader import get_language
+        current_lang = get_language()
+        if current_lang == "auto":
+            current_lang = "de"
+
         for user_msg, ai_msg in self.chat_history:
+            # Extract and remove FAILED_SOURCES comment if present
+            failed_sources_pattern = r'<!--FAILED_SOURCES:(\[.*?\])-->\n?'
+            failed_sources_match = re.search(failed_sources_pattern, ai_msg, re.DOTALL)
+            failed_sources_html = ""
+
+            if failed_sources_match:
+                try:
+                    import json as json_mod
+                    failed_sources_data = json_mod.loads(failed_sources_match.group(1))
+                    # Remove the comment from ai_msg
+                    ai_msg = re.sub(failed_sources_pattern, '', ai_msg, count=1)
+
+                    # Build collapsible HTML for failed sources
+                    if failed_sources_data:
+                        count = len(failed_sources_data)
+                        summary_text = t('sources_unavailable', lang=current_lang, count=count)
+                        sources_list = []
+                        for src in failed_sources_data:
+                            url = src.get('url', 'Unknown URL')
+                            error = src.get('error', 'Unknown error')
+                            sources_list.append(
+                                f'<li><a href="{url}" target="_blank">{url}</a> '
+                                f'<span class="failed-error">({error})</span></li>'
+                            )
+                        failed_sources_html = f'''
+                        <details class="failed-sources-collapsible">
+                            <summary>⚠️ {summary_text}</summary>
+                            <ul class="failed-sources-list">
+                                {"".join(sources_list)}
+                            </ul>
+                        </details>
+                        '''
+                except (json_mod.JSONDecodeError, Exception):
+                    pass  # Ignore malformed JSON
+
             ai_msg_stripped = ai_msg.strip()
 
             # Determine message type based on content
@@ -3892,10 +3936,11 @@ class AIState(rx.State):
             # Preserve existing HTML (like <details> collapsibles)
             ai_msg_html = self._convert_markdown_preserve_html(ai_msg_content, md)
 
-            # AI message
+            # AI message (with failed sources collapsible if present)
             html_parts.append(f'''
             <div class="message {agent_class}">
                 <div class="message-header">{header}</div>
+                {failed_sources_html}
                 <div class="message-content">{ai_msg_html}</div>
             </div>
             ''')
@@ -4179,6 +4224,42 @@ class AIState(rx.State):
         }}
         .thinking-compact p {{
             margin: 0.3em 0;
+        }}
+        /* Failed Sources Collapsible */
+        .failed-sources-collapsible {{
+            margin-bottom: 12px;
+            border-color: #d29922;
+        }}
+        .failed-sources-collapsible summary {{
+            color: #d29922;
+            background-color: rgba(210, 153, 34, 0.1);
+        }}
+        .failed-sources-collapsible summary:hover {{
+            background-color: rgba(210, 153, 34, 0.2);
+        }}
+        .failed-sources-list {{
+            list-style: none;
+            padding: 8px;
+            margin: 0;
+        }}
+        .failed-sources-list li {{
+            padding: 4px 0;
+            border-bottom: 1px solid #30363d;
+        }}
+        .failed-sources-list li:last-child {{
+            border-bottom: none;
+        }}
+        .failed-sources-list a {{
+            color: #58a6ff;
+            text-decoration: none;
+            word-break: break-all;
+        }}
+        .failed-sources-list a:hover {{
+            text-decoration: underline;
+        }}
+        .failed-error {{
+            color: #7d8590;
+            font-size: 0.85em;
         }}
         /* Footer */
         .footer {{

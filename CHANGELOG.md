@@ -5,6 +5,43 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.18] - 2026-01-05
+
+### Added
+
+- **Consolidated Research Decision** ([conversation_handler.py](aifred/lib/conversation_handler.py), [prompt_loader.py](aifred/lib/prompt_loader.py)):
+  - New `detect_research_decision()` function combines Decision-Making + Query-Optimization
+  - Reduces 2 LLM calls → 1 LLM call in Automatik-Modus (saves ~1-2s latency)
+  - New prompts: `research_decision.txt` (DE + EN) with JSON output format
+  - Pre-generated queries passed to `perform_agent_research()` to skip Query-Opt call
+  - Decision output: `{"web": true/false, "queries": ["q1", "q2", "q3"]}`
+
+- **Centralized Content Cleaning** ([message_builder.py](aifred/lib/message_builder.py)):
+  - New `TIMING_PATTERNS` module-level constant (Single Source of Truth)
+  - New `_clean_content()` internal function for all content stripping
+  - Consolidated duplicate cleaning logic from `build_messages_from_history()` and `clean_content_for_llm()`
+  - Added `*( TTFT:` pattern to prevent TTFT metadata leaking into LLM context
+
+- **i18n Pluralization Support** ([i18n.py](aifred/lib/i18n.py)):
+  - New `count` parameter in `t()` function for automatic singular/plural selection
+  - Usage: `t("sources_unavailable", count=3)` → uses `key_plural` if count > 1
+  - New keys: `sources_unavailable`, `sources_unavailable_plural`
+
+### Changed
+
+- **LLM Call Optimization** ([state.py](aifred/state.py), [conversation_handler.py](aifred/lib/conversation_handler.py)):
+  - Automatik-Modus now uses consolidated research decision (1 call instead of 2)
+  - Query-Optimization skipped when pre-generated queries are available
+  - Debug console shows: `⚡ Using pre-generated queries (skip Query-Opt LLM)`
+
+### Fixed
+
+- **TTFT Pattern Leakage** ([message_builder.py](aifred/lib/message_builder.py)):
+  - Added `*( TTFT:` to timing patterns list
+  - Prevents LLMs from imitating TTFT metadata in responses
+
+---
+
 ## [2.15.17] - 2026-01-03
 
 ### Added

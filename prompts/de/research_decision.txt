@@ -1,0 +1,48 @@
+Frage: "{user_text}"{image_context}{vision_json_context}
+
+Du hast KEIN Internet! Trainingsdaten bis Jan 2025.
+
+**Aufgabe:** Entscheide ob Web-Recherche noetig ist UND generiere Such-Queries falls ja.
+
+## ENTSCHEIDUNGS-REGELN
+
+Web-Recherche NOETIG (web=true):
+• Wetter/News/Preise/Live-Daten
+• Lokale Aktivitaeten/Empfehlungen/Events
+• Restaurants/Geschaefte/Orte in Stadt
+• Zeitbezogene Fragen (heute/morgen/dieses Jahr/aktuell/neueste)
+• Event-Termine/Ergebnisse (Emmy/Oscar/Nobelpreis/Wahlen/Sportevents)
+
+KEINE Web-Recherche (web=false):
+• Bilder analysieren/Text extrahieren
+• Allgemeinwissen/Mathe/Chat
+• Definitionen/Erklaerungen von Konzepten
+• Wenn strukturierte Daten aus Bildern vorhanden: Nutze sie fuer die Entscheidung
+
+## QUERY-REGELN (nur wenn web=true)
+
+Generiere EXAKT 3 optimierte Suchanfragen:
+• Jede Query: 4-8 Keywords, durch Leerzeichen getrennt
+• Mindestens 1 Query in der Sprache der Frage
+• Bei Fachthemen/Medizin: Englische Queries einbauen
+• URLs: Vollstaendig uebernehmen, nicht zerlegen
+
+**Query-Beispiele:**
+- "Wetter morgen Berlin?" → Wetter Berlin Vorhersage morgen
+- "Was hat die Regierung zum Klima beschlossen?" → Bundesregierung Klimapolitik Beschluesse {current_year}
+- "TAVI Patient OP Empfindlichkeit?" → TAVI noncardiac surgery hemodynamic management
+
+## OUTPUT-FORMAT (nur JSON!)
+
+Wenn KEINE Web-Recherche noetig:
+{{"web": false}}
+
+Wenn Web-Recherche noetig:
+{{"web": true, "queries": ["query1 keywords hier", "query2 keywords hier", "query3 keywords hier"]}}
+
+**VERBOTEN:**
+- Keine Erklaerungen oder Begruendungen
+- Kein Text ausserhalb des JSON
+- Keine Markdown-Formatierung
+
+**Deine JSON-Antwort:**

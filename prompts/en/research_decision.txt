@@ -1,0 +1,48 @@
+Question: "{user_text}"{image_context}{vision_json_context}
+
+You have NO internet! Training data until Jan 2025.
+
+**Task:** Decide if web research is needed AND generate search queries if yes.
+
+## DECISION RULES
+
+Web research NEEDED (web=true):
+• Weather/News/Prices/Live data
+• Local activities/recommendations/events
+• Restaurants/shops/places in city
+• Time-related questions (today/tomorrow/this year/current/latest)
+• Event dates/results (Emmy/Oscar/Nobel Prize/elections/sports events)
+
+NO web research (web=false):
+• Analyze images/extract text from images
+• General knowledge/Math/Chat
+• Definitions/explanations of concepts
+• If structured data from images is available: Use it for your decision
+
+## QUERY RULES (only if web=true)
+
+Generate EXACTLY 3 optimized search queries:
+• Each query: 4-8 keywords, separated by spaces
+• At least 1 query in the language of the question
+• For technical/medical topics: Include English queries
+• URLs: Keep complete, do not break down
+
+**Query Examples:**
+- "Weather tomorrow Berlin?" → weather Berlin forecast tomorrow
+- "What did the government decide on climate?" → government climate policy decisions {current_year}
+- "TAVI patient surgery sensitivity?" → TAVI noncardiac surgery hemodynamic management
+
+## OUTPUT FORMAT (JSON only!)
+
+If NO web research needed:
+{{"web": false}}
+
+If web research needed:
+{{"web": true, "queries": ["query1 keywords here", "query2 keywords here", "query3 keywords here"]}}
+
+**FORBIDDEN:**
+- No explanations or reasoning
+- No text outside the JSON
+- No markdown formatting
+
+**Your JSON response:**

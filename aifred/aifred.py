@@ -1386,7 +1386,21 @@ def render_failed_sources_inline(failed_sources) -> rx.Component:
                         rx.hstack(
                             rx.text("⚠", font_size="13px", line_height="1"),
                             rx.text(
-                                f"{failed_sources.length()} sources unavailable",
+                                rx.cond(
+                                    AIState.ui_language == "de",
+                                    # German: Singular/Plural
+                                    rx.cond(
+                                        failed_sources.length() == 1,
+                                        f"{failed_sources.length()} Quelle nicht erreichbar",
+                                        f"{failed_sources.length()} Quellen nicht erreichbar",
+                                    ),
+                                    # English: Singular/Plural
+                                    rx.cond(
+                                        failed_sources.length() == 1,
+                                        f"{failed_sources.length()} source unavailable",
+                                        f"{failed_sources.length()} sources unavailable",
+                                    ),
+                                ),
                                 font_weight="500",
                                 font_size="13px",
                                 color="#cc6a00",  # Darker orange

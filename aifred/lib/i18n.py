@@ -245,6 +245,9 @@ class TranslationManager:
             "collapsible_query_optimization": "🔍 Query-Optimierung",
             "collapsible_thinking_process": "💭 Denkprozess Antwort",
             "collapsible_summary": "Zusammenfassung",
+            # Failed Sources
+            "sources_unavailable": "{count} Quelle nicht erreichbar",
+            "sources_unavailable_plural": "{count} Quellen nicht erreichbar",
         },
         "en": {
             # UI Labels
@@ -447,6 +450,9 @@ class TranslationManager:
             "collapsible_query_optimization": "🔍 Query Optimization",
             "collapsible_thinking_process": "💭 Final Answer Thinking Process",
             "collapsible_summary": "Summary",
+            # Failed Sources
+            "sources_unavailable": "{count} source unavailable",
+            "sources_unavailable_plural": "{count} sources unavailable",
         }
     }
 
@@ -539,15 +545,33 @@ class TranslationManager:
 
 
 # Convenience function
-def t(key: str, lang: Optional[str] = None) -> str:
+def t(key: str, lang: Optional[str] = None, count: Optional[int] = None, **kwargs) -> str:
     """
-    Convenience function to get translated text
-    
+    Convenience function to get translated text with optional formatting and pluralization.
+
     Args:
-        key: Translation key
+        key: Translation key (base key, without _plural suffix)
         lang: Language code (de, en) or None for current language
-        
+        count: If provided, auto-selects singular/plural key and adds {count} to format args
+        **kwargs: Additional format arguments for placeholders like {name}, etc.
+
     Returns:
-        Translated string
+        Translated string (formatted if count or kwargs provided)
+
+    Examples:
+        t("greeting")  # Simple lookup
+        t("sources_unavailable", count=3)  # Auto-pluralization: uses key + "_plural"
+        t("sources_unavailable", count=1)  # Singular: uses key as-is
+        t("welcome_user", lang="de", name="Max")  # With language + formatting
     """
-    return TranslationManager.get_text(key, lang)
+    # Handle pluralization: count=1 → singular key, count>1 → key_plural
+    if count is not None:
+        actual_key = key if count == 1 else f"{key}_plural"
+        kwargs["count"] = count
+    else:
+        actual_key = key
+
+    template = TranslationManager.get_text(actual_key, lang)
+    if kwargs:
+        return template.format(**kwargs)
+    return template
