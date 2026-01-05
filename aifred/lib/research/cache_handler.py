@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, AsyncIterator
 from ..cache_manager import get_cached_research
 from ..agent_tools import build_context
 from ..prompt_loader import load_prompt, load_identity, load_personality
-from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx
+from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx, strip_thinking_blocks
 from ..intent_detector import detect_cache_followup_intent, get_temperature_for_intent, get_temperature_label
 from ..formatting import format_thinking_process, format_number, format_metadata
 from ..logging_utils import log_message, console_separator, CONSOLE_SEPARATOR
@@ -23,6 +23,7 @@ async def handle_cache_hit(
     session_id: Optional[str],
     user_text: str,
     history: List[tuple],
+    llm_history: List[Dict[str, str]],
     model_choice: str,
     automatik_model: str,
     llm_client,
@@ -252,10 +253,14 @@ async def handle_cache_hit(
     timing_text = format_metadata(f"Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Session Cache")
     ai_text_with_timing = final_answer_formatted + "\n\n" + timing_text
 
-    # Update History
+    # Update Histories (parallel: chat_history + llm_history)
     user_display = f"{user_text}\n{format_metadata(f'Agent: Cache-Hit    {len(cached_sources)} sources')}"
     ai_display = ai_text_with_timing
     history.append((user_display, ai_display))
+    # llm_history: final_answer is raw LLM output, strip thinking blocks
+    final_answer_clean = strip_thinking_blocks(final_answer) if final_answer else ""
+    if final_answer_clean:
+        llm_history.append({"role": "assistant", "content": f"[AIFRED]: {final_answer_clean}"})
 
     log_message(f"✅ Cache-based response done in {format_number(total_time, 1)}s")
 

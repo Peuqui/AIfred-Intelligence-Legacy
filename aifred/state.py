@@ -20,6 +20,7 @@ from .lib import (
 from .lib.logging_utils import CONSOLE_SEPARATOR
 from .lib.formatting import format_debug_message
 from .lib.conversation_handler import extract_model_name
+from .lib.context_manager import strip_thinking_blocks
 from .lib import config
 from .lib.config import (
     EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES,
@@ -240,7 +241,7 @@ class AIState(rx.State):
     research_mode_display: str = "✨ Automatik (KI entscheidet)"  # UI display value
 
     # Multi-Agent Settings - PERSISTENT (saved to settings.json)
-    multi_agent_mode: str = "standard"  # "standard", "user_judge", "auto_consensus", "devils_advocate", "tribunal"
+    multi_agent_mode: str = "standard"  # "standard", "critical_review", "auto_consensus", "devils_advocate", "tribunal"
     max_debate_rounds: int = 3  # Maximum rounds for auto_consensus/tribunal (UI slider: 1-10)
     consensus_type: str = "majority"  # "majority" (2/3) or "unanimous" (3/3) - only for auto_consensus
     sokrates_model: str = ""  # Sokrates LLM model (empty = same as Main-LLM)
@@ -589,7 +590,7 @@ class AIState(rx.State):
         from .lib import TranslationManager
         return [
             ["standard", TranslationManager.get_text("multi_agent_standard", self.ui_language)],
-            ["user_judge", TranslationManager.get_text("multi_agent_user_judge", self.ui_language)],
+            ["critical_review", TranslationManager.get_text("multi_agent_critical_review", self.ui_language)],
             ["auto_consensus", TranslationManager.get_text("multi_agent_auto_consensus", self.ui_language)],
             ["devils_advocate", TranslationManager.get_text("multi_agent_devils_advocate", self.ui_language)],
             ["tribunal", TranslationManager.get_text("multi_agent_tribunal", self.ui_language)],
@@ -1869,7 +1870,7 @@ class AIState(rx.State):
                     self.available_models = []
                     self.vision_models_cache = []
                     self.available_vision_models_list = []
-                    self.add_debug(f"⚠️ No models returned from API")
+                    self.add_debug("⚠️ No models returned from API")
             except Exception as e:
                 self.available_models_dict = {}
                 self.available_models = []
@@ -3092,8 +3093,10 @@ class AIState(rx.State):
                         # Use display_user_msg (with image name) for history display
                         self.current_ai_response = formatted_response
                         self.chat_history[temp_history_index] = (display_user_msg, formatted_response)
-                        # Sync to llm_history (cleaned)
-                        self._sync_llm_history_assistant(formatted_response)
+                        # llm_history: full_response is raw LLM output, strip thinking blocks
+                        response_clean = strip_thinking_blocks(full_response) if full_response else ""
+                        if response_clean:
+                            self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
 
                         self.add_debug(f"✅ Vision-LLM done ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
                         self.add_debug("────────────────────")
@@ -3130,6 +3133,7 @@ class AIState(rx.State):
                         model_choice=self.aifred_model_id,
                         automatik_model=self.automatik_model_id,
                         history=self.chat_history[:-1],  # Exclude current temporary entry (CRITICAL!)
+                        llm_history=self.llm_history,  # Parallel LLM history for context
                         session_id=self.session_id,
                         temperature_mode=self.temperature_mode,
                         temperature=self.temperature,
@@ -3235,6 +3239,7 @@ class AIState(rx.State):
                     model_choice=self.aifred_model_id,
                     automatik_model=self.automatik_model_id,
                     history=self.chat_history[:-1],  # Exclude current temporary entry
+                    llm_history=self.llm_history,  # Parallel LLM history for context
                     session_id=self.session_id,
                     temperature_mode=self.temperature_mode,
                     temperature=self.temperature,
@@ -3279,10 +3284,8 @@ class AIState(rx.State):
                         # The message is already in the history from the streaming, no need to re-add
                         yield  # Update UI to show new history entry
 
-                        # DUAL-HISTORY: Sync AIfred response to llm_history (Automatik mode)
-                        # This ensures Sokrates/Salomo can see AIfred's answer in Multi-Agent mode
-                        if ai_text:
-                            self._sync_llm_history_assistant(ai_text)
+                        # llm_history is now updated in parallel inside chat_interactive_mode()
+                        # No need to sync anymore - parallel history architecture
 
                         # ============================================================
                         # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not skipped)
@@ -3393,6 +3396,7 @@ class AIState(rx.State):
                         # Update the temporary entry in chat history with the new content
                         if temp_history_index < len(self.chat_history):
                             self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
+                        yield  # CRITICAL: Update UI to prevent backpressure during fast streaming
                     elif item["type"] == "result":
                         result_data = item["data"]
                         # Extract and update history IMMEDIATELY
@@ -3411,10 +3415,8 @@ class AIState(rx.State):
                         # The message is already in the history from the streaming, no need to re-add
                         yield  # Update UI to show new history entry
 
-                        # DUAL-HISTORY: Sync AIfred response to llm_history (Research mode)
-                        # This ensures Sokrates/Salomo can see AIfred's answer in Multi-Agent mode
-                        if ai_text:
-                            self._sync_llm_history_assistant(ai_text)
+                        # llm_history is now updated in parallel inside chat_interactive_mode()
+                        # No need to sync anymore - parallel history architecture
 
                         # ============================================================
                         # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not skipped)
@@ -3666,8 +3668,10 @@ class AIState(rx.State):
 
                 # Update chat history with formatted response + metadata
                 self.chat_history[temp_history_index] = (user_msg, formatted_response)
-                # Sync to llm_history (cleaned)
-                self._sync_llm_history_assistant(formatted_response)
+                # llm_history: full_response is raw LLM output, strip thinking blocks
+                response_clean = strip_thinking_blocks(full_response) if full_response else ""
+                if response_clean:
+                    self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
                 yield  # Update UI
 
                 # ============================================================
@@ -3710,8 +3714,8 @@ class AIState(rx.State):
             # Update the temporary entry in chat history with the error
             if temp_history_index < len(self.chat_history):
                 self.chat_history[temp_history_index] = (user_msg, error_msg)
-                # Sync error to llm_history
-                self._sync_llm_history_assistant(error_msg)
+                # llm_history: error_msg is already clean
+                self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {error_msg}"})
             self.add_debug(f"❌ Generation failed: {e}")
             import traceback
             self.add_debug(f"Traceback: {traceback.format_exc()}")
@@ -4470,26 +4474,6 @@ class AIState(rx.State):
             else:
                 # Explizit gelöscht (z.B. via API clear_chat) → auch Startup-Messages entfernen
                 self.debug_messages = []
-
-    def _sync_llm_history_assistant(self, content: str):
-        """
-        Sync AI response to llm_history (cleaned for LLM context).
-
-        Args:
-            content: Raw AI response (may contain HTML, metadata, etc.)
-
-        Note: Always adds [AIFRED]: label for consistency with Multi-Agent history.
-              This ensures Sokrates/Salomo can reference AIfred's responses correctly
-              even in Standard mode or when switching modes mid-conversation.
-        """
-        from .lib.message_builder import clean_content_for_llm
-        cleaned = clean_content_for_llm(content)
-        if cleaned:
-            # Add [AIFRED]: label if not already present (for Multi-Agent compatibility)
-            # This ensures all AIfred responses are labeled consistently in llm_history
-            if not cleaned.startswith("[AIFRED]:") and not cleaned.startswith("[SOKRATES]:") and not cleaned.startswith("[SALOMO]:"):
-                cleaned = f"[AIFRED]: {cleaned}"
-            self.llm_history.append({"role": "assistant", "content": cleaned})
 
     def _save_current_session(self):
         """
@@ -6097,7 +6081,7 @@ class AIState(rx.State):
 
         mode_labels = {
             "standard": "Standard",
-            "user_judge": "Critical Review",
+            "critical_review": "Critical Review",
             "auto_consensus": "Auto-Consensus",
             "devils_advocate": "Devil's Advocate"
         }

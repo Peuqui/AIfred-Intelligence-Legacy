@@ -22,6 +22,7 @@ async def perform_agent_research(
     model_choice: str,
     automatik_model: str,
     history: List,
+    llm_history: List[Dict[str, str]],
     session_id: Optional[str] = None,
     temperature_mode: str = 'auto',
     temperature: float = 0.2,
@@ -90,6 +91,7 @@ async def perform_agent_research(
         session_id=session_id,
         user_text=user_text,
         history=history,
+        llm_history=llm_history,
         model_choice=model_choice,
         automatik_model=automatik_model,
         llm_client=llm_client,
@@ -222,6 +224,7 @@ async def perform_agent_research(
         tool_results=tool_results,
         failed_sources=failed_sources,  # Pass failed URLs for cache storage
         history=history,
+        llm_history=llm_history,
         session_id=session_id,
         mode=mode,
         model_choice=model_choice,

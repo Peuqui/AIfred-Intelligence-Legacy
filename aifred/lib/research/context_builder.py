@@ -16,8 +16,7 @@ from typing import Dict, List, Optional, AsyncIterator
 from ..agent_tools import build_context
 # Cache system removed - will be replaced with Vector DB
 from ..prompt_loader import get_system_rag_prompt
-from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens
-from ..message_builder import build_messages_from_history
+from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens, strip_thinking_blocks
 from ..formatting import format_thinking_process, build_debug_accordion, format_metadata, format_number
 from ..logging_utils import log_message
 from ..config import (
@@ -38,6 +37,7 @@ async def build_and_generate_response(
     tool_results: List[Dict],
     failed_sources: List[Dict],
     history: List[tuple],
+    llm_history: List[Dict[str, str]],
     session_id: Optional[str],
     mode: str,
     model_choice: str,
@@ -135,8 +135,15 @@ async def build_and_generate_response(
 
     yield {"type": "debug", "message": "✅ System prompt created"}
 
-    # Build messages with history
-    messages = build_messages_from_history(history, user_text)
+    # Build messages from llm_history (strip [AIFRED]: label so LLM doesn't learn it)
+    messages = []
+    for msg in llm_history:
+        if msg['role'] == 'assistant' and msg['content'].startswith('[AIFRED]: '):
+            # Remove [AIFRED]: prefix - only used for Multi-Agent context
+            messages.append({'role': 'assistant', 'content': msg['content'][10:]})
+        else:
+            messages.append(msg.copy())
+    messages.append({"role": "user", "content": user_text})
 
     # Insert system prompt as first message
     messages.insert(0, {"role": "system", "content": system_prompt})
@@ -334,7 +341,12 @@ async def build_and_generate_response(
         user_metadata = format_metadata(f"Agent: {mode}    {len(scraped_only)} sources")
         user_with_time = f"{user_text}  \n{user_metadata}"
 
+    # Add to histories (parallel: chat_history + llm_history)
     history.append((user_with_time, f"{thinking_html}\n\n{metadata}"))
+    # llm_history: ai_text is raw LLM output, strip thinking blocks
+    ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
+    if ai_text_clean:
+        llm_history.append({"role": "assistant", "content": f"[AIFRED]: {ai_text_clean}"})
 
     log_message(f"✅ AI response generated ({len(ai_text)} chars, inference: {format_number(inference_time, 1)}s)")
 

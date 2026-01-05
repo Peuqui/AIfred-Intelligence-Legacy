@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 # Imports for the functions (same as original state.py methods)
 from .llm_client import LLMClient
 from .formatting import format_metadata, format_number, format_thinking_process
-from .message_builder import build_messages_from_llm_history, clean_content_for_llm
+from .message_builder import build_messages_from_llm_history
 from .i18n import t
 from .context_manager import (
     calculate_dynamic_num_ctx,
@@ -253,7 +253,7 @@ async def _stream_sokrates_to_history(
 
     # DUAL-HISTORY: Sync Sokrates response to llm_history
     # Agent responses are assistant messages with speaker label (NOT system!)
-    cleaned = clean_content_for_llm(full_response)
+    cleaned = strip_thinking_blocks(full_response)
     if cleaned:
         state.llm_history.append({"role": "assistant", "content": f"[SOKRATES]: {cleaned}"})
 
@@ -315,7 +315,7 @@ async def _stream_alfred_refinement(
 
     # DUAL-HISTORY: Sync AIfred refinement to llm_history
     # Agent responses are assistant messages with speaker label (NOT system!)
-    cleaned = clean_content_for_llm(full_response)
+    cleaned = strip_thinking_blocks(full_response)
     if cleaned:
         state.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {cleaned}"})
 
@@ -392,7 +392,7 @@ async def _stream_salomo_to_history(
 
     # DUAL-HISTORY: Sync Salomo response to llm_history
     # Agent responses are assistant messages with speaker label (NOT system!)
-    cleaned = clean_content_for_llm(full_response)
+    cleaned = strip_thinking_blocks(full_response)
     if cleaned:
         state.llm_history.append({"role": "assistant", "content": f"[SALOMO]: {cleaned}"})
 
@@ -618,7 +618,7 @@ async def run_sokrates_direct_response(
 
         # DUAL-HISTORY: Sync Sokrates direct response to llm_history
         # Agent responses are assistant messages with speaker label (NOT system!)
-        cleaned = clean_content_for_llm(full_response)
+        cleaned = strip_thinking_blocks(full_response)
         if cleaned:
             state.llm_history.append({"role": "assistant", "content": f"[SOKRATES]: {cleaned}"})
 
@@ -808,7 +808,7 @@ async def run_salomo_direct_response(
 
         # DUAL-HISTORY: Sync Salomo direct response to llm_history
         # Agent responses are assistant messages with speaker label (NOT system!)
-        cleaned = clean_content_for_llm(full_response)
+        cleaned = strip_thinking_blocks(full_response)
         if cleaned:
             state.llm_history.append({"role": "assistant", "content": f"[SALOMO]: {cleaned}"})
 
@@ -887,7 +887,7 @@ async def run_sokrates_analysis(
 
         # Mode labels for display (i18n)
         mode_labels = {
-            "user_judge": t("multi_agent_user_judge", lang=state.ui_language),
+            "critical_review": t("multi_agent_critical_review", lang=state.ui_language),
             "auto_consensus": t("multi_agent_auto_consensus", lang=state.ui_language),
             "devils_advocate": t("multi_agent_devils_advocate", lang=state.ui_language)
         }
@@ -1088,8 +1088,8 @@ async def run_sokrates_analysis(
                 state.sokrates_pro_args, state.sokrates_contra_args = parse_pro_contra(sokrates_response_text)
                 break  # Devils advocate is always one round
 
-            # For user_judge: only one round (user decides)
-            if state.multi_agent_mode == "user_judge":
+            # For critical_review: only one round (user decides)
+            if state.multi_agent_mode == "critical_review":
                 break
 
             # === AUTO-CONSENSUS (TRIALOG): Salomo synthesizes and decides ===
@@ -1215,7 +1215,7 @@ async def run_sokrates_analysis(
                 if round_num < max_rounds:
                     # Build refinement prompt FIRST (needed for accurate token estimation)
                     # IMPORTANT: Clean <think> tags from Salomo's response before embedding in prompt!
-                    cleaned_salomo_text = clean_content_for_llm(salomo_response_text)
+                    cleaned_salomo_text = strip_thinking_blocks(salomo_response_text)
                     refinement_prompt = get_sokrates_refinement_prompt(
                         critique=cleaned_salomo_text,  # Use Salomo's synthesis as guidance (cleaned)
                         user_interjection="",
@@ -1522,7 +1522,7 @@ async def run_tribunal(
             if round_num < max_rounds:
                 # Build refinement prompt FIRST (needed for accurate token estimation)
                 # IMPORTANT: Clean <think> tags from Sokrates' response before embedding in prompt!
-                cleaned_sokrates_text = clean_content_for_llm(sokrates_response_text)
+                cleaned_sokrates_text = strip_thinking_blocks(sokrates_response_text)
                 refinement_prompt = get_sokrates_refinement_prompt(
                     critique=cleaned_sokrates_text,
                     user_interjection="",

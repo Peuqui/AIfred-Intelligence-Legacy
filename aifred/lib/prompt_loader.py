@@ -892,7 +892,7 @@ def get_max_system_prompt_tokens(multi_agent_mode: str = "standard", lang: str =
     across all agents that will be called.
 
     Args:
-        multi_agent_mode: "standard", "user_judge", "auto_consensus", "tribunal", "devils_advocate"
+        multi_agent_mode: "standard", "critical_review", "auto_consensus", "tribunal", "devils_advocate"
         lang: Language code ("de" or "en")
 
     Returns:
@@ -912,5 +912,5 @@ def get_max_system_prompt_tokens(multi_agent_mode: str = "standard", lang: str =
         salomo_tokens = get_system_prompt_tokens("salomo", lang)
         return max(aifred_tokens, sokrates_tokens, salomo_tokens)
 
-    # user_judge, devils_advocate
+    # critical_review, devils_advocate
     return max(aifred_tokens, sokrates_tokens)

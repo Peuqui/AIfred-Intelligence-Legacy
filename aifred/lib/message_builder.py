@@ -304,8 +304,14 @@ def build_messages_from_llm_history(
     if not llm_history:
         messages = []
     elif not perspective:
-        # Standard mode: Use messages as-is
-        messages = llm_history.copy()
+        # Standard mode: Strip [AIFRED]: label so LLM doesn't learn it
+        messages = []
+        for msg in llm_history:
+            if msg['role'] == 'assistant' and msg.get('content', '').startswith('[AIFRED]: '):
+                # Remove [AIFRED]: prefix - only used for Multi-Agent context
+                messages.append({'role': 'assistant', 'content': msg['content'][10:]})
+            else:
+                messages.append(msg.copy())
     else:
         # Multi-Agent perspective transformation
         messages = []

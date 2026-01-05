@@ -548,7 +548,7 @@ def text_input_section() -> rx.Component:
                                 ),
                                 rx.select.item(
                                     rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review"),
-                                    value="user_judge"
+                                    value="critical_review"
                                 ),
                                 rx.select.item(
                                     rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto-Consensus"),
@@ -1947,7 +1947,7 @@ def render_sokrates_inline() -> rx.Component:
                                 spacing="2",
                                 width="100%",
                             ),
-                            # Critique layout (user_judge, auto_consensus)
+                            # Critique layout (critical_review, auto_consensus)
                             rx.markdown(
                                 AIState.sokrates_critique,
                                 color=COLORS["ai_text"],
@@ -2229,7 +2229,7 @@ def sokrates_panel() -> rx.Component:
                         spacing="3",
                         width="100%",
                     ),
-                    # Critique layout (user_judge, auto_consensus) - Kupfer-Styling
+                    # Critique layout (critical_review, auto_consensus) - Kupfer-Styling
                     rx.box(
                         rx.markdown(
                             AIState.sokrates_critique,
@@ -3612,8 +3612,8 @@ def multi_agent_help_modal() -> rx.Component:
                             # Kritische Prüfung / Critical Review
                             rx.table.row(
                                 rx.table.cell(rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review")),
-                                rx.table.cell(t("multi_agent_help_user_judge_flow")),
-                                rx.table.cell(t("multi_agent_help_user_judge_decision")),
+                                rx.table.cell(t("multi_agent_help_critical_review_flow")),
+                                rx.table.cell(t("multi_agent_help_critical_review_decision")),
                             ),
                             # Auto-Konsens / Auto Consensus
                             rx.table.row(
@@ -3948,7 +3948,8 @@ function makeLinksOpenInNewTab() {
 
 function isAutoScrollEnabled() {
     const sw = document.getElementById('autoscroll-switch');
-    return sw && sw.getAttribute('data-state') === 'checked';
+    if (!sw) return true; // Default: enabled if switch not found
+    return sw.getAttribute('data-state') === 'checked';
 }
 
 function autoScrollElement(element) {
@@ -3960,11 +3961,25 @@ function autoScrollElement(element) {
 // Observer für Debug-Console und Chat-History Updates
 const observerConfig = { childList: true, subtree: true };
 
+// Track if chat-history-box observer is already running
+let chatObserverAttached = false;
+
 const callback = function(mutationsList, observer) {
     const enabled = isAutoScrollEnabled();
 
     // Make all links open in new tab (always, regardless of auto-scroll)
     makeLinksOpenInNewTab();
+
+    // Get elements once
+    const chatBox = document.getElementById('chat-history-box');
+
+    // Lazy-attach observer to chat-history-box when it appears
+    // (it's conditionally rendered after backend_initializing=False)
+    if (!chatObserverAttached && chatBox) {
+        const chatObserver = new MutationObserver(callback);
+        chatObserver.observe(chatBox, observerConfig);
+        chatObserverAttached = true;
+    }
 
     // Only scroll if auto-scroll is enabled
     if (!enabled) {
@@ -3977,8 +3992,7 @@ const callback = function(mutationsList, observer) {
         autoScrollElement(debugBox);
     }
 
-    // Auto-scroll Chat History (JavaScript-basiert statt rx.auto_scroll)
-    const chatBox = document.getElementById('chat-history-box');
+    // Auto-scroll Chat History
     if (chatBox) {
         autoScrollElement(chatBox);
     }
@@ -4026,13 +4040,17 @@ function setupObservers() {
     }
 
     // Chat History - JavaScript-basiertes Autoscroll (statt rx.auto_scroll)
-    const chatBox = document.getElementById('chat-history-box');
-    if (chatBox) {
-        console.log('✅ Found chat-history-box');
-        const chatObserver = new MutationObserver(callback);
-        chatObserver.observe(chatBox, observerConfig);
-    } else {
-        console.warn('❌ chat-history-box not found');
+    // May not exist yet if backend is still initializing (rx.cond renders it later)
+    if (!chatObserverAttached) {
+        const chatBox = document.getElementById('chat-history-box');
+        if (chatBox) {
+            console.log('✅ Found chat-history-box');
+            const chatObserver = new MutationObserver(callback);
+            chatObserver.observe(chatBox, observerConfig);
+            chatObserverAttached = true;
+        } else {
+            console.warn('❌ chat-history-box not found (will attach via debug-console callback)');
+        }
     }
 
     // Sync heights on accordion open/close - observe settings-accordion by ID
@@ -4084,19 +4102,13 @@ function initialize() {
     // Initial height sync
     syncDebugConsoleHeight();
 
-    // Retry after 500ms in case elements render later
+    // Einmaliger Retry nach 1.5s für Elemente die erst nach Backend-Init erscheinen
+    // (chat-history-box wird durch rx.cond erst gerendert wenn backend_initializing=False)
     setTimeout(() => {
         setupObservers();
         makeLinksOpenInNewTab();
         syncDebugConsoleHeight();
-    }, 500);
-
-    // Retry after 1000ms
-    setTimeout(() => {
-        setupObservers();
-        makeLinksOpenInNewTab();
-        syncDebugConsoleHeight();
-    }, 1000);
+    }, 1500);
 }
 
 // Check if DOM is already loaded (script loaded late)

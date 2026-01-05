@@ -24,13 +24,12 @@ from .prompt_loader import (
     get_aifred_system_minimal
 )
 from .message_builder import (
-    build_messages_from_history,
     inject_rag_context,
     inject_vision_json_context
 )
 from .formatting import format_thinking_process, format_metadata, format_number, format_age
 # Cache system removed - will be replaced with Vector DB
-from .context_manager import estimate_tokens, prepare_main_llm
+from .context_manager import estimate_tokens, prepare_main_llm, strip_thinking_blocks
 from .streaming_utils import stream_llm_response, log_llm_completion
 from .config import (
     DYNAMIC_NUM_PREDICT_SAFETY_MARGIN,
@@ -570,24 +569,46 @@ async def detect_research_decision(
         log_message(f"Response length: {len(raw_response)} chars, time: {decision_time:.2f}s")
         log_message("=" * 60)
 
-        # Parse JSON response
+        # Parse JSON response with repair for common LLM errors
+        def repair_json(s: str) -> str:
+            """Fix common LLM JSON errors like ]] instead of ]}"""
+            # Fix double brackets: ]] → ]}
+            s = re.sub(r'\]\](?=\s*$)', ']}', s)
+            s = re.sub(r'\]\](?=\s*})', ']}', s)
+            # Fix missing closing brace
+            if s.count('{') > s.count('}'):
+                s = s + '}'
+            return s
+
         try:
             # Try direct JSON parse
             result = json.loads(raw_response)
-        except json.JSONDecodeError:
-            # Fallback: Extract JSON from response (LLM might add text around it)
-            json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group())
-            else:
-                # Complete failure - assume no research needed
-                log_message("⚠️ Failed to parse JSON from research decision")
-                return {
-                    "web": False,
-                    "queries": [],
-                    "decision_time": decision_time,
-                    "raw_response": raw_response
-                }
+        except json.JSONDecodeError as e1:
+            log_message(f"⚠️ JSON parse error: {e1}")
+            # Try repair
+            repaired = repair_json(raw_response)
+            log_message(f"🔧 Attempting JSON repair: {repaired}")
+            try:
+                result = json.loads(repaired)
+                log_message("✅ JSON repair successful")
+            except json.JSONDecodeError:
+                # Try extract JSON from text
+                json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
+                if json_match:
+                    try:
+                        extracted = repair_json(json_match.group())
+                        result = json.loads(extracted)
+                        log_message("✅ JSON extraction + repair successful")
+                    except json.JSONDecodeError as e3:
+                        # NO FALLBACK - raise error!
+                        error_msg = f"JSON parse failed after all repair attempts: {e3}\nRaw: {raw_response}"
+                        log_message(f"❌ {error_msg}")
+                        raise ValueError(error_msg)
+                else:
+                    # NO FALLBACK - raise error!
+                    error_msg = f"No JSON found in response: {raw_response}"
+                    log_message(f"❌ {error_msg}")
+                    raise ValueError(error_msg)
 
         # Normalize result
         web_needed = result.get("web", False)
@@ -609,14 +630,9 @@ async def detect_research_decision(
 
     except Exception as e:
         decision_time = time.time() - decision_start
-        log_message(f"⚠️ Research decision failed: {e}")
-        log_message("   Fallback: web=false (direct LLM answer)")
-        return {
-            "web": False,
-            "queries": [],
-            "decision_time": decision_time,
-            "raw_response": str(e)
-        }
+        log_message(f"❌ Research decision failed: {e}")
+        # NO FALLBACK - re-raise to make the error visible!
+        raise
 
 
 async def chat_with_vision_pipeline(
@@ -945,6 +961,7 @@ async def chat_interactive_mode(
     model_choice: str,
     automatik_model: str,
     history: List,
+    llm_history: List[Dict[str, str]],
     session_id: Optional[str] = None,
     temperature_mode: str = 'auto',
     temperature: float = 0.2,
@@ -970,7 +987,8 @@ async def chat_interactive_mode(
         stt_time: STT time (0.0 for text input)
         model_choice: Main LLM for final response
         automatik_model: Automatik-LLM for decision
-        history: Chat history
+        history: Chat history (for UI display, tuple format)
+        llm_history: LLM history (for LLM context, dict format with role/content)
         session_id: Session ID for research cache (optional)
         temperature_mode: 'auto' (intent detection) or 'manual' (fixed value)
         temperature: Temperature value (0.0-2.0) - only used if mode='manual'
@@ -1103,8 +1121,12 @@ async def chat_interactive_mode(
                         log_message(f"📋 Cache-Hit: {len(cached_failed_sources)} failed source(s) from cache")
                         yield {"type": "failed_sources", "data": cached_failed_sources}
 
-                    # Add to history with timing suffix (no timestamp prefix)
+                    # Add to histories (parallel: chat_history + llm_history)
                     history.append((user_text, answer + timing_suffix))
+                    # llm_history: answer is already clean (from cache), no metadata
+                    answer_clean = strip_thinking_blocks(answer) if answer else ""
+                    if answer_clean:
+                        llm_history.append({"role": "assistant", "content": f"[AIFRED]: {answer_clean}"})
 
                     # Return result in same format as perform_agent_research
                     yield {
@@ -1130,6 +1152,7 @@ async def chat_interactive_mode(
                 model_choice=model_choice,
                 automatik_model=automatik_model,
                 history=history,
+                llm_history=llm_history,
                 session_id=session_id,
                 temperature_mode=temperature_mode,
                 temperature=temperature,
@@ -1181,8 +1204,12 @@ async def chat_interactive_mode(
                 cache_time = cache_result.get('query_time_ms', 0) / 1000  # Convert to seconds
                 timing_suffix = f" (Cache-Hit: {format_number(cache_time, 2)}s, Source: Vector DB)"
 
-                # Add to history (no timestamp prefix)
+                # Add to histories (parallel: chat_history + llm_history)
                 history.append((user_text, answer + timing_suffix))
+                # llm_history: answer is already clean (from cache), no metadata
+                answer_clean = strip_thinking_blocks(answer) if answer else ""
+                if answer_clean:
+                    llm_history.append({"role": "assistant", "content": f"[AIFRED]: {answer_clean}"})
 
                 # Return result in same format as perform_agent_research
                 yield {
@@ -1258,8 +1285,15 @@ async def chat_interactive_mode(
             yield {"type": "progress", "phase": "llm"}
 
             # Now normal inference WITH timing
-            # Build messages from history
-            messages = build_messages_from_history(history, user_text)
+            # Build messages from llm_history (strip [AIFRED]: label so LLM doesn't learn it)
+            messages = []
+            for msg in llm_history:
+                if msg['role'] == 'assistant' and msg['content'].startswith('[AIFRED]: '):
+                    # Remove [AIFRED]: prefix - only used for Multi-Agent context
+                    messages.append({'role': 'assistant', 'content': msg['content'][10:]})
+                else:
+                    messages.append(msg.copy())
+            messages.append({"role": "user", "content": user_text})
 
             # Replace last message content with multimodal if images present
             if multimodal_user_content is not None:
@@ -1457,8 +1491,12 @@ async def chat_interactive_mode(
             metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
             ai_with_source = f"{thinking_html}\n\n{metadata}"
 
-            # Add to history (WITH thinking collapsible + source!)
+            # Add to histories (parallel: chat_history + llm_history)
             history.append((user_with_time, ai_with_source))
+            # llm_history: ai_text is raw LLM output, strip thinking blocks
+            ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
+            if ai_text_clean:
+                llm_history.append({"role": "assistant", "content": f"[AIFRED]: {ai_text_clean}"})
 
             # Separator after LLM response block (end of unit)
             from .logging_utils import console_separator
@@ -1534,6 +1572,7 @@ async def chat_interactive_mode(
                     model_choice=model_choice,
                     automatik_model=automatik_model,
                     history=history,
+                    llm_history=llm_history,
                     session_id=session_id,
                     temperature_mode=temperature_mode,
                     temperature=temperature,
@@ -1558,8 +1597,15 @@ async def chat_interactive_mode(
                 yield {"type": "progress", "phase": "llm"}
 
                 # Now normal inference WITH time measurement
-                # Build messages from history
-                messages = build_messages_from_history(history, user_text)
+                # Build messages from llm_history (strip [AIFRED]: label so LLM doesn't learn it)
+                messages = []
+                for msg in llm_history:
+                    if msg['role'] == 'assistant' and msg['content'].startswith('[AIFRED]: '):
+                        # Remove [AIFRED]: prefix - only used for Multi-Agent context
+                        messages.append({'role': 'assistant', 'content': msg['content'][10:]})
+                    else:
+                        messages.append(msg.copy())
+                messages.append({"role": "user", "content": user_text})
 
                 # Replace last message content with multimodal if images present
                 if multimodal_user_content is not None:
@@ -1718,8 +1764,12 @@ async def chat_interactive_mode(
                 metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
                 ai_with_source = f"{thinking_html}\n\n{metadata}"
 
-                # Add to history (WITH Thinking Collapsible + Source!)
+                # Add to histories (parallel: chat_history + llm_history)
                 history.append((user_with_time, ai_with_source))
+                # llm_history: ai_text is raw LLM output, strip thinking blocks
+                ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
+                if ai_text_clean:
+                    llm_history.append({"role": "assistant", "content": f"[AIFRED]: {ai_text_clean}"})
 
                 log_message(f"✅ AI response generated ({len(ai_text)} chars, Inference: {format_number(inference_time, 1)}s)")
 
