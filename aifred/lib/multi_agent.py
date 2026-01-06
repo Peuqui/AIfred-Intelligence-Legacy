@@ -240,18 +240,6 @@ async def _stream_sokrates_to_history(
         f"Source: Sokrates ({model})"
     )
 
-    # Store result for caller
-    state._stream_result = {
-        "text": full_response,
-        "metadata": metadata,
-        "metrics": {
-            "time": inference_time,
-            "tokens": token_count,
-            "tok_per_sec": tokens_per_sec,
-            "ttft": ttft
-        }
-    }
-
     # DUAL-HISTORY: Sync Sokrates response to llm_history
     # Agent responses are assistant messages with speaker label (NOT system!)
     cleaned = strip_thinking_blocks(full_response)
@@ -261,6 +249,18 @@ async def _stream_sokrates_to_history(
     # Clear streaming state (cleanup)
     state.current_ai_response = ""
     state.current_agent = ""
+
+    # RETURN result as final yield (dict = result, None = UI update)
+    yield {
+        "text": full_response,
+        "metadata": metadata,
+        "metrics": {
+            "time": inference_time,
+            "tokens": token_count,
+            "tok_per_sec": tokens_per_sec,
+            "ttft": ttft
+        }
+    }
 
 
 async def _stream_alfred_refinement(
@@ -320,17 +320,18 @@ async def _stream_alfred_refinement(
         f"Source: AIfred ({model})"
     )
 
-    state._stream_result = {
-        "text": full_response,
-        "metadata": metadata,
-        "metrics": {"time": inference_time, "tokens": token_count, "tok_per_sec": tokens_per_sec, "ttft": ttft}
-    }
-
     # DUAL-HISTORY: Sync AIfred refinement to llm_history
     # Agent responses are assistant messages with speaker label (NOT system!)
     cleaned = strip_thinking_blocks(full_response)
     if cleaned:
         state.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {cleaned}"})
+
+    # RETURN result as final yield (dict = result, None = UI update)
+    yield {
+        "text": full_response,
+        "metadata": metadata,
+        "metrics": {"time": inference_time, "tokens": token_count, "tok_per_sec": tokens_per_sec, "ttft": ttft}
+    }
 
     # Clear streaming state (cleanup)
     state.current_ai_response = ""
@@ -397,8 +398,8 @@ async def _stream_salomo_to_history(
         f"Source: Salomo ({model})"
     )
 
-    # Store result for caller
-    state._stream_result = {
+    # RETURN result as final yield (dict = result, None = UI update)
+    yield {
         "text": full_response,
         "metadata": metadata,
         "metrics": {
@@ -625,26 +626,20 @@ async def run_sokrates_direct_response(
             inference_time=inference_time
         )
 
-        # Build metadata (with TTFT like AIfred)
-        metadata = format_metadata(
-            f"TTFT: {format_number(sokrates_ttft, 2)}s    "
-            f"Inference: {format_number(inference_time, 1)}s    "
-            f"{format_number(tokens_per_sec, 1)} tok/s    "
-            f"Source: Sokrates ({sokrates_model})"
+        # Use centralized panel management
+        state.add_agent_panel(
+            agent="sokrates",
+            content=formatted_response,
+            mode="direct",
+            metadata={
+                "ttft": sokrates_ttft,
+                "inference_time": inference_time,
+                "tokens_per_sec": tokens_per_sec,
+                "source": f"Sokrates ({sokrates_model})"
+            },
+            replace_last=False,
+            user_msg=""  # Empty = Sokrates-only panel
         )
-
-        # Build final entry for chat_history
-        sokrates_marker = "🏛️[Direkte Antwort]" if detected_lang == "de" else "🏛️[Direct Response]"
-        final_content = f"{sokrates_marker}{formatted_response}\n\n{metadata}"
-
-        # Append to chat_history (empty user = Sokrates panel)
-        state.chat_history.append(("", final_content))
-
-        # DUAL-HISTORY: Sync Sokrates direct response to llm_history
-        # Agent responses are assistant messages with speaker label (NOT system!)
-        cleaned = strip_thinking_blocks(full_response)
-        if cleaned:
-            state.llm_history.append({"role": "assistant", "content": f"[SOKRATES]: {cleaned}"})
 
         # Remove the waiting message from user entry, keep only user question
         # Since Sokrates answered, no AIfred response needed
@@ -673,8 +668,14 @@ async def run_sokrates_direct_response(
             state.chat_history[history_index] = (original_user_msg, "")
         except (IndexError, ValueError):
             pass
-        # Add error as Sokrates panel entry
-        state.chat_history.append(("", f"🏛️[Error] {str(e)}"))
+        # Add error as Sokrates panel entry (using centralized function)
+        state.add_agent_panel(
+            agent="sokrates",
+            content=f"Error: {str(e)}",
+            mode="error",
+            replace_last=False,
+            user_msg=""
+        )
         yield
 
 
@@ -820,26 +821,20 @@ async def run_salomo_direct_response(
             inference_time=inference_time
         )
 
-        # Build metadata (with TTFT like AIfred)
-        metadata = format_metadata(
-            f"TTFT: {format_number(salomo_ttft, 2)}s    "
-            f"Inference: {format_number(inference_time, 1)}s    "
-            f"{format_number(tokens_per_sec, 1)} tok/s    "
-            f"Source: Salomo ({salomo_model})"
+        # Use centralized panel management
+        state.add_agent_panel(
+            agent="salomo",
+            content=formatted_response,
+            mode="direct",
+            metadata={
+                "ttft": salomo_ttft,
+                "inference_time": inference_time,
+                "tokens_per_sec": tokens_per_sec,
+                "source": f"Salomo ({salomo_model})"
+            },
+            replace_last=False,
+            user_msg=""  # Empty = Salomo-only panel
         )
-
-        # Build final entry for chat_history
-        salomo_marker = "👑[Direkte Antwort]" if detected_lang == "de" else "👑[Direct Response]"
-        final_content = f"{salomo_marker}{formatted_response}\n\n{metadata}"
-
-        # Append to chat_history (empty user = Salomo panel)
-        state.chat_history.append(("", final_content))
-
-        # DUAL-HISTORY: Sync Salomo direct response to llm_history
-        # Agent responses are assistant messages with speaker label (NOT system!)
-        cleaned = strip_thinking_blocks(full_response)
-        if cleaned:
-            state.llm_history.append({"role": "assistant", "content": f"[SALOMO]: {cleaned}"})
 
         # Remove the waiting message from user entry, keep only user question
         # Since Salomo answered, no AIfred response needed
@@ -868,8 +863,15 @@ async def run_salomo_direct_response(
             state.chat_history[history_index] = (original_user_msg, "")
         except (IndexError, ValueError):
             pass
-        # Add error as Salomo panel entry
-        state.chat_history.append(("", f"👑[Error] {str(e)}"))
+        # Add error as Salomo panel entry (centralized)
+        state.add_agent_panel(
+            agent="salomo",
+            content=f"Error: {str(e)}",
+            mode="error",
+            metadata=None,
+            replace_last=False,
+            user_msg=""
+        )
         yield
 
 
@@ -1076,17 +1078,21 @@ async def run_sokrates_analysis(
             _log_raw_messages("Sokrates", round_num, sokrates_messages)
 
             # Stream Sokrates response (unified streaming box shows content)
-            async for _ in _stream_sokrates_to_history(
+            result = None
+            async for item in _stream_sokrates_to_history(
                 state=state,
                 llm_client=llm_client,
                 model=sokrates_model,
                 messages=sokrates_messages,
                 options=sokrates_options,
             ):
-                yield  # Forward UI updates
+                if isinstance(item, dict):
+                    # Last yield is the result
+                    result = item
+                else:
+                    yield  # Forward UI updates
 
-            # Get Sokrates result
-            result = state._stream_result
+            # Extract Sokrates result from final yield
             sokrates_response_text = result["text"]
             metadata = result["metadata"]
             metrics = result["metrics"]
@@ -1098,14 +1104,25 @@ async def run_sokrates_analysis(
                 inference_time=metrics.get("time", 0)
             )
 
-            # Build final entry for chat_history
-            # Minimal marker for UI detection (🏛️), mode info stored in metadata
-            round_suffix = f" R{round_num}" if max_rounds > 1 else ""
-            sokrates_marker = f"🏛️[{mode_label}{round_suffix}]"  # Marker for UI parsing
-            final_content = f"{sokrates_marker}{formatted_sokrates}\n\n{metadata}"
-
-            # Append to chat_history (empty user msg = renders as Sokrates panel)
-            state.chat_history.append(("", final_content))
+            # Add Sokrates critique panel (centralized)
+            # Note: _stream_sokrates_to_history already synced to llm_history (Line 259)
+            # Mode: Use specific mode for devils_advocate, else generic critical_review
+            sokrates_mode = "advocatus_diaboli" if state.multi_agent_mode == "devils_advocate" else "critical_review"
+            state.add_agent_panel(
+                agent="sokrates",
+                content=formatted_sokrates,
+                mode=sokrates_mode,
+                round_num=round_num if max_rounds > 1 else None,
+                metadata={
+                    "ttft": metrics.get("ttft", 0),
+                    "inference_time": metrics.get("time", 0),
+                    "tokens_per_sec": metrics.get("tok_per_sec", 0),
+                    "source": f"Sokrates ({sokrates_model})"
+                },
+                replace_last=False,
+                user_msg="",
+                sync_llm_history=False  # Already done by _stream_sokrates_to_history
+            )
             state.sokrates_critique = sokrates_response_text  # Keep raw text for logic checks
             yield
 
@@ -1182,17 +1199,20 @@ async def run_sokrates_analysis(
                 _log_raw_messages("Salomo", round_num, salomo_messages)
 
                 # Stream Salomo response (unified streaming box shows content)
-                async for _ in _stream_salomo_to_history(
+                salomo_result = None
+                async for item in _stream_salomo_to_history(
                     state=state,
                     llm_client=llm_client,
                     model=salomo_model,
                     messages=salomo_messages,
                     options=salomo_options,
                 ):
-                    yield
+                    if isinstance(item, dict):
+                        salomo_result = item
+                    else:
+                        yield
 
-                # Get Salomo result
-                salomo_result = state._stream_result
+                # Extract Salomo result from final yield
                 salomo_response_text = salomo_result["text"]
                 salomo_metadata = salomo_result["metadata"]
                 salomo_metrics = salomo_result["metrics"]
@@ -1204,12 +1224,23 @@ async def run_sokrates_analysis(
                     inference_time=salomo_metrics.get("time", 0)
                 )
 
-                # Build final entry for chat_history
-                salomo_marker = f"👑[{t('salomo_synthesis_label', lang=state.ui_language).rstrip(':')} R{round_num}]"
-                final_salomo = f"{salomo_marker}{formatted_salomo}\n\n{salomo_metadata}"
-
-                # Append to chat_history (empty user msg = renders as Salomo panel)
-                state.chat_history.append(("", final_salomo))
+                # Add Salomo synthesis panel (centralized)
+                # Note: _stream_salomo_to_history already synced to llm_history
+                state.add_agent_panel(
+                    agent="salomo",
+                    content=formatted_salomo,
+                    mode="synthesis",  # Uses salomo_synthesis_label via _get_mode_label
+                    round_num=round_num,
+                    metadata={
+                        "ttft": salomo_metrics.get("ttft", 0),
+                        "inference_time": salomo_metrics.get("time", 0),
+                        "tokens_per_sec": salomo_metrics.get("tok_per_sec", 0),
+                        "source": f"Salomo ({salomo_model})"
+                    },
+                    replace_last=False,
+                    user_msg="",
+                    sync_llm_history=False  # Already done by _stream_salomo_to_history
+                )
                 state.salomo_synthesis = salomo_response_text
                 yield
 
@@ -1285,17 +1316,20 @@ async def run_sokrates_analysis(
                     _log_raw_messages("AIfred", round_num + 1, alfred_messages)
 
                     # Stream AIfred refinement (unified streaming box shows content)
-                    async for _ in _stream_alfred_refinement(
+                    alfred_result = None
+                    async for item in _stream_alfred_refinement(
                         state=state,
                         llm_client=llm_client,
                         model=alfred_model,
                         messages=alfred_messages,
                         options=alfred_options,
                     ):
-                        yield
+                        if isinstance(item, dict):
+                            alfred_result = item
+                        else:
+                            yield
 
-                    # Get refined answer
-                    alfred_result = state._stream_result
+                    # Extract refined answer from final yield
                     current_answer = alfred_result["text"]
                     alfred_metadata = alfred_result["metadata"]
                     alfred_metrics = alfred_result.get("metrics", {})
@@ -1307,18 +1341,24 @@ async def run_sokrates_analysis(
                         inference_time=alfred_metrics.get("time", 0)
                     )
 
-                    # Build final entry for chat_history
-                    alfred_marker = f"🎩[Refinement R{round_num + 1}]"
-                    final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
-
-                    # R1: Replace empty panel created in state.py, R2+: Append new panel
-                    if round_num == 0:
-                        # First refinement replaces the empty placeholder from state.py
-                        user_part, _ = state.chat_history[-1]  # Last entry is always the current one
-                        state.chat_history[-1] = (user_part, final_alfred)
-                    else:
-                        # Subsequent rounds append as separate panels
-                        state.chat_history.append(("", final_alfred))
+                    # Add Alfred refinement panel (centralized)
+                    # Note: _stream_alfred_refinement already synced to llm_history
+                    # ALL agents use APPEND - no replace operations!
+                    state.add_agent_panel(
+                        agent="aifred",
+                        content=formatted_alfred,
+                        mode="refinement",
+                        round_num=round_num,
+                        metadata={
+                            "ttft": alfred_metrics.get("ttft", 0),
+                            "inference_time": alfred_metrics.get("time", 0),
+                            "tokens_per_sec": alfred_metrics.get("tok_per_sec", 0),
+                            "source": f"AIfred ({alfred_model})"
+                        },
+                        replace_last=False,  # APPEND, not replace!
+                        user_msg="",
+                        sync_llm_history=False  # Already done by _stream_alfred_refinement
+                    )
                     yield
 
                     # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
@@ -1516,18 +1556,21 @@ async def run_tribunal(
                 if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
                     sokrates_messages.append(msg)
 
-            async for _ in _stream_sokrates_to_history(
+            result = None
+            async for item in _stream_sokrates_to_history(
                 state=state,
                 llm_client=llm_client,
                 model=sokrates_model,
                 messages=sokrates_messages,
                 options=sokrates_options,
             ):
-                yield
+                if isinstance(item, dict):
+                    result = item
+                else:
+                    yield
 
-            result = state._stream_result
+            # Extract Sokrates result from final yield
             sokrates_response_text = result["text"]
-            metadata = result["metadata"]
             metrics = result["metrics"]
 
             formatted_sokrates = format_thinking_process(
@@ -1535,10 +1578,23 @@ async def run_tribunal(
                 model_name=f"Sokrates ({sokrates_model})",
                 inference_time=metrics.get("time", 0)
             )
-            sokrates_marker = f"🏛️[Tribunal R{round_num}]"
-            final_content = f"{sokrates_marker}{formatted_sokrates}\n\n{metadata}"
-
-            state.chat_history.append(("", final_content))
+            # Add Sokrates tribunal panel (centralized)
+            # Note: _stream_sokrates_to_history already synced to llm_history
+            state.add_agent_panel(
+                agent="sokrates",
+                content=formatted_sokrates,
+                mode="tribunal",
+                round_num=round_num,
+                metadata={
+                    "ttft": metrics.get("ttft", 0),
+                    "inference_time": metrics.get("time", 0),
+                    "tokens_per_sec": metrics.get("tok_per_sec", 0),
+                    "source": f"Sokrates ({sokrates_model})"
+                },
+                replace_last=False,
+                user_msg="",
+                sync_llm_history=False  # Already done by _stream_sokrates_to_history
+            )
             state.sokrates_critique = sokrates_response_text
             yield
 
@@ -1582,18 +1638,21 @@ async def run_tribunal(
                     if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
                         alfred_messages.append(msg)
 
-                async for _ in _stream_alfred_refinement(
+                alfred_result = None
+                async for item in _stream_alfred_refinement(
                     state=state,
                     llm_client=llm_client,
                     model=alfred_model,
                     messages=alfred_messages,
                     options=alfred_options,
                 ):
-                    yield
+                    if isinstance(item, dict):
+                        alfred_result = item
+                    else:
+                        yield
 
-                alfred_result = state._stream_result
+                # Extract Alfred result from final yield
                 current_answer = alfred_result["text"]
-                alfred_metadata = alfred_result["metadata"]
                 alfred_metrics = alfred_result.get("metrics", {})
 
                 formatted_alfred = format_thinking_process(
@@ -1601,17 +1660,25 @@ async def run_tribunal(
                     model_name=f"AIfred ({alfred_model})",
                     inference_time=alfred_metrics.get("time", 0)
                 )
-                alfred_marker = f"🎩[Tribunal R{round_num + 1}]"
-                final_alfred = f"{alfred_marker}{formatted_alfred}\n\n{alfred_metadata}"
 
-                # R1: Replace empty panel created in state.py, R2+: Append new panel
-                if round_num == 0:
-                    # First tribunal response replaces the empty placeholder from state.py
-                    user_part, _ = state.chat_history[-1]
-                    state.chat_history[-1] = (user_part, final_alfred)
-                else:
-                    # Subsequent rounds append as separate panels
-                    state.chat_history.append(("", final_alfred))
+                # Add Alfred tribunal panel (centralized)
+                # Note: _stream_alfred_refinement already synced to llm_history
+                # ALL agents use APPEND - no replace operations!
+                state.add_agent_panel(
+                    agent="aifred",
+                    content=formatted_alfred,
+                    mode="tribunal",
+                    round_num=round_num,
+                    metadata={
+                        "ttft": alfred_metrics.get("ttft", 0),
+                        "inference_time": alfred_metrics.get("time", 0),
+                        "tokens_per_sec": alfred_metrics.get("tok_per_sec", 0),
+                        "source": f"AIfred ({alfred_model})"
+                    },
+                    replace_last=False,  # APPEND!
+                    user_msg="",
+                    sync_llm_history=False  # Already done by _stream_alfred_refinement
+                )
                 yield
 
                 # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
@@ -1648,18 +1715,21 @@ async def run_tribunal(
             f"{format_number(salomo_num_ctx)} tokens"
         )
 
-        async for _ in _stream_salomo_to_history(
+        salomo_result = None
+        async for item in _stream_salomo_to_history(
             state=state,
             llm_client=llm_client,
             model=salomo_model,
             messages=salomo_messages,
             options=salomo_options,
         ):
-            yield
+            if isinstance(item, dict):
+                salomo_result = item
+            else:
+                yield
 
-        salomo_result = state._stream_result
+        # Extract Salomo result from final yield
         salomo_response_text = salomo_result["text"]
-        salomo_metadata = salomo_result["metadata"]
         salomo_metrics = salomo_result["metrics"]
 
         state.add_debug(
@@ -1672,10 +1742,23 @@ async def run_tribunal(
             model_name=f"Salomo ({salomo_model})",
             inference_time=salomo_metrics.get("time", 0)
         )
-        salomo_marker = f"👑[{t('salomo_verdict_label', lang=state.ui_language).rstrip(':')}]"
-        final_salomo = f"{salomo_marker}{formatted_salomo}\n\n{salomo_metadata}"
-
-        state.chat_history.append(("", final_salomo))
+        # Add Salomo verdict panel (centralized)
+        # Note: _stream_salomo_to_history already synced to llm_history
+        state.add_agent_panel(
+            agent="salomo",
+            content=formatted_salomo,
+            mode="verdict",  # Uses salomo_verdict_label via _get_mode_label
+            round_num=None,  # No round number for final verdict
+            metadata={
+                "ttft": salomo_metrics.get("ttft", 0),
+                "inference_time": salomo_metrics.get("time", 0),
+                "tokens_per_sec": salomo_metrics.get("tok_per_sec", 0),
+                "source": f"Salomo ({salomo_model})"
+            },
+            replace_last=False,
+            user_msg="",
+            sync_llm_history=False  # Already done by _stream_salomo_to_history
+        )
         state.salomo_synthesis = salomo_response_text
         yield
 

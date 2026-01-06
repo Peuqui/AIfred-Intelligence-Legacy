@@ -756,21 +756,23 @@ async def summarize_history_if_needed(
         llm_to_compress = []
         current_tokens = estimate_tokens_from_llm_history(llm_preserved_summaries + llm_remaining)
 
-        # Compress until we're below target, keeping at least 1 message
-        while current_tokens > target_threshold and len(remaining_messages) > 1 and len(llm_remaining) > 1:
+        # Compress until we're below target
+        # NOTE: We can compress ALL messages - the safety check below ensures at least 1 remains
+        while current_tokens > target_threshold and len(remaining_messages) > 0 and len(llm_remaining) > 0:
             messages_to_compress.append(remaining_messages.pop(0))
             llm_to_compress.append(llm_remaining.pop(0))
             current_tokens = estimate_tokens_from_llm_history(llm_preserved_summaries + llm_remaining)
     else:
-        # Fallback: No llm_history, use old method (less accurate but functional)
-        current_tokens = estimate_tokens_from_history(preserved_summaries + remaining_messages)
-        while current_tokens > target_threshold and len(remaining_messages) > 1:
-            messages_to_compress.append(remaining_messages.pop(0))
-            current_tokens = estimate_tokens_from_history(preserved_summaries + remaining_messages)
+        # CRITICAL: llm_history should NEVER be None in v2.13.0+ (Dual-History architecture)
+        # If this happens, it's a bug that must be fixed, not silently handled!
+        raise ValueError("llm_history is None - this should never happen in Dual-History mode!")
 
-    # Safety: Must keep at least 1 message
+    # Safety: Must keep at least 1 message in both histories
     if len(remaining_messages) == 0 and messages_to_compress:
         remaining_messages = [messages_to_compress.pop()]
+        # Also restore the corresponding llm_history message
+        if llm_to_compress:
+            llm_remaining.append(llm_to_compress.pop())
 
     # Log preserved summaries
     if preserved_summaries:
@@ -909,7 +911,7 @@ async def summarize_history_if_needed(
         # ============================================================
         # DUAL-HISTORY UPDATE (v2.13.0+)
         # ============================================================
-        # chat_history (UI): Original-Messages bleiben, Summary NACH komprimierten Messages
+        # chat_history (UI): Summary erscheint NACH komprimierten Messages, VOR remaining messages
         # Reihenfolge: preserved_summaries + messages_to_compress + [summary_entry] + remaining_messages
         new_chat_history = preserved_summaries + messages_to_compress + [summary_entry] + remaining_messages
 
@@ -987,112 +989,6 @@ async def summarize_history_if_needed(
         "llm_history": new_llm_history  # None if not provided
     }
     yield {"type": "debug", "message": f"📦 Compressed: {int(utilization)}% → {int(new_utilization)}% ({format_number(total_tokens)} → {format_number(new_total_tokens)} tok, {len(messages_to_compress)}→1 msg, {summaries_count} summaries)"}
-
-
-async def prepare_main_llm(
-    backend,
-    llm_client,
-    model_name: str,
-    messages: list,
-    num_ctx_mode: str = "auto",
-    num_ctx_manual: int = 4096,
-    backend_type: str = "ollama"
-):
-    """
-    Central function for Main-LLM preparation (AsyncGenerator).
-
-    Guarantees correct order for Ollama Multi-GPU:
-    1. Calculate num_ctx (Ollama auto: with unload + VRAM measurement)
-    2. Preload with num_ctx (Ollama loads model + allocates KV-Cache)
-
-    IMPORTANT: This function is ONLY for the Main-LLM!
-    For Automatik-LLM, use prepare_automatik_llm() instead (small context).
-
-    Yields debug messages immediately for UI, so user sees what's happening.
-
-    Note: For Ollama, per-model RoPE 2x toggle is read automatically from VRAM cache.
-
-    Args:
-        backend: LLM Backend instance
-        llm_client: LLMClient for context limit query
-        model_name: Model name (pure ID without suffix)
-        messages: Message list for token estimation
-        num_ctx_mode: "auto" or "manual"
-        num_ctx_manual: Manual value (only when mode="manual")
-        backend_type: "ollama", "vllm", etc.
-
-    Yields:
-        dict: {"type": "debug", "message": "..."} for UI console
-        dict: {"type": "result", "data": (final_num_ctx, preload_success, preload_time)} as last
-    """
-    from .formatting import format_number
-
-    try:
-        # 1. Calculate num_ctx (BEFORE preload!)
-        log_message(f"🔄 prepare_main_llm: Start for {model_name} (mode={num_ctx_mode})")
-
-        if num_ctx_mode == "manual":
-            final_num_ctx = num_ctx_manual
-            yield {"type": "debug", "message": f"🔧 Manual num_ctx: {num_ctx_manual:,}"}
-            log_message(f"🔧 Manual num_ctx: {num_ctx_manual:,} (VRAM calculation skipped)")
-        elif backend_type == "ollama":
-            # Ollama auto: calculate_practical_context() does:
-            # - unload_all_models() internally
-            # - Wait 2s for VRAM release
-            # - VRAM-based calculation (reads use_extended from cache per model)
-            log_message("🔄 prepare_main_llm: Starting VRAM calculation")
-
-            final_num_ctx, vram_msgs = await backend.calculate_practical_context(model_name)
-            for msg in vram_msgs:
-                yield {"type": "debug", "message": msg}
-            log_message(f"✅ prepare_main_llm: VRAM calculation done → num_ctx={final_num_ctx:,}")
-
-            # Set cache for history compression (this is for AIfred/main LLM)
-            _last_vram_limit_cache["limit"] = final_num_ctx
-            _last_vram_limit_cache["aifred_limit"] = final_num_ctx
-        else:
-            # Other backends: Standard calculation (no extended calibration support)
-            final_num_ctx, vram_msgs = await calculate_dynamic_num_ctx(
-                llm_client, model_name, messages, None,
-                enable_vram_limit=True
-            )
-            for msg in vram_msgs:
-                yield {"type": "debug", "message": msg}
-            log_message(f"✅ prepare_main_llm: Context calculation done → num_ctx={final_num_ctx:,}")
-
-        # 2. Preload with num_ctx (only Ollama - other backends have model at startup)
-        preload_success = True
-        preload_time = 0.0
-
-        if backend_type == "ollama":
-            formatted_ctx = format_number(final_num_ctx)
-            yield {"type": "debug", "message": f"🚀 AIfred-LLM ({model_name}) is being preloaded (num_ctx={formatted_ctx})..."}
-            log_message(f"🔄 prepare_main_llm: Starting preload for {model_name} (num_ctx={final_num_ctx:,})...")
-
-            # Give event loop a chance to flush the UI update before blocking preload
-            import asyncio
-            await asyncio.sleep(0)
-
-            preload_success, preload_time = await backend.preload_model(model_name, num_ctx=final_num_ctx)
-
-            if preload_success:
-                yield {"type": "debug", "message": f"✅ AIfred-LLM preloaded ({preload_time:.1f}s)"}
-                # Note: log_message() is called via add_debug() when yield is processed
-            else:
-                yield {"type": "debug", "message": f"⚠️ AIfred-LLM preload failed ({preload_time:.1f}s)"}
-                # Note: log_message() is called via add_debug() when yield is processed
-
-        log_message(f"✅ prepare_main_llm: Done (num_ctx={final_num_ctx:,}, preload={preload_success})")
-
-        # Final result as last yield
-        yield {"type": "result", "data": (final_num_ctx, preload_success, preload_time)}
-
-    except Exception as e:
-        import traceback
-        log_message(f"❌ prepare_main_llm EXCEPTION: {e}")
-        log_message(f"   Traceback: {traceback.format_exc()}")
-        # Re-raise so caller also sees the error
-        raise
 
 
 async def prepare_automatik_llm(

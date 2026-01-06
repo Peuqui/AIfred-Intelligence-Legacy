@@ -261,9 +261,6 @@ class AIState(rx.State):
     debate_user_interjection: str = ""  # Queued user input during debate
     debate_in_progress: bool = False  # Signals active debate (for UI)
 
-    # Internal streaming result (used by _stream_llm_with_ui helper)
-    _stream_result: Dict[str, Any] = {}
-
     # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
     enable_thinking: bool = True  # True = Thinking Mode (temp=0.6), False = Non-Thinking (temp=0.7)
     thinking_mode_warning: str = ""  # Empty = no warning, otherwise show model name that doesn't support thinking
@@ -673,7 +670,7 @@ class AIState(rx.State):
         summary_pattern = r'^\[📊 Summary #(\d+)\|(\d+) Messages\|([^\]]+)\]'
 
         def extract_summary_info(user_msg: str, ai_text: str) -> dict:
-            """Extract summary info from message.
+            """Extract summary info from message and format as HTML <details>.
             Returns dict with is_summary, number, count, timestamp, content or empty values."""
             if user_msg != "":
                 return {"is_summary": False, "summary_number": "", "summary_count": "", "summary_timestamp": "", "summary_content": ""}
@@ -682,12 +679,30 @@ class AIState(rx.State):
             if match:
                 header_end = ai_text.find("]\n")
                 content = ai_text[header_end + 2:] if header_end > 0 else ai_text
+
+                number = match.group(1)
+                count = match.group(2)
+                timestamp = match.group(3)
+
+                # Get i18n label for "Zusammenfassung" / "Summary"
+                summary_label = "Zusammenfassung" if self.ui_language == "de" else "Summary"
+
+                # Format as HTML <details> (same as Denkprozess)
+                formatted_content = f"""<details style="font-size: 0.9em; margin-bottom: 1em; padding: 0.75em; background-color: rgba(255, 165, 0, 0.1); border: 1px solid rgba(255, 165, 0, 0.4); border-radius: 8px;">
+<summary style="cursor: pointer; font-weight: bold; color: #ffa500;">📋 {summary_label} #{number} ({count} Messages) • {timestamp}</summary>
+<div style="margin-top: 0.5em; padding: 0.5em; background-color: rgba(255, 165, 0, 0.05); border-radius: 6px; max-height: 400px; overflow-y: auto;">
+
+{content}
+
+</div>
+</details>"""
+
                 return {
                     "is_summary": True,
-                    "summary_number": match.group(1),
-                    "summary_count": match.group(2),
-                    "summary_timestamp": match.group(3),
-                    "summary_content": content
+                    "summary_number": number,
+                    "summary_count": count,
+                    "summary_timestamp": timestamp,
+                    "summary_content": formatted_content
                 }
 
             return {"is_summary": False, "summary_number": "", "summary_count": "", "summary_timestamp": "", "summary_content": ""}
@@ -1675,6 +1690,221 @@ class AIState(rx.State):
         else:
             # Not calibrated - show warning
             self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")
+
+    # ============================================================
+    # CENTRAL AGENT PANEL MANAGEMENT
+    # ============================================================
+    # All agent panel operations (AIfred, Sokrates, Salomo) go through this central function
+    # Eliminates code duplication across 10+ locations in state.py and multi_agent.py
+
+    # Agent emoji mapping
+    _AGENT_EMOJIS = {
+        "aifred": "🎩",
+        "sokrates": "🏛️",
+        "salomo": "👑"
+    }
+
+    def _get_mode_label(self, mode: str, round_num: int | None) -> str:
+        """Generate mode label based on mode and UI language.
+
+        Args:
+            mode: Mode identifier (e.g., "auto_consensus", "tribunal", "direct")
+            round_num: Optional round number for multi-round debates
+
+        Returns:
+            Localized label string (e.g., "Auto-Konsens", "Tribunal", "Direkte Antwort")
+        """
+        from .lib.i18n import t
+
+        # Mode label mapping (without round number)
+        mode_labels = {
+            "auto_consensus": t("auto_consensus_label", lang=self.ui_language).rstrip(":"),
+            "tribunal": "Tribunal",  # Same in both languages
+            "direct": t("direct_response_label", lang=self.ui_language).rstrip(":"),
+            "refinement": t("refinement_label", lang=self.ui_language).rstrip(":"),
+            "synthesis": t("salomo_synthesis_label", lang=self.ui_language).rstrip(":"),
+            "verdict": t("salomo_verdict_label", lang=self.ui_language).rstrip(":"),
+            "critical_review": t("critical_review_label", lang=self.ui_language).rstrip(":"),
+            "advocatus_diaboli": t("advocatus_diaboli_label", lang=self.ui_language).rstrip(":"),
+            "error": "Error",  # Same in both languages
+            "standard": "",  # No label for standard mode
+        }
+
+        return mode_labels.get(mode, "")
+
+    def _build_marker(self, agent: str, mode: str, round_num: int | None) -> str:
+        """Build marker string for agent panels.
+
+        Args:
+            agent: Agent identifier ("aifred", "sokrates", "salomo")
+            mode: Mode identifier (e.g., "auto_consensus", "tribunal")
+            round_num: Optional round number
+
+        Returns:
+            Formatted marker like "🎩[Refinement R2]" or "🏛️[Tribunal R1]"
+        """
+        emoji = self._AGENT_EMOJIS.get(agent, "")
+        label = self._get_mode_label(mode, round_num)
+
+        if not label:
+            return ""  # No marker for standard mode
+
+        # Add round suffix if present
+        round_suffix = f" R{round_num}" if round_num else ""
+        return f"{emoji}[{label}{round_suffix}]"
+
+    def _format_panel_metadata(self, metadata: dict | None) -> str:
+        """Format metadata footer for agent panels.
+
+        Args:
+            metadata: Dict with keys like ttft, inference_time, tokens_per_sec, source
+
+        Returns:
+            Formatted metadata string like "*( TTFT: 0,41s    Inference: 9,1s )*"
+        """
+        if not metadata:
+            return ""
+
+        from .lib.formatting import format_number
+
+        parts = []
+
+        # TTFT (Time To First Token)
+        if "ttft" in metadata and metadata["ttft"]:
+            parts.append(f"TTFT: {format_number(metadata['ttft'], 2)}s")
+
+        # Inference time
+        if "inference_time" in metadata and metadata["inference_time"]:
+            parts.append(f"Inference: {format_number(metadata['inference_time'], 1)}s")
+
+        # Tokens per second
+        if "tokens_per_sec" in metadata and metadata["tokens_per_sec"]:
+            parts.append(f"{format_number(metadata['tokens_per_sec'], 1)} tok/s")
+
+        # Source
+        if "source" in metadata and metadata["source"]:
+            parts.append(f"Source: {metadata['source']}")
+
+        if not parts:
+            return ""
+
+        # Join with 4 spaces (will be converted to non-breaking spaces by format_metadata)
+        from .lib.formatting import format_metadata
+        metadata_text = "    ".join(parts)
+        return format_metadata(metadata_text)
+
+    def _sync_to_llm_history(self, agent: str, content: str) -> None:
+        """Sync agent response to llm_history with speaker label.
+
+        Args:
+            agent: Agent identifier ("aifred", "sokrates", "salomo")
+            content: Agent response content (thinking blocks will be stripped)
+        """
+        from .lib.context_manager import strip_thinking_blocks
+
+        label = agent.upper()
+        clean_content = strip_thinking_blocks(content)
+
+        self.llm_history.append({
+            "role": "assistant",
+            "content": f"[{label}]: {clean_content}"
+        })
+
+    def add_agent_panel(
+        self,
+        agent: str,  # "aifred", "sokrates", "salomo"
+        content: str,
+        mode: str = "standard",
+        round_num: int | None = None,
+        metadata: dict | None = None,
+        replace_last: bool = False,
+        user_msg: str = "",
+        sync_llm_history: bool = True
+    ) -> None:
+        """Central function for adding/replacing agent response panels.
+
+        This is the ONLY function that should be used to add agent panels to chat_history.
+        It handles:
+        - Emoji marker generation (🎩, 🏛️, 👑)
+        - Mode labeling (Auto-Consensus, Tribunal, etc.)
+        - Round numbering (R1, R2, ...)
+        - Metadata formatting (TTFT, Inference time, tok/s, Source)
+        - LLM history synchronization
+        - Session persistence
+
+        Args:
+            agent: Agent identifier ("aifred", "sokrates", "salomo")
+            content: Agent response content (WITHOUT marker, WITHOUT metadata)
+            mode: Mode identifier (e.g., "auto_consensus", "tribunal", "direct", "standard")
+            round_num: Optional round number for multi-round debates
+            metadata: Optional dict with TTFT, inference_time, tokens_per_sec, source
+            replace_last: If True, replaces last panel; if False, appends new panel
+            user_msg: User message text (only needed if replace_last=True to preserve user part)
+
+        Examples:
+            # Sokrates direct response
+            state.add_agent_panel(
+                agent="sokrates",
+                content=formatted_response,
+                mode="direct",
+                metadata={"ttft": 3.7, "inference_time": 16.4, "tokens_per_sec": 41.5, "source": "Sokrates (qwen3:4b)"}
+            )
+
+            # AIfred refinement R1 (replace placeholder)
+            state.add_agent_panel(
+                agent="aifred",
+                content=formatted_response,
+                mode="refinement",
+                round_num=1,
+                metadata={...},
+                replace_last=True,
+                user_msg=state.chat_history[-1][0]
+            )
+
+            # Salomo synthesis R2 (append new panel)
+            state.add_agent_panel(
+                agent="salomo",
+                content=formatted_response,
+                mode="synthesis",
+                round_num=2,
+                metadata={...}
+            )
+        """
+        # 1. Build marker (emoji + mode label + round number)
+        marker = self._build_marker(agent, mode, round_num)
+
+        # 2. Format metadata footer
+        meta_footer = self._format_panel_metadata(metadata)
+
+        # 3. Assemble final content
+        if marker:
+            final_content = f"{marker}{content}\n\n{meta_footer}"
+        else:
+            # Standard mode: no marker, just content + metadata
+            final_content = f"{content}\n\n{meta_footer}" if meta_footer else content
+
+        # 4. Update chat_history
+        if replace_last:
+            # Replace last panel (used for R1 refinements)
+            if len(self.chat_history) > 0:
+                self.chat_history[-1] = (user_msg, final_content)
+        else:
+            # Append new panel (most common case)
+            # Empty user_msg = Agent-only panel (triggers special styling in UI)
+            self.chat_history.append((user_msg, final_content))
+
+        # 5. Sync to llm_history (with speaker label)
+        # Note: Some callers (streaming functions) already sync to llm_history,
+        # so they should pass sync_llm_history=False to avoid duplicates
+        if sync_llm_history:
+            self._sync_to_llm_history(agent, content)
+
+        # 6. Save session (async, non-blocking)
+        self._save_current_session()
+
+    # ============================================================
+    # END: CENTRAL AGENT PANEL MANAGEMENT
+    # ============================================================
 
     async def switch_backend_by_label(self, label: str):
         """Switch backend using display label (for native mobile select)
@@ -2874,11 +3104,29 @@ class AIState(rx.State):
                     self.add_debug(event["message"])
                     yield
 
+        # Prepare display message (may include image markers for Vision)
+        # This must be done BEFORE adding to chat_history so user sees images immediately
+        display_user_msg = user_msg
+        if has_pending_images:
+            # Generate image markers for UI display
+            image_markers = " ".join([f"[IMG:{img.get('url', '')}]" for img in self.pending_images if img.get('url')])
+            if not user_msg or user_msg.strip() == "":
+                # Image-only upload
+                if len(self.pending_images) == 1:
+                    display_user_msg = f"{image_markers}\n📷 {self.pending_images[0].get('name', 'Image')}"
+                else:
+                    img_names = ", ".join([img.get("name", "unknown") for img in self.pending_images])
+                    display_user_msg = f"{image_markers}\n📷 {len(self.pending_images)} images: {img_names}"
+            else:
+                # Text + images
+                display_user_msg = f"{image_markers}\n{user_msg}" if image_markers else user_msg
+
         # Add user message to chat history IMMEDIATELY (before any pipeline processing)
         # This ensures the user sees their message right away, even during STT transcription
+        # Use display_user_msg (includes image markers if present) instead of plain user_msg
         temp_history_index = len(self.chat_history)
-        self.chat_history.append((user_msg, ""))
-        # Sync to llm_history (for LLM context)
+        self.chat_history.append((display_user_msg, ""))
+        # Sync to llm_history (for LLM context - use ORIGINAL user_msg, not display variant)
         self.llm_history.append({"role": "user", "content": user_msg})
 
         yield  # Update UI sofort (Eingabefeld leeren + Spinner zeigen + User-Nachricht anzeigen)
@@ -2939,13 +3187,8 @@ class AIState(rx.State):
                 # Deep copy ensures we keep the image data even if self.pending_images gets cleared.
                 import copy
                 local_images = copy.deepcopy(self.pending_images)
-                local_image_names = ", ".join([img.get("name", "unknown") for img in local_images])
 
-                # Generate image markers for embedding in chat history
-                # Format: [IMG:data:image/jpeg;base64,...] - will be rendered as clickable thumbnails
-                image_markers = " ".join([f"[IMG:{img.get('url', '')}]" for img in local_images if img.get('url')])
-
-                # Log Vision-LLM header + each image on separate line (like Main/Automatik)
+                # Log Vision-LLM header + each image on separate line
                 self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analyzing:")
                 for img in local_images:
                     self.add_debug(f"   • {img.get('name', 'unknown')}")
@@ -2953,19 +3196,6 @@ class AIState(rx.State):
 
                 # Save original user text (for Vision pipeline - may be empty!)
                 original_user_text = user_msg
-
-                # Build display_user_msg with embedded image markers for chat history
-                # Image markers are prepended so thumbnails appear before text
-                display_user_msg = user_msg
-                if not user_msg or user_msg.strip() == "":
-                    # Image-only upload: show image names + markers
-                    if len(local_images) == 1:
-                        display_user_msg = f"{image_markers}\n📷 {local_images[0].get('name', 'Image')}"
-                    else:
-                        display_user_msg = f"{image_markers}\n📷 {len(local_images)} images: {local_image_names}"
-                else:
-                    # Text + images: prepend markers to text
-                    display_user_msg = f"{image_markers}\n{user_msg}" if image_markers else user_msg
 
                 # CRITICAL: Ensure KoboldCPP is running before LLM call
                 if self.backend_type == "koboldcpp":
@@ -2975,11 +3205,8 @@ class AIState(rx.State):
                 # Import vision pipeline
                 from .lib.conversation_handler import chat_with_vision_pipeline
 
-                # Update history entry with display_user_msg (may differ from user_msg for images)
-                # History entry was already created at the start of send_message()
-                if display_user_msg != user_msg:
-                    # Update the user message part (e.g., for image-only uploads)
-                    self.chat_history[temp_history_index] = (display_user_msg, self.current_ai_response)
+                # NOTE: display_user_msg was already prepared and added to chat_history above (line ~3113)
+                # No need to update it here - user panel is already correct
 
                 # Build LLM options (include enable_thinking toggle)
                 llm_options = {
@@ -3053,7 +3280,7 @@ class AIState(rx.State):
                         has_user_text_for_automatik = item.get("has_user_text", False)
 
                         # Finalize Vision response (with or without JSON)
-                        from .lib.formatting import format_thinking_process, format_metadata, format_number
+                        from .lib.formatting import format_thinking_process, format_number
 
                         vision_time = final_vision_metrics.get("inference_time", 0) if final_vision_metrics else 0
                         tokens_generated = final_vision_metrics.get("tokens_generated", 0) if final_vision_metrics else 0
@@ -3067,35 +3294,40 @@ class AIState(rx.State):
                             # Kein JSON → vision_readable_text enthält ggf. <think> tags!
                             full_response = vision_readable_text
 
+                        # Prepare Vision response content
                         if full_response:
                             # format_thinking_process() verarbeitet ALLE XML-Tags automatisch!
-                            formatted_html = format_thinking_process(
+                            vision_content = format_thinking_process(
                                 full_response,
                                 model_name=self.vision_model_id,  # Pure ID
                                 inference_time=vision_time,
                                 tokens_per_sec=tokens_per_sec
                             )
-
-                            # Metadata footer with model name
-                            metadata = format_metadata(
-                                f"Vision: {format_number(vision_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s ({self.vision_model_id})"
-                            )
-                            formatted_response = f"{formatted_html}\n\n{metadata}"
                         elif vision_readable_text:
-                            # Kein JSON, aber readable text vorhanden (z.B. Fallback oder nur Description)
-                            metadata = format_metadata(
-                                f"Vision: {format_number(vision_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s ({self.vision_model_id})"
-                            )
-                            formatted_response = f"{vision_readable_text}\n\n{metadata}"
+                            # Kein JSON, aber readable text vorhanden
+                            vision_content = vision_readable_text
                         else:
                             # Neither JSON nor text - error
-                            formatted_response = "⚠️ Vision-LLM could not produce a result. See debug log."
+                            vision_content = "⚠️ Vision-LLM could not produce a result. See debug log."
 
-                        # ALWAYS update current response and history (even if empty/error)
-                        # Use display_user_msg (with image name) for history display
-                        self.current_ai_response = formatted_response
-                        self.chat_history[temp_history_index] = (display_user_msg, formatted_response)
-                        # llm_history: full_response is raw LLM output, strip thinking blocks
+                        # APPEND Vision response as separate panel
+                        # Note: User panel was already created above with display_user_msg
+                        self.add_agent_panel(
+                            agent="aifred",  # Vision uses AIfred agent
+                            content=vision_content,
+                            mode="vision",
+                            round_num=None,
+                            metadata={
+                                "inference_time": vision_time,
+                                "tokens_per_sec": tokens_per_sec,
+                                "source": f"Vision ({self.vision_model_id})"
+                            },
+                            replace_last=False,  # APPEND!
+                            user_msg="",
+                            sync_llm_history=False  # Sync manually below for proper formatting
+                        )
+
+                        # Sync to llm_history manually (strip thinking blocks)
                         response_clean = strip_thinking_blocks(full_response) if full_response else ""
                         if response_clean:
                             self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
@@ -3121,9 +3353,8 @@ class AIState(rx.State):
                     # Import here to avoid circular dependency
                     from .lib.conversation_handler import chat_interactive_mode
 
-                    # Initialize temporary history entry for real-time display
+                    # Initialize user panel for real-time display
                     # Use original_user_text (actual user question, not image filename)
-                    temp_history_index_main = len(self.chat_history)
                     self.chat_history.append((original_user_text, ""))
                     self.current_ai_response = ""  # Reset for Main-LLM streaming
 
@@ -3281,8 +3512,14 @@ class AIState(rx.State):
                             self._pending_failed_sources = []  # Clear pending
                         # Replace chat history with updated one from research - message is already in history
                         self.chat_history = updated_history
+
+                        # Clear streaming box IMMEDIATELY to avoid duplicate display
+                        # CRITICAL: Must clear BEFORE multi-agent logic to prevent Alfred appearing twice
+                        self.current_ai_response = ""
+                        self.current_user_message = ""
+
                         # The message is already in the history from the streaming, no need to re-add
-                        yield  # Update UI to show new history entry
+                        yield  # Update UI to show new history entry + clear streaming box
 
                         # llm_history is now updated in parallel inside chat_interactive_mode()
                         # No need to sync anymore - parallel history architecture
@@ -3303,11 +3540,9 @@ class AIState(rx.State):
                                 async for _ in run_sokrates_analysis(self, user_msg, ai_text, detected_language):
                                     yield  # Forward yields to update Sokrates panel
 
-                        # Clear AI response and user message windows IMMEDIATELY
-                        self.current_ai_response = ""
-                        self.current_user_message = ""
-                        self.is_generating = False  # Stop spinner, switch UI to history display
-                        yield  # Force immediate UI update to clear both windows
+                        # Stop spinner, switch UI to history display
+                        self.is_generating = False
+                        yield  # Force immediate UI update
                         # NOTE: Loop continues for cache metadata generation (important!)
                     elif item["type"] == "progress":
                         # Update processing progress (Automatik mode)
@@ -3516,15 +3751,10 @@ class AIState(rx.State):
                 messages.insert(0, {"role": "system", "content": system_prompt})
 
                 # Create backend and LLM client instances
-                from .backends import BackendFactory, LLMOptions
+                from .backends import LLMOptions
                 from .lib.llm_client import LLMClient
 
-                backend = BackendFactory.create(
-                    self.backend_type,
-                    base_url=self.backend_url
-                )
-
-                # Wrap backend in LLMClient for context calculation
+                # Create LLM client for context calculation and streaming
                 llm_client = LLMClient(
                     backend_type=self.backend_type,
                     base_url=self.backend_url
@@ -3551,38 +3781,35 @@ class AIState(rx.State):
                     self.add_debug(f"🌡️ Temperature: {format_number(final_temperature, 1)} (auto, {temp_label})")
                 yield
 
-                # Count actual input tokens (using real tokenizer)
-                from .lib.context_manager import estimate_tokens, prepare_main_llm
-                input_tokens = estimate_tokens(messages, model_name=pure_model_name)
+                # Calculate num_ctx - IDENTICAL logic to Sokrates/Salomo
+                from .lib.context_manager import estimate_tokens, calculate_dynamic_num_ctx, get_ollama_calibration
+                from .lib.model_utils import get_rope_factor_for_model
 
-                # Prepare Main-LLM: calculate num_ctx + Preload (central function!)
-                # IMPORTANT: prepare_main_llm() guarantees the correct order:
-                # 1. Calculate num_ctx (Ollama auto: with unload + VRAM measurement)
-                # 2. Preload with num_ctx (Ollama loads model + allocates KV-Cache)
-                # AsyncGenerator yields debug messages immediately for UI feedback
-                async for item in prepare_main_llm(
-                    backend=backend,
-                    llm_client=llm_client,
-                    model_name=pure_model_name,
-                    messages=messages,
-                    num_ctx_mode=self.num_ctx_mode,
-                    num_ctx_manual=self.num_ctx_manual,
-                    backend_type=self.backend_type
-                ):
-                    if item["type"] == "debug":
-                        self.add_debug(item["message"])
-                        yield
-                    elif item["type"] == "result":
-                        final_num_ctx, preload_success, preload_time = item["data"]
+                if getattr(self, 'num_ctx_manual_aifred_enabled', False):
+                    final_num_ctx = self.num_ctx_manual_aifred if self.num_ctx_manual_aifred else 4096
+                    self.add_debug(f"🔧 AIfred num_ctx: {final_num_ctx:,} (manual)")
+                else:
+                    # Auto mode: use calibration from VRAM cache
+                    rope_factor = get_rope_factor_for_model(pure_model_name)
+                    final_num_ctx = get_ollama_calibration(pure_model_name, rope_factor)
+                    if final_num_ctx:
+                        self.add_debug(f"🎯 AIfred num_ctx: {final_num_ctx:,} (from VRAM cache)")
+                    else:
+                        # Fallback: calculate dynamically
+                        final_num_ctx, _ = await calculate_dynamic_num_ctx(
+                            llm_client, pure_model_name, [], None,
+                            enable_vram_limit=True
+                        )
+                        self.add_debug(f"🎯 AIfred num_ctx: {final_num_ctx:,} (calculated)")
+
+                # Count actual input tokens
+                input_tokens = estimate_tokens(messages, model_name=pure_model_name)
 
                 # Get model context limit for display
                 model_limit, _ = await llm_client.get_model_context_limit(pure_model_name)
 
-                self.add_debug("✅ System prompt created")
-                yield
-
-                # Show compact context info (matching Automatik mode style)
-                self.add_debug(f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})")
+                # Show compact context info
+                self.add_debug(f"📊 AIfred: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})")
                 yield
 
                 # Build LLM options
@@ -3653,7 +3880,7 @@ class AIState(rx.State):
                 # Multi-Agent-Modi haben eigene Separatoren in multi_agent.py
 
                 # Format <think> tags as collapsible (if present)
-                from .lib.formatting import format_thinking_process, format_metadata
+                from .lib.formatting import format_thinking_process
                 thinking_html = format_thinking_process(
                     full_response,
                     model_name=self.aifred_model_id,  # Use pure ID, not display name with size
@@ -3661,18 +3888,31 @@ class AIState(rx.State):
                     tokens_per_sec=tokens_per_sec
                 )
 
-                # Add metadata footer (TTFT + Inference + Tok/s + Source + Model) like other modes
-                ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
-                metadata = format_metadata(
-                    f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Training data ({self.aifred_model_id})"
-                )
-                formatted_response = f"{thinking_html}\n\n{metadata}"
-
                 # Update chat history with formatted response + metadata
-                # Skip UI update if multi-agent mode active (refinement will replace this later)
+                # CRITICAL: Only write Alfred panel if NO multi-agent refinement will follow
+                # - Standard mode: APPEND Alfred response (placeholder stays empty, Alfred = separate panel)
+                # - Multi-agent mode + Direct Alfred: APPEND (same as standard)
+                # - Multi-agent mode + Normal: DON'T write (Alfred R1 is internal, only Refinement R2 shown)
                 if self.multi_agent_mode == "standard" or skip_sokrates_analysis:
-                    self.chat_history[temp_history_index] = (user_msg, formatted_response)
+                    # APPEND Alfred response as separate panel
+                    # Pass thinking_html (WITHOUT metadata) + metadata dict to add_agent_panel
+                    self.add_agent_panel(
+                        agent="aifred",
+                        content=thinking_html,  # WITHOUT metadata footer!
+                        mode="standard",
+                        round_num=None,
+                        metadata={
+                            "ttft": ttft,
+                            "inference_time": inference_time,
+                            "tokens_per_sec": tokens_per_sec,
+                            "source": f"Training data ({self.aifred_model_id})"
+                        },
+                        replace_last=False,  # APPEND!
+                        user_msg="",  # Empty user_msg for agent response
+                        sync_llm_history=False  # Already synced below (line 3902)
+                    )
                     yield  # Update UI
+                # ELSE: Placeholder stays (user_msg, ""), Multi-Agent Refinement R2 will append later
                 # Always update llm_history (needed for internal logic)
                 response_clean = strip_thinking_blocks(full_response) if full_response else ""
                 if response_clean:
@@ -3718,11 +3958,20 @@ class AIState(rx.State):
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             self.current_ai_response = error_msg
-            # Update the temporary entry in chat history with the error
-            if temp_history_index < len(self.chat_history):
-                self.chat_history[temp_history_index] = (user_msg, error_msg)
-                # llm_history: error_msg is already clean
-                self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {error_msg}"})
+
+            # APPEND error as separate panel
+            # Note: User panel was already created above with user_msg/display_user_msg
+            self.add_agent_panel(
+                agent="aifred",
+                content=error_msg,
+                mode="error",
+                round_num=None,
+                metadata=None,  # No metrics for errors
+                replace_last=False,  # APPEND!
+                user_msg="",
+                sync_llm_history=True  # Sync error to llm_history
+            )
+
             self.add_debug(f"❌ Generation failed: {e}")
             import traceback
             self.add_debug(f"Traceback: {traceback.format_exc()}")
@@ -3737,9 +3986,10 @@ class AIState(rx.State):
             if self.enable_tts:
                 try:
                     self.add_debug("🔊 TTS: Starting TTS generation in finally block...")
-                    # Get AI response from chat history (current_ai_response may be cleared)
-                    if 'temp_history_index' in locals() and temp_history_index < len(self.chat_history):
-                        _, ai_response = self.chat_history[temp_history_index]
+                    # Get AI response from LAST panel in chat history
+                    # With APPEND-only architecture, AI responses are always in the last panel
+                    if len(self.chat_history) > 0:
+                        _, ai_response = self.chat_history[-1]
                         if ai_response and ai_response.strip():
                             # Generate TTS (sets tts_audio_path and increments tts_trigger_counter)
                             # State changes automatically propagate to frontend → audio plays via autoPlay
@@ -3749,7 +3999,7 @@ class AIState(rx.State):
                             console_separator()
                             self.add_debug("────────────────────")
                     else:
-                        self.add_debug("⚠️ TTS: Aktiviert aber Chat-History-Eintrag fehlt")
+                        self.add_debug("⚠️ TTS: Aktiviert aber Chat-History ist leer")
                         console_separator()
                         self.add_debug("────────────────────")
                 except Exception as tts_error:
@@ -4419,15 +4669,12 @@ class AIState(rx.State):
                 if self._min_agent_context_limit > 0:
                     utilization = (estimated_tokens / self._min_agent_context_limit) * 100
                     self.add_debug(f"   └─ History: {format_number(estimated_tokens)} / {format_number(self._min_agent_context_limit)} tok ({int(utilization)}%)")
-                    log_message(f"   └─ History: {format_number(estimated_tokens)} / {format_number(self._min_agent_context_limit)} tok ({int(utilization)}%)")
 
                     # Warn if compression will trigger on next message
                     if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
                         self.add_debug(f"⚠️ History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
-                        log_message(f"⚠️ History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
                 else:
                     self.add_debug(f"   └─ History: {format_number(estimated_tokens)} tokens")
-                    log_message(f"   └─ History: {format_number(estimated_tokens)} tokens")
         else:
             self.session_restored = False
             create_empty_session(device_id)  # Save immediately for API access
@@ -6192,100 +6439,10 @@ class AIState(rx.State):
         self.reset_salomo_state()
 
     # ============================================================
-    # GENERIC STREAMING HELPER (DRY - reusable for all LLM calls)
+    # GENERIC STREAMING HELPER - REMOVED (toter Code)
+    # Note: _stream_llm_with_ui was never used - all streaming uses
+    # dedicated functions in conversation_handler.py and multi_agent.py
     # ============================================================
-
-    async def _stream_llm_with_ui(
-        self,
-        llm_client,
-        model: str,
-        messages: list,
-        options,
-        target_var: str,
-        source_label: str,
-        history_index: int = None,
-    ):
-        """
-        Generic LLM streaming helper with UI updates and metadata collection.
-
-        Reusable for AIfred, Sokrates, Vision, etc.
-        Uses the same chunk structure as the main chat_stream.
-
-        Args:
-            llm_client: LLMClient instance
-            model: Model name/ID
-            messages: List of message dicts
-            options: LLMOptions
-            target_var: State variable to update (e.g., "sokrates_critique")
-            source_label: Label for metadata (e.g., "Sokrates", "Training data")
-            history_index: Optional chat_history index for live updates
-
-        Yields:
-            For UI updates during streaming
-
-        Sets self._stream_result after completion with:
-            - text: Full response text
-            - metadata: Formatted metadata string
-            - metrics: Dict with time, tokens, tok_per_sec
-        """
-        import time
-        from .lib.formatting import format_metadata, format_number
-
-        full_response = ""
-        token_count = 0
-        start_time = time.time()
-        ttft = None
-        first_token = False
-
-        async for chunk in llm_client.chat_stream(model, messages, options):
-            if chunk["type"] == "content":
-                # TTFT measurement
-                if not first_token:
-                    ttft = time.time() - start_time
-                    # Guard against negative TTFT (WSL2 time sync issues)
-                    if ttft < 0:
-                        ttft = 0.0
-                    first_token = True
-
-                full_response += chunk["text"]
-                token_count += 1
-
-                # Update target state variable
-                setattr(self, target_var, full_response)
-
-                # Optionally update chat_history for live display
-                if history_index is not None and history_index < len(self.chat_history):
-                    user_msg = self.chat_history[history_index][0]
-                    self.chat_history[history_index] = (user_msg, full_response)
-
-                yield  # UI Update
-
-            elif chunk["type"] == "done":
-                metrics = chunk.get("metrics", {})
-                token_count = metrics.get("tokens_generated", token_count)
-
-        # Calculate final metrics
-        inference_time = time.time() - start_time
-        tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
-
-        # Build metadata footer (same format as AIfred)
-        metadata = format_metadata(
-            f"Inference: {format_number(inference_time, 1)}s    "
-            f"{format_number(tokens_per_sec, 1)} tok/s    "
-            f"Source: {source_label} ({model})"
-        )
-
-        # Store result for caller to access
-        self._stream_result = {
-            "text": full_response,
-            "metadata": metadata,
-            "metrics": {
-                "time": inference_time,
-                "tokens": token_count,
-                "tok_per_sec": tokens_per_sec,
-                "ttft": ttft
-            }
-        }
 
     async def set_automatik_model(self, model: str):
         """Set automatik model for decision and query optimization"""

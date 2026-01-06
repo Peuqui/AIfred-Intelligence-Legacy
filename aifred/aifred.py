@@ -1516,99 +1516,6 @@ def render_image_thumbnails(images) -> rx.Component:
     )
 
 
-def render_inline_summary(msg: dict) -> rx.Component:
-    """
-    Render a summary inline in the chat as a collapsible.
-
-    This is shown at the position where the compression occurred in the chat,
-    not at the top of the chat. Uses the same styling as the unified collapsible.
-
-    Args:
-        msg: Dict with summary_number, summary_count, summary_timestamp, summary_content
-    """
-    return rx.box(
-        rx.accordion.root(
-            rx.accordion.item(
-                value="inline_summary",
-                header=rx.box(
-                    rx.hstack(
-                        rx.text("📋", font_size="14px"),
-                        # i18n label: "Zusammenfassung" (DE) / "Summary" (EN)
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            rx.text(
-                                "Zusammenfassung",
-                                font_weight="bold",
-                                font_size="13px",
-                                color=COLORS["accent_warning"],
-                            ),
-                            rx.text(
-                                "Summary",
-                                font_weight="bold",
-                                font_size="13px",
-                                color=COLORS["accent_warning"],
-                            ),
-                        ),
-                        rx.text(
-                            f"#{msg['summary_number']}",
-                            font_weight="bold",
-                            font_size="13px",
-                            color=COLORS["accent_warning"],
-                        ),
-                        rx.text(
-                            f"({msg['summary_count']} Messages)",
-                            color=COLORS["text_secondary"],
-                            font_size="11px",
-                        ),
-                        rx.spacer(),
-                        rx.text(
-                            msg["summary_timestamp"],
-                            color=COLORS["text_secondary"],
-                            font_size="10px",
-                        ),
-                        spacing="2",
-                        align="center",
-                        width="100%",
-                    ),
-                    padding_y="2",
-                    padding_x="3",
-                    background_color=COLORS["card_bg"],
-                    border_radius="6px",
-                    cursor="pointer",
-                    transition="background-color 0.2s ease",
-                    _hover={
-                        "background_color": COLORS["primary_bg"],
-                    },
-                ),
-                content=rx.box(
-                    rx.markdown(
-                        msg["summary_content"],
-                        color=COLORS["text_primary"],
-                        font_size="12px",
-                    ),
-                    padding="3",
-                    background_color="rgba(255, 165, 0, 0.05)",
-                    border_radius="6px",
-                    border=f"1px solid {COLORS['border']}",
-                    width="100%",
-                    max_height="400px",
-                    overflow_y="auto",
-                ),
-            ),
-            collapsible=True,
-            default_value=[],  # Collapsed by default
-            variant="soft",
-            width="100%",
-        ),
-        background_color="rgba(255, 165, 0, 0.1)",
-        padding="3",
-        border_radius="8px",
-        border=f"1px solid {COLORS['accent_warning']}",
-        width="100%",
-        margin_bottom="3",
-    )
-
-
 def render_chat_message(msg: dict) -> rx.Component:
     """
     Rendert eine einzelne Chat-Message (User+AI, Sokrates, AIfred Refinement, Salomo, oder Summary).
@@ -1637,8 +1544,12 @@ def render_chat_message(msg: dict) -> rx.Component:
     # Summaries are rendered inline via render_inline_summary()
     return rx.cond(
         is_summary,
-        # Summary: Render inline collapsible at this position
-        render_inline_summary(msg),
+        # Summary: Render as HTML <details> (already formatted in state.py)
+        rx.markdown(
+            msg["summary_content"],
+            color=COLORS["text_primary"],
+            width="100%"
+        ),
         # Not a summary: Check other message types
         rx.cond(
             is_sokrates,
@@ -4029,7 +3940,13 @@ function isAutoScrollEnabled() {
 }
 
 function autoScrollElement(element) {
-    if (element) {
+    if (!element) return;
+
+    // Only auto-scroll if user is already at the bottom (within 100px threshold)
+    // This prevents auto-scroll when user manually scrolls up or opens collapsibles
+    const isNearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+
+    if (isNearBottom) {
         element.scrollTop = element.scrollHeight;
     }
 }

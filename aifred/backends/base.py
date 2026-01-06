@@ -202,7 +202,7 @@ class LLMBackend(ABC):
         num_ctx MUST be passed during preload so Ollama loads the model
         with the correct KV-Cache and distributes across multiple GPUs if needed.
 
-        Correct order (see prepare_main_llm() in context_manager.py):
+        Correct order:
         1. calculate_practical_context() or calculate_dynamic_num_ctx() → num_ctx
         2. preload_model(model, num_ctx=num_ctx) → Load model with KV-Cache
 

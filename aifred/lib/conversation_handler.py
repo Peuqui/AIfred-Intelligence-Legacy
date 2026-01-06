@@ -29,7 +29,8 @@ from .message_builder import (
 )
 from .formatting import format_thinking_process, format_metadata, format_number, format_age
 # Cache system removed - will be replaced with Vector DB
-from .context_manager import estimate_tokens, prepare_main_llm, strip_thinking_blocks
+from .context_manager import estimate_tokens, strip_thinking_blocks, calculate_dynamic_num_ctx
+from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
 from .streaming_utils import stream_llm_response, log_llm_completion
 from .config import (
     DYNAMIC_NUM_PREDICT_SAFETY_MARGIN,
@@ -1340,25 +1341,23 @@ async def chat_interactive_mode(
                 log_message(f"🌡️ RAG Bypass Temperature: {final_temperature} (Intent: {detected_intent})")
                 yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
-            # Prepare Main-LLM: calculate num_ctx + preload (centralized function!)
-            # IMPORTANT: prepare_main_llm() guarantees the correct order:
-            # 1. Calculate num_ctx (Ollama auto: with unload + VRAM measurement)
-            # 2. Preload with num_ctx (Ollama loads model + allocates KV cache)
-            # AsyncGenerator yields debug messages immediately for UI feedback
-            backend = llm_client._get_backend()
-            async for item in prepare_main_llm(
-                backend=backend,
-                llm_client=llm_client,
-                model_name=model_choice,
-                messages=messages,
-                num_ctx_mode=num_ctx_mode,
-                num_ctx_manual=num_ctx_manual,
-                backend_type=backend_type
-            ):
-                if item["type"] == "debug":
-                    yield item
-                elif item["type"] == "result":
-                    final_num_ctx, preload_success, preload_time = item["data"]
+            # Calculate num_ctx - IDENTICAL logic to Sokrates/Salomo/Alfred in state.py
+            if num_ctx_mode == "manual":
+                final_num_ctx = num_ctx_manual if num_ctx_manual else 4096
+                yield {"type": "debug", "message": f"🔧 num_ctx: {format_number(final_num_ctx)} (manual)"}
+            else:
+                # Auto mode: use calibration from VRAM cache
+                rope_factor = get_rope_factor_for_model(model_choice)
+                final_num_ctx = get_ollama_calibration(model_choice, rope_factor)
+                if final_num_ctx:
+                    yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (from VRAM cache)"}
+                else:
+                    # Fallback: calculate dynamically
+                    final_num_ctx, _ = await calculate_dynamic_num_ctx(
+                        llm_client, model_choice, [], None,
+                        enable_vram_limit=True
+                    )
+                    yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (calculated)"}
 
             # Get model max context for compact display
             model_limit, _ = await llm_client.get_model_context_limit(model_choice)
@@ -1653,25 +1652,23 @@ async def chat_interactive_mode(
                     log_message(f"🌡️ Own knowledge Temperature: {final_temperature} (Intent: {detected_intent})")
                     yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
-                # Prepare Main-LLM: calculate num_ctx + Preload (centralized function!)
-                # IMPORTANT: prepare_main_llm() guarantees correct order:
-                # 1. Calculate num_ctx (Ollama auto: with unload + VRAM measurement)
-                # 2. Preload with num_ctx (Ollama loads model + allocates KV-Cache)
-                # AsyncGenerator yields debug messages immediately for UI feedback
-                backend = llm_client._get_backend()
-                async for item in prepare_main_llm(
-                    backend=backend,
-                    llm_client=llm_client,
-                    model_name=model_choice,
-                    messages=messages,
-                    num_ctx_mode=num_ctx_mode,
-                    num_ctx_manual=num_ctx_manual,
-                    backend_type=backend_type
-                ):
-                    if item["type"] == "debug":
-                        yield item
-                    elif item["type"] == "result":
-                        final_num_ctx, preload_success, preload_time = item["data"]
+                # Calculate num_ctx - IDENTICAL logic to Sokrates/Salomo/Alfred in state.py
+                if num_ctx_mode == "manual":
+                    final_num_ctx = num_ctx_manual if num_ctx_manual else 4096
+                    yield {"type": "debug", "message": f"🔧 num_ctx: {format_number(final_num_ctx)} (manual)"}
+                else:
+                    # Auto mode: use calibration from VRAM cache
+                    rope_factor = get_rope_factor_for_model(model_choice)
+                    final_num_ctx = get_ollama_calibration(model_choice, rope_factor)
+                    if final_num_ctx:
+                        yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (from VRAM cache)"}
+                    else:
+                        # Fallback: calculate dynamically
+                        final_num_ctx, _ = await calculate_dynamic_num_ctx(
+                            llm_client, model_choice, [], None,
+                            enable_vram_limit=True
+                        )
+                        yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (calculated)"}
 
                 # Get model max context for compact display
                 model_limit, _ = await llm_client.get_model_context_limit(model_choice)
