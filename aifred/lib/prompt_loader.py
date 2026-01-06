@@ -299,11 +299,13 @@ def load_prompt(
         current_date = f"{weekday}, {now.strftime('%Y-%m-%d')}"
 
     # Standard placeholders - always available
+    current_year_int = now.year
     standard_placeholders = {
-        'current_year': now.strftime('%Y'),
+        'current_year': str(current_year_int),
         'current_date': current_date,
         'current_time': now.strftime('%H:%M:%S'),
         'current_weekday': weekday,
+        'previous_years': f"{current_year_int - 2} oder {current_year_int - 1}",  # e.g., "2024 oder 2025"
         'user_name': _current_user_name if _current_user_name else "",
         'user_salutation': get_salutation(),  # "Herr Name" / "Frau Name" / ""
     }

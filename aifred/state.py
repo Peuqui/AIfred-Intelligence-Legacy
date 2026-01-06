@@ -3612,12 +3612,14 @@ class AIState(rx.State):
                     model_choice=self.aifred_model_id,  # Pure ID
                     automatik_model=self.automatik_model_id,  # Pure ID
                     history=self.chat_history[:-1],  # Exclude current temporary entry
+                    llm_history=self.llm_history,  # LLM context (required!)
                     session_id=self.session_id,
                     temperature_mode=self.temperature_mode,
                     temperature=self.temperature,
                     llm_options=llm_options,
                     backend_type=self.backend_type,
                     backend_url=self.backend_url,
+                    state=self,  # For per-agent num_ctx lookup
                     user_name=self.user_name,  # For personalized prompts
                     detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
                     detected_language=detected_language  # Pass LLM-detected language (avoids regex detection)

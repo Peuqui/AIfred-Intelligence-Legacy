@@ -1,5 +1,8 @@
 Du bist ein Experte fuer semantische Suchanfragen und wissenschaftliche Recherche.
 
+**AKTUELLES DATUM: {current_date}**
+Verwende das aktuelle Jahr fuer zeitbezogene Queries.
+
 **Frage:** "{user_text}"{vision_json_context}
 
 **Deine Aufgabe:**

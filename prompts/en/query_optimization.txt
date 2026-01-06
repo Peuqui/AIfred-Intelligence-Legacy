@@ -1,5 +1,8 @@
 You are an expert in semantic search queries and scientific research.
 
+**CURRENT DATE: {current_date}**
+Use the current year for time-related queries.
+
 **Question:** "{user_text}"{vision_json_context}
 
 **Your Task:**

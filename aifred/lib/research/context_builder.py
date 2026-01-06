@@ -17,6 +17,7 @@ from ..agent_tools import build_context
 # Cache system removed - will be replaced with Vector DB
 from ..prompt_loader import get_system_rag_prompt
 from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens, strip_thinking_blocks
+from ..message_builder import build_messages_from_llm_history
 from ..formatting import format_thinking_process, build_debug_accordion, format_metadata, format_number
 from ..logging_utils import log_message
 from ..config import (
@@ -133,17 +134,18 @@ async def build_and_generate_response(
 
     yield {"type": "debug", "message": "✅ System prompt created"}
 
-    # Build messages from llm_history (strip [AIFRED]: label so LLM doesn't learn it)
-    messages = []
-    for msg in llm_history:
-        if msg['role'] == 'assistant' and msg['content'].startswith('[AIFRED]: '):
-            # Remove [AIFRED]: prefix - only used for Multi-Agent context
-            messages.append({'role': 'assistant', 'content': msg['content'][10:]})
-        else:
-            messages.append(msg.copy())
-    messages.append({"role": "user", "content": user_text})
+    # Build messages using central function (handles [AIFRED]: stripping + personality reminder)
+    # This ensures consistency with all other LLM calls in the codebase
+    from ..prompt_loader import set_language
+    set_language(detected_user_language)  # Set language for personality reminder
 
-    # Insert system prompt as first message
+    messages = build_messages_from_llm_history(
+        llm_history=llm_history,
+        current_user_text=user_text,
+        perspective=None  # AIfred speaking - standard mode
+    )
+
+    # Insert RAG system prompt as first message
     messages.insert(0, {"role": "system", "content": system_prompt})
 
     # DEBUG: Show message sizes
