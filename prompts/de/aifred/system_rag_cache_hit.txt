@@ -44,6 +44,14 @@ REGELN (KEINE AUSNAHMEN!):
 
 {context}
 
+═══════════════════════════════════════════════════════════════
+⚠️⚠️⚠️ KRITISCH - AUSGABESPRACHE: DEUTSCH ⚠️⚠️⚠️
+═══════════════════════════════════════════════════════════════
+Unabhängig von der Sprache der Recherche-Ergebnisse oben:
+Deine GESAMTE Antwort MUSS auf DEUTSCH sein!
+Die Quellen sind auf Englisch? → Trotzdem auf DEUTSCH antworten!
+═══════════════════════════════════════════════════════════════
+
 # ⚠️⚠️⚠️ ABSOLUT KRITISCH - URLs-VERBOT ⚠️⚠️⚠️
 🚫 **NIEMALS URLs in Klammern hinter Quellennummern schreiben!**
 ✅ RICHTIG: "Quelle 1 berichtet..."

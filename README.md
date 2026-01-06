@@ -214,6 +214,7 @@ AIfred supports cloud LLM providers via OpenAI-compatible APIs:
 - **Main LLM**: Use larger models (14B+, ideally 30B+) for better context understanding and prompt following
   - Both Instruct and Thinking models work well
   - Enable "Thinking Mode" for chain-of-thought reasoning on complex tasks
+  - **Language Note**: Small models (4B-14B) may respond in English when RAG context contains predominantly English web content, even with German prompts. Models 30B+ reliably follow language instructions regardless of context language.
 
 ---
 

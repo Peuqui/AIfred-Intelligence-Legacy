@@ -4054,7 +4054,13 @@ class AIState(rx.State):
         self.debate_user_interjection = ""
         self.debate_in_progress = False
 
-        self.add_debug("🗑️ Chat + Images + Audio + HTML Preview + Sokrates cleared")
+        # Clear Research Cache for this session
+        # Wichtig: Sonst können alte (englische) Recherche-Daten wieder verwendet werden!
+        if self.session_id:
+            from .lib.cache_manager import delete_cached_research
+            delete_cached_research(self.session_id)
+
+        self.add_debug("🗑️ Chat + Images + Audio + HTML Preview + Sokrates + Research-Cache cleared")
 
         # Session speichern (leerer Chat)
         self._save_current_session()

@@ -165,6 +165,7 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 - **Haupt-LLM**: Größere Modelle (14B+, idealerweise 30B+) für besseres Kontextverständnis und Prompt-Following
   - Sowohl Instruct- als auch Thinking-Modelle funktionieren gut
   - "Denkmodus" für Chain-of-Thought-Reasoning bei komplexen Aufgaben aktivieren
+  - **Sprach-Hinweis**: Kleine Modelle (4B-14B) antworten möglicherweise auf Englisch, wenn der RAG-Kontext überwiegend englische Web-Inhalte enthält - auch bei deutschen Prompts. Modelle ab 30B+ befolgen Sprachanweisungen zuverlässig, unabhängig von der Kontext-Sprache.
 
 ---
 

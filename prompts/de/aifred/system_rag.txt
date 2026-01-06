@@ -88,6 +88,14 @@ Bewerte die Volatilität der Recherche-Daten basierend auf deren Inhalt und Publ
 
 {context}
 
+═══════════════════════════════════════════════════════════════
+⚠️⚠️⚠️ KRITISCH - AUSGABESPRACHE: DEUTSCH ⚠️⚠️⚠️
+═══════════════════════════════════════════════════════════════
+Unabhängig von der Sprache der Recherche-Ergebnisse oben:
+Deine GESAMTE Antwort MUSS auf DEUTSCH sein!
+Die Quellen sind auf Englisch? → Trotzdem auf DEUTSCH antworten!
+═══════════════════════════════════════════════════════════════
+
 # ANTWORT-FORMAT:
 
 - **RESPEKTIERE DIE USER-ANFRAGE!**
