@@ -932,49 +932,22 @@ async def run_sokrates_analysis(
         mode_label = mode_labels.get(state.multi_agent_mode, state.multi_agent_mode)
 
         # Get context limits for both models (respect per-LLM manual toggles)
-        # Import VRAM cache functions (used for all agents in auto mode)
-        from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+        # Use centralized get_agent_num_ctx() for consistent context determination
+        from .research.context_utils import get_agent_num_ctx
 
         # AIfred context
         alfred_model = state.aifred_model_id
-        if getattr(state, 'num_ctx_manual_aifred_enabled', False):
-            main_llm_ctx = state.num_ctx_manual if state.num_ctx_manual else 4096
-            state.add_debug(f"🔧 AIfred num_ctx: {format_number(main_llm_ctx)} (manual)")
-        else:
-            # Auto mode: Read from VRAM calibration cache
-            rope_factor = get_rope_factor_for_model(alfred_model)
-            main_llm_ctx = get_ollama_calibration(alfred_model, rope_factor)
-            if main_llm_ctx:
-                state.add_debug(f"🎯 AIfred: {format_number(main_llm_ctx)} tok (VRAM calibrated)")
-            else:
-                main_llm_ctx = 32768  # Fallback if not calibrated
-                state.add_debug("⚠️ AIfred: 32K fallback (model not calibrated)")
+        main_llm_ctx, aifred_source = get_agent_num_ctx("aifred", state, alfred_model, fallback=32768)
+        state.add_debug(f"🎯 AIfred: {format_number(main_llm_ctx)} tok ({aifred_source})")
 
-        # Sokrates context - read from VRAM cache
-        if getattr(state, 'num_ctx_manual_sokrates_enabled', False):
-            sokrates_num_ctx = state.num_ctx_manual_sokrates if state.num_ctx_manual_sokrates else 4096
-            state.add_debug(f"🔧 Sokrates num_ctx: {format_number(sokrates_num_ctx)} (manual)")
-        else:
-            # Read from VRAM cache (already calibrated)
-            rope_factor = get_rope_factor_for_model(sokrates_model)
-            sokrates_num_ctx = get_ollama_calibration(sokrates_model, rope_factor)
-            if sokrates_num_ctx:
-                state.add_debug(f"🎯 Sokrates: {format_number(sokrates_num_ctx)} tok (VRAM calibrated)")
-            else:
-                sokrates_num_ctx = 32768  # Fallback if not calibrated
-                state.add_debug("⚠️ Sokrates: 32K fallback (model not calibrated)")
+        # Sokrates context
+        sokrates_num_ctx, sokrates_source = get_agent_num_ctx("sokrates", state, sokrates_model, fallback=32768)
+        state.add_debug(f"🎯 Sokrates: {format_number(sokrates_num_ctx)} tok ({sokrates_source})")
 
-        # Salomo context - read from VRAM cache
+        # Salomo context
         salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
-        if getattr(state, 'num_ctx_manual_salomo_enabled', False):
-            salomo_num_ctx = state.num_ctx_manual_salomo if hasattr(state, 'num_ctx_manual_salomo') else 4096
-            state.add_debug(f"🔧 Salomo num_ctx: {format_number(salomo_num_ctx)} (manual)")
-        else:
-            # Read from VRAM cache (already calibrated)
-            rope_factor = get_rope_factor_for_model(salomo_model)
-            salomo_num_ctx = get_ollama_calibration(salomo_model, rope_factor)
-            if not salomo_num_ctx:
-                salomo_num_ctx = 32768  # Fallback if not calibrated
+        salomo_num_ctx, salomo_source = get_agent_num_ctx("salomo", state, salomo_model, fallback=32768)
+        state.add_debug(f"🎯 Salomo: {format_number(salomo_num_ctx)} tok ({salomo_source})")
 
         # Store separate limits for each agent
         _last_vram_limit_cache["aifred_limit"] = main_llm_ctx
@@ -1150,16 +1123,11 @@ async def run_sokrates_analysis(
                 if round_num == 1:
                     state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
-                # Calculate Salomo context (respect per-LLM manual toggle)
-                if getattr(state, 'num_ctx_manual_salomo_enabled', False):
-                    salomo_num_ctx = state.num_ctx_manual_salomo if hasattr(state, 'num_ctx_manual_salomo') else 4096
-                    if round_num == 1:
-                        state.add_debug(f"🔧 Salomo num_ctx: {format_number(salomo_num_ctx)} (manual)")
-                else:
-                    salomo_num_ctx, _ = await calculate_dynamic_num_ctx(
-                        llm_client, salomo_model, [], None,
-                        enable_vram_limit=True
-                    )
+                # Calculate Salomo context using centralized function
+                from .research.context_utils import get_agent_num_ctx
+                salomo_num_ctx, salomo_source = get_agent_num_ctx("salomo", state, salomo_model, fallback=32768)
+                if round_num == 1:
+                    state.add_debug(f"🎯 Salomo: {format_number(salomo_num_ctx)} tok ({salomo_source})")
 
                 # salomo_temp already calculated above (before the loop)
                 salomo_options = LLMOptions(
@@ -1445,41 +1413,20 @@ async def run_tribunal(
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
         state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
-        # Get context limits (respect per-LLM manual toggles)
-        # Import VRAM cache functions
-        from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+        # Get context limits using centralized function (respect per-LLM manual toggles)
+        from .research.context_utils import get_agent_num_ctx
 
         # AIfred context
-        if getattr(state, 'num_ctx_manual_aifred_enabled', False):
-            main_llm_ctx = state.num_ctx_manual if state.num_ctx_manual else 4096
-            state.add_debug(f"🔧 AIfred num_ctx: {format_number(main_llm_ctx)} (manual)")
-        else:
-            # Auto mode: Read from VRAM calibration cache
-            rope_factor = get_rope_factor_for_model(alfred_model)
-            main_llm_ctx = get_ollama_calibration(alfred_model, rope_factor)
-            if main_llm_ctx:
-                state.add_debug(f"🎯 AIfred: {format_number(main_llm_ctx)} tok (VRAM calibrated)")
-            else:
-                main_llm_ctx = 32768  # Fallback if not calibrated
-                state.add_debug("⚠️ AIfred: 32K fallback (model not calibrated)")
+        main_llm_ctx, aifred_source = get_agent_num_ctx("aifred", state, alfred_model, fallback=32768)
+        state.add_debug(f"🎯 AIfred: {format_number(main_llm_ctx)} tok ({aifred_source})")
 
         # Sokrates context
-        if getattr(state, 'num_ctx_manual_sokrates_enabled', False):
-            sokrates_num_ctx = state.num_ctx_manual_sokrates if state.num_ctx_manual_sokrates else 4096
-            state.add_debug(f"🔧 Sokrates num_ctx: {format_number(sokrates_num_ctx)} (manual)")
-        else:
-            sokrates_num_ctx, _ = await calculate_dynamic_num_ctx(
-                llm_client, sokrates_model, [], None, enable_vram_limit=True
-            )
+        sokrates_num_ctx, sokrates_source = get_agent_num_ctx("sokrates", state, sokrates_model, fallback=32768)
+        state.add_debug(f"🎯 Sokrates: {format_number(sokrates_num_ctx)} tok ({sokrates_source})")
 
         # Salomo context
-        if getattr(state, 'num_ctx_manual_salomo_enabled', False):
-            salomo_num_ctx = state.num_ctx_manual_salomo if state.num_ctx_manual_salomo else 4096
-            state.add_debug(f"🔧 Salomo num_ctx: {format_number(salomo_num_ctx)} (manual)")
-        else:
-            salomo_num_ctx, _ = await calculate_dynamic_num_ctx(
-                llm_client, salomo_model, [], None, enable_vram_limit=True
-            )
+        salomo_num_ctx, salomo_source = get_agent_num_ctx("salomo", state, salomo_model, fallback=32768)
+        state.add_debug(f"🎯 Salomo: {format_number(salomo_num_ctx)} tok ({salomo_source})")
 
         min_ctx = min(sokrates_num_ctx, main_llm_ctx, salomo_num_ctx)
 

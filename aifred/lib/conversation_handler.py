@@ -643,10 +643,8 @@ async def chat_with_vision_pipeline(
     main_model: str,
     backend_type: str = "ollama",
     backend_url: Optional[str] = None,
-    num_ctx_mode: str = "auto",
-    num_ctx_manual: int = 16384,
     llm_options: Optional[Dict] = None,
-    state=None,  # AIState object (for Automatik routing if user_text present)
+    state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
     detected_language: str = "de"  # Language from Intent Detection or UI setting
 ) -> AsyncIterator[Dict]:
     """
@@ -665,9 +663,8 @@ async def chat_with_vision_pipeline(
         main_model: Main LLM for post-processing (e.g., "qwen3:30b")
         backend_type: "ollama", "koboldcpp", "vllm", "tabbyapi"
         backend_url: Backend URL (optional, uses default if None)
-        num_ctx_mode: "auto" or "manual"
-        num_ctx_manual: Manual context size if mode="manual"
         llm_options: Additional LLM options
+        state: AIState object (REQUIRED for per-agent num_ctx lookup via get_agent_num_ctx)
         detected_language: Language from LLM-based Intent Detection ("de" or "en")
 
     Yields:
@@ -969,8 +966,7 @@ async def chat_interactive_mode(
     llm_options: Optional[Dict] = None,
     backend_type: str = "ollama",
     backend_url: Optional[str] = None,
-    num_ctx_mode: str = "auto",
-    num_ctx_manual: int = 16384,
+    state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
     pending_images: Optional[List[Dict[str, str]]] = None,
     vision_json_context: Optional[dict] = None,
     user_name: Optional[str] = None,
@@ -996,8 +992,7 @@ async def chat_interactive_mode(
         llm_options: Dict with Ollama options (num_ctx, etc.) - optional
         backend_type: LLM backend ("ollama", "vllm", "tabbyapi")
         backend_url: Backend URL (optional, uses default if not provided)
-        num_ctx_mode: Context mode ("auto" or "manual")
-        num_ctx_manual: Manual num_ctx value (only used if mode="manual")
+        state: AIState object (REQUIRED for per-agent num_ctx lookup via get_agent_num_ctx)
         pending_images: List of images (for multimodal messages)
         vision_json_context: Structured data extracted from images by Vision-LLM (optional)
         user_name: User's name for personalized prompts (optional)
@@ -1160,8 +1155,7 @@ async def chat_interactive_mode(
                 llm_options=llm_options,
                 backend_type=backend_type,
                 backend_url=backend_url,
-                num_ctx_mode=num_ctx_mode,
-                num_ctx_manual=num_ctx_manual,
+                state=state,  # Pass state for per-agent num_ctx lookup
                 vision_json_context=vision_json_context,  # CRITICAL: Pass Vision JSON to Research flow
                 user_name=user_name,  # For personalized prompts
                 detected_intent=detected_intent  # Pass pre-detected intent (avoids duplicate LLM call)
@@ -1341,23 +1335,16 @@ async def chat_interactive_mode(
                 log_message(f"🌡️ RAG Bypass Temperature: {final_temperature} (Intent: {detected_intent})")
                 yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
-            # Calculate num_ctx - IDENTICAL logic to Sokrates/Salomo/Alfred in state.py
-            if num_ctx_mode == "manual":
-                final_num_ctx = num_ctx_manual if num_ctx_manual else 4096
-                yield {"type": "debug", "message": f"🔧 num_ctx: {format_number(final_num_ctx)} (manual)"}
+            # Calculate num_ctx using centralized function (respects per-agent settings)
+            from .research.context_utils import get_agent_num_ctx
+            if state:
+                final_num_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice, fallback=4096)
+                yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} ({ctx_source})"}
             else:
-                # Auto mode: use calibration from VRAM cache
+                # Fallback if no state available (shouldn't happen)
                 rope_factor = get_rope_factor_for_model(model_choice)
-                final_num_ctx = get_ollama_calibration(model_choice, rope_factor)
-                if final_num_ctx:
-                    yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (from VRAM cache)"}
-                else:
-                    # Fallback: calculate dynamically
-                    final_num_ctx, _ = await calculate_dynamic_num_ctx(
-                        llm_client, model_choice, [], None,
-                        enable_vram_limit=True
-                    )
-                    yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (calculated)"}
+                final_num_ctx = get_ollama_calibration(model_choice, rope_factor) or 4096
+                yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (fallback)"}
 
             # Get model max context for compact display
             model_limit, _ = await llm_client.get_model_context_limit(model_choice)
@@ -1578,8 +1565,7 @@ async def chat_interactive_mode(
                     llm_options=llm_options,
                     backend_type=backend_type,
                     backend_url=backend_url,
-                    num_ctx_mode=num_ctx_mode,
-                    num_ctx_manual=num_ctx_manual,
+                    state=state,  # Pass state for per-agent num_ctx lookup
                     vision_json_context=vision_json_context,
                     user_name=user_name,
                     detected_intent=detected_intent,
@@ -1652,23 +1638,16 @@ async def chat_interactive_mode(
                     log_message(f"🌡️ Own knowledge Temperature: {final_temperature} (Intent: {detected_intent})")
                     yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
-                # Calculate num_ctx - IDENTICAL logic to Sokrates/Salomo/Alfred in state.py
-                if num_ctx_mode == "manual":
-                    final_num_ctx = num_ctx_manual if num_ctx_manual else 4096
-                    yield {"type": "debug", "message": f"🔧 num_ctx: {format_number(final_num_ctx)} (manual)"}
+                # Calculate num_ctx using centralized function (respects per-agent settings)
+                from .research.context_utils import get_agent_num_ctx
+                if state:
+                    final_num_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice, fallback=4096)
+                    yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} ({ctx_source})"}
                 else:
-                    # Auto mode: use calibration from VRAM cache
+                    # Fallback if no state available (shouldn't happen)
                     rope_factor = get_rope_factor_for_model(model_choice)
-                    final_num_ctx = get_ollama_calibration(model_choice, rope_factor)
-                    if final_num_ctx:
-                        yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (from VRAM cache)"}
-                    else:
-                        # Fallback: calculate dynamically
-                        final_num_ctx, _ = await calculate_dynamic_num_ctx(
-                            llm_client, model_choice, [], None,
-                            enable_vram_limit=True
-                        )
-                        yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (calculated)"}
+                    final_num_ctx = get_ollama_calibration(model_choice, rope_factor) or 4096
+                    yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (fallback)"}
 
                 # Get model max context for compact display
                 model_limit, _ = await llm_client.get_model_context_limit(model_choice)

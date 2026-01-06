@@ -32,8 +32,7 @@ async def handle_cache_hit(
     temperature_mode: str,
     temperature: float,
     agent_start: float,
-    num_ctx_mode: str = "auto",
-    num_ctx_manual: int = 16384,
+    state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
     user_name: Optional[str] = None,
     detected_language: str = "de"
 ) -> AsyncIterator[Dict]:
@@ -85,10 +84,9 @@ async def handle_cache_hit(
     max_rag_tokens, actual_reserve, max_ctx = await get_cache_context_budget(
         llm_client=llm_client,
         model_choice=model_choice,
-        num_ctx_mode=num_ctx_mode,
-        num_ctx_manual=num_ctx_manual,
         history=history,
-        user_text=user_text
+        user_text=user_text,
+        state=state
     )
 
     # 6. Build context with dynamic limit
@@ -145,22 +143,24 @@ async def handle_cache_hit(
     # Count actual input tokens (using real tokenizer)
     input_tokens = estimate_tokens(messages, model_name=model_choice)
 
-    # Dynamic num_ctx calculation with mode handling
-    if num_ctx_mode == "manual":
-        # Manual mode: Use user-specified value
-        if llm_options is None:
-            llm_options = {}
-        llm_options['num_ctx'] = num_ctx_manual
-        final_num_ctx = num_ctx_manual
-        log_message(f"🔧 Manual num_ctx: {format_number(num_ctx_manual)} (VRAM calculation skipped)")
+    # Dynamic num_ctx calculation using centralized function
+    from .context_utils import get_agent_num_ctx
+    if state:
+        final_num_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice, fallback=4096)
+        if ctx_source == "manual":
+            if llm_options is None:
+                llm_options = {}
+            llm_options['num_ctx'] = final_num_ctx
+            log_message(f"🔧 Manual num_ctx: {format_number(final_num_ctx)} (per-agent setting)")
+        else:
+            log_message(f"🎯 Auto num_ctx: {format_number(final_num_ctx)} ({ctx_source})")
     else:
-        # Auto mode: always enable VRAM limiting
+        # Fallback if no state available
         enable_vram_limit = True
         final_num_ctx, vram_debug_msgs = await calculate_dynamic_num_ctx(
             llm_client, model_choice, messages, llm_options,
             enable_vram_limit=enable_vram_limit
         )
-        # Yield VRAM debug messages to UI console
         for msg in vram_debug_msgs:
             yield {"type": "debug", "message": msg}
 

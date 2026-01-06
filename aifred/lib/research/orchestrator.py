@@ -29,8 +29,7 @@ async def perform_agent_research(
     llm_options: Optional[Dict] = None,
     backend_type: str = "ollama",
     backend_url: Optional[str] = None,
-    num_ctx_mode: str = "auto",
-    num_ctx_manual: int = 16384,
+    state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
     vision_json_context: Optional[dict] = None,
     user_name: Optional[str] = None,
     detected_intent: Optional[str] = None,
@@ -100,8 +99,7 @@ async def perform_agent_research(
         temperature_mode=temperature_mode,
         temperature=temperature,
         agent_start=agent_start,
-        num_ctx_mode=num_ctx_mode,
-        num_ctx_manual=num_ctx_manual,
+        state=state,  # Pass state for per-agent num_ctx lookup
         user_name=user_name
     ):
         if item["type"] == "result":
@@ -238,8 +236,7 @@ async def perform_agent_research(
         temperature=temperature,
         agent_start=agent_start,
         stt_time=stt_time,
-        num_ctx_mode=num_ctx_mode,
-        num_ctx_manual=num_ctx_manual,
+        state=state,  # Pass state for per-agent num_ctx lookup
         user_name=user_name,
         detected_intent=detected_intent,
         detected_language=detected_language

@@ -224,11 +224,11 @@ class AIState(rx.State):
     num_ctx: int = 32768
 
     # Context Window Control (NOT saved in settings.json - reset on every start)
-    num_ctx_mode: str = "auto"  # "auto" (RoPE calibration) | "manual" (fixed value per LLM)
-    num_ctx_manual: int = 4096  # Manual value for AIfred (only if mode="manual") - Ollama default
-    num_ctx_manual_sokrates: int = 4096  # Manual value for Sokrates (only if mode="manual")
-    num_ctx_manual_salomo: int = 4096  # Manual value for Salomo (only if mode="manual")
-    # Per-LLM manual toggle (True = use manual value, False = use auto-calibrated)
+    # Per-Agent manual values (used only when corresponding _enabled flag is True)
+    num_ctx_manual_aifred: int = 4096  # Manual value for AIfred - Ollama default
+    num_ctx_manual_sokrates: int = 4096  # Manual value for Sokrates
+    num_ctx_manual_salomo: int = 4096  # Manual value for Salomo
+    # Per-Agent manual toggle (True = use manual value, False = use auto-calibrated from VRAM cache)
     num_ctx_manual_aifred_enabled: bool = False
     num_ctx_manual_sokrates_enabled: bool = False
     num_ctx_manual_salomo_enabled: bool = False
@@ -3053,23 +3053,27 @@ class AIState(rx.State):
 
         if self.chat_history:
             from .lib.context_manager import summarize_history_if_needed, get_largest_compression_model
+            from .lib.research.context_utils import get_agent_num_ctx
 
-            # Determine effective context limit
-            # Priority: 1. Manual mode → min of all manual limits, 2. Cached min limit, 3. Model limit
-            if self.num_ctx_mode == "manual":
-                # Take minimum of all agent manual limits
-                manual_limits = [self.num_ctx_manual]
-                if self.multi_agent_mode != "standard":
-                    if self.num_ctx_manual_sokrates > 0:
-                        manual_limits.append(self.num_ctx_manual_sokrates)
-                    if self.num_ctx_manual_salomo > 0:
-                        manual_limits.append(self.num_ctx_manual_salomo)
-                context_limit = min(manual_limits) if manual_limits else self.num_ctx_manual
-            elif self._min_agent_context_limit > 0:
-                context_limit = self._min_agent_context_limit
-            else:
-                # Fallback: Get from Automatik model
-                context_limit, _ = await llm_client.get_model_context_limit(self.automatik_model_id)
+            # Determine effective context limit using per-agent settings
+            # Uses get_agent_num_ctx() which is the SINGLE SOURCE OF TRUTH
+            context_limits = []
+
+            # AIfred context
+            aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.aifred_model_id)
+            context_limits.append(aifred_ctx)
+
+            # Multi-agent contexts (if not standard mode)
+            if self.multi_agent_mode != "standard":
+                if self.sokrates_model_id:
+                    sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.sokrates_model_id)
+                    context_limits.append(sokrates_ctx)
+                if self.salomo_model_id:
+                    salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.salomo_model_id)
+                    context_limits.append(salomo_ctx)
+
+            # Use minimum of all agent limits
+            context_limit = min(context_limits) if context_limits else 4096
 
             # Get system prompt tokens from cache (v2.14.0+)
             # Cache is populated at startup in on_load()
@@ -3230,10 +3234,8 @@ class AIState(rx.State):
                     main_model=self.aifred_model_id,  # Pure ID
                     backend_type=self.backend_type,
                     backend_url=self.backend_url,
-                    num_ctx_mode=self.num_ctx_mode,
-                    num_ctx_manual=self.num_ctx_manual,
                     llm_options=llm_options,
-                    state=self,  # Pass entire state object (for accessing config, not for calling functions)
+                    state=self,  # Pass entire state object (for per-agent num_ctx lookup)
                     detected_language=detected_language  # From Intent Detection
                 ):
 
@@ -3373,8 +3375,7 @@ class AIState(rx.State):
                         llm_options=llm_options,
                         backend_type=self.backend_type,
                         backend_url=self.backend_url,
-                        num_ctx_mode=self.num_ctx_mode,
-                        num_ctx_manual=self.num_ctx_manual,
+                        state=self,  # Pass state for per-agent num_ctx lookup
                         pending_images=None,  # Images already processed
                         vision_json_context=extracted_vision_json,  # Pass Vision JSON!
                         user_name=self.user_name,  # For personalized prompts
@@ -3478,8 +3479,7 @@ class AIState(rx.State):
                     llm_options=llm_options,
                     backend_type=self.backend_type,
                     backend_url=self.backend_url,
-                    num_ctx_mode=self.num_ctx_mode,
-                    num_ctx_manual=self.num_ctx_manual,
+                    state=self,  # Pass state for per-agent num_ctx lookup
                     pending_images=self.pending_images if len(self.pending_images) > 0 else None,
                     user_name=self.user_name,  # For personalized prompts
                     detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
@@ -6056,70 +6056,6 @@ class AIState(rx.State):
         self._save_settings()
         self.add_debug(f"🌡️ Salomo Offset: +{self.salomo_temperature_offset:.1f}")
 
-    def set_num_ctx_mode(self, mode: str):
-        """
-        Set num_ctx mode (NOT saved in settings.json - resets on every start)
-
-        Modes:
-        - auto: Auto mode (uses calibration, extended if rope_factor=2.0)
-        - manual: Manual value from num_ctx_manual (user must click "Calculate" button to see preview)
-        """
-        self.num_ctx_mode = mode
-        self.add_debug(f"🎯 Context Mode: {mode}")
-        # IMPORTANT: Not saved in settings.json!
-
-        # For auto mode: immediately recalculate and display
-        # For manual mode: user must click "Calculate" button for preview
-        if mode == "auto":
-            from .lib.model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model
-            from .lib.formatting import format_number
-            from .lib.context_manager import estimate_tokens_from_history
-            from .lib.config import HISTORY_COMPRESSION_TRIGGER
-
-            # Helper for context limit display (merge GB and ctx into one bracket)
-            def format_model_with_ctx(model_display: str, model_id: str) -> str:
-                if not model_id:
-                    return model_display
-                ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
-                if ctx:
-                    if model_display.endswith(")"):
-                        return model_display[:-1] + f", {format_number(ctx)} ctx)"
-                    return f"{model_display} ({format_number(ctx)} ctx)"
-                else:
-                    if model_display.endswith(")"):
-                        return model_display[:-1] + ", ctx not calibrated)"
-                    return f"{model_display} (ctx not calibrated)"
-
-            # Display auto limits
-            self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")
-            if self.multi_agent_mode != "standard":
-                if self.sokrates_model_id:
-                    self.add_debug(f"   Sokrates: {format_model_with_ctx(self.sokrates_model, self.sokrates_model_id)}")
-                if self.salomo_model_id:
-                    self.add_debug(f"   Salomo: {format_model_with_ctx(self.salomo_model, self.salomo_model_id)}")
-
-            # Calculate effective limit from calibrated values
-            context_limits = []
-            for model_id in [self.aifred_model_id, self.sokrates_model_id, self.salomo_model_id]:
-                if model_id:
-                    ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
-                    if ctx:
-                        context_limits.append(ctx)
-            effective_limit = min(context_limits) if context_limits else 0
-
-            # Update cached min context limit
-            self._min_agent_context_limit = effective_limit
-
-            # Show history utilization and warn if compression will trigger
-            if self.chat_history and effective_limit > 0:
-                estimated_tokens = estimate_tokens_from_history(self.chat_history)
-                utilization = (estimated_tokens / effective_limit) * 100
-                self.add_debug(f"   └─ History: {format_number(estimated_tokens)} / {format_number(effective_limit)} tok ({int(utilization)}%)")
-
-                # Warn if compression will trigger on next message
-                if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
-                    self.add_debug(f"⚠️ History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
-
     def calculate_manual_context(self):
         """
         Calculate and display context limits.
@@ -6207,24 +6143,9 @@ class AIState(rx.State):
         else:
             self.add_debug(f"   └─ Effective limit: {format_number(effective_limit)} tokens")
 
-    @rx.var(deps=["num_ctx_mode"], auto_deps=False)
-    def num_ctx_mode_display(self) -> str:
-        """Get display value for num_ctx mode radio button"""
-        if self.num_ctx_mode == "manual":
-            return "🔧 Manuell"
-        return "🎯 Auto"
 
-    def set_num_ctx_mode_from_display(self, display_value: str):
-        """Set num_ctx mode from UI display value"""
-        # Map display text to mode (simplified: Auto or Manual)
-        if "Manuell" in display_value or "Manual" in display_value:
-            mode = "manual"
-        else:  # "Auto" (default)
-            mode = "auto"
-        self.set_num_ctx_mode(mode)
-
-    def set_num_ctx_manual(self, value: str):
-        """Set manual num_ctx value for AIfred (only used when mode=manual)"""
+    def set_num_ctx_manual_aifred(self, value: str):
+        """Set manual num_ctx value for AIfred (only used when aifred_enabled=True)"""
         from .lib.config import NUM_CTX_MANUAL_MAX
         from .lib.formatting import format_number
         try:
@@ -6237,7 +6158,7 @@ class AIState(rx.State):
                 num_value = 1
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
-            self.num_ctx_manual = num_value
+            self.num_ctx_manual_aifred = num_value
             self.add_debug(f"🔧 Manual num_ctx (AIfred): {format_number(num_value)}")
             # IMPORTANT: Not saved in settings.json!
         except (ValueError, TypeError):
@@ -6282,32 +6203,20 @@ class AIState(rx.State):
     def toggle_num_ctx_manual_aifred(self, enabled: bool):
         """Toggle manual context for AIfred"""
         self.num_ctx_manual_aifred_enabled = enabled
-        # Update legacy mode for compatibility
-        self._update_legacy_num_ctx_mode()
         status = "Manual" if enabled else "Auto"
         self.add_debug(f"🎩 AIfred Context: {status}")
 
     def toggle_num_ctx_manual_sokrates(self, enabled: bool):
         """Toggle manual context for Sokrates"""
         self.num_ctx_manual_sokrates_enabled = enabled
-        self._update_legacy_num_ctx_mode()
         status = "Manual" if enabled else "Auto"
         self.add_debug(f"🏛️ Sokrates Context: {status}")
 
     def toggle_num_ctx_manual_salomo(self, enabled: bool):
         """Toggle manual context for Salomo"""
         self.num_ctx_manual_salomo_enabled = enabled
-        self._update_legacy_num_ctx_mode()
         status = "Manual" if enabled else "Auto"
         self.add_debug(f"👑 Salomo Context: {status}")
-
-    def _update_legacy_num_ctx_mode(self):
-        """Update legacy num_ctx_mode based on per-LLM toggles"""
-        # If ANY LLM is manual, set legacy mode to manual (for UI display compatibility)
-        if self.num_ctx_manual_aifred_enabled or self.num_ctx_manual_sokrates_enabled or self.num_ctx_manual_salomo_enabled:
-            self.num_ctx_mode = "manual"
-        else:
-            self.num_ctx_mode = "auto"
 
     def set_research_mode(self, mode: str):
         """Set research mode"""

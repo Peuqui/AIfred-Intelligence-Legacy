@@ -5,6 +5,8 @@ This module eliminates code duplication between context_builder.py and cache_han
 by providing common utility functions for context budget calculation.
 """
 
+from typing import Tuple, Optional, TYPE_CHECKING
+
 from ..context_manager import get_max_available_context, calculate_adaptive_reserve
 from ..config import (
     SYSTEM_PROMPT_ESTIMATE_RAG,
@@ -15,17 +17,77 @@ from ..config import (
 )
 from ..formatting import format_number
 from ..logging_utils import log_message
+from ..model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+
+if TYPE_CHECKING:
+    from ...state import AIState
+
+
+def get_agent_num_ctx(
+    agent: str,
+    state: "AIState",
+    model_id: str,
+    fallback: int = 4096
+) -> Tuple[int, str]:
+    """
+    Determine num_ctx for a specific agent.
+
+    This is the SINGLE SOURCE OF TRUTH for num_ctx determination.
+    All code that needs to determine num_ctx for an agent should use this function.
+
+    Args:
+        agent: Agent identifier - "aifred", "sokrates", or "salomo"
+        state: AIState instance containing per-agent settings
+        model_id: Ollama model ID (e.g., "qwen3:14b")
+        fallback: Default value if no calibration available (default: 4096)
+
+    Returns:
+        Tuple of (num_ctx, source) where source is one of:
+        - "manual" - User explicitly set a manual value
+        - "VRAM cache" - Value from VRAM calibration cache
+        - "fallback" - No calibration available, using fallback
+
+    Examples:
+        >>> num_ctx, source = get_agent_num_ctx("aifred", state, "qwen3:14b")
+        >>> print(f"Using {num_ctx} tokens ({source})")
+        Using 111360 tokens (VRAM cache)
+
+        >>> num_ctx, source = get_agent_num_ctx("sokrates", state, "qwen3:8b")
+        >>> print(f"Using {num_ctx} tokens ({source})")
+        Using 4096 tokens (manual)
+    """
+    # Validate agent name
+    if agent not in ("aifred", "sokrates", "salomo"):
+        raise ValueError(f"Unknown agent: {agent}. Must be 'aifred', 'sokrates', or 'salomo'.")
+
+    # Check if manual mode is enabled for this agent
+    enabled_attr = f"num_ctx_manual_{agent}_enabled"
+    value_attr = f"num_ctx_manual_{agent}"
+
+    if getattr(state, enabled_attr, False):
+        # Manual mode: use user-configured value
+        manual_value = getattr(state, value_attr, fallback)
+        return (manual_value if manual_value else fallback, "manual")
+
+    # Auto mode: try VRAM calibration cache
+    rope_factor = get_rope_factor_for_model(model_id)
+    cached_ctx = get_ollama_calibration(model_id, rope_factor)
+
+    if cached_ctx:
+        return (cached_ctx, "VRAM cache")
+
+    # No calibration available - use fallback
+    return (fallback, "fallback")
 
 
 async def calculate_vram_aware_rag_budget(
     llm_client,
     model_choice: str,
-    num_ctx_mode: str,
-    num_ctx_manual: int,
     history: list,
     user_text: str,
     system_prompt_estimate: int,
-    log_prefix: str = "RAG"
+    log_prefix: str = "RAG",
+    state=None  # AIState object (REQUIRED for per-agent num_ctx lookup)
 ) -> tuple[int, int, int]:
     """
     Calculate VRAM-aware RAG context budget.
@@ -36,27 +98,25 @@ async def calculate_vram_aware_rag_budget(
     Args:
         llm_client: LLM client instance
         model_choice: Model name/ID
-        num_ctx_mode: "auto" or "manual"
-        num_ctx_manual: Manual context size (used if mode is "manual")
         history: Chat history list
         user_text: Current user message
         system_prompt_estimate: Token estimate for system prompt (RAG or Cache mode)
         log_prefix: Prefix for log messages (e.g., "RAG" or "Cache RAG")
+        state: AIState object (REQUIRED for per-agent num_ctx lookup via get_agent_num_ctx)
 
     Returns:
         Tuple of (max_rag_tokens, actual_reserve, max_ctx)
     """
-    # 1. Determine VRAM limit upfront (if auto is active)
-    if num_ctx_mode == "auto":
-        max_ctx, model_limit = await get_max_available_context(
-            llm_client, model_choice,
-            enable_vram_limit=True
-        )
-    elif num_ctx_mode == "manual":
-        max_ctx = num_ctx_manual
-        model_limit = num_ctx_manual
+    # 1. Determine num_ctx using centralized function
+    if state:
+        max_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice, fallback=4096)
+        if ctx_source == "manual":
+            model_limit = max_ctx
+        else:
+            # Auto mode: max_ctx already contains VRAM-calibrated value
+            model_limit = max_ctx
     else:
-        # Fallback: treat unknown modes as auto
+        # Fallback if no state provided (shouldn't happen)
         max_ctx, model_limit = await get_max_available_context(
             llm_client, model_choice,
             enable_vram_limit=True
@@ -86,10 +146,9 @@ async def calculate_vram_aware_rag_budget(
 async def get_rag_context_budget(
     llm_client,
     model_choice: str,
-    num_ctx_mode: str,
-    num_ctx_manual: int,
     history: list,
-    user_text: str
+    user_text: str,
+    state=None  # AIState object (REQUIRED for per-agent num_ctx lookup)
 ) -> tuple[int, int, int]:
     """
     Get RAG context budget for fresh web research.
@@ -99,22 +158,20 @@ async def get_rag_context_budget(
     return await calculate_vram_aware_rag_budget(
         llm_client=llm_client,
         model_choice=model_choice,
-        num_ctx_mode=num_ctx_mode,
-        num_ctx_manual=num_ctx_manual,
         history=history,
         user_text=user_text,
         system_prompt_estimate=SYSTEM_PROMPT_ESTIMATE_RAG,
-        log_prefix="RAG"
+        log_prefix="RAG",
+        state=state
     )
 
 
 async def get_cache_context_budget(
     llm_client,
     model_choice: str,
-    num_ctx_mode: str,
-    num_ctx_manual: int,
     history: list,
-    user_text: str
+    user_text: str,
+    state=None  # AIState object (REQUIRED for per-agent num_ctx lookup)
 ) -> tuple[int, int, int]:
     """
     Get context budget for cache-hit scenarios.
@@ -125,10 +182,9 @@ async def get_cache_context_budget(
     return await calculate_vram_aware_rag_budget(
         llm_client=llm_client,
         model_choice=model_choice,
-        num_ctx_mode=num_ctx_mode,
-        num_ctx_manual=num_ctx_manual,
         history=history,
         user_text=user_text,
         system_prompt_estimate=SYSTEM_PROMPT_ESTIMATE_CACHE,
-        log_prefix="Cache RAG"
+        log_prefix="Cache RAG",
+        state=state
     )

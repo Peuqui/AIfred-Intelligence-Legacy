@@ -1006,8 +1006,8 @@ def llm_parameters_accordion() -> rx.Component:
                             ),
                             rx.input(
                                 placeholder="16384",
-                                value=AIState.num_ctx_manual,
-                                on_change=AIState.set_num_ctx_manual,
+                                value=AIState.num_ctx_manual_aifred,
+                                on_change=AIState.set_num_ctx_manual_aifred,
                                 type="number",
                                 width="75px",
                                 disabled=~AIState.num_ctx_manual_aifred_enabled,
@@ -1086,20 +1086,17 @@ def llm_parameters_accordion() -> rx.Component:
                         spacing="3",
                     ),
 
-                    # Show Calculation Button (only visible in manual mode)
-                    rx.cond(
-                        AIState.num_ctx_mode == "manual",
-                        rx.button(
-                            rx.cond(
-                                AIState.ui_language == "de",
-                                "📊 Berechnung anzeigen",
-                                "📊 Show Calculation"
-                            ),
-                            on_click=AIState.calculate_manual_context,
-                            size="1",
-                            variant="soft",
-                            color_scheme="gray",
+                    # Show Calculation Button (always visible since it's in a collapsible)
+                    rx.button(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "📊 Berechnung anzeigen",
+                            "📊 Show Calculation"
                         ),
+                        on_click=AIState.calculate_manual_context,
+                        size="1",
+                        variant="soft",
+                        color_scheme="gray",
                     ),
 
                     # Info Text
