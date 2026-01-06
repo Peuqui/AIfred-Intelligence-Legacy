@@ -722,23 +722,17 @@ async def summarize_history_if_needed(
         log_message(f"📌 Chat-History keeps {summary_count} summaries (UI display)")
 
     # DYNAMIC: Collect messages from front until remaining fits in target
-    # IMPORTANT: Skip existing summaries - they should be preserved!
     #
     # CRITICAL FIX (v2.14.3+): Use llm_history for token calculation to match trigger!
     # The trigger uses estimate_tokens_from_llm_history(llm_history), so the loop must too.
     # Otherwise: Trigger fires at 70% but loop calculates different tokens and compresses 0 messages.
+    #
+    # IMPORTANT LOGIC:
+    # - chat_history: Summaries stay IN PLACE where they are, new summary inserted AFTER compressed messages
+    # - llm_history: Summaries extracted to front, old summaries removed via FIFO
     messages_to_compress = []
-    preserved_summaries = []  # Summaries at the front that we keep
-    remaining_messages = history[:]
+    remaining_messages = history[:]  # Working copy for compression (includes summaries!)
     current_tokens = history_tokens  # Use history tokens for compression calculation (system prompt is constant)
-
-    # First, extract all summaries from the front and preserve them
-    while remaining_messages:
-        user_msg, ai_msg = remaining_messages[0]
-        if is_summary_entry(user_msg, ai_msg):
-            preserved_summaries.append(remaining_messages.pop(0))
-        else:
-            break  # Stop at first non-summary message
 
     # Build parallel llm_history lists for accurate token calculation
     # We need to track which llm_history entries correspond to which chat_history entries
@@ -774,9 +768,10 @@ async def summarize_history_if_needed(
         if llm_to_compress:
             llm_remaining.append(llm_to_compress.pop())
 
-    # Log preserved summaries
-    if preserved_summaries:
-        log_message(f"📌 Preserving {len(preserved_summaries)} existing summary/summaries")
+    # Count how many summaries will be in messages_to_compress (for logging)
+    summaries_in_compressed = sum(1 for user_msg, ai_msg in messages_to_compress if is_summary_entry(user_msg, ai_msg))
+    if summaries_in_compressed > 0:
+        log_message(f"📌 {summaries_in_compressed} old summary/summaries in compressed section (will stay in chat_history)")
 
     # Calculate tokens being compressed
     tokens_to_compress = estimate_tokens_from_history(messages_to_compress)
@@ -789,13 +784,18 @@ async def summarize_history_if_needed(
     log_message(f"   └─ Summary target: {format_number(summary_target_tokens)} tok (~{format_number(summary_target_words)} words)")
     log_message(f"   └─ Remaining after: {len(remaining_messages)} messages, ~{format_number(current_tokens)} tok")
 
-    # Format conversation for LLM (without thinking blocks)
+    # Format conversation for LLM (from llm_to_compress, NOT messages_to_compress!)
+    # CRITICAL: Use llm_to_compress because:
+    # - It contains only NEW messages (summaries are in llm_preserved_summaries)
+    # - messages_to_compress contains chat_history entries that may already be summarized
     conversation_text = ""
-    for i, (user_msg, ai_msg) in enumerate(messages_to_compress, 1):
-        clean_user_msg = strip_thinking_blocks(user_msg) if user_msg else ""
-        clean_ai_msg = strip_thinking_blocks(ai_msg) if ai_msg else ""
-        log_message(f"   └─ Msg {i}: User={len(user_msg)}→{len(clean_user_msg)}, AI={len(ai_msg)}→{len(clean_ai_msg)} chars")
-        conversation_text += f"User: {clean_user_msg}\nAI: {clean_ai_msg}\n\n"
+    for i, msg in enumerate(llm_to_compress, 1):
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        # Strip thinking blocks from content
+        clean_content = strip_thinking_blocks(content) if content else ""
+        log_message(f"   └─ Msg {i}: {role}={len(content)}→{len(clean_content)} chars")
+        conversation_text += f"{role.title()}: {clean_content}\n\n"
 
     # Use detected_language from Intent Detection (passed from state.py)
 
@@ -895,65 +895,62 @@ async def summarize_history_if_needed(
     # Build new histories only if summary successful
     if summary_text and len(summary_text.strip()) > 10:
         # New format: [📊 Summary #N|X Messages|Timestamp]
-        # - N = sequential number (count of ALL existing summaries + 1)
-        # - X Messages = how many messages were compressed
+        # - N = sequential number (count of ALL existing summaries in entire history + 1)
+        # - X Messages = how many NON-SUMMARY messages were compressed
         # - Timestamp = when compression happened
-        # NOTE: Use count_summaries(history) because with inline placement,
-        #       old summaries are in the MIDDLE of history, not at the front!
         import datetime
-        summary_number = count_summaries(history) + 1
+
+        # Count existing summaries that are NOT being compressed
+        # (summaries in messages_to_compress will be replaced, so don't count them)
+        summaries_in_compressed = count_summaries(messages_to_compress)
+        total_summaries = count_summaries(history)
+        summaries_not_being_compressed = total_summaries - summaries_in_compressed
+        summary_number = summaries_not_being_compressed + 1
+
+        # Count only NON-SUMMARY messages that were compressed
+        non_summary_compressed = sum(1 for user_msg, ai_msg in messages_to_compress if not is_summary_entry(user_msg, ai_msg))
+
         timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
         summary_entry = (
             "",
-            f"[📊 Summary #{summary_number}|{len(messages_to_compress)} Messages|{timestamp}]\n{summary_text.strip()}"
+            f"[📊 Summary #{summary_number}|{non_summary_compressed} Messages|{timestamp}]\n{summary_text.strip()}"
         )
 
         # ============================================================
         # DUAL-HISTORY UPDATE (v2.13.0+)
         # ============================================================
-        # chat_history (UI): Summary erscheint NACH komprimierten Messages, VOR remaining messages
-        # Reihenfolge: preserved_summaries + messages_to_compress + [summary_entry] + remaining_messages
-        new_chat_history = preserved_summaries + messages_to_compress + [summary_entry] + remaining_messages
+        # chat_history (UI): ALL summaries grouped together AFTER compressed messages
+        # This ensures chronological order: older summaries first, newest summary last
+        #
+        # Extract existing summaries from remaining_messages to group them together
+        remaining_summaries = []
+        remaining_non_summaries = []
+        for msg in remaining_messages:
+            if is_summary_entry(msg[0], msg[1]):
+                remaining_summaries.append(msg)
+            else:
+                remaining_non_summaries.append(msg)
 
-        # llm_history (LLM): Alte Messages durch Summary ersetzen
+        # Build chat_history: compressed + old_summaries + new_summary + remaining_messages
+        # This maintains chronological order of summaries (#1, #2, #3, ...)
+        new_chat_history = messages_to_compress + remaining_summaries + [summary_entry] + remaining_non_summaries
+
+        # llm_history (LLM): Replace compressed messages with summary
+        # Structure: [existing summaries after FIFO] + [new summary] + [remaining messages]
+        # NOTE: llm_to_compress messages are DELETED (replaced by summary), not kept!
         new_llm_history = None
         if llm_history is not None:
-            from .message_builder import clean_content_for_llm
-
-            # Preserved summaries as system messages
-            preserved_llm_summaries = [
-                msg for msg in llm_history
-                if msg.get("role") == "system" and msg.get("content", "").startswith("[Summary]")
-            ]
-
             # New summary as system message (clean text only, no UI markers)
             summary_system_msg = {
                 "role": "system",
                 "content": f"[Summary]\n{summary_text.strip()}"
             }
 
-            # Remaining messages: Convert from chat_history tuples
-            # (messages_to_compress wurden komprimiert, remaining_messages bleiben)
-            remaining_llm_messages = []
-            for user_msg, ai_msg in remaining_messages:
-                if is_summary_entry(user_msg, ai_msg):
-                    # Skip summaries - already handled above
-                    continue
-                if user_msg == "" and ai_msg:
-                    # Agent-only entry (Sokrates, Salomo, AIfred revision)
-                    cleaned = clean_content_for_llm(ai_msg)
-                    if cleaned:
-                        remaining_llm_messages.append({"role": "assistant", "content": cleaned})
-                else:
-                    # Normal exchange
-                    if user_msg:
-                        remaining_llm_messages.append({"role": "user", "content": user_msg})
-                    if ai_msg:
-                        cleaned = clean_content_for_llm(ai_msg)
-                        if cleaned:
-                            remaining_llm_messages.append({"role": "assistant", "content": cleaned})
-
-            new_llm_history = preserved_llm_summaries + [summary_system_msg] + remaining_llm_messages
+            # Use llm_remaining (already filtered and popped during compression loop)
+            # llm_preserved_summaries = existing summaries after FIFO cleanup
+            # llm_to_compress = messages that were compressed (will be DELETED)
+            # llm_remaining = messages that stay (after compression loop)
+            new_llm_history = llm_preserved_summaries + [summary_system_msg] + llm_remaining
     else:
         log_message("⚠️ Summary too short or empty - history remains unchanged")
         yield {"type": "debug", "message": "⚠️ Compression failed - history unchanged"}
@@ -988,7 +985,8 @@ async def summarize_history_if_needed(
         "chat_history": new_chat_history,
         "llm_history": new_llm_history  # None if not provided
     }
-    yield {"type": "debug", "message": f"📦 Compressed: {int(utilization)}% → {int(new_utilization)}% ({format_number(total_tokens)} → {format_number(new_total_tokens)} tok, {len(messages_to_compress)}→1 msg, {summaries_count} summaries)"}
+    # Calculate message count change: Compressed NON-summary messages → 1 new summary
+    yield {"type": "debug", "message": f"📦 Compressed: {int(utilization)}% → {int(new_utilization)}% ({format_number(total_tokens)} → {format_number(new_total_tokens)} tok, {non_summary_compressed}→1 msg, {summaries_count} summaries)"}
 
 
 async def prepare_automatik_llm(

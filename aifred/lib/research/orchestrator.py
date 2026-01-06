@@ -127,7 +127,7 @@ async def perform_agent_research(
 
     async for item in process_query_and_search(
         user_text=user_text,
-        history=history,
+        llm_history=llm_history,
         automatik_model=automatik_model,
         automatik_llm_client=automatik_llm_client,
         llm_options=llm_options,

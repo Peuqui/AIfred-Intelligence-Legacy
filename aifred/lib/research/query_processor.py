@@ -141,7 +141,7 @@ def remove_urls_from_text(text: str, urls: List[str]) -> str:
 
 async def process_query_and_search(
     user_text: str,
-    history: List[tuple],
+    llm_history: List[Dict[str, str]],
     automatik_model: str,
     automatik_llm_client,
     llm_options: Dict = None,
@@ -153,7 +153,7 @@ async def process_query_and_search(
 
     Args:
         user_text: User's question
-        history: Chat history for context
+        llm_history: LLM history for context (not chat_history!)
         automatik_model: Automatik LLM model name
         automatik_llm_client: Automatik LLM client
         llm_options: Optional Dict with enable_thinking toggle
@@ -261,7 +261,7 @@ async def process_query_and_search(
             optimized_queries, query_reasoning = await optimize_search_query(
                 user_text=text_without_urls,
                 automatik_model=automatik_model,
-                history=history,
+                llm_history=llm_history,
                 llm_client=automatik_llm_client,
                 automatik_llm_context_limit=automatik_limit,
                 llm_options=llm_options,
@@ -349,7 +349,7 @@ async def process_query_and_search(
             optimized_queries, query_reasoning = await optimize_search_query(
                 user_text=user_text,
                 automatik_model=automatik_model,
-                history=history,
+                llm_history=llm_history,
                 llm_client=automatik_llm_client,
                 automatik_llm_context_limit=automatik_limit,
                 llm_options=llm_options,

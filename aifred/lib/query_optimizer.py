@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional, Tuple, List, Dict
 from .logging_utils import log_message
 from .prompt_loader import get_query_optimization_prompt
-from .message_builder import build_messages_from_history
+from .message_builder import build_messages_from_llm_history
 from .config import AUTOMATIK_LLM_NUM_CTX
 
 
@@ -23,7 +23,7 @@ THINK_TAG_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 async def optimize_search_query(
     user_text: str,
     automatik_model: str,
-    history: Optional[List],
+    llm_history: Optional[List[Dict[str, str]]],
     llm_client,
     automatik_llm_context_limit: int,
     llm_options: Optional[Dict] = None,
@@ -36,7 +36,7 @@ async def optimize_search_query(
     Args:
         user_text: Full user question (can be long)
         automatik_model: Automatik-LLM for query optimization
-        history: Chat history (for context on follow-up questions)
+        llm_history: LLM history (for context on follow-up questions)
         llm_client: LLMClient instance
         automatik_llm_context_limit: Context limit for automatik LLM
         llm_options: Optional Dict with enable_thinking toggle
@@ -70,8 +70,10 @@ async def optimize_search_query(
         log_message(f"🔍 Query optimization with {automatik_model}")
         log_message("🔧 Query optimization starting")
 
-        # Build messages with history (last 2-3 turns for context on follow-up questions)
-        messages = build_messages_from_history(history, prompt, max_turns=3)
+        # Build messages with llm_history (last 3 entries for context on follow-up questions)
+        # Limit to last 3 entries to keep context small for query optimization
+        limited_history = llm_history[-3:] if llm_history and len(llm_history) > 3 else llm_history
+        messages = build_messages_from_llm_history(limited_history, prompt)
 
         # DEBUG: Show complete Messages array
         log_message("=" * 60)

@@ -1,15 +1,12 @@
 """
-Message Builder - Centralized History-to-Messages Conversion
+Message Builder - Centralized LLM History to Messages Conversion
 
-Converts Gradio Chat History to Ollama Messages format and
-removes timing information from displays.
-
-Before: 6+ duplicated code locations with 10-15 lines each
-After: 1 central function with robust pattern matching
+Converts llm_history (List[Dict]) to Ollama Messages format.
+All LLM calls use llm_history exclusively (not chat_history).
 """
 
 import re
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from datetime import datetime
 
 from .prompt_loader import get_user_name
@@ -91,162 +88,6 @@ def _clean_content(content: str, strip_img_markers: bool = True) -> str:
     return clean
 
 
-def build_messages_from_history(
-    history: List[Tuple[str, str]],
-    current_user_text: str = "",
-    max_turns: Optional[int] = None,
-    include_summaries: bool = True,
-    perspective: Optional[str] = None  # "sokrates", "aifred", "salomo", "observer", or None
-) -> List[Dict[str, str]]:
-    """
-    Convert Gradio History to Ollama Messages format
-
-    Removes timing info, HTML tags and metadata from User and AI messages:
-    - Timing patterns: "(STT: 2.5s)", "(Inference: 1.3s)", "(Agent: 45.2s)"
-    - HTML metadata: <span style="...">( Inference: ... )</span>
-    - Thinking collapsibles: <details>...</details>
-
-    Handles three types of history entries:
-    1. Normal exchanges: (user_msg, ai_msg) → user + assistant messages
-    2. Summaries: ("", "[📊 Compressed: ...]") → system message
-    3. Multi-Agent: ("", "🏛️[...]...") or ("", "🎩[...]...") → system message with speaker label
-
-    Speaker attribution (for multi-agent context):
-    - Without perspective: Agent entries → system message with [SOKRATES]/[AIFRED] label
-    - With perspective="sokrates": Sokrates sees his messages as 'assistant', others as 'user'
-    - With perspective="aifred": AIfred sees his messages as 'assistant', others as 'user'
-
-    Args:
-        history: Gradio Chat History [[user_msg, ai_msg], ...]
-        current_user_text: Current user message
-        max_turns: Optional - Only use last N turns (None = all)
-        include_summaries: Include summaries as system messages (default: True)
-        perspective: Multi-Agent perspective ("sokrates", "aifred", or None)
-            - None: Standard mode - all AI responses as 'assistant'
-            - "sokrates": Sokrates is speaking - his responses are 'assistant',
-                         AIfred's responses become 'user' with [AIFRED]: label
-            - "aifred": AIfred is speaking - his responses are 'assistant',
-                       Sokrates' responses become 'user' with [SOKRATES]: label
-
-    Returns:
-        list: Ollama Messages format [{'role': 'user', 'content': '...'}, ...]
-
-    Examples:
-        >>> history = [
-        ...     ["", "[📊 Compressed: 6 Messages]\\nUser asked about weather..."],
-        ...     ["Hello", "Hi!"],
-        ...     ["", "🏛️[Kritische Prüfung] Deine Antwort ist zu kurz."],
-        ...     ["", "🎩[Überarbeitung] Hier mehr Details..."]
-        ... ]
-        >>> msgs = build_messages_from_history(history, "Was denkst du?")
-        >>> msgs[1]  # User message
-        {'role': 'user', 'content': 'Hello'}
-        >>> msgs[3]  # Sokrates critique as system
-        {'role': 'system', 'content': '[MULTI-AGENT CONTEXT]\\n[SOKRATES]:  Deine Antwort ist zu kurz.'}
-    """
-    messages = []
-
-    # Limit history if desired (e.g., only last 3 turns)
-    history_to_process = history[-max_turns:] if max_turns else history
-
-    # Process history
-    for user_turn, ai_turn in history_to_process:
-        # Detect summary entries: ("", "[📊 Compressed: ...")
-        is_summary = (user_turn == "" and
-                     ai_turn.startswith("[📊 Compressed:") and
-                     include_summaries)
-
-        if is_summary:
-            # Add summary as system message
-            messages.append({'role': 'system', 'content': ai_turn})
-            continue
-
-        # Detect Multi-Agent entries: ("", "🏛️[...]..." or "🎩[...]..." or "👑[...]...")
-        # These are internal agent exchanges without user input
-        is_agent_only = (user_turn == "" and
-                        (ai_turn.startswith("🏛️") or ai_turn.startswith("🎩") or ai_turn.startswith("👑")))
-
-        # Clean AI message using central cleaning function
-        clean_ai = _clean_content(ai_turn, strip_img_markers=True)
-
-        # Clean user message (needed for both modes)
-        clean_user = _clean_content(user_turn, strip_img_markers=True) if not is_agent_only else user_turn
-
-        # === PERSPECTIVE-BASED ROLE ASSIGNMENT ===
-        if perspective:
-            # Multi-Agent mode: Assign roles based on who is currently speaking
-            perspective_lower = perspective.lower()
-
-            if is_agent_only:
-                # Agent-only message (Sokrates, AIfred or Salomo internal exchange)
-                is_sokrates_msg = ai_turn.startswith("🏛️")
-                is_aifred_msg = ai_turn.startswith("🎩")
-                is_salomo_msg = ai_turn.startswith("👑")
-
-                if perspective_lower == "sokrates" and is_sokrates_msg:
-                    # Sokrates sees his own earlier responses as 'assistant'
-                    content = clean_ai.replace('[SOKRATES]: ', '').strip()
-                    messages.append({'role': 'assistant', 'content': content})
-                elif perspective_lower == "aifred" and is_aifred_msg:
-                    # AIfred sees his own earlier responses as 'assistant'
-                    content = clean_ai.replace('[AIFRED]: ', '').strip()
-                    messages.append({'role': 'assistant', 'content': content})
-                elif perspective_lower == "salomo" and is_salomo_msg:
-                    # Salomo sees his own earlier responses as 'assistant'
-                    content = clean_ai.replace('[SALOMO]: ', '').strip()
-                    messages.append({'role': 'assistant', 'content': content})
-                elif perspective_lower == "observer":
-                    # Observer (Salomo as judge) sees ALL messages as 'user' with labels
-                    messages.append({'role': 'user', 'content': clean_ai})
-                else:
-                    # Other agent's message → 'user' role with speaker label
-                    messages.append({'role': 'user', 'content': clean_ai})
-            else:
-                # Normal user/AI exchange
-                # Use actual username if set, otherwise fallback to [USER]
-                user_label = get_user_name() or "USER"
-
-                if perspective_lower == "sokrates":
-                    # Sokrates sees: User as [Username], AIfred as [AIFRED]
-                    messages.append({'role': 'user', 'content': f"[{user_label}]: {clean_user}"})
-                    messages.append({'role': 'user', 'content': f"[AIFRED]: {clean_ai}"})
-                elif perspective_lower == "aifred":
-                    # AIfred sees: User as [Username], own responses as 'assistant'
-                    messages.append({'role': 'user', 'content': f"[{user_label}]: {clean_user}"})
-                    messages.append({'role': 'assistant', 'content': clean_ai})
-                elif perspective_lower == "salomo":
-                    # Salomo sees: User as [Username], AIfred's initial answer as [AIFRED]
-                    messages.append({'role': 'user', 'content': f"[{user_label}]: {clean_user}"})
-                    messages.append({'role': 'user', 'content': f"[AIFRED]: {clean_ai}"})
-                elif perspective_lower == "observer":
-                    # Observer sees: All as 'user' with labels (neutral viewpoint)
-                    messages.append({'role': 'user', 'content': f"[{user_label}]: {clean_user}"})
-                    messages.append({'role': 'user', 'content': f"[AIFRED]: {clean_ai}"})
-                else:
-                    # Unknown perspective → fallback to standard
-                    messages.extend([
-                        {'role': 'user', 'content': clean_user},
-                        {'role': 'assistant', 'content': clean_ai}
-                    ])
-        else:
-            # === STANDARD MODE (no perspective) ===
-            if is_agent_only:
-                # Agent-only message → system role for context
-                messages.append({'role': 'system', 'content': f"[MULTI-AGENT CONTEXT]\n{clean_ai}"})
-            else:
-                # Normal user/AI exchange
-                messages.extend([
-                    {'role': 'user', 'content': clean_user},
-                    {'role': 'assistant', 'content': clean_ai}
-                ])
-
-    # Add current user message only if provided (no prefix - role: user is sufficient)
-    if current_user_text:
-        messages.append({'role': 'user', 'content': current_user_text})
-
-    return messages
-
-
 def clean_content_for_llm(content: str) -> str:
     """
     Clean content for LLM history storage.
@@ -279,13 +120,13 @@ def build_messages_from_llm_history(
     """
     Build LLM messages directly from llm_history (v2.13.0+).
 
-    This is the PREFERRED function for building LLM messages.
+    This is the ONLY function for building LLM messages.
     llm_history is already in the correct format - no parsing or cleaning needed!
 
-    Advantages over build_messages_from_history():
+    Advantages:
     - No regex parsing needed (llm_history is pre-cleaned)
     - No marker detection (speaker labels already applied)
-    - Faster and more reliable
+    - Fast and reliable
     - Summaries already as system messages
 
     Args:
