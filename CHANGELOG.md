@@ -5,6 +5,30 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.28] - 2026-01-07
+
+### Changed
+
+- **Critical Review Mode Enhanced** ([prompts/de/sokrates/critic.txt](prompts/de/sokrates/critic.txt), [prompts/en/sokrates/critic.txt](prompts/en/sokrates/critic.txt)):
+  - Added mandatory Pro/Contra section at the end of Sokrates' critique
+  - Sokrates now delivers: Critique → Alternative Solution → Pro/Contra overview
+  - Helps users see both sides of AIfred's position at a glance
+
+### Removed
+
+- **Advocatus Diaboli Mode Disabled** ([state.py](aifred/state.py)):
+  - Mode removed from dropdown (code preserved for potential reactivation)
+  - Functionality merged into Critical Review mode (Pro/Contra section)
+  - Reason: Too similar to Critical Review, consolidation improves UX
+
+### Added
+
+- **TODO.md Vision Items**:
+  - Configurable Multi-Agent System: User-defined agents with custom prompts
+  - RAG-Agent "Bibliothekar": Local document search with vector indexing
+
+---
+
 ## [2.15.18] - 2026-01-05
 
 ### Added

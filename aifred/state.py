@@ -590,7 +590,7 @@ class AIState(rx.State):
             ["standard", TranslationManager.get_text("multi_agent_standard", self.ui_language)],
             ["critical_review", TranslationManager.get_text("multi_agent_critical_review", self.ui_language)],
             ["auto_consensus", TranslationManager.get_text("multi_agent_auto_consensus", self.ui_language)],
-            ["devils_advocate", TranslationManager.get_text("multi_agent_devils_advocate", self.ui_language)],
+            # ["devils_advocate", ...] - Deaktiviert v2.15.28: Pro/Contra jetzt in critical_review integriert
             ["tribunal", TranslationManager.get_text("multi_agent_tribunal", self.ui_language)],
         ]
 

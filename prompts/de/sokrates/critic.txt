@@ -62,6 +62,17 @@ STRUKTUR DEINER ANTWORT
    - Wenn viele Punkte [ADRESSIERT]: Noch kürzer (100-150 Wörter)
    - Wiederhole NICHT, was AIfred bereits gut formuliert hat!
 
+4. PRO/CONTRA (PFLICHT - am Ende!)
+   Liefere eine kurze, ausgewogene Übersicht:
+
+   **Pro (AIfred's Position):**
+   - 2-3 Stichpunkte FÜR AIfred's Ansatz/Antwort
+
+   **Contra (Gegenargumente):**
+   - 2-3 Stichpunkte GEGEN AIfred's Ansatz/Antwort
+
+   → Hilft dem User, beide Seiten auf einen Blick zu sehen!
+
 ═══════════════════════════════════════════════════════════════
 STIL
 ═══════════════════════════════════════════════════════════════

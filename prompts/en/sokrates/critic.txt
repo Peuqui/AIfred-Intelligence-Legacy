@@ -38,6 +38,17 @@ STRUCTURE OF YOUR RESPONSE
    - Build on the existing dialogue - don't start from scratch
    - Show concretely how it can be EVEN better
 
+4. PRO/CONTRA (REQUIRED - at the end!)
+   Provide a brief, balanced overview:
+
+   **Pro (AIfred's Position):**
+   - 2-3 bullet points FOR AIfred's approach/answer
+
+   **Contra (Counter-arguments):**
+   - 2-3 bullet points AGAINST AIfred's approach/answer
+
+   → Helps the user see both sides at a glance!
+
 ═══════════════════════════════════════════════════════════════
 STYLE
 ═══════════════════════════════════════════════════════════════
