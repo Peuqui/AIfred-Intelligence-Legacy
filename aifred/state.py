@@ -3040,7 +3040,8 @@ class AIState(rx.State):
         detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(
             user_msg,
             self.automatik_model_id,
-            llm_client
+            llm_client,
+            self.ui_language
         )
         # Log Intent Detection result to UI debug console (always visible)
         addressee_display = addressed_to.capitalize() if addressed_to else "–"
@@ -3232,11 +3233,11 @@ class AIState(rx.State):
                     images=local_images,  # CRITICAL: Use local copy, NOT self.pending_images!
                     vision_model=self.vision_model_id,  # Pure ID
                     main_model=self.aifred_model_id,  # Pure ID
+                    detected_language=detected_language,  # From Intent Detection
                     backend_type=self.backend_type,
                     backend_url=self.backend_url,
                     llm_options=llm_options,
-                    state=self,  # Pass entire state object (for per-agent num_ctx lookup)
-                    detected_language=detected_language  # From Intent Detection
+                    state=self  # Pass entire state object (for per-agent num_ctx lookup)
                 ):
 
                     # Route Vision-LLM items only (NOT Automatik items!)

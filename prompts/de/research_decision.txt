@@ -1,5 +1,8 @@
 Frage: "{user_text}"{image_context}{vision_json_context}
 
+⚠️ AKTUELLES DATUM: {current_date}
+⚠️ AKTUELLES JAHR: {current_year}
+
 Du hast KEIN Internet! Trainingsdaten bis Jan 2025.
 
 **Aufgabe:** Entscheide ob Web-Recherche noetig ist UND generiere Such-Queries falls ja.

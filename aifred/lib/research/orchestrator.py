@@ -99,6 +99,7 @@ async def perform_agent_research(
         temperature_mode=temperature_mode,
         temperature=temperature,
         agent_start=agent_start,
+        detected_language=detected_language,  # Pass detected language for correct prompt selection
         state=state,  # Pass state for per-agent num_ctx lookup
         user_name=user_name
     ):

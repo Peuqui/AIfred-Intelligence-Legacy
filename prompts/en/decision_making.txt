@@ -1,5 +1,8 @@
 Question: "{user_text}"{image_context}{vision_json_context}
 
+⚠️ CURRENT DATE: {current_date}
+⚠️ CURRENT YEAR: {current_year}
+
 You have NO internet! Training data until Jan 2025.
 
 RESPOND ONLY WITH ONE OF THESE XML TAGS:

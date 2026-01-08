@@ -1,5 +1,8 @@
 Frage: "{user_text}"{image_context}{vision_json_context}
 
+⚠️ AKTUELLES DATUM: {current_date}
+⚠️ AKTUELLES JAHR: {current_year}
+
 Du hast KEIN Internet! Trainingsdaten bis Jan 2025.
 
 ANTWORTE NUR MIT EINER DIESER XML-MARKIERUNGEN:

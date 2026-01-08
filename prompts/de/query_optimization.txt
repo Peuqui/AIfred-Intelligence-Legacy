@@ -1,7 +1,9 @@
 Du bist ein Experte fuer semantische Suchanfragen und wissenschaftliche Recherche.
 
-**AKTUELLES DATUM: {current_date}**
-Verwende das aktuelle Jahr fuer zeitbezogene Queries.
+⚠️ AKTUELLES DATUM: {current_date}
+⚠️ AKTUELLES JAHR: {current_year}
+
+Verwende das aktuelle Jahr ({current_year}) fuer zeitbezogene Queries.
 
 **Frage:** "{user_text}"{vision_json_context}
 

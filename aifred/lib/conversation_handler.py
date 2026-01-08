@@ -492,9 +492,9 @@ async def detect_research_decision(
     user_text: str,
     automatik_llm_client,
     automatik_model: str,
+    detected_language: str,
     has_images: bool = False,
-    vision_json_context: Optional[Dict] = None,
-    detected_language: str = "de"
+    vision_json_context: Optional[Dict] = None
 ) -> Dict:
     """
     Combined Decision-Making + Query-Optimization in one LLM call.
@@ -641,11 +641,11 @@ async def chat_with_vision_pipeline(
     images: List[Dict[str, str]],
     vision_model: str,
     main_model: str,
+    detected_language: str,  # Language from Intent Detection (with UI language as fallback)
     backend_type: str = "ollama",
     backend_url: Optional[str] = None,
     llm_options: Optional[Dict] = None,
-    state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
-    detected_language: str = "de"  # Language from Intent Detection or UI setting
+    state=None  # AIState object (REQUIRED for per-agent num_ctx lookup)
 ) -> AsyncIterator[Dict]:
     """
     3-Model Architecture: Vision-LLM extracts structured data, Main-LLM optionally formats it.
@@ -960,6 +960,7 @@ async def chat_interactive_mode(
     automatik_model: str,
     history: List,
     llm_history: List[Dict[str, str]],
+    detected_language: str,
     session_id: Optional[str] = None,
     temperature_mode: str = 'auto',
     temperature: float = 0.2,
@@ -971,7 +972,6 @@ async def chat_interactive_mode(
     vision_json_context: Optional[dict] = None,
     user_name: Optional[str] = None,
     detected_intent: Optional[str] = None,
-    detected_language: str = "de",
     cloud_provider_label: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
@@ -1158,7 +1158,8 @@ async def chat_interactive_mode(
                 state=state,  # Pass state for per-agent num_ctx lookup
                 vision_json_context=vision_json_context,  # CRITICAL: Pass Vision JSON to Research flow
                 user_name=user_name,  # For personalized prompts
-                detected_intent=detected_intent  # Pass pre-detected intent (avoids duplicate LLM call)
+                detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
+                detected_language=detected_language  # Pass detected language for correct prompt selection
             ):
                 yield item
             return  # Generator ends after forwarding all items
@@ -1523,9 +1524,9 @@ async def chat_interactive_mode(
                 user_text=user_text,
                 automatik_llm_client=automatik_llm_client,
                 automatik_model=automatik_model,
+                detected_language=detected_user_language,
                 has_images=has_images,
-                vision_json_context=vision_json_context,
-                detected_language=detected_user_language
+                vision_json_context=vision_json_context
             )
 
             decision_time = research_result["decision_time"]
@@ -1535,11 +1536,6 @@ async def chat_interactive_mode(
             # User-friendly display
             decision_label = "Web Research YES" if web_research_needed else "Web Research NO"
             yield {"type": "debug", "message": f"🤖 Decision: {decision_label} ({format_number(decision_time, 1)}s)"}
-
-            if web_research_needed and pre_generated_queries:
-                yield {"type": "debug", "message": f"🔎 {len(pre_generated_queries)} queries pre-generated"}
-                for i, q in enumerate(pre_generated_queries, 1):
-                    yield {"type": "debug", "message": f"   {i}. {q}"}
 
             log_message(f"🤖 AI decision: {decision_label} ({format_number(decision_time, 1)}s)")
 
@@ -1569,6 +1565,7 @@ async def chat_interactive_mode(
                     vision_json_context=vision_json_context,
                     user_name=user_name,
                     detected_intent=detected_intent,
+                    detected_language=detected_user_language,  # Pass detected language for correct prompt selection
                     pre_generated_queries=pre_generated_queries  # NEW: Skip Query-Opt if provided
                 ):
                     yield item

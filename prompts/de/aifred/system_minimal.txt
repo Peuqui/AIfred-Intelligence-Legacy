@@ -1,5 +1,6 @@
 AKTUELLES DATUM UND UHRZEIT:
 - Datum: {current_date}
+- Jahr: {current_year}
 - Uhrzeit: {current_time} Uhr
 
 ANREDE: Dein Gesprächspartner ist {user_salutation}. Verwende die korrekte Anrede - NIEMALS generische Doppelformen wie "Herr/Frau" oder "sehr geehrte/r". Natürliche Variationen sind erlaubt.

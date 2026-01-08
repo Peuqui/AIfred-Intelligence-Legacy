@@ -21,6 +21,7 @@ from .config import AUTOMATIK_LLM_NUM_CTX
 
 def parse_intent_addressee_language(
     response_raw: str,
+    fallback_language: str,
     context: str = "general"
 ) -> Tuple[str, Optional[str], str]:
     """
@@ -31,6 +32,7 @@ def parse_intent_addressee_language(
     Args:
         response_raw: Raw LLM response
         context: Context for logging ("general" or "cache_followup")
+        fallback_language: Language to use if LLM detection fails (from UI settings)
 
     Returns:
         Tuple[str, Optional[str], str]: (intent, addressee, language)
@@ -45,7 +47,7 @@ def parse_intent_addressee_language(
 
     intent_part = parts[0].strip().upper() if len(parts) > 0 else ""
     addressee_part = parts[1].strip().lower() if len(parts) > 1 else ""
-    language_part = parts[2].strip().upper() if len(parts) > 2 else ""
+    language_part = parts[2].strip().lower() if len(parts) > 2 else ""
 
     # Parse intent (with English/German support)
     if "FAKTISCH" in intent_part or "FACTUAL" in intent_part:
@@ -71,52 +73,23 @@ def parse_intent_addressee_language(
             addressee = "salomo"
         # else: leave as None (unknown or empty)
 
-    # Parse language (default to "en" for universal prompts)
-    if language_part in ("DE", "DEUTSCH", "GERMAN"):
+    # Parse language (case-insensitive normalization to lowercase)
+    if language_part in ("de", "deutsch", "german", "ger"):
         language = "de"
-    else:
-        # EN, ENGLISH, or anything else → English (universal prompts)
+    elif language_part in ("en", "english", "eng"):
         language = "en"
+    else:
+        # Unknown or empty → use fallback language (typically UI language)
+        language = fallback_language
 
     return (intent, addressee, language)
-
-
-def parse_intent_and_addressee(
-    response_raw: str,
-    context: str = "general"
-) -> Tuple[str, Optional[str]]:
-    """
-    Extract intent and addressee from LLM response (legacy wrapper).
-
-    For backwards compatibility. Use parse_intent_addressee_language() instead.
-
-    Returns:
-        Tuple[str, Optional[str]]: (intent, addressee)
-    """
-    intent, addressee, _ = parse_intent_addressee_language(response_raw, context)
-    return (intent, addressee)
-
-
-# Keep old function for backwards compatibility (used by cache_followup)
-def parse_intent_from_response(intent_raw: str, context: str = "general") -> str:
-    """
-    Extract intent from LLM response (legacy wrapper).
-
-    Args:
-        intent_raw: Raw LLM response
-        context: Context for logging ("general" or "cache_followup")
-
-    Returns:
-        str: "FAKTISCH", "KREATIV" or "GEMISCHT"
-    """
-    intent, _ = parse_intent_and_addressee(intent_raw, context)
-    return intent
 
 
 async def detect_query_intent_and_addressee(
     user_query: str,
     automatik_model: str,
     llm_client,
+    ui_language: str,
     llm_options: Optional[Dict] = None
 ) -> Tuple[str, Optional[str], str, str]:
     """
@@ -131,12 +104,13 @@ async def detect_query_intent_and_addressee(
         automatik_model: LLM for intent detection
         llm_client: LLMClient instance
         llm_options: Optional Dict with enable_thinking toggle
+        ui_language: UI language setting as fallback if LLM doesn't detect language
 
     Returns:
         Tuple[str, Optional[str], str, str]: (intent, addressee, detected_language, raw_response)
             - intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
             - addressee: "aifred", "sokrates", "salomo" or None
-            - detected_language: "de" or "en" (LLM-detected from user query)
+            - detected_language: "de" or "en" (LLM-detected, or ui_language as fallback)
             - raw_response: Raw LLM output for debugging
     """
     # Use English prompt for intent detection (universal, handles all languages)
@@ -161,13 +135,13 @@ async def detect_query_intent_and_addressee(
         )
         response_raw = response.text
 
-        intent, addressee, detected_language = parse_intent_addressee_language(response_raw, context="general")
+        intent, addressee, detected_language = parse_intent_addressee_language(response_raw, context="general", fallback_language=ui_language)
         log_message(f"✅ Intent: {intent}, Addressee: {addressee or 'none'}, Language: {detected_language.upper()}, Raw: '{response_raw}'")
         return (intent, addressee, detected_language, response_raw)
 
     except Exception as e:
-        log_message(f"❌ Intent detection error: {e} → Fallback: FAKTISCH, no addressee, EN")
-        return ("FAKTISCH", None, "en", "")
+        log_message(f"❌ Intent detection error: {e} → Fallback: FAKTISCH, no addressee, UI language ({ui_language.upper()})")
+        return ("FAKTISCH", None, ui_language, "")
 
 
 async def detect_query_intent(
@@ -195,8 +169,8 @@ async def detect_cache_followup_intent(
     followup_query: str,
     automatik_model: str,
     llm_client,
-    llm_options: Optional[Dict] = None,
-    detected_language: str = "de"
+    detected_language: str,
+    llm_options: Optional[Dict] = None
 ) -> str:
     """
     Detect intent of follow-up question to cached research
@@ -243,7 +217,7 @@ async def detect_cache_followup_intent(
         )
         intent_raw = response.text
 
-        intent = parse_intent_from_response(intent_raw, context="cache_followup")
+        intent, _, _ = parse_intent_addressee_language(intent_raw, context="cache_followup", fallback_language=detected_language)
         log_message(f"✅ Cache-Followup Intent ({automatik_model}): {intent}")
         return intent
 

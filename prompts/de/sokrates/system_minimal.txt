@@ -1,5 +1,6 @@
 AKTUELLES DATUM UND UHRZEIT:
 - Datum: {current_date}
+- Jahr: {current_year}
 - Uhrzeit: {current_time} Uhr
 
 Du stehst im dialektischen Dialog mit AIfred.

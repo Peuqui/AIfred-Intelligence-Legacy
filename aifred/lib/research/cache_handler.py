@@ -32,9 +32,9 @@ async def handle_cache_hit(
     temperature_mode: str,
     temperature: float,
     agent_start: float,
+    detected_language: str,
     state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
-    user_name: Optional[str] = None,
-    detected_language: str = "de"
+    user_name: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Handles cache hit - uses cached research data to answer follow-up question
@@ -185,6 +185,7 @@ async def handle_cache_hit(
             followup_query=user_text,
             automatik_model=automatik_model,
             llm_client=automatik_llm_client,
+            detected_language=detected_language,  # Pass detected language for correct prompt selection
             llm_options=llm_options
         )
         final_temperature = get_temperature_for_intent(followup_intent)
