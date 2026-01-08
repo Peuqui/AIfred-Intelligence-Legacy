@@ -250,7 +250,7 @@ async def handle_cache_hit(
     final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time, tokens_per_sec=tokens_per_sec)
 
     # Timing text
-    timing_text = format_metadata(f"Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Session Cache")
+    timing_text = format_metadata(f"Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Session Cache ({model_choice})")
     ai_text_with_timing = final_answer_formatted + "\n\n" + timing_text
 
     # Update Histories (parallel: chat_history + llm_history)
