@@ -353,85 +353,8 @@ def list_available_prompts() -> list:
 # Convenience functions for frequently used prompts
 # ============================================================
 
-def get_query_optimization_prompt(
-    user_text: str,
-    lang: Optional[str] = None,
-    vision_json: Optional[dict] = None
-) -> str:
-    """Load query optimization prompt with optional Vision JSON context"""
-    # Build Vision JSON context string (same pattern as decision_making_prompt)
-    if vision_json:
-        import json
-        vision_json_context = f"""
-
-STRUKTURIERTE DATEN AUS BILD:
-```json
-{json.dumps(vision_json, ensure_ascii=False, indent=2)}
-```
-
-Diese Daten wurden automatisch aus einem Bild extrahiert."""
-    else:
-        vision_json_context = ""
-
-    return load_prompt(
-        'automatik/query_optimization',
-        lang=lang,
-        user_text=user_text,
-        vision_json_context=vision_json_context
-    )
-
-
-def get_decision_making_prompt(
-    user_text: str,
-    has_images: bool = False,
-    vision_json: Optional[dict] = None,
-    lang: Optional[str] = None
-) -> str:
-    """
-    Load decision-making prompt with optional image and Vision JSON context
-
-    Args:
-        user_text: User query text
-        has_images: Whether the message includes image(s)
-        vision_json: Structured data extracted from images by Vision-LLM
-        lang: Language override
-
-    Returns:
-        Formatted decision prompt with timestamp, image context, and Vision JSON context
-    """
-    # Build image context string
-    if has_images:
-        if lang == "en":
-            image_context = "\n\n⚠️ USER ATTACHED IMAGE(S) - This is an image analysis task!"
-        else:  # German (default)
-            image_context = "\n\n⚠️ BENUTZER HAT BILD(ER) ANGEHÄNGT - Dies ist eine Bildanalyse-Aufgabe!"
-    else:
-        image_context = ""
-
-    # Build Vision JSON context string
-    if vision_json:
-        import json
-        vision_json_context = f"""
-
-STRUKTURIERTE DATEN AUS BILD:
-```json
-{json.dumps(vision_json, ensure_ascii=False, indent=2)}
-```
-
-Diese Daten wurden automatisch aus dem Bild extrahiert."""
-    else:
-        vision_json_context = ""
-
-    return load_prompt(
-        'automatik/decision_making',
-        lang=lang,
-        user_text=user_text,
-        image_context=image_context,
-        vision_json_context=vision_json_context
-    )
-
-
-# Cache decision addon removed - will be replaced with Vector DB semantic search
+# REMOVED: get_query_optimization_prompt() - unused fallback, research_decision handles both
+# REMOVED: get_decision_making_prompt() - legacy, replaced by research_decision.txt
 
 
 def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> str:
@@ -610,28 +533,7 @@ def get_vision_templateless_default_prompt(lang: Optional[str] = None) -> str:
         return f.read().strip()
 
 
-def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) -> str:
-    """
-    Load cache metadata generation prompt.
-
-    Used to generate a concise summary of cached research sources
-    for later cache hit decisions.
-
-    Args:
-        sources_preview: Preview text of research sources
-        lang: Language code (de/en), defaults to current language
-
-    Returns:
-        Formatted prompt with sources inserted
-    """
-    if lang is None:
-        lang = _current_language
-
-    prompt_file = PROMPTS_DIR / lang / "automatik" / "cache_metadata.txt"
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        template = f.read().strip()
-
-    return template.format(sources_preview=sources_preview)
+# REMOVED: get_cache_metadata_prompt() - unused, metadata summaries not utilized
 
 
 # ============================================================

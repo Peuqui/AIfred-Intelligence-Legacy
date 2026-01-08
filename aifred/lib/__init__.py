@@ -17,9 +17,9 @@ from .prompt_loader import (
     load_prompt,
     set_language,
     get_language,
-    get_query_optimization_prompt,
-    get_decision_making_prompt,
-    # get_cache_decision_addon removed - cache system deprecated
+    # REMOVED: get_query_optimization_prompt - replaced by research_decision.txt
+    # REMOVED: get_decision_making_prompt - legacy, replaced by research_decision.txt
+    # REMOVED: get_cache_decision_addon - cache system deprecated
     get_intent_detection_prompt,
     get_followup_intent_prompt,
     get_system_rag_prompt
@@ -68,9 +68,9 @@ __all__ = [
     "load_prompt",
     "set_language",
     "get_language",
-    "get_query_optimization_prompt",
-    "get_decision_making_prompt",
-    # "get_cache_decision_addon",  # removed
+    # REMOVED: "get_query_optimization_prompt" - replaced by research_decision.txt
+    # REMOVED: "get_decision_making_prompt" - legacy, replaced by research_decision.txt
+    # REMOVED: "get_cache_decision_addon" - cache system deprecated
     "get_intent_detection_prompt",
     "get_followup_intent_prompt",
     "get_system_rag_prompt",
