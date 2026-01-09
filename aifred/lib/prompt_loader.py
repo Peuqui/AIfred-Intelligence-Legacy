@@ -374,7 +374,7 @@ Diese Daten wurden automatisch aus einem Bild extrahiert."""
         vision_json_context = ""
 
     return load_prompt(
-        'query_optimization',
+        'automatik/query_optimization',
         lang=lang,
         user_text=user_text,
         vision_json_context=vision_json_context
@@ -423,7 +423,7 @@ Diese Daten wurden automatisch aus dem Bild extrahiert."""
         vision_json_context = ""
 
     return load_prompt(
-        'decision_making',
+        'automatik/decision_making',
         lang=lang,
         user_text=user_text,
         image_context=image_context,
@@ -436,7 +436,7 @@ Diese Daten wurden automatisch aus dem Bild extrahiert."""
 
 def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> str:
     """Load intent detection prompt"""
-    return load_prompt('intent_detection', lang=lang, user_query=user_query)
+    return load_prompt('automatik/intent_detection', lang=lang, user_query=user_query)
 
 
 def get_research_decision_prompt(
@@ -489,7 +489,7 @@ Diese Daten wurden automatisch aus dem Bild extrahiert."""
         vision_json_context = ""
 
     return load_prompt(
-        'research_decision',
+        'automatik/research_decision',
         lang=lang,
         user_text=user_text,
         image_context=image_context,
@@ -500,7 +500,7 @@ Diese Daten wurden automatisch aus dem Bild extrahiert."""
 def get_followup_intent_prompt(original_query: str, followup_query: str, lang: Optional[str] = None) -> str:
     """Load followup intent detection prompt"""
     return load_prompt(
-        'followup_intent_detection',
+        'automatik/followup_intent_detection',
         lang=lang,
         original_query=original_query,
         followup_query=followup_query
@@ -579,7 +579,7 @@ def get_system_rag_prompt(context: str, user_text: str = "", lang: Optional[str]
 
 def get_vision_ocr_prompt(lang: Optional[str] = None) -> str:
     """Load Vision-LLM OCR prompt (timestamp injected automatically by load_prompt)"""
-    return load_prompt('vision_ocr', lang=lang)
+    return load_prompt('vision/vision_ocr', lang=lang)
 
 
 def get_vision_templateless_ocr_prompt(lang: Optional[str] = None) -> str:
@@ -591,7 +591,7 @@ def get_vision_templateless_ocr_prompt(lang: Optional[str] = None) -> str:
     if lang is None:
         lang = _current_language
 
-    prompt_file = PROMPTS_DIR / lang / "vision_templateless_ocr.txt"
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_templateless_ocr.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
 
@@ -605,7 +605,7 @@ def get_vision_templateless_default_prompt(lang: Optional[str] = None) -> str:
     if lang is None:
         lang = _current_language
 
-    prompt_file = PROMPTS_DIR / lang / "vision_templateless_default.txt"
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_templateless_default.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
 
@@ -627,7 +627,7 @@ def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) 
     if lang is None:
         lang = _current_language
 
-    prompt_file = PROMPTS_DIR / lang / "cache_metadata.txt"
+    prompt_file = PROMPTS_DIR / lang / "automatik" / "cache_metadata.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         template = f.read().strip()
 

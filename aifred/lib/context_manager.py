@@ -801,7 +801,7 @@ async def summarize_history_if_needed(
 
     # Load summarization prompt with dynamic target
     summary_prompt = load_prompt(
-        'history_summarization',
+        'utility/history_summarization',
         lang=detected_language,
         conversation=conversation_text.strip(),
         max_tokens=summary_target_tokens,

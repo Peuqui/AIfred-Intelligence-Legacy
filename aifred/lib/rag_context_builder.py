@@ -93,7 +93,7 @@ async def build_rag_context(
         import time
         current_date = time.strftime("%d.%m.%Y")
         relevance_prompt = load_prompt(
-            'rag_relevance_check',
+            'automatik/rag_relevance_check',
             lang=detected_user_language,
             cached_query=cached_query,
             cached_content_preview=content_preview,
