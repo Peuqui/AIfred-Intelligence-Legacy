@@ -467,6 +467,12 @@ DYNAMIC_NUM_PREDICT_HARD_LIMIT = 4096  # tokens
 # Note: num_ctx only affects max context size, NOT processing speed!
 AUTOMATIK_LLM_NUM_CTX = 12288  # 12K context for all Automatik tasks
 
+# Fallback context for Main LLM (AIfred, Sokrates, Salomo) when not VRAM-calibrated
+# Used when a model has no calibration data in the VRAM cache.
+# 32K is a safe default that works on most GPUs without triggering CPU offload.
+# For optimal performance, models should be calibrated via the Model Manager.
+MAIN_LLM_FALLBACK_CONTEXT = 32768  # 32K context for uncalibrated main models
+
 # Maximum manual num_ctx value (for UI input validation)
 # 2M tokens should cover even the largest context windows (Gemini 2M, future models)
 NUM_CTX_MANUAL_MAX = 2097152  # 2M tokens

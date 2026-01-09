@@ -2994,6 +2994,41 @@ class AIState(rx.State):
             else:
                 self.add_debug("ℹ️ KoboldCPP server was not running")
 
+    async def _maybe_run_multi_agent(
+        self,
+        user_msg: str,
+        ai_text: str,
+        detected_language: str,
+        skip_analysis: bool
+    ):
+        """
+        Führt Multi-Agent Analyse aus, wenn aktiviert und nicht übersprungen.
+
+        Args:
+            user_msg: Die User-Nachricht
+            ai_text: Die AI-Antwort (AIfred R1)
+            detected_language: Sprache ("de" oder "en")
+            skip_analysis: True wenn Multi-Agent übersprungen werden soll
+                          (z.B. wenn User AIfred direkt angesprochen hat)
+
+        Yields:
+            Nothing directly, but updates state via run_tribunal/run_sokrates_analysis
+        """
+        # Skip if standard mode, no AI text, or explicitly skipped
+        if self.multi_agent_mode == "standard" or not ai_text or skip_analysis:
+            return
+
+        if self.multi_agent_mode == "tribunal":
+            self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
+            yield
+            async for _ in run_tribunal(self, user_msg, ai_text, detected_language):
+                yield
+        else:
+            self.add_debug("🏛️ Multi-Agent: Sokrates-Analyse startet...")
+            yield
+            async for _ in run_sokrates_analysis(self, user_msg, ai_text, detected_language):
+                yield
+
     async def send_message(self):
         """
         Send message to LLM with optional web research
@@ -3499,47 +3534,73 @@ class AIState(rx.State):
                         yield  # Update UI - only current_ai_response changes, not chat_history
                     elif item["type"] == "result":
                         result_data = item["data"]
-                        # Extract and update history IMMEDIATELY
-                        ai_text, updated_history, inference_time = result_data
-                        # Embed failed_sources in the last message if any pending
-                        if self._pending_failed_sources and updated_history:
-                            import json as json_module
-                            last_idx = len(updated_history) - 1
-                            user_msg, ai_msg = updated_history[last_idx]
-                            # Prepend failed sources markup to AI message
-                            failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(self._pending_failed_sources)}-->\n"
-                            updated_history[last_idx] = (user_msg, failed_markup + ai_msg)
-                            self._pending_failed_sources = []  # Clear pending
-                        # Replace chat history with updated one from research - message is already in history
-                        self.chat_history = updated_history
 
-                        # Clear streaming box IMMEDIATELY to avoid duplicate display
-                        # CRITICAL: Must clear BEFORE multi-agent logic to prevent Alfred appearing twice
-                        self.current_ai_response = ""
-                        self.current_user_message = ""
+                        # Check if this is an "own_knowledge" result (Dict) or research result (Tuple)
+                        if isinstance(result_data, dict) and result_data.get("source") == "own_knowledge":
+                            # Own knowledge result from handle_own_knowledge()
+                            # History is NOT in result - we need to add it ourselves
+                            thinking_html = result_data["response_html"]
+                            response_clean = result_data["response_clean"]
+                            inference_time = result_data["inference_time"]
+                            tokens_per_sec = result_data["tokens_per_sec"]
+                            ttft = result_data["ttft"]
+                            ai_text = result_data["response_raw"]
 
-                        # The message is already in the history from the streaming, no need to re-add
-                        yield  # Update UI to show new history entry + clear streaming box
+                            # Clear streaming box IMMEDIATELY
+                            self.current_ai_response = ""
+                            self.current_user_message = ""
 
-                        # llm_history is now updated in parallel inside chat_interactive_mode()
-                        # No need to sync anymore - parallel history architecture
+                            # Update chat history via add_agent_panel
+                            # For own_knowledge: ALWAYS add AIfred panel (unlike research where R1 is internal)
+                            # Use "critical" mode for Multi-Agent so Sokrates panel renders correctly
+                            panel_mode = "standard" if self.multi_agent_mode == "standard" else "critical"
+                            self.add_agent_panel(
+                                agent="aifred",
+                                content=thinking_html,
+                                mode=panel_mode,
+                                round_num=None,
+                                metadata={
+                                    "ttft": ttft,
+                                    "inference_time": inference_time,
+                                    "tokens_per_sec": tokens_per_sec,
+                                    "source": f"Training data ({result_data['model_choice']})"
+                                },
+                                replace_last=False,
+                                user_msg="",
+                                sync_llm_history=False
+                            )
 
-                        # ============================================================
-                        # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not skipped)
-                        # skip_sokrates_analysis is set when user directly addresses AIfred
-                        # detected_language comes from LLM-based intent detection
-                        # ============================================================
-                        if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
-                            if self.multi_agent_mode == "tribunal":
-                                self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
-                                yield
-                                async for _ in run_tribunal(self, user_msg, ai_text, detected_language):
-                                    yield  # Forward yields to update agent panels
-                            else:
-                                self.add_debug("🏛️ Multi-Agent: Sokrates-Analyse startet...")
-                                yield
-                                async for _ in run_sokrates_analysis(self, user_msg, ai_text, detected_language):
-                                    yield  # Forward yields to update Sokrates panel
+                            # Update llm_history
+                            if response_clean:
+                                self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
+
+                            yield  # Update UI
+                        else:
+                            # Research result (Tuple format: ai_text, updated_history, inference_time)
+                            ai_text, updated_history, inference_time = result_data
+                            # Embed failed_sources in the last message if any pending
+                            if self._pending_failed_sources and updated_history:
+                                import json as json_module
+                                last_idx = len(updated_history) - 1
+                                user_msg_hist, ai_msg = updated_history[last_idx]
+                                # Prepend failed sources markup to AI message
+                                failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(self._pending_failed_sources)}-->\n"
+                                updated_history[last_idx] = (user_msg_hist, failed_markup + ai_msg)
+                                self._pending_failed_sources = []  # Clear pending
+                            # Replace chat history with updated one from research
+                            self.chat_history = updated_history
+
+                            # Clear streaming box IMMEDIATELY
+                            self.current_ai_response = ""
+                            self.current_user_message = ""
+
+                            yield  # Update UI
+
+                        # Multi-Agent analysis (if enabled)
+                        async for _ in self._maybe_run_multi_agent(
+                            user_msg, ai_text, detected_language, skip_sokrates_analysis
+                        ):
+                            yield
 
                         # Stop spinner, switch UI to history display
                         self.is_generating = False
@@ -3622,20 +3683,128 @@ class AIState(rx.State):
                 )
                 pre_generated_queries = research_result.get("queries", [])
                 query_gen_time = research_result.get("decision_time", 0)
+                web_needed = research_result.get("web", True)
 
                 if pre_generated_queries:
                     self.add_debug(f"✅ {len(pre_generated_queries)} queries generated ({format_number(query_gen_time, 1)}s)")
                     for i, q in enumerate(pre_generated_queries, 1):
                         self.add_debug(f"   {i}. {q}")
                     yield
+                elif not web_needed:
+                    # LLM decided: No web research needed → use own knowledge
+                    self.add_debug(f"🤖 LLM decision: No web research needed ({format_number(query_gen_time, 1)}s)")
+                    self.add_debug("🧠 Switching to own knowledge mode...")
+                    yield
+
+                    # Use centralized handle_own_knowledge() function
+                    from .lib.own_knowledge_handler import handle_own_knowledge
+
+                    # Prepare multimodal content if images present
+                    multimodal_content = None
+                    if len(self.pending_images) > 0:
+                        multimodal_content = [{"type": "text", "text": user_msg}]
+                        for img in self.pending_images:
+                            multimodal_content.append({
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{img['base64']}"}
+                            })
+
+                    # Track result data for post-processing
+                    own_knowledge_result = None
+                    full_response = ""
+
+                    async for item in handle_own_knowledge(
+                        user_text=user_msg,
+                        model_choice=self.aifred_model_id,
+                        llm_history=self.llm_history[:-1],
+                        detected_intent=detected_intent,
+                        detected_language=detected_language,
+                        temperature_mode=self.temperature_mode,
+                        temperature=self.temperature,
+                        backend_type=self.backend_type,
+                        backend_url=self.backend_url,
+                        enable_thinking=self.enable_thinking,
+                        state=self,
+                        use_direct_prompt=use_aifred_direct_prompt,
+                        multimodal_content=multimodal_content,
+                        cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None,
+                        num_ctx_manual_enabled=getattr(self, 'num_ctx_manual_aifred_enabled', False),
+                        num_ctx_manual_value=self.num_ctx_manual_aifred if getattr(self, 'num_ctx_manual_aifred_enabled', False) else None,
+                    ):
+                        if item["type"] == "debug":
+                            self.add_debug(item["message"])
+                            yield
+                        elif item["type"] == "content":
+                            self.current_ai_response += item["text"]
+                            full_response += item["text"]
+                            yield
+                        elif item["type"] == "progress":
+                            if item.get("clear"):
+                                self.clear_progress()
+                            yield
+                        elif item["type"] == "result":
+                            own_knowledge_result = item["data"]
+
+                    # Process result
+                    if own_knowledge_result:
+                        thinking_html = own_knowledge_result["response_html"]
+                        response_clean = own_knowledge_result["response_clean"]
+                        inference_time = own_knowledge_result["inference_time"]
+                        tokens_per_sec = own_knowledge_result["tokens_per_sec"]
+                        ttft = own_knowledge_result["ttft"]
+
+                        # Update chat history
+                        # For own_knowledge: ALWAYS add AIfred panel (unlike research where R1 is internal)
+                        panel_mode = "standard" if self.multi_agent_mode == "standard" else "critical"
+                        self.add_agent_panel(
+                            agent="aifred",
+                            content=thinking_html,
+                            mode=panel_mode,
+                            round_num=None,
+                            metadata={
+                                "ttft": ttft,
+                                "inference_time": inference_time,
+                                "tokens_per_sec": tokens_per_sec,
+                                "source": f"Training data ({self.aifred_model_id})"
+                            },
+                            replace_last=False,
+                            user_msg="",
+                            sync_llm_history=False
+                        )
+                        yield
+
+                        # Update llm_history
+                        if response_clean:
+                            self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
+
+                        # Multi-Agent analysis
+                        async for _ in self._maybe_run_multi_agent(
+                            user_msg, full_response, detected_language, skip_sokrates_analysis
+                        ):
+                            yield
+
+                    # Clear and finish - skip the research code below
+                    self.current_ai_response = ""
+                    self.current_user_message = ""
+                    self.is_generating = False
+                    yield
+
+                    if self.multi_agent_mode == "standard":
+                        console_separator()
+                        self.add_debug("────────────────────")
+                        yield
+
+                    # Skip research - we're done
+                    return
+
                 else:
-                    # No queries = LLM parsing error
-                    error_msg = "research_decision returned no queries (LLM parsing error?)"
+                    # web=True but no queries = LLM parsing error
+                    error_msg = "research_decision returned web=true but no queries (LLM parsing error?)"
                     self.add_debug(f"❌ {error_msg}")
                     yield
                     raise ValueError(error_msg)
 
-                # REAL STREAMING: Call async generator directly
+                # REAL STREAMING: Call async generator directly (only if web research needed)
                 # Extract pure model names (remove size suffix like "(9.3 GB)")
                 async for item in perform_agent_research(
                     user_text=user_msg,
@@ -3689,22 +3858,11 @@ class AIState(rx.State):
                         # llm_history is now updated in parallel inside chat_interactive_mode()
                         # No need to sync anymore - parallel history architecture
 
-                        # ============================================================
-                        # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not skipped)
-                        # skip_sokrates_analysis is set when user directly addresses AIfred
-                        # detected_language comes from LLM-based intent detection
-                        # ============================================================
-                        if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
-                            if self.multi_agent_mode == "tribunal":
-                                self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
-                                yield
-                                async for _ in run_tribunal(self, user_msg, ai_text, detected_language):
-                                    yield  # Forward yields to update agent panels
-                            else:
-                                self.add_debug("🏛️ Multi-Agent: Sokrates-Analyse startet...")
-                                yield
-                                async for _ in run_sokrates_analysis(self, user_msg, ai_text, detected_language):
-                                    yield  # Forward yields to update Sokrates panel
+                        # Multi-Agent analysis (if enabled)
+                        async for _ in self._maybe_run_multi_agent(
+                            user_msg, ai_text, detected_language, skip_sokrates_analysis
+                        ):
+                            yield
 
                         # Clear AI response and user message windows IMMEDIATELY
                         self.current_ai_response = ""
@@ -3756,186 +3914,72 @@ class AIState(rx.State):
 
             elif self.research_mode == "none":
                 # No research mode: Direct LLM inference without web search
-                self.add_debug("🧠 Own knowledge (no web search)")
+                # Uses centralized handle_own_knowledge() function
 
-                # History entry was already created at the start of send_message()
-                # No need to append again - temp_history_index already points to it
+                from .lib.own_knowledge_handler import handle_own_knowledge
 
-                # Start timing for preload phase (preparation + actual model loading)
-                import time
+                # Prepare multimodal content if images present
+                multimodal_content = None
+                if len(self.pending_images) > 0:
+                    multimodal_content = [{"type": "text", "text": user_msg}]
+                    for img in self.pending_images:
+                        multimodal_content.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{img['base64']}"}
+                        })
 
-                # Build messages from llm_history (v2.13.0+)
-                # llm_history is already cleaned and ready-to-use
-                # Personality reminder is automatically added as prefix by build_messages_from_llm_history()
-                from .lib.message_builder import build_messages_from_llm_history
-
-                messages = build_messages_from_llm_history(
-                    llm_history=self.llm_history[:-1],  # Exclude current user message (already in llm_history)
-                    current_user_text=user_msg
-                )
-
-                # Inject system prompt with timestamp (from load_prompt - automatically includes date/time)
-                # detected_language comes from LLM-based intent detection (line ~2663)
-                from .lib.prompt_loader import get_aifred_direct_prompt, get_aifred_system_minimal
-
-                # Use AIfred direct prompt if user addressed AIfred directly
-                if use_aifred_direct_prompt:
-                    system_prompt = get_aifred_direct_prompt(lang=detected_language)
-                else:
-                    system_prompt = get_aifred_system_minimal(lang=detected_language)
-
-                messages.insert(0, {"role": "system", "content": system_prompt})
-
-                # Create backend and LLM client instances
-                from .backends import LLMOptions
-                from .lib.llm_client import LLMClient
-
-                # Create LLM client for context calculation and streaming
-                llm_client = LLMClient(
-                    backend_type=self.backend_type,
-                    base_url=self.backend_url
-                )
-
-                # Extract pure model name (remove size suffix)
-                pure_model_name = self.aifred_model_id  # Pure ID
-
-                # Import format_number for locale-aware number formatting (uses global ui_locale)
-                from .lib.formatting import format_number
-
-                # Temperature decision: Manual Override or Auto (reuse detected_intent from above)
-                if self.temperature_mode == 'manual':
-                    final_temperature = self.temperature
-                    self.add_debug(f"🌡️ Temperature: {format_number(final_temperature, 1)} (manual)")
-                else:
-                    # Auto: Reuse detected_intent from dialog routing (no second LLM call!)
-                    from .lib.intent_detector import get_temperature_for_intent, get_temperature_label
-
-                    final_temperature = get_temperature_for_intent(detected_intent)
-                    temp_label = get_temperature_label(detected_intent)
-                    # Store intent-based temperature in state for Multi-Agent mode
-                    self.temperature = final_temperature
-                    self.add_debug(f"🌡️ Temperature: {format_number(final_temperature, 1)} (auto, {temp_label})")
-                yield
-
-                # Calculate num_ctx - IDENTICAL logic to Sokrates/Salomo
-                from .lib.context_manager import estimate_tokens, calculate_dynamic_num_ctx
-                from .lib.model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
-
-                if getattr(self, 'num_ctx_manual_aifred_enabled', False):
-                    final_num_ctx = self.num_ctx_manual_aifred if self.num_ctx_manual_aifred else 4096
-                    self.add_debug(f"🔧 AIfred num_ctx: {final_num_ctx:,} (manual)")
-                else:
-                    # Auto mode: use calibration from VRAM cache
-                    rope_factor = get_rope_factor_for_model(pure_model_name)
-                    final_num_ctx = get_ollama_calibration(pure_model_name, rope_factor)
-                    if final_num_ctx:
-                        self.add_debug(f"🎯 AIfred num_ctx: {final_num_ctx:,} (from VRAM cache)")
-                    else:
-                        # Fallback: calculate dynamically
-                        final_num_ctx, _ = await calculate_dynamic_num_ctx(
-                            llm_client, pure_model_name, [], None,
-                            enable_vram_limit=True
-                        )
-                        self.add_debug(f"🎯 AIfred num_ctx: {final_num_ctx:,} (calculated)")
-
-                # Count actual input tokens
-                input_tokens = estimate_tokens(messages, model_name=pure_model_name)
-
-                # Get model context limit for display
-                model_limit, _ = await llm_client.get_model_context_limit(pure_model_name)
-
-                # Show compact context info
-                self.add_debug(f"📊 AIfred: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})")
-                yield
-
-                # Build LLM options
-                llm_options = LLMOptions(
-                    temperature=final_temperature,
-                    num_ctx=final_num_ctx,  # Use dynamically calculated context (or manual override)
-                    enable_thinking=self.enable_thinking
-                )
-
-                # Console: LLM starts (matching Automatik mode)
-                # Show backend type: Cloud provider name or local backend
-                if self.backend_type == "cloud_api":
-                    backend_label = f"☁️ {self.cloud_api_provider_label}"
-                else:
-                    backend_label = self.backend_type.capitalize()
-                self.add_debug(f"🎩 AIfred-LLM starting: {self.aifred_model} [{backend_label}]")
-                yield
-
-                # Stream response directly from LLM
-                log_message(f"🔬 DEBUG: Setting inference_start at {time.time()}")
-                inference_start = time.time()
-                log_message(f"🔬 DEBUG: inference_start = {inference_start}")
+                # Track result data for post-processing
+                result_data = None
                 full_response = ""
-                ttft = None
-                first_token_received = False
-                tokens_generated = 0
 
-                log_message(f"🔬 DEBUG: Starting chat_stream at {time.time()}")
-                async for chunk in llm_client.chat_stream(
-                    model=pure_model_name,
-                    messages=messages,
-                    options=llm_options
+                async for item in handle_own_knowledge(
+                    user_text=user_msg,
+                    model_choice=self.aifred_model_id,
+                    llm_history=self.llm_history[:-1],  # Exclude current user message
+                    detected_intent=detected_intent,
+                    detected_language=detected_language,
+                    temperature_mode=self.temperature_mode,
+                    temperature=self.temperature,
+                    backend_type=self.backend_type,
+                    backend_url=self.backend_url,
+                    enable_thinking=self.enable_thinking,
+                    state=self,
+                    use_direct_prompt=use_aifred_direct_prompt,
+                    multimodal_content=multimodal_content,
+                    cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None,
+                    num_ctx_manual_enabled=getattr(self, 'num_ctx_manual_aifred_enabled', False),
+                    num_ctx_manual_value=self.num_ctx_manual_aifred if getattr(self, 'num_ctx_manual_aifred_enabled', False) else None,
                 ):
-                    if chunk["type"] == "content":
-                        # Measure TTFT (matching Automatik mode)
-                        if not first_token_received:
-                            now = time.time()
-                            log_message(f"🔬 DEBUG: First token received at {now}, inference_start was {inference_start}")
-                            ttft = now - inference_start
-                            log_message(f"🔬 DEBUG: TTFT = {ttft:.6f}s (now={now}, start={inference_start})")
-                            first_token_received = True
-                            self.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
-                            yield
+                    # Route messages to UI
+                    if item["type"] == "debug":
+                        self.add_debug(item["message"])
+                        yield
+                    elif item["type"] == "content":
+                        self.current_ai_response += item["text"]
+                        full_response += item["text"]
+                        yield
+                    elif item["type"] == "progress":
+                        if item.get("clear"):
+                            self.clear_progress()
+                        yield
+                    elif item["type"] == "result":
+                        result_data = item["data"]
 
-                        # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
-                        # History is updated only at the end to avoid O(n) regex parsing on each token
-                        self.current_ai_response += chunk["text"]
-                        full_response += chunk["text"]
-                        yield  # Update UI - only current_ai_response changes, not chat_history
-                    elif chunk["type"] == "done":
-                        metrics = chunk.get("metrics", {})
-                        tokens_generated = metrics.get("tokens_generated", 0)
-                        tokens_prompt = metrics.get("tokens_prompt", 0)
+                # Process result
+                if result_data:
+                    thinking_html = result_data["response_html"]
+                    response_clean = result_data["response_clean"]
+                    inference_time = result_data["inference_time"]
+                    tokens_per_sec = result_data["tokens_per_sec"]
+                    ttft = result_data["ttft"]
 
-                inference_time = time.time() - inference_start
-
-                # Console: LLM finished
-                tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0
-                # Cloud APIs: Show output tokens + total (output for history, total for billing)
-                if self.backend_type == "cloud_api" and tokens_prompt > 0:
-                    total_tokens = tokens_prompt + tokens_generated
-                    self.add_debug(f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} out / {format_number(total_tokens)} total, {format_number(tokens_per_sec, 1)} tok/s)")
-                else:
-                    self.add_debug(f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tokens, {format_number(tokens_per_sec, 1)} tok/s)")
-                yield
-
-                # Separator wird am Ende der Funktion gesetzt (Zeile ~3409 für Standard-Modus)
-                # Multi-Agent-Modi haben eigene Separatoren in multi_agent.py
-
-                # Format <think> tags as collapsible (if present)
-                from .lib.formatting import format_thinking_process
-                thinking_html = format_thinking_process(
-                    full_response,
-                    model_name=self.aifred_model_id,  # Use pure ID, not display name with size
-                    inference_time=inference_time,
-                    tokens_per_sec=tokens_per_sec
-                )
-
-                # Update chat history with formatted response + metadata
-                # CRITICAL: Only write Alfred panel if NO multi-agent refinement will follow
-                # - Standard mode: APPEND Alfred response (placeholder stays empty, Alfred = separate panel)
-                # - Multi-agent mode + Direct Alfred: APPEND (same as standard)
-                # - Multi-agent mode + Normal: DON'T write (Alfred R1 is internal, only Refinement R2 shown)
-                if self.multi_agent_mode == "standard" or skip_sokrates_analysis:
-                    # APPEND Alfred response as separate panel
-                    # Pass thinking_html (WITHOUT metadata) + metadata dict to add_agent_panel
+                    # Update chat history
+                    # For own_knowledge: ALWAYS add AIfred panel (unlike research where R1 is internal)
+                    panel_mode = "standard" if self.multi_agent_mode == "standard" else "critical"
                     self.add_agent_panel(
                         agent="aifred",
-                        content=thinking_html,  # WITHOUT metadata footer!
-                        mode="standard",
+                        content=thinking_html,
+                        mode=panel_mode,
                         round_num=None,
                         metadata={
                             "ttft": ttft,
@@ -3943,45 +3987,32 @@ class AIState(rx.State):
                             "tokens_per_sec": tokens_per_sec,
                             "source": f"Training data ({self.aifred_model_id})"
                         },
-                        replace_last=False,  # APPEND!
-                        user_msg="",  # Empty user_msg for agent response
-                        sync_llm_history=False  # Already synced below (line 3902)
+                        replace_last=False,
+                        user_msg="",
+                        sync_llm_history=False
                     )
-                    yield  # Update UI
-                # ELSE: Placeholder stays (user_msg, ""), Multi-Agent Refinement R2 will append later
-                # Always update llm_history (needed for internal logic)
-                response_clean = strip_thinking_blocks(full_response) if full_response else ""
-                if response_clean:
-                    self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
+                    yield
 
-                # ============================================================
-                # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not direct AIfred addressing)
-                # detected_language comes from LLM-based intent detection
-                # ============================================================
-                if self.multi_agent_mode != "standard" and full_response and not skip_sokrates_analysis:
-                    if self.multi_agent_mode == "tribunal":
-                        self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
+                    # Update llm_history
+                    if response_clean:
+                        self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
+
+                    # Multi-Agent analysis (if enabled)
+                    async for _ in self._maybe_run_multi_agent(
+                        user_msg, full_response, detected_language, skip_sokrates_analysis
+                    ):
                         yield
-                        async for _ in run_tribunal(self, user_msg, full_response, detected_language):
-                            yield  # Forward yields to update agent panels
-                    else:
-                        self.add_debug("🏛️ Multi-Agent: Sokrates-Analyse startet...")
-                        yield
-                        async for _ in run_sokrates_analysis(self, user_msg, full_response, detected_language):
-                            yield  # Forward yields to update Sokrates panel
 
                 # Clear response windows
                 self.current_ai_response = ""
                 self.current_user_message = ""
                 self.is_generating = False
-                yield  # Force UI update
+                yield
 
-                await llm_client.close()
-
-                # Separator for Standard mode (Automatik/Research modes send their own via conversation_handler/context_builder)
+                # Separator for Standard mode
                 if self.multi_agent_mode == "standard":
-                    console_separator()  # Schreibt in Log-File
-                    self.add_debug("────────────────────")  # Zeigt in Debug-Console
+                    console_separator()
+                    self.add_debug("────────────────────")
                     yield
 
             # Clear response display

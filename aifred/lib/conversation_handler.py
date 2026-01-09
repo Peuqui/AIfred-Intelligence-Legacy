@@ -31,11 +31,7 @@ from .formatting import format_thinking_process, format_metadata, format_number,
 # Cache system removed - will be replaced with Vector DB
 from .context_manager import estimate_tokens, strip_thinking_blocks
 from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
-from .streaming_utils import stream_llm_response, log_llm_completion
 from .config import (
-    DYNAMIC_NUM_PREDICT_SAFETY_MARGIN,
-    DYNAMIC_NUM_PREDICT_MINIMUM,
-    DYNAMIC_NUM_PREDICT_HARD_LIMIT,
     DEFAULT_OLLAMA_URL
 )
 from .intent_detector import get_temperature_for_intent, get_temperature_label
@@ -1369,7 +1365,7 @@ async def chat_interactive_mode(
             # Calculate num_ctx using centralized function (respects per-agent settings)
             from .research.context_utils import get_agent_num_ctx
             if state:
-                final_num_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice, fallback=4096)
+                final_num_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice)
                 yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} ({ctx_source})"}
             else:
                 # Fallback if no state available (shouldn't happen)
@@ -1605,188 +1601,66 @@ async def chat_interactive_mode(
                 return
 
             else:
+                # AI decides: Own knowledge sufficient → use centralized handler
                 log_message("❌ AI decides: Own knowledge sufficient → No agent")
-                # Debug message already yielded above (line 153)
+                yield {"type": "debug", "message": "🤖 Decision: No web research needed"}
 
-                # Clear progress - no web research needed, show LLM phase
-                yield {"type": "progress", "phase": "llm"}
+                # Use centralized handle_own_knowledge() function
+                from .own_knowledge_handler import handle_own_knowledge
 
-                # Now normal inference WITH time measurement
-                # Build messages from llm_history (strip [AIFRED]: label so LLM doesn't learn it)
-                messages = []
-                for msg in llm_history:
-                    if msg['role'] == 'assistant' and msg['content'].startswith('[AIFRED]: '):
-                        # Remove [AIFRED]: prefix - only used for Multi-Agent context
-                        messages.append({'role': 'assistant', 'content': msg['content'][10:]})
-                    else:
-                        messages.append(msg.copy())
-                messages.append({"role": "user", "content": user_text})
+                # Get enable_thinking from llm_options
+                enable_thinking = llm_options.get('enable_thinking', False) if llm_options else False
 
-                # Replace last message content with multimodal if images present
-                if multimodal_user_content is not None:
-                    messages[-1]['content'] = multimodal_user_content
-                    log_message("📷 Multimodal content injected into user message")
+                # Track result for post-processing
+                own_knowledge_result = None
 
-                # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
-                system_prompt_minimal = get_aifred_system_minimal(lang=detected_user_language)
-                messages.insert(0, {"role": "system", "content": system_prompt_minimal})
-
-                # Inject RAG context using centralized helper
-                if rag_context:
-                    inject_rag_context(messages, rag_context)
-                    log_message(f"💡 RAG context injected into system prompt ({len(rag_context)} chars)")
-
-                    # Log RAG context content (preview)
-                    rag_preview = rag_context[:500] + "..." if len(rag_context) > 500 else rag_context
-                    log_message(f"📄 RAG Context Preview:\n{rag_preview}")
-
-                # Inject Vision JSON context if available (from Vision-LLM extraction)
-                if vision_json_context:
-                    inject_vision_json_context(messages, vision_json_context)
-                    log_message(f"📷 Vision JSON injected into AIfred-LLM context ({len(str(vision_json_context))} chars)")
-
-                # Count actual input tokens (using real tokenizer)
-                input_tokens = estimate_tokens(messages, model_name=model_choice)
-
-                # Convert dict messages to LLMMessage objects (required by backend)
-                # MUST be done AFTER all system prompts are injected
-                from ..backends.base import LLMMessage
-                llm_messages_no_rag = [
-                    LLMMessage(role=msg['role'], content=msg['content'])
-                    for msg in messages
-                ]
-
-                # Temperature decision: Manual Override or Auto (reuse pre-detected intent)
-                if temperature_mode == 'manual':
-                    final_temperature = temperature
-                    log_message(f"🌡️ Own knowledge Temperature: {final_temperature} (MANUAL OVERRIDE)")
-                    yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
-                else:
-                    # Auto: Reuse detected_intent from state.py (no duplicate LLM call)
-                    final_temperature = get_temperature_for_intent(detected_intent)
-                    temp_label = get_temperature_label(detected_intent)
-                    log_message(f"🌡️ Own knowledge Temperature: {final_temperature} (Intent: {detected_intent})")
-                    yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
-
-                # Calculate num_ctx using centralized function (respects per-agent settings)
-                from .research.context_utils import get_agent_num_ctx
-                if state:
-                    final_num_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice, fallback=4096)
-                    yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} ({ctx_source})"}
-                else:
-                    # Fallback if no state available (shouldn't happen)
-                    rope_factor = get_rope_factor_for_model(model_choice)
-                    final_num_ctx = get_ollama_calibration(model_choice, rope_factor) or 4096
-                    yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (fallback)"}
-
-                # Get model max context for compact display
-                model_limit, _ = await llm_client.get_model_context_limit(model_choice)
-
-                yield {"type": "debug", "message": "✅ System prompt created"}
-
-                # Show compact context info (like Automatik-LLM and Web-Research)
-                yield {"type": "debug", "message": f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
-                log_message(f"📊 AIfred-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
-
-                # Console: LLM starts
-                yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice}"}
-
-                # Calculate dynamic num_predict: Available output space after input tokens
-                available_output = max(
-                    DYNAMIC_NUM_PREDICT_MINIMUM,
-                    final_num_ctx - input_tokens - DYNAMIC_NUM_PREDICT_SAFETY_MARGIN
-                )
-
-                # HARD LIMIT: Prevents KV-Cache overflow to CPU RAM
-                # Problem: Large num_predict causes KoboldCPP to pre-allocate huge KV-Cache
-                # Example: 259K num_predict → 19.7 GB CPU RAM, 88°C CPU temp
-                if available_output > DYNAMIC_NUM_PREDICT_HARD_LIMIT:
-                    log_message(f"⚠️ num_predict capped: {format_number(available_output)} → {format_number(DYNAMIC_NUM_PREDICT_HARD_LIMIT)} tokens (KV-Cache protection)")
-                    available_output = DYNAMIC_NUM_PREDICT_HARD_LIMIT
-
-                log_message(f"🧮 Dynamic num_predict: {format_number(available_output)} tokens (num_ctx: {format_number(final_num_ctx)}, input: {format_number(input_tokens)}, margin: {DYNAMIC_NUM_PREDICT_SAFETY_MARGIN})")
-
-                # Build main LLM options (include enable_thinking from user settings)
-                main_llm_options = {
-                    'temperature': final_temperature,  # Adaptive or Manual Temperature!
-                    'num_ctx': final_num_ctx,  # Dynamically calculated or user setting
-                    'num_predict': available_output  # Dynamic: Full available output space (capped at 4096)
-                }
-
-                # Add enable_thinking if provided in llm_options (user toggle)
-                if llm_options and 'enable_thinking' in llm_options:
-                    main_llm_options['enable_thinking'] = llm_options['enable_thinking']
-
-                # Stream response using centralized utility
-                ai_text = ""
-                metrics = {}
-                inference_time = 0.0
-                tokens_per_sec = 0.0
-                ttft = None
-
-                async for chunk in stream_llm_response(
-                    llm_client, model_choice, llm_messages_no_rag, main_llm_options,
-                    ttft_label="TTFT"
+                async for item in handle_own_knowledge(
+                    user_text=user_text,
+                    model_choice=model_choice,
+                    llm_history=llm_history,
+                    detected_intent=detected_intent,
+                    detected_language=detected_user_language,
+                    temperature_mode=temperature_mode,
+                    temperature=temperature,
+                    backend_type=backend_type,
+                    backend_url=backend_url,
+                    enable_thinking=enable_thinking,
+                    state=state,
+                    use_direct_prompt=False,  # Automatik mode doesn't use direct prompt
+                    multimodal_content=multimodal_user_content,
+                    rag_context=rag_context,
+                    vision_json_context=vision_json_context,
+                    stt_time=stt_time,
+                    cloud_provider_label=cloud_provider_label,
                 ):
-                    if chunk["type"] == "content":
-                        yield chunk
-                    elif chunk["type"] == "debug":
-                        yield chunk
-                    elif chunk["type"] == "thinking_warning":
-                        yield chunk
-                    elif chunk["type"] == "stream_result":
-                        # Final chunk with accumulated data
-                        ai_text = chunk["text"]
-                        metrics = chunk["metrics"]
-                        inference_time = chunk["inference_time"]
-                        tokens_per_sec = metrics.get("tokens_per_second", 0)
-                        ttft = chunk.get("ttft")
+                    # Forward debug/content/progress messages
+                    if item["type"] in ["debug", "content", "progress"]:
+                        yield item
+                    elif item["type"] == "result":
+                        own_knowledge_result = item["data"]
 
-                # Console: LLM finished
-                yield log_llm_completion(inference_time, metrics)
+                # Process result and yield in expected format for state.py
+                if own_knowledge_result:
+                    # Yield separator
+                    yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
-                # Separator as last element in the Debug Console
-
-                # Format <think> tags as collapsible for chat history (visible as collapsible!)
-                thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time, tokens_per_sec=tokens_per_sec)
-
-                # User text with timing (decision time + inference time)
-                if stt_time > 0:
-                    user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s    Decision: {format_number(decision_time, 1)}s")
-                    user_with_time = f"{user_text}  \n{user_metadata}"
-                else:
-                    user_metadata = format_metadata(f"Decision: {format_number(decision_time, 1)}s")
-                    user_with_time = f"{user_text}  \n{user_metadata}"
-
-                # AI response with timing + source (dynamic based on RAG/History) + model name
-                if rag_context:
-                    source_label = f"Cache+LLM RAG ({model_choice})"
-                elif len(history) > 0:
-                    source_label = f"LLM with History ({model_choice})"
-                else:
-                    source_label = f"LLM ({model_choice})"
-
-                ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
-                metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
-                ai_with_source = f"{thinking_html}\n\n{metadata}"
-
-                # Add to histories (parallel: chat_history + llm_history)
-                history.append((user_with_time, ai_with_source))
-                # llm_history: ai_text is raw LLM output, strip thinking blocks
-                ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
-                if ai_text_clean:
-                    llm_history.append({"role": "assistant", "content": f"[AIFRED]: {ai_text_clean}"})
-
-                log_message(f"✅ AI response generated ({len(ai_text)} chars, Inference: {format_number(inference_time, 1)}s)")
-
-                # Clear progress before final result
-                yield {"type": "progress", "clear": True}
-
-                # Yield separator directly
-                yield {"type": "debug", "message": CONSOLE_SEPARATOR}
-
-                # Yield final result: ai_with_source for AI response + History (with source!)
-                yield {"type": "result", "data": (ai_with_source, history, inference_time)}
+                    # Yield result with source marker for state.py to handle history
+                    yield {
+                        "type": "result",
+                        "data": {
+                            "response_raw": own_knowledge_result["response_raw"],
+                            "response_clean": own_knowledge_result["response_clean"],
+                            "response_html": own_knowledge_result["response_html"],
+                            "inference_time": own_knowledge_result["inference_time"],
+                            "tokens_per_sec": own_knowledge_result["tokens_per_sec"],
+                            "ttft": own_knowledge_result["ttft"],
+                            "model_choice": own_knowledge_result["model_choice"],
+                            "decision_time": decision_time,
+                            "stt_time": stt_time,
+                            "rag_context": rag_context,
+                            "source": "own_knowledge",  # Mark source for state.py
+                        }
+                    }
 
         except Exception as e:
             log_message(f"⚠️ Error in Automatik mode decision: {e}")

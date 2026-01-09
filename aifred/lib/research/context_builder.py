@@ -178,7 +178,7 @@ async def build_and_generate_response(
     # Dynamic num_ctx calculation using centralized function
     from .context_utils import get_agent_num_ctx
     if state:
-        final_num_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice, fallback=4096)
+        final_num_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice)
         if ctx_source == "manual":
             if llm_options is None:
                 llm_options = {}

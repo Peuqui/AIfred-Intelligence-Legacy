@@ -13,7 +13,8 @@ from ..config import (
     SYSTEM_PROMPT_ESTIMATE_CACHE,
     TOKENS_PER_HISTORY_TURN,
     CHARS_PER_TOKEN,
-    MAX_RAG_CONTEXT_TOKENS
+    MAX_RAG_CONTEXT_TOKENS,
+    MAIN_LLM_FALLBACK_CONTEXT
 )
 from ..formatting import format_number
 from ..logging_utils import log_message
@@ -27,7 +28,7 @@ def get_agent_num_ctx(
     agent: str,
     state: "AIState",
     model_id: str,
-    fallback: int = 4096
+    fallback: int = MAIN_LLM_FALLBACK_CONTEXT  # Use config constant (32K) as default
 ) -> Tuple[int, str]:
     """
     Determine num_ctx for a specific agent.
@@ -39,7 +40,7 @@ def get_agent_num_ctx(
         agent: Agent identifier - "aifred", "sokrates", or "salomo"
         state: AIState instance containing per-agent settings
         model_id: Ollama model ID (e.g., "qwen3:14b")
-        fallback: Default value if no calibration available (default: 4096)
+        fallback: Default value if no calibration available (default: MAIN_LLM_FALLBACK_CONTEXT = 32K)
 
     Returns:
         Tuple of (num_ctx, source) where source is one of:
@@ -109,7 +110,7 @@ async def calculate_vram_aware_rag_budget(
     """
     # 1. Determine num_ctx using centralized function
     if state:
-        max_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice, fallback=4096)
+        max_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice)
         if ctx_source == "manual":
             model_limit = max_ctx
         else:

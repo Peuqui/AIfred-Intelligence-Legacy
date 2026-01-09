@@ -1312,11 +1312,12 @@ async def run_sokrates_analysis(
                     # Add Alfred refinement panel (centralized)
                     # Note: _stream_alfred_refinement already synced to llm_history
                     # ALL agents use APPEND - no replace operations!
+                    # IMPORTANT: AIfred Refinement happens AFTER Salomo R{n}, so it's part of R{n+1}
                     state.add_agent_panel(
                         agent="aifred",
                         content=formatted_alfred,
                         mode="refinement",
-                        round_num=round_num,
+                        round_num=round_num + 1,
                         metadata={
                             "ttft": alfred_metrics.get("ttft", 0),
                             "inference_time": alfred_metrics.get("time", 0),
@@ -1611,11 +1612,12 @@ async def run_tribunal(
                 # Add Alfred tribunal panel (centralized)
                 # Note: _stream_alfred_refinement already synced to llm_history
                 # ALL agents use APPEND - no replace operations!
+                # IMPORTANT: AIfred responds AFTER Sokrates R{n}, so it's part of R{n+1}
                 state.add_agent_panel(
                     agent="aifred",
                     content=formatted_alfred,
                     mode="tribunal",
-                    round_num=round_num,
+                    round_num=round_num + 1,
                     metadata={
                         "ttft": alfred_metrics.get("ttft", 0),
                         "inference_time": alfred_metrics.get("time", 0),
