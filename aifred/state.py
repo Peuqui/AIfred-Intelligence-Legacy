@@ -3818,8 +3818,8 @@ class AIState(rx.State):
                 yield
 
                 # Calculate num_ctx - IDENTICAL logic to Sokrates/Salomo
-                from .lib.context_manager import estimate_tokens, calculate_dynamic_num_ctx, get_ollama_calibration
-                from .lib.model_utils import get_rope_factor_for_model
+                from .lib.context_manager import estimate_tokens, calculate_dynamic_num_ctx
+                from .lib.model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
 
                 if getattr(self, 'num_ctx_manual_aifred_enabled', False):
                     final_num_ctx = self.num_ctx_manual_aifred if self.num_ctx_manual_aifred else 4096
