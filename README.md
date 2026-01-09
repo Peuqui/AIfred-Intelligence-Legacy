@@ -456,6 +456,7 @@ When an agent is directly addressed, that agent is activated immediately, regard
 #### Phase 2.5: URL Filtering + LLM-based Ranking (v2.15.30)
 ```
 1. Non-Scrapable Domain Filter (BEFORE URL Ranking)
+   ├─ Config: data/blocked_domains.txt (easy to edit, one domain per line)
    ├─ Filters video platforms: YouTube, Vimeo, TikTok, Twitch, Rumble, etc.
    ├─ Filters social media: Twitter/X, Facebook, Instagram, LinkedIn
    ├─ Reason: These sites cannot be scraped effectively

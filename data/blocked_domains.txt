@@ -1,0 +1,27 @@
+# Non-Scrapable Domains
+# These domains are filtered BEFORE URL ranking (video platforms, login walls, etc.)
+# One domain per line, lines starting with # are comments
+# Subdomains are automatically matched (e.g., "youtube.com" matches "m.youtube.com")
+
+# Video platforms (no text content)
+youtube.com
+youtu.be
+vimeo.com
+dailymotion.com
+twitch.tv
+tiktok.com
+rumble.com
+bitchute.com
+
+# Social media (login walls, heavy JS)
+twitter.com
+x.com
+facebook.com
+fb.com
+instagram.com
+linkedin.com
+threads.net
+
+# Other problematic sites
+pinterest.com
+snapchat.com

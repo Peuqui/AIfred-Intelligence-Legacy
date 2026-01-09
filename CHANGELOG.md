@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Logged in debug.log: `🚫 Blocked: https://youtube.com/...`
   - Summary log: `🚫 Filtered 6 non-scrapable URLs (video/social platforms)`
 
+- **External Blocked Domains Configuration** ([blocked_domains.txt](data/blocked_domains.txt)):
+  - Moved blocked domains from hardcoded Python set to external text file
+  - Easy to maintain: One domain per line, `#` for comments
+  - Automatic subdomain matching (e.g., `youtube.com` also blocks `m.youtube.com`)
+  - Lazy loading with caching (loaded once at first use)
+
 - **Consistent Source Numbering** ([context_builder.py](aifred/lib/research/context_builder.py)):
   - Sources now sorted identically in logging and LLM context
   - Sorting rule: News articles first (short), Wikipedia last (long)

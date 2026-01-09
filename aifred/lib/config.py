@@ -492,8 +492,8 @@ VISION_MINIMUM_CONTEXT = 4096  # 4K minimum for Vision-LLM
 # Playwright (headless browser) is tried as fallback
 PLAYWRIGHT_FALLBACK_THRESHOLD = 800  # words - below this value Playwright is tried
 
-# Non-scrapable domains are defined in aifred/lib/tools/url_utils.py
-# (Single Source of Truth - easier to maintain in dedicated module)
+# Non-scrapable domains are loaded from data/blocked_domains.txt
+# (Single Source of Truth - one domain per line, easy to maintain)
 
 # ============================================================
 # HISTORY SUMMARIZATION CONFIGURATION

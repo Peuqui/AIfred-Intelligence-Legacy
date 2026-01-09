@@ -4,7 +4,8 @@ URL Utilities - Normalization and Deduplication
 Extracted from agent_tools.py for better modularity.
 """
 
-from typing import List, Tuple
+from pathlib import Path
+from typing import List, Set, Tuple
 from urllib.parse import urlparse
 
 from ..config import DEBUG_LOG_RAW_MESSAGES
@@ -15,26 +16,46 @@ from ..logging_utils import log_message
 # NON-SCRAPABLE DOMAIN FILTER
 # ============================================================
 
-# Domains that cannot be scraped effectively (video platforms, login walls, etc.)
-NON_SCRAPABLE_DOMAINS = {
-    # Video platforms (no text content)
-    'youtube.com', 'youtu.be',
-    'vimeo.com',
-    'dailymotion.com',
-    'twitch.tv',
-    'tiktok.com',
-    'rumble.com',
-    'bitchute.com',
-    # Social media (login walls, heavy JS)
-    'twitter.com', 'x.com',
-    'facebook.com', 'fb.com',
-    'instagram.com',
-    'linkedin.com',
-    'threads.net',
-    # Other problematic sites
-    'pinterest.com',
-    'snapchat.com',
-}
+# Path to blocked domains file (relative to project root)
+_BLOCKED_DOMAINS_FILE = Path(__file__).parent.parent.parent.parent / 'data' / 'blocked_domains.txt'
+
+# Cached set of blocked domains (loaded once at module import)
+_blocked_domains_cache: Set[str] | None = None
+
+
+def _load_blocked_domains() -> Set[str]:
+    """
+    Load blocked domains from data/blocked_domains.txt.
+
+    File format:
+    - One domain per line
+    - Lines starting with # are comments
+    - Empty lines are ignored
+
+    Returns:
+        Set of blocked domain strings
+    """
+    global _blocked_domains_cache
+
+    if _blocked_domains_cache is not None:
+        return _blocked_domains_cache
+
+    domains: Set[str] = set()
+
+    if not _BLOCKED_DOMAINS_FILE.exists():
+        log_message(f"⚠️ Blocked domains file not found: {_BLOCKED_DOMAINS_FILE}")
+        _blocked_domains_cache = domains
+        return domains
+
+    with open(_BLOCKED_DOMAINS_FILE, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            # Skip comments and empty lines
+            if line and not line.startswith('#'):
+                domains.add(line.lower())
+
+    _blocked_domains_cache = domains
+    return domains
 
 
 def is_non_scrapable_url(url: str) -> bool:
@@ -51,8 +72,11 @@ def is_non_scrapable_url(url: str) -> bool:
         parsed = urlparse(url.lower().strip())
         domain = parsed.netloc.replace('www.', '')
 
-        # Check if domain matches any non-scrapable domain
-        for blocked in NON_SCRAPABLE_DOMAINS:
+        # Load blocked domains (cached after first load)
+        blocked_domains = _load_blocked_domains()
+
+        # Check if domain matches any blocked domain
+        for blocked in blocked_domains:
             if domain == blocked or domain.endswith('.' + blocked):
                 return True
         return False
