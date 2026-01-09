@@ -41,9 +41,8 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 | Mode | Flow | Who decides? |
 |------|------|--------------|
 | **Standard** | AIfred answers | — |
-| **Critical Review** | AIfred → Sokrates → STOP | User |
+| **Critical Review** | AIfred → Sokrates (+ Pro/Contra) → STOP | User |
 | **Auto-Consensus** | AIfred → Sokrates → Salomo (X rounds) | Salomo |
-| **Devil's Advocate** | AIfred → Sokrates (Pro/Contra) | User |
 | **Tribunal** | AIfred ↔ Sokrates (X rounds) → Salomo | Salomo (Verdict) |
 
 **Agents:**
@@ -133,9 +132,8 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 | **Standard** | `aifred/system_rag` or `aifred/system_minimal` |
 | **Direct AIfred** | `aifred/direct` |
 | **Direct Sokrates** | `sokrates/direct` |
-| **Critical Review** | `aifred/*` → `sokrates/critic` |
+| **Critical Review** | `aifred/*` → `sokrates/critic` (includes Pro/Contra) |
 | **Auto-Consensus** | `aifred/*` → `sokrates/critic` → `salomo/mediator` (loop) |
-| **Devil's Advocate** | `aifred/*` → `sokrates/devils_advocate` |
 | **Tribunal** | `aifred/*` ↔ `sokrates/critic` (X rounds) → `salomo/judge` |
 
 **UI Settings:**
@@ -862,7 +860,7 @@ curl http://localhost:8002/api/settings
 # Change model and Multi-Agent mode
 curl -X PATCH http://localhost:8002/api/settings \
   -H "Content-Type: application/json" \
-  -d '{"aifred_model": "qwen3:14b", "multi_agent_mode": "devils_advocate"}'
+  -d '{"aifred_model": "qwen3:14b", "multi_agent_mode": "critical_review"}'
 
 # Inject a message (browser runs full pipeline)
 curl -X POST http://localhost:8002/api/chat/inject \

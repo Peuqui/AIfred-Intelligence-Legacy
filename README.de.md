@@ -41,9 +41,8 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 | Modus | Ablauf | Wer entscheidet? |
 |-------|--------|------------------|
 | **Standard** | AIfred antwortet | — |
-| **Kritische Prüfung** | AIfred → Sokrates → STOP | User |
+| **Kritische Prüfung** | AIfred → Sokrates (+ Pro/Contra) → STOP | User |
 | **Auto-Konsens** | AIfred → Sokrates → Salomo (X Runden) | Salomo |
-| **Advocatus Diaboli** | AIfred → Sokrates (Pro/Contra) | User |
 | **Tribunal** | AIfred ↔ Sokrates (X Runden) → Salomo | Salomo (Urteil) |
 
 **Agenten:**
@@ -125,9 +124,8 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 | **Standard** | `aifred/system_rag` oder `aifred/system_minimal` |
 | **Direkt AIfred** | `aifred/direct` |
 | **Direkt Sokrates** | `sokrates/direct` |
-| **Kritische Prüfung** | `aifred/*` → `sokrates/critic` |
+| **Kritische Prüfung** | `aifred/*` → `sokrates/critic` (inkl. Pro/Contra) |
 | **Auto-Konsens** | `aifred/*` → `sokrates/critic` → `salomo/mediator` (Schleife) |
-| **Advocatus Diaboli** | `aifred/*` → `sokrates/devils_advocate` |
 | **Tribunal** | `aifred/*` ↔ `sokrates/critic` (X Runden) → `salomo/judge` |
 
 **UI-Einstellungen:**

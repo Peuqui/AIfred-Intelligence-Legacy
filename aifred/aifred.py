@@ -563,10 +563,11 @@ def text_input_section() -> rx.Component:
                                     rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto-Consensus"),
                                     value="auto_consensus"
                                 ),
-                                rx.select.item(
-                                    rx.cond(AIState.ui_language == "de", "Advocatus Diaboli", "Devil's Advocate"),
-                                    value="devils_advocate"
-                                ),
+                                # Advocatus Diaboli deaktiviert v2.15.28 - Pro/Contra jetzt in Critical Review integriert
+                                # rx.select.item(
+                                #     rx.cond(AIState.ui_language == "de", "Advocatus Diaboli", "Devil's Advocate"),
+                                #     value="devils_advocate"
+                                # ),
                                 rx.select.item(
                                     rx.cond(AIState.ui_language == "de", "Tribunal", "Tribunal"),
                                     value="tribunal"
@@ -3605,12 +3606,6 @@ def multi_agent_help_modal() -> rx.Component:
                                 rx.table.cell(rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto Consensus")),
                                 rx.table.cell(t("multi_agent_help_auto_consensus_flow")),
                                 rx.table.cell(t("multi_agent_help_auto_consensus_decision")),
-                            ),
-                            # Advocatus Diaboli / Devil's Advocate
-                            rx.table.row(
-                                rx.table.cell(rx.cond(AIState.ui_language == "de", "Advocatus Diaboli", "Devil's Advocate")),
-                                rx.table.cell(t("multi_agent_help_devils_advocate_flow")),
-                                rx.table.cell(t("multi_agent_help_devils_advocate_decision")),
                             ),
                             # Tribunal
                             rx.table.row(
