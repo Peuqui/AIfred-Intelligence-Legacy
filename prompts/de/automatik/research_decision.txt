@@ -6,26 +6,34 @@ Du hast KEIN Internet! Trainingsdaten bis Jan 2025.
 
 **Aufgabe:** Entscheide ob Web-Recherche noetig ist UND generiere Such-Queries falls ja.
 
+## KRITISCHE REGEL - IMMER ZUERST PRUEFEN!
+
+**STOPP! Bevor du antwortest, pruefe:**
+1. Ist die EXAKTE Antwort auf die Frage im Chat-Verlauf?
+2. Nicht "aehnliche Infos" - die EXAKTE Antwort!
+3. Wenn NEIN → web=true (IMMER!)
+
+**Beispiel:**
+- Chat enthaelt: Filmtitel, Handlung, Schauspieler, Premiere
+- Frage: "Wo wurde gedreht?" / "Drehorte?"
+- Drehorte im Chat? NEIN → web=true!
+
+**NIEMALS erfinden! Lieber recherchieren als halluzinieren!**
+
 ## ENTSCHEIDUNGS-REGELN
 
 Web-Recherche NOETIG (web=true):
+• Folgefragen zu Details die NICHT explizit im Chat stehen
 • Wetter/News/Preise/Live-Daten
 • Lokale Aktivitaeten/Empfehlungen/Events
-• Restaurants/Geschaefte/Orte in Stadt
-• Zeitbezogene Fragen (heute/morgen/dieses Jahr/aktuell/neueste)
-• Event-Termine/Ergebnisse (Emmy/Oscar/Nobelpreis/Wahlen/Sportevents)
+• Zeitbezogene Fragen (heute/morgen/aktuell/neueste)
+• Wenn du die Antwort nur VERMUTEN koenntest
 
 KEINE Web-Recherche (web=false):
+• NUR wenn die EXAKTE Antwort bereits im Chat steht
 • Bilder analysieren/Text extrahieren
 • Allgemeinwissen/Mathe/Chat
 • Definitionen/Erklaerungen von Konzepten
-• Wenn strukturierte Daten aus Bildern vorhanden: Nutze sie fuer die Entscheidung
-• WICHTIG: Wenn vorherige Nachrichten im Chat die EXAKTE Antwort enthalten
-
-Web-Recherche NOETIG bei Folgefragen (web=true):
-• Wenn die Frage Details verlangt, die NICHT in vorherigen Nachrichten stehen
-• Wenn du die Antwort nur vermuten/erfinden koenntest → IMMER recherchieren!
-• Beispiel: "Wo wurde der Film gedreht?" → Pruefe ob Drehorte in History erwaehnt wurden, wenn NEIN → web=true
 
 ## QUERY-REGELN (nur wenn web=true)
 

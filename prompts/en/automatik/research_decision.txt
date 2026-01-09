@@ -6,26 +6,34 @@ You have NO internet! Training data until Jan 2025.
 
 **Task:** Decide if web research is needed AND generate search queries if yes.
 
+## CRITICAL RULE - ALWAYS CHECK FIRST!
+
+**STOP! Before answering, check:**
+1. Is the EXACT answer to the question in the chat history?
+2. Not "similar info" - the EXACT answer!
+3. If NO → web=true (ALWAYS!)
+
+**Example:**
+- Chat contains: Movie title, plot, actors, premiere date
+- Question: "Where was it filmed?" / "Filming locations?"
+- Filming locations in chat? NO → web=true!
+
+**NEVER invent! Better to research than hallucinate!**
+
 ## DECISION RULES
 
 Web research NEEDED (web=true):
+• Follow-up questions about details NOT explicitly in chat
 • Weather/News/Prices/Live data
 • Local activities/recommendations/events
-• Restaurants/shops/places in city
-• Time-related questions (today/tomorrow/this year/current/latest)
-• Event dates/results (Emmy/Oscar/Nobel Prize/elections/sports events)
+• Time-related questions (today/tomorrow/current/latest)
+• If you would only be able to GUESS the answer
 
 NO web research (web=false):
+• ONLY if the EXACT answer is already in chat
 • Analyze images/extract text from images
 • General knowledge/Math/Chat
 • Definitions/explanations of concepts
-• If structured data from images is available: Use it for your decision
-• IMPORTANT: If previous messages in chat contain the EXACT answer
-
-Web research NEEDED for follow-up questions (web=true):
-• If the question asks for details NOT present in previous messages
-• If you would have to guess/invent the answer → ALWAYS research!
-• Example: "Where was the movie filmed?" → Check if filming locations are mentioned in history, if NO → web=true
 
 ## QUERY RULES (only if web=true)
 

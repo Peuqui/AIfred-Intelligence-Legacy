@@ -28,11 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Research Decision Prompt** ([research_decision.txt](prompts/de/automatik/research_decision.txt), [research_decision.txt](prompts/en/automatik/research_decision.txt)):
-  - Added rule: Only skip research if EXACT answer is in chat history
-  - Added follow-up question rules: Research if details not in history
-  - Added anti-hallucination rule: "If you would have to guess → ALWAYS research!"
-  - Example added: "Where was movie filmed?" → check history for filming locations
+- **Research Decision Prompt v2** ([research_decision.txt](prompts/de/automatik/research_decision.txt), [research_decision.txt](prompts/en/automatik/research_decision.txt)):
+  - **NEW: "KRITISCHE REGEL" section at top** - forces model to check EXACT answer presence first
+  - Added explicit "STOPP!" instruction with 3-step checklist
+  - Concrete example: Film info in chat but no filming locations → web=true
+  - "NIEMALS erfinden! Lieber recherchieren als halluzinieren!" warning
+  - Reordered rules: Follow-up questions now first priority for web=true
+  - web=false now explicitly requires "NUR wenn die EXAKTE Antwort bereits im Chat steht"
 
 ### Fixed
 
