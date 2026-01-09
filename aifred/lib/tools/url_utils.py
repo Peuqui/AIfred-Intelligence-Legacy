@@ -5,7 +5,7 @@ Extracted from agent_tools.py for better modularity.
 """
 
 import logging
-from typing import List
+from typing import List, Tuple
 from urllib.parse import urlparse
 
 # Logging Setup
@@ -88,3 +88,44 @@ def deduplicate_urls(urls: List[str]) -> List[str]:
         logger.info(f"🔄 Deduplication: {len(urls)} URLs → {len(unique)} unique ({duplicates_removed} duplicates removed)")
 
     return unique
+
+
+def deduplicate_urls_with_metadata(
+    urls: List[str],
+    titles: List[str],
+    snippets: List[str]
+) -> Tuple[List[str], List[str], List[str]]:
+    """
+    Remove duplicate URLs while preserving associated titles and snippets.
+
+    Uses normalization to detect similar URLs.
+    Keeps the first occurrence of each URL along with its metadata.
+
+    Args:
+        urls: List of URL strings
+        titles: List of titles (same order as urls)
+        snippets: List of snippets (same order as urls)
+
+    Returns:
+        Tuple of (unique_urls, unique_titles, unique_snippets)
+    """
+    seen = set()
+    unique_urls = []
+    unique_titles = []
+    unique_snippets = []
+
+    for i, url in enumerate(urls):
+        normalized = normalize_url(url)
+
+        if normalized not in seen:
+            seen.add(normalized)
+            unique_urls.append(url)
+            # Use empty string if index out of range
+            unique_titles.append(titles[i] if i < len(titles) else "")
+            unique_snippets.append(snippets[i] if i < len(snippets) else "")
+
+    duplicates_removed = len(urls) - len(unique_urls)
+    if duplicates_removed > 0:
+        logger.info(f"🔄 Deduplication (with metadata): {len(urls)} URLs → {len(unique_urls)} unique ({duplicates_removed} removed)")
+
+    return unique_urls, unique_titles, unique_snippets

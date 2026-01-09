@@ -3529,14 +3529,15 @@ class AIState(rx.State):
                         # skip_sokrates_analysis is set when user directly addresses AIfred
                         # detected_language comes from LLM-based intent detection
                         # ============================================================
-                        # DEBUG: Log multi-agent decision
-                        self.add_debug(f"🔍 Multi-Agent Check: mode={self.multi_agent_mode}, ai_text={bool(ai_text)}, skip={skip_sokrates_analysis}")
-                        yield
                         if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
                             if self.multi_agent_mode == "tribunal":
+                                self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
+                                yield
                                 async for _ in run_tribunal(self, user_msg, ai_text, detected_language):
                                     yield  # Forward yields to update agent panels
                             else:
+                                self.add_debug("🏛️ Multi-Agent: Sokrates-Analyse startet...")
+                                yield
                                 async for _ in run_sokrates_analysis(self, user_msg, ai_text, detected_language):
                                     yield  # Forward yields to update Sokrates panel
 
@@ -3693,14 +3694,15 @@ class AIState(rx.State):
                         # skip_sokrates_analysis is set when user directly addresses AIfred
                         # detected_language comes from LLM-based intent detection
                         # ============================================================
-                        # DEBUG: Log multi-agent decision
-                        self.add_debug(f"🔍 Multi-Agent Check: mode={self.multi_agent_mode}, ai_text={bool(ai_text)}, skip={skip_sokrates_analysis}")
-                        yield
                         if self.multi_agent_mode != "standard" and ai_text and not skip_sokrates_analysis:
                             if self.multi_agent_mode == "tribunal":
+                                self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
+                                yield
                                 async for _ in run_tribunal(self, user_msg, ai_text, detected_language):
                                     yield  # Forward yields to update agent panels
                             else:
+                                self.add_debug("🏛️ Multi-Agent: Sokrates-Analyse startet...")
+                                yield
                                 async for _ in run_sokrates_analysis(self, user_msg, ai_text, detected_language):
                                     yield  # Forward yields to update Sokrates panel
 
@@ -3956,15 +3958,15 @@ class AIState(rx.State):
                 # MULTI-AGENT: Sokrates/Salomo Analysis (if enabled and not direct AIfred addressing)
                 # detected_language comes from LLM-based intent detection
                 # ============================================================
-                # skip_sokrates_analysis is True when user directly addresses AIfred
-                # DEBUG: Log multi-agent decision
-                self.add_debug(f"🔍 Multi-Agent Check (direct): mode={self.multi_agent_mode}, full_response={bool(full_response)}, skip={skip_sokrates_analysis}")
-                yield
                 if self.multi_agent_mode != "standard" and full_response and not skip_sokrates_analysis:
                     if self.multi_agent_mode == "tribunal":
+                        self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
+                        yield
                         async for _ in run_tribunal(self, user_msg, full_response, detected_language):
                             yield  # Forward yields to update agent panels
                     else:
+                        self.add_debug("🏛️ Multi-Agent: Sokrates-Analyse startet...")
+                        yield
                         async for _ in run_sokrates_analysis(self, user_msg, full_response, detected_language):
                             yield  # Forward yields to update Sokrates panel
 
@@ -4093,6 +4095,9 @@ class AIState(rx.State):
             delete_cached_research(self.session_id)
 
         self.add_debug("🗑️ Chat + Images + Audio + HTML Preview + Sokrates + Research-Cache cleared")
+        # Separator after clear operation
+        self.add_debug(CONSOLE_SEPARATOR)
+        console_separator()  # Log-File
 
         # Session speichern (leerer Chat)
         self._save_current_session()
@@ -5147,9 +5152,15 @@ class AIState(rx.State):
                 if self.show_transcription:
                     # Mode: Text editieren → Manuell senden
                     self.add_debug("✏️ Text im Eingabefeld → Zum Editieren bereit")
+                    # Separator after STT complete (user will edit + send manually)
+                    self.add_debug(CONSOLE_SEPARATOR)
+                    console_separator()  # Log-File
                 else:
                     # Mode: Direkt zur AI
                     self.add_debug("🚀 Sende Text direkt zur AI...")
+                    # Separator after STT, before send_message starts
+                    self.add_debug(CONSOLE_SEPARATOR)
+                    console_separator()  # Log-File
                     # Forward yields from send_message() to update UI in real-time
                     async for _ in self.send_message():
                         yield  # Forward to UI for real-time updates
@@ -5869,13 +5880,22 @@ class AIState(rx.State):
                 collection.delete(ids=all_ids)
 
                 self.add_debug(f"✅ Vector DB cleared successfully ({count} entries deleted)")
+                # Separator after clear operation
+                self.add_debug(CONSOLE_SEPARATOR)
+                console_separator()  # Log-File
                 yield  # Update UI
             else:
                 self.add_debug("✅ Vector DB is already empty")
+                # Separator after clear operation
+                self.add_debug(CONSOLE_SEPARATOR)
+                console_separator()  # Log-File
                 yield  # Update UI
 
         except Exception as e:
             self.add_debug(f"❌ Vector DB clear failed: {e}")
+            # Separator after error
+            self.add_debug(CONSOLE_SEPARATOR)
+            console_separator()  # Log-File
             yield  # Update UI even on error
 
 

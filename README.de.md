@@ -377,11 +377,35 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
    └─ Deduplication across APIs
 ```
 
+#### Phase 2.5: LLM-basiertes URL-Ranking (NEU in v2.15.30)
+```
+1. URL-Ranking (Automatik-LLM)
+   ├─ Input: ~30 URLs mit Titeln und Snippets von Such-APIs
+   ├─ Model: Automatik-LLM
+   ├─ Prompt: url_ranking.txt (nur EN - Output ist numerisch)
+   ├─ Options:
+   │  ├─ temperature: 0.0 (deterministisches Ranking)
+   │  └─ num_predict: 100 (kurze Antwort)
+   ├─ Output: "3,7,1,12,5,8,2" (komma-getrennte Indizes)
+   └─ Ergebnis: Top 7 (deep) oder Top 3 (quick) URLs nach Relevanz
+
+2. Warum LLM-basiertes Ranking?
+   ├─ Semantisches Verständnis der Query-URL-Relevanz
+   ├─ Keine Wartung von Keyword-Listen oder Domain-Whitelists
+   ├─ Passt sich jedem Thema an (universell)
+   └─ Besser als first-come-first-served Reihenfolge
+
+3. Skip-Bedingungen:
+   ├─ Direct-URL-Modus (User hat URLs direkt angegeben)
+   ├─ Weniger als top_n URLs gefunden
+   └─ Keine Titel/Snippets verfügbar (Fallback auf ursprüngliche Reihenfolge)
+```
+
 #### Phase 3: Parallel Web Scraping
 ```
 PARALLEL EXECUTION:
 ├─ ThreadPoolExecutor (max 5 workers)
-│  └─ Scrape Top 3 URLs simultaneously
+│  └─ Scrape Top 3/7 URLs (nach Relevanz gerankt)
 │     └─ Extract text content + word count
 │
 └─ Async Task: Main LLM Preload (Ollama only)
@@ -407,24 +431,17 @@ Progress Updates:
    ├─ Streaming: Ja
    └─ TTFT + Tokens/s Messung
 
-3. Cache Decision (NUR bei Web-Recherche)
-   ├─ Check for volatile keywords (z.B. "heute", "aktuell", "jetzt")
-   │  └─ IF volatile: Skip caching (zeitkritische Info)
-   ├─ LLM Call (Automatik-LLM) - Cacheability Check
-   │  ├─ Prompt: cache_decision
-   │  ├─ Input: User-Query + LLM-Antwort
-   │  ├─ Entscheidung basiert auf:
-   │  │  ├─ Zeitlose Fakten? (z.B. "Was ist Python?") → cacheable
-   │  │  ├─ Zeitgebundene Events? (z.B. "aktuelle News") → not_cacheable
-   │  │  ├─ Persönliche Präferenzen? (z.B. "bestes Restaurant") → not_cacheable
-   │  │  └─ Volatile Daten? (z.B. Wetter, Aktienkurse) → not_cacheable
-   │  └─ Response: 'cacheable' | 'not_cacheable'
-   ├─ IF cacheable:
-   │  ├─ Semantic Duplicate Check (distance < 0.3 zu existierenden Einträgen)
-   │  │  └─ IF duplicate: Lösche alten Eintrag (garantiert neueste Daten)
-   │  ├─ cache.add(query, answer, sources, metadata)
-   │  └─ Debug: "💾 Antwort gecacht" oder "🔄 Cache-Eintrag aktualisiert"
-   └─ ELSE: Debug: "⏭️ Antwort nicht gecacht (volatil/zeitgebunden)"
+3. Cache-Entscheidung (via Volatility-Tag vom Haupt-LLM)
+   ├─ Haupt-LLM inkludiert <volatility>DAILY/WEEKLY/MONTHLY/PERMANENT</volatility>
+   ├─ Volatility bestimmt TTL:
+   │  ├─ DAILY (24h): News, aktuelle Ereignisse
+   │  ├─ WEEKLY (7d): Semi-aktuelle Themen
+   │  ├─ MONTHLY (30d): Statistiken, Reports
+   │  └─ PERMANENT (∞): Zeitlose Fakten ("Was ist Python?")
+   ├─ Semantic Duplicate Check (distance < 0.3 zu existierenden Einträgen)
+   │  └─ IF duplicate: Lösche alten Eintrag (garantiert neueste Daten)
+   ├─ cache.add(query, answer, sources, metadata, ttl)
+   └─ Debug: "💾 Antwort gecacht (TTL: {volatility})"
 
 4. Format & Update History
    └─ Metadata: "(Agent: quick, {n} Quellen)"
@@ -579,6 +596,14 @@ USER INPUT
                        ┌─────────────────┐
                        │ Web Search      │
                        │ (Multi-API)     │
+                       │ → ~30 URLs      │
+                       └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │ URL-Ranking     │
+                       │ (Automatik-LLM) │
+                       │ → Top 3/7 URLs  │
                        └─────────────────┘
                                 │
                                 ▼
@@ -586,7 +611,7 @@ USER INPUT
                        │ PARALLEL TASKS  │
                        ├─────────────────┤
                        │ • Scraping      │
-                       │   (3 or 7 URLs) │
+                       │   (ranked URLs) │
                        │ • LLM Preload   │
                        │   (async)       │
                        └─────────────────┘
@@ -604,8 +629,8 @@ USER INPUT
                                 │
                                 ▼
                        ┌─────────────────┐
-                       │ Cache Decision  │
-                       │ (Automatik-LLM) │
+                       │ Cache-Speicher  │
+                       │ (TTL vom LLM)   │
                        └─────────────────┘
                                 │
                                 ▼
@@ -614,27 +639,60 @@ USER INPUT
                        └─────────────────┘
 ```
 
-### 📁 Code Structure Reference
+### 📁 Code-Struktur-Referenz
 
-**Core Entry Points:**
-- `aifred/state.py` - Main state management, send_message()
+**Kern-Einstiegspunkte:**
+- `aifred/state.py` - Haupt-State-Management, send_message()
 
-**Automatik Mode:**
-- `aifred/lib/conversation_handler.py` - Decision logic, RAG context
+**Automatik-Modus:**
+- `aifred/lib/conversation_handler.py` - Entscheidungslogik, RAG-Kontext
 
-**Web Research Pipeline:**
-- `aifred/lib/research/orchestrator.py` - Top-level orchestration
-- `aifred/lib/research/cache_handler.py` - Session cache
-- `aifred/lib/research/query_processor.py` - Query optimization + search
-- `aifred/lib/research/scraper_orchestrator.py` - Parallel scraping
-- `aifred/lib/research/context_builder.py` - Context building + LLM
+**Web-Research-Pipeline:**
+- `aifred/lib/research/orchestrator.py` - Top-Level-Orchestrierung (inkl. URL-Ranking)
+- `aifred/lib/research/cache_handler.py` - Session-Cache
+- `aifred/lib/research/query_processor.py` - Query-Optimierung + Suche
+- `aifred/lib/research/url_ranker.py` - LLM-basiertes URL-Relevanz-Ranking (NEU)
+- `aifred/lib/research/scraper_orchestrator.py` - Paralleles Scraping
+- `aifred/lib/research/context_builder.py` - Context-Building + LLM
 
-**Supporting Modules:**
-- `aifred/lib/vector_cache.py` - ChromaDB semantic cache
-- `aifred/lib/rag_context_builder.py` - RAG context from cache
-- `aifred/lib/query_optimizer.py` - Search query optimization
-- `aifred/lib/intent_detector.py` - Temperature selection
-- `aifred/lib/agent_tools.py` - Web search, scraping, context building
+**Unterstützende Module:**
+- `aifred/lib/vector_cache.py` - ChromaDB semantischer Cache
+- `aifred/lib/rag_context_builder.py` - RAG-Kontext aus Cache
+- `aifred/lib/intent_detector.py` - Temperatur-Auswahl
+- `aifred/lib/agent_tools.py` - Web-Suche, Scraping, Context-Building
+
+### 📝 Automatik-LLM Prompts Referenz
+
+Das Automatik-LLM nutzt dedizierte Prompts in `prompts/{de,en}/automatik/` für verschiedene Entscheidungen:
+
+| Prompt | Sprache | Wann aufgerufen | Zweck |
+|--------|---------|-----------------|-------|
+| `intent_detection.txt` | nur EN | Pre-Processing | Query-Intent bestimmen (FACTUAL/MIXED/CREATIVE) und Addressee |
+| `research_decision.txt` | DE + EN | Phase 4 | Entscheiden ob Web-Recherche nötig + Queries generieren |
+| `rag_relevance_check.txt` | DE + EN | Phase 2 (RAG) | Prüfen ob Cache-Eintrag zur aktuellen Frage relevant ist |
+| `followup_intent_detection.txt` | DE + EN | Cache-Nachfrage | Erkennen ob User mehr Details aus Cache möchte |
+| `url_ranking.txt` | nur EN | Phase 2.5 | URLs nach Relevanz ranken (Output: numerische Indizes) |
+
+**Sprach-Regeln:**
+- **nur EN**: Output ist strukturiert/numerisch (parsebar), Sprache beeinflusst Ergebnis nicht
+- **DE + EN**: Output hängt von User-Sprache ab oder erfordert semantisches Verständnis in dieser Sprache
+
+**Prompt-Verzeichnisstruktur:**
+```
+prompts/
+├── de/
+│   └── automatik/
+│       ├── research_decision.txt      # Deutsche Queries für deutsche User
+│       ├── rag_relevance_check.txt    # Deutsches semantisches Matching
+│       └── followup_intent_detection.txt
+└── en/
+    └── automatik/
+        ├── intent_detection.txt       # Universelle Intent-Erkennung
+        ├── research_decision.txt      # Englische Queries (Query 1 immer EN)
+        ├── rag_relevance_check.txt    # Englisches semantisches Matching
+        ├── followup_intent_detection.txt
+        └── url_ranking.txt            # Numerischer Output (Indizes)
+```
 
 ---
 

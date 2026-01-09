@@ -9,8 +9,10 @@ import time
 from typing import Dict, List, Optional, AsyncIterator
 
 from ..llm_client import LLMClient
+from ..logging_utils import log_message
 from .cache_handler import handle_cache_hit
 from .query_processor import process_query_and_search
+from .url_ranker import rank_urls_by_relevance
 from .scraper_orchestrator import orchestrate_scraping
 from .context_builder import build_and_generate_response
 
@@ -121,6 +123,8 @@ async def perform_agent_research(
     query_reasoning = None
     query_opt_time = 0.0
     related_urls = []
+    titles = []
+    snippets = []
     tool_results = []
 
     async for item in process_query_and_search(
@@ -133,9 +137,44 @@ async def perform_agent_research(
         pre_generated_queries=pre_generated_queries  # Skip Query-Opt if already generated
     ):
         if item["type"] == "query_result":
-            optimized_query, query_reasoning, query_opt_time, related_urls, tool_results = item["data"]
+            optimized_query, query_reasoning, query_opt_time, related_urls, titles, snippets, tool_results = item["data"]
         else:
             yield item
+
+    # ==============================================================
+    # PHASE 2.5: LLM-based URL Ranking (before scraping)
+    # ==============================================================
+    # Rank URLs by relevance if we have metadata (titles/snippets)
+    # This ensures we scrape the most relevant URLs first
+    if related_urls and titles and snippets:
+        # Determine how many URLs to rank for (based on mode)
+        top_n = 7 if mode == "deep" else 3
+
+        yield {"type": "debug", "message": f"🎯 Ranking {len(related_urls)} URLs by relevance..."}
+
+        ranked_urls, ranking_indices, debug_summary = await rank_urls_by_relevance(
+            user_question=user_text,
+            urls=related_urls,
+            titles=titles,
+            snippets=snippets,
+            automatik_llm_client=automatik_llm_client,
+            automatik_model=automatik_model,
+            top_n=top_n,
+            llm_options=llm_options
+        )
+
+        # Debug console output: Show ranking result
+        if debug_summary:
+            yield {"type": "debug", "message": f"📋 {debug_summary}"}
+
+        if ranked_urls != related_urls[:top_n]:
+            # Ranking changed the order - show debug info
+            yield {"type": "debug", "message": f"✅ Top {len(ranked_urls)} URLs selected by relevance"}
+            log_message(f"🎯 URL Ranking: {len(related_urls)} → Top {len(ranked_urls)} by relevance")
+
+        related_urls = ranked_urls
+    else:
+        log_message("⏭️ URL ranking skipped (no metadata or direct URLs)")
 
     # ==============================================================
     # PHASE 3: Parallel Web Scraping
@@ -162,7 +201,6 @@ async def perform_agent_research(
     # PHASE 3.5: Fallback to Web-Search if Scraping Failed (0 Sources)
     # ==============================================================
     from ..agent_tools import search_web
-    from ..logging_utils import log_message
 
     if len(scraped_results) == 0 and related_urls:
         # All scraping attempts failed (Cloudflare, 404, Timeout, etc.)

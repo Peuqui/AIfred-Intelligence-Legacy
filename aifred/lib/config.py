@@ -700,31 +700,6 @@ CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Very similar (semantic duplicate, alwa
 # RAG-Mode Distance Threshold
 CACHE_DISTANCE_RAG = 1.2  # < 1.2 = Similar enough for RAG context (implemented later)
 
-# Volatile Keywords - Loaded from prompts/cache_volatile_keywords.txt
-# These keywords trigger an LLM decision whether to cache anyway
-def _load_volatile_keywords():
-    """
-    Load volatile keywords from file (multilingual).
-    File contains both German and English keywords.
-    """
-    keywords = []
-    keywords_file = PROJECT_ROOT / "prompts" / "cache_volatile_keywords.txt"
-
-    try:
-        with open(keywords_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                # Skip comments and empty lines
-                if line and not line.startswith('#'):
-                    keywords.append(line)
-    except FileNotFoundError:
-        import warnings
-        warnings.warn(f"⚠️ Keywords file not found: {keywords_file}, using empty list")
-
-    return keywords
-
-CACHE_EXCLUDE_VOLATILE = _load_volatile_keywords()
-
 # ============================================================
 # XML TAG FORMATTING CONFIGURATION
 # ============================================================

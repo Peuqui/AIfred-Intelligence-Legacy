@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 from ..agent_tools import search_web_multi
 from ..logging_utils import log_message
-from ..tools.url_utils import deduplicate_urls
+from ..tools.url_utils import deduplicate_urls, deduplicate_urls_with_metadata
 
 
 def extract_model_name(model_display: str) -> str:
@@ -200,14 +200,14 @@ async def process_query_and_search(
 
         yield {"type": "debug", "message": "⚡ Direct-Scraping mode (Skip Query-Opt & Search)"}
 
-        # Set results directly
+        # Set results directly (no titles/snippets for direct URLs)
         optimized_query = detected_urls[0] if len(detected_urls) == 1 else f"{len(detected_urls)} URLs"
         query_reasoning = "Direct URL detected - skipped optimization and search"
         query_opt_time = 0.0
         related_urls = detected_urls
 
-        # Return results
-        yield {"type": "query_result", "data": (optimized_query, query_reasoning, query_opt_time, related_urls, tool_results)}
+        # Return results (empty titles/snippets - direct URLs skip ranking)
+        yield {"type": "query_result", "data": (optimized_query, query_reasoning, query_opt_time, related_urls, [], [], tool_results)}
         return
 
     # ============================================================
@@ -236,7 +236,7 @@ async def process_query_and_search(
             query_opt_time = 0.0
             related_urls = detected_urls
 
-            yield {"type": "query_result", "data": (optimized_query, query_reasoning, query_opt_time, related_urls, tool_results)}
+            yield {"type": "query_result", "data": (optimized_query, query_reasoning, query_opt_time, related_urls, [], [], tool_results)}
             return
 
         # Query Optimization for text without URLs
@@ -294,15 +294,23 @@ async def process_query_and_search(
 
         # Combine detected URLs with search results
         search_urls = search_result.get('related_urls', [])
-        related_urls = detected_urls + search_urls
+        search_titles = search_result.get('titles', [])
+        search_snippets = search_result.get('snippets', [])
 
-        # Deduplicate combined list
-        related_urls = deduplicate_urls(related_urls)
+        # Detected URLs have no titles/snippets from search
+        all_urls = detected_urls + search_urls
+        all_titles = [""] * len(detected_urls) + search_titles
+        all_snippets = [""] * len(detected_urls) + search_snippets
+
+        # Deduplicate combined list with metadata
+        related_urls, titles, snippets = deduplicate_urls_with_metadata(
+            all_urls, all_titles, all_snippets
+        )
 
         yield {"type": "debug", "message": f"🔀 Total: {len(related_urls)} URLs (direct + search)"}
 
-        # Return results (first query for display, all queries in search_result)
-        yield {"type": "query_result", "data": (optimized_queries[0], query_reasoning, query_opt_time, related_urls, tool_results)}
+        # Return results with titles/snippets for ranking
+        yield {"type": "query_result", "data": (optimized_queries[0], query_reasoning, query_opt_time, related_urls, titles, snippets, tool_results)}
         return
 
     # ============================================================
@@ -363,8 +371,11 @@ async def process_query_and_search(
         log_message(f"🌐 Web search with: {api_source}")
         yield {"type": "debug", "message": f"🌐 Web search with: {api_source}"}
 
-    # Extract URLs
+    # Extract URLs and metadata
     related_urls = search_result.get('related_urls', [])
+    titles = search_result.get('titles', [])
+    snippets = search_result.get('snippets', [])
 
     # Return results as last yield (first query for display, all queries in search_result)
-    yield {"type": "query_result", "data": (optimized_queries[0], query_reasoning, query_opt_time, related_urls, tool_results)}
+    # Extended with titles/snippets for LLM-based URL ranking
+    yield {"type": "query_result", "data": (optimized_queries[0], query_reasoning, query_opt_time, related_urls, titles, snippets, tool_results)}

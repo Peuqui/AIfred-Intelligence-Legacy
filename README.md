@@ -453,11 +453,35 @@ When an agent is directly addressed, that agent is activated immediately, regard
 - Limited to 3 turns to keep prompt focused
 - Vision JSON injected for image-based searches
 
+#### Phase 2.5: LLM-based URL Ranking (NEW in v2.15.30)
+```
+1. URL Ranking (Automatik-LLM)
+   ├─ Input: ~30 URLs with titles and snippets from search APIs
+   ├─ Model: Automatik-LLM
+   ├─ Prompt: url_ranking.txt (EN only - output is numeric)
+   ├─ Options:
+   │  ├─ temperature: 0.0 (deterministic ranking)
+   │  └─ num_predict: 100 (short response)
+   ├─ Output: "3,7,1,12,5,8,2" (comma-separated indices)
+   └─ Result: Top 7 (deep) or Top 3 (quick) URLs by relevance
+
+2. Why LLM-based Ranking?
+   ├─ Semantic understanding of query-URL relevance
+   ├─ No maintenance of keyword lists or domain whitelists
+   ├─ Adapts to any topic (universal)
+   └─ Better than first-come-first-served ordering
+
+3. Skip Conditions:
+   ├─ Direct URL mode (user provided URLs directly)
+   ├─ Less than top_n URLs found
+   └─ No titles/snippets available (fallback to original order)
+```
+
 #### Phase 3: Parallel Web Scraping
 ```
 PARALLEL EXECUTION:
 ├─ ThreadPoolExecutor (max 5 workers)
-│  └─ Scrape Top 3 URLs simultaneously
+│  └─ Scrape Top 3/7 URLs (ranked by relevance)
 │     └─ Extract text content + word count
 │
 └─ Async Task: Main LLM Preload (Ollama only)
@@ -483,24 +507,17 @@ Progress Updates:
    ├─ Streaming: Yes
    └─ TTFT + Tokens/s measurement
 
-3. Cache Decision (ONLY for Web Research)
-   ├─ Check for volatile keywords (e.g., "today", "current", "now")
-   │  └─ IF volatile: Skip caching (time-critical info)
-   ├─ LLM Call (Automatik-LLM) - Cacheability Check
-   │  ├─ Prompt: cache_decision
-   │  ├─ Input: User query + LLM answer
-   │  ├─ Decision based on:
-   │  │  ├─ Timeless facts? (e.g., "What is Python?") → cacheable
-   │  │  ├─ Time-bound events? (e.g., "current news") → not_cacheable
-   │  │  ├─ Personal preferences? (e.g., "best restaurant") → not_cacheable
-   │  │  └─ Volatile data? (e.g., weather, stock prices) → not_cacheable
-   │  └─ Response: 'cacheable' | 'not_cacheable'
-   ├─ IF cacheable:
-   │  ├─ Semantic Duplicate Check (distance < 0.3 to existing entries)
-   │  │  └─ IF duplicate: Delete old entry (ensures latest data)
-   │  ├─ cache.add(query, answer, sources, metadata)
-   │  └─ Debug: "💾 Answer cached" or "🔄 Cache entry updated"
-   └─ ELSE: Debug: "⏭️ Answer not cached (volatile/time-bound)"
+3. Cache Decision (via Volatility Tag from Main LLM)
+   ├─ Main LLM includes <volatility>DAILY/WEEKLY/MONTHLY/PERMANENT</volatility>
+   ├─ Volatility determines TTL:
+   │  ├─ DAILY (24h): News, current events
+   │  ├─ WEEKLY (7d): Semi-current topics
+   │  ├─ MONTHLY (30d): Statistics, reports
+   │  └─ PERMANENT (∞): Timeless facts ("What is Python?")
+   ├─ Semantic Duplicate Check (distance < 0.3 to existing entries)
+   │  └─ IF duplicate: Delete old entry (ensures latest data)
+   ├─ cache.add(query, answer, sources, metadata, ttl)
+   └─ Debug: "💾 Answer cached (TTL: {volatility})"
 
 4. Format & Update History
    └─ Metadata: "(Agent: quick, {n} sources)"
@@ -663,6 +680,14 @@ USER INPUT
                        ┌─────────────────┐
                        │ Web Search      │
                        │ (Multi-API)     │
+                       │ → ~30 URLs      │
+                       └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │ URL Ranking     │
+                       │ (Automatik-LLM) │
+                       │ → Top 3/7 URLs  │
                        └─────────────────┘
                                 │
                                 ▼
@@ -670,7 +695,7 @@ USER INPUT
                        │ PARALLEL TASKS  │
                        ├─────────────────┤
                        │ • Scraping      │
-                       │   (3 or 7 URLs) │
+                       │   (ranked URLs) │
                        │ • LLM Preload   │
                        │   (async)       │
                        └─────────────────┘
@@ -689,8 +714,8 @@ USER INPUT
                                 │
                                 ▼
                        ┌─────────────────┐
-                       │ Cache Decision  │
-                       │ (Automatik-LLM) │
+                       │ Cache Storage   │
+                       │ (TTL from LLM)  │
                        └─────────────────┘
                                 │
                                 ▼
@@ -708,18 +733,51 @@ USER INPUT
 - `aifred/lib/conversation_handler.py` - Decision logic, RAG context
 
 **Web Research Pipeline:**
-- `aifred/lib/research/orchestrator.py` - Top-level orchestration
+- `aifred/lib/research/orchestrator.py` - Top-level orchestration (incl. URL ranking)
 - `aifred/lib/research/cache_handler.py` - Session cache
 - `aifred/lib/research/query_processor.py` - Query optimization + search
+- `aifred/lib/research/url_ranker.py` - LLM-based URL relevance ranking (NEW)
 - `aifred/lib/research/scraper_orchestrator.py` - Parallel scraping
 - `aifred/lib/research/context_builder.py` - Context building + LLM
 
 **Supporting Modules:**
 - `aifred/lib/vector_cache.py` - ChromaDB semantic cache
 - `aifred/lib/rag_context_builder.py` - RAG context from cache
-- `aifred/lib/query_optimizer.py` - Search query optimization
 - `aifred/lib/intent_detector.py` - Temperature selection
 - `aifred/lib/agent_tools.py` - Web search, scraping, context building
+
+### 📝 Automatik-LLM Prompts Reference
+
+The Automatik-LLM uses dedicated prompts in `prompts/{de,en}/automatik/` for various decisions:
+
+| Prompt | Language | When Called | Purpose |
+|--------|----------|-------------|---------|
+| `intent_detection.txt` | EN only | Pre-processing | Determine query intent (FACTUAL/MIXED/CREATIVE) and addressee |
+| `research_decision.txt` | DE + EN | Phase 4 | Decide if web research needed + generate queries |
+| `rag_relevance_check.txt` | DE + EN | Phase 2 (RAG) | Check if cached entry is relevant to current question |
+| `followup_intent_detection.txt` | DE + EN | Cache follow-up | Detect if user wants more details from cache |
+| `url_ranking.txt` | EN only | Phase 2.5 | Rank URLs by relevance (output: numeric indices) |
+
+**Language Rules:**
+- **EN only**: Output is structured/numeric (parseable), language doesn't affect result
+- **DE + EN**: Output depends on user's language or requires semantic understanding in that language
+
+**Prompt Directory Structure:**
+```
+prompts/
+├── de/
+│   └── automatik/
+│       ├── research_decision.txt      # German queries for German users
+│       ├── rag_relevance_check.txt    # German semantic matching
+│       └── followup_intent_detection.txt
+└── en/
+    └── automatik/
+        ├── intent_detection.txt       # Universal intent detection
+        ├── research_decision.txt      # English queries (Query 1 always EN)
+        ├── rag_relevance_check.txt    # English semantic matching
+        ├── followup_intent_detection.txt
+        └── url_ranking.txt            # Numeric output (indices)
+```
 
 ---
 

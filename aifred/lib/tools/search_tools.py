@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .base import BaseTool, RateLimitError, APIKeyMissingError
-from .url_utils import deduplicate_urls
+from .url_utils import deduplicate_urls, deduplicate_urls_with_metadata
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -485,6 +485,8 @@ class MultiAPISearchTool(BaseTool):
 
         # Parallel Execution
         all_urls = []
+        all_titles = []
+        all_snippets = []
         successful_apis = []
         failed_apis = []
         query_results = []  # Detailed results per query
@@ -504,8 +506,12 @@ class MultiAPISearchTool(BaseTool):
 
                     if result.get('success') and result.get('related_urls'):
                         urls = result['related_urls']
+                        titles = result.get('titles', [])
+                        snippets = result.get('snippets', [])
                         logger.info(f"✅ {api.name} ({query[:30]}...): {len(urls)} URLs")
                         all_urls.extend(urls)
+                        all_titles.extend(titles + [""] * (len(urls) - len(titles)))
+                        all_snippets.extend(snippets + [""] * (len(urls) - len(snippets)))
                         successful_apis.append(api.name)
                         query_results.append({
                             'query': query,
@@ -555,12 +561,16 @@ class MultiAPISearchTool(BaseTool):
                 'source': 'Multi-API Search (Multi-Query)',
                 'queries': queries,
                 'related_urls': [],
+                'titles': [],
+                'snippets': [],
                 'query_results': query_results,
                 'error': f'All queries failed. Details: {error_summary}'
             }
 
-        # Deduplication
-        unique_urls = deduplicate_urls(all_urls)
+        # Deduplication (with metadata preservation)
+        unique_urls, unique_titles, unique_snippets = deduplicate_urls_with_metadata(
+            all_urls, all_titles, all_snippets
+        )
 
         logger.info(f"🔄 Multi-Query result: {len(all_urls)} URLs → {len(unique_urls)} unique")
 
@@ -570,6 +580,8 @@ class MultiAPISearchTool(BaseTool):
             'apis_used': list(set(successful_apis)),  # Unique API names
             'queries': queries,
             'related_urls': unique_urls,
+            'titles': unique_titles,
+            'snippets': unique_snippets,
             'query_results': query_results,
             'stats': {
                 'total_queries': num_queries,

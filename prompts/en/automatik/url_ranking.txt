@@ -1,0 +1,20 @@
+Rank these URLs by relevance for the user's question.
+
+USER QUESTION: {user_question}
+
+SEARCH RESULTS (Index: Title - Snippet):
+{url_list}
+
+TASK:
+Select the {top_n} most relevant URLs for answering the user's question.
+Consider:
+- Direct relevance to the question topic
+- Source quality (official docs, reputable sites)
+- Content freshness (if time-sensitive)
+- Snippet informativeness
+
+OUTPUT FORMAT:
+Return ONLY a comma-separated list of indices (0-based), most relevant first.
+Example: 3,7,1,12,5,8,2
+
+INDICES:
