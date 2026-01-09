@@ -20,6 +20,12 @@ KEINE Web-Recherche (web=false):
 • Allgemeinwissen/Mathe/Chat
 • Definitionen/Erklaerungen von Konzepten
 • Wenn strukturierte Daten aus Bildern vorhanden: Nutze sie fuer die Entscheidung
+• WICHTIG: Wenn vorherige Nachrichten im Chat die EXAKTE Antwort enthalten
+
+Web-Recherche NOETIG bei Folgefragen (web=true):
+• Wenn die Frage Details verlangt, die NICHT in vorherigen Nachrichten stehen
+• Wenn du die Antwort nur vermuten/erfinden koenntest → IMMER recherchieren!
+• Beispiel: "Wo wurde der Film gedreht?" → Pruefe ob Drehorte in History erwaehnt wurden, wenn NEIN → web=true
 
 ## QUERY-REGELN (nur wenn web=true)
 

@@ -20,6 +20,12 @@ NO web research (web=false):
 • General knowledge/Math/Chat
 • Definitions/explanations of concepts
 • If structured data from images is available: Use it for your decision
+• IMPORTANT: If previous messages in chat contain the EXACT answer
+
+Web research NEEDED for follow-up questions (web=true):
+• If the question asks for details NOT present in previous messages
+• If you would have to guess/invent the answer → ALWAYS research!
+• Example: "Where was the movie filmed?" → Check if filming locations are mentioned in history, if NO → web=true
 
 ## QUERY RULES (only if web=true)
 

@@ -15,7 +15,7 @@ import time
 from typing import Dict, List, Optional, AsyncIterator
 
 from .llm_client import LLMClient
-from .logging_utils import log_message, CONSOLE_SEPARATOR
+from .logging_utils import log_message, log_raw_messages, CONSOLE_SEPARATOR
 from .prompt_loader import (
     get_research_decision_prompt,
     get_vision_ocr_prompt,
@@ -490,7 +490,8 @@ async def detect_research_decision(
     automatik_model: str,
     has_images: bool = False,
     vision_json_context: Optional[Dict] = None,
-    detected_language: str = "de"
+    detected_language: str = "de",
+    llm_history: Optional[List[Dict[str, str]]] = None
 ) -> Dict:
     """
     Combined Decision-Making + Query-Optimization in one LLM call.
@@ -506,6 +507,7 @@ async def detect_research_decision(
         has_images: Whether the message includes image(s)
         vision_json_context: Structured data extracted from images
         detected_language: Language from Intent Detection ("de" or "en")
+        llm_history: Optional chat history for context (resolves pronouns like "this", "he", etc.)
 
     Returns:
         Dict with keys:
@@ -534,8 +536,38 @@ async def detect_research_decision(
     log_message(f"Prompt length: {len(prompt)} chars, ~{len(prompt.split())} words")
     log_message("=" * 60)
 
-    # Build message (no history for decision)
-    messages = [LLMMessage(role="user", content=prompt)]
+    # Build messages with optional history context
+    # Reserve 2/3 of context for history, 1/3 for prompt + output
+    messages: List[LLMMessage] = []
+
+    if llm_history and len(llm_history) > 0:
+        max_history_tokens = (AUTOMATIK_LLM_NUM_CTX * 2) // 3  # 2/3 for history
+        history_tokens = 0
+        selected_history: List[Dict[str, str]] = []
+
+        # Iterate from newest to oldest, add until token limit
+        # Use proper tokenizer for accurate estimation
+        for entry in reversed(llm_history):
+            entry_tokens = estimate_tokens([entry])
+            if history_tokens + entry_tokens > max_history_tokens:
+                break
+            selected_history.insert(0, entry)  # Prepend to maintain order
+            history_tokens += entry_tokens
+
+        # Add history messages
+        for entry in selected_history:
+            role = entry.get("role", "user")
+            content = entry.get("content", "")
+            # Strip [AIFRED]: prefix for cleaner context
+            if content.startswith("[AIFRED]:"):
+                content = content[9:].strip()
+            messages.append(LLMMessage(role=role, content=content))
+
+        if selected_history:
+            log_message(f"📜 History context: {len(selected_history)} entries, ~{int(history_tokens)} tokens")
+
+    # Add the actual prompt as final user message
+    messages.append(LLMMessage(role="user", content=prompt))
 
     # LLM options: JSON format for reliable parsing
     options = {
@@ -547,6 +579,9 @@ async def detect_research_decision(
     }
 
     decision_start = time.time()
+
+    # DEBUG: Log raw messages sent to Automatik-LLM
+    log_raw_messages("AUTOMATIK-LLM (detect_research_decision)", messages, estimate_tokens)
 
     try:
         response = await automatik_llm_client.chat(
@@ -1151,7 +1186,8 @@ async def chat_interactive_mode(
                 automatik_model=automatik_model,
                 has_images=has_images,
                 vision_json_context=vision_json_context,
-                detected_language=detected_language
+                detected_language=detected_language,
+                llm_history=llm_history[:-1] if len(llm_history) > 1 else None
             )
             pre_generated_queries = research_result.get("queries", [])
             query_gen_time = research_result.get("decision_time", 0)
@@ -1552,7 +1588,8 @@ async def chat_interactive_mode(
                 automatik_model=automatik_model,
                 has_images=has_images,
                 vision_json_context=vision_json_context,
-                detected_language=detected_user_language
+                detected_language=detected_user_language,
+                llm_history=llm_history[:-1] if len(llm_history) > 1 else None
             )
 
             decision_time = research_result["decision_time"]

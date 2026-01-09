@@ -150,6 +150,59 @@ def debug_print_prompt(prompt_type: str, prompt: str, model_name: str) -> None:
     log_message("=" * 60)
 
 
+def log_raw_messages(agent_name: str, messages: list, token_counter=None) -> None:
+    """
+    Log RAW messages sent to an LLM (debug.log only).
+
+    Only logs when DEBUG_LOG_RAW_MESSAGES is True in config.py.
+    Logs full message content with token counts.
+
+    Args:
+        agent_name: Name of the agent/LLM (e.g., "AUTOMATIK-LLM", "Sokrates")
+        messages: List of message objects with 'role' and 'content' attributes/keys
+        token_counter: Optional function to count tokens (receives [{"content": str}])
+    """
+    from .config import DEBUG_LOG_RAW_MESSAGES
+
+    if not DEBUG_LOG_RAW_MESSAGES:
+        return
+
+    log_message("=" * 80)
+    log_message(f"📤 [RAW] {agent_name}")
+    log_message("=" * 80)
+
+    total_tokens = 0
+    for i, msg in enumerate(messages):
+        # Support both dict and object with attributes
+        if hasattr(msg, 'role'):
+            role = msg.role
+            content = msg.content
+        else:
+            role = msg.get("role", "?")
+            content = msg.get("content", "")
+
+        # Count tokens if counter provided
+        msg_tokens = 0
+        if token_counter and content:
+            try:
+                msg_tokens = token_counter([{"content": content}])
+                total_tokens += msg_tokens
+            except Exception:
+                pass
+
+        token_info = f", tokens={msg_tokens}" if token_counter else ""
+        log_message(f"[{i}] role={role}{token_info}")
+        log_message("-" * 40)
+        log_message(content)
+        log_message("-" * 40)
+
+    if token_counter:
+        log_message(f"TOTAL: {len(messages)} messages, {total_tokens} tokens")
+    else:
+        log_message(f"TOTAL: {len(messages)} messages")
+    log_message("=" * 80)
+
+
 def debug_print_messages(messages: list, model_name: str, context: str = "", **llm_params) -> None:
     """
     Logs LLM messages array with standardized formatting

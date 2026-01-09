@@ -39,27 +39,8 @@ from .prompt_loader import (
     get_salomo_mediator_prompt,
     get_salomo_judge_prompt,
 )
-from .logging_utils import log_message, console_separator
-from .config import DEBUG_LOG_RAW_MESSAGES
+from .logging_utils import log_message, log_raw_messages, console_separator
 from ..backends.base import LLMOptions
-
-
-def _log_raw_messages(agent_name: str, round_num: int, messages: list) -> None:
-    """
-    Log RAW messages sent to an LLM (debug.log only).
-
-    Only logs when DEBUG_LOG_RAW_MESSAGES is True in config.py.
-    Useful for debugging prompt injection and agent confusion issues.
-    """
-    if not DEBUG_LOG_RAW_MESSAGES:
-        return
-
-    log_message(f"📤 [RAW] {agent_name} R{round_num} - {len(messages)} messages:")
-    for i, msg in enumerate(messages):
-        role = msg.get("role", "?")
-        content = msg.get("content", "")
-        preview = content[:200].replace("\n", "\\n") if content else ""
-        log_message(f"   [{i}] role={role}, len={len(content)}: {preview}...")
 
 if TYPE_CHECKING:
     from ..state import AIState
@@ -1048,7 +1029,7 @@ async def run_sokrates_analysis(
             )
 
             # DEBUG: Log RAW messages sent to Sokrates (controlled by DEBUG_LOG_RAW_MESSAGES)
-            _log_raw_messages("Sokrates", round_num, sokrates_messages)
+            log_raw_messages(f"Sokrates R{round_num}", sokrates_messages)
 
             # Stream Sokrates response (unified streaming box shows content)
             result = None
@@ -1164,7 +1145,7 @@ async def run_sokrates_analysis(
                 )
 
                 # DEBUG: Log RAW messages sent to Salomo (controlled by DEBUG_LOG_RAW_MESSAGES)
-                _log_raw_messages("Salomo", round_num, salomo_messages)
+                log_raw_messages(f"Salomo R{round_num}", salomo_messages)
 
                 # Stream Salomo response (unified streaming box shows content)
                 salomo_result = None
@@ -1281,7 +1262,7 @@ async def run_sokrates_analysis(
                     )
 
                     # DEBUG: Log RAW messages sent to AIfred (controlled by DEBUG_LOG_RAW_MESSAGES)
-                    _log_raw_messages("AIfred", round_num + 1, alfred_messages)
+                    log_raw_messages(f"AIfred R{round_num + 1}", alfred_messages)
 
                     # Stream AIfred refinement (unified streaming box shows content)
                     alfred_result = None

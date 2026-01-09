@@ -5,6 +5,44 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.31] - 2026-01-09
+
+### Added
+
+- **LLM History for Automatik-LLM** ([conversation_handler.py](aifred/lib/conversation_handler.py), [state.py](aifred/state.py)):
+  - `detect_research_decision` now receives `llm_history` parameter
+  - Enables pronoun resolution in follow-up questions ("dieser Film" → "Der Tiger 2025")
+  - Token-based history limiting: 2/3 of context for history, 1/3 for prompt+output
+  - Uses local Qwen3 tokenizer for accurate token counting
+
+- **Local Qwen3 Tokenizer** ([context_manager.py](aifred/lib/context_manager.py)):
+  - Replaced HuggingFace transformers with lightweight `tokenizers` library (~5MB vs ~500MB)
+  - Fully offline: reads from `~/.cache/huggingface/` - no network calls
+  - No fallback: errors surface immediately for debugging
+
+- **Centralized RAW Message Logging** ([logging_utils.py](aifred/lib/logging_utils.py)):
+  - New `log_raw_messages(agent_name, messages, token_counter)` function
+  - Full message content logged to debug.log (not just preview)
+  - Token count per message when token_counter provided
+  - Used by: Automatik-LLM, Sokrates, Salomo, AIfred, Compression LLM
+
+### Changed
+
+- **Research Decision Prompt** ([research_decision.txt](prompts/de/automatik/research_decision.txt), [research_decision.txt](prompts/en/automatik/research_decision.txt)):
+  - Added rule: Only skip research if EXACT answer is in chat history
+  - Added follow-up question rules: Research if details not in history
+  - Added anti-hallucination rule: "If you would have to guess → ALWAYS research!"
+  - Example added: "Where was movie filmed?" → check history for filming locations
+
+### Fixed
+
+- **Hallucination Prevention**:
+  - Automatik-LLM now checks if specific information is in history before deciding `web=false`
+  - Prevents AIfred from inventing plausible-sounding but false details
+  - Example: "Der Tiger" filming locations were hallucinated before this fix
+
+---
+
 ## [2.15.30] - 2026-01-09
 
 ### Added

@@ -3679,7 +3679,8 @@ class AIState(rx.State):
                     automatik_model=self.automatik_model_id,
                     has_images=bool(self.pending_images),
                     vision_json_context=None,  # No vision context in direct research mode
-                    detected_language=detected_language
+                    detected_language=detected_language,
+                    llm_history=self.llm_history[:-1] if len(self.llm_history) > 1 else None
                 )
                 pre_generated_queries = research_result.get("queries", [])
                 query_gen_time = research_result.get("decision_time", 0)

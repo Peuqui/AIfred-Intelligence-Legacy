@@ -12,7 +12,7 @@ import re
 import time
 import asyncio
 from typing import Dict, List, Optional, AsyncIterator
-from .logging_utils import log_message, console_separator
+from .logging_utils import log_message, log_raw_messages, console_separator
 from .prompt_loader import load_prompt
 from .formatting import format_number
 from .config import (
@@ -23,8 +23,7 @@ from .config import (
     HISTORY_SUMMARY_TOLERANCE,
     HISTORY_MAX_SUMMARIES,
     HISTORY_SUMMARY_MAX_RATIO,
-    HISTORY_SUMMARY_TEMPERATURE,
-    DEBUG_LOG_RAW_MESSAGES
+    HISTORY_SUMMARY_TEMPERATURE
 )
 
 # Global tokenizer cache (model_name -> tokenizer)
@@ -124,41 +123,52 @@ def get_largest_compression_model(
     return largest_model
 
 
-def count_tokens_with_tokenizer(text: str, model_name: str) -> int:
+def count_tokens_with_tokenizer(text: str) -> int:
     """
-    Count tokens using HuggingFace AutoTokenizer (cached, fast after first load)
+    Count tokens using local Qwen3 tokenizer (lightweight, fully offline)
+
+    Uses the tokenizers library with a locally cached tokenizer.json file.
+    No network calls - reads only from ~/.cache/huggingface/
 
     Args:
         text: Text to tokenize
-        model_name: HuggingFace model name (e.g., "Qwen/Qwen3-8B-AWQ")
 
     Returns:
         int: Exact token count
+
+    Raises:
+        FileNotFoundError: If tokenizer.json not found in cache
+        Exception: If tokenization fails
     """
     global _tokenizer_cache
 
-    # Check cache first
-    if model_name not in _tokenizer_cache:
-        try:
-            from transformers import AutoTokenizer
-            # Load tokenizer (cached by HuggingFace after first download)
-            _tokenizer_cache[model_name] = AutoTokenizer.from_pretrained(
-                model_name,
-                trust_remote_code=True,
-                local_files_only=False  # Allow download if not cached
-            )
-            log_message(f"✅ Loaded tokenizer for {model_name}")
-        except Exception as e:
-            log_message(f"⚠️ Could not load tokenizer for {model_name}: {e}")
-            return None
+    cache_key = "qwen3"  # Single tokenizer for all Qwen models
 
-    try:
-        tokenizer = _tokenizer_cache[model_name]
-        tokens = tokenizer.encode(text, add_special_tokens=True)
-        return len(tokens)
-    except Exception as e:
-        log_message(f"⚠️ Tokenization failed: {e}")
-        return None
+    if cache_key not in _tokenizer_cache:
+        from tokenizers import Tokenizer
+        import os
+        import glob
+
+        # Find cached tokenizer.json from local HuggingFace cache
+        cache_pattern = os.path.expanduser(
+            "~/.cache/huggingface/hub/models--Qwen--Qwen3-4B/snapshots/*/tokenizer.json"
+        )
+        matches = glob.glob(cache_pattern)
+
+        if not matches:
+            raise FileNotFoundError(
+                "Qwen3 tokenizer not found. Run: "
+                "python -c \"from transformers import AutoTokenizer; "
+                "AutoTokenizer.from_pretrained('Qwen/Qwen3-4B')\""
+            )
+
+        tokenizer_path = matches[0]
+        _tokenizer_cache[cache_key] = Tokenizer.from_file(tokenizer_path)
+        log_message("✅ Loaded Qwen3 tokenizer from local cache")
+
+    tokenizer = _tokenizer_cache[cache_key]
+    encoded = tokenizer.encode(text)
+    return len(encoded.ids)
 
 
 def strip_thinking_blocks(text: str) -> str:
@@ -204,17 +214,9 @@ def estimate_tokens(messages: List[Dict], model_name: Optional[str] = None) -> i
                     text_parts.append(part.get("text", ""))
 
     total_text = "\n".join(text_parts)
-    total_chars = len(total_text)
 
-    # Try real tokenizer first (if model_name provided)
-    if model_name:
-        token_count = count_tokens_with_tokenizer(total_text, model_name)
-        if token_count is not None:
-            return token_count
-
-    # Fallback: Conservative estimation (2.5 chars/token)
-    # This overestimates tokens by ~20% to prevent context overflow
-    return int(total_chars / 2.5)
+    # Use local Qwen3 tokenizer - no fallback, errors must surface
+    return count_tokens_with_tokenizer(total_text)
 
 
 def strip_non_llm_content(text: str) -> str:
@@ -843,10 +845,7 @@ async def summarize_history_if_needed(
         )
 
         # DEBUG: Log RAW messages sent to Compression LLM (controlled by DEBUG_LOG_RAW_MESSAGES)
-        if DEBUG_LOG_RAW_MESSAGES:
-            log_message("📤 [RAW] Compression - 1 message:")
-            preview = summary_prompt[:300].replace("\n", "\\n") if summary_prompt else ""
-            log_message(f"   [0] role=system, len={len(summary_prompt)}: {preview}...")
+        log_raw_messages("Compression LLM", messages)
 
         response = await llm_client.chat(
             model=model_name,
