@@ -122,8 +122,13 @@ async def build_and_generate_response(
         preview = context[:800] + "..."
         log_message(f"📝 Context Preview (first 800 chars):\n{preview}")
 
-    # Use pre-detected language from LLM intent detection, or fallback to English
-    detected_user_language = detected_language if detected_language else "en"
+    # Use pre-detected language from LLM intent detection, or fallback to UI language setting
+    if detected_language:
+        detected_user_language = detected_language
+    elif state and hasattr(state, 'ui_language'):
+        detected_user_language = state.ui_language
+    else:
+        detected_user_language = "de"  # Final fallback: German
 
     # System prompt with personality (if enabled)
     system_prompt = get_system_rag_prompt(

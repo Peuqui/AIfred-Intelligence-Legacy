@@ -260,6 +260,7 @@ def image_upload_section() -> rx.Component:
                 variant="soft",
                 color_scheme="green",
                 padding_y="24px",
+                width="160px",  # Fixed width for both Aufnahme and Stop states
                 on_click=AIState.toggle_audio_recording,  # Trigger JavaScript via State handler
                 disabled=AIState.is_generating | AIState.is_uploading_image,
             ),

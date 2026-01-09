@@ -156,6 +156,9 @@ async function uploadAudioBlob(blob) {
 function updateRecordingButton(recording) {
     const btn = document.querySelector('#recording-button');
     if (btn) {
+        // Fixed width for both Aufnahme and Stop states
+        btn.style.width = '160px';
+
         if (recording) {
             // Recording state - RED, show "Stop"
             btn.style.backgroundColor = '#dc2626'; // red-600

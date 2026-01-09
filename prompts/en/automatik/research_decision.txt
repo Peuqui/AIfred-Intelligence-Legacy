@@ -1,3 +1,5 @@
+**CURRENT DATE: {current_date}**
+
 Question: "{user_text}"{image_context}{vision_json_context}
 
 You have NO internet! Training data until Jan 2025.

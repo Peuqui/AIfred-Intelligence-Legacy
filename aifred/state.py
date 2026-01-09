@@ -3603,6 +3603,37 @@ class AIState(rx.State):
                     'enable_thinking': self.enable_thinking
                 }
 
+                # Generate search queries via research_decision
+                # This ensures pre_generated_queries is always provided to perform_agent_research
+                from .lib.conversation_handler import detect_research_decision
+                from .lib.formatting import format_number
+
+                self.add_debug("🔍 Generating search queries...")
+                yield
+
+                research_result = await detect_research_decision(
+                    user_text=user_msg,
+                    automatik_llm_client=llm_client,
+                    automatik_model=self.automatik_model_id,
+                    has_images=bool(self.pending_images),
+                    vision_json_context=None,  # No vision context in direct research mode
+                    detected_language=detected_language
+                )
+                pre_generated_queries = research_result.get("queries", [])
+                query_gen_time = research_result.get("decision_time", 0)
+
+                if pre_generated_queries:
+                    self.add_debug(f"✅ {len(pre_generated_queries)} queries generated ({format_number(query_gen_time, 1)}s)")
+                    for i, q in enumerate(pre_generated_queries, 1):
+                        self.add_debug(f"   {i}. {q}")
+                    yield
+                else:
+                    # No queries = LLM parsing error
+                    error_msg = "research_decision returned no queries (LLM parsing error?)"
+                    self.add_debug(f"❌ {error_msg}")
+                    yield
+                    raise ValueError(error_msg)
+
                 # REAL STREAMING: Call async generator directly
                 # Extract pure model names (remove size suffix like "(9.3 GB)")
                 async for item in perform_agent_research(
@@ -3622,7 +3653,8 @@ class AIState(rx.State):
                     state=self,  # For per-agent num_ctx lookup
                     user_name=self.user_name,  # For personalized prompts
                     detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
-                    detected_language=detected_language  # Pass LLM-detected language (avoids regex detection)
+                    detected_language=detected_language,  # Pass LLM-detected language (avoids regex detection)
+                    pre_generated_queries=pre_generated_queries  # Skip Query-Opt LLM call
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":

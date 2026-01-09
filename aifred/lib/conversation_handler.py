@@ -29,7 +29,7 @@ from .message_builder import (
 )
 from .formatting import format_thinking_process, format_metadata, format_number, format_age
 # Cache system removed - will be replaced with Vector DB
-from .context_manager import estimate_tokens, strip_thinking_blocks, calculate_dynamic_num_ctx
+from .context_manager import estimate_tokens, strip_thinking_blocks
 from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
 from .streaming_utils import stream_llm_response, log_llm_completion
 from .config import (
@@ -1141,6 +1141,35 @@ async def chat_interactive_mode(
 
             # Proceed with fresh web research (no exact match or error)
             yield {"type": "debug", "message": "🌐 Starting fresh web research..."}
+
+            # Generate queries via research_decision (even for explicit requests)
+            # This ensures pre_generated_queries is always provided to perform_agent_research
+            yield {"type": "debug", "message": "🔍 Generating search queries..."}
+
+            # Check if images are present (for research_decision context)
+            has_images = (pending_images is not None and len(pending_images) > 0) or (vision_json_context is not None)
+
+            research_result = await detect_research_decision(
+                user_text=user_text,
+                automatik_llm_client=automatik_llm_client,
+                automatik_model=automatik_model,
+                has_images=has_images,
+                vision_json_context=vision_json_context,
+                detected_language=detected_language
+            )
+            pre_generated_queries = research_result.get("queries", [])
+            query_gen_time = research_result.get("decision_time", 0)
+
+            if pre_generated_queries:
+                yield {"type": "debug", "message": f"✅ {len(pre_generated_queries)} queries generated ({format_number(query_gen_time, 1)}s)"}
+                # Query list is shown in query_processor.py with API assignments
+            else:
+                # No queries = LLM parsing error. Log and raise for debugging.
+                error_msg = "research_decision returned no queries (LLM parsing error?)"
+                log_message(f"❌ {error_msg}")
+                yield {"type": "debug", "message": f"❌ {error_msg}"}
+                raise ValueError(error_msg)
+
             async for item in perform_agent_research(
                 user_text=user_text,
                 stt_time=stt_time,
@@ -1158,7 +1187,9 @@ async def chat_interactive_mode(
                 state=state,  # Pass state for per-agent num_ctx lookup
                 vision_json_context=vision_json_context,  # CRITICAL: Pass Vision JSON to Research flow
                 user_name=user_name,  # For personalized prompts
-                detected_intent=detected_intent  # Pass pre-detected intent (avoids duplicate LLM call)
+                detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
+                detected_language=detected_language,  # CRITICAL: Pass language for correct response language
+                pre_generated_queries=pre_generated_queries  # Skip Query-Opt LLM call
             ):
                 yield item
             return  # Generator ends after forwarding all items
@@ -1538,8 +1569,7 @@ async def chat_interactive_mode(
 
             if web_research_needed and pre_generated_queries:
                 yield {"type": "debug", "message": f"🔎 {len(pre_generated_queries)} queries pre-generated"}
-                for i, q in enumerate(pre_generated_queries, 1):
-                    yield {"type": "debug", "message": f"   {i}. {q}"}
+                # Query list with API assignments shown in query_processor.py
 
             log_message(f"🤖 AI decision: {decision_label} ({format_number(decision_time, 1)}s)")
 
