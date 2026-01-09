@@ -1371,6 +1371,40 @@ Das `--env prod` Flag im ExecStart:
 - Reduziert Ressourcenverbrauch (kein Dev-Server Overhead)
 - Kompiliert trotzdem bei Neustart wenn sich Code geändert hat
 
+**⚠️ FOUC-Problem im Prod-Modus**
+
+Im Produktionsmodus (`--env prod`) kann ein **FOUC (Flash of Unstyled Content)** auftreten - ein kurzer Blitz von ungestyltem Text/CSS-Klassennamen beim Seiten-Reload.
+
+**Ursache:** React Router 7 mit `prerender: true` lädt CSS asynchron (Lazy Loading). Der generierte HTML-Code ist sofort sichtbar, aber das Emotion CSS-in-JS wird erst nachgeladen.
+
+**Lösung: Dev-Modus verwenden**
+
+Wenn der FOUC störend ist, kann stattdessen der Dev-Modus verwendet werden:
+
+```bash
+# In .env setzen:
+AIFRED_ENV=dev
+
+# Oder --env prod aus dem systemd Service entfernen
+```
+
+**Dev-Modus Eigenschaften:**
+- ✅ Kein FOUC (CSS wird synchron geladen)
+- ⚠️ Etwas höherer RAM-Verbrauch (Hot Reload Server)
+- ⚠️ Mehr Console-Warnungen (React Strict Mode)
+- ⚠️ Nicht-minifizierte Bundles (etwas größer)
+
+Für einen lokalen Server im Heimnetz sind diese Nachteile vernachlässigbar.
+
+**Zusätzlich nötig für Dev-Modus mit externem Zugriff:**
+
+In `.web/vite.config.js` muss `allowedHosts` erweitert werden (wird bei jedem Build überschrieben!):
+```javascript
+server: {
+  allowedHosts: ["deine-domain.de", "localhost", "127.0.0.1"],
+}
+```
+
 2. Service aktivieren:
 ```bash
 sudo systemctl daemon-reload
