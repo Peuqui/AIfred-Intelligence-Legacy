@@ -335,7 +335,7 @@ async def build_and_generate_response(
     # Update history
     total_time = time.time() - agent_start
     ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
-    metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Web Research")
+    metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Web Research ({model_choice})")
 
     if stt_time > 0:
         user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s    Agent: {mode}    {len(scraped_only)} sources")
