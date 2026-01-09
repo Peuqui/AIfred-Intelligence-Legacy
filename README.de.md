@@ -284,21 +284,31 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
    └─ BYPASS Automatik decision
 ```
 
-#### Phase 4: Automatik Decision
+#### Phase 4: Automatik Decision (Kombinierter LLM-Call)
 ```
-1. LLM Call - Decision Making
-   ├─ Model: Automatik-LLM (z.B. Qwen2.5-3B)
-   ├─ Prompt: decision_making
-   ├─ Messages: NO history (focused decision)
+1. LLM Call - Research Decision + Query Generation (kombiniert)
+   ├─ Model: Automatik-LLM (z.B. Qwen3:4B)
+   ├─ Prompt: research_decision.txt
+   │  ├─ Enthält: Aktuelles Datum (für zeitbezogene Queries)
+   │  ├─ Vision-Kontext bei angehängten Bildern
+   │  └─ Strukturierte JSON-Ausgabe
+   ├─ Messages: KEINE History (fokussierte, unvoreingenommene Entscheidung)
    ├─ Options:
-   │  ├─ temperature: 0.2 (consistent decisions)
-   │  ├─ num_ctx: min(2048, automatik_limit // 2)
-   │  └─ enable_thinking: False (fast)
-   └─ Response: '<search>yes</search>' | '<search>no</search>'
+   │  ├─ temperature: 0.2 (konsistente Entscheidungen)
+   │  ├─ num_ctx: 4096 (AUTOMATIK_LLM_NUM_CTX)
+   │  ├─ num_predict: 256
+   │  └─ enable_thinking: False (schnell)
+   └─ Response: {"web": true, "queries": ["EN query", "DE query 1", "DE query 2"]}
+              ODER {"web": false}
 
-2. Parse decision:
-   ├─ IF yes: → Web Research (mode='deep')
-   └─ IF no:  → Direct LLM Answer (Phase 5)
+2. Query-Regeln (bei web=true):
+   ├─ Query 1: IMMER auf Englisch (internationale Quellen)
+   ├─ Query 2-3: In der Sprache der Frage
+   └─ Jede Query: 4-8 Keywords
+
+3. Parse decision:
+   ├─ IF web=true: → Web Research mit vorgenerierten Queries
+   └─ IF web=false: → Direct LLM Answer (Phase 5)
 ```
 
 #### Phase 5: Direct LLM Answer (if decision = no)

@@ -333,22 +333,31 @@ When an agent is directly addressed, that agent is activated immediately, regard
    └─ BYPASS Automatik decision
 ```
 
-#### Phase 4: Automatik Decision
+#### Phase 4: Automatik Decision (Combined LLM Call)
 ```
-1. LLM Call - Decision Making
-   ├─ Model: Automatik-LLM (e.g., Qwen2.5-3B)
-   ├─ Prompt: decision_making (+ Vision JSON if present)
+1. LLM Call - Research Decision + Query Generation (combined)
+   ├─ Model: Automatik-LLM (e.g., Qwen3:4B)
+   ├─ Prompt: research_decision.txt
+   │  ├─ Contains: Current date (for time-related queries)
+   │  ├─ Vision context if images attached
+   │  └─ Structured JSON output
    ├─ Messages: ❌ NO history (focused, unbiased decision)
    ├─ Options:
    │  ├─ temperature: 0.2 (consistent decisions)
-   │  ├─ num_ctx: min(2048, automatik_limit // 2)
-   │  ├─ num_predict: 64 (short response)
+   │  ├─ num_ctx: 4096 (AUTOMATIK_LLM_NUM_CTX)
+   │  ├─ num_predict: 256
    │  └─ enable_thinking: False (fast)
-   └─ Response: '<search>yes</search>' | '<search>no</search>'
+   └─ Response: {"web": true, "queries": ["EN query", "DE query 1", "DE query 2"]}
+              OR {"web": false}
 
-2. Parse decision:
-   ├─ IF yes: → Web Research (mode='deep' → 7 URLs)
-   └─ IF no:  → Direct LLM Answer (Phase 5)
+2. Query Rules (if web=true):
+   ├─ Query 1: ALWAYS in English (international sources)
+   ├─ Query 2-3: In the language of the question
+   └─ Each query: 4-8 keywords
+
+3. Parse decision:
+   ├─ IF web=true: → Web Research with pre-generated queries
+   └─ IF web=false: → Direct LLM Answer (Phase 5)
 ```
 
 **Why no history for Decision-Making?**

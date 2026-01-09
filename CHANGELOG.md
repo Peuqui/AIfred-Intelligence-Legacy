@@ -5,6 +5,39 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.29] - 2026-01-09
+
+### Changed
+
+- **Query Language Rules** ([research_decision.txt](prompts/de/automatik/research_decision.txt), [research_decision.txt](prompts/en/automatik/research_decision.txt)):
+  - Query 1: ALWAYS in English (for international sources, more results)
+  - Query 2-3: In the language of the question
+  - Simpler rule than "include English for technical topics" (LLM-agnostic)
+  - Results in better search coverage across languages
+
+### Added
+
+- **English RAG Relevance Check Prompt** ([rag_relevance_check.txt](prompts/en/automatik/rag_relevance_check.txt)):
+  - Added missing English version of RAG relevance check prompt
+  - Fixes crash when English-language users trigger RAG context flow
+  - Matches German version structure with examples
+
+### Fixed
+
+- **Fallback Removal in context_builder.py** ([context_builder.py](aifred/lib/research/context_builder.py)):
+  - Removed silent fallback to German when `detected_language` is None
+  - Now raises `ValueError` instead of defaulting silently
+  - Ensures language detection bugs surface immediately
+
+### Documentation
+
+- **README Phase 4 Documentation** ([README.de.md](README.de.md), [README.md](README.md)):
+  - Updated Automatik Decision section to document combined LLM call
+  - Added Query Rules subsection explaining English-first query strategy
+  - Reflects actual code behavior after v2.15.18 consolidation
+
+---
+
 ## [2.15.28] - 2026-01-07
 
 ### Changed

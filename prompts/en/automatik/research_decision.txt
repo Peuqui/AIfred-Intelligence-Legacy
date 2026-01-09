@@ -24,15 +24,15 @@ NO web research (web=false):
 ## QUERY RULES (only if web=true)
 
 Generate EXACTLY 3 optimized search queries:
+• Query 1: ALWAYS in English (international sources, more results)
+• Query 2-3: In the language of the question
 • Each query: 4-8 keywords, separated by spaces
-• At least 1 query in the language of the question
-• For technical/medical topics: Include English queries
 • URLs: Keep complete, do not break down
 
 **Query Examples:**
-- "Weather tomorrow Berlin?" → weather Berlin forecast tomorrow
-- "What did the government decide on climate?" → government climate policy decisions {current_year}
-- "TAVI patient surgery sensitivity?" → TAVI noncardiac surgery hemodynamic management
+- "Weather tomorrow Berlin?" → 1. weather Berlin forecast tomorrow 2. Berlin weather report current 3. Berlin Wetterbericht aktuell
+- "What is Star Citizen?" → 1. Star Citizen latest news {current_year} 2. Star Citizen current status 3. Star Citizen development progress
+- "TAVI patient surgery?" → 1. TAVI noncardiac surgery management 2. TAVI patient operation risk 3. TAVI procedure recommendations
 
 ## OUTPUT FORMAT (JSON only!)
 

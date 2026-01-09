@@ -24,15 +24,15 @@ KEINE Web-Recherche (web=false):
 ## QUERY-REGELN (nur wenn web=true)
 
 Generiere EXAKT 3 optimierte Suchanfragen:
+• Query 1: IMMER auf Englisch (internationale Quellen, mehr Ergebnisse)
+• Query 2-3: In der Sprache der Frage
 • Jede Query: 4-8 Keywords, durch Leerzeichen getrennt
-• Mindestens 1 Query in der Sprache der Frage
-• Bei Fachthemen/Medizin: Englische Queries einbauen
 • URLs: Vollstaendig uebernehmen, nicht zerlegen
 
 **Query-Beispiele:**
-- "Wetter morgen Berlin?" → Wetter Berlin Vorhersage morgen
-- "Was hat die Regierung zum Klima beschlossen?" → Bundesregierung Klimapolitik Beschluesse {current_year}
-- "TAVI Patient OP Empfindlichkeit?" → TAVI noncardiac surgery hemodynamic management
+- "Wetter morgen Berlin?" → 1. weather Berlin forecast tomorrow 2. Wetter Berlin Vorhersage morgen 3. Berlin Wetterbericht aktuell
+- "Was ist Star Citizen?" → 1. Star Citizen latest news {current_year} 2. Star Citizen aktueller Stand 3. Star Citizen Entwicklung Fortschritt
+- "TAVI Patient OP?" → 1. TAVI noncardiac surgery management 2. TAVI Patient Operation Risiko 3. TAVI Eingriff Empfehlungen
 
 ## OUTPUT-FORMAT (nur JSON!)
 
