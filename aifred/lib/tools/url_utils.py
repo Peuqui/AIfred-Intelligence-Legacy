@@ -4,12 +4,94 @@ URL Utilities - Normalization and Deduplication
 Extracted from agent_tools.py for better modularity.
 """
 
-import logging
 from typing import List, Tuple
 from urllib.parse import urlparse
 
-# Logging Setup
-logger = logging.getLogger(__name__)
+from ..config import DEBUG_LOG_RAW_MESSAGES
+from ..logging_utils import log_message
+
+
+# ============================================================
+# NON-SCRAPABLE DOMAIN FILTER
+# ============================================================
+
+# Domains that cannot be scraped effectively (video platforms, login walls, etc.)
+NON_SCRAPABLE_DOMAINS = {
+    # Video platforms (no text content)
+    'youtube.com', 'youtu.be',
+    'vimeo.com',
+    'dailymotion.com',
+    'twitch.tv',
+    'tiktok.com',
+    'rumble.com',
+    'bitchute.com',
+    # Social media (login walls, heavy JS)
+    'twitter.com', 'x.com',
+    'facebook.com', 'fb.com',
+    'instagram.com',
+    'linkedin.com',
+    'threads.net',
+    # Other problematic sites
+    'pinterest.com',
+    'snapchat.com',
+}
+
+
+def is_non_scrapable_url(url: str) -> bool:
+    """
+    Check if a URL belongs to a non-scrapable domain.
+
+    Args:
+        url: URL to check
+
+    Returns:
+        True if URL is non-scrapable, False otherwise
+    """
+    try:
+        parsed = urlparse(url.lower().strip())
+        domain = parsed.netloc.replace('www.', '')
+
+        # Check if domain matches any non-scrapable domain
+        for blocked in NON_SCRAPABLE_DOMAINS:
+            if domain == blocked or domain.endswith('.' + blocked):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def filter_non_scrapable_urls(
+    urls: List[str],
+    titles: List[str],
+    snippets: List[str]
+) -> Tuple[List[str], List[str], List[str], int]:
+    """
+    Filter out non-scrapable URLs (video platforms, login walls, etc.)
+
+    Args:
+        urls: List of URLs
+        titles: List of titles (same order as urls)
+        snippets: List of snippets (same order as urls)
+
+    Returns:
+        Tuple of (filtered_urls, filtered_titles, filtered_snippets, blocked_count)
+    """
+    filtered_urls = []
+    filtered_titles = []
+    filtered_snippets = []
+    blocked_count = 0
+
+    for i, url in enumerate(urls):
+        if is_non_scrapable_url(url):
+            blocked_count += 1
+            if DEBUG_LOG_RAW_MESSAGES:
+                log_message(f"   🚫 Blocked: {url[:60]}...")
+        else:
+            filtered_urls.append(url)
+            filtered_titles.append(titles[i] if i < len(titles) else "")
+            filtered_snippets.append(snippets[i] if i < len(snippets) else "")
+
+    return filtered_urls, filtered_titles, filtered_snippets, blocked_count
 
 
 # ============================================================
@@ -54,7 +136,7 @@ def normalize_url(url: str) -> str:
         return normalized
 
     except Exception as e:
-        logger.warning(f"⚠️ URL normalization failed for {url}: {e}")
+        log_message(f"⚠️ URL normalization failed for {url}: {e}")
         return url  # Fallback: Original URL
 
 
@@ -85,7 +167,7 @@ def deduplicate_urls(urls: List[str]) -> List[str]:
 
     duplicates_removed = len(urls) - len(unique)
     if duplicates_removed > 0:
-        logger.info(f"🔄 Deduplication: {len(urls)} URLs → {len(unique)} unique ({duplicates_removed} duplicates removed)")
+        log_message(f"🔄 Deduplication: {len(urls)} URLs → {len(unique)} unique ({duplicates_removed} duplicates removed)")
 
     return unique
 
@@ -126,6 +208,20 @@ def deduplicate_urls_with_metadata(
 
     duplicates_removed = len(urls) - len(unique_urls)
     if duplicates_removed > 0:
-        logger.info(f"🔄 Deduplication (with metadata): {len(urls)} URLs → {len(unique_urls)} unique ({duplicates_removed} removed)")
+        log_message(f"🔄 Deduplication (with metadata): {len(urls)} URLs → {len(unique_urls)} unique ({duplicates_removed} removed)")
 
-    return unique_urls, unique_titles, unique_snippets
+    # Filter non-scrapable domains (video platforms, login walls, etc.)
+    filtered_urls, filtered_titles, filtered_snippets, blocked_count = filter_non_scrapable_urls(
+        unique_urls, unique_titles, unique_snippets
+    )
+
+    if blocked_count > 0:
+        log_message(f"🚫 Filtered {blocked_count} non-scrapable URLs (video/social platforms)")
+
+    # Log full URL list when DEBUG_LOG_RAW_MESSAGES is enabled
+    if DEBUG_LOG_RAW_MESSAGES and filtered_urls:
+        log_message("📋 Full URL list after deduplication + filtering:")
+        for i, url in enumerate(filtered_urls, 1):
+            log_message(f"   {i:2d}. {url[:80]}{'...' if len(url) > 80 else ''}")
+
+    return filtered_urls, filtered_titles, filtered_snippets

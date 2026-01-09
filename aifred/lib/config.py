@@ -460,11 +460,12 @@ DYNAMIC_NUM_PREDICT_HARD_LIMIT = 4096  # tokens
 # ============================================================
 # AUTOMATIK-LLM CONTEXT CONSTANTS
 # ============================================================
-# Context window for Automatik-LLM tasks (Decision, Query-Opt, Intent, RAG-Check)
+# Context window for Automatik-LLM tasks (Decision, Query-Opt, Intent, RAG-Check, URL-Ranking)
 # CRITICAL: Models like Qwen3:4B have 262K default context!
 # Without explicit num_ctx, Ollama allocates HUGE KV-Cache across all GPUs.
-# 4K is sufficient for all Automatik tasks and keeps VRAM usage minimal.
-AUTOMATIK_LLM_NUM_CTX = 4096  # 4K context for all Automatik tasks
+# 12K is sufficient for all Automatik tasks including URL ranking with 30+ URLs.
+# Note: num_ctx only affects max context size, NOT processing speed!
+AUTOMATIK_LLM_NUM_CTX = 12288  # 12K context for all Automatik tasks
 
 # Maximum manual num_ctx value (for UI input validation)
 # 2M tokens should cover even the largest context windows (Gemini 2M, future models)
@@ -490,6 +491,9 @@ VISION_MINIMUM_CONTEXT = 4096  # 4K minimum for Vision-LLM
 # When trafilatura extracts fewer words than this,
 # Playwright (headless browser) is tried as fallback
 PLAYWRIGHT_FALLBACK_THRESHOLD = 800  # words - below this value Playwright is tried
+
+# Non-scrapable domains are defined in aifred/lib/tools/url_utils.py
+# (Single Source of Truth - easier to maintain in dedicated module)
 
 # ============================================================
 # HISTORY SUMMARIZATION CONFIGURATION

@@ -532,6 +532,9 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
     Supports ALL tags defined in get_xml_tag_config() dynamically.
     No more hardcoding - new tags can be added via config!
 
+    This is the CENTRAL function for RAW response logging - all other formatters
+    should NOT log RAW response to avoid duplicates.
+
     Args:
         ai_response: The AI response with optional XML tags
         model_name: Name of the model used (e.g., "qwen3:1.7b")
@@ -561,7 +564,7 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
     # Get XML tag config with i18n labels
     xml_tag_config = get_xml_tag_config(lang)
 
-    # DEBUG: Log COMPLETE RAW Response
+    # DEBUG: Log COMPLETE RAW Response (central logging point)
     log_message("=" * 80)
     log_message("🔍 RAW AI RESPONSE (COMPLETE):")
     log_message(ai_response)
@@ -660,11 +663,8 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
     if lang is None:
         lang = get_ui_locale()
 
-    # DEBUG: Log COMPLETE RAW Response
-    log_message("=" * 80)
-    log_message("🔍 RAW AI RESPONSE (COMPLETE):")
-    log_message(ai_text)
-    log_message("=" * 80)
+    # NOTE: RAW logging is done by format_thinking_process() which is called
+    # before build_debug_accordion() in context_builder.py - no duplicate here
 
     # STEP 0: Repair orphaned </think> tags BEFORE extraction
     ai_text = fix_orphan_closing_think_tag(ai_text)

@@ -377,11 +377,18 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
    └─ Deduplication across APIs
 ```
 
-#### Phase 2.5: LLM-basiertes URL-Ranking (NEU in v2.15.30)
+#### Phase 2.5: URL-Filterung + LLM-basiertes Ranking (v2.15.30)
 ```
-1. URL-Ranking (Automatik-LLM)
-   ├─ Input: ~30 URLs mit Titeln und Snippets von Such-APIs
-   ├─ Model: Automatik-LLM
+1. Non-Scrapable Domain Filter (VOR URL-Ranking)
+   ├─ Filtert Video-Plattformen: YouTube, Vimeo, TikTok, Twitch, Rumble, etc.
+   ├─ Filtert Social Media: Twitter/X, Facebook, Instagram, LinkedIn
+   ├─ Grund: Diese Seiten können nicht effektiv gescraped werden
+   ├─ Debug-Log: "🚫 Blocked: https://youtube.com/..."
+   └─ Zusammenfassung: "🚫 Filtered 6 non-scrapable URLs (video/social platforms)"
+
+2. URL-Ranking (Automatik-LLM)
+   ├─ Input: ~22 URLs (nach Filterung) mit Titeln und Snippets
+   ├─ Model: Automatik-LLM (num_ctx: 12K)
    ├─ Prompt: url_ranking.txt (nur EN - Output ist numerisch)
    ├─ Options:
    │  ├─ temperature: 0.0 (deterministisches Ranking)
@@ -389,13 +396,13 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
    ├─ Output: "3,7,1,12,5,8,2" (komma-getrennte Indizes)
    └─ Ergebnis: Top 7 (deep) oder Top 3 (quick) URLs nach Relevanz
 
-2. Warum LLM-basiertes Ranking?
+3. Warum LLM-basiertes Ranking?
    ├─ Semantisches Verständnis der Query-URL-Relevanz
    ├─ Keine Wartung von Keyword-Listen oder Domain-Whitelists
    ├─ Passt sich jedem Thema an (universell)
    └─ Besser als first-come-first-served Reihenfolge
 
-3. Skip-Bedingungen:
+4. Skip-Bedingungen:
    ├─ Direct-URL-Modus (User hat URLs direkt angegeben)
    ├─ Weniger als top_n URLs gefunden
    └─ Keine Titel/Snippets verfügbar (Fallback auf ursprüngliche Reihenfolge)

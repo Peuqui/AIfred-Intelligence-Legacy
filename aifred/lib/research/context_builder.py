@@ -88,13 +88,26 @@ async def build_and_generate_response(
     # Filter: Only successfully scraped sources
     scraped_only = [r for r in tool_results if 'word_count' in r and r['word_count'] > 0]
 
-    # DEBUG logging (can be removed in production)
-    for i, result in enumerate(tool_results, 1):
-        if result.get('success'):
-            log_message(f"  Source {i}: {result.get('word_count', 0)} words from {result.get('url', 'N/A')[:50]}")
+    # Sort sources SAME way as build_context() for consistent logging
+    # (News > Wikipedia, short > long)
+    def prioritize_source(result):
+        url = result.get('url', '').lower()
+        word_count = result.get('word_count', 0)
+        if 'wikipedia.org' in url:
+            return 1000
+        elif word_count < 5000:
+            return word_count
+        else:
+            return 500 + word_count
 
-    if scraped_only:
-        for i, src in enumerate(scraped_only[:3], 1):
+    scraped_sorted = sorted(scraped_only, key=prioritize_source)
+
+    # DEBUG logging - sorted sources (matches Context order sent to LLM)
+    for i, result in enumerate(scraped_sorted, 1):
+        log_message(f"  Source {i}: {result.get('word_count', 0)} words from {result.get('url', 'N/A')[:50]}")
+
+    if scraped_sorted:
+        for i, src in enumerate(scraped_sorted[:3], 1):
             content_preview = src.get('content', '')[:200].replace('\n', ' ')
             log_message(f"  📄 Source {i} Preview: {content_preview}...")
 
@@ -324,10 +337,15 @@ async def build_and_generate_response(
     console_separator()
     yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
-    # Format thinking process
-    thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time, tokens_per_sec=tokens_per_sec)
+    # Format thinking process (includes RAW logging - central point)
+    thinking_html = format_thinking_process(
+        ai_text,
+        model_name=model_choice,
+        inference_time=inference_time,
+        tokens_per_sec=tokens_per_sec
+    )
 
-    # Build debug accordion with query reasoning
+    # Build debug accordion with query reasoning (no RAW logging - done above)
     ai_response_complete = build_debug_accordion(
         query_reasoning=query_reasoning,
         ai_text=ai_text,
@@ -397,6 +415,10 @@ async def build_and_generate_response(
     except Exception as e:
         log_message(f"⚠️ Vector Cache auto-learning failed: {e}")
 
+    # Separator after cache save (end of research unit)
+    console_separator()
+    yield {"type": "debug", "message": CONSOLE_SEPARATOR}
+
     # Subtle VRAM info (only when content fits)
     if vram_warning and input_tokens <= final_num_ctx:
         vram_diff = vram_warning["vram_diff"]
@@ -416,9 +438,6 @@ async def build_and_generate_response(
 
         log_message(info_msg)
         yield {"type": "debug", "message": info_msg}
-
-    # Note: Separator already emitted after volatility detection (line ~310)
-    # No second separator needed here - avoids double separator in Multi-Agent mode
 
     log_message(f"✅ Agent done: {format_number(total_time, 1)}s total, {len(ai_text)} chars")
     log_message("=" * 60)

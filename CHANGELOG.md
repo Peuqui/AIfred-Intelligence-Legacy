@@ -5,6 +5,38 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.30] - 2026-01-09
+
+### Added
+
+- **Non-Scrapable Domain Filter** ([url_utils.py](aifred/lib/tools/url_utils.py)):
+  - Filters out video platforms (YouTube, Vimeo, TikTok, Twitch, etc.) before URL ranking
+  - Filters out social media with login walls (Twitter/X, Facebook, Instagram, LinkedIn)
+  - Prevents wasted scraping attempts on sites that cannot be scraped effectively
+  - Logged in debug.log: `🚫 Blocked: https://youtube.com/...`
+  - Summary log: `🚫 Filtered 6 non-scrapable URLs (video/social platforms)`
+
+- **Consistent Source Numbering** ([context_builder.py](aifred/lib/research/context_builder.py)):
+  - Sources now sorted identically in logging and LLM context
+  - Sorting rule: News articles first (short), Wikipedia last (long)
+  - Debug log now shows sources in same order as they appear in context
+
+### Changed
+
+- **Automatik-LLM Context Increased** ([config.py](aifred/lib/config.py)):
+  - `AUTOMATIK_LLM_NUM_CTX` increased from 4K to 12K tokens
+  - Supports URL ranking with 30+ URLs (each ~70 tokens)
+  - Note: num_ctx only affects max context size, not processing speed
+  - Removed separate `AUTOMATIK_LLM_NUM_CTX_URL_RANKING` constant (single value for all tasks)
+
+### Fixed
+
+- **RAW Response Logging** ([formatting.py](aifred/lib/formatting.py)):
+  - RAW AI response now logged only once (was duplicated before)
+  - Central logging in `format_thinking_process()` only
+
+---
+
 ## [2.15.29] - 2026-01-09
 
 ### Changed

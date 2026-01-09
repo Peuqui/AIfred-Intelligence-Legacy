@@ -453,11 +453,18 @@ When an agent is directly addressed, that agent is activated immediately, regard
 - Limited to 3 turns to keep prompt focused
 - Vision JSON injected for image-based searches
 
-#### Phase 2.5: LLM-based URL Ranking (NEW in v2.15.30)
+#### Phase 2.5: URL Filtering + LLM-based Ranking (v2.15.30)
 ```
-1. URL Ranking (Automatik-LLM)
-   ├─ Input: ~30 URLs with titles and snippets from search APIs
-   ├─ Model: Automatik-LLM
+1. Non-Scrapable Domain Filter (BEFORE URL Ranking)
+   ├─ Filters video platforms: YouTube, Vimeo, TikTok, Twitch, Rumble, etc.
+   ├─ Filters social media: Twitter/X, Facebook, Instagram, LinkedIn
+   ├─ Reason: These sites cannot be scraped effectively
+   ├─ Debug log: "🚫 Blocked: https://youtube.com/..."
+   └─ Summary: "🚫 Filtered 6 non-scrapable URLs (video/social platforms)"
+
+2. URL Ranking (Automatik-LLM)
+   ├─ Input: ~22 URLs (after filtering) with titles and snippets
+   ├─ Model: Automatik-LLM (num_ctx: 12K)
    ├─ Prompt: url_ranking.txt (EN only - output is numeric)
    ├─ Options:
    │  ├─ temperature: 0.0 (deterministic ranking)
@@ -465,13 +472,13 @@ When an agent is directly addressed, that agent is activated immediately, regard
    ├─ Output: "3,7,1,12,5,8,2" (comma-separated indices)
    └─ Result: Top 7 (deep) or Top 3 (quick) URLs by relevance
 
-2. Why LLM-based Ranking?
+3. Why LLM-based Ranking?
    ├─ Semantic understanding of query-URL relevance
    ├─ No maintenance of keyword lists or domain whitelists
    ├─ Adapts to any topic (universal)
    └─ Better than first-come-first-served ordering
 
-3. Skip Conditions:
+4. Skip Conditions:
    ├─ Direct URL mode (user provided URLs directly)
    ├─ Less than top_n URLs found
    └─ No titles/snippets available (fallback to original order)

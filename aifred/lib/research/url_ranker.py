@@ -12,7 +12,7 @@ from typing import Dict, List, Tuple, Optional
 from ..prompt_loader import load_prompt
 from ..logging_utils import log_message
 from ..formatting import format_number
-from ..config import DEBUG_LOG_RAW_MESSAGES
+from ..config import DEBUG_LOG_RAW_MESSAGES, AUTOMATIK_LLM_NUM_CTX
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +145,7 @@ async def rank_urls_by_relevance(
             options={
                 "temperature": 0.0,  # Deterministic ranking
                 "num_predict": 100,  # Short response expected
+                "num_ctx": AUTOMATIK_LLM_NUM_CTX,  # From config.py (12K)
                 **(llm_options or {})
             }
         )
