@@ -284,22 +284,80 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
    └─ BYPASS Automatik decision
 ```
 
-#### Phase 4: Automatik Decision
+#### Phase 4: Automatik Decision (Kombiniert)
 ```
-1. LLM Call - Decision Making
-   ├─ Model: Automatik-LLM (z.B. Qwen2.5-3B)
-   ├─ Prompt: decision_making
-   ├─ Messages: NO history (focused decision)
+1. LLM Call - Research-Entscheidung + Query-Generierung (Kombiniert)
+   ├─ Model: Automatik-LLM (z.B. Qwen3:4B, konfigurierbar, 4K Kontext)
+   ├─ Prompt: prompts/{lang}/automatik/research_decision.txt
+   │  ├─ Enthält: Aktuelles Datum/Jahr-Injektion
+   │  ├─ Vision-Kontext bei angehängten Bildern
+   │  └─ Strukturierte Ausgabe: JSON {"web": bool, "queries": [str]}
+   ├─ Messages: ❌ KEINE History (fokussierte, unvoreingenommene Entscheidung)
    ├─ Options:
-   │  ├─ temperature: 0.2 (consistent decisions)
-   │  ├─ num_ctx: min(2048, automatik_limit // 2)
-   │  └─ enable_thinking: False (fast)
-   └─ Response: '<search>yes</search>' | '<search>no</search>'
+   │  ├─ temperature: 0.2 (konsistente Entscheidungen)
+   │  ├─ num_ctx: 4096 (AUTOMATIK_LLM_NUM_CTX Konstante)
+   │  ├─ num_predict: 256 (genug für Entscheidung + 3 Queries)
+   │  └─ enable_thinking: False (schnell)
+   └─ Response: {"web": true, "queries": ["q1", "q2", "q3"]}
+                ODER {"web": false}
 
-2. Parse decision:
-   ├─ IF yes: → Web Research (mode='deep')
-   └─ IF no:  → Direct LLM Answer (Phase 5)
+2. JSON-Response parsen:
+   ├─ Web-Entscheidung extrahieren (true/false)
+   ├─ Vorgenerierte Queries extrahieren (falls web=true)
+   ├─ Validieren: falls web=true aber keine Queries → setze web=false
+   └─ Bei Fehlern: raise ValueError (keine stillen Fallbacks)
+
+3. Route basierend auf Entscheidung:
+   ├─ IF web=true:  → Web-Recherche mit vorgenerierten Queries
+   └─ IF web=false: → Direkte LLM-Antwort (Phase 5)
 ```
+
+**Warum kombinierte Entscheidung + Query-Generierung?**
+- **Ein LLM-Call** statt zwei separater Calls (Entscheidung → Query-Optimierung)
+- **Schneller**: Spart ~0,5-1s pro Research-Anfrage
+- **Konsistenter**: Entscheidung und Queries werden mit gleichem Kontext generiert
+- **Einfacherer Code**: Keine Fallback-Logik nötig
+
+**Warum keine History für Decision-Making?**
+- Verhindert Bias aus vorherigem Gesprächskontext
+- Entscheidung basiert rein auf aktueller Frage + Vision-Daten
+- Garantiert konsistente, objektive Web-Research-Auslösung
+
+**Automatik-LLM System-Architektur:**
+
+Das Automatik-LLM ist ein kleines, schnelles Modell (typisch 3-4B Parameter), das für leichtgewichtige Entscheidungsaufgaben genutzt wird, die nicht die vollen Fähigkeiten des Haupt-LLMs benötigen. Es läuft mit einem fixen 4K Kontextfenster um VRAM-Nutzung zu minimieren.
+
+**Aktive Prompts** (`prompts/{lang}/automatik/`):
+| Datei | Zweck | Wann verwendet | Ausgabe |
+|-------|-------|----------------|---------|
+| `research_decision.txt` | Kombiniert: Web-Entscheidung + 3 Query-Generierung | Jede User-Message im Automatik-Modus | JSON: `{"web": bool, "queries": [str]}` |
+| `intent_detection.txt` | Erkennt Intent/Adressat/Sprache | Jede User-Message (alle Modi) | `INTENT\|ADRESSAT\|SPRACHE` |
+| `followup_intent_detection.txt` | Cache-Followup: Neues Thema vs. Vertiefungsfrage | Bei Cache-Hit mit anderer Query | `NEW_TOPIC` oder `FOLLOW_UP` |
+| `rag_relevance_check.txt` | Prüft ob gecachter Inhalt relevant ist | Vor Nutzung von Cache-Hit-Inhalt | `relevant` oder `not_relevant` |
+
+**Konfiguration** (`aifred/lib/config.py`):
+```python
+# Fixer 4K Kontext für alle Automatik-Aufgaben (verhindert VRAM-Bloat)
+AUTOMATIK_LLM_NUM_CTX = 4096
+
+# Warum 4K?
+# - Qwen3:4B Standard ist 262K → würde riesigen KV-Cache allokieren
+# - 4K ist ausreichend für alle Automatik-Prompts + Antworten
+# - Hält VRAM-Nutzung minimal über Multi-GPU-Setups hinweg
+```
+
+**Code-Ablauf** (`aifred/lib/conversation_handler.py:detect_research_decision()`):
+1. Lade `research_decision.txt` Prompt mit aktuellem Datum/Jahr
+2. Rufe Automatik-LLM auf (keine History, temp=0.2, 4K Kontext)
+3. Parse JSON-Response mit Reparatur-Logik für häufige LLM-Fehler
+4. Validiere Queries falls web=true
+5. Gebe Entscheidung + Queries an Orchestrator zurück
+
+**Modell-Anforderungen:**
+- **Minimum**: 3B Parameter (z.B. Qwen2.5-3B)
+- **Empfohlen**: Qwen3:4B oder ähnliche instruction-tuned Modelle
+- **JSON-Ausgabe**: Modell muss strukturierte JSON-Generierung unterstützen
+- **Geschwindigkeit**: Sollte in <0,5s fertig sein für responsive UX
 
 #### Phase 5: Direct LLM Answer (if decision = no)
 ```

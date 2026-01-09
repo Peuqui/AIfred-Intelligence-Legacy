@@ -1141,6 +1141,28 @@ async def chat_interactive_mode(
 
             # Proceed with fresh web research (no exact match or error)
             yield {"type": "debug", "message": "🌐 Starting fresh web research..."}
+
+            # Check if images are present OR if Vision JSON context exists
+            has_images = (pending_images is not None and len(pending_images) > 0) or (vision_json_context is not None)
+
+            # Generate queries using research_decision (but skip the decision part)
+            # We already know web=true due to explicit request
+            yield {"type": "debug", "message": "🔍 Generating search queries..."}
+            research_result = await detect_research_decision(
+                user_text=user_text,
+                automatik_llm_client=automatik_llm_client,
+                automatik_model=automatik_model,
+                detected_language=detected_language,
+                has_images=has_images,
+                vision_json_context=vision_json_context
+            )
+
+            # Extract pre-generated queries (ignore web decision, we force web=true anyway)
+            pre_generated_queries = research_result["queries"]
+            decision_time = research_result["decision_time"]
+
+            yield {"type": "debug", "message": f"✅ {len(pre_generated_queries)} queries generated ({format_number(decision_time, 1)}s)"}
+
             async for item in perform_agent_research(
                 user_text=user_text,
                 stt_time=stt_time,
@@ -1159,7 +1181,8 @@ async def chat_interactive_mode(
                 vision_json_context=vision_json_context,  # CRITICAL: Pass Vision JSON to Research flow
                 user_name=user_name,  # For personalized prompts
                 detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
-                detected_language=detected_language  # Pass detected language for correct prompt selection
+                detected_language=detected_language,  # Pass detected language for correct prompt selection
+                pre_generated_queries=pre_generated_queries  # Pass pre-generated queries from research_decision
             ):
                 yield item
             return  # Generator ends after forwarding all items

@@ -333,28 +333,80 @@ When an agent is directly addressed, that agent is activated immediately, regard
    └─ BYPASS Automatik decision
 ```
 
-#### Phase 4: Automatik Decision
+#### Phase 4: Automatik Decision (Combined)
 ```
-1. LLM Call - Decision Making
-   ├─ Model: Automatik-LLM (e.g., Qwen2.5-3B)
-   ├─ Prompt: decision_making (+ Vision JSON if present)
+1. LLM Call - Research Decision + Query Generation (Combined)
+   ├─ Model: Automatik-LLM (e.g., Qwen3:4B, configurable, 4K context)
+   ├─ Prompt: prompts/{lang}/automatik/research_decision.txt
+   │  ├─ Includes: current date/year injection
+   │  ├─ Vision context if images attached
+   │  └─ Structured output: JSON {"web": bool, "queries": [str]}
    ├─ Messages: ❌ NO history (focused, unbiased decision)
    ├─ Options:
    │  ├─ temperature: 0.2 (consistent decisions)
-   │  ├─ num_ctx: min(2048, automatik_limit // 2)
-   │  ├─ num_predict: 64 (short response)
+   │  ├─ num_ctx: 4096 (AUTOMATIK_LLM_NUM_CTX constant)
+   │  ├─ num_predict: 256 (enough for decision + 3 queries)
    │  └─ enable_thinking: False (fast)
-   └─ Response: '<search>yes</search>' | '<search>no</search>'
+   └─ Response: {"web": true, "queries": ["q1", "q2", "q3"]}
+                OR {"web": false}
 
-2. Parse decision:
-   ├─ IF yes: → Web Research (mode='deep' → 7 URLs)
-   └─ IF no:  → Direct LLM Answer (Phase 5)
+2. Parse JSON response:
+   ├─ Extract web decision (true/false)
+   ├─ Extract pre-generated queries (if web=true)
+   ├─ Validate: if web=true but no queries → set web=false
+   └─ On errors: raise ValueError (no silent fallbacks)
+
+3. Route based on decision:
+   ├─ IF web=true:  → Web Research with pre-generated queries
+   └─ IF web=false: → Direct LLM Answer (Phase 5)
 ```
+
+**Why Combined Decision + Query Generation?**
+- **Single LLM call** instead of two separate calls (decision → query optimization)
+- **Faster**: Saves ~0.5-1s per research request
+- **More consistent**: Decision and queries generated with same context
+- **Simpler code**: No fallback logic needed
 
 **Why no history for Decision-Making?**
 - Prevents bias from previous conversation context
 - Decision based purely on current question + Vision data
 - Ensures consistent, objective web research triggering
+
+**Automatik-LLM System Architecture:**
+
+The Automatik-LLM is a small, fast model (typically 3-4B parameters) used for lightweight decision tasks that don't require the main LLM's full capabilities. It runs with a fixed 4K context window to minimize VRAM usage.
+
+**Active Prompts** (`prompts/{lang}/automatik/`):
+| File | Purpose | When Used | Output |
+|------|---------|-----------|--------|
+| `research_decision.txt` | Combined: Web decision + 3 query generation | Every user message in Automatik mode | JSON: `{"web": bool, "queries": [str]}` |
+| `intent_detection.txt` | Detects intent/addressee/language | Every user message (all modes) | `INTENT\|ADDRESSEE\|LANGUAGE` |
+| `followup_intent_detection.txt` | Cache followup: new topic vs. deepening question | When cache hit with different query | `NEW_TOPIC` or `FOLLOW_UP` |
+| `rag_relevance_check.txt` | Checks if cached content is relevant | Before using cache hit content | `relevant` or `not_relevant` |
+
+**Configuration** (`aifred/lib/config.py`):
+```python
+# Fixed 4K context for all Automatik tasks (prevents VRAM bloat)
+AUTOMATIK_LLM_NUM_CTX = 4096
+
+# Why 4K?
+# - Qwen3:4B default is 262K → would allocate huge KV-cache
+# - 4K is sufficient for all Automatik prompts + responses
+# - Keeps VRAM usage minimal across multi-GPU setups
+```
+
+**Code Flow** (`aifred/lib/conversation_handler.py:detect_research_decision()`):
+1. Load `research_decision.txt` prompt with current date/year
+2. Call Automatik-LLM (no history, temp=0.2, 4K context)
+3. Parse JSON response with repair logic for common LLM errors
+4. Validate queries if web=true
+5. Return decision + queries to orchestrator
+
+**Model Requirements:**
+- **Minimum**: 3B parameters (e.g., Qwen2.5-3B)
+- **Recommended**: Qwen3:4B or similar instruction-tuned models
+- **JSON output**: Model must support structured JSON generation
+- **Speed**: Should complete in <0.5s for responsive UX
 
 #### Phase 5: Direct LLM Answer (if decision = no)
 ```

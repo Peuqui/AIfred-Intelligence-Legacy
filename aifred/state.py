@@ -304,10 +304,10 @@ class AIState(rx.State):
     # Session Management
     session_id: str = ""
 
-    # Session Persistence (Cookie-based device identification)
-    device_id: str = ""  # Device ID from cookie (32 hex chars)
+    # Session Persistence (LocalStorage-based device identification)
+    device_id: str = rx.LocalStorage(name="aifred_device_id")  # Device ID from LocalStorage (32 hex chars)
     session_restored: bool = False  # True if chat history was loaded from session
-    _session_initialized: bool = False  # Guard against multiple session restore callbacks
+    _session_initialized: bool = False  # Guard against multiple session restore
     _on_load_running: bool = False  # Guard against multiple on_load() calls
 
     # Backend Status
@@ -1167,21 +1167,11 @@ class AIState(rx.State):
             self._backend_initialized = True
             print("✅ Session initialization complete")
 
-            # Session Persistence: Read device_id from cookie (async callback)
+            # Session Persistence: Initialize device_id and load session
             # AFTER Backend-Init so chat history restore doesn't collide with loading
             if not self._session_initialized:
-                from .lib.browser_storage import get_device_id_script
-                # First attempt: immediate
-                yield rx.call_script(
-                    get_device_id_script(),
-                    callback=AIState.handle_device_id_loaded
-                )
-                # Retry after 2 seconds (in case first callback didn't get through due to race condition)
-                # Guard _session_initialized prevents duplicate processing
-                yield rx.call_script(
-                    get_device_id_script(delay_ms=2000),
-                    callback=AIState.handle_device_id_loaded
-                )
+                async for _ in self._initialize_session():
+                    yield
 
     async def initialize_backend(self):
         """
@@ -4624,8 +4614,75 @@ class AIState(rx.State):
 '''
 
     # ============================================================
-    # Session Persistence (Cookie-based device identification)
+    # Session Persistence (LocalStorage-based device identification)
     # ============================================================
+
+    async def _initialize_session(self):
+        """
+        Initialize session using device_id from LocalStorage.
+
+        Uses rx.LocalStorage to automatically sync device_id with browser.
+        Loads existing session or creates new one.
+        """
+        # Guard: Only run once
+        if self._session_initialized:
+            yield
+            return
+        self._session_initialized = True
+
+        from .lib.session_storage import load_session, generate_device_id, create_empty_session
+
+        # Validate device_id format (must be 32 hex chars)
+        import re
+        is_valid_id = self.device_id and re.match(r'^[a-f0-9]{32}$', self.device_id)
+
+        if not self.device_id or not is_valid_id:
+            # New device or invalid ID - generate new Device-ID
+            if self.device_id and not is_valid_id:
+                self.add_debug(f"⚠️ Invalid Device-ID ({self.device_id[:8]}...), generating new one")
+            self.device_id = generate_device_id()
+            self.session_restored = False
+            create_empty_session(self.device_id)  # Save immediately for API access
+            self.add_debug(f"🆕 New session: {self.device_id[:8]}...")
+            console_separator()  # File log
+            self.debug_messages.append("────────────────────")  # UI
+            yield
+            return
+
+        # Known device - try to load session
+        session = load_session(self.device_id)
+
+        if session and session.get("data"):
+            self._restore_session(session)
+            self.session_restored = True
+            msg_count = len(self.chat_history)
+            self.add_debug(f"✅ Session loaded: {self.device_id[:8]}... ({msg_count} messages)")
+
+            # Show context utilization after session restore
+            if self.chat_history:
+                from .lib.context_manager import estimate_tokens_from_history
+                from .lib.formatting import format_number
+                from .lib.config import HISTORY_COMPRESSION_TRIGGER
+                estimated_tokens = estimate_tokens_from_history(self.chat_history)
+
+                if self._min_agent_context_limit > 0:
+                    utilization = (estimated_tokens / self._min_agent_context_limit) * 100
+                    self.add_debug(f"   └─ History: {format_number(estimated_tokens)} / {format_number(self._min_agent_context_limit)} tok ({int(utilization)}%)")
+
+                    # Warn if compression will trigger on next message
+                    if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
+                        self.add_debug(f"⚠️ History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
+                else:
+                    self.add_debug(f"   └─ History: {format_number(estimated_tokens)} tokens")
+        else:
+            self.session_restored = False
+            create_empty_session(self.device_id)  # Save immediately for API access
+            self.add_debug(f"🆕 Empty session: {self.device_id[:8]}...")
+
+        # Separator after session restore
+        console_separator()  # File log
+        self.debug_messages.append("────────────────────")  # UI
+        yield
 
     def handle_device_id_loaded(self, device_id: str):
         """
