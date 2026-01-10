@@ -85,21 +85,22 @@ async def handle_own_knowledge(
     yield {"type": "debug", "message": "🧠 Own knowledge (no web search)"}
     yield {"type": "progress", "phase": "llm"}
 
-    # Build messages from llm_history
-    # Strip [AIFRED]: prefix from assistant messages (only used for Multi-Agent context)
-    messages = []
-    for msg in llm_history:
-        if msg['role'] == 'assistant' and msg['content'].startswith('[AIFRED]: '):
-            messages.append({'role': 'assistant', 'content': msg['content'][10:]})
-        else:
-            messages.append(msg.copy())
+    # Build messages using centralized function (v2.16.0+)
+    # Uses perspective="aifred" to correctly assign roles for all agents
+    from .message_builder import build_messages_from_llm_history
 
-    # Add current user message
     if multimodal_content is not None:
+        # Multimodal: Build without user text, then append multimodal content
+        messages = build_messages_from_llm_history(llm_history, perspective="aifred")
         messages.append({"role": "user", "content": multimodal_content})
         log_message("📷 Multimodal content injected into user message")
     else:
-        messages.append({"role": "user", "content": user_text})
+        # Standard: Include user text directly
+        messages = build_messages_from_llm_history(
+            llm_history,
+            current_user_text=user_text,
+            perspective="aifred"
+        )
 
     # Inject system prompt (direct or minimal based on addressing)
     if use_direct_prompt:
@@ -177,6 +178,10 @@ async def handle_own_knowledge(
         else:
             backend_label = backend_type.capitalize()
         yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} [{backend_label}]"}
+
+        # Log RAW messages for debugging (v2.16.0+)
+        from .logging_utils import log_raw_messages
+        log_raw_messages("AIfred (Own Knowledge)", messages, estimate_tokens)
 
         # Stream response
         log_message(f"🔬 DEBUG: Starting inference at {time.time()}")

@@ -115,7 +115,7 @@ def clean_content_for_llm(content: str) -> str:
 def build_messages_from_llm_history(
     llm_history: List[Dict[str, str]],
     current_user_text: str = "",
-    perspective: Optional[str] = None  # "sokrates", "aifred", "salomo", "observer", or None
+    perspective: str = "aifred"  # REQUIRED: "sokrates", "aifred", "salomo", "observer"
 ) -> List[Dict[str, str]]:
     """
     Build LLM messages directly from llm_history (v2.13.0+).
@@ -128,31 +128,26 @@ def build_messages_from_llm_history(
     - No marker detection (speaker labels already applied)
     - Fast and reliable
     - Summaries already as system messages
+    - All labels preserved for agent identification
 
     Args:
         llm_history: List of {"role": "user/assistant/system", "content": "..."}
         current_user_text: Current user message to append
-        perspective: Multi-Agent perspective for role transformation
-            - None: Use messages as-is
-            - "sokrates": Sokrates speaking - transform AIfred's messages
-            - "aifred": AIfred speaking - transform Sokrates's messages
-            - "salomo": Salomo speaking - transform others' messages
+        perspective: REQUIRED - Agent perspective for role transformation
+            - "aifred": AIfred speaking - his messages as 'assistant', others as 'user'
+            - "sokrates": Sokrates speaking - his messages as 'assistant', others as 'user'
+            - "salomo": Salomo speaking - his messages as 'assistant', others as 'user'
             - "observer": Neutral observer - all as 'user' with labels
 
     Returns:
         list: Messages in Ollama format [{"role": "...", "content": "..."}, ...]
+
+    Note:
+        All agent labels ([AIFRED]:, [SOKRATES]:, [SALOMO]:) are preserved in the content.
+        This allows agents to reference each other's statements.
     """
     if not llm_history:
         messages = []
-    elif not perspective:
-        # Standard mode: Strip [AIFRED]: label so LLM doesn't learn it
-        messages = []
-        for msg in llm_history:
-            if msg['role'] == 'assistant' and msg.get('content', '').startswith('[AIFRED]: '):
-                # Remove [AIFRED]: prefix - only used for Multi-Agent context
-                messages.append({'role': 'assistant', 'content': msg['content'][10:]})
-            else:
-                messages.append(msg.copy())
     else:
         # Multi-Agent perspective transformation
         messages = []
@@ -185,9 +180,8 @@ def build_messages_from_llm_history(
 
             elif perspective_lower == "sokrates":
                 if is_sokrates:
-                    # Sokrates sees his own messages as 'assistant'
-                    clean_content = content.replace("[SOKRATES]: ", "").strip()
-                    messages.append({"role": "assistant", "content": clean_content})
+                    # Sokrates sees his own messages as 'assistant' (label preserved)
+                    messages.append({"role": "assistant", "content": content})
                 elif is_user:
                     messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
                 else:
@@ -196,9 +190,8 @@ def build_messages_from_llm_history(
 
             elif perspective_lower == "aifred":
                 if is_aifred:
-                    # AIfred sees his own messages as 'assistant'
-                    clean_content = content.replace("[AIFRED]: ", "").strip()
-                    messages.append({"role": "assistant", "content": clean_content})
+                    # AIfred sees his own messages as 'assistant' (label preserved)
+                    messages.append({"role": "assistant", "content": content})
                 elif is_user:
                     messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
                 else:
@@ -207,9 +200,8 @@ def build_messages_from_llm_history(
 
             elif perspective_lower == "salomo":
                 if is_salomo:
-                    # Salomo sees his own messages as 'assistant'
-                    clean_content = content.replace("[SALOMO]: ", "").strip()
-                    messages.append({"role": "assistant", "content": clean_content})
+                    # Salomo sees his own messages as 'assistant' (label preserved)
+                    messages.append({"role": "assistant", "content": content})
                 elif is_user:
                     messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
                 else:

@@ -1343,20 +1343,22 @@ async def chat_interactive_mode(
             yield {"type": "progress", "phase": "llm"}
 
             # Now normal inference WITH timing
-            # Build messages from llm_history (strip [AIFRED]: label so LLM doesn't learn it)
-            messages = []
-            for msg in llm_history:
-                if msg['role'] == 'assistant' and msg['content'].startswith('[AIFRED]: '):
-                    # Remove [AIFRED]: prefix - only used for Multi-Agent context
-                    messages.append({'role': 'assistant', 'content': msg['content'][10:]})
-                else:
-                    messages.append(msg.copy())
-            messages.append({"role": "user", "content": user_text})
+            # Build messages using centralized function (v2.16.0+)
+            # Uses perspective="aifred" to correctly assign roles for all agents
+            from .message_builder import build_messages_from_llm_history
 
-            # Replace last message content with multimodal if images present
             if multimodal_user_content is not None:
-                messages[-1]['content'] = multimodal_user_content
+                # Multimodal: Build without user text, then append multimodal content
+                messages = build_messages_from_llm_history(llm_history, perspective="aifred")
+                messages.append({"role": "user", "content": multimodal_user_content})
                 log_message("📷 Multimodal content injected into user message")
+            else:
+                # Standard: Include user text directly
+                messages = build_messages_from_llm_history(
+                    llm_history,
+                    current_user_text=user_text,
+                    perspective="aifred"
+                )
 
             # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
             system_prompt_minimal = get_aifred_system_minimal(lang=detected_user_language)
@@ -1385,6 +1387,10 @@ async def chat_interactive_mode(
                 LLMMessage(role=msg['role'], content=msg['content'])
                 for msg in messages
             ]
+
+            # Log RAW messages for debugging (v2.16.0+)
+            from .logging_utils import log_raw_messages
+            log_raw_messages("AIfred (RAG Bypass)", llm_messages, estimate_tokens)
 
             # Temperature decision: Manual Override or Auto (reuse pre-detected intent)
             if temperature_mode == 'manual':
