@@ -91,7 +91,11 @@ async def handle_own_knowledge(
 
     if multimodal_content is not None:
         # Multimodal: Build without user text, then append multimodal content
-        messages = build_messages_from_llm_history(llm_history, perspective="aifred")
+        messages = build_messages_from_llm_history(
+            llm_history,
+            perspective="aifred",
+            detected_language=detected_language
+        )
         messages.append({"role": "user", "content": multimodal_content})
         log_message("📷 Multimodal content injected into user message")
     else:
@@ -99,7 +103,8 @@ async def handle_own_knowledge(
         messages = build_messages_from_llm_history(
             llm_history,
             current_user_text=user_text,
-            perspective="aifred"
+            perspective="aifred",
+            detected_language=detected_language
         )
 
     # Inject system prompt (direct or minimal based on addressing)

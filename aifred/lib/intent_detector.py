@@ -45,7 +45,20 @@ def parse_intent_addressee_language(
 
     intent_part = parts[0].strip().upper() if len(parts) > 0 else ""
     addressee_part = parts[1].strip().lower() if len(parts) > 1 else ""
-    language_part = parts[2].strip().upper() if len(parts) > 2 else ""
+
+    # Handle language field - can be at parts[2] OR parts[3] if LLM adds "(empty)"
+    # Expected: "FACTUAL||DE" → parts[2]="DE"
+    # But LLM may return: "FACTUAL||(empty)|DE" → parts[2]="(empty)", parts[3]="DE"
+    if len(parts) > 3:
+        # Check if parts[2] looks like "(empty)" marker and parts[3] is the real language
+        if parts[2].strip().lower() in ("(empty)", "empty", "none", ""):
+            language_part = parts[3].strip().upper()
+        else:
+            language_part = parts[2].strip().upper()
+    elif len(parts) > 2:
+        language_part = parts[2].strip().upper()
+    else:
+        language_part = ""
 
     # Parse intent (with English/German support)
     if "FAKTISCH" in intent_part or "FACTUAL" in intent_part:
@@ -71,12 +84,15 @@ def parse_intent_addressee_language(
             addressee = "salomo"
         # else: leave as None (unknown or empty)
 
-    # Parse language (default to "en" for universal prompts)
+    # Parse language (fallback to UI language if LLM didn't specify)
     if language_part in ("DE", "DEUTSCH", "GERMAN"):
         language = "de"
-    else:
-        # EN, ENGLISH, or anything else → English (universal prompts)
+    elif language_part in ("EN", "ENGLISH"):
         language = "en"
+    else:
+        # No language detected or unknown → Fallback to UI language
+        from .prompt_loader import get_language
+        language = get_language()
 
     return (intent, addressee, language)
 
@@ -166,8 +182,11 @@ async def detect_query_intent_and_addressee(
         return (intent, addressee, detected_language, response_raw)
 
     except Exception as e:
-        log_message(f"❌ Intent detection error: {e} → Fallback: FAKTISCH, no addressee, EN")
-        return ("FAKTISCH", None, "en", "")
+        # Fallback to UI language on error
+        from .prompt_loader import get_language
+        fallback_lang = get_language()
+        log_message(f"❌ Intent detection error: {e} → Fallback: FAKTISCH, no addressee, {fallback_lang.upper()}")
+        return ("FAKTISCH", None, fallback_lang, "")
 
 
 async def detect_query_intent(

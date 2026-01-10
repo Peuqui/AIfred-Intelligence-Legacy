@@ -12,7 +12,7 @@ The functions work with async generators for streaming UI updates.
 """
 
 import time
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 # Imports for the functions (same as original state.py methods)
 from .llm_client import LLMClient
@@ -472,8 +472,7 @@ async def _check_compression_if_needed(
 async def run_sokrates_direct_response(
     state: 'AIState',
     user_query: str,
-    history_index: int,
-    detected_lang: str = "en"
+    detected_lang: Optional[str] = None
 ) -> AsyncGenerator[None, None]:
     """
     Sokrates responds directly to user (without AIfred's answer first).
@@ -486,9 +485,13 @@ async def run_sokrates_direct_response(
     Args:
         state: The AIState object for accessing chat_history, add_debug, etc.
         user_query: The user's question (with or without addressing prefix)
-        history_index: Index in chat_history where response should be placed
         detected_lang: Language detected by LLM intent detection ("de" or "en")
+                      Defaults to UI-Language if not provided.
     """
+    # Fallback to UI language if not provided
+    if detected_lang is None:
+        from .prompt_loader import get_language
+        detected_lang = get_language()
     try:
         # Create LLM client
         llm_client = LLMClient(
@@ -541,12 +544,6 @@ async def run_sokrates_direct_response(
             enable_thinking=state.enable_thinking,
             num_ctx=sokrates_num_ctx
         )
-
-        # Get original user message from history (to preserve it)
-        original_user_msg, _ = state.chat_history[history_index]
-
-        # Keep user message in history with empty AI response (no AIfred panel)
-        state.chat_history[history_index] = (original_user_msg, "")
 
         # Set current agent for unified streaming UI
         state.current_agent = "sokrates"
@@ -607,7 +604,7 @@ async def run_sokrates_direct_response(
             inference_time=inference_time
         )
 
-        # Use centralized panel management
+        # Use centralized panel management (Dict-based chat_history - no index manipulation)
         state.add_agent_panel(
             agent="sokrates",
             content=formatted_response,
@@ -617,14 +614,8 @@ async def run_sokrates_direct_response(
                 "inference_time": inference_time,
                 "tokens_per_sec": tokens_per_sec,
                 "source": f"Sokrates ({sokrates_model})"
-            },
-            replace_last=False,
-            user_msg=""  # Empty = Sokrates-only panel
+            }
         )
-
-        # Remove the waiting message from user entry, keep only user question
-        # Since Sokrates answered, no AIfred response needed
-        state.chat_history[history_index] = (original_user_msg, "")
 
         # Clear streaming state (cleanup)
         state.current_ai_response = ""
@@ -642,20 +633,11 @@ async def run_sokrates_direct_response(
 
     except Exception as e:
         state.add_debug(f"❌ Sokrates Direct Response Error: {e}")
-        # Put error message in Sokrates panel (empty user = Sokrates styling)
-        try:
-            original_user_msg, _ = state.chat_history[history_index]
-            # Keep user message, clear AI response
-            state.chat_history[history_index] = (original_user_msg, "")
-        except (IndexError, ValueError):
-            pass
-        # Add error as Sokrates panel entry (using centralized function)
+        # Add error as Sokrates panel entry (Dict-based - simply append)
         state.add_agent_panel(
             agent="sokrates",
             content=f"Error: {str(e)}",
-            mode="error",
-            replace_last=False,
-            user_msg=""
+            mode="error"
         )
         yield
 
@@ -667,8 +649,7 @@ async def run_sokrates_direct_response(
 async def run_salomo_direct_response(
     state: 'AIState',
     user_query: str,
-    history_index: int,
-    detected_lang: str = "en"
+    detected_lang: Optional[str] = None
 ) -> AsyncGenerator[None, None]:
     """
     Salomo responds directly to user (without AIfred or Sokrates first).
@@ -681,9 +662,14 @@ async def run_salomo_direct_response(
     Args:
         state: The AIState object for accessing chat_history, add_debug, etc.
         user_query: The user's question (with or without addressing prefix)
-        history_index: Index in chat_history where response should be placed
         detected_lang: Language detected by LLM intent detection ("de" or "en")
+                      Defaults to UI-Language if not provided.
     """
+    # Fallback to UI language if not provided
+    if detected_lang is None:
+        from .prompt_loader import get_language
+        detected_lang = get_language()
+
     try:
         # Create LLM client
         llm_client = LLMClient(
@@ -736,12 +722,6 @@ async def run_salomo_direct_response(
             enable_thinking=state.enable_thinking,
             num_ctx=salomo_num_ctx
         )
-
-        # Get original user message from history (to preserve it)
-        original_user_msg, _ = state.chat_history[history_index]
-
-        # Keep user message in history with empty AI response (no AIfred panel)
-        state.chat_history[history_index] = (original_user_msg, "")
 
         # Set current agent for unified streaming UI
         state.current_agent = "salomo"
@@ -802,7 +782,7 @@ async def run_salomo_direct_response(
             inference_time=inference_time
         )
 
-        # Use centralized panel management
+        # Use centralized panel management (Dict-based chat_history - no index manipulation)
         state.add_agent_panel(
             agent="salomo",
             content=formatted_response,
@@ -812,14 +792,8 @@ async def run_salomo_direct_response(
                 "inference_time": inference_time,
                 "tokens_per_sec": tokens_per_sec,
                 "source": f"Salomo ({salomo_model})"
-            },
-            replace_last=False,
-            user_msg=""  # Empty = Salomo-only panel
+            }
         )
-
-        # Remove the waiting message from user entry, keep only user question
-        # Since Salomo answered, no AIfred response needed
-        state.chat_history[history_index] = (original_user_msg, "")
 
         # Clear streaming state (cleanup)
         state.current_ai_response = ""
@@ -837,21 +811,11 @@ async def run_salomo_direct_response(
 
     except Exception as e:
         state.add_debug(f"❌ Salomo Direct Response Error: {e}")
-        # Put error message in Salomo panel (empty user = Salomo styling)
-        try:
-            original_user_msg, _ = state.chat_history[history_index]
-            # Keep user message, clear AI response
-            state.chat_history[history_index] = (original_user_msg, "")
-        except (IndexError, ValueError):
-            pass
-        # Add error as Salomo panel entry (centralized)
+        # Add error as Salomo panel entry (Dict-based - simply append)
         state.add_agent_panel(
             agent="salomo",
             content=f"Error: {str(e)}",
-            mode="error",
-            metadata=None,
-            replace_last=False,
-            user_msg=""
+            mode="error"
         )
         yield
 
@@ -864,7 +828,7 @@ async def run_sokrates_analysis(
     state: 'AIState',
     user_query: str,
     alfred_answer: str,
-    detected_lang: str = "en"
+    detected_lang: Optional[str] = None
 ) -> AsyncGenerator[None, None]:
     """
     Run Sokrates analysis based on current multi_agent_mode
@@ -880,7 +844,13 @@ async def run_sokrates_analysis(
         user_query: The original user question
         alfred_answer: AIfred's answer to critique
         detected_lang: Language detected by LLM intent detection ("de" or "en")
+                      Defaults to UI-Language if not provided.
     """
+    # Fallback to UI language if not provided
+    if detected_lang is None:
+        from .prompt_loader import get_language
+        detected_lang = get_language()
+
     state.debate_in_progress = True
     state.sokrates_critique = ""  # Clear previous
     state.debate_round = 0
@@ -1066,15 +1036,13 @@ async def run_sokrates_analysis(
                 agent="sokrates",
                 content=formatted_sokrates,
                 mode=sokrates_mode,
-                round_num=round_num if max_rounds > 1 else None,
+                round_num=round_num if max_rounds > 1 else 0,
                 metadata={
                     "ttft": metrics.get("ttft", 0),
                     "inference_time": metrics.get("time", 0),
                     "tokens_per_sec": metrics.get("tok_per_sec", 0),
                     "source": f"Sokrates ({sokrates_model})"
                 },
-                replace_last=False,
-                user_msg="",
                 sync_llm_history=False  # Already done by _stream_sokrates_to_history
             )
             state.sokrates_critique = sokrates_response_text  # Keep raw text for logic checks
@@ -1186,8 +1154,6 @@ async def run_sokrates_analysis(
                         "tokens_per_sec": salomo_metrics.get("tok_per_sec", 0),
                         "source": f"Salomo ({salomo_model})"
                     },
-                    replace_last=False,
-                    user_msg="",
                     sync_llm_history=False  # Already done by _stream_salomo_to_history
                 )
                 state.salomo_synthesis = salomo_response_text
@@ -1292,7 +1258,6 @@ async def run_sokrates_analysis(
 
                     # Add Alfred refinement panel (centralized)
                     # Note: _stream_alfred_refinement already synced to llm_history
-                    # ALL agents use APPEND - no replace operations!
                     # IMPORTANT: AIfred Refinement happens AFTER Salomo R{n}, so it's part of R{n+1}
                     state.add_agent_panel(
                         agent="aifred",
@@ -1305,8 +1270,6 @@ async def run_sokrates_analysis(
                             "tokens_per_sec": alfred_metrics.get("tok_per_sec", 0),
                             "source": f"AIfred ({alfred_model})"
                         },
-                        replace_last=False,  # APPEND, not replace!
-                        user_msg="",
                         sync_llm_history=False  # Already done by _stream_alfred_refinement
                     )
                     yield
@@ -1353,7 +1316,7 @@ async def run_tribunal(
     state: 'AIState',
     user_query: str,
     alfred_answer: str,
-    detected_lang: str = "en"
+    detected_lang: Optional[str] = None
 ) -> AsyncGenerator[None, None]:
     """
     Run Tribunal mode: AIfred and Sokrates debate, Salomo judges at end.
@@ -1368,7 +1331,13 @@ async def run_tribunal(
         user_query: The original user question
         alfred_answer: AIfred's initial answer
         detected_lang: Language detected by LLM intent detection ("de" or "en")
+                      Defaults to UI-Language if not provided.
     """
+    # Fallback to UI language if not provided
+    if detected_lang is None:
+        from .prompt_loader import get_language
+        detected_lang = get_language()
+
     state.debate_in_progress = True
     state.sokrates_critique = ""
     state.salomo_synthesis = ""
@@ -1520,8 +1489,6 @@ async def run_tribunal(
                     "tokens_per_sec": metrics.get("tok_per_sec", 0),
                     "source": f"Sokrates ({sokrates_model})"
                 },
-                replace_last=False,
-                user_msg="",
                 sync_llm_history=False  # Already done by _stream_sokrates_to_history
             )
             state.sokrates_critique = sokrates_response_text
@@ -1592,7 +1559,6 @@ async def run_tribunal(
 
                 # Add Alfred tribunal panel (centralized)
                 # Note: _stream_alfred_refinement already synced to llm_history
-                # ALL agents use APPEND - no replace operations!
                 # IMPORTANT: AIfred responds AFTER Sokrates R{n}, so it's part of R{n+1}
                 state.add_agent_panel(
                     agent="aifred",
@@ -1605,8 +1571,6 @@ async def run_tribunal(
                         "tokens_per_sec": alfred_metrics.get("tok_per_sec", 0),
                         "source": f"AIfred ({alfred_model})"
                     },
-                    replace_last=False,  # APPEND!
-                    user_msg="",
                     sync_llm_history=False  # Already done by _stream_alfred_refinement
                 )
                 yield
@@ -1678,15 +1642,13 @@ async def run_tribunal(
             agent="salomo",
             content=formatted_salomo,
             mode="verdict",  # Uses salomo_verdict_label via _get_mode_label
-            round_num=None,  # No round number for final verdict
+            round_num=max_rounds,  # Verdict belongs to final debate round
             metadata={
                 "ttft": salomo_metrics.get("ttft", 0),
                 "inference_time": salomo_metrics.get("time", 0),
                 "tokens_per_sec": salomo_metrics.get("tok_per_sec", 0),
                 "source": f"Salomo ({salomo_model})"
             },
-            replace_last=False,
-            user_msg="",
             sync_llm_history=False  # Already done by _stream_salomo_to_history
         )
         state.salomo_synthesis = salomo_response_text

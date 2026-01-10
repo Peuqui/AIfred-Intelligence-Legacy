@@ -5,6 +5,35 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.32] - 2026-01-10
+
+### Fixed
+
+- **Language Consistency Bug** ([#milestone](https://github.com/marpete/AIfred-Intelligence)):
+  - Fixed agents (Sokrates, Salomo) answering in wrong language
+  - **Root Cause**: Reminder was injected with UI-Language instead of detected_language, overriding system prompt language
+  - **Fix 1 - Reminder Injection** ([message_builder.py](aifred/lib/message_builder.py)):
+    - Added `detected_language` parameter to `build_messages_from_llm_history()`
+    - Reminder now uses detected_language with fallback to UI-Language
+  - **Fix 2 - Intent Detection Parser** ([intent_detector.py](aifred/lib/intent_detector.py)):
+    - Parser now handles "(empty)" marker from LLM robustly
+    - Changed all fallbacks from hardcoded `"en"` to `get_language()` (UI-Language)
+  - **Fix 3 - Intent Detection Prompt** ([intent_detection.txt](prompts/en/automatik/intent_detection.txt)):
+    - Added explicit instruction: "DO NOT write '(empty)' or 'none' - just leave it blank!"
+  - **Fix 4 - Multi-Agent Defaults** ([multi_agent.py](aifred/lib/multi_agent.py)):
+    - Changed 4 function signatures from `detected_lang: str = "en"` to `Optional[str] = None`
+    - Functions: `run_sokrates_direct_response`, `run_salomo_direct_response`, `run_sokrates_analysis`, `run_tribunal`
+    - All now fallback to UI-Language instead of hardcoded "en"
+  - **Fix 5 - Salomo Mediator Prompt** ([mediator.txt](prompts/en/salomo/mediator.txt)):
+    - Enhanced to match German version's detail level
+
+- **Language Logic** (Consistent across all code paths):
+  - If Intent Detection provides language → Use that for ALL prompts and reminder
+  - If Intent Detection provides NO language → Fallback to UI-Language (not "en")
+  - Works across: AIfred, Sokrates, Salomo, all modes (Auto-Consensus, Tribunal, Critical Review)
+
+---
+
 ## [2.15.31] - 2026-01-09
 
 ### Added

@@ -115,7 +115,8 @@ def clean_content_for_llm(content: str) -> str:
 def build_messages_from_llm_history(
     llm_history: List[Dict[str, str]],
     current_user_text: str = "",
-    perspective: str = "aifred"  # REQUIRED: "sokrates", "aifred", "salomo", "observer"
+    perspective: str = "aifred",  # REQUIRED: "sokrates", "aifred", "salomo", "observer"
+    detected_language: Optional[str] = None  # Language from Intent Detection ("de" or "en")
 ) -> List[Dict[str, str]]:
     """
     Build LLM messages directly from llm_history (v2.13.0+).
@@ -223,7 +224,9 @@ def build_messages_from_llm_history(
         if agent_name == "observer":
             agent_name = "salomo"  # Observer is Salomo's perspective
 
-        reminder = load_personality_reminder(agent_name, lang=get_language())
+        # Use detected_language if provided, otherwise fall back to UI language
+        reminder_lang = detected_language if detected_language else get_language()
+        reminder = load_personality_reminder(agent_name, lang=reminder_lang)
         if reminder:
             current_user_text = f"{reminder}\n\n{current_user_text}"
 

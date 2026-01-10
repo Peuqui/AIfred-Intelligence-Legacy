@@ -13,28 +13,29 @@ CRITICAL: ONLY detect addressee if one of these EXACT names appears in the query
 - sokrates: Sokrates, Socrates
 - salomo: Salomo, Solomon
 
-⚠️ IF NO NAME APPEARS → addressee MUST be (empty)!
+⚠️ IF NO NAME APPEARS → Leave addressee field EMPTY (nothing between pipes: ||)
+⚠️ DO NOT write "(empty)" or "none" - just leave it blank!
 ⚠️ DO NOT infer addressee from context, style, or associated words!
 
 EXAMPLES:
-- "Describe the Casimir effect for a Victorian gentleman" → (empty) - NO name mentioned!
+- "Describe the Casimir effect for a Victorian gentleman" → NO addressee (||) - NO name mentioned!
 - "Alfred, explain quantum physics" → aifred - Name present!
 - "Hey Sokrates, what do you think?" → sokrates - Name present!
-- "What would Salomo say about this?" → (empty) - Name mentioned as topic, not addressed!
+- "What would Salomo say about this?" → NO addressee (||) - Name mentioned as topic, not addressed!
 - "Sokrates, was denkst du über Salomo?" → sokrates - Comma indicates addressing Sokrates!
-- "Tell me about British butlers" → (empty) - NO name, even if contextually related!
+- "Tell me about British butlers" → NO addressee (||) - NO name, even if contextually related!
 
 WRONG EXAMPLES (DO NOT DO THIS!):
-- "Und dennoch bin ich der Meinung..." → aifred ❌ WRONG! No name = empty!
+- "Und dennoch bin ich der Meinung..." → aifred ❌ WRONG! No name = leave blank!
 - "I think the butler style is nice" → aifred ❌ WRONG! "butler" is not a name!
 - "Was sagt ihr dazu?" → aifred ❌ WRONG! "ihr" is not a specific agent!
 - "Tell me more about this" → aifred ❌ WRONG! No name mentioned!
 
 CORRECT:
-- "Und dennoch bin ich der Meinung..." → (empty) ✓
-- "I think the butler style is nice" → (empty) ✓
-- "Was sagt ihr dazu?" → (empty) ✓
-- "Tell me more about this" → (empty) ✓
+- "Und dennoch bin ich der Meinung..." → || (blank) ✓
+- "I think the butler style is nice" → || (blank) ✓
+- "Was sagt ihr dazu?" → || (blank) ✓
+- "Tell me more about this" → || (blank) ✓
 
 **3. Language of the request:**
 - DE: German text (contains: der, die, das, ich, du, was, wie, bitte, etc.)
@@ -50,4 +51,8 @@ CORRECT:
 - "Describe the Casimir effect for a Victorian gentleman" → FACTUAL||EN
 
 **IMPORTANT:** Answer ONLY in this format: INTENT|ADDRESSEE|LANGUAGE
-Examples: FACTUAL|sokrates|DE, CREATIVE||EN, MIXED|aifred|DE
+Examples:
+- FACTUAL|sokrates|DE (addressed to Sokrates)
+- CREATIVE||EN (NO addressee - note the double pipe ||)
+- MIXED|aifred|DE (addressed to AIfred)
+- FACTUAL||DE (NO addressee - double pipe, then language)
