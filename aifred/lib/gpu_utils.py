@@ -291,6 +291,38 @@ def get_dynamic_ram_reserve(free_ram_mb: int) -> int:
         return 2048  # 2 GB reserve (minimum)
 
 
+def calculate_context_from_memory(
+    available_mb: float,
+    reserve_mb: float,
+    ratio_mb_per_token: float,
+    max_context: int | None = None
+) -> int:
+    """
+    Calculate maximum context tokens based on available memory.
+
+    Universal function for both VRAM and RAM (Hybrid mode) calculations.
+    Uses the formula: max_tokens = (available_mb - reserve_mb) / ratio_mb_per_token
+
+    Args:
+        available_mb: Available memory in MB (from get_free_vram_mb or get_free_ram_mb)
+        reserve_mb: Memory to keep free in MB (safety margin)
+        ratio_mb_per_token: MB per token (0.10 for MoE, 0.15 for Dense models)
+        max_context: Optional upper limit (e.g., native context limit)
+
+    Returns:
+        int: Maximum context tokens, or 0 if not enough memory
+    """
+    usable_mb = available_mb - reserve_mb
+    if usable_mb <= 0:
+        return 0
+
+    calculated_tokens = int(usable_mb / ratio_mb_per_token)
+
+    if max_context is not None:
+        return min(calculated_tokens, max_context)
+    return calculated_tokens
+
+
 async def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
     """
     Detect if model is MoE (Mixture of Experts) architecture

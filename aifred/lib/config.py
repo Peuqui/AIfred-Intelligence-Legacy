@@ -484,6 +484,19 @@ NUM_CTX_MANUAL_MAX = 2097152  # 2M tokens
 CALIBRATION_MIN_CONTEXT = 8192  # 8K minimum for usable context
 
 # ============================================================
+# HYBRID MODE THRESHOLD CONFIGURATION
+# ============================================================
+# When VRAM-only calibration yields less than this, switch to Hybrid mode.
+# 16K is the minimum for meaningful LLM usage with multi-turn conversations,
+# RAG context injection, and system prompts.
+MIN_USEFUL_CONTEXT_TOKENS = 16384  # 16K - below this, VRAM-only is not useful
+
+# Minimum free RAM to maintain during Hybrid mode calibration.
+# This is a FIXED reserve (not dynamic) to ensure system stability.
+# 3 GB leaves enough headroom for OS, browser, and other processes.
+MIN_FREE_RAM_MB = 3072  # 3 GB fixed RAM reserve for Hybrid mode
+
+# ============================================================
 # VISION/OCR CONTEXT CONSTANTS
 # ============================================================
 # Minimum context for Vision-LLM (OCR, image analysis)

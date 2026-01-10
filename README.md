@@ -188,22 +188,22 @@ Each message is displayed individually with its emoji and mode label:
 - **ChromaDB Server Mode**: Thread-safe vector DB via Docker (0.0 distance for exact matches)
 - **GPU Detection**: Automatic detection and warnings for incompatible backend-GPU combinations ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
 - **Ollama Context Calibration**: Intelligent per-model calibration with automatic hybrid mode detection
-  - **Normal Mode**: Binary search for models that fit in VRAM
-  - **Hybrid Mode**: Direct calculation for models larger than VRAM (CPU offload)
+  - **VRAM Mode**: Binary search for models that fit completely in GPU memory (512 token precision)
+  - **Hybrid Mode**: Binary search with RAM-based upper bound for CPU+GPU offload
     - Detects MoE vs Dense models (0.10 vs 0.15 MB/token ratio)
-    - Dynamic RAM reserve (2-8 GB based on available memory)
-    - Fine-tuning after initial load (±25% adjustments)
+    - Fixed 3 GB RAM reserve to prevent swapping
+    - Upper bound calculation: `(available_ram - 3GB) / ratio`
+  - **Auto-Hybrid Threshold**: If VRAM-only yields < 16k tokens → switch to Hybrid mode
   - **Algorithm Flow**:
     ```
-    1. Model > VRAM? → Hybrid Mode
-    2. Check: Model fits in VRAM + RAM?
+    1. Measure: Model size, free VRAM, free RAM
+    2. Model > VRAM? → Hybrid Mode (CPU offload required)
     3. MoE Detection → ratio (0.10 MoE / 0.15 Dense)
-    4. Estimate RAM after model load
-    5. Calculate dynamic reserve (2-8 GB)
-    6. Direct context calculation: available_ram / ratio
-    7. Load with calculated context
-    8. Fine-tuning: measure actual RAM, adjust ±25%
-    9. Save calibration result
+    4. Calculate upper bound: (available_ram - 3GB) / ratio
+    5. Binary search: min_context → upper_bound (512 token precision)
+    6. Check RAM reserve after each test load
+    7. VRAM-only result < 16k? → Switch to Hybrid, repeat 4-6
+    8. Save calibration result (is_hybrid flag)
     ```
 - **RoPE 2x Extended Context**: Optional extended calibration up to 2x native context limit
 - **KoboldCPP Dynamic RoPE**: Intelligent VRAM-based context optimization with automatic RoPE scaling

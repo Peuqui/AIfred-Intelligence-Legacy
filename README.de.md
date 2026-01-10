@@ -179,7 +179,10 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
 - **Debug-Konsole**: Umfangreiches Logging und Monitoring
 - **ChromaDB-Server-Modus**: Thread-sichere Vector-DB via Docker (0.0 Distance für exakte Matches)
 - **GPU-Erkennung**: Automatische Erkennung und Warnung bei inkompatiblen Backend-GPU-Kombinationen ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
-- **Ollama Context-Kalibrierung**: 3-Stufen-Kalibrierung (Native, RoPE 1.5x, RoPE 2.0x) mit automatischer Hybrid-Mode-Erkennung für CPU-Offload → [Details](docs/plans/OLLAMA_CONTEXT_CALIBRATION.md)
+- **Ollama Context-Kalibrierung**: Binäre Suche für VRAM und Hybrid-Modus mit RAM-basierter Obergrenze
+  - **VRAM-Modus**: Binäre Suche für Modelle die komplett in GPU-Speicher passen (512 Token Präzision)
+  - **Hybrid-Modus**: Binäre Suche mit RAM-Obergrenze für CPU+GPU Offload (3 GB Reserve)
+  - **Auto-Hybrid**: Wenn VRAM-only < 16k Tokens ergibt → automatisch auf Hybrid umschalten
 - **KoboldCPP Dynamic RoPE**: Intelligente VRAM-basierte Kontext-Optimierung mit automatischem RoPE-Scaling
 - **Multi-User-Queue**: KoboldCPP Request-Queuing für gleichzeitige Benutzer (bis zu 5 Clients)
 - **Parallele Web-Suche**: 2-3 optimierte Queries parallel auf APIs verteilt (Tavily, Brave, SearXNG), automatische URL-Deduplizierung, optionales self-hosted SearXNG

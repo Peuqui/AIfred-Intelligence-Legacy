@@ -5,6 +5,23 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.33] - 2026-01-10
+
+### Changed
+
+- **Hybrid Mode Calibration Refactoring** ([ollama.py](aifred/backends/ollama.py), [gpu_utils.py](aifred/lib/gpu_utils.py)):
+  - **New**: `calculate_context_from_memory()` - Universal function for VRAM and RAM context calculation
+  - **Fix**: All Hybrid calibration paths now calculate RAM-based upper bound BEFORE binary search
+  - **Problem solved**: System freeze at 135k tokens due to excessive swapping (no upper bound check)
+  - **Three Hybrid paths refactored**:
+    1. `force_hybrid` (RoPE calibration after 1.0x was hybrid)
+    2. `model > VRAM` (model larger than available VRAM)
+    3. `VRAM-only < 16k` (VRAM-only yields too little context)
+  - **Formula**: `max_tokens = (available_mb - reserve_mb) / ratio_mb_per_token`
+  - **Constants**: `MIN_FREE_RAM_MB = 3072` (3 GB fixed reserve), `MIN_USEFUL_CONTEXT_TOKENS = 16384` (16k threshold)
+
+---
+
 ## [2.15.32] - 2026-01-10
 
 ### Fixed
