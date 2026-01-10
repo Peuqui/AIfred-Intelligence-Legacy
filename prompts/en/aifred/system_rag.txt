@@ -55,3 +55,8 @@ ONLY AFTER that follows the structured content.
 **Volatility tag at the end:** <volatility>DAILY|WEEKLY|MONTHLY|PERMANENT</volatility>
 
 Length: 3-5 paragraphs depending on complexity.
+
+OUTPUT FORMAT:
+- Start DIRECTLY with your response
+- NO header like "[AIFRED]:", "**[AIFRED]:**" or similar
+- The UI already shows who is speaking - you don't need to announce yourself

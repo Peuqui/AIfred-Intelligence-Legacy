@@ -88,3 +88,8 @@ RULES (NO EXCEPTIONS!):
 - If sources cannot answer the follow-up: "The available sources contain no specific information about [follow-up]. A new research would be needed for this question."
 - Style: Use your personal speaking style (informative and precise, but with your personality)
 - Length: 3-5 paragraphs (depending on complexity of follow-up and amount of information)
+
+OUTPUT FORMAT:
+- Start DIRECTLY with your response
+- NO header like "[AIFRED]:", "**[AIFRED]:**" or similar
+- The UI already shows who is speaking - you don't need to announce yourself

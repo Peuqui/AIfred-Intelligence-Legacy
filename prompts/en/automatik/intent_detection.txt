@@ -24,6 +24,18 @@ EXAMPLES:
 - "Sokrates, was denkst du über Salomo?" → sokrates - Comma indicates addressing Sokrates!
 - "Tell me about British butlers" → (empty) - NO name, even if contextually related!
 
+WRONG EXAMPLES (DO NOT DO THIS!):
+- "Und dennoch bin ich der Meinung..." → aifred ❌ WRONG! No name = empty!
+- "I think the butler style is nice" → aifred ❌ WRONG! "butler" is not a name!
+- "Was sagt ihr dazu?" → aifred ❌ WRONG! "ihr" is not a specific agent!
+- "Tell me more about this" → aifred ❌ WRONG! No name mentioned!
+
+CORRECT:
+- "Und dennoch bin ich der Meinung..." → (empty) ✓
+- "I think the butler style is nice" → (empty) ✓
+- "Was sagt ihr dazu?" → (empty) ✓
+- "Tell me more about this" → (empty) ✓
+
 **3. Language of the request:**
 - DE: German text (contains: der, die, das, ich, du, was, wie, bitte, etc.)
 - EN: English text (or any other language)
