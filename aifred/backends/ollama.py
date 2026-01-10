@@ -978,7 +978,7 @@ class OllamaBackend(LLMBackend):
                 else:
                     high = mid
                     ram_str = format_number(check_ram) if check_ram else "N/A"
-                    yield f"✗ {format_number(mid)} exceeds RAM reserve ({ram_str} MB < {format_number(MIN_FREE_RAM_MB)} MB)"
+                    yield f"✗ {format_number(mid)} - RAM not enough ({ram_str} MB free < {format_number(MIN_FREE_RAM_MB)} MB required)"
             else:
                 high = mid
                 yield f"✗ {format_number(mid)} failed to load"
