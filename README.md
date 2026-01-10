@@ -1600,6 +1600,130 @@ polkit.addRule(function(action, subject) {
 
 ---
 
+## ⚠️ Multi-User Capabilities & Limitations
+
+AIfred is designed as a **single-user system** but supports 2-3 concurrent users with certain limitations.
+
+### ✅ What Works (Concurrent Users)
+
+**Session Isolation (Reflex Framework):**
+- Each browser tab gets its own session with unique `client_token` (UUID)
+- **Chat history is isolated** - users don't see each other's conversations
+- **Streaming responses work in parallel** - each user gets their own real-time updates
+- **Request queuing** - Ollama automatically queues concurrent requests internally
+
+**Per-User Isolated State:**
+- ✅ Chat history (`chat_history`, `llm_history`)
+- ✅ Current messages and streaming responses
+- ✅ Image uploads and crop state
+- ✅ Session ID and device ID (cookie-based)
+- ✅ Failed sources and debug messages
+
+### ⚠️ What Is Shared (Global State)
+
+**Backend Configuration (shared across all users):**
+- ⚠️ **Selected backend** (Ollama, vLLM, TabbyAPI, Cloud API)
+- ⚠️ **Backend URL**
+- ⚠️ **Selected models** (AIfred-LLM, Automatik-LLM, Sokrates-LLM, Salomo-LLM, Vision-LLM)
+- ⚠️ **Available models list**
+- ⚠️ **GPU info and VRAM cache**
+- ⚠️ **vLLM process manager**
+
+**Settings File (`~/.config/aifred/settings.json`):**
+- ⚠️ All settings are global (temperature, Multi-Agent mode, RoPE factors, etc.)
+- ⚠️ If User A changes a setting → User B sees the change immediately
+- ⚠️ No per-user settings profiles
+
+### 🎯 Practical Usage Scenarios
+
+**✅ SAFE: Multiple users sending requests**
+```
+Timeline (Ollama automatically queues requests):
+─────────────────────────────────────────────────────
+User A: Sends question → Ollama processes → Response to User A
+User B:                → Sends question → Waits in queue → Ollama processes → Response to User B
+User C:                                 → Sends question → Waits in queue → Ollama processes → Response to User C
+```
+
+- Each user gets their own correct answer
+- Ollama's internal queue handles concurrent requests sequentially
+- No race conditions as long as nobody changes settings during requests
+
+**⚠️ PROBLEMATIC: Changing settings during active requests**
+```
+User A: Sends request with Qwen3:8b → Processing...
+User B: Switches model to Llama3:70b → Global state changes!
+User A: Request continues with Qwen3 parameters (OK - already passed)
+User A: Next request would use Llama3 (unintended)
+```
+
+- Settings changes affect all users immediately
+- Running requests are safe (parameters already passed to backend)
+- New requests from User A would use User B's settings
+
+### 📊 Memory & Session Management
+
+**Session Storage:**
+- Sessions stored in RAM (plain dict by default, no Redis)
+- **No automatic expiration** - sessions stay in memory until server restart
+- Empty sessions are small (~1-5 KB each)
+- **Not a problem**: Even 100 empty sessions = ~500 KB RAM
+
+**Chat History:**
+- Users who regularly clear their chat history keep memory usage low
+- Full conversations (50+ messages) use more RAM but are manageable
+- History compression (70% trigger) keeps context manageable
+
+### 🔧 Design Rationale
+
+**Why is backend configuration global?**
+
+AIfred is designed for local hardware with limited resources:
+- **Single GPU**: Can only run one model at a time efficiently
+- **VRAM constraints**: Loading different models per user would exceed VRAM
+- **Hardware is single-user oriented**: All users must share the configured backend/models
+
+**This is intentional** - the system is optimized for:
+- **Primary use case**: 1 user, occasionally 2-3 users
+- **Shared hardware**: Everyone uses the same GPU/models
+- **Root control**: Administrator (you) manages settings, others use the system as configured
+
+### 🛡️ Recommendations for Multi-User Setup
+
+1. **Establish usage rules:**
+   - Designate one admin (root user) who manages settings
+   - Other users should not change backend/model settings
+   - Communicate when changing critical settings
+
+2. **Safe concurrent usage:**
+   - ✅ Multiple users can send requests simultaneously
+   - ✅ Each user gets their own response and chat history
+   - ⚠️ Avoid changing settings while others are actively using the system
+
+3. **Expected behavior:**
+   - Users see the same available models (shared dropdown)
+   - Settings changes sync across browser tabs within 1-2 seconds (via `settings.json` polling)
+   - **UI Sync Delay**: Model dropdown may not visually update until clicked/reopened (known Reflex limitation)
+   - Multi-Agent mode and other simple settings sync immediately and visibly
+   - This is **by design** for single-GPU hardware
+
+### 🚫 What AIfred Is NOT
+
+- ❌ **Not a multi-tenant SaaS**: No per-user accounts, quotas, or isolated resources
+- ❌ **Not designed for >5 concurrent users**: Request queue would become slow
+- ❌ **Not for untrusted users**: Any user can change global settings (no permissions/roles)
+
+### ✅ What AIfred IS
+
+- ✅ **Personal AI assistant** for home/office use
+- ✅ **Family-friendly**: 2-3 family members can use it simultaneously without issues
+- ✅ **Developer-focused**: Root user has full control, others use it as configured
+- ✅ **Hardware-optimized**: Makes best use of single GPU for all users
+
+**Summary**: AIfred works well for small groups (2-3 users) who coordinate settings changes, but is not suitable for large-scale multi-user deployments or untrusted user access.
+
+---
+
 ## 🛠️ Development
 
 ### Debug Logs

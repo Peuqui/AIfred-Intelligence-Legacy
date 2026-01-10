@@ -1464,6 +1464,130 @@ polkit.addRule(function(action, subject) {
 
 ---
 
+## ⚠️ Multi-User-Fähigkeiten & Einschränkungen
+
+AIfred ist als **Single-User-System** konzipiert, unterstützt aber 2-3 gleichzeitige Nutzer mit gewissen Einschränkungen.
+
+### ✅ Was funktioniert (gleichzeitige Nutzer)
+
+**Session-Isolation (Reflex Framework):**
+- Jeder Browser-Tab bekommt eine eigene Session mit eindeutigem `client_token` (UUID)
+- **Chat-Verlauf ist isoliert** - Nutzer sehen nicht die Konversationen der anderen
+- **Streaming-Antworten funktionieren parallel** - jeder Nutzer bekommt seine eigenen Echtzeit-Updates
+- **Request-Queue** - Ollama queued gleichzeitige Requests automatisch intern
+
+**Pro-Nutzer isolierter State:**
+- ✅ Chat-Verlauf (`chat_history`, `llm_history`)
+- ✅ Aktuelle Nachrichten und Streaming-Antworten
+- ✅ Bild-Uploads und Crop-State
+- ✅ Session-ID und Device-ID (Cookie-basiert)
+- ✅ Failed Sources und Debug-Messages
+
+### ⚠️ Was geteilt wird (globaler State)
+
+**Backend-Konfiguration (geteilt zwischen allen Nutzern):**
+- ⚠️ **Ausgewähltes Backend** (Ollama, vLLM, TabbyAPI, Cloud API)
+- ⚠️ **Backend-URL**
+- ⚠️ **Ausgewählte Modelle** (AIfred-LLM, Automatik-LLM, Sokrates-LLM, Salomo-LLM, Vision-LLM)
+- ⚠️ **Verfügbare Modelle-Liste**
+- ⚠️ **GPU-Info und VRAM-Cache**
+- ⚠️ **vLLM-Prozess-Manager**
+
+**Settings-Datei (`~/.config/aifred/settings.json`):**
+- ⚠️ Alle Einstellungen sind global (Temperature, Multi-Agent-Modus, RoPE-Faktoren, etc.)
+- ⚠️ Wenn User A eine Einstellung ändert → sieht User B die Änderung sofort
+- ⚠️ Keine nutzer-spezifischen Einstellungs-Profile
+
+### 🎯 Praktische Nutzungs-Szenarien
+
+**✅ SICHER: Mehrere Nutzer senden Requests**
+```
+Timeline (Ollama queued Requests automatisch):
+─────────────────────────────────────────────────────
+User A: Sendet Frage → Ollama bearbeitet → Antwort an User A
+User B:               → Sendet Frage → Wartet in Queue → Ollama bearbeitet → Antwort an User B
+User C:                               → Sendet Frage → Wartet in Queue → Ollama bearbeitet → Antwort an User C
+```
+
+- Jeder Nutzer bekommt seine eigene korrekte Antwort
+- Ollamas interne Queue handhabt gleichzeitige Requests sequenziell
+- Keine Race Conditions, solange niemand während Requests die Settings ändert
+
+**⚠️ PROBLEMATISCH: Settings ändern während aktive Requests laufen**
+```
+User A: Sendet Request mit Qwen3:8b → Wird bearbeitet...
+User B: Wechselt Modell zu Llama3:70b → Globaler State ändert sich!
+User A: Request läuft weiter mit Qwen3-Parametern (OK - bereits übergeben)
+User A: Nächster Request würde Llama3 nutzen (unbeabsichtigt)
+```
+
+- Settings-Änderungen betreffen alle Nutzer sofort
+- Laufende Requests sind sicher (Parameter bereits ans Backend übergeben)
+- Neue Requests von User A würden User B's Settings nutzen
+
+### 📊 Speicher & Session-Verwaltung
+
+**Session-Speicherung:**
+- Sessions im RAM gespeichert (plain dict standardmäßig, kein Redis)
+- **Kein automatisches Ablaufen** - Sessions bleiben im Speicher bis zum Server-Neustart
+- Leere Sessions sind klein (~1-5 KB pro Session)
+- **Kein Problem**: Selbst 100 leere Sessions = ~500 KB RAM
+
+**Chat-Verlauf:**
+- Nutzer die regelmäßig ihren Chat-Verlauf löschen halten die Speichernutzung niedrig
+- Volle Konversationen (50+ Nachrichten) nutzen mehr RAM, sind aber handhabbar
+- History-Kompression (70% Trigger) hält Context handhabbar
+
+### 🔧 Design-Begründung
+
+**Warum ist die Backend-Konfiguration global?**
+
+AIfred ist für lokale Hardware mit begrenzten Ressourcen ausgelegt:
+- **Einzelne GPU**: Kann nur ein Modell gleichzeitig effizient laufen lassen
+- **VRAM-Beschränkungen**: Verschiedene Modelle pro Nutzer laden würde VRAM überschreiten
+- **Hardware ist single-user-orientiert**: Alle Nutzer müssen sich das konfigurierte Backend/Modelle teilen
+
+**Das ist beabsichtigt** - das System ist optimiert für:
+- **Primärer Use-Case**: 1 Nutzer, gelegentlich 2-3 Nutzer
+- **Geteilte Hardware**: Alle nutzen dieselbe GPU/Modelle
+- **Root-Kontrolle**: Administrator (du) verwaltet Einstellungen, andere nutzen das System wie konfiguriert
+
+### 🛡️ Empfehlungen für Multi-User-Setup
+
+1. **Nutzungsregeln etablieren:**
+   - Einen Admin (Root-User) bestimmen, der die Einstellungen verwaltet
+   - Andere Nutzer sollten Backend/Modell-Einstellungen nicht ändern
+   - Kommunizieren, wenn kritische Einstellungen geändert werden
+
+2. **Sichere gleichzeitige Nutzung:**
+   - ✅ Mehrere Nutzer können gleichzeitig Requests senden
+   - ✅ Jeder Nutzer bekommt seine eigene Antwort und Chat-Verlauf
+   - ⚠️ Vermeide Einstellungs-Änderungen während andere das System aktiv nutzen
+
+3. **Erwartetes Verhalten:**
+   - Nutzer sehen dieselben verfügbaren Modelle (geteiltes Dropdown)
+   - Einstellungs-Änderungen synchronisieren sich zwischen Browser-Tabs innerhalb 1-2 Sekunden (via `settings.json` Polling)
+   - **UI-Sync-Verzögerung**: Modell-Dropdown aktualisiert sich visuell möglicherweise erst beim Klicken/Öffnen (bekannte Reflex-Einschränkung)
+   - Multi-Agent-Modus und andere einfache Einstellungen synchronisieren sich sofort und sichtbar
+   - Das ist **by design** für Single-GPU-Hardware
+
+### 🚫 Was AIfred NICHT ist
+
+- ❌ **Kein Multi-Tenant-SaaS**: Keine nutzer-spezifischen Accounts, Quotas oder isolierte Ressourcen
+- ❌ **Nicht für >5 gleichzeitige Nutzer ausgelegt**: Request-Queue würde langsam werden
+- ❌ **Nicht für nicht-vertrauenswürdige Nutzer**: Jeder Nutzer kann globale Einstellungen ändern (keine Permissions/Rollen)
+
+### ✅ Was AIfred IST
+
+- ✅ **Persönlicher KI-Assistent** für Heim-/Büronutzung
+- ✅ **Familien-freundlich**: 2-3 Familienmitglieder können es gleichzeitig ohne Probleme nutzen
+- ✅ **Developer-fokussiert**: Root-User hat volle Kontrolle, andere nutzen es wie konfiguriert
+- ✅ **Hardware-optimiert**: Macht beste Nutzung der einzelnen GPU für alle Nutzer
+
+**Zusammenfassung**: AIfred funktioniert gut für kleine Gruppen (2-3 Nutzer), die Einstellungs-Änderungen koordinieren, ist aber nicht geeignet für großskalige Multi-User-Deployments oder nicht-vertrauenswürdige Nutzer-Zugriffe.
+
+---
+
 ## 🛠️ Development
 
 ### Debug Logs
