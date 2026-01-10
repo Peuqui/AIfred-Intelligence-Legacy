@@ -266,6 +266,24 @@ def get_free_ram_mb() -> Optional[int]:
         return None
 
 
+def get_swap_used_mb() -> Optional[int]:
+    """
+    Query current swap usage using psutil.
+
+    Returns:
+        int: Used swap in MB, or None if unavailable
+    """
+    try:
+        import psutil
+        swap = psutil.swap_memory()
+        return int(swap.used / (1024 * 1024))
+    except ImportError:
+        return None
+    except Exception as e:
+        logger.debug(f"Could not query swap via psutil: {e}")
+        return None
+
+
 def get_dynamic_ram_reserve(free_ram_mb: int) -> int:
     """
     Calculate dynamic RAM reserve based on available RAM.

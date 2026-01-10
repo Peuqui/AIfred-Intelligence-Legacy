@@ -496,6 +496,13 @@ MIN_USEFUL_CONTEXT_TOKENS = 16384  # 16K - below this, VRAM-only is not useful
 # 3 GB leaves enough headroom for OS, browser, and other processes.
 MIN_FREE_RAM_MB = 3072  # 3 GB fixed RAM reserve for Hybrid mode
 
+# Maximum allowed swap increase during a single calibration test.
+# If swap increases by more than this during model load, the context is too large.
+# This prevents the "infinite swap" problem where Linux keeps swapping to make
+# RAM "available", hiding the fact that the system is overloaded.
+# 512 MB allows for minor swap activity but catches excessive swapping.
+MAX_SWAP_INCREASE_MB = 512  # Max swap increase per test iteration
+
 # ============================================================
 # VISION/OCR CONTEXT CONSTANTS
 # ============================================================

@@ -11,14 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Hybrid Mode Calibration Refactoring** ([ollama.py](aifred/backends/ollama.py), [gpu_utils.py](aifred/lib/gpu_utils.py)):
   - **New**: `calculate_context_from_memory()` - Universal function for VRAM and RAM context calculation
+  - **New**: `get_swap_used_mb()` - Query current swap usage via psutil
   - **Fix**: All Hybrid calibration paths now calculate RAM-based upper bound BEFORE binary search
-  - **Problem solved**: System freeze at 135k tokens due to excessive swapping (no upper bound check)
+  - **Fix**: Binary search now monitors **swap increase** during each test iteration
+    - Problem: Linux keeps RAM "available" by swapping, hiding system overload
+    - Solution: If swap increases > 512 MB during test → context too large → reduce
+  - **Problem solved**: System freeze at 135k tokens due to excessive swapping
   - **Three Hybrid paths refactored**:
     1. `force_hybrid` (RoPE calibration after 1.0x was hybrid)
     2. `model > VRAM` (model larger than available VRAM)
     3. `VRAM-only < 16k` (VRAM-only yields too little context)
   - **Formula**: `max_tokens = (available_mb - reserve_mb) / ratio_mb_per_token`
-  - **Constants**: `MIN_FREE_RAM_MB = 3072` (3 GB fixed reserve), `MIN_USEFUL_CONTEXT_TOKENS = 16384` (16k threshold)
+  - **Constants**: `MIN_FREE_RAM_MB = 3072`, `MIN_USEFUL_CONTEXT_TOKENS = 16384`, `MAX_SWAP_INCREASE_MB = 512`
 
 ---
 

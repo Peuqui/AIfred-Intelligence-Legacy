@@ -917,6 +917,9 @@ class OllamaBackend(LLMBackend):
         Shared logic for all Hybrid calibration paths. Uses fixed RAM reserve
         (MIN_FREE_RAM_MB) instead of dynamic reserve for consistent behavior.
 
+        Also monitors swap usage to detect excessive swapping - Linux keeps RAM
+        "available" by swapping, so we can't rely on free RAM alone.
+
         Args:
             model: Model name
             low: Lower bound (inclusive)
@@ -930,8 +933,9 @@ class OllamaBackend(LLMBackend):
             int: Best found context size (via special "__BINARY_RESULT__:{ctx}" message)
         """
         import asyncio
-        from ..lib.gpu_utils import get_free_ram_mb
+        from ..lib.gpu_utils import get_free_ram_mb, get_swap_used_mb
         from ..lib.formatting import format_number
+        from ..lib.config import MAX_SWAP_INCREASE_MB
 
         result = low
         iteration = start_iteration
@@ -941,6 +945,10 @@ class OllamaBackend(LLMBackend):
             mid = (low + high) // 2
 
             yield f"[{iteration}] Testing {format_number(mid)}..."
+
+            # Measure swap BEFORE unloading/loading
+            swap_before = get_swap_used_mb()
+
             await self.unload_all_models()
             await asyncio.sleep(1.0)
 
@@ -948,12 +956,25 @@ class OllamaBackend(LLMBackend):
             if success:
                 await asyncio.sleep(2.0)
                 check_ram = get_free_ram_mb()
+                swap_after = get_swap_used_mb()
 
-                # Use fixed RAM reserve (MIN_FREE_RAM_MB) for consistent behavior
-                if check_ram and check_ram >= MIN_FREE_RAM_MB:
+                # Calculate swap increase during this test
+                swap_increase = 0
+                if swap_before is not None and swap_after is not None:
+                    swap_increase = max(0, swap_after - swap_before)
+
+                # Check BOTH: RAM reserve AND swap increase
+                ram_ok = check_ram and check_ram >= MIN_FREE_RAM_MB
+                swap_ok = swap_increase <= MAX_SWAP_INCREASE_MB
+
+                if ram_ok and swap_ok:
                     result = mid
                     low = mid
-                    yield f"✓ {format_number(mid)} fits ({format_number(check_ram)} MB free)"
+                    yield f"✓ {format_number(mid)} fits ({format_number(check_ram)} MB free, +{format_number(swap_increase)} MB swap)"
+                elif not swap_ok:
+                    # Excessive swapping - context too large
+                    high = mid
+                    yield f"✗ {format_number(mid)} causes swapping (+{format_number(swap_increase)} MB > {format_number(MAX_SWAP_INCREASE_MB)} MB limit)"
                 else:
                     high = mid
                     ram_str = format_number(check_ram) if check_ram else "N/A"
