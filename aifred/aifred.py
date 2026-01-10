@@ -1515,67 +1515,106 @@ def render_image_thumbnails(images) -> rx.Component:
     )
 
 
-def render_chat_message(msg: dict) -> rx.Component:
-    """
-    Rendert eine einzelne Chat-Message (User+AI, Sokrates, AIfred Refinement, Salomo, oder Summary).
-
-    Summaries are rendered inline as collapsibles at the position where compression occurred.
-
-    msg ist ein Dict mit:
-    - user_msg: User-Nachricht
-    - ai_msg: AI-Nachricht (bereinigt)
-    - failed_sources: Liste der fehlgeschlagenen URLs
-    - is_summary: True if this is a summary entry
-    - summary_number, summary_count, summary_timestamp, summary_content: Summary details
-    """
-    # Check ob es eine Summary ist (inline rendering)
-    is_summary = msg.get("is_summary", False)
-
-    # Check ob es eine Sokrates-Nachricht ist (leerer User-Teil + "🏛️" am Anfang)
-    is_sokrates = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🏛️")
-
-    # Check ob es eine AIfred-Refinement-Nachricht ist (leerer User-Teil + "🎩[" am Anfang)
-    is_alfred_refinement = (msg["user_msg"] == "") & msg["ai_msg"].startswith("🎩[")
-
-    # Check ob es eine Salomo-Nachricht ist (leerer User-Teil + "👑" am Anfang)
-    is_salomo = (msg["user_msg"] == "") & msg["ai_msg"].startswith("👑")
-
-    # Summaries are rendered inline via render_inline_summary()
-    return rx.cond(
-        is_summary,
-        # Summary: Render as HTML <details> (already formatted in state.py)
-        rx.markdown(
-            msg["summary_content"],
-            color=COLORS["text_primary"],
-            width="100%"
+def render_user_message(msg: dict) -> rx.Component:
+    """Render user message (right-aligned with emoji outside on the right)"""
+    # NOTE: Since this is called from rx.cond, msg fields are already extracted as Vars
+    # We can use them directly in rx components
+    return rx.box(
+        rx.hstack(
+            rx.box(
+                rx.text(
+                    rx.cond(
+                        AIState.user_name != "",
+                        AIState.user_name,
+                        "User"
+                    ),
+                    font_weight="bold",
+                    font_size="12px",
+                    color="#c06050",
+                    margin_bottom="1",
+                    text_align="right",
+                ),
+                # Content (images and markers will be handled by frontend)
+                rx.markdown(msg["content"], color=COLORS["user_text"], font_size="13px"),
+                padding="3",
+                border_radius="6px",
+                max_width="70%",
+                background_color=COLORS["user_msg"],
+            ),
+            rx.text("🙋", font_size="13px"),
+            spacing="2",
+            align="start",
+            justify="end",
+            width="100%",
         ),
-        # Not a summary: Check other message types
+        padding="2",
+        border_radius="8px",
+        border="1px solid rgba(255, 255, 255, 0.1)",
+        width="100%",
+        margin_bottom="3",
+    )
+
+
+def render_assistant_message(msg: dict) -> rx.Component:
+    """Render assistant message (left-aligned, styled per agent)"""
+    # Check agent type with nested rx.cond
+    return rx.cond(
+        msg["agent"] == "sokrates",
+        # SOKRATES
+        rx.box(
+            rx.hstack(
+                rx.text("🏛️", font_size="13px"),
+                rx.box(
+                    rx.text(
+                        "Sokrates",
+                        font_weight="bold",
+                        font_size="12px",
+                        color="#cd7f32",
+                        margin_bottom="1",
+                    ),
+                    rx.markdown(
+                        msg["content"],
+                        color=COLORS["ai_text"],
+                        font_size="13px"
+                    ),
+                    background_color="rgba(205, 127, 50, 0.08)",
+                    padding="3",
+                    border_radius="6px",
+                    width="100%",
+                ),
+                spacing="2",
+                align="start",
+                justify="start",
+                width="100%",
+            ),
+            background_color="rgba(205, 127, 50, 0.03)",
+            padding="2",
+            border_radius="8px",
+            border="1px solid rgba(205, 127, 50, 0.3)",
+            width="100%",
+            margin_bottom="3",
+        ),
+        # NOT SOKRATES - check if salomo
         rx.cond(
-            is_sokrates,
-            # Sokrates-Anzeige (nur AI-Teil, kein User, dezentes Kupfer/Terrakotta-Styling)
+            msg["agent"] == "salomo",
+            # SALOMO
             rx.box(
                 rx.hstack(
-                    rx.text("🏛️", font_size="13px"),
+                    rx.text("👑", font_size="13px"),
                     rx.box(
-                        # Header with Sokrates name + mode (e.g. "Sokrates (Advocatus Diaboli)")
                         rx.text(
-                            rx.cond(
-                                msg["sokrates_mode"] != "",
-                                f"Sokrates ({msg['sokrates_mode']})",
-                                "Sokrates"
-                            ),
+                            "Salomo",
                             font_weight="bold",
                             font_size="12px",
-                            color="#cd7f32",  # Bronze/Kupfer-Ton
+                            color="#daa520",
                             margin_bottom="1",
                         ),
-                        # Show sokrates_content (marker stripped) instead of ai_msg
                         rx.markdown(
-                            msg["sokrates_content"],
+                            msg["content"],
                             color=COLORS["ai_text"],
                             font_size="13px"
                         ),
-                        background_color="rgba(205, 127, 50, 0.08)",  # Dezenter Kupfer-Hintergrund
+                        background_color="rgba(218, 165, 32, 0.08)",
                         padding="3",
                         border_radius="6px",
                         width="100%",
@@ -1585,191 +1624,78 @@ def render_chat_message(msg: dict) -> rx.Component:
                     justify="start",
                     width="100%",
                 ),
-                background_color="rgba(205, 127, 50, 0.03)",  # Sehr dezenter Kupfer-Container
+                background_color="rgba(218, 165, 32, 0.03)",
                 padding="2",
                 border_radius="8px",
-                border="1px solid rgba(205, 127, 50, 0.3)",  # Dezenter Kupfer-Rand
+                border="1px solid rgba(218, 165, 32, 0.3)",
                 width="100%",
                 margin_bottom="3",
             ),
-            # Check if AIfred refinement message (during debate)
-            rx.cond(
-                is_alfred_refinement,
-                # AIfred-Refinement-Anzeige (nur AI-Teil, kein User, leicht hervorgehoben)
-                rx.box(
-                    rx.hstack(
-                        rx.text("🎩", font_size="13px"),
-                        rx.box(
-                            # Header with AIfred name + mode (e.g. "AIfred (Überarbeitung R2)")
-                            rx.text(
-                                rx.cond(
-                                    msg["alfred_mode"] != "",
-                                    f"AIfred ({msg['alfred_mode']})",
-                                    "AIfred"
-                                ),
-                                font_weight="bold",
-                                font_size="12px",
-                                color=COLORS["primary"],
-                                margin_bottom="1",
-                            ),
-                            # Show alfred_content (marker stripped) instead of ai_msg
-                            rx.markdown(
-                                msg["alfred_content"],
-                                color=COLORS["ai_text"],
-                                font_size="13px"
-                            ),
-                            background_color=COLORS["ai_msg"],
-                            padding="3",
-                            border_radius="6px",
-                            width="100%",
-                        ),
-                        spacing="2",
-                        align="start",
-                        justify="start",
-                        width="100%",
-                    ),
-                    background_color="rgba(255, 255, 255, 0.03)",
-                    padding="2",
-                    border_radius="8px",
-                    width="100%",
-                    margin_bottom="3",
-                ),
-                # Check if Salomo message (synthesis/verdict)
-                rx.cond(
-                    is_salomo,
-                    # Salomo-Anzeige (nur AI-Teil, kein User, dezentes Gold-Styling)
+            # AIFRED (default)
+            rx.box(
+                rx.hstack(
+                    rx.text("🎩", font_size="13px"),
                     rx.box(
-                        rx.hstack(
-                            rx.text("👑", font_size="13px"),
-                            rx.box(
-                                # Header with Salomo name + mode (e.g. "Salomo (Synthese R1)")
-                                rx.text(
-                                    rx.cond(
-                                        msg["salomo_mode"] != "",
-                                        f"Salomo ({msg['salomo_mode']})",
-                                        "Salomo"
-                                    ),
-                                    font_weight="bold",
-                                    font_size="12px",
-                                    color="#daa520",  # Goldenrod
-                                    margin_bottom="1",
-                                ),
-                                # Show salomo_content (marker stripped) instead of ai_msg
-                                rx.markdown(
-                                    msg["salomo_content"],
-                                    color=COLORS["ai_text"],
-                                    font_size="13px"
-                                ),
-                                background_color="rgba(218, 165, 32, 0.08)",  # Dezenter Gold-Hintergrund
-                                padding="3",
-                                border_radius="6px",
-                                width="100%",
-                            ),
-                            spacing="2",
-                            align="start",
-                            justify="start",
-                            width="100%",
+                        rx.text(
+                            "AIfred",
+                            font_weight="bold",
+                            font_size="12px",
+                            color=COLORS["primary"],
+                            margin_bottom="1",
                         ),
-                        background_color="rgba(218, 165, 32, 0.03)",  # Sehr dezenter Gold-Container
-                        padding="2",
-                        border_radius="8px",
-                        border="1px solid rgba(218, 165, 32, 0.3)",  # Dezenter Gold-Rand
-                        width="100%",
-                        margin_bottom="3",
-                    ),
-                    # Normale Message-Anzeige (User + AI + Failed Sources)
-                    rx.vstack(
-                # User message (rechts, max 70%) - mit hellgrauem Container
-                rx.box(
-                    rx.hstack(
-                        rx.spacer(),
-                        rx.box(
-                            # Header mit Username (wie im HTML-Export) - weinrot wie ClearChat
-                            rx.hstack(
-                                rx.spacer(),
-                                rx.text(
-                                    rx.cond(
-                                        AIState.user_name != "",
-                                        AIState.user_name,
-                                        "User",
-                                    ),
-                                    font_weight="bold",
-                                    font_size="12px",
-                                    color="#c06050",  # Weinrot (passend zu HTML-Export)
-                                ),
-                                rx.text("🙋", font_size="12px"),
-                                spacing="1",
-                                align="center",
-                                margin_bottom="1",
-                            ),
-                            # Image thumbnails (if present) above the text
-                            render_image_thumbnails(msg["images"]),
-                            # User text
-                            rx.markdown(msg["user_msg"], color=COLORS["user_text"], font_size="13px"),
-                            padding="3",
-                            border_radius="6px",
-                            max_width="70%",
+                        rx.markdown(
+                            msg["content"],
+                            color=COLORS["ai_text"],
+                            font_size="13px"
                         ),
-                        spacing="2",
-                        align="start",
-                        justify="end",
+                        background_color=COLORS["ai_msg"],
+                        padding="3",
+                        border_radius="6px",
                         width="100%",
                     ),
-                    background_color=COLORS["user_msg"],
-                    padding="2",
-                    border_radius="8px",
-                    border="1px solid rgba(255, 255, 255, 0.1)",
+                    spacing="2",
+                    align="start",
+                    justify="start",
                     width="100%",
                 ),
-                # Failed Sources (wenn vorhanden) - ZWISCHEN User und AI Message
-                render_failed_sources_inline(msg["failed_sources"]),
-                # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
-                # ONLY show if ai_msg is not empty (hides when Sokrates answers directly)
-                rx.cond(
-                    msg["ai_msg"] != "",
-                    rx.box(
-                        rx.hstack(
-                            rx.text("🎩", font_size="13px"),
-                            rx.box(
-                                # Header with AIfred name
-                                rx.text(
-                                    "AIfred",
-                                    font_weight="bold",
-                                    font_size="12px",
-                                    color=COLORS["primary"],
-                                    margin_bottom="1",
-                                ),
-                                rx.markdown(
-                                    msg["ai_msg"],
-                                    color=COLORS["ai_text"],
-                                    font_size="13px"
-                                ),
-                                background_color=COLORS["ai_msg"],
-                                padding="3",
-                                border_radius="6px",
-                                width="100%",
-                            ),
-                            spacing="2",
-                            align="start",
-                            justify="start",
-                            width="100%",
-                        ),
-                        background_color="rgba(255, 255, 255, 0.03)",
-                        padding="2",
-                        border_radius="8px",
-                        border="1px solid rgba(255, 255, 255, 0.1)",
-                        width="100%",
-                    ),
-                ),
-                spacing="3",
+                background_color="rgba(255, 255, 255, 0.03)",
+                padding="2",
+                border_radius="8px",
+                border="1px solid rgba(255, 255, 255, 0.1)",
                 width="100%",
+                margin_bottom="3",
             ),
-        ),  # Close is_salomo rx.cond
-    ),  # Close is_alfred_refinement rx.cond
-),  # Close is_sokrates rx.cond
-)  # Close is_summary rx.cond
+        ),
+    )
 
 
+def render_system_message(msg: dict) -> rx.Component:
+    """Render system message (summary)"""
+    # Just render as markdown - summary formatting already in content
+    return rx.markdown(
+        msg["content"],
+        color=COLORS["text_primary"],
+        width="100%"
+    )
+
+
+def render_message_standalone(msg: dict) -> rx.Component:
+    """
+    Rendert eine einzelne Message aus chat_history (dict-based).
+
+    Uses rx.cond to branch on message role since msg is a Reflex Var.
+    """
+    # Top-level branching with rx.cond
+    return rx.cond(
+        msg["role"] == "user",
+        render_user_message(msg),
+        rx.cond(
+            msg["role"] == "assistant",
+            render_assistant_message(msg),
+            # system or unknown
+            render_system_message(msg)
+        )
+    )
 def render_sokrates_inline() -> rx.Component:
     """
     Renders Sokrates' response inline in the chat (same style as User/AI messages).
@@ -2047,8 +1973,8 @@ def chat_history_display() -> rx.Component:
         rx.vstack(
             # All chat messages including inline summaries
             rx.foreach(
-                AIState.chat_history_parsed,
-                render_chat_message
+                AIState.chat_history,
+                render_message_standalone
             ),
             # Unified streaming element at the end (adapts to current_agent)
             streaming_box,

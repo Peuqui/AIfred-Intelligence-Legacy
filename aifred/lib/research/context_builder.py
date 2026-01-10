@@ -9,6 +9,7 @@ Handles:
 - Cache saving
 """
 
+import datetime
 import time
 import re
 from typing import Dict, List, Optional, AsyncIterator
@@ -360,15 +361,25 @@ async def build_and_generate_response(
     ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
     metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Web Research ({model_choice})")
 
-    if stt_time > 0:
-        user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s    Agent: {mode}    {len(scraped_only)} sources")
-        user_with_time = f"{user_text}  \n{user_metadata}"
-    else:
-        user_metadata = format_metadata(f"Agent: {mode}    {len(scraped_only)} sources")
-        user_with_time = f"{user_text}  \n{user_metadata}"
-
-    # Add to histories (parallel: chat_history + llm_history)
-    history.append((user_with_time, f"{thinking_html}\n\n{metadata}"))
+    # Add AI response to histories (parallel: chat_history + llm_history)
+    # User message was already added by state.py before calling this function
+    # Dict-based chat_history format
+    source_label = f"Web Research ({model_choice})"
+    history.append({
+        "role": "assistant",
+        "content": f"{thinking_html}\n\n{metadata}",
+        "agent": "aifred",
+        "mode": "web_research",
+        "round_num": 0,
+        "metadata": {
+            "ttft": ttft,
+            "inference_time": inference_time,
+            "tokens_per_sec": tokens_per_sec,
+            "source": source_label,
+            "sources_count": len(scraped_only)
+        },
+        "timestamp": datetime.datetime.now().isoformat()
+    })
     # llm_history: ai_text is raw LLM output, strip thinking blocks
     ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
     if ai_text_clean:

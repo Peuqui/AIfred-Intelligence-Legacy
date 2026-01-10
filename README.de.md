@@ -118,15 +118,47 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
                     └─────────────────────────────────────┘
 ```
 
+**Message-Anzeige-Format:**
+
+Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
+
+| Rolle | Agent | Anzeigeformat | Beispiel |
+|-------|-------|---------------|----------|
+| **User** | — | 🙋 {Username} (rechtsbündig) | 🙋 User: "Was ist Python?" |
+| **Assistant** | `aifred` | 🎩 AIfred [{Modus} R{N}] (linksbündig) | 🎩 AIfred [Auto-Konsens: Überarbeitung R2] |
+| **Assistant** | `sokrates` | 🏛️ Sokrates [{Modus} R{N}] (linksbündig) | 🏛️ Sokrates [Tribunal: Kritik R1] |
+| **Assistant** | `salomo` | 👑 Salomo [{Modus} R{N}] (linksbündig) | 👑 Salomo [Tribunal: Urteil R3] |
+| **System** | — | 📊 Zusammenfassung (ausklappbar inline) | 📊 Zusammenfassung #1 (5 Nachrichten) |
+
+**Mode-Labels:**
+- Standard-Antworten: Kein Label (klare Anzeige)
+- Multi-Agent-Modi: `[{Modus}: {Aktion} R{N}]` Format
+  - Modus: `Auto-Konsens`, `Tribunal`, `Kritische Prüfung`
+  - Aktion: `Überarbeitung`, `Kritik`, `Synthese`, `Urteil`
+  - Runde: `R1`, `R2`, `R3`, etc.
+
+**Beispiele:**
+- Standard: `🎩 AIfred` (kein Label)
+- Auto-Konsens R1: `🎩 AIfred [Auto-Konsens: Überarbeitung R1]`
+- Tribunal R2: `🏛️ Sokrates [Tribunal: Kritik R2]`
+- Finales Urteil: `👑 Salomo [Tribunal: Urteil R3]`
+
 **Prompt-Dateien pro Modus:**
-| Modus | Verwendete Prompts |
-|-------|-------------------|
-| **Standard** | `aifred/system_rag` oder `aifred/system_minimal` |
-| **Direkt AIfred** | `aifred/direct` |
-| **Direkt Sokrates** | `sokrates/direct` |
-| **Kritische Prüfung** | `aifred/*` → `sokrates/critic` (inkl. Pro/Contra) |
-| **Auto-Konsens** | `aifred/*` → `sokrates/critic` → `salomo/mediator` (Schleife) |
-| **Tribunal** | `aifred/*` ↔ `sokrates/critic` (X Runden) → `salomo/judge` |
+| Modus | Agent | Prompt-Datei | Mode-Label | Anzeige-Beispiel |
+|-------|-------|--------------|------------|------------------|
+| **Standard** | AIfred | `aifred/system_rag` oder `system_minimal` | — | 🎩 AIfred |
+| **Direkt AIfred** | AIfred | `aifred/direct` | Direkte Antwort | 🎩 AIfred [Direkte Antwort] |
+| **Direkt Sokrates** | Sokrates | `sokrates/direct` | Direkte Antwort | 🏛️ Sokrates [Direkte Antwort] |
+| **Kritische Prüfung** | Sokrates | `sokrates/critic` | Kritische Prüfung | 🏛️ Sokrates [Kritische Prüfung] |
+| **Kritische Prüfung** | AIfred | `aifred/system_minimal` | Kritische Prüfung: Überarbeitung | 🎩 AIfred [Kritische Prüfung: Überarbeitung] |
+| **Auto-Konsens** R{N} | Sokrates | `sokrates/critic` | Auto-Konsens: Kritik R{N} | 🏛️ Sokrates [Auto-Konsens: Kritik R2] |
+| **Auto-Konsens** R{N} | AIfred | `aifred/system_minimal` | Auto-Konsens: Überarbeitung R{N} | 🎩 AIfred [Auto-Konsens: Überarbeitung R2] |
+| **Auto-Konsens** R{N} | Salomo | `salomo/mediator` | Auto-Konsens: Synthese R{N} | 👑 Salomo [Auto-Konsens: Synthese R2] |
+| **Tribunal** R{N} | Sokrates | `sokrates/critic` | Tribunal: Kritik R{N} | 🏛️ Sokrates [Tribunal: Kritik R1] |
+| **Tribunal** R{N} | AIfred | `aifred/system_minimal` | Tribunal: Überarbeitung R{N} | 🎩 AIfred [Tribunal: Überarbeitung R1] |
+| **Tribunal** Final | Salomo | `salomo/judge` | Tribunal: Urteil R{N} | 👑 Salomo [Tribunal: Urteil R3] |
+
+**Hinweis:** Alle Prompts sind in `prompts/de/` (Deutsch) und `prompts/en/` (Englisch)
 
 **UI-Einstellungen:**
 - Sokrates-LLM und Salomo-LLM separat wählbar (können verschiedene Modelle sein)
@@ -156,10 +188,11 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 - **PDF-Unterstützung**: Direkte Extraktion aus PDF-Dokumenten (AWMF-Leitlinien, PubMed PDFs) via PyMuPDF mit Browser-User-Agent
 
 ### ⚠️ Modell-Empfehlungen
-- **Automatik-LLM** (Intent-Erkennung, Query-Optimierung): Kleine Instruct-Modelle funktionieren am besten
-  - **Empfohlen**: `qwen3:4b-instruct-2507` (Q4 oder Q8 Quantisierung)
-  - Dieses Modell folgt Instruktionen präzise - kritisch für Format-Erkennung (INTENT|ADDRESSEE|LANGUAGE)
-  - Thinking-Modelle dauern zu lange für diese einfachen Entscheidungen
+- **Automatik-LLM** (Intent-Erkennung, Query-Optimierung, Adressaten-Erkennung): Mittlere Instruct-Modelle empfohlen
+  - **Empfohlen**: `qwen3:14b` (Q4 oder Q8 Quantisierung)
+  - Besseres semantisches Verständnis für komplexe Adressaten-Erkennung ("Was denkt Alfred über Salomos Antwort?")
+  - Kleine 4B-Modelle können bei nuancierten Satzsemantiken Schwierigkeiten haben
+  - Thinking-Modus wird automatisch für Automatik-Aufgaben deaktiviert (schnelle Entscheidungen)
 - **Haupt-LLM**: Größere Modelle (14B+, idealerweise 30B+) für besseres Kontextverständnis und Prompt-Following
   - Sowohl Instruct- als auch Thinking-Modelle funktionieren gut
   - "Denkmodus" für Chain-of-Thought-Reasoning bei komplexen Aufgaben aktivieren

@@ -4,6 +4,7 @@ Cache Handler - Handles cache hits from previous research sessions
 Extracted from perform_agent_research() to improve modularity.
 """
 
+import datetime
 import time
 from typing import Dict, List, Optional, AsyncIterator
 
@@ -250,13 +251,27 @@ async def handle_cache_hit(
     final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time, tokens_per_sec=tokens_per_sec)
 
     # Timing text
-    timing_text = format_metadata(f"Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Session Cache ({model_choice})")
+    source_label = f"Session Cache ({model_choice})"
+    timing_text = format_metadata(f"Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
     ai_text_with_timing = final_answer_formatted + "\n\n" + timing_text
 
-    # Update Histories (parallel: chat_history + llm_history)
-    user_display = f"{user_text}\n{format_metadata(f'Agent: Cache-Hit    {len(cached_sources)} sources')}"
-    ai_display = ai_text_with_timing
-    history.append((user_display, ai_display))
+    # Add AI response to histories (parallel: chat_history + llm_history)
+    # User message was already added by state.py before calling this function
+    # Dict-based chat_history format
+    history.append({
+        "role": "assistant",
+        "content": ai_text_with_timing,
+        "agent": "aifred",
+        "mode": "session_cache",
+        "round_num": 0,
+        "metadata": {
+            "inference_time": llm_time,
+            "tokens_per_sec": tokens_per_sec,
+            "source": source_label,
+            "sources_count": len(cached_sources)
+        },
+        "timestamp": datetime.datetime.now().isoformat()
+    })
     # llm_history: final_answer is raw LLM output, strip thinking blocks
     final_answer_clean = strip_thinking_blocks(final_answer) if final_answer else ""
     if final_answer_clean:

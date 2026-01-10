@@ -126,15 +126,47 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
                     └─────────────────────────────────────┘
 ```
 
+**Message Display Format:**
+
+Each message is displayed individually with its emoji and mode label:
+
+| Role | Agent | Display Format | Example |
+|------|-------|----------------|---------|
+| **User** | — | 🙋 {Username} (right-aligned) | 🙋 User: "What is Python?" |
+| **Assistant** | `aifred` | 🎩 AIfred [{Mode} R{N}] (left-aligned) | 🎩 AIfred [Auto-Consensus: Refinement R2] |
+| **Assistant** | `sokrates` | 🏛️ Sokrates [{Mode} R{N}] (left-aligned) | 🏛️ Sokrates [Tribunal: Critique R1] |
+| **Assistant** | `salomo` | 👑 Salomo [{Mode} R{N}] (left-aligned) | 👑 Salomo [Tribunal: Verdict R3] |
+| **System** | — | 📊 Summary (collapsible inline) | 📊 Summary #1 (5 Messages) |
+
+**Mode Labels:**
+- Standard responses: No label (clean display)
+- Multi-Agent modes: `[{Mode}: {Action} R{N}]` format
+  - Mode: `Auto-Consensus`, `Tribunal`, `Critical Review`
+  - Action: `Refinement`, `Critique`, `Synthesis`, `Verdict`
+  - Round: `R1`, `R2`, `R3`, etc.
+
+**Examples:**
+- Standard: `🎩 AIfred` (no label)
+- Auto-Consensus R1: `🎩 AIfred [Auto-Consensus: Refinement R1]`
+- Tribunal R2: `🏛️ Sokrates [Tribunal: Critique R2]`
+- Final Verdict: `👑 Salomo [Tribunal: Verdict R3]`
+
 **Prompt Files per Mode:**
-| Mode | Prompts Used |
-|------|--------------|
-| **Standard** | `aifred/system_rag` or `aifred/system_minimal` |
-| **Direct AIfred** | `aifred/direct` |
-| **Direct Sokrates** | `sokrates/direct` |
-| **Critical Review** | `aifred/*` → `sokrates/critic` (includes Pro/Contra) |
-| **Auto-Consensus** | `aifred/*` → `sokrates/critic` → `salomo/mediator` (loop) |
-| **Tribunal** | `aifred/*` ↔ `sokrates/critic` (X rounds) → `salomo/judge` |
+| Mode | Agent | Prompt File | Mode Label | Display Example |
+|------|-------|-------------|------------|-----------------|
+| **Standard** | AIfred | `aifred/system_rag` or `system_minimal` | — | 🎩 AIfred |
+| **Direct AIfred** | AIfred | `aifred/direct` | Direct Response | 🎩 AIfred [Direct Response] |
+| **Direct Sokrates** | Sokrates | `sokrates/direct` | Direct Response | 🏛️ Sokrates [Direct Response] |
+| **Critical Review** | Sokrates | `sokrates/critic` | Critical Review | 🏛️ Sokrates [Critical Review] |
+| **Critical Review** | AIfred | `aifred/system_minimal` | Critical Review: Refinement | 🎩 AIfred [Critical Review: Refinement] |
+| **Auto-Consensus** R{N} | Sokrates | `sokrates/critic` | Auto-Consensus: Critique R{N} | 🏛️ Sokrates [Auto-Consensus: Critique R2] |
+| **Auto-Consensus** R{N} | AIfred | `aifred/system_minimal` | Auto-Consensus: Refinement R{N} | 🎩 AIfred [Auto-Consensus: Refinement R2] |
+| **Auto-Consensus** R{N} | Salomo | `salomo/mediator` | Auto-Consensus: Synthesis R{N} | 👑 Salomo [Auto-Consensus: Synthesis R2] |
+| **Tribunal** R{N} | Sokrates | `sokrates/critic` | Tribunal: Critique R{N} | 🏛️ Sokrates [Tribunal: Critique R1] |
+| **Tribunal** R{N} | AIfred | `aifred/system_minimal` | Tribunal: Refinement R{N} | 🎩 AIfred [Tribunal: Refinement R1] |
+| **Tribunal** Final | Salomo | `salomo/judge` | Tribunal: Verdict R{N} | 👑 Salomo [Tribunal: Verdict R3] |
+
+**Note:** All prompts are in `prompts/de/` (German) and `prompts/en/` (English)
 
 **UI Settings:**
 - Sokrates-LLM and Salomo-LLM separately selectable (can be different models)
@@ -205,10 +237,11 @@ AIfred supports cloud LLM providers via OpenAI-compatible APIs:
 - Comparing cloud vs local model quality
 
 ### ⚠️ Model Recommendations
-- **Automatik-LLM** (Intent Detection, Query Optimization): Small instruct models work best
-  - **Recommended**: `qwen3:4b-instruct-2507` (Q4 or Q8 quantization)
-  - This model follows instructions precisely - critical for format detection (INTENT|ADDRESSEE|LANGUAGE)
-  - Thinking models take too long for these simple decisions
+- **Automatik-LLM** (Intent Detection, Query Optimization, Addressee Detection): Medium instruct models recommended
+  - **Recommended**: `qwen3:14b` (Q4 or Q8 quantization)
+  - Better semantic understanding for complex addressee detection ("What does Alfred think about Salomo's answer?")
+  - Small 4B models may struggle with nuanced sentence semantics
+  - Thinking mode is automatically disabled for Automatik tasks (fast decisions)
 - **Main LLM**: Use larger models (14B+, ideally 30B+) for better context understanding and prompt following
   - Both Instruct and Thinking models work well
   - Enable "Thinking Mode" for chain-of-thought reasoning on complex tasks

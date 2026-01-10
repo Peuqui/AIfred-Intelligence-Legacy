@@ -11,6 +11,7 @@ Includes:
 - Direct LLM inference for knowledge-based answers
 """
 
+import datetime
 import time
 from typing import Dict, List, Optional, AsyncIterator
 
@@ -1120,7 +1121,6 @@ async def chat_interactive_mode(
             # This avoids redundant web research for identical queries
             try:
                 from .vector_cache import get_cache
-                from datetime import datetime
 
                 log_message("🔍 Checking cache for exact duplicates before web research...")
                 cache = get_cache()
@@ -1131,8 +1131,8 @@ async def chat_interactive_mode(
                 # Check if EXACT duplicate found (distance < 0.05 = practically identical)
                 if cache_result['source'] == 'CACHE' and distance < 0.05:
                     # Exact duplicate found - use cached result (avoid redundant research)
-                    cache_time = datetime.fromisoformat(cache_result['metadata']['timestamp'])
-                    age_seconds = (datetime.now() - cache_time).total_seconds()
+                    cache_time = datetime.datetime.fromisoformat(cache_result['metadata']['timestamp'])
+                    age_seconds = (datetime.datetime.now() - cache_time).total_seconds()
                     age_formatted = format_age(age_seconds)
 
                     log_message(f"✅ Exact duplicate in cache ({age_formatted} old, distance={format_number(distance, 4)}), using cache")
@@ -1149,7 +1149,16 @@ async def chat_interactive_mode(
                         yield {"type": "failed_sources", "data": cached_failed_sources}
 
                     # Add to histories (parallel: chat_history + llm_history)
-                    history.append((user_text, answer + timing_suffix))
+                    # Dict-based chat_history format
+                    history.append({
+                        "role": "assistant",
+                        "content": answer + timing_suffix,
+                        "agent": "aifred",
+                        "mode": "cache_hit",
+                        "round_num": 0,
+                        "metadata": {"source": "Vector Cache", "cache_time": cache_time_ms},
+                        "timestamp": datetime.datetime.now().isoformat()
+                    })
                     # llm_history: answer is already clean (from cache), no metadata
                     answer_clean = strip_thinking_blocks(answer) if answer else ""
                     if answer_clean:
@@ -1263,7 +1272,16 @@ async def chat_interactive_mode(
                 timing_suffix = f" (Cache-Hit: {format_number(cache_time, 2)}s, Source: Vector DB)"
 
                 # Add to histories (parallel: chat_history + llm_history)
-                history.append((user_text, answer + timing_suffix))
+                # Dict-based chat_history format
+                history.append({
+                    "role": "assistant",
+                    "content": answer + timing_suffix,
+                    "agent": "aifred",
+                    "mode": "cache_hit",
+                    "round_num": 0,
+                    "metadata": {"source": "Vector DB", "cache_time": cache_time},
+                    "timestamp": datetime.datetime.now().isoformat()
+                })
                 # llm_history: answer is already clean (from cache), no metadata
                 answer_clean = strip_thinking_blocks(answer) if answer else ""
                 if answer_clean:
@@ -1533,21 +1551,29 @@ async def chat_interactive_mode(
             # Format <think> tags as collapsible for chat history (visible as collapsible!)
             thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time, tokens_per_sec=tokens_per_sec)
 
-            # User text with timing (RAG Bypass - no decision time)
-            if stt_time > 0:
-                user_metadata = format_metadata(f"STT: {format_number(stt_time, 1)}s")
-                user_with_time = f"{user_text}  \n{user_metadata}"
-            else:
-                user_with_time = user_text
-
             # AI response with timing + source (RAG) + model name
             source_label = f"Cache+LLM RAG ({model_choice})"
             ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
-            metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
-            ai_with_source = f"{thinking_html}\n\n{metadata}"
+            metadata_str = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
+            ai_with_source = f"{thinking_html}\n\n{metadata_str}"
 
-            # Add to histories (parallel: chat_history + llm_history)
-            history.append((user_with_time, ai_with_source))
+            # Add AI response to histories (parallel: chat_history + llm_history)
+            # User message was already added by state.py before calling this function
+            # Dict-based chat_history format
+            history.append({
+                "role": "assistant",
+                "content": ai_with_source,
+                "agent": "aifred",
+                "mode": "rag",
+                "round_num": 0,
+                "metadata": {
+                    "ttft": ttft,
+                    "inference_time": inference_time,
+                    "tokens_per_sec": tokens_per_sec,
+                    "source": source_label
+                },
+                "timestamp": datetime.datetime.now().isoformat()
+            })
             # llm_history: ai_text is raw LLM output, strip thinking blocks
             ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
             if ai_text_clean:

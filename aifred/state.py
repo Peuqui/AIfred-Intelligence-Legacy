@@ -5,11 +5,10 @@ Main state for chat, settings, and backend management
 """
 
 import reflex as rx
-from typing import List, Tuple, Any, Dict, TypedDict
+from typing import List, Any, Dict, TypedDict
 import uuid
 import os
 import asyncio
-from pydantic import BaseModel
 from .lib import (
     initialize_debug_log,
     log_message,
@@ -53,24 +52,19 @@ class FailedSourceDict(TypedDict):
     error: str
     method: str
 
-class ChatMessageParsed(TypedDict):
-    """Parsed chat message with embedded failed sources and images"""
-    user_msg: str
-    ai_msg: str
-    failed_sources: List[FailedSourceDict]
-    images: List[str]  # List of data URLs for image thumbnails
-    sokrates_mode: str  # Extracted mode from 🏛️[Mode] marker (e.g., "Advocatus Diaboli")
-    sokrates_content: str  # AI message with marker stripped for display
-    alfred_mode: str  # Extracted mode from 🎩[Mode] marker (e.g., "Überarbeitung R2")
-    alfred_content: str  # AI message with marker stripped for display
-    salomo_mode: str  # Extracted mode from 👑[Mode] marker (e.g., "Synthese R1", "Urteil")
-    salomo_content: str  # AI message with marker stripped for display
-    # Summary-related fields (for unified summary collapsible)
-    is_summary: bool  # True if this is a summary entry
-    summary_number: str  # Summary number (e.g., "1", "2", or "?" for old format)
-    summary_count: str  # Message count (e.g., "5 Messages")
-    summary_timestamp: str  # Timestamp when summary was created
-    summary_content: str  # Summary content (without header)
+class ChatMessage(TypedDict):
+    """Single chat message in new dict-based format.
+
+    Each message is standalone - no more (user, ai) tuples.
+    User messages and assistant messages are separate entries.
+    """
+    role: str           # "user" | "assistant" | "system" (for summaries)
+    content: str        # Message content (with markers for UI display)
+    agent: str          # "" | "aifred" | "sokrates" | "salomo"
+    mode: str           # "" | "direct" | "synthesis" | "tribunal" | "refinement" | ...
+    round_num: int | None  # None/0 = no round, 1+ = round number
+    metadata: Dict[str, Any]  # ttft, inference_time, tokens_per_sec, failed_sources, images
+    timestamp: str      # ISO timestamp
 
 
 # ============================================================
@@ -111,18 +105,11 @@ from .lib.audio_processing import (
 )
 
 
-class ChatMessage(BaseModel):
-    """Single chat message"""
-    role: str  # "user" or "assistant"
-    content: str
-    timestamp: str = ""
-
-
 class AIState(rx.State):
     """Main application state"""
 
-    # Chat History
-    chat_history: List[Tuple[str, str]] = []  # [(user_msg, ai_msg), ...] - UI vollständig
+    # Chat History - New dict-based format (each message standalone)
+    chat_history: List[Dict[str, Any]] = []  # List[ChatMessage] - each message is a dict
     llm_history: List[Dict[str, str]] = []  # [{"role": "user/assistant/system", "content": "..."}] - LLM komprimiert
     current_user_input: str = ""
     current_user_message: str = ""  # The message currently being processed
@@ -635,157 +622,6 @@ class AIState(rx.State):
             return list(ESPEAK_VOICES.keys())
         else:
             return list(EDGE_TTS_VOICES.keys())
-
-    @rx.var
-    def chat_history_parsed(self) -> List[ChatMessageParsed]:
-        """
-        Parse chat_history and extract embedded failed_sources from AI messages
-        and image URLs from user messages.
-
-        Returns list of dicts:
-        [
-            {
-                "user_msg": "..." (text without [IMG:...] markers),
-                "ai_msg": "..." (cleaned, without comment),
-                "failed_sources": [...] or [],
-                "images": [...] or []  # List of data URLs for thumbnails
-            }
-        ]
-
-        This computed property allows the UI to render failed_sources and image thumbnails per message.
-        """
-        import json
-        import re
-
-        result = []
-        failed_sources_pattern = r'<!--FAILED_SOURCES:(\[.*?\])-->\n?'
-        image_pattern = r'\[IMG:(data:image/[^;]+;base64,[^\]]+)\]'
-        # Sokrates marker pattern: 🏛️[Mode]Content or 🏛️[Mode R2]Content
-        sokrates_marker_pattern = r'^🏛️\[([^\]]+)\]'
-        # AIfred marker pattern: 🎩[Mode]Content (e.g., 🎩[Überarbeitung R2])
-        alfred_marker_pattern = r'^🎩\[([^\]]+)\]'
-        # Salomo marker pattern: 👑[Mode]Content (e.g., 👑[Synthese R1] or 👑[Urteil])
-        salomo_marker_pattern = r'^👑\[([^\]]+)\]'
-        # Summary marker pattern: [📊 Summary #N|X Messages|Timestamp]
-        summary_pattern = r'^\[📊 Summary #(\d+)\|(\d+) Messages\|([^\]]+)\]'
-
-        def extract_summary_info(user_msg: str, ai_text: str) -> dict:
-            """Extract summary info from message and format as HTML <details>.
-            Returns dict with is_summary, number, count, timestamp, content or empty values."""
-            if user_msg != "":
-                return {"is_summary": False, "summary_number": "", "summary_count": "", "summary_timestamp": "", "summary_content": ""}
-
-            match = re.match(summary_pattern, ai_text)
-            if match:
-                header_end = ai_text.find("]\n")
-                content = ai_text[header_end + 2:] if header_end > 0 else ai_text
-
-                number = match.group(1)
-                count = match.group(2)
-                timestamp = match.group(3)
-
-                # Get i18n label for "Zusammenfassung" / "Summary"
-                summary_label = "Zusammenfassung" if self.ui_language == "de" else "Summary"
-
-                # Format as HTML <details> (same as Denkprozess)
-                formatted_content = f"""<details style="font-size: 0.9em; margin-bottom: 1em; padding: 0.75em; background-color: rgba(255, 165, 0, 0.1); border: 1px solid rgba(255, 165, 0, 0.4); border-radius: 8px;">
-<summary style="cursor: pointer; font-weight: bold; color: #ffa500;">📋 {summary_label} #{number} ({count} Messages) • {timestamp}</summary>
-<div style="margin-top: 0.5em; padding: 0.5em; background-color: rgba(255, 165, 0, 0.05); border-radius: 6px; max-height: 400px; overflow-y: auto;">
-
-{content}
-
-</div>
-</details>"""
-
-                return {
-                    "is_summary": True,
-                    "summary_number": number,
-                    "summary_count": count,
-                    "summary_timestamp": timestamp,
-                    "summary_content": formatted_content
-                }
-
-            return {"is_summary": False, "summary_number": "", "summary_count": "", "summary_timestamp": "", "summary_content": ""}
-
-        def extract_sokrates_info(ai_text: str) -> tuple[str, str]:
-            """Extract mode and content from Sokrates marker.
-            Returns (mode, content) or ("", ai_text) if no marker."""
-            sokrates_match = re.match(sokrates_marker_pattern, ai_text)
-            if sokrates_match:
-                mode = sokrates_match.group(1)
-                content = ai_text[sokrates_match.end():]
-                return mode, content
-            return "", ai_text
-
-        def extract_alfred_info(ai_text: str) -> tuple[str, str]:
-            """Extract mode and content from AIfred marker.
-            Returns (mode, content) or ("", ai_text) if no marker."""
-            alfred_match = re.match(alfred_marker_pattern, ai_text)
-            if alfred_match:
-                mode = alfred_match.group(1)
-                content = ai_text[alfred_match.end():]
-                return mode, content
-            return "", ai_text
-
-        def extract_salomo_info(ai_text: str) -> tuple[str, str]:
-            """Extract mode and content from Salomo marker.
-            Returns (mode, content) or ("", ai_text) if no marker."""
-            salomo_match = re.match(salomo_marker_pattern, ai_text)
-            if salomo_match:
-                mode = salomo_match.group(1)
-                content = ai_text[salomo_match.end():]
-                return mode, content
-            return "", ai_text
-
-        for user_msg, ai_msg in self.chat_history:
-            # Extract images from user message
-            images = re.findall(image_pattern, user_msg)
-            # Remove [IMG:...] markers from user message for clean display
-            clean_user_msg = re.sub(r'\[IMG:[^\]]*\]', '', user_msg).strip()
-
-            # Extract summary info (works on raw user_msg and ai_msg)
-            summary_info = extract_summary_info(user_msg, ai_msg)
-
-            # Extract failed sources from AI message
-            match = re.search(failed_sources_pattern, ai_msg, re.DOTALL)
-
-            if match:
-                try:
-                    failed_sources = json.loads(match.group(1))
-                    clean_ai_msg = re.sub(failed_sources_pattern, '', ai_msg, count=1)
-                except json.JSONDecodeError:
-                    failed_sources = []
-                    clean_ai_msg = ai_msg
-            else:
-                failed_sources = []
-                clean_ai_msg = ai_msg
-
-            # Extract agent markers (Sokrates, AIfred, Salomo)
-            sokrates_mode, sokrates_content = extract_sokrates_info(clean_ai_msg)
-            alfred_mode, alfred_content = extract_alfred_info(clean_ai_msg)
-            salomo_mode, salomo_content = extract_salomo_info(clean_ai_msg)
-
-            # Build result entry with all extracted info
-            result.append({
-                "user_msg": clean_user_msg,
-                "ai_msg": clean_ai_msg,
-                "failed_sources": failed_sources,
-                "images": images,
-                "sokrates_mode": sokrates_mode,
-                "sokrates_content": sokrates_content,
-                "alfred_mode": alfred_mode,
-                "alfred_content": alfred_content,
-                "salomo_mode": salomo_mode,
-                "salomo_content": salomo_content,
-                # Summary fields
-                "is_summary": summary_info["is_summary"],
-                "summary_number": summary_info["summary_number"],
-                "summary_count": summary_info["summary_count"],
-                "summary_timestamp": summary_info["summary_timestamp"],
-                "summary_content": summary_info["summary_content"],
-            })
-
-        return result
 
     async def on_load(self):
         """
@@ -1737,21 +1573,35 @@ class AIState(rx.State):
 
         Args:
             agent: Agent identifier ("aifred", "sokrates", "salomo")
-            mode: Mode identifier (e.g., "auto_consensus", "tribunal")
+            mode: Mode identifier (e.g., "refinement", "critical_review", "verdict")
             round_num: Optional round number
 
         Returns:
-            Formatted marker like "🎩[Refinement R2]" or "🏛️[Tribunal R1]"
+            Formatted marker like "<span style='...'>Auto-Konsens: Überarbeitung R2</span>\n\n"
+            (includes multi_agent_mode prefix if active, no emoji - already shown left of bubble)
         """
-        emoji = self._AGENT_EMOJIS.get(agent, "")
         label = self._get_mode_label(mode, round_num)
 
         if not label:
             return ""  # No marker for standard mode
 
+        # Prepend multi-agent mode prefix (e.g., "Auto-Konsens:", "Tribunal:")
+        # Skip for "standard" mode and when mode already includes the prefix
+        mode_prefix = ""
+        if self.multi_agent_mode != "standard" and mode not in ["auto_consensus", "tribunal", "devils_advocate"]:
+            # Get localized multi-agent mode label
+            multi_mode_label = self._get_mode_label(self.multi_agent_mode, None)
+            if multi_mode_label:
+                mode_prefix = f"{multi_mode_label}: "
+
         # Add round suffix if present
         round_suffix = f" R{round_num}" if round_num else ""
-        return f"{emoji}[{label}{round_suffix}]"
+
+        # Format with HTML span for styling (no emoji - already in UI)
+        # Color: rgba(255, 255, 255, 1.0) = 100% opacity white (fully opaque)
+        # Style: italic, smaller font
+        # Spacing: 2 line breaks after
+        return f"<span style='color: rgba(255, 255, 255, 0.6; font-style: italic; font-size: 12px;'>[{mode_prefix}{label}{round_suffix}]</span>\n\n"
 
     def _format_panel_metadata(self, metadata: dict | None) -> str:
         """Format metadata footer for agent panels.
@@ -1817,11 +1667,9 @@ class AIState(rx.State):
         mode: str = "standard",
         round_num: int | None = None,
         metadata: dict | None = None,
-        replace_last: bool = False,
-        user_msg: str = "",
         sync_llm_history: bool = True
     ) -> None:
-        """Central function for adding/replacing agent response panels.
+        """Add an agent response as a new message to chat_history.
 
         This is the ONLY function that should be used to add agent panels to chat_history.
         It handles:
@@ -1832,14 +1680,16 @@ class AIState(rx.State):
         - LLM history synchronization
         - Session persistence
 
+        With the new dict-based chat_history, each message is standalone.
+        No more replace_last logic - just append new messages.
+
         Args:
             agent: Agent identifier ("aifred", "sokrates", "salomo")
             content: Agent response content (WITHOUT marker, WITHOUT metadata)
             mode: Mode identifier (e.g., "auto_consensus", "tribunal", "direct", "standard")
-            round_num: Optional round number for multi-round debates
+            round_num: Round number for multi-round debates (None/0 = no round, 1+ = round number)
             metadata: Optional dict with TTFT, inference_time, tokens_per_sec, source
-            replace_last: If True, replaces last panel; if False, appends new panel
-            user_msg: User message text (only needed if replace_last=True to preserve user part)
+            sync_llm_history: If True, syncs to llm_history (set False if caller already did)
 
         Examples:
             # Sokrates direct response
@@ -1850,18 +1700,16 @@ class AIState(rx.State):
                 metadata={"ttft": 3.7, "inference_time": 16.4, "tokens_per_sec": 41.5, "source": "Sokrates (qwen3:4b)"}
             )
 
-            # AIfred refinement R1 (replace placeholder)
+            # AIfred refinement R1
             state.add_agent_panel(
                 agent="aifred",
                 content=formatted_response,
                 mode="refinement",
                 round_num=1,
-                metadata={...},
-                replace_last=True,
-                user_msg=state.chat_history[-1][0]
+                metadata={...}
             )
 
-            # Salomo synthesis R2 (append new panel)
+            # Salomo synthesis R2
             state.add_agent_panel(
                 agent="salomo",
                 content=formatted_response,
@@ -1870,36 +1718,42 @@ class AIState(rx.State):
                 metadata={...}
             )
         """
+        from datetime import datetime
+
         # 1. Build marker (emoji + mode label + round number)
-        marker = self._build_marker(agent, mode, round_num)
+        marker = self._build_marker(agent, mode, round_num if round_num and round_num > 0 else None)
 
         # 2. Format metadata footer
         meta_footer = self._format_panel_metadata(metadata)
 
-        # 3. Assemble final content
+        # 3. Assemble final content for display
         if marker:
             final_content = f"{marker}{content}\n\n{meta_footer}"
         else:
             # Standard mode: no marker, just content + metadata
             final_content = f"{content}\n\n{meta_footer}" if meta_footer else content
 
-        # 4. Update chat_history
-        if replace_last:
-            # Replace last panel (used for R1 refinements)
-            if len(self.chat_history) > 0:
-                self.chat_history[-1] = (user_msg, final_content)
-        else:
-            # Append new panel (most common case)
-            # Empty user_msg = Agent-only panel (triggers special styling in UI)
-            self.chat_history.append((user_msg, final_content))
+        # 4. Create new message entry (dict-based format)
+        new_message: Dict[str, Any] = {
+            "role": "assistant",
+            "content": final_content,
+            "agent": agent,
+            "mode": mode,
+            "round_num": round_num,
+            "metadata": metadata or {},
+            "timestamp": datetime.now().isoformat()
+        }
 
-        # 5. Sync to llm_history (with speaker label)
+        # 5. Append to chat_history (no more replace_last!)
+        self.chat_history.append(new_message)
+
+        # 6. Sync to llm_history (with speaker label)
         # Note: Some callers (streaming functions) already sync to llm_history,
         # so they should pass sync_llm_history=False to avoid duplicates
         if sync_llm_history:
             self._sync_to_llm_history(agent, content)
 
-        # 6. Save session (async, non-blocking)
+        # 7. Save session (async, non-blocking)
         self._save_current_session()
 
     # ============================================================
@@ -3163,8 +3017,18 @@ class AIState(rx.State):
         # Add user message to chat history IMMEDIATELY (before any pipeline processing)
         # This ensures the user sees their message right away, even during STT transcription
         # Use display_user_msg (includes image markers if present) instead of plain user_msg
-        temp_history_index = len(self.chat_history)
-        self.chat_history.append((display_user_msg, ""))
+        from datetime import datetime
+        self.chat_history.append({
+            "role": "user",
+            "content": display_user_msg,
+            "agent": "",
+            "mode": "",
+            "round_num": 0,
+            "metadata": {
+                "images": [img.get("name", "") for img in self.pending_images] if has_pending_images else []
+            },
+            "timestamp": datetime.now().isoformat()
+        })
         # Sync to llm_history (for LLM context - use ORIGINAL user_msg, not display variant)
         self.llm_history.append({"role": "user", "content": user_msg})
 
@@ -3185,7 +3049,7 @@ class AIState(rx.State):
                 # User directly addresses Sokrates → Sokrates responds directly
                 self.add_debug("🏛️ Direct addressing: Sokrates")
                 yield  # Update UI immediately to show debug message
-                async for _ in run_sokrates_direct_response(self, user_msg, temp_history_index, detected_language):
+                async for _ in run_sokrates_direct_response(self, user_msg, detected_language):
                     yield
                 # Clean up and return - Sokrates handled everything
                 self.current_ai_response = ""
@@ -3207,7 +3071,7 @@ class AIState(rx.State):
                 # User directly addresses Salomo → Salomo responds directly
                 self.add_debug("👑 Direct addressing: Salomo")
                 yield  # Update UI immediately to show debug message
-                async for _ in run_salomo_direct_response(self, user_msg, temp_history_index, detected_language):
+                async for _ in run_salomo_direct_response(self, user_msg, detected_language):
                     yield
                 # Clean up and return - Salomo handled everything
                 self.current_ai_response = ""
@@ -3359,8 +3223,6 @@ class AIState(rx.State):
                                 "tokens_per_sec": tokens_per_sec,
                                 "source": f"Vision ({self.vision_model_id})"
                             },
-                            replace_last=False,  # APPEND!
-                            user_msg="",
                             sync_llm_history=False  # Sync manually below for proper formatting
                         )
 
@@ -3392,7 +3254,16 @@ class AIState(rx.State):
 
                     # Initialize user panel for real-time display
                     # Use original_user_text (actual user question, not image filename)
-                    self.chat_history.append((original_user_text, ""))
+                    from datetime import datetime
+                    self.chat_history.append({
+                        "role": "user",
+                        "content": original_user_text,
+                        "agent": "",
+                        "mode": "",
+                        "round_num": 0,
+                        "metadata": {},
+                        "timestamp": datetime.now().isoformat()
+                    })
                     self.current_ai_response = ""  # Reset for Main-LLM streaming
 
                     # Call chat_interactive_mode with Vision JSON context
@@ -3492,8 +3363,7 @@ class AIState(rx.State):
                 # Import chat_interactive_mode
                 from .lib.conversation_handler import chat_interactive_mode
 
-                # History entry was already created at the start of send_message()
-                # No need to append again - temp_history_index already points to it
+                # User message was already added to chat_history at the start of send_message()
 
                 # Build LLM options (include enable_thinking toggle)
                 llm_options = {
@@ -3565,8 +3435,6 @@ class AIState(rx.State):
                                     "tokens_per_sec": tokens_per_sec,
                                     "source": f"Training data ({result_data['model_choice']})"
                                 },
-                                replace_last=False,
-                                user_msg="",
                                 sync_llm_history=False
                             )
 
@@ -3576,16 +3444,20 @@ class AIState(rx.State):
 
                             yield  # Update UI
                         else:
-                            # Research result (Tuple format: ai_text, updated_history, inference_time)
+                            # Research result (Dict format: ai_text, updated_history, inference_time)
                             ai_text, updated_history, inference_time = result_data
                             # Embed failed_sources in the last message if any pending
                             if self._pending_failed_sources and updated_history:
                                 import json as json_module
-                                last_idx = len(updated_history) - 1
-                                user_msg_hist, ai_msg = updated_history[last_idx]
-                                # Prepend failed sources markup to AI message
-                                failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(self._pending_failed_sources)}-->\n"
-                                updated_history[last_idx] = (user_msg_hist, failed_markup + ai_msg)
+                                # Dict-based: find last assistant message
+                                last_msg = updated_history[-1]
+                                if last_msg.get("role") == "assistant":
+                                    failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(self._pending_failed_sources)}-->\n"
+                                    last_msg["content"] = failed_markup + last_msg.get("content", "")
+                                    # Store in metadata too for persistence
+                                    if "metadata" not in last_msg:
+                                        last_msg["metadata"] = {}
+                                    last_msg["metadata"]["failed_sources"] = self._pending_failed_sources
                                 self._pending_failed_sources = []  # Clear pending
                             # Replace chat history with updated one from research
                             self.chat_history = updated_history
@@ -3657,8 +3529,7 @@ class AIState(rx.State):
                     async for _ in self._ensure_koboldcpp_running():
                         yield  # Forward yields from _ensure_koboldcpp_running() to UI
 
-                # History entry was already created at the start of send_message()
-                # No need to append again - temp_history_index already points to it
+                # User message was already added to chat_history at the start of send_message()
 
                 # Build LLM options (include enable_thinking toggle)
                 llm_options = {
@@ -3768,8 +3639,6 @@ class AIState(rx.State):
                                 "tokens_per_sec": tokens_per_sec,
                                 "source": f"Training data ({self.aifred_model_id})"
                             },
-                            replace_last=False,
-                            user_msg="",
                             sync_llm_history=False
                         )
                         yield
@@ -3988,8 +3857,6 @@ class AIState(rx.State):
                             "tokens_per_sec": tokens_per_sec,
                             "source": f"Training data ({self.aifred_model_id})"
                         },
-                        replace_last=False,
-                        user_msg="",
                         sync_llm_history=False
                     )
                     yield
@@ -4035,8 +3902,6 @@ class AIState(rx.State):
                 mode="error",
                 round_num=None,
                 metadata=None,  # No metrics for errors
-                replace_last=False,  # APPEND!
-                user_msg="",
                 sync_llm_history=True  # Sync error to llm_history
             )
 
@@ -4783,12 +4648,19 @@ class AIState(rx.State):
         """
         data = session.get("data", {})
 
-        # Chat-History wiederherstellen
-        # WICHTIG: JSON serialisiert Tuples als Listen, hier zurückkonvertieren!
+        # Chat-History wiederherstellen (dict-based format)
         # PRE-MESSAGE Check in send_message() prüft automatisch ob Kompression nötig ist
         # WICHTIG: Auch leere Listen setzen (für API-Clear)!
         if "chat_history" in data:
-            self.chat_history = [tuple(msg) for msg in data["chat_history"]]
+            stored = data["chat_history"]
+            # Check format: new dict-based or old tuple-based
+            if stored and isinstance(stored[0], (list, tuple)):
+                # Old tuple format - Clean Break, ignore old sessions
+                self.chat_history = []
+                self.add_debug("⚠️ Old session format detected - starting fresh")
+            else:
+                # New dict format - use directly
+                self.chat_history = stored if stored else []
 
         # DUAL-HISTORY (v2.13.0+): llm_history laden
         # WICHTIG: Auch leere Listen setzen (für API-Clear)!

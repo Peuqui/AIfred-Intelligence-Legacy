@@ -11,7 +11,7 @@ Handles context limits and token estimation for LLMs:
 import re
 import time
 import asyncio
-from typing import Dict, List, Optional, AsyncIterator
+from typing import Any, Dict, List, Optional, AsyncIterator
 from .logging_utils import log_message, log_raw_messages, console_separator
 from .prompt_loader import load_prompt
 from .formatting import format_number
@@ -237,23 +237,23 @@ def strip_non_llm_content(text: str) -> str:
     return text.strip()
 
 
-def estimate_tokens_from_history(history: List[tuple]) -> int:
+def estimate_tokens_from_history(history: List[Dict[str, Any]]) -> int:
     """
-    Estimate token count from chat history (tuple format).
+    Estimate token count from chat history (dict-based format).
 
     Strips non-LLM content (thinking blocks, metadata) before estimation
     since these don't actually go to the LLM.
 
     Args:
-        history: List of (user_msg, ai_msg) tuples
+        history: List of ChatMessage dicts with "role" and "content" fields
 
     Returns:
         int: Estimated token count (rule of thumb: 1 token ≈ 3.5 chars for German/mixed text)
     """
     total_size = 0
-    for user_msg, ai_msg in history:
-        total_size += len(strip_non_llm_content(user_msg))
-        total_size += len(strip_non_llm_content(ai_msg))
+    for msg in history:
+        content = msg.get("content", "")
+        total_size += len(strip_non_llm_content(content))
     # 3.5 chars per token (better for German texts than 4)
     return int(total_size / 3.5)
 
@@ -342,32 +342,42 @@ def calculate_max_summaries(context_limit: int, avg_summary_tokens: int = 500) -
     return min(max_summaries, HISTORY_MAX_SUMMARIES)
 
 
-def is_summary_entry(user_msg: str, ai_msg: str) -> bool:
+def is_summary_message(msg: Dict[str, Any]) -> bool:
     """
-    Check if a chat history entry is a summary.
+    Check if a chat history message is a summary.
 
-    Supports both old format: [📊 Compressed: N Messages] / [📊 Komprimiert: N Messages]
-    And new format: [📊 Summary #N|X Messages|Timestamp]
+    Supports:
+    - New role-based: msg["role"] == "system" with summary marker
+    - Content-based: [📊 Summary #N|X Messages|Timestamp]
+    - Legacy format: [📊 Compressed: N Messages] / [📊 Komprimiert: N Messages]
 
     Args:
-        user_msg: User message part (should be empty for summaries)
-        ai_msg: AI message part (contains summary marker)
+        msg: ChatMessage dict with "role" and "content" fields
 
     Returns:
         bool: True if this is a summary entry
     """
-    if user_msg != "":
-        return False
-    return (
-        ai_msg.startswith("[📊 Compressed") or
-        ai_msg.startswith("[📊 Komprimiert") or
-        ai_msg.startswith("[📊 Summary #")
-    )
+    role = msg.get("role", "")
+    content = msg.get("content", "")
+
+    # System role is always a summary
+    if role == "system":
+        return True
+
+    # Assistant with no user context and summary marker
+    if role == "assistant":
+        return (
+            content.startswith("[📊 Compressed") or
+            content.startswith("[📊 Komprimiert") or
+            content.startswith("[📊 Summary #")
+        )
+
+    return False
 
 
-def count_summaries(history: List[tuple]) -> int:
+def count_summaries(history: List[Dict[str, Any]]) -> int:
     """Count the number of summary entries in chat history."""
-    return sum(1 for user_msg, ai_msg in history if is_summary_entry(user_msg, ai_msg))
+    return sum(1 for msg in history if is_summary_message(msg))
 
 
 # Global cache for VRAM limits (prevents recalculation during history compression)
@@ -599,7 +609,7 @@ async def calculate_dynamic_num_ctx(
 
 
 async def summarize_history_if_needed(
-    history: List[tuple],
+    history: List[Dict[str, Any]],
     llm_client,
     model_name: str,
     context_limit: int,
@@ -627,7 +637,7 @@ async def summarize_history_if_needed(
     This prevents context overflow when system prompts are large (e.g., 2000+ tokens).
 
     Args:
-        history: Chat history as list of (user_msg, ai_msg) tuples (UI - vollständig)
+        history: Chat history as list of ChatMessage dicts (UI - vollständig)
         llm_client: LLM Client for summarization
         model_name: Main LLM model
         context_limit: Context window limit of the model
@@ -771,7 +781,7 @@ async def summarize_history_if_needed(
             llm_remaining.append(llm_to_compress.pop())
 
     # Count how many summaries will be in messages_to_compress (for logging)
-    summaries_in_compressed = sum(1 for user_msg, ai_msg in messages_to_compress if is_summary_entry(user_msg, ai_msg))
+    summaries_in_compressed = sum(1 for msg in messages_to_compress if is_summary_message(msg))
     if summaries_in_compressed > 0:
         log_message(f"📌 {summaries_in_compressed} old summary/summaries in compressed section (will stay in chat_history)")
 
@@ -907,13 +917,21 @@ async def summarize_history_if_needed(
         summary_number = summaries_not_being_compressed + 1
 
         # Count only NON-SUMMARY messages that were compressed
-        non_summary_compressed = sum(1 for user_msg, ai_msg in messages_to_compress if not is_summary_entry(user_msg, ai_msg))
+        non_summary_compressed = sum(1 for msg in messages_to_compress if not is_summary_message(msg))
 
         timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
-        summary_entry = (
-            "",
-            f"[📊 Summary #{summary_number}|{non_summary_compressed} Messages|{timestamp}]\n{summary_text.strip()}"
-        )
+        summary_entry: Dict[str, Any] = {
+            "role": "system",
+            "content": f"[📊 Summary #{summary_number}|{non_summary_compressed} Messages|{timestamp}]\n{summary_text.strip()}",
+            "agent": "",
+            "mode": "summary",
+            "round_num": 0,
+            "metadata": {
+                "summary_number": summary_number,
+                "message_count": non_summary_compressed,
+            },
+            "timestamp": datetime.datetime.now().isoformat()
+        }
 
         # ============================================================
         # DUAL-HISTORY UPDATE (v2.13.0+)
@@ -925,7 +943,7 @@ async def summarize_history_if_needed(
         remaining_summaries = []
         remaining_non_summaries = []
         for msg in remaining_messages:
-            if is_summary_entry(msg[0], msg[1]):
+            if is_summary_message(msg):
                 remaining_summaries.append(msg)
             else:
                 remaining_non_summaries.append(msg)
@@ -957,9 +975,8 @@ async def summarize_history_if_needed(
 
     # Calculate results (based on llm_history for accurate LLM token count)
     if new_llm_history is not None:
-        new_history_tokens = estimate_tokens_from_history(
-            [(msg.get("content", ""), "") for msg in new_llm_history]
-        )
+        # Use llm_history estimation (already dict format)
+        new_history_tokens = estimate_tokens_from_llm_history(new_llm_history)
     else:
         new_history_tokens = estimate_tokens_from_history(new_chat_history)
 
