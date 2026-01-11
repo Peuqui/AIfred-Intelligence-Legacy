@@ -163,8 +163,7 @@ async def detect_query_intent_and_addressee(
 
         intent_options = {
             'temperature': 0.2,  # Low for consistent detection
-            'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit 4K context
-            'num_predict': 32,  # Short: "FAKTISCH|sokrates|DE" = ~10 tokens
+            'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit context (prevents huge default!)
             'enable_thinking': False  # Fast detection without reasoning
         }
 
@@ -247,8 +246,7 @@ async def detect_cache_followup_intent(
         # Build options
         followup_intent_options = {
             'temperature': 0.2,
-            'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit 4K context (prevents 262K default!)
-            'num_predict': 32,  # Short: "FAKTISCH" / "KREATIV" = ~10 tokens (3x buffer)
+            'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit context (prevents huge default!)
             'enable_thinking': False  # Default: Fast intent detection without reasoning
         }
 

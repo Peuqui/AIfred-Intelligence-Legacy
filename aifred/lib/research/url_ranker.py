@@ -144,7 +144,6 @@ async def rank_urls_by_relevance(
             messages=messages,
             options={
                 "temperature": 0.0,  # Deterministic ranking
-                "num_predict": 100,  # Short response expected
                 "num_ctx": AUTOMATIK_LLM_NUM_CTX,  # From config.py (12K)
                 **(llm_options or {})
             }

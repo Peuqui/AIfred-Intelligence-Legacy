@@ -573,8 +573,7 @@ async def detect_research_decision(
     # LLM options: JSON format for reliable parsing
     options = {
         "temperature": 0.2,  # Low for consistent decisions
-        "num_ctx": AUTOMATIK_LLM_NUM_CTX,  # 4K context
-        "num_predict": 256,  # JSON + 3 queries need more space
+        "num_ctx": AUTOMATIK_LLM_NUM_CTX,  # Explicit context
         "enable_thinking": False,  # Fast decisions
         "format": "json"  # Request JSON output format (Ollama)
     }

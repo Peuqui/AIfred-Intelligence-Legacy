@@ -23,9 +23,7 @@ from ..formatting import format_thinking_process, build_debug_accordion, format_
 from ..logging_utils import log_message
 from ..config import (
     CHARS_PER_TOKEN,
-    TTL_HOURS,
-    DYNAMIC_NUM_PREDICT_SAFETY_MARGIN,
-    DYNAMIC_NUM_PREDICT_MINIMUM
+    TTL_HOURS
 )
 from ..vector_cache import format_ttl_hours
 from ..intent_detector import get_temperature_for_intent, get_temperature_label
@@ -262,19 +260,11 @@ async def build_and_generate_response(
     yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice}"}
     yield {"type": "progress", "phase": "llm"}
 
-    # Calculate dynamic num_predict: Available output space after input tokens
-    available_output = max(
-        DYNAMIC_NUM_PREDICT_MINIMUM,
-        final_num_ctx - input_tokens - DYNAMIC_NUM_PREDICT_SAFETY_MARGIN
-    )
-
-    log_message(f"🧮 Dynamic num_predict: {format_number(available_output)} tokens (num_ctx: {format_number(final_num_ctx)}, input: {format_number(input_tokens)}, margin: {DYNAMIC_NUM_PREDICT_SAFETY_MARGIN})")
-
     # Build LLM options (include enable_thinking from user settings)
+    # Note: num_predict intentionally omitted - Ollama generates until EOS or num_ctx full
     research_llm_options = {
         'temperature': final_temperature,
-        'num_ctx': final_num_ctx,
-        'num_predict': available_output  # Dynamic: Full available output space
+        'num_ctx': final_num_ctx
     }
 
     # Add enable_thinking if provided in llm_options (user toggle)

@@ -442,22 +442,6 @@ SYSTEM_PROMPT_ESTIMATE_CACHE = 2500  # Cache-Hit prompt with extra context
 TOKENS_PER_HISTORY_TURN = 500  # Rough estimate: 500 tok/turn
 
 # ============================================================
-# DYNAMIC OUTPUT GENERATION CONSTANTS
-# ============================================================
-# For dynamic num_predict calculation (available output tokens)
-
-# Safety margin: buffer for tokenizer inaccuracies
-# Subtracted from num_ctx before output space is calculated
-DYNAMIC_NUM_PREDICT_SAFETY_MARGIN = 2048  # tokens
-
-# Minimum output tokens (prevents too small answers)
-DYNAMIC_NUM_PREDICT_MINIMUM = 512  # tokens
-
-# Maximum output tokens (prevents KV cache overflow with large contexts)
-# ~10-20 pages of text - realistic maximum for a response
-DYNAMIC_NUM_PREDICT_HARD_LIMIT = 4096  # tokens
-
-# ============================================================
 # AUTOMATIK-LLM CONTEXT CONSTANTS
 # ============================================================
 # Context window for Automatik-LLM tasks (Decision, Query-Opt, Intent, RAG-Check, URL-Ranking)
