@@ -3668,6 +3668,9 @@ class AIState(rx.State):
                         self.add_debug("────────────────────")
                         yield
 
+                    # CRITICAL: Save session before early return (finally block may not execute for async generators)
+                    self._save_current_session()
+
                     # Skip research - we're done
                     return
 
