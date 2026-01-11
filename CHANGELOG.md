@@ -5,6 +5,24 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.36] - 2026-01-11
+
+### Changed
+
+- **Raw Error Messages** ([scraper_tool.py](aifred/lib/tools/scraper_tool.py)):
+  - Removed `_classify_error()` function - was misclassifying errors (e.g., "timeout=15000" matched as "500 Server Error")
+  - Now using raw exception messages directly for honest, debuggable error output
+  - Playwright timeout increased from 10s to 15s for slower sites
+
+### Removed
+
+- **Error Classification Logic**: Deleted ~40 lines of buggy error classification code that:
+  - Falsely matched "500" in timeout values like "15000"
+  - Hid actual exception messages behind generic labels
+  - Made debugging harder instead of easier
+
+---
+
 ## [2.15.35] - 2026-01-11
 
 ### Fixed

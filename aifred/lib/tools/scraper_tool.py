@@ -12,7 +12,7 @@ import time
 import trafilatura
 from trafilatura.settings import DEFAULT_CONFIG
 from copy import deepcopy
-from typing import Dict, Optional
+from typing import Dict
 import requests
 
 from .base import BaseTool
@@ -141,10 +141,10 @@ class WebScraperTool(BaseTool):
             downloaded = trafilatura.fetch_url(url, config=self.trafilatura_config)
 
             if not downloaded:
-                error_msg = self._classify_error("Download failed")
+                error_msg = "Download failed (no response)"
                 logger.error(f"❌ trafilatura: {error_msg}")
 
-                # Retry Logic: If Cloudflare/Timeout and first attempt, retry after delay
+                # Retry Logic
                 if retry_attempt < self.MAX_RETRY_ATTEMPTS:
                     logger.info(f"⏳ Waiting {self.RETRY_DELAY}s before retry...")
                     time.sleep(self.RETRY_DELAY)
@@ -199,11 +199,11 @@ class WebScraperTool(BaseTool):
             }
 
         except Exception as e:
-            error_msg = self._classify_error(str(e))
+            error_msg = str(e)
             logger.error(f"❌ trafilatura error at {url}: {error_msg}")
 
             # Retry Logic for transient errors (timeout, connection)
-            if retry_attempt < self.MAX_RETRY_ATTEMPTS and any(keyword in str(e).lower() for keyword in ['timeout', 'connection', 'refused']):
+            if retry_attempt < self.MAX_RETRY_ATTEMPTS and any(keyword in error_msg.lower() for keyword in ['timeout', 'connection', 'refused']):
                 logger.info(f"⏳ Waiting {self.RETRY_DELAY}s before retry...")
                 time.sleep(self.RETRY_DELAY)
                 return self._scrape_with_trafilatura(url, retry_attempt=retry_attempt + 1)
@@ -230,7 +230,7 @@ class WebScraperTool(BaseTool):
                     page = browser.new_page()
 
                     # Navigate to page and wait for network idle
-                    page.goto(url, wait_until='networkidle', timeout=10000)
+                    page.goto(url, wait_until='networkidle', timeout=15000)
 
                     # Wait 2s more for lazy-loaded content
                     page.wait_for_timeout(2000)
@@ -258,7 +258,7 @@ class WebScraperTool(BaseTool):
                     browser.close()  # ALWAYS executed, even on exception
 
         except Exception as e:
-            error_msg = self._classify_error(str(e))
+            error_msg = str(e)
             logger.error(f"❌ Playwright error at {url}: {error_msg}")
             log_message(f"❌ Playwright error: {error_msg}")
             return {
@@ -274,46 +274,6 @@ class WebScraperTool(BaseTool):
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'\n+', '\n', text)
         return text.strip()
-
-    def _classify_error(self, error_msg: str, downloaded_content: str = None) -> str:
-        """
-        Classify error and return meaningful message
-
-        Args:
-            error_msg: Original error message
-            downloaded_content: Downloaded HTML content (if any)
-
-        Returns:
-            Human-readable error classification
-        """
-        error_lower = error_msg.lower() if error_msg else ""
-
-        # Cloudflare Detection
-        if downloaded_content and ('cloudflare' in downloaded_content.lower() or
-                                   'challenge' in downloaded_content.lower() or
-                                   'just a moment' in downloaded_content.lower()):
-            return "Cloudflare Challenge (Bot-Protection)"
-
-        # HTTP Status Codes
-        if '404' in error_msg or 'not found' in error_lower:
-            return "404 Not Found"
-        if '403' in error_msg or 'forbidden' in error_lower:
-            return "403 Forbidden (Access Denied)"
-        if '500' in error_msg or 'internal server error' in error_lower:
-            return "500 Server Error"
-        if '503' in error_msg or 'service unavailable' in error_lower:
-            return "503 Service Unavailable"
-
-        # Timeout
-        if 'timeout' in error_lower or 'timed out' in error_lower:
-            return "Timeout (Server too slow)"
-
-        # Connection Issues
-        if 'connection' in error_lower or 'refused' in error_lower:
-            return "Connection Failed"
-
-        # Generic Fallback
-        return f"Download Failed ({error_msg[:50]})"
 
     # ============================================================
     # PDF SUPPORT (PyMuPDF)
