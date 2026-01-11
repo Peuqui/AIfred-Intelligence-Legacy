@@ -3855,7 +3855,10 @@ function makeLinksOpenInNewTab() {
 function isAutoScrollEnabled() {
     const sw = document.getElementById('autoscroll-switch');
     if (!sw) return true; // Default: enabled if switch not found
-    return sw.getAttribute('data-state') === 'checked';
+    // Radix UI setzt data-state auf den Button innerhalb des Switch-Containers
+    const button = sw.querySelector('button[role="switch"]');
+    if (!button) return sw.getAttribute('data-state') === 'checked'; // Fallback
+    return button.getAttribute('data-state') === 'checked';
 }
 
 function autoScrollElement(element) {
