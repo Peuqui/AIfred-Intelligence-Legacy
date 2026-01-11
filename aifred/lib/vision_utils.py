@@ -9,6 +9,13 @@ import logging
 from pathlib import Path
 from typing import Tuple, Optional
 
+# Imports for session-based image storage
+from .config import BACKEND_API_URL, PROJECT_ROOT
+
+# Images are stored in uploaded_files/images/{device_id}/
+# This directory is served by Reflex via /_upload/images/...
+IMAGES_BASE_DIR = PROJECT_ROOT / "uploaded_files" / "images"
+
 logger = logging.getLogger(__name__)
 
 
@@ -582,21 +589,21 @@ def crop_and_resize_image(
 # Image File Storage (Session-based)
 # ============================================================
 
-# Directory for uploaded images (served via /_upload/ endpoint)
-from .config import PROJECT_ROOT, BACKEND_API_URL
-IMAGES_DIR = PROJECT_ROOT / "uploaded_files" / "images"
+# Images are stored in uploaded_files/images/{device_id}/
+# Structure: {device_id}/{timestamp}_{filename}
+# Served by Reflex via /_upload/images/...
 
 
-def save_image_to_file(image_bytes: bytes, session_id: str, filename: str) -> Path:
+def save_image_to_file(image_bytes: bytes, device_id: str, filename: str) -> Path:
     """
     Save image bytes as JPEG file in session-specific directory.
 
-    Files are stored in: uploaded_files/images/{session_id}/{timestamp}_{filename}
-    This directory is served via Reflex's /_upload/ endpoint.
+    Files are stored in: uploaded_files/images/{device_id}/{timestamp}_{filename}
+    Served via: /_upload/images/{device_id}/{filename}
 
     Args:
         image_bytes: Raw JPEG image data
-        session_id: Session identifier (for directory grouping)
+        device_id: Device identifier (32-char hex string)
         filename: Original filename (e.g., "Image_001.jpg")
 
     Returns:
@@ -604,14 +611,15 @@ def save_image_to_file(image_bytes: bytes, session_id: str, filename: str) -> Pa
     """
     import time
 
-    # Ensure session directory exists
-    session_dir = IMAGES_DIR / session_id
-    session_dir.mkdir(parents=True, exist_ok=True)
+    # Ensure session images directory exists
+    # Structure: uploaded_files/images/{device_id}/
+    images_dir = IMAGES_BASE_DIR / device_id
+    images_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate unique filename with timestamp
     timestamp = int(time.time() * 1000)  # Milliseconds for uniqueness
     safe_filename = f"{timestamp}_{filename}"
-    file_path = session_dir / safe_filename
+    file_path = images_dir / safe_filename
 
     # Write image bytes
     with open(file_path, 'wb') as f:
@@ -625,20 +633,20 @@ def get_image_url(image_path: Path) -> str:
     """
     Convert absolute file path to URL for UI display.
 
-    The URL uses Reflex's /_upload/ endpoint which serves files
-    from the uploaded_files/ directory.
+    The URL uses Reflex's /_upload/ endpoint:
+    uploaded_files/images/{device_id}/{filename}
 
     Args:
         image_path: Absolute path to image file
 
     Returns:
-        URL like "http://host:8002/_upload/images/{session_id}/{filename}"
+        URL like "http://host:8002/_upload/images/{device_id}/{filename}"
     """
-    # Extract relative path from IMAGES_DIR
+    # Extract relative path from IMAGES_BASE_DIR
     try:
-        relative_path = image_path.relative_to(IMAGES_DIR)
+        relative_path = image_path.relative_to(IMAGES_BASE_DIR)
     except ValueError:
-        # Path not under IMAGES_DIR - use full path as fallback
+        # Path not under IMAGES_BASE_DIR - use full path as fallback
         relative_path = image_path.name
 
     return f"{BACKEND_API_URL}/_upload/images/{relative_path}"
@@ -669,33 +677,84 @@ def load_image_as_base64(image_path: Path) -> str:
     return base64.b64encode(image_bytes).decode('utf-8')
 
 
-def cleanup_session_images(session_id: str) -> int:
+def url_to_file_path(image_url: str) -> Optional[Path]:
+    """
+    Convert an image URL back to filesystem path.
+
+    Handles URLs like:
+    - /_upload/images/{device_id}/{filename}
+    - http://host:port/_upload/images/{device_id}/{filename}
+
+    Args:
+        image_url: URL from get_image_url() or stored in chat
+
+    Returns:
+        Path object if valid, None if URL format not recognized
+    """
+    import re
+
+    # Extract path part after /_upload/images/
+    match = re.search(r'/_upload/images/(.+)$', image_url)
+    if not match:
+        return None
+
+    relative_path = match.group(1)
+    return IMAGES_BASE_DIR / relative_path
+
+
+def load_image_url_as_base64(image_url: str) -> Optional[str]:
+    """
+    Load image from URL and return as Base64 data URI.
+
+    Converts internal URLs (/_upload/sessions/...) to filesystem paths
+    and returns the image as a data: URI for HTML embedding.
+
+    Args:
+        image_url: Internal image URL
+
+    Returns:
+        Data URI string (data:image/jpeg;base64,...) or None if failed
+    """
+    file_path = url_to_file_path(image_url)
+    if not file_path or not file_path.exists():
+        logger.warning(f"⚠️ Image not found for URL: {image_url}")
+        return None
+
+    try:
+        base64_data = load_image_as_base64(file_path)
+        return f"data:image/jpeg;base64,{base64_data}"
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load image: {e}")
+        return None
+
+
+def cleanup_session_images(device_id: str) -> int:
     """
     Delete all images for a session.
 
     Called when chat is cleared or session is deleted.
-    Removes the entire session directory under uploaded_files/images/.
+    Removes the images directory under uploaded_files/images/{device_id}/.
 
     Args:
-        session_id: Session identifier
+        device_id: Device identifier (32-char hex string)
 
     Returns:
         Number of files deleted
     """
     import shutil
 
-    session_dir = IMAGES_DIR / session_id
-    if not session_dir.exists():
+    images_dir = IMAGES_BASE_DIR / device_id
+    if not images_dir.exists():
         return 0
 
     # Count files before deletion
-    files = list(session_dir.glob("*"))
+    files = list(images_dir.glob("*"))
     count = len(files)
 
-    # Remove entire directory
+    # Remove images directory (not the whole session folder!)
     try:
-        shutil.rmtree(session_dir)
-        logger.info(f"🗑️ Deleted {count} image(s) for session {session_id[:8]}...")
+        shutil.rmtree(images_dir)
+        logger.info(f"🗑️ Deleted {count} image(s) for session {device_id[:8]}...")
     except OSError as e:
         logger.warning(f"⚠️ Could not delete session images: {e}")
         return 0

@@ -18,6 +18,24 @@ from .lib.config import (
 )
 
 
+# ============================================================
+# MARKDOWN CONFIGURATION
+# ============================================================
+
+# Custom component map for rx.markdown - opens links in new tab
+MARKDOWN_COMPONENT_MAP = {
+    # Links open in new tab with rel="noopener noreferrer" for security
+    "a": lambda text, **props: rx.link(text, **props, is_external=True),
+}
+
+# Extended component map with list styling (used in some UI areas)
+MARKDOWN_COMPONENT_MAP_WITH_LISTS = {
+    **MARKDOWN_COMPONENT_MAP,
+    "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
+    "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
+}
+
+
 def t(key: str) -> rx.Var:
     """
     Translation helper that returns German or English text based on state.
@@ -1470,8 +1488,18 @@ def render_failed_sources_inline(failed_sources) -> rx.Component:
     )
 
 
-def render_history_thumbnail(img_url: str) -> rx.Component:
-    """Render clickable thumbnail that opens lightbox on click"""
+def render_history_thumbnail(img_data) -> rx.Component:
+    """Render clickable thumbnail that opens lightbox on click.
+
+    Args:
+        img_data: Either a string URL or a dict with {"name": str, "url": str}
+    """
+    # Handle both string URLs and dict format
+    img_url = rx.cond(
+        img_data.is_string(),
+        img_data,
+        img_data["url"]
+    )
     return rx.image(
         src=img_url,
         width="50px",
@@ -1534,8 +1562,8 @@ def render_user_message(msg: dict) -> rx.Component:
                     margin_bottom="1",
                     text_align="right",
                 ),
-                # Content (images and markers will be handled by frontend)
-                rx.markdown(msg["content"], color=COLORS["user_text"], font_size="13px"),
+                # Content (text message)
+                rx.markdown(msg["content"], color=COLORS["user_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP),
                 padding="3",
                 border_radius="6px",
                 max_width="70%",
@@ -1575,7 +1603,8 @@ def render_assistant_message(msg: dict) -> rx.Component:
                     rx.markdown(
                         msg["content"],
                         color=COLORS["ai_text"],
-                        font_size="13px"
+                        font_size="13px",
+                        component_map=MARKDOWN_COMPONENT_MAP,
                     ),
                     background_color="rgba(205, 127, 50, 0.08)",
                     padding="3",
@@ -1612,7 +1641,8 @@ def render_assistant_message(msg: dict) -> rx.Component:
                         rx.markdown(
                             msg["content"],
                             color=COLORS["ai_text"],
-                            font_size="13px"
+                            font_size="13px",
+                            component_map=MARKDOWN_COMPONENT_MAP,
                         ),
                         background_color="rgba(218, 165, 32, 0.08)",
                         padding="3",
@@ -1646,7 +1676,8 @@ def render_assistant_message(msg: dict) -> rx.Component:
                         rx.markdown(
                             msg["content"],
                             color=COLORS["ai_text"],
-                            font_size="13px"
+                            font_size="13px",
+                            component_map=MARKDOWN_COMPONENT_MAP,
                         ),
                         background_color=COLORS["ai_msg"],
                         padding="3",
@@ -1675,7 +1706,8 @@ def render_system_message(msg: dict) -> rx.Component:
     return rx.markdown(
         msg["content"],
         color=COLORS["text_primary"],
-        width="100%"
+        width="100%",
+        component_map=MARKDOWN_COMPONENT_MAP,
     )
 
 
@@ -1755,10 +1787,7 @@ def render_sokrates_inline() -> rx.Component:
                                         rx.markdown(
                                             AIState.sokrates_pro_args,
                                             font_size="12px",
-                                            component_map={
-                                                "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
-                                                "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
-                                            },
+                                            component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
                                         ),
                                         spacing="1",
                                         width="100%",
@@ -1775,10 +1804,7 @@ def render_sokrates_inline() -> rx.Component:
                                         rx.markdown(
                                             AIState.sokrates_contra_args,
                                             font_size="12px",
-                                            component_map={
-                                                "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
-                                                "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
-                                            },
+                                            component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
                                         ),
                                         spacing="1",
                                         width="100%",
@@ -1796,10 +1822,7 @@ def render_sokrates_inline() -> rx.Component:
                                 AIState.sokrates_critique,
                                 color=COLORS["ai_text"],
                                 font_size="12px",
-                                component_map={
-                                    "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
-                                    "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
-                                },
+                                component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
                             ),
                         ),
                         # Sokrates-spezifischer Hintergrund (leicht blau)
@@ -1919,7 +1942,7 @@ def chat_history_display() -> rx.Component:
                             rx.text("▌", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
                             spacing="1", margin_bottom="1",
                         ),
-                        rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px"),
+                        rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP),
                         background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
                     ),
                     spacing="2", align="start", width="100%",
@@ -1939,7 +1962,7 @@ def chat_history_display() -> rx.Component:
                                 rx.text("▌", font_size="14px", color="#cd7f32", animation="blink 1s infinite"),
                                 spacing="1", margin_bottom="1",
                             ),
-                            rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px"),
+                            rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP),
                             background_color="rgba(205, 127, 50, 0.08)", padding="3", border_radius="6px", width="100%",
                         ),
                         spacing="2", align="start", width="100%",
@@ -1957,7 +1980,7 @@ def chat_history_display() -> rx.Component:
                                 rx.text("▌", font_size="14px", color="#daa520", animation="blink 1s infinite"),
                                 spacing="1", margin_bottom="1",
                             ),
-                            rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px"),
+                            rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP),
                             background_color="rgba(218, 165, 32, 0.08)", padding="3", border_radius="6px", width="100%",
                         ),
                         spacing="2", align="start", width="100%",
@@ -2107,10 +2130,7 @@ def sokrates_panel() -> rx.Component:
                                 rx.text(t("sokrates_pro_label"), font_weight="bold", font_size="12px", color="#4ade80"),
                                 rx.markdown(
                                     AIState.sokrates_pro_args,
-                                    component_map={
-                                        "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
-                                        "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
-                                    },
+                                    component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
                                 ),
                                 spacing="1",
                                 width="100%",
@@ -2126,10 +2146,7 @@ def sokrates_panel() -> rx.Component:
                                 rx.text(t("sokrates_contra_label"), font_weight="bold", font_size="12px", color="#f87171"),
                                 rx.markdown(
                                     AIState.sokrates_contra_args,
-                                    component_map={
-                                        "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
-                                        "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
-                                    },
+                                    component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
                                 ),
                                 spacing="1",
                                 width="100%",
@@ -2146,10 +2163,7 @@ def sokrates_panel() -> rx.Component:
                     rx.box(
                         rx.markdown(
                             AIState.sokrates_critique,
-                            component_map={
-                                "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
-                                "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
-                            },
+                            component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
                             font_size="13px",
                         ),
                         padding="8px",

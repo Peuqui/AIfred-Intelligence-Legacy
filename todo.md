@@ -1,21 +1,5 @@
 # AIfred TODO
 
-## KRITISCH (Höchste Priorität)
-
-### Base64-Bilder in LLM-History
-- **Problem:** Bilder werden als Base64 in `llm_history` gespeichert und in Session-Dateien persistiert
-- **Auswirkung:** Session-Dateien werden riesig (2+ MB), Browser wird unresponsive
-- **Lösung:**
-  - Base64-Bilder NICHT in `llm_history` speichern
-  - Stattdessen: Referenz/Marker speichern (z.B. `[IMG:uploaded_123.jpg]`)
-  - Oder: Bilder separat speichern und nur Pfad referenzieren
-- **Betroffene Dateien:**
-  - `aifred/lib/conversation_handler.py` (Multimodal-Pfad)
-  - `aifred/lib/message_builder.py`
-  - Session-Storage
-
----
-
 ## Offen
 
 ### KoboldCPP Support - Evaluierung
@@ -50,20 +34,6 @@
 - [ ] Eigener Vergleich: Gleiches Modell + Quant auf beiden Backends
 - [ ] Messen: TTFT, tok/s, Model Loading Zeit
 - [ ] Besonders interessant bei Multi-Agent (häufiges Model Loading)
-
----
-
-### Vision-LLM Pfad verbessern
-
-**Problem:** Der Vision-LLM Pfad funktioniert nicht zuverlässig
-- Base64-Bilder in History (siehe oben)
-- Inkonsistente JSON-Ausgabe
-- Komplexe 3-Model-Architektur
-
-**Mögliche Lösungen:**
-- [ ] Vereinfachung der Pipeline
-- [ ] Bessere Error-Handling
-- [ ] Alternative: Direkte Multimodal-Antwort ohne JSON-Extraktion
 
 ---
 
@@ -102,3 +72,21 @@
 - Code-Executor (3090 Ti) - Linting/Tests parallel
 
 **Status:** Brainstorm-Phase, noch nicht priorisiert
+
+---
+
+## Erledigt
+
+### ~~Base64-Bilder in LLM-History~~ ✅
+- Bilder werden jetzt als `[IMG:filename]` Marker gespeichert statt Base64
+- Session-Dateien bleiben klein
+
+### ~~Einheitliche History-Aufbereitung~~ ✅
+- Zentrale Funktion `build_messages_from_llm_history()` in message_builder.py
+- Alle Pfade (RAG Bypass, Own Knowledge, Multi-Agent) nutzen dieselbe Funktion
+- Labels bleiben erhalten, Rollen werden korrekt zugewiesen
+- RAW Logging für alle Pfade implementiert
+
+### ~~Vision-LLM Pfad~~ ✅
+- Pipeline vereinfacht
+- Base64-Problem gelöst (siehe oben)

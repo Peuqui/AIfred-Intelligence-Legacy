@@ -46,12 +46,12 @@ def _clean_content(content: str, strip_img_markers: bool = True) -> str:
     - Formatted thinking collapsibles (<details>...</details>)
     - Metadata spans (<span style="...">...</span>)
     - Timing patterns (*( Inference: ... )*)
-    - [IMG:...] markers (optional)
+    - Image elements: [IMG:...] markers, <a><img></a> tags, <img> tags (optional)
     - Multiple blank lines → single blank line
 
     Args:
         content: Raw content string
-        strip_img_markers: Whether to remove [IMG:...] markers (default: True)
+        strip_img_markers: Whether to remove image markers/tags (default: True)
 
     Returns:
         Cleaned content suitable for LLM context
@@ -78,9 +78,14 @@ def _clean_content(content: str, strip_img_markers: bool = True) -> str:
         if pattern in clean:
             clean = clean.split(pattern)[0]
 
-    # 5. Remove [IMG:...] markers (optional)
+    # 5. Remove image tags and markers (optional)
     if strip_img_markers:
+        # Remove legacy [IMG:...] markers
         clean = re.sub(r'\[IMG:[^\]]*\]', '', clean)
+        # Remove HTML image tags with their wrapping anchor tags
+        clean = re.sub(r'<a[^>]*>\s*<img[^>]*>\s*</a>', '', clean)
+        # Remove standalone HTML image tags
+        clean = re.sub(r'<img[^>]*>', '', clean)
 
     # 6. Cleanup: Remove multiple blank lines and normalize whitespace
     clean = re.sub(r'\n\n+', '\n\n', clean.strip())
@@ -100,7 +105,7 @@ def clean_content_for_llm(content: str) -> str:
     - Raw thinking blocks (<think>...</think>)
     - Metadata spans (<span style="...">...</span>)
     - Timing patterns (*( Inference: ... )*)
-    - [IMG:...] markers
+    - Image elements: [IMG:...] markers, <a><img></a> tags, <img> tags
     - Multi-agent markers (transforms to speaker labels)
 
     Args:

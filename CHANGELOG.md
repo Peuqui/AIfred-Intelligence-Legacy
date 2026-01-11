@@ -5,6 +5,40 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.16.0] - 2026-01-11
+
+### Added
+
+- **Inline Image Thumbnails in Chat History** ([state.py](aifred/state.py), [aifred.py](aifred/aifred.py)):
+  - Uploaded images now display as 50x50px clickable thumbnails in user messages
+  - Click on thumbnail opens full-size image in new browser tab
+  - Images embedded as HTML `<a><img></a>` tags in message content
+  - Works with `rx.markdown` component rendering
+
+- **Device-ID Based Image Storage** ([vision_utils.py](aifred/lib/vision_utils.py)):
+  - Images stored in `uploaded_files/images/{device_id}/` instead of `{session_id}/`
+  - Device-ID is persistent across browser sessions (32-char hex identifier)
+  - Images survive Reflex session reconnects
+
+- **External Links in New Tab** ([aifred.py](aifred/aifred.py)):
+  - All markdown links in AI responses open in new tab (`target="_blank"`)
+  - Custom `MARKDOWN_COMPONENT_MAP` with `rx.link(is_external=True)`
+  - Applied to all 14 `rx.markdown` instances
+
+### Changed
+
+- **Image Cleanup in Message Builder** ([message_builder.py](aifred/lib/message_builder.py)):
+  - `_clean_content()` now removes HTML image tags for LLM context
+  - Handles both legacy `[IMG:...]` markers and new `<a><img></a>` format
+  - Prevents image HTML from polluting LLM conversation history
+
+- **HTML Export with Embedded Images** ([state.py](aifred/state.py)):
+  - `share_chat()` converts image URLs to Base64 data URIs
+  - Exported HTML files are self-contained and portable
+  - Pattern changed from `[IMG:url]` to `<img src="url">` detection
+
+---
+
 ## [2.15.37] - 2026-01-11
 
 ### Changed

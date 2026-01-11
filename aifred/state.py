@@ -3014,18 +3014,30 @@ class AIState(rx.State):
         # This must be done BEFORE adding to chat_history so user sees images immediately
         display_user_msg = user_msg
         if has_pending_images:
-            # Generate image markers for UI display
-            image_markers = " ".join([f"[IMG:{img.get('url', '')}]" for img in self.pending_images if img.get('url')])
+            # Generate clickable image thumbnails as HTML (opens full image in new tab on click)
+            # Style: 50x50px thumbnails, rounded corners, inline display
+            image_html_parts = []
+            for img in self.pending_images:
+                url = img.get('url', '')
+                if url:
+                    # Clickable thumbnail: click opens full image in new tab
+                    image_html_parts.append(
+                        f'<a href="{url}" target="_blank" rel="noopener noreferrer">'
+                        f'<img src="{url}" style="width:50px;height:50px;object-fit:cover;'
+                        f'border-radius:4px;cursor:pointer;margin-right:4px;"></a>'
+                    )
+            image_html = "".join(image_html_parts)
+
             if not user_msg or user_msg.strip() == "":
                 # Image-only upload
                 if len(self.pending_images) == 1:
-                    display_user_msg = f"{image_markers}\n📷 {self.pending_images[0].get('name', 'Image')}"
+                    display_user_msg = f"{image_html}\n\n📷 {self.pending_images[0].get('name', 'Image')}"
                 else:
                     img_names = ", ".join([img.get("name", "unknown") for img in self.pending_images])
-                    display_user_msg = f"{image_markers}\n📷 {len(self.pending_images)} images: {img_names}"
+                    display_user_msg = f"{image_html}\n\n📷 {len(self.pending_images)} images: {img_names}"
             else:
                 # Text + images
-                display_user_msg = f"{image_markers}\n{user_msg}" if image_markers else user_msg
+                display_user_msg = f"{image_html}\n\n{user_msg}" if image_html else user_msg
 
         # Add user message to chat history IMMEDIATELY (before any pipeline processing)
         # This ensures the user sees their message right away, even during STT transcription
@@ -3038,7 +3050,8 @@ class AIState(rx.State):
             "mode": "",
             "round_num": 0,
             "metadata": {
-                "images": [img.get("name", "") for img in self.pending_images] if has_pending_images else []
+                # Store both name and URL for frontend image display
+                "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []
             },
             "timestamp": datetime.now().isoformat()
         })
@@ -3274,7 +3287,7 @@ class AIState(rx.State):
                         "agent": "",
                         "mode": "",
                         "round_num": 0,
-                        "metadata": {},
+                        "metadata": {"images": []},  # Empty images array for consistency
                         "timestamp": datetime.now().isoformat()
                     })
                     self.current_ai_response = ""  # Reset for Main-LLM streaming
@@ -3998,11 +4011,11 @@ class AIState(rx.State):
         except Exception as e:
             self.add_debug(f"⚠️ HTML preview cleanup failed: {e}")
 
-        # Session-Bilder aufräumen (uploaded_files/images/{session_id}/)
-        if self.session_id:
+        # Session-Bilder aufräumen (~/.config/aifred/sessions/{device_id}/images/)
+        if self.device_id:
             from .lib.vision_utils import cleanup_session_images
             try:
-                deleted = cleanup_session_images(self.session_id)
+                deleted = cleanup_session_images(self.device_id)
                 if deleted > 0:
                     self.add_debug(f"🗑️ {deleted} session image(s) deleted")
             except Exception as e:
@@ -4117,6 +4130,19 @@ class AIState(rx.State):
                 # User message bubble with actual username
                 # Convert markdown (for italic metadata like "*(Decision: 0,2s)*")
                 user_msg_html = self._convert_markdown_preserve_html(user_msg, md)
+
+                # Embed images as Base64 for portable HTML export
+                # Find all <img src="/_upload/..."> tags and convert to Base64 data URIs
+                from .lib.vision_utils import load_image_url_as_base64
+                img_src_pattern = r'<img\s+src="([^"]*/_upload/[^"]+)"'
+                img_matches = re.findall(img_src_pattern, user_msg_html)
+                for img_url in img_matches:
+                    base64_uri = load_image_url_as_base64(img_url)
+                    if base64_uri:
+                        # Replace URL with Base64 data URI
+                        user_msg_html = user_msg_html.replace(f'src="{img_url}"', f'src="{base64_uri}"')
+                    # If image not found, keep original URL (might still work if server accessible)
+
                 html_parts.append(f'''
                 <div class="message user-message">
                     <div class="message-header">{display_name} 🙋</div>
@@ -4386,12 +4412,29 @@ class AIState(rx.State):
         .message-content table tr:nth-child(even) {{
             background-color: rgba(48, 54, 61, 0.3);
         }}
+        /* Embedded chat images */
+        .chat-image {{
+            max-width: 300px;
+            max-height: 300px;
+            border-radius: 8px;
+            margin: 8px 0;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }}
+        .chat-image:hover {{
+            transform: scale(1.02);
+        }}
         /* User: box with border */
         .user-message {{
             background-color: #21262d;
             border: 1px solid #30363d;
             text-align: right;
             padding-right: 85px;
+        }}
+        .user-message .chat-image {{
+            float: right;
+            clear: both;
+            margin-left: 10px;
         }}
         .user-message .message-header {{
             color: #c06050;
@@ -4815,7 +4858,8 @@ class AIState(rx.State):
                     display_name = file.filename
 
                 # Save image as file (not Base64 in memory)
-                image_path = save_image_to_file(resized_content, self.session_id, display_name)
+                # Uses device_id for persistent session-based storage
+                image_path = save_image_to_file(resized_content, self.device_id, display_name)
                 image_url = get_image_url(image_path)
 
                 # Store with file path (for LLM) and URL (for UI)
@@ -4969,7 +5013,8 @@ class AIState(rx.State):
             px_width, px_height = cropped_img.size
 
             # Save cropped image as new file (keeps original, adds cropped version)
-            new_path = save_image_to_file(cropped_bytes, self.session_id, image_data["name"])
+            # Uses device_id for persistent session-based storage
+            new_path = save_image_to_file(cropped_bytes, self.device_id, image_data["name"])
             new_url = get_image_url(new_path)
 
             # Delete old file (optional: keep for undo functionality)
