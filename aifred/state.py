@@ -2930,14 +2930,23 @@ class AIState(rx.State):
         # Must run BEFORE compression check to get detected_language
         from .lib.intent_detector import detect_query_intent_and_addressee
 
-        detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(
-            user_msg,
-            self.automatik_model_id,
-            llm_client
-        )
-        # Log Intent Detection result to UI debug console (always visible)
-        addressee_display = addressed_to.capitalize() if addressed_to else "–"
-        self.add_debug(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}, Lang: {detected_language.upper()}")
+        # If user_msg is empty (image-only), skip Intent Detection and use UI language
+        if not user_msg.strip():
+            from .lib.prompt_loader import get_language
+            detected_intent = "FAKTISCH"
+            addressed_to = None
+            detected_language = get_language()
+            intent_raw = ""
+            self.add_debug(f"🎯 Intent: {detected_intent} (image-only), Lang: {detected_language.upper()} (UI)")
+        else:
+            detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(
+                user_msg,
+                self.automatik_model_id,
+                llm_client
+            )
+            # Log Intent Detection result to UI debug console (always visible)
+            addressee_display = addressed_to.capitalize() if addressed_to else "–"
+            self.add_debug(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}, Lang: {detected_language.upper()}")
 
         # ============================================================
         # PRE-MESSAGE: History Compression Check
