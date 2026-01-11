@@ -1366,7 +1366,11 @@ async def chat_interactive_mode(
 
             if multimodal_user_content is not None:
                 # Multimodal: Build without user text, then append multimodal content
-                messages = build_messages_from_llm_history(llm_history, perspective="aifred")
+                messages = build_messages_from_llm_history(
+                    llm_history,
+                    perspective="aifred",
+                    detected_language=detected_user_language
+                )
                 messages.append({"role": "user", "content": multimodal_user_content})
                 log_message("📷 Multimodal content injected into user message")
             else:
@@ -1374,7 +1378,8 @@ async def chat_interactive_mode(
                 messages = build_messages_from_llm_history(
                     llm_history,
                     current_user_text=user_text,
-                    perspective="aifred"
+                    perspective="aifred",
+                    detected_language=detected_user_language
                 )
 
             # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)

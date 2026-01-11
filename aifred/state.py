@@ -760,6 +760,10 @@ class AIState(rx.State):
                 set_personality_enabled("sokrates", self.sokrates_personality)
                 set_personality_enabled("salomo", self.salomo_personality)
 
+                # Persist personality defaults if not in settings (ensures they survive restarts)
+                if "aifred_personality" not in saved_settings or "sokrates_personality" not in saved_settings or "salomo_personality" not in saved_settings:
+                    self._save_personality_settings()
+
                 # Initialize system prompt token cache (v2.14.0+)
                 # This caches all prompt sizes for accurate compression calculations
                 init_system_prompt_cache()

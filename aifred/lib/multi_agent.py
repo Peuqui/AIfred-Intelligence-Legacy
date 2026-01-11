@@ -572,7 +572,8 @@ async def run_sokrates_direct_response(
         messages: list[dict[str, Any]] = build_messages_from_llm_history(
             state.llm_history[:-1],
             user_query,
-            perspective="sokrates"
+            perspective="sokrates",
+            detected_language=detected_lang
         )
 
         # Prepend system message
@@ -750,7 +751,8 @@ async def run_salomo_direct_response(
         messages: list[dict[str, Any]] = build_messages_from_llm_history(
             state.llm_history[:-1],
             user_query,
-            perspective="salomo"
+            perspective="salomo",
+            detected_language=detected_lang
         )
 
         # Prepend system message
@@ -1024,7 +1026,8 @@ async def run_sokrates_analysis(
             # Use llm_history (compressed) instead of chat_history (full UI)
             history_messages: list[dict[str, str]] = build_messages_from_llm_history(
                 state.llm_history,
-                perspective="sokrates"
+                perspective="sokrates",
+                detected_language=detected_lang
             )
 
             # Build final message list: Sokrates system prompt + history
@@ -1145,7 +1148,8 @@ async def run_sokrates_analysis(
                 # Use llm_history (compressed) instead of chat_history (full UI)
                 salomo_messages: list[dict[str, str]] = build_messages_from_llm_history(
                     state.llm_history,
-                    perspective="observer"  # Neutral perspective
+                    perspective="observer",  # Neutral perspective
+                    detected_language=detected_lang
                 )
                 salomo_messages.insert(0, {"role": "system", "content": salomo_system})
 
@@ -1259,7 +1263,8 @@ async def run_sokrates_analysis(
                     history_messages: list[dict[str, str]] = build_messages_from_llm_history(
                         state.llm_history,
                         current_user_text=refinement_prompt,
-                        perspective="aifred"
+                        perspective="aifred",
+                        detected_language=detected_lang
                     )
 
                     # Build final message list: AIfred system prompt + history
@@ -1498,7 +1503,8 @@ async def run_tribunal(
             # Use llm_history (compressed) instead of chat_history (full UI)
             history_messages = build_messages_from_llm_history(
                 state.llm_history,
-                perspective="sokrates"
+                perspective="sokrates",
+                detected_language=detected_lang
             )
             sokrates_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
             for msg in history_messages:
@@ -1574,7 +1580,8 @@ async def run_tribunal(
                 history_messages: list[dict[str, str]] = build_messages_from_llm_history(
                     state.llm_history,
                     current_user_text=refinement_prompt,
-                    perspective="aifred"
+                    perspective="aifred",
+                    detected_language=detected_lang
                 )
 
                 # Build final message list: AIfred system prompt + history
@@ -1649,7 +1656,8 @@ async def run_tribunal(
         # Use llm_history (compressed) instead of chat_history (full UI)
         salomo_messages: list[dict[str, str]] = build_messages_from_llm_history(
             state.llm_history,
-            perspective="observer"
+            perspective="observer",
+            detected_language=detected_lang
         )
         salomo_messages.insert(0, {"role": "system", "content": salomo_system})
 

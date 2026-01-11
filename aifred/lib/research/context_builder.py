@@ -159,7 +159,8 @@ async def build_and_generate_response(
     messages = build_messages_from_llm_history(
         llm_history=llm_history,
         current_user_text=user_text,
-        perspective="aifred"  # AIfred speaking - uses correct role assignment
+        perspective="aifred",  # AIfred speaking - uses correct role assignment
+        detected_language=detected_user_language  # Pass language for personality reminder
     )
 
     # Insert RAG system prompt as first message
