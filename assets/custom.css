@@ -631,6 +631,30 @@ tr:hover {
 }
 
 /* ============================================================
+   TOOLTIP STYLING - Dark theme for Radix tooltips
+   ============================================================ */
+
+/* Tooltip content - dark background with light text */
+.rt-TooltipContent,
+[data-radix-tooltip-content],
+[role="tooltip"] {
+    background-color: #21262d !important;
+    color: #e6edf3 !important;
+    border: 1px solid #30363d !important;
+    border-radius: 6px !important;
+    padding: 8px 12px !important;
+    font-size: 13px !important;
+    max-width: 300px !important;
+    z-index: 9999 !important;
+}
+
+/* Tooltip arrow - match background */
+.rt-TooltipArrow,
+[data-radix-tooltip-arrow] {
+    fill: #21262d !important;
+}
+
+/* ============================================================
    RESPONSIVE LAYOUT - Media Queries (Single Source: config.py)
    ============================================================ */
 
