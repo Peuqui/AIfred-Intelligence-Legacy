@@ -11,6 +11,7 @@ This module contains the core Multi-Agent logic extracted from state.py.
 The functions work with async generators for streaming UI updates.
 """
 
+import asyncio
 import time
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
@@ -44,6 +45,56 @@ from ..backends.base import LLMOptions
 
 if TYPE_CHECKING:
     from ..state import AIState
+
+
+# ============================================================
+# RETRY HELPER FOR 500 ERRORS
+# ============================================================
+
+async def _chat_stream_with_retry(
+    llm_client: LLMClient,
+    model: str,
+    messages: list,
+    options: LLMOptions,
+    agent_name: str,
+    state: 'AIState',
+    retry_delay: float = 2.0,
+    max_retries: int = 1
+) -> AsyncGenerator[dict, None]:
+    """
+    Wrapper around llm_client.chat_stream() with retry logic for 500 errors.
+
+    On 500 error: Logs the error, waits retry_delay seconds, retries once.
+    If still fails, re-raises the error.
+    """
+    attempt = 0
+    last_error = None
+
+    while attempt <= max_retries:
+        try:
+            async for chunk in llm_client.chat_stream(model, messages, options):
+                yield chunk
+            return  # Success - exit the retry loop
+        except Exception as e:
+            error_str = str(e)
+            is_500_error = "500" in error_str and ("Internal Server Error" in error_str or "Server error" in error_str)
+
+            if is_500_error and attempt < max_retries:
+                # Log the error (visible in console and debug)
+                log_message(f"⚠️ {agent_name}: 500 Error - retrying in {retry_delay}s...")
+                state.add_debug(f"⚠️ {agent_name}: 500 Error (attempt {attempt + 1}/{max_retries + 1}) - {error_str}")
+
+                # Wait and retry
+                await asyncio.sleep(retry_delay)
+                attempt += 1
+                last_error = e
+            else:
+                # Not a 500 error or max retries reached - re-raise
+                raise
+
+    # Should not reach here, but if we do, raise the last error
+    if last_error:
+        raise last_error
 
 
 def _estimate_prompt_tokens(prompt: str) -> int:
@@ -185,7 +236,7 @@ async def _stream_sokrates_to_history(
     state.current_agent = "sokrates"
     state.current_ai_response = ""
 
-    async for chunk in llm_client.chat_stream(model, messages, options):
+    async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "Sokrates", state):
         if chunk["type"] == "content":
             if not first_token:
                 ttft = time.time() - start_time
@@ -268,7 +319,7 @@ async def _stream_alfred_refinement(
     ttft = 0.0
     first_token = False
 
-    async for chunk in llm_client.chat_stream(model, messages, options):
+    async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "AIfred Refinement", state):
         if chunk["type"] == "content":
             if not first_token:
                 ttft = time.time() - start_time
@@ -343,7 +394,7 @@ async def _stream_salomo_to_history(
     state.current_agent = "salomo"
     state.current_ai_response = ""
 
-    async for chunk in llm_client.chat_stream(model, messages, options):
+    async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "Salomo", state):
         if chunk["type"] == "content":
             if not first_token:
                 ttft = time.time() - start_time

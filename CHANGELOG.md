@@ -5,6 +5,23 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.34] - 2026-01-11
+
+### Added
+
+- **500 Error Retry Logic for Multi-Agent Streaming** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - **New**: `_chat_stream_with_retry()` - Central wrapper function for LLM streaming with retry logic
+  - On 500 Internal Server Error: Logs error, waits 2 seconds, retries once
+  - If retry fails: Error is re-raised (visible in console and debug logs)
+  - Applied to all three streaming functions:
+    - `_stream_sokrates_to_history()`
+    - `_stream_alfred_refinement()`
+    - `_stream_salomo_to_history()`
+  - **Problem solved**: Occasional 500 errors during rapid model switches in Multi-Agent mode (e.g., 80B Hybrid models)
+  - **Log output**: `⚠️ Sokrates: 500 Error - retrying in 2.0s...`
+
+---
+
 ## [2.15.33] - 2026-01-10
 
 ### Changed
