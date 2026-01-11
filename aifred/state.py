@@ -3117,6 +3117,10 @@ class AIState(rx.State):
                 import copy
                 local_images = copy.deepcopy(self.pending_images)
 
+                # Clear pending images UI immediately (they're already in chat_history as HTML thumbnails)
+                # This removes the editable thumbnails above the text input right away
+                self.clear_pending_images()
+
                 # Log Vision-LLM header + each image on separate line
                 self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analyzing:")
                 for img in local_images:
@@ -3360,8 +3364,7 @@ class AIState(rx.State):
 
                 else:
                     # No user text - just Vision extraction, finalize normally
-                    # Clear images after Vision processing
-                    self.clear_pending_images()
+                    # Note: pending_images already cleared at start of vision pipeline
 
                     # Clear both windows and stop generating
                     # (Response is already in chat_history, UI will show history)
