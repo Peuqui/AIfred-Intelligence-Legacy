@@ -178,11 +178,7 @@ async def handle_own_knowledge(
         )
 
         # Console: LLM starts
-        if backend_type == "cloud_api" and cloud_provider_label:
-            backend_label = f"☁️ {cloud_provider_label}"
-        else:
-            backend_label = backend_type.capitalize()
-        yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} [{backend_label}]"}
+        yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice}"}
 
         # Log RAW messages for debugging (v2.16.0+)
         from .logging_utils import log_raw_messages
