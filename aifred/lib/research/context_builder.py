@@ -257,8 +257,11 @@ async def build_and_generate_response(
         log_message(f"🌡️ RAG Temperature: {final_temperature} (Intent: {detected_intent})")
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
-    # LLM Inference
-    yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice}"}
+    # LLM Inference (with MoE/Dense architecture info)
+    from ..gpu_utils import is_moe_model
+    is_moe = await is_moe_model(model_choice)
+    arch_label = "MoE" if is_moe else "Dense"
+    yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} ({arch_label})"}
     yield {"type": "progress", "phase": "llm"}
 
     # Build LLM options (include enable_thinking from user settings)

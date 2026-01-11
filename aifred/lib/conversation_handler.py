@@ -1450,8 +1450,11 @@ async def chat_interactive_mode(
             yield {"type": "debug", "message": f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
             log_message(f"📊 AIfred-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
 
-            # Console: LLM starts
-            yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice}"}
+            # Console: LLM starts (with MoE/Dense architecture info)
+            from aifred.lib.gpu_utils import is_moe_model
+            is_moe = await is_moe_model(model_choice) if backend_type == "ollama" else False
+            arch_label = "MoE" if is_moe else "Dense"
+            yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} ({arch_label})"}
 
             # Build main LLM options (include enable_thinking from user settings)
             main_llm_options = {

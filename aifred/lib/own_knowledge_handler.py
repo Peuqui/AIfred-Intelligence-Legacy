@@ -177,8 +177,11 @@ async def handle_own_knowledge(
             enable_thinking=enable_thinking
         )
 
-        # Console: LLM starts
-        yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice}"}
+        # Console: LLM starts (with MoE/Dense architecture info)
+        from .gpu_utils import is_moe_model
+        is_moe = await is_moe_model(model_choice) if backend_type == "ollama" else False
+        arch_label = "MoE" if is_moe else "Dense"
+        yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} ({arch_label})"}
 
         # Log RAW messages for debugging (v2.16.0+)
         from .logging_utils import log_raw_messages
