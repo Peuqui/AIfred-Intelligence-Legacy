@@ -11,13 +11,15 @@ This comparison analyzes various local LLM models regarding inference performanc
 
 ## Models Tested
 
-| Model | Size | Thinking Mode |
-|-------|------|---------------|
-| qwen3:30b-instruct | 30B | No |
-| qwen3:30b-thinking | 30B | Yes (native) |
-| mannix/qwen2-57b | 57B | No |
-| qwen3-next:80b | 80B | No |
-| gpt-oss:120b | 120B | Yes (native) |
+| Model | Size | Thinking Mode | Memory Mode |
+|-------|------|---------------|-------------|
+| qwen3:30b-instruct | 30B (MoE) | No | GPU-only |
+| qwen3:30b-thinking | 30B (MoE) | Yes (native) | GPU-only |
+| mannix/qwen2-57b | 57B (MoE) | No | GPU-only |
+| qwen3-next:80b | 80B (MoE) | No | **Hybrid (CPU+GPU)** |
+| gpt-oss:120b | 120B | Yes (native) | **Hybrid (CPU+GPU)** |
+
+**Note:** With 48 GB VRAM (2x P40), models 80B and larger run in hybrid mode, meaning part of the model weights are offloaded to system RAM. This explains the significantly slower inference speed for these models.
 
 ---
 
@@ -79,15 +81,15 @@ For models with thinking mode, a significant portion of generated tokens is dedi
 | Elegance | Linguistic elegance and readability |
 | Structure | Markdown formatting, tables, lists |
 
-### Rating Overview
+### Rating Overview (5-Star Scale)
 
 | Model | Butler | Address | English | Humor | Depth | Sources | Elegance | Structure | Total |
 |-------|--------|---------|---------|-------|-------|---------|----------|-----------|-------|
-| qwen3-next:80b | 3/3 | Yes | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | **24/24** |
-| qwen3:30b-instruct | 3/3 | Yes | 2/3 | 2/3 | 3/3 | 3/3 | 3/3 | 3/3 | **22/24** |
-| gpt-oss:120b | 2/3 | Yes | 2/3 | 2/3 | 3/3 | 3/3 | 2/3 | 3/3 | **20/24** |
-| qwen3:30b-thinking | 2/3 | Yes | 1/3 | 1/3 | 3/3 | 3/3 | 2/3 | 3/3 | **18/24** |
-| mannix/qwen2-57b | 1/3 | No | 0/3 | 0/3 | 2/3 | 2/3 | 1/3 | 1/3 | **8/24** |
+| qwen3-next:80b | 5/5 | ✅ | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | 5/5 | **40/40** |
+| qwen3:30b-instruct | 4/5 | ✅ | 4/5 | 3/5 | 5/5 | 5/5 | 4/5 | 5/5 | **35/40** |
+| gpt-oss:120b | 3/5 | ✅ | 3/5 | 3/5 | 5/5 | 5/5 | 3/5 | 5/5 | **32/40** |
+| qwen3:30b-thinking | 3/5 | ✅ | 2/5 | 2/5 | 5/5 | 5/5 | 3/5 | 4/5 | **29/40** |
+| mannix/qwen2-57b | 1/5 | ❌ | 0/5 | 0/5 | 3/5 | 3/5 | 2/5 | 2/5 | **11/40** |
 
 ---
 

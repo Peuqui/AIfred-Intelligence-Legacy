@@ -11,13 +11,15 @@ Dieser Vergleich analysiert verschiedene lokale LLM-Modelle hinsichtlich Inferen
 
 ## Getestete Modelle
 
-| Modell | Größe | Thinking-Modus |
-|--------|-------|----------------|
-| qwen3:30b-instruct | 30B | ❌ Nein |
-| qwen3:30b-thinking | 30B | ✅ Ja (nativ) |
-| mannix/qwen2-57b | 57B | ❌ Nein |
-| qwen3-next:80b | 80B | ❌ Nein |
-| gpt-oss:120b | 120B | ✅ Ja (nativ) |
+| Modell | Größe | Thinking-Modus | Speicher-Modus |
+|--------|-------|----------------|----------------|
+| qwen3:30b-instruct | 30B (MoE) | ❌ Nein | GPU-only |
+| qwen3:30b-thinking | 30B (MoE) | ✅ Ja (nativ) | GPU-only |
+| mannix/qwen2-57b | 57B (MoE) | ❌ Nein | GPU-only |
+| qwen3-next:80b | 80B (MoE) | ❌ Nein | **Hybrid (CPU+GPU)** |
+| gpt-oss:120b | 120B | ✅ Ja (nativ) | **Hybrid (CPU+GPU)** |
+
+**Hinweis:** Bei 48 GB VRAM (2x P40) laufen die Modelle ab 80B im Hybrid-Modus, d.h. ein Teil der Modellgewichte wird in den System-RAM ausgelagert. Dies erklärt die deutlich langsamere Inferenz bei diesen Modellen.
 
 ---
 
@@ -79,15 +81,15 @@ Bei Modellen mit Thinking-Modus ist ein erheblicher Teil der generierten Tokens 
 | Eleganz | Sprachliche Eleganz und Lesbarkeit |
 | Struktur | Markdown-Formatierung, Tabellen, Listen |
 
-### Bewertungsübersicht
+### Bewertungsübersicht (5-Sterne-Skala)
 
 | Modell | Butler | Anrede | English | Humor | Tiefe | Quellen | Eleganz | Struktur | Gesamt |
 |--------|--------|--------|---------|-------|-------|---------|---------|----------|--------|
-| qwen3-next:80b | ⭐⭐⭐ | ✅ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | **24/24** |
-| qwen3:30b-instruct | ⭐⭐⭐ | ✅ | ⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | **22/24** |
-| gpt-oss:120b | ⭐⭐ | ✅ | ⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ | **20/24** |
-| qwen3:30b-thinking | ⭐⭐ | ✅ | ⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ | **18/24** |
-| mannix/qwen2-57b | ⭐ | ❌ | ❌ | ❌ | ⭐⭐ | ⭐⭐ | ⭐ | ⭐ | **8/24** |
+| qwen3-next:80b | ⭐⭐⭐⭐⭐ | ✅ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | **40/40** |
+| qwen3:30b-instruct | ⭐⭐⭐⭐ | ✅ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | **35/40** |
+| gpt-oss:120b | ⭐⭐⭐ | ✅ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | **32/40** |
+| qwen3:30b-thinking | ⭐⭐⭐ | ✅ | ⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | **29/40** |
+| mannix/qwen2-57b | ⭐ | ❌ | ❌ | ❌ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐ | **11/40** |
 
 ---
 
