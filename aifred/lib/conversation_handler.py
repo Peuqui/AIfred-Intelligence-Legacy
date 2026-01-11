@@ -74,7 +74,7 @@ async def _process_single_image_vision(
     Used by chat_with_vision_pipeline() for sequential multi-image processing.
 
     Args:
-        image: Dict with "name" and "base64" keys
+        image: Dict with "name" and "path" keys (path to JPEG file)
         image_index: 0-based index for logging
         vision_model: Vision-LLM model name
         backend_type: Backend type (ollama, vllm, etc.)
@@ -94,6 +94,8 @@ async def _process_single_image_vision(
         - "time": Processing time in seconds
     """
     from ..backends.base import LLMMessage
+    from .vision_utils import load_image_as_base64
+    from pathlib import Path
 
     img_name = image.get("name", f"image_{image_index + 1}")
     log_message(f"📷 [{image_index + 1}] Processing: {img_name}")
@@ -110,10 +112,12 @@ async def _process_single_image_vision(
             default_prompt = get_vision_templateless_default_prompt(lang=lang)
         content_parts.append({"type": "text", "text": default_prompt})
 
-    # Add single image
+    # Add single image (load from file on-demand)
+    image_path = Path(image['path'])
+    base64_data = load_image_as_base64(image_path)
     content_parts.append({
         "type": "image_url",
-        "image_url": {"url": f"data:image/jpeg;base64,{image['base64']}"}
+        "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"}
     })
 
     # Build messages

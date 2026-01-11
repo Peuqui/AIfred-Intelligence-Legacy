@@ -576,3 +576,128 @@ def crop_and_resize_image(
     img.save(output, format='JPEG', quality=90)
 
     return output.getvalue()
+
+
+# ============================================================
+# Image File Storage (Session-based)
+# ============================================================
+
+# Directory for uploaded images (served via /_upload/ endpoint)
+from .config import PROJECT_ROOT, BACKEND_API_URL
+IMAGES_DIR = PROJECT_ROOT / "uploaded_files" / "images"
+
+
+def save_image_to_file(image_bytes: bytes, session_id: str, filename: str) -> Path:
+    """
+    Save image bytes as JPEG file in session-specific directory.
+
+    Files are stored in: uploaded_files/images/{session_id}/{timestamp}_{filename}
+    This directory is served via Reflex's /_upload/ endpoint.
+
+    Args:
+        image_bytes: Raw JPEG image data
+        session_id: Session identifier (for directory grouping)
+        filename: Original filename (e.g., "Image_001.jpg")
+
+    Returns:
+        Absolute path to saved file
+    """
+    import time
+
+    # Ensure session directory exists
+    session_dir = IMAGES_DIR / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate unique filename with timestamp
+    timestamp = int(time.time() * 1000)  # Milliseconds for uniqueness
+    safe_filename = f"{timestamp}_{filename}"
+    file_path = session_dir / safe_filename
+
+    # Write image bytes
+    with open(file_path, 'wb') as f:
+        f.write(image_bytes)
+
+    logger.info(f"📁 Image saved: {file_path} ({len(image_bytes) // 1024} KB)")
+    return file_path
+
+
+def get_image_url(image_path: Path) -> str:
+    """
+    Convert absolute file path to URL for UI display.
+
+    The URL uses Reflex's /_upload/ endpoint which serves files
+    from the uploaded_files/ directory.
+
+    Args:
+        image_path: Absolute path to image file
+
+    Returns:
+        URL like "http://host:8002/_upload/images/{session_id}/{filename}"
+    """
+    # Extract relative path from IMAGES_DIR
+    try:
+        relative_path = image_path.relative_to(IMAGES_DIR)
+    except ValueError:
+        # Path not under IMAGES_DIR - use full path as fallback
+        relative_path = image_path.name
+
+    return f"{BACKEND_API_URL}/_upload/images/{relative_path}"
+
+
+def load_image_as_base64(image_path: Path) -> str:
+    """
+    Load image from file and return as Base64 string.
+
+    Used for on-demand conversion when sending to LLM API.
+    The file should be a valid JPEG image.
+
+    Args:
+        image_path: Path to JPEG image file
+
+    Returns:
+        Base64-encoded string (without data: prefix)
+
+    Raises:
+        FileNotFoundError: If image file doesn't exist
+        IOError: If file cannot be read
+    """
+    import base64
+
+    with open(image_path, 'rb') as f:
+        image_bytes = f.read()
+
+    return base64.b64encode(image_bytes).decode('utf-8')
+
+
+def cleanup_session_images(session_id: str) -> int:
+    """
+    Delete all images for a session.
+
+    Called when chat is cleared or session is deleted.
+    Removes the entire session directory under uploaded_files/images/.
+
+    Args:
+        session_id: Session identifier
+
+    Returns:
+        Number of files deleted
+    """
+    import shutil
+
+    session_dir = IMAGES_DIR / session_id
+    if not session_dir.exists():
+        return 0
+
+    # Count files before deletion
+    files = list(session_dir.glob("*"))
+    count = len(files)
+
+    # Remove entire directory
+    try:
+        shutil.rmtree(session_dir)
+        logger.info(f"🗑️ Deleted {count} image(s) for session {session_id[:8]}...")
+    except OSError as e:
+        logger.warning(f"⚠️ Could not delete session images: {e}")
+        return 0
+
+    return count

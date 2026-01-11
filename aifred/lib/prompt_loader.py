@@ -783,7 +783,7 @@ def init_system_prompt_cache() -> dict[str, dict[str, int]]:
     for agent, langs in _system_prompt_token_cache.items():
         de_tokens = langs.get("de", 0)
         en_tokens = langs.get("en", 0)
-        log_message(f"📊 Prompt cache: {agent} = {de_tokens} tok (de), {en_tokens} tok (en)")
+        log_message(f"📊 Prompt token estimate: {agent} = {de_tokens} tok (de), {en_tokens} tok (en)")
 
     return _system_prompt_token_cache
 

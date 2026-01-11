@@ -5,6 +5,28 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.37] - 2026-01-11
+
+### Changed
+
+- **Vision Refactoring: File-Based Image Storage** ([vision_utils.py](aifred/lib/vision_utils.py), [state.py](aifred/state.py), [conversation_handler.py](aifred/lib/conversation_handler.py)):
+  - **Critical Bug Fixed**: Base64 images were stored in `chat_history`, causing session files to grow 2+ MB and browser unresponsiveness
+  - **New Storage**: Images saved as JPEG files in `uploaded_files/images/{session_id}/`
+  - **On-Demand Loading**: Base64 now generated only when sending to Vision-LLM
+  - **Session Cleanup**: Images automatically deleted with `clear_chat()`
+  - **New Functions** in `vision_utils.py`:
+    - `save_image_to_file()` - Save image bytes as JPEG
+    - `get_image_url()` - Convert path to HTTP URL for UI
+    - `load_image_as_base64()` - Load from file when needed
+    - `cleanup_session_images()` - Delete session images
+  - **Breaking**: Old sessions with Base64 images won't display images (intentional - no fallback)
+
+- **Prompt Token Estimate Rename** ([prompt_loader.py](aifred/lib/prompt_loader.py)):
+  - Renamed misleading "Prompt cache" log message to "Prompt token estimate"
+  - More accurately describes the function (token counting, not caching)
+
+---
+
 ## [2.15.36] - 2026-01-11
 
 ### Changed

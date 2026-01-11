@@ -133,7 +133,7 @@ class AIState(rx.State):
     salomo_personality: bool = True      # 👑 Salomo judge style
 
     # Image Upload State
-    pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "base64": "...", "url": "...", "original_bytes": bytes}]
+    pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "path": "/abs/path.jpg", "url": "/_upload/...", "size_kb": int}]
     image_upload_warning: str = ""  # Warning message if non-vision model selected
     max_images_per_message: int = 5  # Limit concurrent uploads
     camera_available: bool = False  # True if browser supports camera access (set by JavaScript)
@@ -3578,11 +3578,14 @@ class AIState(rx.State):
                     # Prepare multimodal content if images present
                     multimodal_content = None
                     if len(self.pending_images) > 0:
+                        from .lib.vision_utils import load_image_as_base64
+                        from pathlib import Path
                         multimodal_content = [{"type": "text", "text": user_msg}]
                         for img in self.pending_images:
+                            base64_data = load_image_as_base64(Path(img['path']))
                             multimodal_content.append({
                                 "type": "image_url",
-                                "image_url": {"url": f"data:image/jpeg;base64,{img['base64']}"}
+                                "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"}
                             })
 
                     # Track result data for post-processing
@@ -3798,11 +3801,14 @@ class AIState(rx.State):
                 # Prepare multimodal content if images present
                 multimodal_content = None
                 if len(self.pending_images) > 0:
+                    from .lib.vision_utils import load_image_as_base64
+                    from pathlib import Path
                     multimodal_content = [{"type": "text", "text": user_msg}]
                     for img in self.pending_images:
+                        base64_data = load_image_as_base64(Path(img['path']))
                         multimodal_content.append({
                             "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{img['base64']}"}
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"}
                         })
 
                 # Track result data for post-processing
@@ -3982,6 +3988,16 @@ class AIState(rx.State):
                         f.unlink()
         except Exception as e:
             self.add_debug(f"⚠️ HTML preview cleanup failed: {e}")
+
+        # Session-Bilder aufräumen (uploaded_files/images/{session_id}/)
+        if self.session_id:
+            from .lib.vision_utils import cleanup_session_images
+            try:
+                deleted = cleanup_session_images(self.session_id)
+                if deleted > 0:
+                    self.add_debug(f"🗑️ {deleted} session image(s) deleted")
+            except Exception as e:
+                self.add_debug(f"⚠️ Image cleanup failed: {e}")
 
         # Clear Sokrates Multi-Agent state
         self.sokrates_critique = ""
@@ -4733,8 +4749,9 @@ class AIState(rx.State):
         """Internal handler for image uploads with validation (async generator for UI updates)"""
         from .lib.vision_utils import (
             validate_image_file,
-            encode_image_to_base64,
-            resize_image_if_needed
+            resize_image_if_needed,
+            save_image_to_file,
+            get_image_url
         )
 
         # Show loading state immediately
@@ -4776,12 +4793,6 @@ class AIState(rx.State):
                 # Resize if needed (save bandwidth/VRAM)
                 resized_content = resize_image_if_needed(content)
 
-                # Encode to base64
-                base64_data = encode_image_to_base64(resized_content)
-
-                # Create data URL for preview
-                data_url = f"data:image/jpeg;base64,{base64_data}"
-
                 # Camera photos: Shorten to "Image_001.jpg" (browser names are unreadably long)
                 # File uploads: Keep original filename
                 if from_camera:
@@ -4794,11 +4805,15 @@ class AIState(rx.State):
                 else:
                     display_name = file.filename
 
-                # Store
+                # Save image as file (not Base64 in memory)
+                image_path = save_image_to_file(resized_content, self.session_id, display_name)
+                image_url = get_image_url(image_path)
+
+                # Store with file path (for LLM) and URL (for UI)
                 self.pending_images.append({
                     "name": display_name,
-                    "base64": base64_data,
-                    "url": data_url,  # For UI preview
+                    "path": str(image_path),  # Absolute path for LLM loading
+                    "url": image_url,         # HTTP URL for UI display
                     "size_kb": len(resized_content) // 1024
                 })
 
@@ -4904,8 +4919,8 @@ class AIState(rx.State):
 
     async def _do_apply_crop(self, x: float, y: float, width: float, height: float):
         """Interne Funktion: Führt den Crop mit gegebenen Koordinaten aus"""
-        from .lib.vision_utils import crop_and_resize_image, encode_image_to_base64
-        import base64
+        from .lib.vision_utils import crop_and_resize_image, save_image_to_file, get_image_url
+        from pathlib import Path
 
         if self.crop_image_index < 0 or self.crop_image_index >= len(self.pending_images):
             self.add_debug("❌ Crop failed: Invalid image index")
@@ -4914,9 +4929,11 @@ class AIState(rx.State):
 
         image_data = self.pending_images[self.crop_image_index]
 
-        # Original-Bytes aus Base64 dekodieren
+        # Read original bytes from file
         try:
-            original_bytes = base64.b64decode(image_data["base64"])
+            image_path = Path(image_data["path"])
+            with open(image_path, 'rb') as f:
+                original_bytes = f.read()
         except Exception as e:
             self.add_debug(f"❌ Crop failed: {e}")
             self.cancel_crop()
@@ -4942,13 +4959,20 @@ class AIState(rx.State):
             cropped_img = Image.open(io.BytesIO(cropped_bytes))
             px_width, px_height = cropped_img.size
 
-            # Update pending_images
-            new_base64 = encode_image_to_base64(cropped_bytes)
-            new_url = f"data:image/jpeg;base64,{new_base64}"
+            # Save cropped image as new file (keeps original, adds cropped version)
+            new_path = save_image_to_file(cropped_bytes, self.session_id, image_data["name"])
+            new_url = get_image_url(new_path)
 
+            # Delete old file (optional: keep for undo functionality)
+            try:
+                image_path.unlink()
+            except OSError:
+                pass  # Ignore if file doesn't exist
+
+            # Update pending_images with new file
             self.pending_images[self.crop_image_index] = {
                 "name": image_data["name"],
-                "base64": new_base64,
+                "path": str(new_path),
                 "url": new_url,
                 "size_kb": len(cropped_bytes) // 1024
             }
