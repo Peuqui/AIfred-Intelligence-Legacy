@@ -137,3 +137,50 @@ source venv/bin/activate && mypy aifred/state.py aifred/aifred.py --ignore-missi
 - `F541` unnötige f-strings: Können mit `--fix` automatisch behoben werden
 - mypy-Warnungen in Backends: OpenAI SDK Type-Mismatches (OpenAI-Library Issue)
 - mypy `no_implicit_optional`: Bestehender Code, wird nicht refactored
+
+---
+
+## AIfred API - Message Injection
+
+Um Nachrichten direkt in eine Browser-Session zu injizieren (z.B. für Tests):
+
+```bash
+# API Endpoint: POST http://localhost:8002/api/chat/inject
+# Parameter: device_id (NICHT session_id!), message
+
+curl -s "http://localhost:8002/api/chat/inject" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"device_id": "SESSION_ID_HIER", "message": "Deine Nachricht hier"}'
+
+# Erfolgreiche Antwort:
+# {"success":true,"message":"Message queued for browser processing","session_id":"...","queued":true}
+```
+
+**Aktive Session-ID finden:**
+- Debug-Log: `tail /home/mp/Projekte/AIfred-Intelligence/logs/aifred_debug.log` → "Session loaded: XXXXX..."
+- Session-Dateien: `ls ~/.config/aifred/sessions/` → neueste `.json` Datei (ohne `.pending`/`.update`)
+
+**Wichtig:**
+- Port ist `8002` (Backend-API), NICHT `3000` (Frontend)
+- Parameter heißt `device_id`, nicht `session_id`
+- Browser muss aktiv sein und pollen, damit die Nachricht aufgenommen wird
+
+---
+
+## AIfred Systemdienst
+
+AIfred läuft als User-Systemdienst (NICHT als root!):
+
+```bash
+# Neustart
+systemctl --user restart aifred-intelligence.service
+
+# Status prüfen
+systemctl --user status aifred-intelligence.service
+
+# Logs ansehen
+journalctl --user -u aifred-intelligence -f
+```
+
+**WICHTIG:** NIEMALS Reflex-Prozesse manuell killen! Immer über systemctl steuern.

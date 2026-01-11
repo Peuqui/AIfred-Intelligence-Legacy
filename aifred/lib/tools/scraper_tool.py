@@ -260,6 +260,7 @@ class WebScraperTool(BaseTool):
         except Exception as e:
             error_msg = self._classify_error(str(e))
             logger.error(f"❌ Playwright error at {url}: {error_msg}")
+            log_message(f"❌ Playwright error: {error_msg}")
             return {
                 'success': False,
                 'method': 'playwright',
