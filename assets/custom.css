@@ -634,7 +634,7 @@ tr:hover {
    TOOLTIP STYLING - Dark theme for Radix tooltips
    ============================================================ */
 
-/* Tooltip content - dark background with light text */
+/* Tooltip content - dark background with orange text */
 /* High specificity to override Radix defaults */
 .radix-themes .rt-TooltipContent,
 .radix-themes [data-radix-tooltip-content],
@@ -644,7 +644,7 @@ tr:hover {
 [data-state="delayed-open"][data-side],
 [data-state="instant-open"][data-side] {
     background-color: #161b22 !important;
-    color: #e6edf3 !important;
+    color: #cc8800 !important;
     border: 1px solid #30363d !important;
     border-radius: 6px !important;
     padding: 8px 12px !important;
@@ -652,14 +652,14 @@ tr:hover {
     max-width: 300px !important;
     z-index: 9999 !important;
     --tooltip-bg: #161b22 !important;
-    --tooltip-content-color: #e6edf3 !important;
+    --tooltip-content-color: #cc8800 !important;
 }
 
 /* Force text color on all child elements */
 .rt-TooltipContent *,
 [data-radix-tooltip-content] *,
 [role="tooltip"] * {
-    color: #e6edf3 !important;
+    color: #cc8800 !important;
 }
 
 /* Tooltip arrow - match background */
