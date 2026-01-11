@@ -459,6 +459,24 @@ Progress Updates:
 └─ Yield after each URL completion
 ```
 
+**Scraping-Strategie (trafilatura + Playwright Fallback):**
+```
+1. trafilatura (schnell, leichtgewichtig)
+   └─ Direkter HTTP-Request, HTML-Parsing
+   └─ Funktioniert für die meisten statischen Websites
+
+2. WENN trafilatura < 800 Wörter liefert:
+   └─ Playwright-Fallback (Headless Chromium)
+   └─ Führt JavaScript aus, rendert dynamische Inhalte
+   └─ Für SPAs: React, Vue, Angular Seiten
+
+3. WENN Download fehlschlägt (404, Timeout, Bot-Schutz):
+   └─ KEIN Playwright-Fallback (sinnlos)
+   └─ URL als fehlgeschlagen markieren mit Fehlergrund
+```
+
+Der 800-Wörter-Schwellenwert ist konfigurierbar via `PLAYWRIGHT_FALLBACK_THRESHOLD` in `config.py`.
+
 #### Phase 4: Context Building + LLM Response
 ```
 1. Build Context
@@ -850,8 +868,8 @@ playwright install chromium
 |-----------|----------|
 | Framework | reflex, fastapi, pydantic |
 | LLM Backends | httpx, openai, pynvml, psutil |
-| Web Research | beautifulsoup4, trafilatura, playwright, pymupdf |
-| Vector Cache | chromadb, ollama |
+| Web Research | trafilatura, playwright, requests, pymupdf |
+| Vector Cache | chromadb, ollama, numpy |
 | Audio (STT/TTS) | edge-tts, openai-whisper |
 
 4. **Umgebungsvariablen** (.env):

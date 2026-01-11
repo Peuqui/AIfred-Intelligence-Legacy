@@ -532,6 +532,24 @@ Progress Updates:
 └─ Yield after each URL completion
 ```
 
+**Scraping Strategy (trafilatura + Playwright Fallback):**
+```
+1. trafilatura (fast, lightweight)
+   └─ Direct HTTP request, HTML parsing
+   └─ Works for most static websites
+
+2. IF trafilatura returns < 800 words:
+   └─ Playwright fallback (headless Chromium)
+   └─ Executes JavaScript, renders dynamic content
+   └─ For SPAs: React, Vue, Angular sites
+
+3. IF download failed (404, timeout, bot-protection):
+   └─ NO Playwright fallback (pointless)
+   └─ Mark URL as failed with error reason
+```
+
+The 800-word threshold is configurable via `PLAYWRIGHT_FALLBACK_THRESHOLD` in `config.py`.
+
 #### Phase 4: Context Building + LLM Response
 ```
 1. Build Context

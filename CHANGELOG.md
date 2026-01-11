@@ -5,6 +5,24 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.35] - 2026-01-11
+
+### Fixed
+
+- **Playwright Error Logging** ([scraper_tool.py](aifred/lib/tools/scraper_tool.py)):
+  - Playwright errors now logged to UI debug console via `log_message()`
+  - Previously only visible in systemd journal, not in AIfred's debug log
+  - Helps diagnose JavaScript-heavy page scraping issues
+
+### Changed
+
+- **Documentation Updates**:
+  - Added trafilatura + Playwright fallback strategy documentation to both READMEs
+  - Fixed dependencies table in README.de.md (removed beautifulsoup4, added numpy)
+  - Added API message injection and systemctl documentation to CLAUDE.md
+
+---
+
 ## [2.15.34] - 2026-01-11
 
 ### Added
