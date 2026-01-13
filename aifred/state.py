@@ -704,6 +704,9 @@ class AIState(rx.State):
             return
         self._on_load_running = True
 
+        # Load session list immediately (before backend init which can take time)
+        self.refresh_session_list()
+
         if not self._backend_initialized:
             print("📱 Initializing session...")
 
@@ -3885,6 +3888,9 @@ class AIState(rx.State):
             # Generate session title at end of flow (uses small Automatik model)
             # Only runs on first Q&A pair, skipped if title already exists
             await self._generate_session_title(self.automatik_model_id)
+
+            # Refresh session list to update sorting (last_seen changed)
+            self.refresh_session_list()
             yield
 
             # TTS: Generate audio for AI response if enabled
@@ -4044,8 +4050,9 @@ class AIState(rx.State):
         self.current_user_message = ""
         self.current_agent = ""
 
-        # Refresh session list to update UI
-        self.refresh_session_list()
+        # Note: Don't refresh_session_list() here - it would re-sort by last_seen
+        # and move the clicked session to a different position. The highlighting
+        # is based on device_id which is already updated above.
 
         log_message(f"📂 Switched to session: {session_id[:8]}...")
         self.add_debug(f"📂 Switched to session: {self.current_session_title or session_id[:8]}...")
@@ -4809,8 +4816,8 @@ class AIState(rx.State):
         # Session title wiederherstellen
         self.current_session_title = data.get("title", "")
 
-        # Session-Liste laden (für Session Picker)
-        self.refresh_session_list()
+        # Note: Don't refresh_session_list() here - it's called once in on_load()
+        # and only needs updating when new messages are sent (via _save_current_session)
 
     def _save_current_session(self):
         """
@@ -4942,7 +4949,7 @@ class AIState(rx.State):
             if title:
                 update_session_title(self.device_id, title)
                 self.current_session_title = title
-                self.refresh_session_list()
+                # Note: refresh_session_list() is called in send_message() finally block
 
                 # Debug output with closing separator
                 self.add_debug(f"🏷️ Session title: {title}")

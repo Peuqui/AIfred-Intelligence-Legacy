@@ -1883,9 +1883,7 @@ def session_list_display() -> rx.Component:
                         COLORS["text_primary"],
                     ),
                     flex="1",
-                    overflow="hidden",
-                    text_overflow="ellipsis",
-                    white_space="nowrap",
+                    word_break="break-word",  # Allow line breaks for long titles
                 ),
                 # Message count badge
                 rx.badge(
@@ -1931,7 +1929,7 @@ def session_list_display() -> rx.Component:
         )
 
     session_list_content = rx.vstack(
-        # New Chat button
+        # New Chat button (styled like send button)
         rx.button(
             rx.hstack(
                 rx.icon("plus", size=14),
@@ -1944,21 +1942,39 @@ def session_list_display() -> rx.Component:
                 align="center",
             ),
             size="1",
-            variant="soft",
-            color_scheme="orange",
+            variant="solid",
             on_click=AIState.new_session,
             width="100%",
             margin_bottom="2",
+            style={
+                "background": "#3d2a00",
+                "color": COLORS["accent_warning"],
+                "border": f"1px solid {COLORS['accent_warning']}",
+                "font_weight": "600",
+                "&:hover": {
+                    "background": "#4d3500",
+                    "color": "#ffb84d",
+                },
+            },
         ),
-        # Session list
+        # Session list (scrollable area separate from button)
         rx.cond(
             AIState.available_sessions.length() > 0,
-            rx.vstack(
-                rx.foreach(
-                    AIState.available_sessions,
-                    render_session_item,
+            rx.box(
+                rx.vstack(
+                    rx.foreach(
+                        AIState.available_sessions,
+                        render_session_item,
+                    ),
+                    spacing="1",
+                    width="100%",
                 ),
-                spacing="1",
+                style={
+                    "minHeight": "70px",  # Fits 3 sessions without scroll
+                    "maxHeight": "168px",
+                    "overflowY": "auto",
+                    "overflowX": "hidden",
+                },
                 width="100%",
             ),
             rx.text(
@@ -1975,8 +1991,6 @@ def session_list_display() -> rx.Component:
         ),
         spacing="1",
         width="100%",
-        max_height="200px",
-        overflow_y="auto",
         padding="2",
     )
 
