@@ -3335,26 +3335,13 @@ class AIState(rx.State):
 
                         elif item["type"] == "result":
                             result_data = item["data"]
-                            # Handle both result formats from chat_interactive_mode:
-                            # 1. Tuple: (ai_text, history, inference_time) - from direct LLM/research
-                            # 2. Dict: {response_html, response_clean, ...} - from own_knowledge
-                            if isinstance(result_data, dict):
-                                # Own Knowledge format - history not in result, use current
-                                ai_text = result_data.get("response_clean", "")
-                                inference_time = result_data.get("inference_time", 0)
-                                # History already updated via streaming, no replacement needed
-                            else:
-                                # Tuple format - extract and update history
-                                ai_text, updated_history, inference_time = result_data
-                                # Replace chat history with updated one from research
-                                self.chat_history = updated_history
-                            # The message is already in the history from the streaming, no need to re-add
-                            yield  # Update UI to show new history entry
-                            # Clear AI response and user message windows IMMEDIATELY
+                            # Unified Dict format - history always included
+                            self.chat_history = result_data["history"]
+                            # Clear AI response and user message windows
                             self.current_ai_response = ""
                             self.current_user_message = ""
-                            self.is_generating = False  # Stop spinner, switch UI to history display
-                            yield  # Force immediate UI update to clear both windows
+                            self.is_generating = False
+                            yield
 
                         elif item["type"] == "progress":
                             # Update processing progress
@@ -3442,69 +3429,32 @@ class AIState(rx.State):
                         yield  # Update UI - only current_ai_response changes, not chat_history
                     elif item["type"] == "result":
                         result_data = item["data"]
+                        # Unified Dict format - extract data
+                        ai_text = result_data["response_clean"]
+                        updated_history = result_data["history"]
 
-                        # Check if this is an "own_knowledge" result (Dict) or research result (Tuple)
-                        if isinstance(result_data, dict) and result_data.get("source") == "own_knowledge":
-                            # Own knowledge result from handle_own_knowledge()
-                            # History is NOT in result - we need to add it ourselves
-                            thinking_html = result_data["response_html"]
-                            response_clean = result_data["response_clean"]
-                            inference_time = result_data["inference_time"]
-                            tokens_per_sec = result_data["tokens_per_sec"]
-                            ttft = result_data["ttft"]
-                            ai_text = result_data["response_raw"]
-
-                            # Clear streaming box IMMEDIATELY
-                            self.current_ai_response = ""
-                            self.current_user_message = ""
-
-                            # Update chat history via add_agent_panel
-                            # For own_knowledge: ALWAYS add AIfred panel (unlike research where R1 is internal)
-                            # Use "critical" mode for Multi-Agent so Sokrates panel renders correctly
-                            panel_mode = "standard" if self.multi_agent_mode == "standard" else "critical"
-                            self.add_agent_panel(
-                                agent="aifred",
-                                content=thinking_html,
-                                mode=panel_mode,
-                                round_num=None,
-                                metadata={
-                                    "ttft": ttft,
-                                    "inference_time": inference_time,
-                                    "tokens_per_sec": tokens_per_sec,
-                                    "source": f"Training data ({result_data['model_choice']})"
-                                },
-                                sync_llm_history=False
-                            )
-
-                            # Update llm_history
-                            if response_clean:
-                                self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
-
-                            yield  # Update UI
-                        else:
-                            # Research result (Dict format: ai_text, updated_history, inference_time)
-                            ai_text, updated_history, inference_time = result_data
-                            # Embed failed_sources in the last message if any pending
-                            if self._pending_failed_sources and updated_history:
+                        # Embed failed_sources in last message if any
+                        failed_sources = result_data.get("failed_sources", [])
+                        if failed_sources or self._pending_failed_sources:
+                            all_failed = (self._pending_failed_sources or []) + (failed_sources or [])
+                            if all_failed and updated_history:
                                 import json as json_module
-                                # Dict-based: find last assistant message
                                 last_msg = updated_history[-1]
                                 if last_msg.get("role") == "assistant":
-                                    failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(self._pending_failed_sources)}-->\n"
+                                    failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(all_failed)}-->\n"
                                     last_msg["content"] = failed_markup + last_msg.get("content", "")
-                                    # Store in metadata too for persistence
                                     if "metadata" not in last_msg:
                                         last_msg["metadata"] = {}
-                                    last_msg["metadata"]["failed_sources"] = self._pending_failed_sources
-                                self._pending_failed_sources = []  # Clear pending
-                            # Replace chat history with updated one from research
-                            self.chat_history = updated_history
+                                    last_msg["metadata"]["failed_sources"] = all_failed
+                            self._pending_failed_sources = []
 
-                            # Clear streaming box IMMEDIATELY
-                            self.current_ai_response = ""
-                            self.current_user_message = ""
+                        # Update chat history from result
+                        self.chat_history = updated_history
 
-                            yield  # Update UI
+                        # Clear streaming box
+                        self.current_ai_response = ""
+                        self.current_user_message = ""
+                        yield
 
                         # Multi-Agent analysis (if enabled)
                         async for _ in self._maybe_run_multi_agent(
@@ -3629,6 +3579,7 @@ class AIState(rx.State):
                     async for item in handle_own_knowledge(
                         user_text=user_msg,
                         model_choice=self.aifred_model_id,
+                        history=self.chat_history,
                         llm_history=self.llm_history[:-1],
                         detected_intent=detected_intent,
                         detected_language=detected_language,
@@ -3658,39 +3609,16 @@ class AIState(rx.State):
                         elif item["type"] == "result":
                             own_knowledge_result = item["data"]
 
-                    # Process result
+                    # Process result - unified Dict format
                     if own_knowledge_result:
-                        thinking_html = own_knowledge_result["response_html"]
-                        response_clean = own_knowledge_result["response_clean"]
-                        inference_time = own_knowledge_result["inference_time"]
-                        tokens_per_sec = own_knowledge_result["tokens_per_sec"]
-                        ttft = own_knowledge_result["ttft"]
-
-                        # Update chat history
-                        # For own_knowledge: ALWAYS add AIfred panel (unlike research where R1 is internal)
-                        panel_mode = "standard" if self.multi_agent_mode == "standard" else "critical"
-                        self.add_agent_panel(
-                            agent="aifred",
-                            content=thinking_html,
-                            mode=panel_mode,
-                            round_num=None,
-                            metadata={
-                                "ttft": ttft,
-                                "inference_time": inference_time,
-                                "tokens_per_sec": tokens_per_sec,
-                                "source": f"Training data ({self.aifred_model_id})"
-                            },
-                            sync_llm_history=False
-                        )
+                        # History already updated by own_knowledge_handler
+                        self.chat_history = own_knowledge_result["history"]
+                        ai_text = own_knowledge_result["response_clean"]
                         yield
-
-                        # Update llm_history
-                        if response_clean:
-                            self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
 
                         # Multi-Agent analysis
                         async for _ in self._maybe_run_multi_agent(
-                            user_msg, full_response, detected_language, skip_sokrates_analysis
+                            user_msg, ai_text, detected_language, skip_sokrates_analysis
                         ):
                             yield
 
@@ -3753,24 +3681,28 @@ class AIState(rx.State):
                         yield  # Update UI - only current_ai_response changes, not chat_history
                     elif item["type"] == "result":
                         result_data = item["data"]
-                        # Extract and update history IMMEDIATELY
-                        ai_text, updated_history, inference_time = result_data
-                        # Embed failed_sources in the last message if any pending
-                        if self._pending_failed_sources and updated_history:
-                            import json as json_module
-                            last_idx = len(updated_history) - 1
-                            user_msg_hist, ai_msg_hist = updated_history[last_idx]
-                            # Prepend failed sources markup to AI message
-                            failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(self._pending_failed_sources)}-->\n"
-                            updated_history[last_idx] = (user_msg_hist, failed_markup + ai_msg_hist)
-                            self._pending_failed_sources = []  # Clear pending
-                        # Replace chat history with updated one from research - message is already in history
-                        self.chat_history = updated_history
-                        # The message is already in the history from the streaming, no need to re-add
-                        yield  # Update UI to show new history entry
+                        # Unified Dict format - extract data
+                        ai_text = result_data["response_clean"]
+                        updated_history = result_data["history"]
 
-                        # llm_history is now updated in parallel inside chat_interactive_mode()
-                        # No need to sync anymore - parallel history architecture
+                        # Embed failed_sources in last message if any
+                        failed_sources = result_data.get("failed_sources", [])
+                        if failed_sources or self._pending_failed_sources:
+                            all_failed = (self._pending_failed_sources or []) + (failed_sources or [])
+                            if all_failed and updated_history:
+                                import json as json_module
+                                last_msg = updated_history[-1]
+                                if last_msg.get("role") == "assistant":
+                                    failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(all_failed)}-->\n"
+                                    last_msg["content"] = failed_markup + last_msg.get("content", "")
+                                    if "metadata" not in last_msg:
+                                        last_msg["metadata"] = {}
+                                    last_msg["metadata"]["failed_sources"] = all_failed
+                            self._pending_failed_sources = []
+
+                        # Update chat history from result
+                        self.chat_history = updated_history
+                        yield
 
                         # Multi-Agent analysis (if enabled)
                         async for _ in self._maybe_run_multi_agent(
@@ -3778,12 +3710,11 @@ class AIState(rx.State):
                         ):
                             yield
 
-                        # Clear AI response and user message windows IMMEDIATELY
+                        # Clear streaming box
                         self.current_ai_response = ""
                         self.current_user_message = ""
-                        self.is_generating = False  # Stop spinner, switch UI to history display
-                        yield  # Force immediate UI update to clear both windows
-                        # NOTE: Loop continues for cache metadata generation (important!)
+                        self.is_generating = False
+                        yield
                     elif item["type"] == "progress":
                         # Update processing progress
                         if item.get("clear", False):
@@ -3821,11 +3752,6 @@ class AIState(rx.State):
 
                     yield  # Update UI after each item
 
-                # Set research_result flag if we got a result
-                if result_data:
-                    ai_text, updated_history, inference_time = result_data
-                    # History and clearing already handled in loop above
-
             elif self.research_mode == "none":
                 # No research mode: Direct LLM inference without web search
                 # Uses centralized handle_own_knowledge() function
@@ -3852,6 +3778,7 @@ class AIState(rx.State):
                 async for item in handle_own_knowledge(
                     user_text=user_msg,
                     model_choice=self.aifred_model_id,
+                    history=self.chat_history,
                     llm_history=self.llm_history[:-1],  # Exclude current user message
                     detected_intent=detected_intent,
                     detected_language=detected_language,
@@ -3882,39 +3809,16 @@ class AIState(rx.State):
                     elif item["type"] == "result":
                         result_data = item["data"]
 
-                # Process result
+                # Process result - unified Dict format
                 if result_data:
-                    thinking_html = result_data["response_html"]
-                    response_clean = result_data["response_clean"]
-                    inference_time = result_data["inference_time"]
-                    tokens_per_sec = result_data["tokens_per_sec"]
-                    ttft = result_data["ttft"]
-
-                    # Update chat history
-                    # For own_knowledge: ALWAYS add AIfred panel (unlike research where R1 is internal)
-                    panel_mode = "standard" if self.multi_agent_mode == "standard" else "critical"
-                    self.add_agent_panel(
-                        agent="aifred",
-                        content=thinking_html,
-                        mode=panel_mode,
-                        round_num=None,
-                        metadata={
-                            "ttft": ttft,
-                            "inference_time": inference_time,
-                            "tokens_per_sec": tokens_per_sec,
-                            "source": f"Training data ({self.aifred_model_id})"
-                        },
-                        sync_llm_history=False
-                    )
+                    # History already updated by own_knowledge_handler
+                    self.chat_history = result_data["history"]
+                    ai_text = result_data["response_clean"]
                     yield
-
-                    # Update llm_history
-                    if response_clean:
-                        self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
 
                     # Multi-Agent analysis (if enabled)
                     async for _ in self._maybe_run_multi_agent(
-                        user_msg, full_response, detected_language, skip_sokrates_analysis
+                        user_msg, ai_text, detected_language, skip_sokrates_analysis
                     ):
                         yield
 
@@ -4089,71 +3993,30 @@ class AIState(rx.State):
         if current_lang == "auto":
             current_lang = "de"
 
-        for user_msg, ai_msg in self.chat_history:
-            # Extract and remove FAILED_SOURCES comment if present
-            failed_sources_pattern = r'<!--FAILED_SOURCES:(\[.*?\])-->\n?'
-            failed_sources_match = re.search(failed_sources_pattern, ai_msg, re.DOTALL)
-            failed_sources_html = ""
+        for msg in self.chat_history:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            agent = msg.get("agent", "aifred")
+            mode = msg.get("mode", "")
+            metadata = msg.get("metadata", {})
 
-            if failed_sources_match:
-                try:
-                    import json as json_mod
-                    failed_sources_data = json_mod.loads(failed_sources_match.group(1))
-                    # Remove the comment from ai_msg
-                    ai_msg = re.sub(failed_sources_pattern, '', ai_msg, count=1)
+            if role == "user":
+                # User message
+                user_msg = content
+                if not user_msg or not user_msg.strip():
+                    continue
 
-                    # Build collapsible HTML for failed sources
-                    if failed_sources_data:
-                        count = len(failed_sources_data)
-                        summary_text = t('sources_unavailable', lang=current_lang, count=count)
-                        sources_list = []
-                        for src in failed_sources_data:
-                            url = src.get('url', 'Unknown URL')
-                            error = src.get('error', 'Unknown error')
-                            sources_list.append(
-                                f'<li><a href="{url}" target="_blank">{url}</a> '
-                                f'<span class="failed-error">({error})</span></li>'
-                            )
-                        failed_sources_html = f'''
-                        <details class="failed-sources-collapsible">
-                            <summary>⚠️ {summary_text}</summary>
-                            <ul class="failed-sources-list">
-                                {"".join(sources_list)}
-                            </ul>
-                        </details>
-                        '''
-                except (json_mod.JSONDecodeError, Exception):
-                    pass  # Ignore malformed JSON
-
-            ai_msg_stripped = ai_msg.strip()
-
-            # Determine message type based on content
-            is_sokrates = ai_msg_stripped.startswith("🏛️")
-            is_salomo = ai_msg_stripped.startswith("👑")
-            is_aifred_marker = ai_msg_stripped.startswith("🎩")
-            is_summary = (
-                ai_msg_stripped.startswith("[📊 Komprimiert") or
-                ai_msg_stripped.startswith("[📊 Compressed") or
-                ai_msg_stripped.startswith("[📊 Summary #")
-            )
-            has_user_input = bool(user_msg and user_msg.strip())
-
-            if has_user_input:
-                # User message bubble with actual username
                 # Convert markdown (for italic metadata like "*(Decision: 0,2s)*")
                 user_msg_html = self._convert_markdown_preserve_html(user_msg, md)
 
                 # Embed images as Base64 for portable HTML export
-                # Find all <img src="/_upload/..."> tags and convert to Base64 data URIs
                 from .lib.vision_utils import load_image_url_as_base64
                 img_src_pattern = r'<img\s+src="([^"]*/_upload/[^"]+)"'
                 img_matches = re.findall(img_src_pattern, user_msg_html)
                 for img_url in img_matches:
                     base64_uri = load_image_url_as_base64(img_url)
                     if base64_uri:
-                        # Replace URL with Base64 data URI
                         user_msg_html = user_msg_html.replace(f'src="{img_url}"', f'src="{base64_uri}"')
-                    # If image not found, keep original URL (might still work if server accessible)
 
                 html_parts.append(f'''
                 <div class="message user-message">
@@ -4162,65 +4025,97 @@ class AIState(rx.State):
                 </div>
                 ''')
 
-            # Skip empty AI responses
-            if not ai_msg_stripped:
-                continue
+            elif role == "assistant":
+                # AI message
+                ai_msg = content
+                if not ai_msg or not ai_msg.strip():
+                    continue
 
-            # Determine agent and styling, extract mode marker
-            ai_msg_content = ai_msg_stripped
-            mode_text = ""
+                # Extract failed_sources from metadata or content
+                failed_sources_html = ""
+                failed_sources_data = metadata.get("failed_sources", [])
 
-            if is_summary:
-                agent_class = "summary-message"
-                header = "📊 Summary"
-            elif is_sokrates:
-                agent_class = "sokrates-message"
-                # Extract mode like [Tribunal R1], [Auto-Consensus R1], etc.
-                mode_match = re.match(r'🏛️\s*\[([^\]]+)\]', ai_msg_stripped)
-                if mode_match:
-                    mode_text = f" ({mode_match.group(1)})"
-                    # Remove the emoji and mode marker from content
-                    ai_msg_content = re.sub(r'^🏛️\s*\[[^\]]+\]\s*', '', ai_msg_stripped)
+                # Also check for embedded comment (legacy)
+                failed_sources_pattern = r'<!--FAILED_SOURCES:(\[.*?\])-->\n?'
+                failed_sources_match = re.search(failed_sources_pattern, ai_msg, re.DOTALL)
+                if failed_sources_match:
+                    try:
+                        import json as json_mod
+                        embedded_data = json_mod.loads(failed_sources_match.group(1))
+                        if embedded_data:
+                            failed_sources_data = embedded_data
+                        ai_msg = re.sub(failed_sources_pattern, '', ai_msg, count=1)
+                    except Exception:
+                        pass
+
+                if failed_sources_data:
+                    count = len(failed_sources_data)
+                    summary_text = t('sources_unavailable', lang=current_lang, count=count)
+                    sources_list = []
+                    for src in failed_sources_data:
+                        url = src.get('url', 'Unknown URL')
+                        error = src.get('error', 'Unknown error')
+                        sources_list.append(
+                            f'<li><a href="{url}" target="_blank">{url}</a> '
+                            f'<span class="failed-error">({error})</span></li>'
+                        )
+                    failed_sources_html = f'''
+                    <details class="failed-sources-collapsible">
+                        <summary>⚠️ {summary_text}</summary>
+                        <ul class="failed-sources-list">
+                            {"".join(sources_list)}
+                        </ul>
+                    </details>
+                    '''
+
+                ai_msg_stripped = ai_msg.strip()
+
+                # Determine agent styling based on metadata or content
+                if mode == "summary" or ai_msg_stripped.startswith("[📊"):
+                    agent_class = "summary-message"
+                    header = "📊 Summary"
+                    ai_msg_content = ai_msg_stripped
+                elif agent == "sokrates" or ai_msg_stripped.startswith("🏛️"):
+                    agent_class = "sokrates-message"
+                    mode_match = re.match(r'🏛️\s*\[([^\]]+)\]', ai_msg_stripped)
+                    if mode_match:
+                        mode_text = f" ({mode_match.group(1)})"
+                        ai_msg_content = re.sub(r'^🏛️\s*\[[^\]]+\]\s*', '', ai_msg_stripped)
+                    else:
+                        mode_text = ""
+                        ai_msg_content = ai_msg_stripped.lstrip("🏛️").lstrip()
+                    header = f"🏛️ Sokrates{mode_text}"
+                elif agent == "salomo" or ai_msg_stripped.startswith("👑"):
+                    agent_class = "salomo-message"
+                    mode_match = re.match(r'👑\s*\[([^\]]+)\]', ai_msg_stripped)
+                    if mode_match:
+                        mode_text = f" ({mode_match.group(1)})"
+                        ai_msg_content = re.sub(r'^👑\s*\[[^\]]+\]\s*', '', ai_msg_stripped)
+                    else:
+                        mode_text = ""
+                        ai_msg_content = ai_msg_stripped.lstrip("👑").lstrip()
+                    header = f"👑 Salomo{mode_text}"
                 else:
-                    # Just remove the leading emoji
-                    ai_msg_content = ai_msg_stripped[2:].lstrip()
-                header = f"🏛️ Sokrates{mode_text}"
-            elif is_salomo:
-                agent_class = "salomo-message"
-                # Extract mode like [Synthesis R1], [Verdict], etc.
-                mode_match = re.match(r'👑\s*\[([^\]]+)\]', ai_msg_stripped)
-                if mode_match:
-                    mode_text = f" ({mode_match.group(1)})"
-                    ai_msg_content = re.sub(r'^👑\s*\[[^\]]+\]\s*', '', ai_msg_stripped)
-                else:
-                    ai_msg_content = ai_msg_stripped[2:].lstrip()
-                header = f"👑 Salomo{mode_text}"
-            elif is_aifred_marker:
-                agent_class = "aifred-message"
-                # Extract mode like [Refinement R2], etc.
-                mode_match = re.match(r'🎩\s*\[([^\]]+)\]', ai_msg_stripped)
-                if mode_match:
-                    mode_text = f" ({mode_match.group(1)})"
-                    ai_msg_content = re.sub(r'^🎩\s*\[[^\]]+\]\s*', '', ai_msg_stripped)
-                else:
-                    ai_msg_content = ai_msg_stripped[2:].lstrip()
-                header = f"🎩 AIfred{mode_text}"
-            else:
-                agent_class = "aifred-message"
-                header = "🎩 AIfred"
+                    agent_class = "aifred-message"
+                    mode_match = re.match(r'🎩\s*\[([^\]]+)\]', ai_msg_stripped)
+                    if mode_match:
+                        mode_text = f" ({mode_match.group(1)})"
+                        ai_msg_content = re.sub(r'^🎩\s*\[[^\]]+\]\s*', '', ai_msg_stripped)
+                    else:
+                        mode_text = ""
+                        ai_msg_content = ai_msg_stripped.lstrip("🎩").lstrip() if ai_msg_stripped.startswith("🎩") else ai_msg_stripped
+                    header = f"🎩 AIfred{mode_text}"
 
-            # Convert markdown to HTML (tables, bold, italic, lists, etc.)
-            # Preserve existing HTML (like <details> collapsibles)
-            ai_msg_html = self._convert_markdown_preserve_html(ai_msg_content, md)
+                # Convert markdown to HTML
+                ai_msg_html = self._convert_markdown_preserve_html(ai_msg_content, md)
 
-            # AI message (with failed sources collapsible if present)
-            html_parts.append(f'''
-            <div class="message {agent_class}">
-                <div class="message-header">{header}</div>
-                {failed_sources_html}
-                <div class="message-content">{ai_msg_html}</div>
-            </div>
-            ''')
+                html_parts.append(f'''
+                <div class="message {agent_class}">
+                    <div class="message-header">{header}</div>
+                    {failed_sources_html}
+                    <div class="message-content">{ai_msg_html}</div>
+                </div>
+                ''')
 
         html_parts.append(self._get_export_html_footer())
         html_content = "\n".join(html_parts)
@@ -4251,11 +4146,18 @@ class AIState(rx.State):
 
         def extract_tag(tag_name: str, text: str) -> str:
             """Extract all occurrences of a specific HTML tag"""
-            # Match opening tag with any attributes, content (including newlines), and closing tag
-            pattern = re.compile(
-                rf'<{tag_name}[^>]*>.*?</{tag_name}>',
-                re.DOTALL | re.IGNORECASE
-            )
+            # Self-closing tags (img, br, hr, etc.)
+            if tag_name in ['img', 'br', 'hr', 'input']:
+                pattern = re.compile(
+                    rf'<{tag_name}[^>]*(?:/>|>)',
+                    re.IGNORECASE
+                )
+            else:
+                # Match opening tag with any attributes, content (including newlines), and closing tag
+                pattern = re.compile(
+                    rf'<{tag_name}[^>]*>.*?</{tag_name}>',
+                    re.DOTALL | re.IGNORECASE
+                )
 
             def replace_match(match):
                 placeholder = f"HTML_BLOCK_{counter[0]}"
@@ -4266,8 +4168,9 @@ class AIState(rx.State):
             return pattern.sub(replace_match, text)
 
         # Extract HTML tags in order (most complex first)
+        # Include 'a' and 'img' for embedded images in user messages
         text_with_placeholders = text
-        for tag in ['details', 'div', 'span', 'table']:
+        for tag in ['details', 'div', 'span', 'table', 'a', 'img']:
             text_with_placeholders = extract_tag(tag, text_with_placeholders)
 
         # Convert markdown to HTML

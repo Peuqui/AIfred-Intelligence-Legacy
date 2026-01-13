@@ -1167,10 +1167,20 @@ async def chat_interactive_mode(
                     if answer_clean:
                         llm_history.append({"role": "assistant", "content": f"[AIFRED]: {answer_clean}"})
 
-                    # Return result in same format as perform_agent_research
+                    # Return result - unified Dict format
                     yield {
                         "type": "result",
-                        "data": (answer + timing_suffix, history, cache_time_ms)
+                        "data": {
+                            "response_clean": answer_clean,
+                            "response_html": answer + timing_suffix,
+                            "history": history,
+                            "inference_time": cache_time_ms,
+                            "tokens_per_sec": 0,
+                            "ttft": None,
+                            "model_choice": model_choice,
+                            "failed_sources": cached_failed_sources,
+                            "cache_hit": True,
+                        }
                     }
                     return  # Done!
                 else:
@@ -1290,10 +1300,20 @@ async def chat_interactive_mode(
                 if answer_clean:
                     llm_history.append({"role": "assistant", "content": f"[AIFRED]: {answer_clean}"})
 
-                # Return result in same format as perform_agent_research
+                # Return result - unified Dict format
                 yield {
                     "type": "result",
-                    "data": (answer + timing_suffix, history, cache_time)
+                    "data": {
+                        "response_clean": answer_clean,
+                        "response_html": answer + timing_suffix,
+                        "history": history,
+                        "inference_time": cache_time,
+                        "tokens_per_sec": 0,
+                        "ttft": None,
+                        "model_choice": model_choice,
+                        "failed_sources": cached_failed_sources,
+                        "cache_hit": True,
+                    }
                 }
 
                 log_message(f"✅ Cache answer returned ({len(answer)} chars, {format_number(cache_time, 2)}s)")
@@ -1594,10 +1614,19 @@ async def chat_interactive_mode(
             # Clear progress before final result
             yield {"type": "progress", "clear": True}
 
-            # Return chat history with timing metadata
+            # Return result - unified Dict format
             yield {
                 "type": "result",
-                "data": (ai_text, history, inference_time)
+                "data": {
+                    "response_clean": ai_text_clean,
+                    "response_html": ai_with_source,
+                    "history": history,
+                    "inference_time": inference_time,
+                    "tokens_per_sec": tokens_per_sec,
+                    "ttft": ttft,
+                    "model_choice": model_choice,
+                    "failed_sources": [],
+                }
             }
 
             log_message(f"✅ RAG Bypass answer returned ({len(ai_text)} chars, {format_number(inference_time, 2)}s)")
@@ -1693,6 +1722,7 @@ async def chat_interactive_mode(
                 async for item in handle_own_knowledge(
                     user_text=user_text,
                     model_choice=model_choice,
+                    history=history,
                     llm_history=llm_history,
                     detected_intent=detected_intent,
                     detected_language=detected_user_language,
@@ -1715,28 +1745,10 @@ async def chat_interactive_mode(
                     elif item["type"] == "result":
                         own_knowledge_result = item["data"]
 
-                # Process result and yield in expected format for state.py
+                # Forward result (own_knowledge_handler already updated history)
                 if own_knowledge_result:
-                    # Yield separator
                     yield {"type": "debug", "message": CONSOLE_SEPARATOR}
-
-                    # Yield result with source marker for state.py to handle history
-                    yield {
-                        "type": "result",
-                        "data": {
-                            "response_raw": own_knowledge_result["response_raw"],
-                            "response_clean": own_knowledge_result["response_clean"],
-                            "response_html": own_knowledge_result["response_html"],
-                            "inference_time": own_knowledge_result["inference_time"],
-                            "tokens_per_sec": own_knowledge_result["tokens_per_sec"],
-                            "ttft": own_knowledge_result["ttft"],
-                            "model_choice": own_knowledge_result["model_choice"],
-                            "decision_time": decision_time,
-                            "stt_time": stt_time,
-                            "rag_context": rag_context,
-                            "source": "own_knowledge",  # Mark source for state.py
-                        }
-                    }
+                    yield {"type": "result", "data": own_knowledge_result}
 
         except Exception as e:
             log_message(f"⚠️ Error in Automatik mode decision: {e}")

@@ -33,6 +33,7 @@ from ..backends import LLMOptions
 async def handle_own_knowledge(
     user_text: str,
     model_choice: str,
+    history: List,  # chat_history - will be updated and returned in result
     llm_history: List[Dict[str, str]],
     detected_intent: str,
     detected_language: str,
@@ -57,6 +58,7 @@ async def handle_own_knowledge(
     Args:
         user_text: Die User-Nachricht
         model_choice: Model ID (z.B. "qwen3:4b")
+        history: Chat History (wird aktualisiert und im Result zurückgegeben)
         llm_history: LLM History (Liste von {"role": ..., "content": ...})
         detected_intent: Intent für Temperature-Bestimmung (z.B. "FAKTISCH")
         detected_language: Sprache für Prompts ("de" oder "en")
@@ -238,24 +240,43 @@ async def handle_own_knowledge(
         # Strip thinking blocks for clean response
         response_clean = strip_thinking_blocks(full_response) if full_response else ""
 
+        # Update histories
+        # Dict-based chat_history format
+        import datetime
+        source_label = f"Own Knowledge ({model_choice})"
+        history.append({
+            "role": "assistant",
+            "content": thinking_html,
+            "agent": "aifred",
+            "mode": "own_knowledge",
+            "round_num": 0,
+            "metadata": {
+                "ttft": ttft,
+                "inference_time": inference_time,
+                "tokens_per_sec": tokens_per_sec,
+                "source": source_label
+            },
+            "timestamp": datetime.datetime.now().isoformat()
+        })
+        # llm_history: strip thinking blocks
+        if response_clean:
+            llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
+
         # Clear progress
         yield {"type": "progress", "clear": True}
 
-        # Yield final result with all data needed by caller
+        # Final result - unified Dict format
         yield {
             "type": "result",
             "data": {
-                "response_raw": full_response,
                 "response_clean": response_clean,
                 "response_html": thinking_html,
+                "history": history,
                 "inference_time": inference_time,
                 "tokens_per_sec": tokens_per_sec,
-                "tokens_generated": tokens_generated,
                 "ttft": ttft,
                 "model_choice": model_choice,
-                "stt_time": stt_time,
-                "rag_context": rag_context,
-                "final_temperature": final_temperature,
+                "failed_sources": [],
             }
         }
 

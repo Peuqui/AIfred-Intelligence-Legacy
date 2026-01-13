@@ -5,6 +5,34 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.17.0] - 2026-01-13
+
+### Changed
+
+- **Unified Result-Dict Format** ([context_builder.py](aifred/lib/research/context_builder.py), [cache_handler.py](aifred/lib/research/cache_handler.py), [conversation_handler.py](aifred/lib/conversation_handler.py), [own_knowledge_handler.py](aifred/lib/own_knowledge_handler.py), [state.py](aifred/state.py)):
+  - All `{"type": "result", "data": ...}` yields now use consistent Dict format
+  - Removed mixed Tuple/Dict handling - single format across all LLM pipelines
+  - Standardized fields: `response_clean`, `response_html`, `history`, `inference_time`, `tokens_per_sec`, `ttft`, `model_choice`, `failed_sources`
+  - `own_knowledge_handler` now accepts `history` parameter and returns updated history in result
+  - Simplified result processing in `state.py` - removed isinstance checks and legacy Tuple handling
+
+- **Share Chat Function Rewritten** ([state.py](aifred/state.py)):
+  - Updated to work with Dict-based `chat_history` format
+  - Proper handling of `role`, `content`, `agent`, `mode`, `metadata` fields
+  - Fixed `ValueError: too many values to unpack` error
+
+- **HTML Export Image Preservation** ([state.py](aifred/state.py)):
+  - `_convert_markdown_preserve_html()` now preserves `<a>` and `<img>` tags
+  - Added special regex handling for self-closing tags like `<img>`
+  - Images in exported HTML now render properly and are clickable
+
+### Removed
+
+- **Legacy Tuple Result Format**: All Tuple-based result handling code removed
+- **Hybrid Result Processing**: No more isinstance checks for Dict vs Tuple formats
+
+---
+
 ## [2.16.0] - 2026-01-11
 
 ### Added

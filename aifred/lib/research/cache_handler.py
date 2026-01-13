@@ -234,6 +234,7 @@ async def handle_cache_hit(
             metrics = chunk["metrics"]
             llm_time = chunk["inference_time"]
             tokens_per_sec = metrics.get("tokens_per_second", 0)
+            ttft = chunk.get("ttft")
 
     total_time = time.time() - agent_start
 
@@ -280,5 +281,18 @@ async def handle_cache_hit(
     console_separator()
     yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
-    # Yield final result
-    yield {"type": "result", "data": (ai_text_with_timing, history, total_time)}
+    # Final result - unified Dict format
+    yield {
+        "type": "result",
+        "data": {
+            "response_clean": final_answer_clean,
+            "response_html": ai_text_with_timing,
+            "history": history,
+            "inference_time": total_time,
+            "tokens_per_sec": tokens_per_sec,
+            "ttft": ttft,
+            "model_choice": model_choice,
+            "failed_sources": [],  # Cache hits have no failed sources
+            "cache_hit": True,
+        }
+    }

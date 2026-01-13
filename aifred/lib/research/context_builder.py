@@ -450,5 +450,17 @@ async def build_and_generate_response(
     # Clear progress
     yield {"type": "progress", "clear": True}
 
-    # Final result
-    yield {"type": "result", "data": (ai_response_complete, history, inference_time)}
+    # Final result - unified Dict format
+    yield {
+        "type": "result",
+        "data": {
+            "response_clean": ai_text_clean,
+            "response_html": ai_response_complete,
+            "history": history,
+            "inference_time": inference_time,
+            "tokens_per_sec": tokens_per_sec,
+            "ttft": ttft,
+            "model_choice": model_choice,
+            "failed_sources": failed_sources,
+        }
+    }
