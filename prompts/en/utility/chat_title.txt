@@ -1,0 +1,15 @@
+Generate a short, concise title (maximum 10 words) for this chat.
+The title should describe the TOPIC of the conversation, not the quality of the response.
+
+Examples of good titles:
+- "Pythagorean Theorem Explained"
+- "Cheesecake Recipe"
+- "Delete Git Branch"
+- "Greeting and Smalltalk"
+
+Reply ONLY with the title, without quotes, explanations, or punctuation at the end.
+
+User: {user_message}
+
+Assistant: {ai_response}
+

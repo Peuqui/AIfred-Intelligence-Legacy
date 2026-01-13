@@ -1,0 +1,14 @@
+Generiere einen kurzen, prägnanten Titel (maximal 10 Wörter) für diesen Chat.
+Der Titel soll das THEMA der Konversation beschreiben, nicht die Qualität der Antwort.
+
+Beispiele guter Titel:
+- "Pythagoras Satz erklärt"
+- "Rezept für Käsekuchen"
+- "Git Branch löschen"
+- "Begrüßung und Smalltalk"
+
+Antworte NUR mit dem Titel, ohne Anführungszeichen, Erklärungen oder Satzzeichen am Ende.
+
+User: {user_message}
+
+Assistent: {ai_response}

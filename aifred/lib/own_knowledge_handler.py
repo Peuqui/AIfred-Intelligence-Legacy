@@ -17,7 +17,7 @@ import time
 from typing import AsyncIterator, Dict, List, Optional, Any
 
 from .llm_client import LLMClient
-from .formatting import format_number, format_thinking_process
+from .formatting import format_number, format_thinking_process, format_metadata
 from .prompt_loader import get_aifred_direct_prompt, get_aifred_system_minimal
 from .context_manager import estimate_tokens, calculate_dynamic_num_ctx, strip_thinking_blocks
 from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
@@ -244,9 +244,18 @@ async def handle_own_knowledge(
         # Dict-based chat_history format
         import datetime
         source_label = f"Own Knowledge ({model_choice})"
+
+        # Format metadata for display (TTFT + Inference + tok/s + Source)
+        ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
+        metadata_str = format_metadata(
+            f"{ttft_str}Inference: {format_number(inference_time, 1)}s    "
+            f"{format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}"
+        )
+        ai_with_source = f"{thinking_html}\n\n{metadata_str}"
+
         history.append({
             "role": "assistant",
-            "content": thinking_html,
+            "content": ai_with_source,
             "agent": "aifred",
             "mode": "own_knowledge",
             "round_num": 0,
@@ -258,7 +267,9 @@ async def handle_own_knowledge(
             },
             "timestamp": datetime.datetime.now().isoformat()
         })
-        # llm_history: strip thinking blocks
+        # llm_history: Add user message first (was passed without current message)
+        llm_history.append({"role": "user", "content": user_text})
+        # llm_history: Add assistant response (strip thinking blocks)
         if response_clean:
             llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
 
@@ -272,6 +283,7 @@ async def handle_own_knowledge(
                 "response_clean": response_clean,
                 "response_html": thinking_html,
                 "history": history,
+                "llm_history": llm_history,  # Include updated llm_history
                 "inference_time": inference_time,
                 "tokens_per_sec": tokens_per_sec,
                 "ttft": ttft,

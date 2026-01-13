@@ -1851,6 +1851,178 @@ def render_sokrates_inline() -> rx.Component:
     )
 
 
+def session_list_display() -> rx.Component:
+    """Session picker - Collapsible list of saved chats above chat history."""
+
+    def render_session_item(session) -> rx.Component:
+        """Render a single session item in the list."""
+        # Format date from ISO string
+        # session has: device_id, title, last_seen, created_at, message_count
+        return rx.box(
+            rx.hstack(
+                # Session title or placeholder
+                rx.text(
+                    rx.cond(
+                        session["title"],
+                        session["title"],
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "Unbenannter Chat",
+                            "Untitled Chat"
+                        ),
+                    ),
+                    font_size="13px",
+                    font_weight=rx.cond(
+                        session["device_id"] == AIState.device_id,
+                        "600",  # Bold for current session
+                        "400",
+                    ),
+                    color=rx.cond(
+                        session["device_id"] == AIState.device_id,
+                        COLORS["primary"],  # Orange for current
+                        COLORS["text_primary"],
+                    ),
+                    flex="1",
+                    overflow="hidden",
+                    text_overflow="ellipsis",
+                    white_space="nowrap",
+                ),
+                # Message count badge
+                rx.badge(
+                    f"{session['message_count']}",
+                    color_scheme=rx.cond(
+                        session["device_id"] == AIState.device_id,
+                        "orange",
+                        "gray",
+                    ),
+                    size="1",
+                ),
+                # Delete button (only for non-current sessions)
+                rx.cond(
+                    session["device_id"] != AIState.device_id,
+                    rx.icon_button(
+                        rx.icon("trash-2", size=12),
+                        size="1",
+                        variant="ghost",
+                        color_scheme="red",
+                        on_click=lambda: AIState.delete_session(session["device_id"]),
+                        cursor="pointer",
+                    ),
+                    rx.fragment(),
+                ),
+                spacing="2",
+                align="center",
+                width="100%",
+            ),
+            padding="2",
+            padding_x="3",
+            border_radius="4px",
+            background_color=rx.cond(
+                session["device_id"] == AIState.device_id,
+                COLORS["primary_bg"],  # Highlight current session
+                "transparent",
+            ),
+            _hover={
+                "background_color": COLORS["card_bg"],
+            },
+            cursor="pointer",
+            on_click=lambda: AIState.switch_session(session["device_id"]),
+            width="100%",
+        )
+
+    session_list_content = rx.vstack(
+        # New Chat button
+        rx.button(
+            rx.hstack(
+                rx.icon("plus", size=14),
+                rx.cond(
+                    AIState.ui_language == "de",
+                    rx.text("Neuer Chat", font_size="12px"),
+                    rx.text("New Chat", font_size="12px"),
+                ),
+                spacing="2",
+                align="center",
+            ),
+            size="1",
+            variant="soft",
+            color_scheme="orange",
+            on_click=AIState.new_session,
+            width="100%",
+            margin_bottom="2",
+        ),
+        # Session list
+        rx.cond(
+            AIState.available_sessions.length() > 0,
+            rx.vstack(
+                rx.foreach(
+                    AIState.available_sessions,
+                    render_session_item,
+                ),
+                spacing="1",
+                width="100%",
+            ),
+            rx.text(
+                rx.cond(
+                    AIState.ui_language == "de",
+                    "Keine gespeicherten Chats",
+                    "No saved chats",
+                ),
+                font_size="12px",
+                color=COLORS["text_muted"],
+                text_align="center",
+                padding="3",
+            ),
+        ),
+        spacing="1",
+        width="100%",
+        max_height="200px",
+        overflow_y="auto",
+        padding="2",
+    )
+
+    return rx.accordion.root(
+        rx.accordion.item(
+            value="session_list",
+            header=rx.box(
+                rx.hstack(
+                    rx.text(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "📁 Gespeicherte Chats",
+                            "📁 Saved Chats"
+                        ),
+                        font_size="14px",
+                        font_weight="500",
+                        color=COLORS["text_primary"]
+                    ),
+                    rx.badge(
+                        f"{AIState.available_sessions.length()}",
+                        color_scheme="gray",
+                        size="1",
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+                padding_y="2",
+                background_color=COLORS["card_bg"],
+                _hover={
+                    "background_color": COLORS["primary_bg"],
+                },
+                border_radius="6px",
+                padding_x="3",
+                cursor="pointer",
+                transition="background-color 0.2s ease",
+            ),
+            content=session_list_content,
+        ),
+        default_value="",  # Collapsed by default
+        collapsible=True,
+        width="100%",
+        variant="soft",
+        color_scheme="gray",
+    )
+
+
 def chat_history_display() -> rx.Component:
     """Full chat history (like Gradio chatbot) - Collapsible"""
     # Loading spinner während Initialisierung, Backend-Wechsel oder Bild-Upload
@@ -4360,6 +4532,9 @@ console.log('✂️ Crop handler loaded');
                 font_style="italic",
                 margin_bottom="4",
             ),
+
+            # Session Picker (saved chats) - collapsible, above chat history
+            session_list_display(),
 
             # Chat History (top - read conversation first)
             # NOTE: Failed sources are now displayed inline within each message (persistent)

@@ -93,7 +93,9 @@ def load_session(device_id: str) -> Optional[Dict[str, Any]]:
     """
     Load session for Device-ID.
 
-    Automatically updates last_seen timestamp.
+    Note: Does NOT update last_seen timestamp (read-only operation).
+    last_seen is only updated when saving new content via save_session().
+    This keeps session list stable when just viewing sessions.
 
     Args:
         device_id: Device identifier
@@ -114,10 +116,6 @@ def load_session(device_id: str) -> Optional[Dict[str, Any]]:
     try:
         with open(session_path, "r", encoding="utf-8") as f:
             session = json.load(f)
-
-        # Update last_seen (speichert auch gleich)
-        session["last_seen"] = datetime.now().isoformat()
-        _write_session_file(session_path, session)
 
         return session
 
@@ -392,7 +390,9 @@ def list_sessions() -> List[Dict[str, Any]]:
 
     Returns list of dicts with:
     - device_id: Session identifier
+    - title: Chat title (LLM-generated, or None if not yet set)
     - last_seen: Last activity timestamp
+    - created_at: Session creation timestamp
     - message_count: Number of chat messages
 
     Returns:
@@ -409,7 +409,9 @@ def list_sessions() -> List[Dict[str, Any]]:
             chat_history = data.get("data", {}).get("chat_history", [])
             sessions.append({
                 "device_id": session_file.stem,
+                "title": data.get("data", {}).get("title"),
                 "last_seen": data.get("last_seen", ""),
+                "created_at": data.get("created_at", ""),
                 "message_count": len(chat_history)
             })
         except (json.JSONDecodeError, IOError):
@@ -418,6 +420,47 @@ def list_sessions() -> List[Dict[str, Any]]:
     # Sort by last_seen, newest first
     sessions.sort(key=lambda s: s.get("last_seen", ""), reverse=True)
     return sessions
+
+
+def update_session_title(device_id: str, title: str) -> bool:
+    """
+    Update the title of a session.
+
+    Called after first Q&A pair to set an LLM-generated title.
+
+    Args:
+        device_id: Device identifier
+        title: The generated chat title
+
+    Returns:
+        True on success, False on error
+    """
+    session = load_session(device_id)
+    if session is None:
+        return False
+
+    if "data" not in session:
+        session["data"] = {}
+
+    session["data"]["title"] = title
+    return save_session(device_id, session)
+
+
+def get_session_title(device_id: str) -> Optional[str]:
+    """
+    Get the title of a session.
+
+    Args:
+        device_id: Device identifier
+
+    Returns:
+        Title string or None if not set
+    """
+    session = load_session(device_id)
+    if session is None:
+        return None
+
+    return session.get("data", {}).get("title")
 
 
 # ============================================================

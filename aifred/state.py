@@ -161,6 +161,10 @@ class AIState(rx.State):
     # Multi-Agent Help Modal
     multi_agent_help_open: bool = False  # Show help modal?
 
+    # Session Management (Chat History Picker)
+    available_sessions: List[Dict[str, Any]] = []  # List of sessions from list_sessions()
+    current_session_title: str = ""  # Title of current session (for display)
+
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi", "koboldcpp", "cloud_api"
     backend_id: str = "ollama"  # NEW: Pure backend ID (synced with backend_type for compatibility)
@@ -3611,9 +3615,15 @@ class AIState(rx.State):
 
                     # Process result - unified Dict format
                     if own_knowledge_result:
-                        # History already updated by own_knowledge_handler
+                        # Update both histories from result
                         self.chat_history = own_knowledge_result["history"]
+                        if "llm_history" in own_knowledge_result:
+                            self.llm_history = own_knowledge_result["llm_history"]
                         ai_text = own_knowledge_result["response_clean"]
+
+                        # Clear streaming buffer IMMEDIATELY after history update
+                        # (prevents double bubble: streaming + history showing same content)
+                        self.current_ai_response = ""
                         yield
 
                         # Multi-Agent analysis
@@ -3811,9 +3821,15 @@ class AIState(rx.State):
 
                 # Process result - unified Dict format
                 if result_data:
-                    # History already updated by own_knowledge_handler
+                    # Update both histories from result
                     self.chat_history = result_data["history"]
+                    if "llm_history" in result_data:
+                        self.llm_history = result_data["llm_history"]
                     ai_text = result_data["response_clean"]
+
+                    # Clear streaming buffer IMMEDIATELY after history update
+                    # (prevents double bubble: streaming + history showing same content)
+                    self.current_ai_response = ""
                     yield
 
                     # Multi-Agent analysis (if enabled)
@@ -3866,14 +3882,20 @@ class AIState(rx.State):
             if len(self.pending_images) > 0:
                 self.clear_pending_images()
 
+            # Generate session title at end of flow (uses small Automatik model)
+            # Only runs on first Q&A pair, skipped if title already exists
+            await self._generate_session_title(self.automatik_model_id)
+            yield
+
             # TTS: Generate audio for AI response if enabled
             if self.enable_tts:
                 try:
                     self.add_debug("🔊 TTS: Starting TTS generation in finally block...")
-                    # Get AI response from LAST panel in chat history
-                    # With APPEND-only architecture, AI responses are always in the last panel
+                    # Get AI response from LAST message in chat history
+                    # With APPEND-only architecture, AI responses are always in the last message
                     if len(self.chat_history) > 0:
-                        _, ai_response = self.chat_history[-1]
+                        last_msg = self.chat_history[-1]
+                        ai_response = last_msg.get("content", "") if last_msg.get("role") == "assistant" else ""
                         if ai_response and ai_response.strip():
                             # Generate TTS (sets tts_audio_path and increments tts_trigger_counter)
                             # State changes automatically propagate to frontend → audio plays via autoPlay
@@ -3952,13 +3974,125 @@ class AIState(rx.State):
             from .lib.cache_manager import delete_cached_research
             delete_cached_research(self.session_id)
 
-        self.add_debug("🗑️ Chat + Images + Audio + HTML Preview + Sokrates + Research-Cache cleared")
+        # Clear session title (new session has no title yet)
+        self.current_session_title = ""
+
+        # Clear title in session file too (so new title can be generated)
+        if self.device_id:
+            from .lib.session_storage import update_session_title
+            update_session_title(self.device_id, "")  # Empty title = will regenerate
+
+        self.add_debug("🗑️ Chat cleared")
         # Separator after clear operation
         self.add_debug(CONSOLE_SEPARATOR)
         console_separator()  # Log-File
 
         # Session speichern (leerer Chat)
         self._save_current_session()
+
+        # Refresh session list to show cleared title
+        self.refresh_session_list()
+
+    def refresh_session_list(self):
+        """Refresh the list of available sessions for the session picker."""
+        from .lib.session_storage import list_sessions, get_session_title
+
+        self.available_sessions = list_sessions()
+
+        # Update current session title
+        if self.device_id:
+            title = get_session_title(self.device_id)
+            self.current_session_title = title or ""
+
+    def switch_session(self, session_id: str):
+        """Switch to a different session.
+
+        Saves current session, loads the target session, and updates state.
+        """
+        from .lib.session_storage import load_session, get_session_title
+        from .lib.logging_utils import log_message
+
+        # Don't switch to current session
+        if session_id == self.device_id:
+            return
+
+        # Save current session first
+        self._save_current_session()
+
+        # Load target session
+        session = load_session(session_id)
+        if session is None:
+            self.add_debug(f"⚠️ Session {session_id[:8]}... not found")
+            return
+
+        # Update device_id and load session data
+        self.device_id = session_id
+        data = session.get("data", {})
+
+        # Load chat history
+        self.chat_history = data.get("chat_history", [])
+        self.llm_history = data.get("llm_history", [])
+
+        # Load debug messages (if any)
+        self.debug_messages = data.get("debug_messages", [])
+
+        # Update session title
+        self.current_session_title = data.get("title", "")
+
+        # Clear streaming state
+        self.current_ai_response = ""
+        self.current_user_message = ""
+        self.current_agent = ""
+
+        # Refresh session list to update UI
+        self.refresh_session_list()
+
+        log_message(f"📂 Switched to session: {session_id[:8]}...")
+        self.add_debug(f"📂 Switched to session: {self.current_session_title or session_id[:8]}...")
+
+    def new_session(self):
+        """Create a new empty session and switch to it."""
+        from .lib.session_storage import generate_device_id, create_empty_session
+        from .lib.logging_utils import log_message
+
+        # Save current session first
+        self._save_current_session()
+
+        # Generate new device ID and create empty session file
+        new_id = generate_device_id()
+        create_empty_session(new_id)
+
+        # Switch to new device ID BEFORE clearing
+        # (so clear_chat() cleans up the NEW session's directories)
+        self.device_id = new_id
+        self.current_session_title = ""
+
+        # Reuse clear_chat() for state reset (avoids duplication)
+        self.clear_chat()
+
+        # Refresh session list
+        self.refresh_session_list()
+
+        log_message(f"📄 Created new session: {new_id[:8]}...")
+
+    def delete_session(self, session_id: str):
+        """Delete a session (cannot delete current session)."""
+        from .lib.session_storage import delete_session as storage_delete_session
+        from .lib.logging_utils import log_message
+
+        # Cannot delete current session
+        if session_id == self.device_id:
+            self.add_debug("⚠️ Cannot delete current session")
+            return
+
+        # Delete session
+        if storage_delete_session(session_id):
+            log_message(f"🗑️ Deleted session: {session_id[:8]}...")
+            self.add_debug(f"🗑️ Session deleted")
+            # Refresh list
+            self.refresh_session_list()
+        else:
+            self.add_debug(f"⚠️ Failed to delete session")
 
     def share_chat(self):
         """Share chat history - export as HTML and open in new browser tab
@@ -4672,6 +4806,12 @@ class AIState(rx.State):
                 # Explizit gelöscht (z.B. via API clear_chat) → auch Startup-Messages entfernen
                 self.debug_messages = []
 
+        # Session title wiederherstellen
+        self.current_session_title = data.get("title", "")
+
+        # Session-Liste laden (für Session Picker)
+        self.refresh_session_list()
+
     def _save_current_session(self):
         """
         Speichert aktuelle Session auf Server.
@@ -4697,6 +4837,134 @@ class AIState(rx.State):
             debug_messages=debug_to_save,  # DEBUG-PERSISTENCE: Last N debug entries
             is_generating=self.is_generating  # API status check
         )
+
+    async def _generate_session_title(self, model_id: str | None = None):
+        """
+        Generate a chat title using LLM based on first Q&A pair.
+
+        Called at the END of send_message() flow (in finally block).
+        Uses the small Automatik model with thinking disabled for fast response.
+        Similar pattern to history compression - runs after main inference is done.
+
+        Only executes on first Q&A pair - skipped if title already exists.
+
+        Args:
+            model_id: Model to use for title generation. Defaults to automatik_model_id.
+        """
+        from .lib.session_storage import get_session_title, update_session_title
+        from .lib.prompt_loader import load_prompt, get_language
+        from .lib.llm_client import LLMClient
+        from .lib.logging_utils import log_message, console_separator
+
+        # Skip if already has title
+        if self.current_session_title:
+            return
+
+        existing_title = get_session_title(self.device_id)
+        if existing_title:
+            self.current_session_title = existing_title
+            return
+
+        # Need at least 2 messages (user + assistant)
+        # Use llm_history - it's already cleaned (no think tags, no HTML)
+        if len(self.llm_history) < 2:
+            return
+
+        # Find first user message and first assistant response from llm_history
+        first_user_msg = None
+        first_ai_response = None
+
+        for msg in self.llm_history:
+            content = msg.get("content", "")
+            if msg.get("role") == "user" and first_user_msg is None:
+                first_user_msg = content
+            elif msg.get("role") == "assistant" and first_ai_response is None:
+                # llm_history has "[AIFRED]: " prefix - remove it
+                if content.startswith("[AIFRED]: "):
+                    content = content[10:]
+                first_ai_response = content
+
+            if first_user_msg and first_ai_response:
+                break
+
+        if not first_user_msg or not first_ai_response:
+            return
+
+        # Clean up any remaining HTML/tags (llm_history should be clean, but just in case)
+        import re
+        first_user_msg = re.sub(r'<[^>]+>', '', first_user_msg).strip()
+        first_ai_response = re.sub(r'<[^>]+>', '', first_ai_response).strip()
+
+        # Truncate if too long (keep first ~500 chars each)
+        if len(first_user_msg) > 500:
+            first_user_msg = first_user_msg[:500] + "..."
+        if len(first_ai_response) > 500:
+            first_ai_response = first_ai_response[:500] + "..."
+
+        try:
+            # Load prompt in current UI language
+            prompt = load_prompt(
+                "utility/chat_title",
+                lang=get_language(),
+                user_message=first_user_msg,
+                ai_response=first_ai_response
+            )
+
+            # Use Automatik model (small, fast) - stays warm for next request
+            title_model = model_id or self.automatik_model_id
+
+            llm_client = LLMClient(
+                backend_type=self.backend_type,
+                base_url=self._get_backend_url()
+            )
+
+            messages = [{"role": "user", "content": prompt}]
+            options = {
+                "temperature": 0.3,  # Low temperature for consistent titles
+                "num_predict": 50,   # Short response
+                "think": False,      # Disable thinking for faster response
+            }
+
+            response = await llm_client.chat(
+                model=title_model,
+                messages=messages,
+                options=options
+            )
+
+            # Extract and clean title - strip thinking blocks first!
+            title = response.text.strip()
+            title = strip_thinking_blocks(title)  # Remove <think>...</think>
+            # Remove quotes if present
+            title = title.strip('"\'')
+            # Remove trailing punctuation
+            title = title.rstrip('.!?:')
+
+            if title:
+                update_session_title(self.device_id, title)
+                self.current_session_title = title
+                self.refresh_session_list()
+
+                # Debug output with closing separator
+                self.add_debug(f"🏷️ Session title: {title}")
+                console_separator()
+                self.add_debug("────────────────────")
+
+        except Exception as e:
+            log_message(f"⚠️ Title generation failed: {e}")
+            # Non-critical - don't raise, just log
+
+    def _get_backend_url(self) -> str:
+        """Get current backend URL based on backend_type."""
+        # Use already imported config from .lib.config (top of file)
+        if self.backend_type == "ollama":
+            return config.DEFAULT_OLLAMA_URL
+        elif self.backend_type == "vllm":
+            return config.DEFAULT_VLLM_URL
+        elif self.backend_type == "tabbyapi":
+            return config.DEFAULT_TABBY_URL
+        elif self.backend_type == "koboldcpp":
+            return config.DEFAULT_KOBOLD_URL
+        return config.DEFAULT_OLLAMA_URL
 
     # ============================================================
     # Image Upload Handlers
