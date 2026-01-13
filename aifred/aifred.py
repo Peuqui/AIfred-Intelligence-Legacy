@@ -3820,6 +3820,137 @@ def multi_agent_help_modal() -> rx.Component:
 
 
 # ============================================================
+# LOGIN DIALOG - Username + Password Authentication
+# ============================================================
+
+def login_dialog() -> rx.Component:
+    """
+    Fullscreen Overlay für Login/Registrierung.
+    Zeigt Login-Form oder Registrierungs-Form basierend auf login_mode.
+    Enter-Taste im Passwort-Feld löst Login/Register aus.
+    """
+    return rx.cond(
+        AIState.login_dialog_open,
+        # Fullscreen Overlay
+        rx.box(
+            # Backdrop (nicht klickbar - Login ist erforderlich)
+            rx.box(
+                position="absolute",
+                top="0",
+                left="0",
+                width="100%",
+                height="100%",
+                background_color="rgba(0, 0, 0, 0.9)",
+            ),
+
+            # Modal Content - zentriert
+            rx.vstack(
+                # Logo/Header
+                rx.vstack(
+                    rx.text("🎩", font_size="48px"),
+                    rx.text("AIfred Intelligence", color="white", font_weight="bold", font_size="24px"),
+                    spacing="1",
+                    align="center",
+                ),
+
+                # Form Container
+                rx.box(
+                    rx.vstack(
+                        # Mode Toggle
+                        rx.hstack(
+                            rx.button(
+                                "Anmelden",
+                                on_click=lambda: AIState.open_login_dialog("login"),
+                                variant=rx.cond(AIState.login_mode == "login", "solid", "ghost"),
+                                color_scheme="orange",
+                                size="2",
+                            ),
+                            rx.button(
+                                "Registrieren",
+                                on_click=lambda: AIState.open_login_dialog("register"),
+                                variant=rx.cond(AIState.login_mode == "register", "solid", "ghost"),
+                                color_scheme="orange",
+                                size="2",
+                            ),
+                            spacing="2",
+                            justify="center",
+                        ),
+
+                        # Username Input
+                        rx.input(
+                            placeholder="Username",
+                            value=AIState.login_username,
+                            on_change=AIState.set_login_username,
+                            width="100%",
+                            size="3",
+                        ),
+
+                        # Password Input (Enter triggers login/register)
+                        rx.input(
+                            placeholder="Passwort",
+                            type="password",
+                            value=AIState.login_password,
+                            on_change=AIState.set_login_password,
+                            on_key_down=AIState.handle_login_key_down,
+                            width="100%",
+                            size="3",
+                        ),
+
+                        # Error Message
+                        rx.cond(
+                            AIState.login_error != "",
+                            rx.text(AIState.login_error, color="red", font_size="14px"),
+                        ),
+
+                        # Submit Button
+                        rx.cond(
+                            AIState.login_mode == "login",
+                            rx.button(
+                                "Anmelden",
+                                on_click=AIState.do_login,
+                                color_scheme="orange",
+                                width="100%",
+                                size="3",
+                            ),
+                            rx.button(
+                                "Account erstellen",
+                                on_click=AIState.do_register,
+                                color_scheme="green",
+                                width="100%",
+                                size="3",
+                            ),
+                        ),
+
+                        spacing="4",
+                        width="100%",
+                    ),
+                    background_color="#1a1a1a",
+                    border_radius="12px",
+                    padding="24px",
+                    width="320px",
+                    border="1px solid #333",
+                ),
+
+                spacing="6",
+                align="center",
+                position="absolute",
+                top="50%",
+                left="50%",
+                transform="translate(-50%, -50%)",
+            ),
+
+            # Fullscreen container
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index="9999",
+        ),
+    )
+
+
+# ============================================================
 # IMAGE CROP MODAL - Fullscreen Overlay (besser für Mobile)
 # ============================================================
 
@@ -4469,6 +4600,9 @@ console.log('✂️ Crop handler loaded');
 
         # Load custom.js for MediaRecorder and other features (cache-busting version)
         rx.script(src="/custom.js?v=13"),
+
+        # Login Dialog (rendered but hidden until needed)
+        login_dialog(),
 
         # Crop Modal (rendered but hidden until open)
         crop_modal(),

@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""
+AIfred Admin CLI
+
+Manage whitelist and user accounts from command line.
+
+Usage:
+    aifred-admin users              List allowed users (whitelist)
+    aifred-admin add <username>     Add user to whitelist
+    aifred-admin remove <username>  Remove user from whitelist
+    aifred-admin accounts           List registered accounts
+    aifred-admin delete <username>  Delete account (with confirmation)
+    aifred-admin delete <username> --sessions  Also delete user's sessions
+"""
+
+import sys
+import os
+import json
+from pathlib import Path
+
+# Direct path to config dir (avoid importing aifred package which requires reflex)
+SETTINGS_DIR = Path.home() / ".config" / "aifred"
+WHITELIST_FILE = SETTINGS_DIR / "allowed_users.json"
+ACCOUNTS_FILE = SETTINGS_DIR / "accounts.json"
+SESSION_DIR = SETTINGS_DIR / "sessions"
+
+
+def _load_whitelist() -> list:
+    """Load whitelist from file."""
+    if not WHITELIST_FILE.exists():
+        return []
+    try:
+        with open(WHITELIST_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return [u.lower() for u in data if isinstance(u, str)]
+    except (json.JSONDecodeError, IOError):
+        return []
+
+
+def _save_whitelist(whitelist: list) -> bool:
+    """Save whitelist to file."""
+    try:
+        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(WHITELIST_FILE, "w", encoding="utf-8") as f:
+            json.dump(whitelist, f, ensure_ascii=False, indent=2)
+        return True
+    except IOError:
+        return False
+
+
+def _load_accounts() -> dict:
+    """Load accounts from file."""
+    if not ACCOUNTS_FILE.exists():
+        return {}
+    try:
+        with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+
+def _save_accounts(accounts: dict) -> bool:
+    """Save accounts to file."""
+    try:
+        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(ACCOUNTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(accounts, f, ensure_ascii=False, indent=2)
+        return True
+    except IOError:
+        return False
+
+
+def get_whitelist() -> list:
+    return _load_whitelist()
+
+
+def add_to_whitelist(username: str) -> bool:
+    if not username:
+        return False
+    whitelist = _load_whitelist()
+    username_lower = username.lower()
+    if username_lower in whitelist:
+        return False
+    whitelist.append(username_lower)
+    return _save_whitelist(whitelist)
+
+
+def remove_from_whitelist(username: str) -> bool:
+    if not username:
+        return False
+    whitelist = _load_whitelist()
+    username_lower = username.lower()
+    if username_lower not in whitelist:
+        return False
+    whitelist.remove(username_lower)
+    return _save_whitelist(whitelist)
+
+
+def list_accounts() -> list:
+    return list(_load_accounts().keys())
+
+
+def list_sessions(owner: str) -> list:
+    """List sessions for owner."""
+    if not SESSION_DIR.exists():
+        return []
+    sessions = []
+    for session_file in SESSION_DIR.glob("*.json"):
+        try:
+            with open(session_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("owner", "").lower() == owner.lower():
+                sessions.append(session_file.stem)
+        except (json.JSONDecodeError, IOError):
+            continue
+    return sessions
+
+
+def delete_account(username: str, delete_sessions: bool = False) -> bool:
+    if not username:
+        return False
+    username_lower = username.lower()
+    accounts = _load_accounts()
+    if username_lower not in accounts:
+        return False
+
+    if delete_sessions and SESSION_DIR.exists():
+        for session_file in SESSION_DIR.glob("*.json"):
+            try:
+                with open(session_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("owner", "").lower() == username_lower:
+                    session_file.unlink()
+            except (json.JSONDecodeError, IOError):
+                continue
+
+    del accounts[username_lower]
+    return _save_accounts(accounts)
+
+
+def cmd_users() -> None:
+    """List whitelist users."""
+    users = get_whitelist()
+    if not users:
+        print(f"Whitelist ist leer.")
+        print(f"Datei: {WHITELIST_FILE}")
+        return
+
+    print(f"Erlaubte User ({len(users)}):")
+    for user in sorted(users):
+        print(f"  • {user}")
+    print(f"\nDatei: {WHITELIST_FILE}")
+
+
+def cmd_add(username: str) -> None:
+    """Add user to whitelist."""
+    if not username:
+        print("Fehler: Username erforderlich")
+        sys.exit(1)
+
+    if add_to_whitelist(username):
+        print(f"✓ '{username}' zur Whitelist hinzugefügt")
+    else:
+        print(f"✗ '{username}' ist bereits auf der Whitelist")
+
+
+def cmd_remove(username: str) -> None:
+    """Remove user from whitelist."""
+    if not username:
+        print("Fehler: Username erforderlich")
+        sys.exit(1)
+
+    if remove_from_whitelist(username):
+        print(f"✓ '{username}' von Whitelist entfernt")
+    else:
+        print(f"✗ '{username}' nicht auf Whitelist gefunden")
+
+
+def cmd_accounts() -> None:
+    """List registered accounts."""
+    accounts = list_accounts()
+    whitelist = get_whitelist()
+
+    if not accounts:
+        print("Keine registrierten Accounts.")
+        print(f"Datei: {ACCOUNTS_FILE}")
+        return
+
+    print(f"Registrierte Accounts ({len(accounts)}):")
+    for acc in sorted(accounts):
+        # Count sessions for this user
+        sessions = list_sessions(owner=acc)
+        session_count = len(sessions)
+        on_whitelist = "✓" if acc in whitelist else "✗"
+        print(f"  • {acc} (Whitelist: {on_whitelist}, Sessions: {session_count})")
+
+    print(f"\nDatei: {ACCOUNTS_FILE}")
+
+
+def cmd_delete(username: str, with_sessions: bool = False) -> None:
+    """Delete account."""
+    if not username:
+        print("Fehler: Username erforderlich")
+        sys.exit(1)
+
+    # Check if account exists
+    accounts = list_accounts()
+    if username.lower() not in accounts:
+        print(f"✗ Account '{username}' nicht gefunden")
+        sys.exit(1)
+
+    # Count sessions
+    sessions = list_sessions(owner=username)
+    session_count = len(sessions)
+
+    # Confirmation
+    if with_sessions and session_count > 0:
+        print(f"WARNUNG: Account '{username}' mit {session_count} Sessions löschen?")
+    else:
+        print(f"Account '{username}' löschen?")
+
+    confirm = input("Bestätigen mit 'ja': ")
+    if confirm.lower() != "ja":
+        print("Abgebrochen.")
+        return
+
+    if delete_account(username, delete_sessions=with_sessions):
+        msg = f"✓ Account '{username}' gelöscht"
+        if with_sessions:
+            msg += f" (inkl. {session_count} Sessions)"
+        print(msg)
+    else:
+        print(f"✗ Fehler beim Löschen von '{username}'")
+
+
+def print_help() -> None:
+    """Print usage help."""
+    print(__doc__)
+
+
+def main() -> None:
+    """Main entry point."""
+    if len(sys.argv) < 2:
+        print_help()
+        sys.exit(0)
+
+    cmd = sys.argv[1].lower()
+
+    if cmd in ("help", "-h", "--help"):
+        print_help()
+    elif cmd == "users":
+        cmd_users()
+    elif cmd == "add":
+        username = sys.argv[2] if len(sys.argv) > 2 else ""
+        cmd_add(username)
+    elif cmd == "remove":
+        username = sys.argv[2] if len(sys.argv) > 2 else ""
+        cmd_remove(username)
+    elif cmd == "accounts":
+        cmd_accounts()
+    elif cmd == "delete":
+        username = sys.argv[2] if len(sys.argv) > 2 else ""
+        with_sessions = "--sessions" in sys.argv
+        cmd_delete(username, with_sessions)
+    else:
+        print(f"Unbekannter Befehl: {cmd}")
+        print_help()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

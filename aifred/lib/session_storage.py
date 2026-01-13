@@ -1,11 +1,15 @@
 """
 Server-side Session Storage for AIfred
 
-Stores chat history and session data per device.
-Uses device_id from cookie for identification.
+Stores chat history and session data per user account.
+Uses username from cookie for identification.
 
-Sessions are saved as JSON files in ~/.config/aifred/sessions/.
-Each device has its own session file (device_id.json).
+Storage structure:
+- ~/.config/aifred/accounts.json - Username → Password-Hash mapping
+- ~/.config/aifred/sessions/<device_id>.json - Individual chat sessions
+
+Each session belongs to a user (owner field).
+Users can access their sessions from any device via username + password.
 """
 
 import json
@@ -21,10 +25,309 @@ from .settings import SETTINGS_DIR
 # Session directory (subdirectory of Settings)
 SESSION_DIR = SETTINGS_DIR / "sessions"
 
+# Accounts file (username → password_hash mapping)
+ACCOUNTS_FILE = SETTINGS_DIR / "accounts.json"
+
+# Whitelist file (list of allowed usernames)
+WHITELIST_FILE = SETTINGS_DIR / "allowed_users.json"
+
 
 def _ensure_session_dir() -> None:
     """Create session directory if it doesn't exist."""
     SESSION_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ============================================================
+# Whitelist Management
+# ============================================================
+
+def _load_whitelist() -> List[str]:
+    """
+    Load whitelist of allowed usernames.
+
+    Returns:
+        List of allowed usernames (lowercase)
+    """
+    if not WHITELIST_FILE.exists():
+        return []
+
+    try:
+        with open(WHITELIST_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            # Normalize to lowercase
+            return [u.lower() for u in data if isinstance(u, str)]
+    except (json.JSONDecodeError, IOError):
+        return []
+
+
+def _save_whitelist(whitelist: List[str]) -> bool:
+    """
+    Save whitelist to file.
+
+    Args:
+        whitelist: List of allowed usernames
+
+    Returns:
+        True on success
+    """
+    try:
+        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(WHITELIST_FILE, "w", encoding="utf-8") as f:
+            json.dump(whitelist, f, ensure_ascii=False, indent=2)
+        return True
+    except IOError:
+        return False
+
+
+def is_username_allowed(username: str) -> bool:
+    """
+    Check if username is on the whitelist.
+
+    If whitelist file doesn't exist or is empty, nobody can register.
+
+    Args:
+        username: Username to check
+
+    Returns:
+        True if username is allowed to register
+    """
+    whitelist = _load_whitelist()
+    if not whitelist:
+        return False
+    return username.lower() in whitelist
+
+
+def get_whitelist() -> List[str]:
+    """
+    Get list of allowed usernames.
+
+    Returns:
+        List of allowed usernames
+    """
+    return _load_whitelist()
+
+
+def add_to_whitelist(username: str) -> bool:
+    """
+    Add username to whitelist.
+
+    Args:
+        username: Username to add (case-insensitive)
+
+    Returns:
+        True on success, False if already exists or error
+    """
+    if not username:
+        return False
+
+    whitelist = _load_whitelist()
+    username_lower = username.lower()
+
+    if username_lower in whitelist:
+        return False  # Already on whitelist
+
+    whitelist.append(username_lower)
+    return _save_whitelist(whitelist)
+
+
+def remove_from_whitelist(username: str) -> bool:
+    """
+    Remove username from whitelist.
+
+    Args:
+        username: Username to remove (case-insensitive)
+
+    Returns:
+        True on success, False if not found or error
+    """
+    if not username:
+        return False
+
+    whitelist = _load_whitelist()
+    username_lower = username.lower()
+
+    if username_lower not in whitelist:
+        return False  # Not on whitelist
+
+    whitelist.remove(username_lower)
+    return _save_whitelist(whitelist)
+
+
+# ============================================================
+# Account Management (Username + Password)
+# ============================================================
+
+def _load_accounts() -> Dict[str, str]:
+    """
+    Load accounts file.
+
+    Returns:
+        Dict mapping username → password_hash
+    """
+    if not ACCOUNTS_FILE.exists():
+        return {}
+
+    try:
+        with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+
+def _save_accounts(accounts: Dict[str, str]) -> bool:
+    """
+    Save accounts file.
+
+    Args:
+        accounts: Dict mapping username → password_hash
+
+    Returns:
+        True on success
+    """
+    try:
+        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(ACCOUNTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(accounts, f, ensure_ascii=False, indent=2)
+        return True
+    except IOError:
+        return False
+
+
+def account_exists(username: str) -> bool:
+    """
+    Check if username already exists.
+
+    Args:
+        username: Username to check
+
+    Returns:
+        True if username exists
+    """
+    accounts = _load_accounts()
+    return username.lower() in accounts
+
+
+def create_account(username: str, password: str) -> bool:
+    """
+    Create new user account.
+
+    Only succeeds if username is on the whitelist (allowed_users.json).
+
+    Args:
+        username: Unique username (case-insensitive)
+        password: Password (will be hashed)
+
+    Returns:
+        True on success, False if username not allowed, exists, or error
+    """
+    if not username or not password:
+        return False
+
+    # Check whitelist first
+    if not is_username_allowed(username):
+        return False
+
+    username_lower = username.lower()
+    accounts = _load_accounts()
+
+    if username_lower in accounts:
+        return False  # Username already exists
+
+    accounts[username_lower] = hash_password(password)
+    return _save_accounts(accounts)
+
+
+def verify_account(username: str, password: str) -> bool:
+    """
+    Verify username + password combination.
+
+    Args:
+        username: Username (case-insensitive)
+        password: Password to verify
+
+    Returns:
+        True if credentials are correct
+    """
+    if not username or not password:
+        return False
+
+    accounts = _load_accounts()
+    password_hash = accounts.get(username.lower())
+
+    if not password_hash:
+        return False
+
+    return verify_password(password, password_hash)
+
+
+def change_account_password(username: str, old_password: str, new_password: str) -> bool:
+    """
+    Change password for existing account.
+
+    Args:
+        username: Username
+        old_password: Current password for verification
+        new_password: New password to set
+
+    Returns:
+        True on success
+    """
+    if not verify_account(username, old_password):
+        return False
+
+    if not new_password:
+        return False
+
+    accounts = _load_accounts()
+    accounts[username.lower()] = hash_password(new_password)
+    return _save_accounts(accounts)
+
+
+def list_accounts() -> List[str]:
+    """
+    List all usernames.
+
+    Returns:
+        List of usernames
+    """
+    return list(_load_accounts().keys())
+
+
+def delete_account(username: str, delete_sessions: bool = False) -> bool:
+    """
+    Delete user account.
+
+    Args:
+        username: Username to delete (case-insensitive)
+        delete_sessions: If True, also delete all sessions owned by this user
+
+    Returns:
+        True on success, False if not found or error
+    """
+    if not username:
+        return False
+
+    username_lower = username.lower()
+    accounts = _load_accounts()
+
+    if username_lower not in accounts:
+        return False  # Account doesn't exist
+
+    # Delete sessions if requested
+    if delete_sessions:
+        _ensure_session_dir()
+        for session_file in SESSION_DIR.glob("*.json"):
+            try:
+                with open(session_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("owner", "").lower() == username_lower:
+                    session_file.unlink()
+            except (json.JSONDecodeError, IOError):
+                continue
+
+    # Delete account
+    del accounts[username_lower]
+    return _save_accounts(accounts)
 
 
 def generate_device_id() -> str:
@@ -142,29 +445,35 @@ def _write_session_file(path: Path, session: Dict[str, Any]) -> bool:
         return False
 
 
-def create_empty_session(device_id: str) -> bool:
+def create_empty_session(device_id: str, owner: str) -> bool:
     """
     Create an empty session file for a new device.
 
-    This is called when a browser connects and no session file exists yet.
+    This is called when a user creates a new chat.
     Creates the file immediately so the API can inject messages right away.
 
     Args:
         device_id: Device identifier
+        owner: Username who owns this session
 
     Returns:
         True on success, False on error
     """
-    return save_session(device_id, {"data": {}})
+    return save_session(device_id, {"data": {}, "owner": owner.lower()})
 
 
-def save_session(device_id: str, session_data: Dict[str, Any]) -> bool:
+def save_session(
+    device_id: str,
+    session_data: Dict[str, Any],
+    owner: Optional[str] = None
+) -> bool:
     """
     Save session for Device-ID.
 
     Args:
         device_id: Device identifier
         session_data: Complete session dict
+        owner: Username who owns this session (required for new sessions)
 
     Returns:
         True on success, False on error
@@ -182,6 +491,10 @@ def save_session(device_id: str, session_data: Dict[str, Any]) -> bool:
         session_data["created_at"] = now
     session_data["last_seen"] = now
     session_data["device_id"] = device_id
+
+    # Set owner (only on creation, don't overwrite existing)
+    if owner and "owner" not in session_data:
+        session_data["owner"] = owner.lower()
 
     return _write_session_file(session_path, session_data)
 
@@ -217,7 +530,6 @@ def update_chat_data(
     if session is None:
         session = {
             "created_at": datetime.now().isoformat(),
-            "pin_hash": None,
             "data": {}
         }
 
@@ -262,101 +574,36 @@ def delete_session(device_id: str) -> bool:
 
 
 # ============================================================
-# PIN Functions (Phase 2 - for Cross-Device Access)
+# Password Hashing Functions
 # ============================================================
 
-def hash_pin(pin: str) -> str:
+def hash_password(password: str) -> str:
     """
-    Hash PIN with SHA-256.
+    Hash password with SHA-256.
 
     Args:
-        pin: Plaintext PIN
+        password: Plaintext password
 
     Returns:
         Hash string in format "sha256:..."
     """
-    return f"sha256:{hashlib.sha256(pin.encode()).hexdigest()}"
+    return f"sha256:{hashlib.sha256(password.encode()).hexdigest()}"
 
 
-def verify_pin(pin: str, pin_hash: str) -> bool:
+def verify_password(password: str, password_hash: str) -> bool:
     """
-    Verify PIN against stored hash.
+    Verify password against stored hash.
 
     Args:
-        pin: Plaintext PIN to check
-        pin_hash: Stored hash
+        password: Plaintext password to check
+        password_hash: Stored hash
 
     Returns:
-        True if PIN is correct
+        True if password is correct
     """
-    if not pin_hash or not pin_hash.startswith("sha256:"):
+    if not password_hash or not password_hash.startswith("sha256:"):
         return False
-    return hash_pin(pin) == pin_hash
-
-
-def set_session_pin(device_id: str, pin: str) -> bool:
-    """
-    Set or update PIN for session.
-
-    Args:
-        device_id: Device identifier
-        pin: New PIN (plaintext, will be hashed)
-
-    Returns:
-        True on success
-    """
-    session = load_session(device_id)
-    if not session:
-        return False
-
-    session["pin_hash"] = hash_pin(pin)
-    return save_session(device_id, session)
-
-
-def clear_session_pin(device_id: str) -> bool:
-    """
-    Remove PIN from session.
-
-    Args:
-        device_id: Device identifier
-
-    Returns:
-        True on success
-    """
-    session = load_session(device_id)
-    if not session:
-        return False
-
-    session["pin_hash"] = None
-    return save_session(device_id, session)
-
-
-def get_session_with_pin(device_id: str, pin: str) -> Optional[Dict[str, Any]]:
-    """
-    Load session only if PIN is correct.
-
-    For cross-device access: User enters foreign device_id + PIN.
-
-    Args:
-        device_id: Device identifier
-        pin: PIN to verify
-
-    Returns:
-        Session dict if PIN correct, else None
-    """
-    session = load_session(device_id)
-    if not session:
-        return None
-
-    pin_hash = session.get("pin_hash")
-    if not pin_hash:
-        # Session has no PIN - deny access
-        return None
-
-    if not verify_pin(pin, pin_hash):
-        return None
-
-    return session
+    return hash_password(password) == password_hash
 
 
 # ============================================================
@@ -384,9 +631,12 @@ def get_latest_session_file() -> Optional[Path]:
     return session_files[0]
 
 
-def list_sessions() -> List[Dict[str, Any]]:
+def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    List all sessions with basic info.
+    List sessions with basic info, optionally filtered by owner.
+
+    Args:
+        owner: Username to filter by (case-insensitive). If None, returns empty list.
 
     Returns list of dicts with:
     - device_id: Session identifier
@@ -394,17 +644,29 @@ def list_sessions() -> List[Dict[str, Any]]:
     - last_seen: Last activity timestamp
     - created_at: Session creation timestamp
     - message_count: Number of chat messages
+    - owner: Username who owns this session
 
     Returns:
         List of session info dicts, sorted by last_seen (newest first)
     """
     _ensure_session_dir()
 
+    # No owner = no sessions (must be logged in)
+    if not owner:
+        return []
+
+    owner_lower = owner.lower()
     sessions = []
+
     for session_file in SESSION_DIR.glob("*.json"):
         try:
             with open(session_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
+
+            # Filter by owner
+            session_owner = data.get("owner", "").lower()
+            if session_owner != owner_lower:
+                continue
 
             chat_history = data.get("data", {}).get("chat_history", [])
             sessions.append({
@@ -412,7 +674,8 @@ def list_sessions() -> List[Dict[str, Any]]:
                 "title": data.get("data", {}).get("title"),
                 "last_seen": data.get("last_seen", ""),
                 "created_at": data.get("created_at", ""),
-                "message_count": len(chat_history)
+                "message_count": len(chat_history),
+                "owner": session_owner
             })
         except (json.JSONDecodeError, IOError):
             continue

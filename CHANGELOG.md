@@ -5,6 +5,53 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.0] - 2026-01-13
+
+### Added
+
+- **Username + Password Authentication** ([session_storage.py](aifred/lib/session_storage.py), [state.py](aifred/state.py), [aifred.py](aifred/aifred.py)):
+  - Login dialog with username and password fields
+  - Password hashing with SHA-256 (stored as `sha256:...` hash)
+  - Auto-login via browser cookie (username persisted, not password)
+  - Login/Register mode toggle in dialog
+  - Enter key support for form submission
+
+- **Whitelist-Based Registration** ([session_storage.py](aifred/lib/session_storage.py)):
+  - Only usernames on whitelist (`~/.config/aifred/allowed_users.json`) can register
+  - Admin controls who can create accounts
+  - Case-insensitive username handling
+
+- **Session Ownership** ([session_storage.py](aifred/lib/session_storage.py)):
+  - Sessions now have `owner` field linking to username
+  - Users only see their own sessions in the chat list
+  - New sessions automatically assigned to logged-in user
+
+- **AIfred Admin CLI** ([aifred-admin](aifred-admin)):
+  - Standalone command-line tool for user management
+  - `aifred-admin users` - List whitelist
+  - `aifred-admin add <username>` - Add to whitelist
+  - `aifred-admin remove <username>` - Remove from whitelist
+  - `aifred-admin accounts` - List registered accounts with session counts
+  - `aifred-admin delete <username> [--sessions]` - Delete account (optionally with sessions)
+
+- **Username Cookie** ([browser_storage.py](aifred/lib/browser_storage.py)):
+  - `get_username_script()` - Read username from cookie
+  - `set_username_script()` - Store username in cookie (1 year expiry)
+  - `clear_username_script()` - Delete cookie on logout
+
+### Changed
+
+- **Session Initialization** ([state.py](aifred/state.py)):
+  - Login now creates a new session if user has none
+  - Registration always creates a new session for the new account
+  - Prevents orphan sessions without owner
+
+### Removed
+
+- **Device-ID Only Sessions**: Sessions now require authentication; anonymous device-based sessions no longer supported
+
+---
+
 ## [2.18.0] - 2026-01-13
 
 ### Added

@@ -165,6 +165,14 @@ class AIState(rx.State):
     available_sessions: List[Dict[str, Any]] = []  # List of sessions from list_sessions()
     current_session_title: str = ""  # Title of current session (for display)
 
+    # Authentication State
+    logged_in_user: str = ""  # Currently logged in username (empty = not logged in)
+    login_dialog_open: bool = False  # Show login dialog?
+    login_mode: str = "login"  # "login" or "register"
+    login_username: str = ""  # Input field for username
+    login_password: str = ""  # Input field for password
+    login_error: str = ""  # Error message to display
+
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi", "koboldcpp", "cloud_api"
     backend_id: str = "ollama"  # NEW: Pure backend ID (synced with backend_type for compatibility)
@@ -1014,20 +1022,14 @@ class AIState(rx.State):
             self._backend_initialized = True
             print("✅ Session initialization complete")
 
-            # Session Persistence: Read device_id from cookie (async callback)
+            # Authentication: Read username from cookie (async callback)
             # AFTER Backend-Init so chat history restore doesn't collide with loading
             if not self._session_initialized:
-                from .lib.browser_storage import get_device_id_script
-                # First attempt: immediate
+                from .lib.browser_storage import get_username_script
+                # Read username cookie and handle login
                 yield rx.call_script(
-                    get_device_id_script(),
-                    callback=AIState.handle_device_id_loaded
-                )
-                # Retry after 2 seconds (in case first callback didn't get through due to race condition)
-                # Guard _session_initialized prevents duplicate processing
-                yield rx.call_script(
-                    get_device_id_script(delay_ms=2000),
-                    callback=AIState.handle_device_id_loaded
+                    get_username_script(),
+                    callback=AIState.handle_username_loaded
                 )
 
     async def initialize_backend(self):
@@ -4003,7 +4005,8 @@ class AIState(rx.State):
         """Refresh the list of available sessions for the session picker."""
         from .lib.session_storage import list_sessions, get_session_title
 
-        self.available_sessions = list_sessions()
+        # Only show sessions owned by logged in user
+        self.available_sessions = list_sessions(owner=self.logged_in_user)
 
         # Update current session title
         if self.device_id:
@@ -4015,7 +4018,7 @@ class AIState(rx.State):
 
         Saves current session, loads the target session, and updates state.
         """
-        from .lib.session_storage import load_session, get_session_title
+        from .lib.session_storage import load_session
         from .lib.logging_utils import log_message
 
         # Don't switch to current session
@@ -4062,12 +4065,17 @@ class AIState(rx.State):
         from .lib.session_storage import generate_device_id, create_empty_session
         from .lib.logging_utils import log_message
 
+        # Must be logged in to create session
+        if not self.logged_in_user:
+            self.add_debug("⚠️ Not logged in")
+            return
+
         # Save current session first
         self._save_current_session()
 
-        # Generate new device ID and create empty session file
+        # Generate new device ID and create empty session file with owner
         new_id = generate_device_id()
-        create_empty_session(new_id)
+        create_empty_session(new_id, owner=self.logged_in_user)
 
         # Switch to new device ID BEFORE clearing
         # (so clear_chat() cleans up the NEW session's directories)
@@ -4100,6 +4108,123 @@ class AIState(rx.State):
             self.refresh_session_list()
         else:
             self.add_debug(f"⚠️ Failed to delete session")
+
+    # ============================================================
+    # Authentication (Login / Register / Logout)
+    # ============================================================
+
+    def set_login_username(self, value: str):
+        """Set login username input (explicit setter for Reflex 0.9.0)."""
+        self.login_username = value
+
+    def set_login_password(self, value: str):
+        """Set login password input (explicit setter for Reflex 0.9.0)."""
+        self.login_password = value
+
+    def handle_login_key_down(self, key: str):
+        """Handle key press in login dialog - Enter triggers submit."""
+        if key == "Enter":
+            if self.login_mode == "login":
+                return AIState.do_login
+            else:
+                return AIState.do_register
+
+    def open_login_dialog(self, mode: str = "login"):
+        """Open login dialog in specified mode."""
+        self.login_mode = mode
+        self.login_username = ""
+        self.login_password = ""
+        self.login_error = ""
+        self.login_dialog_open = True
+
+    def close_login_dialog(self):
+        """Close login dialog and clear fields."""
+        self.login_dialog_open = False
+        self.login_username = ""
+        self.login_password = ""
+        self.login_error = ""
+
+    def do_login(self):
+        """Attempt to log in with entered credentials."""
+        from .lib.session_storage import verify_account, account_exists, list_sessions
+        from .lib.browser_storage import set_username_script
+
+        username = self.login_username.strip()
+        password = self.login_password
+
+        if not username or not password:
+            self.login_error = "Bitte Username und Passwort eingeben"
+            return
+
+        if not account_exists(username):
+            self.login_error = "Account nicht gefunden"
+            return
+
+        if not verify_account(username, password):
+            self.login_error = "Falsches Passwort"
+            return
+
+        # Login successful
+        self.logged_in_user = username.lower()
+        self.close_login_dialog()
+        self.refresh_session_list()
+
+        # Load most recent session or create new one
+        sessions = list_sessions(owner=self.logged_in_user)
+        if sessions:
+            self._load_session_by_id(sessions[0]["device_id"])
+            self.add_debug(f"✅ Logged in as: {self.logged_in_user}")
+        else:
+            self.new_session()
+            self.add_debug(f"✅ Logged in as: {self.logged_in_user} (new)")
+
+        # Save username to cookie
+        return rx.call_script(set_username_script(self.logged_in_user))
+
+    def do_register(self):
+        """Attempt to create new account."""
+        from .lib.session_storage import create_account, is_username_allowed
+        from .lib.browser_storage import set_username_script
+
+        username = self.login_username.strip()
+        password = self.login_password
+
+        if not username or not password:
+            self.login_error = "Bitte Username und Passwort eingeben"
+            return
+
+        if not is_username_allowed(username):
+            self.login_error = "Username nicht auf Whitelist"
+            return
+
+        if not create_account(username, password):
+            self.login_error = "Account existiert bereits"
+            return
+
+        # Registration successful - auto login
+        self.logged_in_user = username.lower()
+        self.close_login_dialog()
+        self.refresh_session_list()
+
+        # New account always gets new session
+        self.new_session()
+        self.add_debug(f"✅ Account created: {self.logged_in_user}")
+
+        # Save username to cookie
+        return rx.call_script(set_username_script(self.logged_in_user))
+
+    def do_logout(self):
+        """Log out current user."""
+        from .lib.browser_storage import clear_username_script
+
+        self.add_debug(f"👋 Logged out: {self.logged_in_user}")
+        self.logged_in_user = ""
+        self.available_sessions = []
+        self.device_id = ""
+        self.clear_chat()
+
+        # Clear cookie
+        return rx.call_script(clear_username_script())
 
     def share_chat(self):
         """Share chat history - export as HTML and open in new browser tab
@@ -4688,55 +4813,67 @@ class AIState(rx.State):
 '''
 
     # ============================================================
-    # Session Persistence (Cookie-based device identification)
+    # Session Persistence (Username-based authentication)
     # ============================================================
 
-    def handle_device_id_loaded(self, device_id: str):
+    def handle_username_loaded(self, username: str):
         """
         Callback nach Cookie-Read via rx.call_script().
 
-        Wird aufgerufen wenn das JavaScript die Device-ID aus dem Cookie gelesen hat.
-        Lädt bestehende Session oder erstellt neue.
+        Wird aufgerufen wenn das JavaScript den Username aus dem Cookie gelesen hat.
+        Prüft ob Account existiert und loggt ein, sonst Login-Dialog öffnen.
         """
-        # Guard: Nur einmal ausführen (Retry-Callback nach 2s überspringen)
+        # Guard: Nur einmal ausführen
         if self._session_initialized:
-            return  # Kein Debug-Log für Retry-Callback
+            return
         self._session_initialized = True
 
-        from .lib.session_storage import load_session, generate_device_id, create_empty_session
-        from .lib.browser_storage import set_device_id_script
+        from .lib.session_storage import account_exists, list_sessions
 
-        # Validiere device_id Format (muss 32 hex chars sein)
-        import re
-        is_valid_id = device_id and re.match(r'^[a-f0-9]{32}$', device_id)
+        if username and account_exists(username):
+            # Valid username in cookie - auto login
+            self.logged_in_user = username.lower()
+            self.refresh_session_list()
 
-        if device_id == "NEW" or not device_id or not is_valid_id:
-            # New device or invalid ID - generate new Device-ID
-            if device_id and not is_valid_id:
-                self.add_debug(f"⚠️ Invalid Device-ID ({device_id[:8]}...), generating new one")
-            self.device_id = generate_device_id()
-            self.session_restored = False
-            create_empty_session(self.device_id)  # Save immediately for API access
-            self.add_debug(f"🆕 New session: {self.device_id[:8]}...")
+            # Load most recent session if available
+            sessions = list_sessions(owner=self.logged_in_user)
+            if sessions:
+                # Switch to most recent session
+                most_recent = sessions[0]
+                self._load_session_by_id(most_recent["device_id"])
+                self.add_debug(f"✅ Logged in as: {self.logged_in_user}")
+            else:
+                # No sessions yet - create first one
+                self.new_session()
+                self.add_debug(f"✅ Logged in as: {self.logged_in_user} (new)")
+
             console_separator()  # File log
             self.debug_messages.append("────────────────────")  # UI
-            return rx.call_script(set_device_id_script(self.device_id))
+        else:
+            # No valid username - show login dialog
+            self.login_dialog_open = True
+            self.add_debug("🔐 Login required")
 
-        # Bekanntes Gerät - versuche Session zu laden
-        self.device_id = device_id
-        session = load_session(device_id)
+    def _load_session_by_id(self, session_id: str):
+        """Load a specific session by ID (internal helper)."""
+        from .lib.session_storage import load_session, get_session_title
+        from .lib.context_manager import estimate_tokens_from_history
+        from .lib.formatting import format_number
+        from .lib.config import HISTORY_COMPRESSION_TRIGGER
+
+        self.device_id = session_id
+        session = load_session(session_id)
 
         if session and session.get("data"):
             self._restore_session(session)
             self.session_restored = True
-            msg_count = len(self.chat_history)
-            self.add_debug(f"✅ Session loaded: {device_id[:8]}... ({msg_count} messages)")
+
+            # Update title
+            title = get_session_title(session_id)
+            self.current_session_title = title or ""
 
             # Show context utilization after session restore
             if self.chat_history:
-                from .lib.context_manager import estimate_tokens_from_history
-                from .lib.formatting import format_number
-                from .lib.config import HISTORY_COMPRESSION_TRIGGER
                 estimated_tokens = estimate_tokens_from_history(self.chat_history)
 
                 if self._min_agent_context_limit > 0:
@@ -4750,12 +4887,6 @@ class AIState(rx.State):
                     self.add_debug(f"   └─ History: {format_number(estimated_tokens)} tokens")
         else:
             self.session_restored = False
-            create_empty_session(device_id)  # Save immediately for API access
-            self.add_debug(f"🆕 Empty session: {device_id[:8]}...")
-
-        # Separator after session restore
-        console_separator()  # File log
-        self.debug_messages.append("────────────────────")  # UI
 
     def handle_tts_callback(self, result: str):
         """

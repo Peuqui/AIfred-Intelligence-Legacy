@@ -105,3 +105,64 @@ def clear_device_id_script() -> str:
         JavaScript code as string
     """
     return f'document.cookie = "{COOKIE_NAME}=; path=/; max-age=0";'
+
+
+# ============================================================
+# Username Cookie (for Login persistence)
+# ============================================================
+
+USERNAME_COOKIE_NAME = "aifred_username"
+
+
+def get_username_script() -> str:
+    """
+    Generate JavaScript to read username from cookie.
+
+    Returns username or empty string if no cookie exists.
+
+    Returns:
+        JavaScript code as string
+    """
+    return f"""
+(function() {{
+    const name = "{USERNAME_COOKIE_NAME}=";
+    const cookies = document.cookie.split(';');
+    for (let c of cookies) {{
+        c = c.trim();
+        if (c.indexOf(name) === 0) {{
+            return c.substring(name.length);
+        }}
+    }}
+    return "";
+}})()
+"""
+
+
+def set_username_script(username: str) -> str:
+    """
+    Generate JavaScript to set username as cookie.
+
+    Args:
+        username: Username to store
+
+    Returns:
+        JavaScript code as string
+    """
+    # Sanitize username: only allow alphanumeric and underscore
+    safe_username = "".join(c for c in username if c.isalnum() or c == "_")[:50]
+    if not safe_username:
+        raise ValueError("Invalid username for cookie")
+
+    max_age_seconds = COOKIE_MAX_AGE_DAYS * 24 * 60 * 60
+
+    return f'document.cookie = "{USERNAME_COOKIE_NAME}={safe_username}; path=/; max-age={max_age_seconds}; SameSite=Lax";'
+
+
+def clear_username_script() -> str:
+    """
+    Generate JavaScript to delete username cookie.
+
+    Returns:
+        JavaScript code as string
+    """
+    return f'document.cookie = "{USERNAME_COOKIE_NAME}=; path=/; max-age=0";'

@@ -28,7 +28,8 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
-- **Session Persistence**: Mobile chat history survives browser background/restart (cookie-based)
+- **User Authentication**: Username + password login with whitelist-based registration, admin CLI for user management
+- **Session Persistence**: Chat history tied to user accounts, accessible from any device after login
 - **Session Management**: Chat list sidebar with LLM-generated titles, switch between sessions, delete old chats
 - **Share Chat**: Export conversation as portable HTML file in new browser tab (KaTeX fonts embedded inline, works offline)
 - **HTML Preview**: AI-generated HTML code opens directly in browser (new tab)
@@ -1470,9 +1471,31 @@ sudo systemctl start aifred-chromadb.service aifred-intelligence.service
 # 3. Check status
 systemctl status aifred-chromadb.service
 systemctl status aifred-intelligence.service
+
+# 4. Create first user (required for login)
+./aifred-admin add yourusername
+# Then register in the web UI with username + password
 ```
 
 See [systemd/README.md](systemd/README.md) for details, troubleshooting, and monitoring.
+
+#### User Management (aifred-admin CLI)
+
+AIfred requires user authentication. Manage users via the admin CLI:
+
+```bash
+./aifred-admin users              # List whitelist (who can register)
+./aifred-admin add <username>     # Add user to whitelist
+./aifred-admin remove <username>  # Remove from whitelist
+./aifred-admin accounts           # List registered accounts
+./aifred-admin delete <username>  # Delete account (with confirmation)
+./aifred-admin delete <username> --sessions  # Also delete user's sessions
+```
+
+**Workflow:**
+1. Admin adds username to whitelist: `./aifred-admin add alice`
+2. User registers in web UI with username + password
+3. User can now login from any device with their credentials
 
 #### Service Files (Reference)
 
