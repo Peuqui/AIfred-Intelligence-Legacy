@@ -5,6 +5,47 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.0] - 2026-01-13
+
+### Added
+
+- **Session Management UI** ([aifred.py](aifred/aifred.py), [state.py](aifred/state.py)):
+  - Chat list sidebar showing all sessions with titles
+  - Click to switch between sessions
+  - Delete sessions with confirmation dialog
+  - Sessions sorted by last activity (newest first)
+  - Collapsible sidebar with toggle button
+
+- **LLM-Generated Chat Titles** ([state.py](aifred/state.py), [session_storage.py](aifred/lib/session_storage.py)):
+  - Auto-generate descriptive title after first Q&A pair
+  - Uses small Automatik model (stays warm, no model switching)
+  - Thinking mode disabled for fast response
+  - Topic-based prompts in DE/EN (`prompts/*/utility/chat_title.txt`)
+  - Title displayed in session list and header
+
+### Changed
+
+- **Session Sorting Stability** ([session_storage.py](aifred/lib/session_storage.py)):
+  - `load_session()` no longer updates `last_seen` timestamp
+  - Only `save_session()` updates `last_seen` (when new content added)
+  - Session list remains stable when just viewing sessions
+
+### Fixed
+
+- **Metadata Display** ([own_knowledge_handler.py](aifred/lib/own_knowledge_handler.py)):
+  - TTFT, inference time, and tok/s now visible in chat messages
+  - Added missing `format_metadata` import and usage
+
+- **llm_history Updates** ([own_knowledge_handler.py](aifred/lib/own_knowledge_handler.py)):
+  - User message now properly added to `llm_history`
+  - Fixed title generation which requires complete history
+
+- **Double Bubble Rendering** ([state.py](aifred/state.py)):
+  - `current_ai_response` cleared immediately after history update
+  - Prevents duplicate message display during title generation
+
+---
+
 ## [2.17.0] - 2026-01-13
 
 ### Changed
