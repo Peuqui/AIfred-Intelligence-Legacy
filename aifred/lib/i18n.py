@@ -254,6 +254,9 @@ class TranslationManager:
             # Failed Sources
             "sources_unavailable": "{count} Quelle nicht erreichbar",
             "sources_unavailable_plural": "{count} Quellen nicht erreichbar",
+            # Login/Logout
+            "logout": "Abmelden",
+            "logged_in_as": "Angemeldet als",
         },
         "en": {
             # UI Labels
@@ -465,6 +468,9 @@ class TranslationManager:
             # Failed Sources
             "sources_unavailable": "{count} source unavailable",
             "sources_unavailable_plural": "{count} sources unavailable",
+            # Login/Logout
+            "logout": "Logout",
+            "logged_in_as": "Logged in as",
         }
     }
 

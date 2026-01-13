@@ -4129,6 +4129,16 @@ class AIState(rx.State):
             else:
                 return AIState.do_register
 
+    def handle_login_submit(self, form_data: dict):
+        """Handle form submit - for browser password manager support."""
+        # Form submit triggered by Enter or Submit button
+        # The actual login/register is handled by the button click handlers
+        # This just prevents the default form submission (page reload)
+        if self.login_mode == "login":
+            return AIState.do_login
+        else:
+            return AIState.do_register
+
     def open_login_dialog(self, mode: str = "login"):
         """Open login dialog in specified mode."""
         self.login_mode = mode
@@ -4222,6 +4232,9 @@ class AIState(rx.State):
         self.available_sessions = []
         self.device_id = ""
         self.clear_chat()
+
+        # Show login dialog again
+        self.login_dialog_open = True
 
         # Clear cookie
         return rx.call_script(clear_username_script())
