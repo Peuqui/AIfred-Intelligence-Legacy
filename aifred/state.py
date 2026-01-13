@@ -3335,10 +3335,19 @@ class AIState(rx.State):
 
                         elif item["type"] == "result":
                             result_data = item["data"]
-                            # Extract and update history IMMEDIATELY
-                            ai_text, updated_history, inference_time = result_data
-                            # Replace chat history with updated one from research - message is already in history
-                            self.chat_history = updated_history
+                            # Handle both result formats from chat_interactive_mode:
+                            # 1. Tuple: (ai_text, history, inference_time) - from direct LLM/research
+                            # 2. Dict: {response_html, response_clean, ...} - from own_knowledge
+                            if isinstance(result_data, dict):
+                                # Own Knowledge format - history not in result, use current
+                                ai_text = result_data.get("response_clean", "")
+                                inference_time = result_data.get("inference_time", 0)
+                                # History already updated via streaming, no replacement needed
+                            else:
+                                # Tuple format - extract and update history
+                                ai_text, updated_history, inference_time = result_data
+                                # Replace chat history with updated one from research
+                                self.chat_history = updated_history
                             # The message is already in the history from the streaming, no need to re-add
                             yield  # Update UI to show new history entry
                             # Clear AI response and user message windows IMMEDIATELY
