@@ -6470,7 +6470,7 @@ class AIState(rx.State):
 
         # AIfred - get auto value from persistent cache if not manual
         if self.num_ctx_manual_aifred_enabled:
-            aifred_ctx = self.num_ctx_manual
+            aifred_ctx = self.num_ctx_manual_aifred
             mode = "manual"
         else:
             rope_factor = get_rope_factor_for_model(self.aifred_model_id)
