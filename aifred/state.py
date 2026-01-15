@@ -3312,7 +3312,7 @@ class AIState(rx.State):
                         stt_time=0.0,  # No STT for Vision follow-up
                         model_choice=self.aifred_model_id,
                         automatik_model=self.automatik_model_id,
-                        history=self.chat_history[:-1],  # Exclude current temporary entry (CRITICAL!)
+                        history=self.chat_history,  # User message already included
                         llm_history=self.llm_history,  # Parallel LLM history for context
                         session_id=self.session_id,
                         temperature_mode=self.temperature_mode,
@@ -3410,7 +3410,7 @@ class AIState(rx.State):
                     stt_time=0.0,
                     model_choice=self.aifred_model_id,
                     automatik_model=self.automatik_model_id,
-                    history=self.chat_history[:-1],  # Exclude current temporary entry
+                    history=self.chat_history,  # User message already included
                     llm_history=self.llm_history,  # Parallel LLM history for context
                     session_id=self.session_id,
                     temperature_mode=self.temperature_mode,
@@ -3669,7 +3669,7 @@ class AIState(rx.State):
                     mode=self.research_mode,
                     model_choice=self.aifred_model_id,  # Pure ID
                     automatik_model=self.automatik_model_id,  # Pure ID
-                    history=self.chat_history[:-1],  # Exclude current temporary entry
+                    history=self.chat_history,  # User message already included
                     llm_history=self.llm_history,  # LLM context (required!)
                     session_id=self.session_id,
                     temperature_mode=self.temperature_mode,
@@ -3909,11 +3909,11 @@ class AIState(rx.State):
                             # State changes automatically propagate to frontend → audio plays via autoPlay
                             await self._generate_tts_for_response(ai_response)
                         else:
-                            self.add_debug("⚠️ TTS: Aktiviert aber keine AI-Antwort zum Konvertieren")
+                            self.add_debug("⚠️ TTS: Enabled but no AI response to convert")
                             console_separator()
                             self.add_debug("────────────────────")
                     else:
-                        self.add_debug("⚠️ TTS: Aktiviert aber Chat-History ist leer")
+                        self.add_debug("⚠️ TTS: Enabled but chat history is empty")
                         console_separator()
                         self.add_debug("────────────────────")
                 except Exception as tts_error:
@@ -5271,7 +5271,7 @@ class AIState(rx.State):
             self.crop_box_width = 100.0
             self.crop_box_height = 100.0
             self.crop_modal_open = True
-            self.add_debug(f"✂️ Crop-Modus geöffnet für: {self.pending_images[index]['name']}")
+            self.add_debug(f"✂️ Crop mode opened for: {self.pending_images[index]['name']}")
 
     def cancel_crop(self):
         """Schließt Modal ohne Änderung"""
@@ -5473,14 +5473,14 @@ class AIState(rx.State):
 
                 # Show Transcription Workflow
                 if self.show_transcription:
-                    # Mode: Text editieren → Manuell senden
-                    self.add_debug("✏️ Text im Eingabefeld → Zum Editieren bereit")
+                    # Mode: Edit text → Send manually
+                    self.add_debug("✏️ Text in input field → Ready for editing")
                     # Separator after STT complete (user will edit + send manually)
                     self.add_debug(CONSOLE_SEPARATOR)
                     console_separator()  # Log-File
                 else:
-                    # Mode: Direkt zur AI
-                    self.add_debug("🚀 Sende Text direkt zur AI...")
+                    # Mode: Direct to AI
+                    self.add_debug("🚀 Sending text directly to AI...")
                     # Separator after STT, before send_message starts
                     self.add_debug(CONSOLE_SEPARATOR)
                     console_separator()  # Log-File
@@ -5958,8 +5958,8 @@ class AIState(rx.State):
     def toggle_aifred_personality(self):
         """Toggle AIfred Butler personality style on/off"""
         self.aifred_personality = not self.aifred_personality
-        status = "AN" if self.aifred_personality else "AUS"
-        self.add_debug(f"🎩 AIfred Persönlichkeit: {status}")
+        status = "ON" if self.aifred_personality else "OFF"
+        self.add_debug(f"🎩 AIfred personality: {status}")
         self._save_personality_settings()
         # Sync to prompt_loader
         from .lib.prompt_loader import set_personality_enabled
@@ -5968,8 +5968,8 @@ class AIState(rx.State):
     def toggle_sokrates_personality(self):
         """Toggle Sokrates philosophical personality style on/off"""
         self.sokrates_personality = not self.sokrates_personality
-        status = "AN" if self.sokrates_personality else "AUS"
-        self.add_debug(f"🏛️ Sokrates Persönlichkeit: {status}")
+        status = "ON" if self.sokrates_personality else "OFF"
+        self.add_debug(f"🏛️ Sokrates personality: {status}")
         self._save_personality_settings()
         # Sync to prompt_loader
         from .lib.prompt_loader import set_personality_enabled
@@ -5978,8 +5978,8 @@ class AIState(rx.State):
     def toggle_salomo_personality(self):
         """Toggle Salomo judge personality style on/off"""
         self.salomo_personality = not self.salomo_personality
-        status = "AN" if self.salomo_personality else "AUS"
-        self.add_debug(f"👑 Salomo Persönlichkeit: {status}")
+        status = "ON" if self.salomo_personality else "OFF"
+        self.add_debug(f"👑 Salomo personality: {status}")
         self._save_personality_settings()
         # Sync to prompt_loader
         from .lib.prompt_loader import set_personality_enabled
@@ -6319,7 +6319,7 @@ class AIState(rx.State):
             factor_float = float(factor_normalized)
             if 1.0 <= factor_float <= 8.0 and self.vllm_max_tokens > 0:
                 estimated_context = int(self.vllm_max_tokens * factor_float)
-                self.add_debug(f"📏 YaRN Faktor: {factor_float}x (~{estimated_context} tokens)")
+                self.add_debug(f"📏 YaRN factor: {factor_float}x (~{estimated_context} tokens)")
         except ValueError:
             pass  # Ignore invalid input during typing
 
@@ -6330,7 +6330,7 @@ class AIState(rx.State):
             factor_normalized = self.yarn_factor_input.replace(',', '.')
             factor_float = float(factor_normalized)
             if not (1.0 <= factor_float <= 8.0):
-                self.add_debug(f"❌ YaRN-Faktor muss zwischen 1.0 und 8.0 liegen (eingegeben: {factor_float})")
+                self.add_debug(f"❌ YaRN factor must be between 1.0 and 8.0 (entered: {factor_float})")
                 return
 
             old_factor = self.yarn_factor
@@ -6904,13 +6904,13 @@ class AIState(rx.State):
     async def resynthesize_tts(self):
         """Re-synthesize TTS for the last AI response"""
         if not self.chat_history:
-            self.add_debug("⚠️ TTS Re-Synth: Keine Antwort vorhanden")
+            self.add_debug("⚠️ TTS Re-Synth: No response available")
             return
 
         # Get last AI response from chat history
         _, last_ai_response = self.chat_history[-1]
         if not last_ai_response or not last_ai_response.strip():
-            self.add_debug("⚠️ TTS Re-Synth: Letzte Antwort ist leer")
+            self.add_debug("⚠️ TTS Re-Synth: Last response is empty")
             return
 
         # FIRST: Stop any currently playing audio to avoid overlap

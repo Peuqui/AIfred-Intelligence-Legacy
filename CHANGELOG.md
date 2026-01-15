@@ -5,6 +5,41 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.1] - 2026-01-15
+
+### Fixed
+
+- **Critical: User Message Disappearing from Chat History** ([state.py](aifred/state.py)):
+
+  **Problem:** Nach Abschluss der LLM-Inferenz (und Titel-Generierung) verschwand die User-Message aus der Chat-History. Die User-Bubble war nicht mehr sichtbar.
+
+  **Ursache:** An 3 Stellen in `state.py` wurde `self.chat_history[:-1]` an die Handler-Funktionen übergeben:
+  - Zeile 3315 (Vision Pipeline Phase 2)
+  - Zeile 3413 (Automatik Mode)
+  - Zeile 3672 (Research Mode)
+
+  Das `[:-1]` sollte ursprünglich einen "temporary entry" ausschließen, der nicht mehr existiert. Stattdessen wurde die **User-Message** (das letzte Element) ausgeschlossen.
+
+  **Ablauf des Bugs:**
+  1. User sendet Nachricht → User-Message wird zu `self.chat_history` hinzugefügt (Zeile 3055-3066)
+  2. Handler-Funktion wird mit `self.chat_history[:-1]` aufgerufen → User-Message fehlt!
+  3. Handler fügt nur AI-Antwort zur History hinzu (nicht User-Message, siehe Kommentar in `conversation_handler.py:1588`)
+  4. `self.chat_history = result_data["history"]` überschreibt die komplette History
+  5. User-Message ist verschwunden
+
+  **Hinweis:** Die `llm_history` war nicht betroffen, weil dort die User-Message im Handler wieder hinzugefügt wird (`own_knowledge_handler.py:271`).
+
+  **Fix:** `[:-1]` entfernt an allen 3 Stellen:
+  ```python
+  # Vorher (falsch):
+  history=self.chat_history[:-1],  # Exclude current temporary entry
+
+  # Nachher (korrekt):
+  history=self.chat_history,  # User message already included
+  ```
+
+---
+
 ## [2.19.0] - 2026-01-13
 
 ### Added

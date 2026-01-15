@@ -987,9 +987,9 @@ async def summarize_history_if_needed(
     summaries_count = count_summaries(new_chat_history)
 
     log_message("✅ History successfully compressed:")
-    log_message(f"   └─ Chat-History: {len(history)} → {len(new_chat_history)} entries (UI vollständig)")
+    log_message(f"   └─ Chat-History: {len(history)} → {len(new_chat_history)} entries (UI complete)")
     if new_llm_history is not None:
-        log_message(f"   └─ LLM-History: {len(new_llm_history)} messages (komprimiert)")
+        log_message(f"   └─ LLM-History: {len(new_llm_history)} messages (compressed)")
     log_message(f"   └─ History Tokens: {format_number(history_tokens)} → {format_number(new_history_tokens)} ({format_number(compression_ratio, 1)}:1)")
     log_message(f"   └─ Total (incl. System): {format_number(total_tokens)} → {format_number(new_total_tokens)} tok")
     log_message(f"   └─ Utilization: {int(utilization)}% → {int(new_utilization)}%")
