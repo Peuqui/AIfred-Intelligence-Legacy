@@ -1526,15 +1526,18 @@ class AIState(rx.State):
         from .lib.formatting import format_number
 
         native_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=1.0)
-        extended_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=2.0)
+        rope_1_5x_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=1.5)
+        rope_2x_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=2.0)
 
-        if native_ctx is not None or extended_ctx is not None:
+        if native_ctx is not None or rope_1_5x_ctx is not None or rope_2x_ctx is not None:
             # Show calibrated values
             parts = []
             if native_ctx is not None:
                 parts.append(f"Native: {format_number(native_ctx)}")
-            if extended_ctx is not None:
-                parts.append(f"RoPE 2x: {format_number(extended_ctx)}")
+            if rope_1_5x_ctx is not None:
+                parts.append(f"RoPE 1.5x: {format_number(rope_1_5x_ctx)}")
+            if rope_2x_ctx is not None:
+                parts.append(f"RoPE 2x: {format_number(rope_2x_ctx)}")
             self.add_debug(f"   🎯 Calibrated: {', '.join(parts)}")
         else:
             # Not calibrated - show warning
