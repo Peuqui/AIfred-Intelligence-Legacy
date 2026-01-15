@@ -5053,6 +5053,9 @@ class AIState(rx.State):
             first_ai_response = first_ai_response[:500] + "..."
 
         try:
+            # Show user that title is being generated (can take a few seconds)
+            self.add_debug("🏷️ Generating session title...")
+
             # Load prompt in current UI language
             prompt = load_prompt(
                 "utility/chat_title",
