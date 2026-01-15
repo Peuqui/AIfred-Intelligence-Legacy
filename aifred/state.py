@@ -2543,7 +2543,7 @@ class AIState(rx.State):
                         self.yarn_max_factor = reduced_factor
                         self.yarn_max_tested = True
                         self.add_debug(f"✅ YaRN factor automatically reduced to {reduced_factor:.2f}x (VRAM limit)")
-                        self.add_debug(f"📏 Maximum YaRN factor: ~{self.yarn_max_factor:.1f}x (ermittelt durch Test)")
+                        self.add_debug(f"📏 Maximum YaRN factor: ~{self.yarn_max_factor:.1f}x (determined by test)")
                 else:
                     # Successful start - we don't know the maximum yet
                     self.yarn_max_factor = 0.0  # Unknown
@@ -5517,7 +5517,7 @@ class AIState(rx.State):
             clean_text = clean_text_for_tts(ai_response)
 
             if not clean_text or len(clean_text.strip()) < 5:
-                self.add_debug("🔇 TTS: Text zu kurz nach Bereinigung")
+                self.add_debug("🔇 TTS: Text too short after cleanup")
                 return
 
             self.add_debug(f"🔊 TTS: Generating audio ({len(clean_text)} chars)...")
@@ -6677,7 +6677,7 @@ class AIState(rx.State):
             # Show calibration info for Ollama models
             self._show_model_calibration_info(self.sokrates_model_id)
         else:
-            self.add_debug("🧠 Sokrates-LLM: (wie Haupt-LLM)")
+            self.add_debug("🧠 Sokrates-LLM: (same as Main-LLM)")
 
     def set_salomo_model(self, model: str):
         """Set Salomo LLM model for multi-agent debate"""
@@ -6696,13 +6696,13 @@ class AIState(rx.State):
             # Show calibration info for Ollama models
             self._show_model_calibration_info(self.salomo_model_id)
         else:
-            self.add_debug("👑 Salomo-LLM: (wie Haupt-LLM)")
+            self.add_debug("👑 Salomo-LLM: (same as Main-LLM)")
 
     def queue_user_interjection(self, text: str):
         """Queue user input during active debate"""
         if self.debate_in_progress and text.strip():
             self.debate_user_interjection = text.strip()
-            self.add_debug(f"💬 User-Einwurf gequeued: {text[:50]}...")
+            self.add_debug(f"💬 User interjection queued: {text[:50]}...")
 
     def get_and_clear_user_interjection(self) -> str:
         """Get queued user interjection and clear it (called by orchestrator)"""
@@ -6916,7 +6916,7 @@ class AIState(rx.State):
         # FIRST: Stop any currently playing audio to avoid overlap
         yield rx.call_script("stopTts()")
 
-        self.add_debug("🔄 TTS Re-Synth: Generiere Audio neu...")
+        self.add_debug("🔄 TTS Re-Synth: Regenerating audio...")
 
         # Generate TTS for last response
         # State changes (tts_audio_path, tts_trigger_counter) auto-propagate to frontend
@@ -6945,8 +6945,8 @@ class AIState(rx.State):
     def toggle_show_transcription(self):
         """Toggle show transcription mode"""
         self.show_transcription = not self.show_transcription
-        mode = "Text editieren" if self.show_transcription else "Direkt senden"
-        self.add_debug(f"🎤 Transkription: {mode}")
+        mode = "Edit text" if self.show_transcription else "Send directly"
+        self.add_debug(f"🎤 Transcription: {mode}")
         self._save_settings()
 
     def toggle_audio_recording(self):
