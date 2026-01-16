@@ -709,8 +709,9 @@ async def chat_with_vision_pipeline(
     log_message(f"🚀 Vision Pipeline started: {len(images)} image(s)")
     for i, img in enumerate(images):
         img_name = img.get("name", "unknown")
-        img_size = len(img.get("base64", "")) // 1024  # KB
-        log_message(f"   [{i+1}] {img_name} ({img_size} KB base64)")
+        # Use size_kb from pending_images (set during upload), not base64 length
+        img_size = img.get("size_kb", 0)
+        log_message(f"   [{i+1}] {img_name} ({img_size} KB)")
 
     # Use detected_language from Intent Detection (passed from state.py)
     lang = detected_language
@@ -778,11 +779,12 @@ async def chat_with_vision_pipeline(
     # Calculate required tokens for Vision (SEQUENTIAL: only 1 image at a time!)
     # - Image embeddings: ~2000 tokens per image (conservative estimate)
     # - System prompt: ~500 tokens
-    # - Reserve for response: 8K tokens (Vision outputs can be long with OCR)
+    # - Reserve for response: configured in config.py (default 12.5K for large tables)
     # NOTE: We always calculate for 1 image since we process sequentially!
+    from .config import VISION_RESPONSE_RESERVE
     image_tokens = 1 * 2000  # Only 1 image at a time
     system_prompt_tokens = 500
-    response_reserve = 8192  # 8K reserve for Vision response
+    response_reserve = VISION_RESPONSE_RESERVE  # From config.py (default 12.5K)
 
     estimated_tokens = image_tokens + system_prompt_tokens
     needed_tokens = estimated_tokens + response_reserve

@@ -5,6 +5,34 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.3] - 2026-01-16
+
+### Added
+
+- **Session List Refresh Button** ([aifred.py](aifred/aifred.py)):
+  - Neuer Refresh-Button neben "Neuer Chat" in der Session-Liste
+  - Ermöglicht manuelles Aktualisieren der Session-Liste ohne App-Neustart
+  - Rötliches Styling zur visuellen Unterscheidung vom New-Chat-Button
+
+- **Image Upload Feedback** ([state.py](aifred/state.py)):
+  - Debug-Nachricht beim Start des Bild-Uploads ("📤 Uploading X image(s) from source...")
+  - Verbesserte Nutzer-Feedback bei langsamen Mobilfunk-Verbindungen
+
+### Changed
+
+- **Vision Response Reserve konfigurierbar** ([config.py](aifred/lib/config.py), [conversation_handler.py](aifred/lib/conversation_handler.py)):
+  - Neue Konstante `VISION_RESPONSE_RESERVE = 12500` (vorher hardcoded 8192)
+  - Größerer Token-Puffer erlaubt längere OCR-Ausgaben (große Tabellen, lange Texte)
+  - Berechnung: 2K Bild-Tokens + 0.5K System-Prompt + 12.5K Response = 15K total
+
+### Fixed
+
+- **Korrekte Bildgrößen-Anzeige** ([conversation_handler.py](aifred/lib/conversation_handler.py)):
+  - Zeigt echte Dateigröße in KB (aus `size_kb` Metadaten beim Upload)
+  - Vorher: Berechnete fälschlicherweise die Base64-Länge (33% größer als Originaldatei)
+
+---
+
 ## [2.19.2] - 2026-01-16
 
 ### Improved

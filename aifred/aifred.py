@@ -1929,33 +1929,54 @@ def session_list_display() -> rx.Component:
         )
 
     session_list_content = rx.vstack(
-        # New Chat button (styled like send button)
-        rx.button(
-            rx.hstack(
-                rx.icon("plus", size=14),
-                rx.cond(
-                    AIState.ui_language == "de",
-                    rx.text("Neuer Chat", font_size="12px"),
-                    rx.text("New Chat", font_size="12px"),
+        # New Chat + Refresh buttons
+        rx.hstack(
+            rx.button(
+                rx.hstack(
+                    rx.icon("plus", size=14),
+                    rx.cond(
+                        AIState.ui_language == "de",
+                        rx.text("Neuer Chat", font_size="12px"),
+                        rx.text("New Chat", font_size="12px"),
+                    ),
+                    spacing="2",
+                    align="center",
                 ),
-                spacing="2",
-                align="center",
+                size="1",
+                variant="solid",
+                on_click=AIState.new_session,
+                flex="1",
+                style={
+                    "background": "#3d2a00",
+                    "color": COLORS["accent_warning"],
+                    "border": f"1px solid {COLORS['accent_warning']}",
+                    "font_weight": "600",
+                    "&:hover": {
+                        "background": "#4d3500",
+                        "color": "#ffb84d",
+                    },
+                },
             ),
-            size="1",
-            variant="solid",
-            on_click=AIState.new_session,
+            rx.button(
+                rx.icon("refresh-cw", size=14),
+                size="1",
+                variant="solid",
+                on_click=AIState.refresh_session_list,
+                padding_x="4",
+                style={
+                    "background": "rgba(180, 60, 60, 0.3)",
+                    "color": COLORS["accent_warning"],
+                    "border": "1px solid rgba(220, 80, 80, 0.6)",
+                    "minWidth": "42px",
+                    "&:hover": {
+                        "background": "rgba(200, 70, 70, 0.4)",
+                        "color": "#ffb84d",
+                    },
+                },
+            ),
+            spacing="2",
             width="100%",
             margin_bottom="2",
-            style={
-                "background": "#3d2a00",
-                "color": COLORS["accent_warning"],
-                "border": f"1px solid {COLORS['accent_warning']}",
-                "font_weight": "600",
-                "&:hover": {
-                    "background": "#4d3500",
-                    "color": "#ffb84d",
-                },
-            },
         ),
         # Session list (scrollable area separate from button)
         rx.cond(

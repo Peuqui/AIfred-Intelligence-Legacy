@@ -494,6 +494,12 @@ MAX_SWAP_INCREASE_MB = 512  # Max swap increase per test iteration
 # Below this value, vision processing does not work reliably
 VISION_MINIMUM_CONTEXT = 4096  # 4K minimum for Vision-LLM
 
+# Token reserve for Vision-LLM response output
+# Larger values allow for more detailed OCR extraction (tables, long texts)
+# Total needed_tokens = image_tokens (2K) + system_prompt (0.5K) + VISION_RESPONSE_RESERVE
+# Example: 2500 + 12500 = 15000 tokens minimum for Vision
+VISION_RESPONSE_RESERVE = 12500  # 12.5K reserve for Vision response (allows ~15K total)
+
 # ============================================================
 # WEB SCRAPING CONSTANTS
 # ============================================================

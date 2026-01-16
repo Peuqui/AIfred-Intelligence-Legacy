@@ -5165,6 +5165,11 @@ class AIState(rx.State):
 
         # Show loading state immediately
         self.is_uploading_image = True
+
+        # Log upload start with file count (visible feedback for slow mobile connections)
+        file_count = len(files) if hasattr(files, '__len__') else 1
+        source = "camera" if from_camera else "file picker"
+        self.add_debug(f"📤 Uploading {file_count} image(s) from {source}...")
         yield  # Update UI to show spinner
 
         try:
