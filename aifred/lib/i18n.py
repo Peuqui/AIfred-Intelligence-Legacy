@@ -237,6 +237,7 @@ class TranslationManager:
             "crop_modal_hint": "Ziehe die Ecken oder Kanten",
             "crop_cancel": "Abbrechen",
             "crop_apply": "Zuschneiden",
+            "crop_rotate": "Drehen",
             # Context Calibration
             "calibrate_context": "Context kalibrieren",
             "calibrating": "Kalibriere...",
@@ -451,6 +452,7 @@ class TranslationManager:
             "crop_modal_hint": "Drag corners or edges",
             "crop_cancel": "Cancel",
             "crop_apply": "Crop",
+            "crop_rotate": "Rotate",
             # Context Calibration
             "calibrate_context": "Calibrate context",
             "calibrating": "Calibrating...",

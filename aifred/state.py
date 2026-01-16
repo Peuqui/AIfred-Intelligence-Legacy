@@ -153,6 +153,7 @@ class AIState(rx.State):
     crop_box_y: float = 0.0  # Crop box position Y in percent (0-100)
     crop_box_width: float = 100.0  # Crop box width in percent (0-100)
     crop_box_height: float = 100.0  # Crop box height in percent (0-100)
+    crop_rotation: int = 0  # Cumulative rotation in degrees (0, 90, 180, 270)
 
     # Image Lightbox State (for viewing images in chat history)
     lightbox_open: bool = False  # Show lightbox modal?
@@ -3373,7 +3374,8 @@ class AIState(rx.State):
 
                 # CRITICAL: Generate title and save session before early return
                 # (finally block may not execute for async generators)
-                await self._generate_session_title(self.automatik_model_id)
+                async for _ in self._generate_session_title(self.automatik_model_id):
+                    yield  # Forward UI updates from title generation
                 self._save_current_session()
                 self.refresh_session_list()
                 yield
@@ -3889,7 +3891,8 @@ class AIState(rx.State):
 
             # Generate session title at end of flow (uses small Automatik model)
             # Only runs on first Q&A pair, skipped if title already exists
-            await self._generate_session_title(self.automatik_model_id)
+            async for _ in self._generate_session_title(self.automatik_model_id):
+                yield  # Forward UI updates from title generation
 
             # Refresh session list to update sorting (last_seen changed)
             self.refresh_session_list()
@@ -5063,14 +5066,17 @@ class AIState(rx.State):
         """
         Generate a chat title using LLM based on first Q&A pair.
 
+        This is an async generator that yields for UI updates during title generation.
         Called at the END of send_message() flow (in finally block).
         Uses the small Automatik model with thinking disabled for fast response.
-        Similar pattern to history compression - runs after main inference is done.
 
         Only executes on first Q&A pair - skipped if title already exists.
 
         Args:
             model_id: Model to use for title generation. Defaults to automatik_model_id.
+
+        Yields:
+            None - yields are for UI updates only
         """
         from .lib.session_storage import get_session_title, update_session_title
         from .lib.prompt_loader import load_prompt, get_language
@@ -5108,6 +5114,11 @@ class AIState(rx.State):
             if first_user_msg and first_ai_response:
                 break
 
+        # Vision-Only: If no user text but AI response exists, use placeholder
+        # This allows title generation for image-only uploads
+        if not first_user_msg and first_ai_response:
+            first_user_msg = "📷 [Bildanalyse]"  # Placeholder for title generation
+
         if not first_user_msg or not first_ai_response:
             return
 
@@ -5125,6 +5136,7 @@ class AIState(rx.State):
         try:
             # Show user that title is being generated (can take a few seconds)
             self.add_debug("🏷️ Generating session title...")
+            yield  # Update UI immediately to show "Generating..." message
 
             # Load prompt in current UI language
             prompt = load_prompt(
@@ -5172,6 +5184,7 @@ class AIState(rx.State):
                 self.add_debug(f"🏷️ Session title: {title}")
                 console_separator()
                 self.add_debug("────────────────────")
+                yield  # Update UI to show generated title
 
         except Exception as e:
             log_message(f"⚠️ Title generation failed: {e}")
@@ -5358,6 +5371,7 @@ class AIState(rx.State):
             self.crop_box_y = 0.0
             self.crop_box_width = 100.0
             self.crop_box_height = 100.0
+            self.crop_rotation = 0  # Reset rotation
             self.crop_modal_open = True
             self.add_debug(f"✂️ Crop mode opened for: {self.pending_images[index]['name']}")
 
@@ -5366,6 +5380,76 @@ class AIState(rx.State):
         self.crop_modal_open = False
         self.crop_image_index = -1
         self.crop_preview_url = ""
+        self.crop_rotation = 0  # Reset rotation
+
+    def rotate_crop_image_left(self):
+        """Rotate image 90° counter-clockwise in crop preview"""
+        self._rotate_crop_image(clockwise=False)
+
+    def rotate_crop_image_right(self):
+        """Rotate image 90° clockwise in crop preview"""
+        self._rotate_crop_image(clockwise=True)
+
+    def _rotate_crop_image(self, clockwise: bool = True):
+        """Internal: Rotate image 90° in crop preview"""
+        from PIL import Image
+        from pathlib import Path
+
+        if self.crop_image_index < 0 or self.crop_image_index >= len(self.pending_images):
+            return
+
+        image_data = self.pending_images[self.crop_image_index]
+        image_path = Path(image_data.get("path", ""))
+
+        if not image_path.exists():
+            self.add_debug("❌ Rotate failed: Image file not found")
+            return
+
+        try:
+            # Load image
+            img = Image.open(image_path)
+
+            # Rotate: ROTATE_270 = 90° clockwise, ROTATE_90 = 90° counter-clockwise
+            if clockwise:
+                img_rotated = img.transpose(Image.Transpose.ROTATE_270)
+                rotation_delta = 90
+                direction = "↻"
+            else:
+                img_rotated = img.transpose(Image.Transpose.ROTATE_90)
+                rotation_delta = -90
+                direction = "↺"
+
+            # Save rotated image back to same file
+            format_to_use = img.format if img.format in ['JPEG', 'PNG', 'GIF', 'WEBP', 'BMP'] else 'JPEG'
+            img_rotated.save(image_path, format=format_to_use, quality=90)
+
+            # Update file size in pending_images
+            new_size_kb = image_path.stat().st_size // 1024
+            self.pending_images[self.crop_image_index]["size_kb"] = new_size_kb
+
+            # Update URLs with cache-busting timestamp
+            import time
+            cache_buster = f"?t={int(time.time() * 1000)}"
+            base_url = image_data["url"].split("?")[0]  # Remove old query params
+            new_url = f"{base_url}{cache_buster}"
+
+            # Update BOTH preview URL and thumbnail URL in pending_images
+            self.crop_preview_url = new_url
+            self.pending_images[self.crop_image_index]["url"] = new_url
+
+            # Track cumulative rotation
+            self.crop_rotation = (self.crop_rotation + rotation_delta) % 360
+
+            # Reset crop box (dimensions may have changed)
+            self.crop_box_x = 0.0
+            self.crop_box_y = 0.0
+            self.crop_box_width = 100.0
+            self.crop_box_height = 100.0
+
+            self.add_debug(f"🔄 Image rotated {direction} 90°")
+
+        except Exception as e:
+            self.add_debug(f"❌ Rotate failed: {e}")
 
     def update_crop_box(self, x: float, y: float, width: float, height: float):
         """Update Crop-Box Koordinaten (von JavaScript/UI)"""

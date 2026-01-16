@@ -4073,6 +4073,22 @@ def crop_modal() -> rx.Component:
                         size="3",
                     ),
                     rx.button(
+                        rx.icon("rotate-ccw", size=16),
+                        on_click=AIState.rotate_crop_image_left,
+                        variant="soft",
+                        color_scheme="blue",
+                        size="3",
+                        title="90° links",
+                    ),
+                    rx.button(
+                        rx.icon("rotate-cw", size=16),
+                        on_click=AIState.rotate_crop_image_right,
+                        variant="soft",
+                        color_scheme="blue",
+                        size="3",
+                        title="90° rechts",
+                    ),
+                    rx.button(
                         rx.hstack(
                             rx.icon("check", size=16),
                             rx.text(t("crop_apply")),
