@@ -5187,6 +5187,16 @@ class AIState(rx.State):
     # Image Upload Handlers
     # ============================================================
 
+    def on_camera_click(self):
+        """Debug message when camera button is clicked"""
+        self.add_debug("📷 Opening camera...")
+        yield
+
+    def on_file_picker_click(self):
+        """Debug message when file picker button is clicked"""
+        self.add_debug("🖼️ Opening file picker...")
+        yield
+
     async def handle_image_upload(self, files: List[rx.UploadFile]):
         """Handle image file uploads - keeps original filename"""
         async for _ in self._process_image_upload(files, from_camera=False):

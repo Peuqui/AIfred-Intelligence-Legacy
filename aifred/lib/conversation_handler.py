@@ -123,6 +123,14 @@ async def _process_single_image_vision(
     # Build messages
     if supports_chat_template:
         vision_system_prompt = get_vision_ocr_prompt(lang=lang)
+
+        # Add /no_think to user content if thinking is disabled
+        # This is needed because Qwen3-VL ignores the API "think" parameter
+        enable_thinking = (llm_options or {}).get('enable_thinking', True)
+        if not enable_thinking:
+            # Prepend /no_think as text before the image
+            content_parts.insert(0, {"type": "text", "text": "/no_think"})
+
         messages = [
             LLMMessage(role="system", content=vision_system_prompt),
             LLMMessage(role="user", content=content_parts)

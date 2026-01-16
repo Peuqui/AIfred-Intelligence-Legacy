@@ -295,6 +295,7 @@ def image_upload_section() -> rx.Component:
                         color_scheme="red",
                         padding_y="24px",
                         disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                        on_click=AIState.on_camera_click,
                     ),
                     id="camera-upload",
                     accept={"image/*": []},  # Accept images from camera
@@ -316,6 +317,7 @@ def image_upload_section() -> rx.Component:
                     color_scheme="red",
                     padding_y="24px",
                     disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                    on_click=AIState.on_file_picker_click,
                 ),
                 id="image-upload",
                 accept={"image/*": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]},
