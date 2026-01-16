@@ -3294,18 +3294,8 @@ class AIState(rx.State):
                     # Import here to avoid circular dependency
                     from .lib.conversation_handler import chat_interactive_mode
 
-                    # Initialize user panel for real-time display
-                    # Use original_user_text (actual user question, not image filename)
-                    from datetime import datetime
-                    self.chat_history.append({
-                        "role": "user",
-                        "content": original_user_text,
-                        "agent": "",
-                        "mode": "",
-                        "round_num": 0,
-                        "metadata": {"images": []},  # Empty images array for consistency
-                        "timestamp": datetime.now().isoformat()
-                    })
+                    # Note: User message was already added to chat_history at the start of send_message()
+                    # (line ~3058) with the image thumbnail. No need to add it again here.
                     self.current_ai_response = ""  # Reset for Main-LLM streaming
 
                     # Call chat_interactive_mode with Vision JSON context

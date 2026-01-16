@@ -472,20 +472,25 @@ def resize_image_if_needed(image_bytes: bytes, max_dimension: int = None) -> byt
     import io
 
     img = Image.open(io.BytesIO(image_bytes))
+    original_size = (img.width, img.height)
 
     # Fix EXIF rotation (important for phone photos!)
     # Phones often store rotation only as EXIF metadata, not physically in the image
     # Without this, a landscape photo may arrive rotated 90°
     img = ImageOps.exif_transpose(img)
 
+    # Check if EXIF transpose changed the image dimensions (rotation was applied)
+    was_rotated = (img.width, img.height) != original_size
+
     # Check if resize needed
     if img.width <= max_dimension and img.height <= max_dimension:
-        # Even if no resize needed, we must re-encode on EXIF correction
-        # (only if image was actually transposed)
-        if img.getexif():
+        # Re-encode if rotation was applied (dimensions changed)
+        # We must save the rotated image, not return original bytes
+        if was_rotated:
             output = io.BytesIO()
             format_to_use = img.format if img.format in ['JPEG', 'PNG', 'GIF', 'WEBP', 'BMP'] else 'JPEG'
             img.save(output, format=format_to_use, quality=90)
+            logger.info(f"📐 Image rotated: {original_size[0]}x{original_size[1]} → {img.width}x{img.height}")
             return output.getvalue()
         return image_bytes
 

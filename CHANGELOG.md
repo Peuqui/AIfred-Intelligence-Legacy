@@ -5,6 +5,24 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.0] - 2026-01-16
+
+### Fixed
+
+- **EXIF-Rotation für Handy-Fotos** ([vision_utils.py](aifred/lib/vision_utils.py)):
+  - Querformat-Fotos vom Handy werden jetzt korrekt gedreht angezeigt
+  - Bug: Nach `ImageOps.exif_transpose()` waren EXIF-Daten leer → falscher Check
+  - Fix: Prüft jetzt ob sich Bildgröße geändert hat (100x200 → 200x100 = rotiert)
+  - Behebt: Bilder erschienen um 90° gedreht in UI und Vision-LLM Analyse
+
+- **Doppelte User-Message im Vision-Flow** ([state.py](aifred/state.py)):
+  - User-Anfrage erschien zweimal in der Chat-History bei Bild+Text
+  - Entfernt: Redundantes `chat_history.append()` in Phase 2 (AIfred nach Vision)
+  - User-Message wird bereits am Anfang von `send_message()` hinzugefügt
+  - Betrifft nur Vision+Text Flow, andere Flows unverändert
+
+---
+
 ## [2.20.0] - 2026-01-16
 
 ### Changed
