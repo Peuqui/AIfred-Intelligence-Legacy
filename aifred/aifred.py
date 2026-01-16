@@ -1903,7 +1903,7 @@ def session_list_display() -> rx.Component:
                         size="1",
                         variant="ghost",
                         color_scheme="red",
-                        on_click=lambda: AIState.delete_session(session["device_id"]),
+                        on_click=AIState.delete_session(session["device_id"]),
                         cursor="pointer",
                     ),
                     rx.fragment(),
@@ -1924,7 +1924,7 @@ def session_list_display() -> rx.Component:
                 "background_color": COLORS["card_bg"],
             },
             cursor="pointer",
-            on_click=lambda: AIState.switch_session(session["device_id"]),
+            on_click=AIState.switch_session(session["device_id"]),
             width="100%",
         )
 
