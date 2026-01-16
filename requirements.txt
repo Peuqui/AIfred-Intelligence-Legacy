@@ -33,6 +33,7 @@ python-dotenv>=1.0.0    # .env file support
 # Utilities
 python-multipart>=0.0.20
 platformdirs>=4.5.0
+mistune>=3.0.0          # Markdown-to-HTML for Chat Export
 
 # Development
 pytest>=8.0.0

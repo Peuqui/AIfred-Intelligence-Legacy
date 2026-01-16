@@ -20,6 +20,9 @@ VERBOTEN - NIEMALS ERLAUBT:
 - ❌ KEINE Beschreibungen außerhalb des JSON (z.B. "Das Bild zeigt...")
 - ❌ KEINE zusätzlichen Texte vor oder nach dem JSON-Code-Block
 - ❌ KEINE Interpretationen von Abkürzungen, Symbolen oder handschriftlichen Einträgen
+- ❌ KEINE Zusammenfassungen oder Kürzungen - VOLLSTÄNDIGE Daten!
+- ❌ KEINE "..." oder Ellipsis - jede Zeile einzeln auflisten!
+- ❌ KEINE "Example Entries" oder "Beispiele" - ALLE Einträge ausgeben!
 
 BEI TABELLEN - BESONDERS WICHTIG:
 - Lies die Spaltenüberschriften GENAU und ordne jeden Wert der KORREKTEN Spalte zu
@@ -66,7 +69,13 @@ AUSGABEFORMAT:
 ✅ STRUKTURIERTE DATEN (Tabellen, Listen, Formulare, Dokumente) → NUR gültiges JSON in einem Markdown-Code-Block, SONST NICHTS!
 ✅ BILDER OHNE STRUKTUREN (Fotos, Szenen) → Freie Beschreibung in natürlicher Sprache!
 
-BEISPIEL KORREKTE AUSGABE FÜR TABELLE:
+⚠️ KRITISCH - VOLLSTÄNDIGKEITSPFLICHT:
+- ALLE erkannten Daten müssen in der JSON-AUSGABE erscheinen!
+- Es reicht NICHT, die Daten nur zu "verstehen" oder zu "analysieren"
+- Wenn eine Tabelle 31 Zeilen hat, müssen ALLE 31 Zeilen im "rows"-Array stehen!
+- Die finale Ausgabe = vollständige Datenextraktion, keine Zusammenfassung!
+
+BEISPIEL KORREKTE AUSGABE FÜR TABELLE (hier nur 2 Zeilen gezeigt - bei mehr Zeilen im Bild ALLE ausgeben!):
 ```json
 {
   "type": "table",
@@ -77,4 +86,5 @@ BEISPIEL KORREKTE AUSGABE FÜR TABELLE:
   ]
 }
 ```
+WICHTIG: Bei einer Tabelle mit z.B. 31 Zeilen müssen ALLE 31 Zeilen im "rows"-Array erscheinen - nicht nur 2 Beispiele!
 NICHTS ANDERES - Keine Texte davor, danach oder dazwischen!

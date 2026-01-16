@@ -4252,8 +4252,8 @@ class AIState(rx.State):
         import mistune
         from .lib.formatting import _save_html_to_assets
 
-        # Create markdown renderer with table support
-        md = mistune.create_markdown(plugins=['table', 'strikethrough'])
+        # Create markdown renderer with table support and URL auto-linking
+        md = mistune.create_markdown(plugins=['table', 'strikethrough', 'url'])
 
         if not self.chat_history:
             self.add_debug("⚠️ No chat to share")
@@ -4471,7 +4471,24 @@ class AIState(rx.State):
         metrics_pattern = re.compile(r'<em>\(\s*((?:TTFT|Inference):[^)]+)\s*\)</em>')
         html_output = metrics_pattern.sub(r'<span class="metrics">( \1 )</span>', html_output)
 
+        # Ensure all links open in new tab (mistune's url plugin doesn't add target)
+        html_output = self._add_target_blank_to_links(html_output)
+
         return html_output
+
+    def _add_target_blank_to_links(self, html: str) -> str:
+        """Add target="_blank" to all <a> tags that don't have it yet."""
+        import re
+
+        def add_target(match):
+            tag = match.group(0)
+            # Skip if already has target attribute
+            if 'target=' in tag:
+                return tag
+            # Add target="_blank" before the closing >
+            return tag[:-1] + ' target="_blank" rel="noopener noreferrer">'
+
+        return re.sub(r'<a\s[^>]*>', add_target, html)
 
     def _escape_html(self, text: str) -> str:
         """Escape HTML special characters in user input"""

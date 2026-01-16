@@ -5,6 +5,31 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.2] - 2026-01-16
+
+### Improved
+
+- **Vision OCR Prompt: Vollständigkeitspflicht** ([vision_ocr.txt](prompts/de/vision/vision_ocr.txt), [vision_ocr.txt](prompts/en/vision/vision_ocr.txt)):
+  - Neue explizite Verbote: Keine Zusammenfassungen, keine "...", keine "Example Entries"
+  - Neue Vollständigkeitspflicht: ALLE erkannten Daten müssen in der JSON-Ausgabe erscheinen
+  - Problem behoben: Vision-LLM extrahierte Tabellen korrekt im Thinking, gab aber nur Zusammenfassungen aus
+  - Beispiel-Kommentare ergänzt um klarzustellen dass ALLE Zeilen ausgegeben werden müssen
+
+### Added
+
+- **Chat Export: Klickbare URLs** ([state.py](aifred/state.py)):
+  - URLs in exportierten Chats sind jetzt klickbar und öffnen in neuem Tab
+  - Verwendet mistune's eingebautes `url` Plugin für URL-Erkennung
+  - Neue Hilfsfunktion `_add_target_blank_to_links()` für `target="_blank"`
+  - Betrifft: Quellenangaben vom LLM, failed sources collapsible, alle Links im Export
+
+### Fixed
+
+- **Fehlende Dependency** ([requirements.txt](requirements.txt)):
+  - `mistune>=3.0.0` zu requirements.txt hinzugefügt (war bereits verwendet aber nicht deklariert)
+
+---
+
 ## [2.19.1] - 2026-01-15
 
 ### Fixed
