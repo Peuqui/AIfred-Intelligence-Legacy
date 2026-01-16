@@ -4882,3 +4882,11 @@ app = rx.App(
 # that occurs when using api_transformer with WebSocket connections
 from .lib.api import api_app
 app._api.mount("/api", api_app)
+
+# Mount uploaded images directory for static file serving
+# Images are stored in uploaded_files/images/{session_id}/ and served via /_upload/images/
+from starlette.staticfiles import StaticFiles
+from .lib.config import PROJECT_ROOT
+images_dir = PROJECT_ROOT / "uploaded_files" / "images"
+images_dir.mkdir(parents=True, exist_ok=True)
+app._api.mount("/_upload/images", StaticFiles(directory=str(images_dir)), name="uploaded_images")

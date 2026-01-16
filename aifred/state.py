@@ -300,11 +300,8 @@ class AIState(rx.State):
     tts_audio_path: str = ""  # Path to generated TTS audio file (TODO: UI player missing)
     tts_trigger_counter: int = 0  # Incremented to trigger TTS playback in frontend
 
-    # Session Management
-    session_id: str = ""
-
-    # Session Persistence (Cookie-based device identification)
-    session_id: str = ""  # Device ID from cookie (32 hex chars)
+    # Session Persistence (Cookie-based session identification)
+    session_id: str = ""  # Session ID from cookie (32 hex chars)
     session_restored: bool = False  # True if chat history was loaded from session
     _session_initialized: bool = False  # Guard against multiple session restore callbacks
     _on_load_running: bool = False  # Guard against multiple on_load() calls
@@ -2928,6 +2925,9 @@ class AIState(rx.State):
         self.current_ai_response = ""
         self.current_agent = "aifred"  # Set current agent for unified streaming UI
         self.failed_sources = []  # Clear failed sources from previous request
+
+        # IMPORTANT: Yield immediately so UI shows spinner right away
+        yield
 
         # Create LLM client once - used for ALL LLM operations
         from .lib.llm_client import LLMClient
