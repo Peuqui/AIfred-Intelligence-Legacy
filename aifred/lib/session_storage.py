@@ -6,7 +6,7 @@ Uses username from cookie for identification.
 
 Storage structure:
 - ~/.config/aifred/accounts.json - Username → Password-Hash mapping
-- ~/.config/aifred/sessions/<device_id>.json - Individual chat sessions
+- ~/.config/aifred/sessions/<session_id>.json - Individual chat sessions
 
 Each session belongs to a user (owner field).
 Users can access their sessions from any device via username + password.
@@ -330,9 +330,9 @@ def delete_account(username: str, delete_sessions: bool = False) -> bool:
     return _save_accounts(accounts)
 
 
-def generate_device_id() -> str:
+def generate_session_id() -> str:
     """
-    Generate new unique Device-ID.
+    Generate new unique Session-ID.
 
     Returns:
         32 character hex string (128 bit entropy)
@@ -340,68 +340,72 @@ def generate_device_id() -> str:
     return secrets.token_hex(16)  # 128 bits for secure session IDs
 
 
-def _sanitize_device_id(device_id: str) -> str:
+def _sanitize_session_id(session_id: str) -> str:
     """
-    Validate Device-ID format (hex string with 32 characters).
+    Validate Session-ID format (hex string with 32 characters).
 
     Only allows lowercase hex characters (a-f0-9) exactly 32 characters long.
     Prevents path traversal attacks through strict format checking.
 
     Args:
-        device_id: Device-ID to validate
+        session_id: Session-ID to validate
 
     Returns:
-        Validated Device-ID
+        Validated Session-ID
 
     Raises:
-        ValueError: If format is invalid
+        ValueError: If format is invalid or session_id is None
     """
     import re
 
+    # Check for None or empty
+    if not session_id:
+        raise ValueError("session_id cannot be None or empty")
+
     # Only allow lowercase hex: exactly 32 characters (128 bit)
-    if not re.match(r'^[a-f0-9]{32}$', device_id):
+    if not re.match(r'^[a-f0-9]{32}$', session_id):
         raise ValueError(
-            f"Invalid device_id format: Expected 32 hex chars, got '{device_id[:50]}'"
+            f"Invalid session_id format: Expected 32 hex chars, got '{str(session_id)[:50]}'"
         )
 
-    return device_id
+    return session_id
 
 
-def get_session_path(device_id: str) -> Path:
+def get_session_path(session_id: str) -> Path:
     """
     Return path to session file with path traversal protection.
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
 
     Returns:
         Path to session JSON file
 
     Raises:
-        ValueError: On invalid device_id or path traversal attempt
+        ValueError: On invalid session_id or path traversal attempt
     """
-    safe_id = _sanitize_device_id(device_id)
+    safe_id = _sanitize_session_id(session_id)
     path = (SESSION_DIR / f"{safe_id}.json").resolve()
 
     # Ensure path is within SESSION_DIR
     try:
         path.relative_to(SESSION_DIR.resolve())
     except ValueError:
-        raise ValueError(f"Path traversal attempt detected: {device_id}")
+        raise ValueError(f"Path traversal attempt detected: {session_id}")
 
     return path
 
 
-def load_session(device_id: str) -> Optional[Dict[str, Any]]:
+def load_session(session_id: str) -> Optional[Dict[str, Any]]:
     """
-    Load session for Device-ID.
+    Load session for Session-ID.
 
     Note: Does NOT update last_seen timestamp (read-only operation).
     last_seen is only updated when saving new content via save_session().
     This keeps session list stable when just viewing sessions.
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
 
     Returns:
         Session dict or None if not found
@@ -409,7 +413,7 @@ def load_session(device_id: str) -> Optional[Dict[str, Any]]:
     _ensure_session_dir()
 
     try:
-        session_path = get_session_path(device_id)
+        session_path = get_session_path(session_id)
     except ValueError:
         return None
 
@@ -445,7 +449,7 @@ def _write_session_file(path: Path, session: Dict[str, Any]) -> bool:
         return False
 
 
-def create_empty_session(device_id: str, owner: str) -> bool:
+def create_empty_session(session_id: str, owner: str) -> bool:
     """
     Create an empty session file for a new device.
 
@@ -453,25 +457,25 @@ def create_empty_session(device_id: str, owner: str) -> bool:
     Creates the file immediately so the API can inject messages right away.
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
         owner: Username who owns this session
 
     Returns:
         True on success, False on error
     """
-    return save_session(device_id, {"data": {}, "owner": owner.lower()})
+    return save_session(session_id, {"data": {}, "owner": owner.lower()})
 
 
 def save_session(
-    device_id: str,
+    session_id: str,
     session_data: Dict[str, Any],
     owner: Optional[str] = None
 ) -> bool:
     """
-    Save session for Device-ID.
+    Save session for Session-ID.
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
         session_data: Complete session dict
         owner: Username who owns this session (required for new sessions)
 
@@ -481,7 +485,7 @@ def save_session(
     _ensure_session_dir()
 
     try:
-        session_path = get_session_path(device_id)
+        session_path = get_session_path(session_id)
     except ValueError:
         return False
 
@@ -490,7 +494,7 @@ def save_session(
     if "created_at" not in session_data:
         session_data["created_at"] = now
     session_data["last_seen"] = now
-    session_data["device_id"] = device_id
+    session_data["session_id"] = session_id
 
     # Set owner (only on creation, don't overwrite existing)
     if owner and "owner" not in session_data:
@@ -500,7 +504,7 @@ def save_session(
 
 
 def update_chat_data(
-    device_id: str,
+    session_id: str,
     chat_history: List[Dict[str, Any]],
     chat_summaries: Optional[List[str]] = None,
     llm_history: Optional[List[Dict[str, str]]] = None,
@@ -514,7 +518,7 @@ def update_chat_data(
     More efficient than save_session() when only chat data changes.
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
         chat_history: List of ChatMessage dicts (UI - vollständig)
         chat_summaries: Optional - List of summary strings
         llm_history: Optional - List of {"role": ..., "content": ...} dicts (LLM - komprimiert)
@@ -525,7 +529,7 @@ def update_chat_data(
         True on success
     """
     # Load existing session or create new one
-    session = load_session(device_id)
+    session = load_session(session_id)
 
     if session is None:
         session = {
@@ -551,21 +555,21 @@ def update_chat_data(
     if is_generating is not None:
         session["data"]["is_generating"] = is_generating
 
-    return save_session(device_id, session)
+    return save_session(session_id, session)
 
 
-def delete_session(device_id: str) -> bool:
+def delete_session(session_id: str) -> bool:
     """
     Delete session completely.
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
 
     Returns:
         True on success
     """
     try:
-        session_path = get_session_path(device_id)
+        session_path = get_session_path(session_id)
         if session_path.exists():
             session_path.unlink()
         return True
@@ -614,7 +618,7 @@ def get_latest_session_file() -> Optional[Path]:
     """
     Get the most recently modified session file.
 
-    Useful for API access when device_id is not known.
+    Useful for API access when session_id is not known.
     Returns the session file with the newest modification time.
 
     Returns:
@@ -639,7 +643,7 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
         owner: Username to filter by (case-insensitive). If None, returns empty list.
 
     Returns list of dicts with:
-    - device_id: Session identifier
+    - session_id: Session identifier
     - title: Chat title (LLM-generated, or None if not yet set)
     - last_seen: Last activity timestamp
     - created_at: Session creation timestamp
@@ -670,7 +674,7 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
 
             chat_history = data.get("data", {}).get("chat_history", [])
             sessions.append({
-                "device_id": session_file.stem,
+                "session_id": session_file.stem,
                 "title": data.get("data", {}).get("title"),
                 "last_seen": data.get("last_seen", ""),
                 "created_at": data.get("created_at", ""),
@@ -685,20 +689,20 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
     return sessions
 
 
-def update_session_title(device_id: str, title: str) -> bool:
+def update_session_title(session_id: str, title: str) -> bool:
     """
     Update the title of a session.
 
     Called after first Q&A pair to set an LLM-generated title.
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
         title: The generated chat title
 
     Returns:
         True on success, False on error
     """
-    session = load_session(device_id)
+    session = load_session(session_id)
     if session is None:
         return False
 
@@ -706,20 +710,20 @@ def update_session_title(device_id: str, title: str) -> bool:
         session["data"] = {}
 
     session["data"]["title"] = title
-    return save_session(device_id, session)
+    return save_session(session_id, session)
 
 
-def get_session_title(device_id: str) -> Optional[str]:
+def get_session_title(session_id: str) -> Optional[str]:
     """
     Get the title of a session.
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
 
     Returns:
         Title string or None if not set
     """
-    session = load_session(device_id)
+    session = load_session(session_id)
     if session is None:
         return None
 
@@ -762,7 +766,7 @@ def cleanup_old_sessions(max_age_days: int = 30) -> int:
 # API Update Flags (for Browser Auto-Reload)
 # ============================================================
 
-def set_update_flag(device_id: str) -> bool:
+def set_update_flag(session_id: str) -> bool:
     """
     Set update flag file to signal browser should reload.
 
@@ -770,7 +774,7 @@ def set_update_flag(device_id: str) -> bool:
     Browser timer checks for this flag and triggers reload.
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
 
     Returns:
         True on success
@@ -778,7 +782,7 @@ def set_update_flag(device_id: str) -> bool:
     _ensure_session_dir()
 
     try:
-        safe_id = _sanitize_device_id(device_id)
+        safe_id = _sanitize_session_id(session_id)
         flag_path = SESSION_DIR / f"{safe_id}.update"
         flag_path.touch()
         return True
@@ -786,7 +790,7 @@ def set_update_flag(device_id: str) -> bool:
         return False
 
 
-def check_and_clear_update_flag(device_id: str) -> bool:
+def check_and_clear_update_flag(session_id: str) -> bool:
     """
     Check if update flag exists and clear it.
 
@@ -794,7 +798,7 @@ def check_and_clear_update_flag(device_id: str) -> bool:
     Returns True if flag was present (browser should reload).
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
 
     Returns:
         True if flag was present (now cleared), False otherwise
@@ -802,7 +806,7 @@ def check_and_clear_update_flag(device_id: str) -> bool:
     _ensure_session_dir()
 
     try:
-        safe_id = _sanitize_device_id(device_id)
+        safe_id = _sanitize_session_id(session_id)
         flag_path = SESSION_DIR / f"{safe_id}.update"
 
         if flag_path.exists():
@@ -817,7 +821,7 @@ def check_and_clear_update_flag(device_id: str) -> bool:
 # Pending Message (API → Browser Message Injection)
 # ============================================================
 
-def set_pending_message(device_id: str, message: str) -> bool:
+def set_pending_message(session_id: str, message: str) -> bool:
     """
     Set pending message for browser to process.
 
@@ -825,7 +829,7 @@ def set_pending_message(device_id: str, message: str) -> bool:
     Browser polls for .pending flag, reads message, triggers send_message().
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
         message: User message to inject
 
     Returns:
@@ -834,15 +838,15 @@ def set_pending_message(device_id: str, message: str) -> bool:
     _ensure_session_dir()
 
     try:
-        safe_id = _sanitize_device_id(device_id)
+        safe_id = _sanitize_session_id(session_id)
 
         # Load existing session or create minimal structure
-        session_path = get_session_path(device_id)
+        session_path = get_session_path(session_id)
         if session_path.exists():
             with open(session_path, 'r', encoding='utf-8') as f:
                 session = json.load(f)
         else:
-            session = {"device_id": device_id, "data": {}}
+            session = {"session_id": session_id, "data": {}}
 
         # Set pending message in session data
         if "data" not in session:
@@ -862,7 +866,7 @@ def set_pending_message(device_id: str, message: str) -> bool:
         return False
 
 
-def get_and_clear_pending_message(device_id: str) -> Optional[str]:
+def get_and_clear_pending_message(session_id: str) -> Optional[str]:
     """
     Get pending message and clear it.
 
@@ -870,7 +874,7 @@ def get_and_clear_pending_message(device_id: str) -> Optional[str]:
     Returns the message if present, clears it from session.
 
     Args:
-        device_id: Device identifier
+        session_id: Session identifier
 
     Returns:
         Pending message string, or None if no pending message
@@ -878,7 +882,7 @@ def get_and_clear_pending_message(device_id: str) -> Optional[str]:
     _ensure_session_dir()
 
     try:
-        safe_id = _sanitize_device_id(device_id)
+        safe_id = _sanitize_session_id(session_id)
         flag_path = SESSION_DIR / f"{safe_id}.pending"
 
         # Check flag first (fast path)
@@ -889,7 +893,7 @@ def get_and_clear_pending_message(device_id: str) -> Optional[str]:
         flag_path.unlink()
 
         # Load session and extract message
-        session_path = get_session_path(device_id)
+        session_path = get_session_path(session_id)
         if not session_path.exists():
             return None
 

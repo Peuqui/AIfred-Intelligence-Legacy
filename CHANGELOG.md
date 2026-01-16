@@ -5,6 +5,38 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.20.0] - 2026-01-16
+
+### Changed
+
+- **Rename: device_id → session_id** ([state.py](aifred/state.py), [aifred.py](aifred/aifred.py), [session_storage.py](aifred/lib/session_storage.py), [api.py](aifred/lib/api.py), [browser_storage.py](aifred/lib/browser_storage.py)):
+  - Durchgängige Umbenennung von `device_id` zu `session_id` für bessere Semantik
+  - Alte Session-Dateien bleiben kompatibel (Feld wird beim Laden gemappt)
+  - Cookie-Name bleibt `aifred_session_id` (war bereits korrekt)
+
+- **API URL Konfiguration vereinfacht** ([rxconfig.py](rxconfig.py)):
+  - Entfernt: `_get_local_ip()` Funktion und `AIFRED_API_URL` Umgebungsvariable
+  - Neu: Feste `api_url="http://0.0.0.0:8002"` - Reflex's Frontend-JS ersetzt `0.0.0.0` automatisch mit `window.location.hostname`
+  - Vorteil: Gleiche Konfiguration funktioniert auf allen Zugangswegen (Port 8443, 443, lokal)
+
+### Fixed
+
+- **Session-Wechsel überschrieb Daten** ([state.py](aifred/state.py)):
+  - Entfernt: Unnötiger `_save_current_session()` Aufruf in `switch_session()` und `new_session()`
+  - Problem: Wenn Tab A leer war und Session wechselte, wurde die Session-Datei mit leeren Daten überschrieben
+  - Sessions werden bereits nach jeder Inferenz automatisch gespeichert - kein zusätzliches Speichern beim Wechsel nötig
+
+- **Session-Reload bei leerer History** ([state.py](aifred/state.py)):
+  - `switch_session()` lädt Session neu, wenn `session_id` gleich aber `chat_history` leer ist
+  - Behebt: Klick auf aktuelle Session in der Liste hat nichts getan, obwohl History nicht geladen war
+
+- **Multi-Port CORS für Image-Upload** (nginx):
+  - nginx `sub_filter` schreibt `env.json` URLs basierend auf eingehendem Port um
+  - Port 8443 → `https://narnia.spdns.de:8443`, Port 443 → `https://narnia.spdns.de`
+  - Behebt: Image-Paste auf Port 8443 scheiterte wegen CORS (Reflex JS entfernt Port bei HTTPS)
+
+---
+
 ## [2.19.3] - 2026-01-16
 
 ### Added

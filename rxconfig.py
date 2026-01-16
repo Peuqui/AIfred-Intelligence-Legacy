@@ -2,7 +2,6 @@
 
 import reflex as rx
 import os
-import socket
 
 # Load .env file for environment variables
 try:
@@ -14,28 +13,16 @@ except ImportError:
 # ============================================================
 # API URL Configuration
 # ============================================================
-# The backend URL is auto-detected from the machine's IP address.
-# Override with AIFRED_API_URL environment variable if needed.
+# We use "0.0.0.0" as the hostname because Reflex's frontend JS
+# has a SAME_DOMAIN_HOSTNAMES list that includes "0.0.0.0".
+# When the browser sees this, it replaces it with window.location.hostname.
 #
-# Examples for .env file:
-#   AIFRED_API_URL=https://your-domain.com:8443  # Production with SSL/nginx
-#   AIFRED_API_URL=http://192.168.1.100:8002     # Specific IP
-
-def _get_local_ip() -> str:
-    """Get the local IP address of this machine."""
-    try:
-        # Connect to external host to determine local IP (doesn't actually send data)
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return "localhost"
-
-BACKEND_PORT = 8002
-_default_api_url = f"http://{_get_local_ip()}:{BACKEND_PORT}"
-API_URL = os.getenv("AIFRED_API_URL", _default_api_url)
+# This allows the same deployment to work via:
+#   - https://narnia.spdns.de:8443 (nginx/external)
+#   - https://narnia.spdns.de:443 (nginx/external alt port)
+#   - http://192.168.0.252:3002 (direct/local from other machines)
+#
+# The frontend JS (state.js getBackendURL) does the magic replacement.
 
 # Environment mode (affects Reflex optimizations)
 is_prod = os.getenv("AIFRED_ENV", "dev") == "prod"
@@ -46,8 +33,8 @@ config = rx.Config(
     backend_port=8002,
     frontend_port=3002,
     frontend_host="0.0.0.0",  # Frontend on all interfaces
-    # API URL from environment variable
-    api_url=API_URL,
+    # Use 0.0.0.0 - browser JS will replace with actual hostname
+    api_url="http://0.0.0.0:8002",
     env=rx.Env.PROD if is_prod else rx.Env.DEV,
     # Disable sitemap plugin (not needed)
     disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],

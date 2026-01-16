@@ -1857,7 +1857,7 @@ def session_list_display() -> rx.Component:
     def render_session_item(session) -> rx.Component:
         """Render a single session item in the list."""
         # Format date from ISO string
-        # session has: device_id, title, last_seen, created_at, message_count
+        # session has: session_id, title, last_seen, created_at, message_count
         return rx.box(
             rx.hstack(
                 # Session title or placeholder
@@ -1873,12 +1873,12 @@ def session_list_display() -> rx.Component:
                     ),
                     font_size="13px",
                     font_weight=rx.cond(
-                        session["device_id"] == AIState.device_id,
+                        session["session_id"] == AIState.session_id,
                         "600",  # Bold for current session
                         "400",
                     ),
                     color=rx.cond(
-                        session["device_id"] == AIState.device_id,
+                        session["session_id"] == AIState.session_id,
                         COLORS["primary"],  # Orange for current
                         COLORS["text_primary"],
                     ),
@@ -1889,7 +1889,7 @@ def session_list_display() -> rx.Component:
                 rx.badge(
                     f"{session['message_count']}",
                     color_scheme=rx.cond(
-                        session["device_id"] == AIState.device_id,
+                        session["session_id"] == AIState.session_id,
                         "orange",
                         "gray",
                     ),
@@ -1897,13 +1897,13 @@ def session_list_display() -> rx.Component:
                 ),
                 # Delete button (only for non-current sessions)
                 rx.cond(
-                    session["device_id"] != AIState.device_id,
+                    session["session_id"] != AIState.session_id,
                     rx.icon_button(
                         rx.icon("trash-2", size=12),
                         size="1",
                         variant="ghost",
                         color_scheme="red",
-                        on_click=AIState.delete_session(session["device_id"]),
+                        on_click=AIState.delete_session(session["session_id"]),
                         cursor="pointer",
                     ),
                     rx.fragment(),
@@ -1916,7 +1916,7 @@ def session_list_display() -> rx.Component:
             padding_x="3",
             border_radius="4px",
             background_color=rx.cond(
-                session["device_id"] == AIState.device_id,
+                session["session_id"] == AIState.session_id,
                 COLORS["primary_bg"],  # Highlight current session
                 "transparent",
             ),
@@ -1924,7 +1924,7 @@ def session_list_display() -> rx.Component:
                 "background_color": COLORS["card_bg"],
             },
             cursor="pointer",
-            on_click=AIState.switch_session(session["device_id"]),
+            on_click=AIState.switch_session(session["session_id"]),
             width="100%",
         )
 

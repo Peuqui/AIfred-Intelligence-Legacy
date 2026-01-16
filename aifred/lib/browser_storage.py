@@ -1,7 +1,7 @@
 """
 Browser Storage Integration for AIfred
 
-Handles cookie reading/writing for Device-ID via rx.call_script().
+Handles cookie reading/writing for Session-ID via rx.call_script().
 
 Reflex has no native cookie support, so JavaScript snippets are
 generated and executed via rx.call_script().
@@ -9,25 +9,25 @@ generated and executed via rx.call_script().
 Usage:
     # In State.on_load():
     yield rx.call_script(
-        get_device_id_script(),
-        callback=AIState.handle_device_id_loaded
+        get_session_id_script(),
+        callback=AIState.handle_session_id_loaded
     )
 
-    # In callback when device_id == "NEW":
-    return rx.call_script(set_device_id_script(new_id))
+    # In callback when session_id == "NEW":
+    return rx.call_script(set_session_id_script(new_id))
 """
 
 
 # Cookie configuration
-COOKIE_NAME = "aifred_device_id"
+COOKIE_NAME = "aifred_session_id"
 COOKIE_MAX_AGE_DAYS = 365
 
 
-def get_device_id_script(delay_ms: int = 0) -> str:
+def get_session_id_script(delay_ms: int = 0) -> str:
     """
-    Generate JavaScript to read Device-ID from cookie.
+    Generate JavaScript to read Session-ID from cookie.
 
-    The script returns the Device-ID or "NEW" if no cookie exists.
+    The script returns the Session-ID or "NEW" if no cookie exists.
     The return value is passed to the callback.
 
     Args:
@@ -70,9 +70,9 @@ def get_device_id_script(delay_ms: int = 0) -> str:
 """
 
 
-def set_device_id_script(device_id: str) -> str:
+def set_session_id_script(session_id: str) -> str:
     """
-    Generate JavaScript to set Device-ID as cookie.
+    Generate JavaScript to set Session-ID as cookie.
 
     Cookie attributes:
     - path=/: Applies to entire domain
@@ -80,24 +80,24 @@ def set_device_id_script(device_id: str) -> str:
     - SameSite=Lax: Prevents CSRF, but allows normal navigation
 
     Args:
-        device_id: Device-ID to store (32 hex chars)
+        session_id: Session-ID to store (32 hex chars)
 
     Returns:
         JavaScript code as string
     """
     # Validation: Only allow alphanumeric characters
-    safe_id = "".join(c for c in device_id if c.isalnum())[:32]
+    safe_id = "".join(c for c in session_id if c.isalnum())[:32]
     if not safe_id:
-        raise ValueError("Invalid device_id for cookie")
+        raise ValueError("Invalid session_id for cookie")
 
     max_age_seconds = COOKIE_MAX_AGE_DAYS * 24 * 60 * 60
 
     return f'document.cookie = "{COOKIE_NAME}={safe_id}; path=/; max-age={max_age_seconds}; SameSite=Lax";'
 
 
-def clear_device_id_script() -> str:
+def clear_session_id_script() -> str:
     """
-    Generate JavaScript to delete Device-ID cookie.
+    Generate JavaScript to delete Session-ID cookie.
 
     Sets max-age=0 to immediately invalidate cookie.
 

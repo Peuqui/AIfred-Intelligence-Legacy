@@ -143,7 +143,7 @@ class ModelsResponse(BaseModel):
 class ChatInjectRequest(BaseModel):
     """Chat inject request - injects message into browser session"""
     message: str = Field(..., min_length=1, description="User message to inject")
-    device_id: str = Field(..., description="Browser session device_id (required)")
+    session_id: str = Field(..., description="Browser session session_id (required)")
 
 
 class ChatHistoryResponse(BaseModel):
@@ -409,25 +409,25 @@ async def inject_message(request: ChatInjectRequest):
     This ensures the API uses the exact same code path as manual browser input.
     The user sees everything live in the browser - streaming, debug messages, etc.
 
-    Requires device_id to identify the target browser session.
+    Requires session_id to identify the target browser session.
     Use GET /api/sessions to list available sessions.
     """
     from .session_storage import set_pending_message
 
-    log_message(f"📨 API: Injecting message to {request.device_id[:8]}...")
+    log_message(f"📨 API: Injecting message to {request.session_id[:8]}...")
 
-    success = set_pending_message(request.device_id, request.message)
+    success = set_pending_message(request.session_id, request.message)
 
     if success:
-        log_message(f"✅ API: Message queued for {request.device_id[:8]}...")
+        log_message(f"✅ API: Message queued for {request.session_id[:8]}...")
         return ChatInjectResponse(
             success=True,
             message="Message queued for browser processing",
-            session_id=request.device_id,
+            session_id=request.session_id,
             queued=True
         )
     else:
-        log_message(f"❌ API: Failed to queue message for {request.device_id[:8]}...")
+        log_message(f"❌ API: Failed to queue message for {request.session_id[:8]}...")
         raise HTTPException(status_code=500, detail="Failed to queue message")
 
 
@@ -439,7 +439,7 @@ class ChatStatusResponse(BaseModel):
 
 
 @api_app.get("/chat/status", response_model=ChatStatusResponse, tags=["Chat"])
-async def get_chat_status(device_id: str):
+async def get_chat_status(session_id: str):
     """
     Get current chat status for a session.
 
@@ -447,11 +447,11 @@ async def get_chat_status(device_id: str):
     When is_generating becomes False, the response is complete.
 
     Args:
-        device_id: Browser session device_id
+        session_id: Browser session session_id
     """
     from .session_storage import load_session
 
-    session = load_session(device_id)
+    session = load_session(session_id)
     if not session or "data" not in session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -461,13 +461,13 @@ async def get_chat_status(device_id: str):
     return ChatStatusResponse(
         is_generating=data.get("is_generating", False),
         message_count=len(chat_history),
-        session_id=device_id
+        session_id=session_id
     )
 
 
 class ChatClearRequest(BaseModel):
     """Chat clear request"""
-    device_id: Optional[str] = Field(None, description="Browser session device_id to clear")
+    session_id: Optional[str] = Field(None, description="Browser session session_id to clear")
 
 
 @api_app.post("/chat/clear", response_model=SystemActionResponse, tags=["Chat"])
@@ -475,7 +475,7 @@ async def clear_chat(request: ChatClearRequest = ChatClearRequest()):
     """
     Clear chat history for a browser session.
 
-    If device_id is provided, clears that session's chat history.
+    If session_id is provided, clears that session's chat history.
     Otherwise clears the most recently modified session.
     The browser will auto-reload and show empty chat.
     """
@@ -484,11 +484,11 @@ async def clear_chat(request: ChatClearRequest = ChatClearRequest()):
     )
 
     # Determine which session to clear
-    device_id = request.device_id
-    if not device_id:
+    session_id = request.session_id
+    if not session_id:
         session_file = get_latest_session_file()
         if session_file:
-            device_id = session_file.stem
+            session_id = session_file.stem
         else:
             return SystemActionResponse(
                 success=False,
@@ -497,7 +497,7 @@ async def clear_chat(request: ChatClearRequest = ChatClearRequest()):
 
     # Clear the session's chat data (including debug console, like browser button)
     success = update_chat_data(
-        device_id=device_id,
+        session_id=session_id,
         chat_history=[],
         llm_history=[],
         debug_messages=[]  # Clear debug console too!
@@ -505,22 +505,22 @@ async def clear_chat(request: ChatClearRequest = ChatClearRequest()):
 
     if success:
         # Set update flag to trigger browser reload
-        set_update_flag(device_id)
-        log_message(f"🗑️ API: Chat session {device_id[:8]}... cleared")
+        set_update_flag(session_id)
+        log_message(f"🗑️ API: Chat session {session_id[:8]}... cleared")
         return SystemActionResponse(
             success=True,
-            message=f"Chat session {device_id[:8]}... cleared"
+            message=f"Chat session {session_id[:8]}... cleared"
         )
     else:
         return SystemActionResponse(
             success=False,
-            message=f"Failed to clear session {device_id[:8]}..."
+            message=f"Failed to clear session {session_id[:8]}..."
         )
 
 
 class SessionInfo(BaseModel):
     """Session info for listing"""
-    device_id: str
+    session_id: str
     last_seen: str
     message_count: int
 
@@ -535,8 +535,8 @@ async def list_all_sessions():
     """
     List all available sessions.
 
-    Returns device_id, last_seen, and message_count for each session.
-    Use device_id with /api/chat/send to write to a specific browser session.
+    Returns session_id, last_seen, and message_count for each session.
+    Use session_id with /api/chat/send to write to a specific browser session.
     """
     from .session_storage import list_sessions
 
@@ -547,11 +547,11 @@ async def list_all_sessions():
 
 
 @api_app.get("/chat/history", response_model=ChatHistoryResponse, tags=["Chat"])
-async def get_chat_history(device_id: Optional[str] = None):
+async def get_chat_history(session_id: Optional[str] = None):
     """
     Get chat history for a session.
 
-    If device_id is provided, returns that session's history.
+    If session_id is provided, returns that session's history.
     Otherwise returns the most recently modified session.
 
     Returns both the UI-friendly chat_history and the LLM-optimized llm_history.
@@ -560,9 +560,9 @@ async def get_chat_history(device_id: Optional[str] = None):
 
     try:
         # Determine which session to load
-        if device_id:
-            session_data = load_session(device_id)
-            session_id = device_id
+        if session_id:
+            session_data = load_session(session_id)
+            session_id = session_id
         else:
             session_file = get_latest_session_file()
             if session_file:

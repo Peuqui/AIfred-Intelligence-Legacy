@@ -304,7 +304,7 @@ class AIState(rx.State):
     session_id: str = ""
 
     # Session Persistence (Cookie-based device identification)
-    device_id: str = ""  # Device ID from cookie (32 hex chars)
+    session_id: str = ""  # Device ID from cookie (32 hex chars)
     session_restored: bool = False  # True if chat history was loaded from session
     _session_initialized: bool = False  # Guard against multiple session restore callbacks
     _on_load_running: bool = False  # Guard against multiple on_load() calls
@@ -2146,7 +2146,7 @@ class AIState(rx.State):
 
         Called periodically from UI via rx.moment() interval.
 
-        Also checks for API update flags - if flag exists for this device_id,
+        Also checks for API update flags - if flag exists for this session_id,
         triggers browser reload to sync session data from API changes.
         """
         # Check if settings.json was modified (mtime-based, multi-browser safe)
@@ -2166,9 +2166,9 @@ class AIState(rx.State):
             pass  # File doesn't exist or not accessible
 
         # Check for pending message from API (message injection)
-        if self.device_id and not self.is_generating:
+        if self.session_id and not self.is_generating:
             from .lib.session_storage import get_and_clear_pending_message
-            pending_msg = get_and_clear_pending_message(self.device_id)
+            pending_msg = get_and_clear_pending_message(self.session_id)
             if pending_msg:
                 self.current_user_input = pending_msg
                 self.add_debug(f"📨 API: Message injected ({len(pending_msg)} chars)")
@@ -2176,12 +2176,12 @@ class AIState(rx.State):
                 # Trigger send_message as next event in chain
                 return AIState.send_message
 
-        # Check for API update flag (only if device_id is set)
-        if self.device_id:
+        # Check for API update flag (only if session_id is set)
+        if self.session_id:
             from .lib.session_storage import check_and_clear_update_flag, load_session
-            if check_and_clear_update_flag(self.device_id):
+            if check_and_clear_update_flag(self.session_id):
                 # Load session directly from file (no browser reload needed!)
-                session = load_session(self.device_id)
+                session = load_session(self.session_id)
                 if session and session.get("data"):
                     self._restore_session(session)
                     msg_count = len(self.chat_history)
@@ -3960,11 +3960,11 @@ class AIState(rx.State):
         except Exception as e:
             self.add_debug(f"⚠️ HTML preview cleanup failed: {e}")
 
-        # Session-Bilder aufräumen (~/.config/aifred/sessions/{device_id}/images/)
-        if self.device_id:
+        # Session-Bilder aufräumen (~/.config/aifred/sessions/{session_id}/images/)
+        if self.session_id:
             from .lib.vision_utils import cleanup_session_images
             try:
-                deleted = cleanup_session_images(self.device_id)
+                deleted = cleanup_session_images(self.session_id)
                 if deleted > 0:
                     self.add_debug(f"🗑️ {deleted} session image(s) deleted")
             except Exception as e:
@@ -3989,9 +3989,9 @@ class AIState(rx.State):
         self.current_session_title = ""
 
         # Clear title in session file too (so new title can be generated)
-        if self.device_id:
+        if self.session_id:
             from .lib.session_storage import update_session_title
-            update_session_title(self.device_id, "")  # Empty title = will regenerate
+            update_session_title(self.session_id, "")  # Empty title = will regenerate
 
         self.add_debug("🗑️ Chat cleared")
         # Separator after clear operation
@@ -4012,24 +4012,29 @@ class AIState(rx.State):
         self.available_sessions = list_sessions(owner=self.logged_in_user)
 
         # Update current session title
-        if self.device_id:
-            title = get_session_title(self.device_id)
+        if self.session_id:
+            title = get_session_title(self.session_id)
             self.current_session_title = title or ""
 
     def switch_session(self, session_id: str):
         """Switch to a different session.
 
-        Saves current session, loads the target session, and updates state.
+        Loads the target session and updates state.
+        Note: No save here - sessions are auto-saved after each inference.
         """
         from .lib.session_storage import load_session
         from .lib.logging_utils import log_message
 
-        # Don't switch to current session
-        if session_id == self.device_id:
-            return
+        self.add_debug(f"🔄 switch_session called: {session_id[:8] if session_id else 'None'}...")
 
-        # Save current session first
-        self._save_current_session()
+        # If already on this session but chat_history is empty, reload it
+        # (can happen when session_id was set from cookie but data wasn't loaded)
+        if session_id == self.session_id:
+            if self.chat_history:
+                self.add_debug(f"⏭️ Already on this session, skipping")
+                return
+            else:
+                self.add_debug(f"🔄 Same session but empty history, reloading...")
 
         # Load target session
         session = load_session(session_id)
@@ -4037,16 +4042,24 @@ class AIState(rx.State):
             self.add_debug(f"⚠️ Session {session_id[:8]}... not found")
             return
 
-        # Update device_id and load session data
-        self.device_id = session_id
+        # Update session_id and load session data
+        self.session_id = session_id
         data = session.get("data", {})
 
+        # Load debug messages first (so subsequent add_debug calls are preserved)
+        saved_debug = data.get("debug_messages", [])
+
         # Load chat history
-        self.chat_history = data.get("chat_history", [])
+        chat_history = data.get("chat_history", [])
+        self.chat_history = chat_history
         self.llm_history = data.get("llm_history", [])
 
-        # Load debug messages (if any)
-        self.debug_messages = data.get("debug_messages", [])
+        # Normalize URLs to relative paths (fixes port-dependent image loading)
+        self._normalize_upload_urls()
+
+        # Restore debug messages and add load info
+        self.debug_messages = saved_debug
+        self.add_debug(f"📦 Loaded {len(chat_history)} messages")
 
         # Update session title
         self.current_session_title = data.get("title", "")
@@ -4058,14 +4071,14 @@ class AIState(rx.State):
 
         # Note: Don't refresh_session_list() here - it would re-sort by last_seen
         # and move the clicked session to a different position. The highlighting
-        # is based on device_id which is already updated above.
+        # is based on session_id which is already updated above.
 
         log_message(f"📂 Switched to session: {session_id[:8]}...")
         self.add_debug(f"📂 Switched to session: {self.current_session_title or session_id[:8]}...")
 
     def new_session(self):
         """Create a new empty session and switch to it."""
-        from .lib.session_storage import generate_device_id, create_empty_session
+        from .lib.session_storage import generate_session_id, create_empty_session
         from .lib.logging_utils import log_message
 
         # Must be logged in to create session
@@ -4073,16 +4086,15 @@ class AIState(rx.State):
             self.add_debug("⚠️ Not logged in")
             return
 
-        # Save current session first
-        self._save_current_session()
+        # Note: No save here - sessions are auto-saved after each inference
 
         # Generate new device ID and create empty session file with owner
-        new_id = generate_device_id()
+        new_id = generate_session_id()
         create_empty_session(new_id, owner=self.logged_in_user)
 
         # Switch to new device ID BEFORE clearing
         # (so clear_chat() cleans up the NEW session's directories)
-        self.device_id = new_id
+        self.session_id = new_id
         self.current_session_title = ""
 
         # Reuse clear_chat() for state reset (avoids duplication)
@@ -4099,7 +4111,7 @@ class AIState(rx.State):
         from .lib.logging_utils import log_message
 
         # Cannot delete current session
-        if session_id == self.device_id:
+        if session_id == self.session_id:
             self.add_debug("⚠️ Cannot delete current session")
             return
 
@@ -4185,7 +4197,7 @@ class AIState(rx.State):
         # Load most recent session or create new one
         sessions = list_sessions(owner=self.logged_in_user)
         if sessions:
-            self._load_session_by_id(sessions[0]["device_id"])
+            self._load_session_by_id(sessions[0]["session_id"])
             self.add_debug(f"✅ Logged in as: {self.logged_in_user}")
         else:
             self.new_session()
@@ -4233,7 +4245,7 @@ class AIState(rx.State):
         self.add_debug(f"👋 Logged out: {self.logged_in_user}")
         self.logged_in_user = ""
         self.available_sessions = []
-        self.device_id = ""
+        self.session_id = ""
         self.clear_chat()
 
         # Show login dialog again
@@ -4873,7 +4885,7 @@ class AIState(rx.State):
             if sessions:
                 # Switch to most recent session
                 most_recent = sessions[0]
-                self._load_session_by_id(most_recent["device_id"])
+                self._load_session_by_id(most_recent["session_id"])
                 self.add_debug(f"✅ Logged in as: {self.logged_in_user}")
             else:
                 # No sessions yet - create first one
@@ -4894,7 +4906,7 @@ class AIState(rx.State):
         from .lib.formatting import format_number
         from .lib.config import HISTORY_COMPRESSION_TRIGGER
 
-        self.device_id = session_id
+        self.session_id = session_id
         session = load_session(session_id)
 
         if session and session.get("data"):
@@ -4943,23 +4955,31 @@ class AIState(rx.State):
         import re
 
         for msg in self.chat_history:
+            # Skip invalid messages
+            if not isinstance(msg, dict):
+                continue
+
             # 1. Normalisiere URLs im content (HTML)
-            if msg.get("content"):
+            content = msg.get("content")
+            if content and isinstance(content, str):
                 msg["content"] = re.sub(
                     r'https?://[^/]+/_upload/',
                     '/_upload/',
-                    msg["content"]
+                    content
                 )
 
             # 2. Normalisiere URLs in metadata.images
-            if msg.get("metadata", {}).get("images"):
-                for img in msg["metadata"]["images"]:
-                    if img.get("url"):
-                        img["url"] = re.sub(
-                            r'https?://[^/]+/_upload/',
-                            '/_upload/',
-                            img["url"]
-                        )
+            images = msg.get("metadata", {}).get("images")
+            if images and isinstance(images, list):
+                for img in images:
+                    if isinstance(img, dict):
+                        url = img.get("url")
+                        if url and isinstance(url, str):
+                            img["url"] = re.sub(
+                                r'https?://[^/]+/_upload/',
+                                '/_upload/',
+                                url
+                            )
 
     def _restore_session(self, session: dict):
         """
@@ -5021,10 +5041,10 @@ class AIState(rx.State):
         Speichert aktuelle Session auf Server.
 
         Wird nach jeder Chat-Änderung aufgerufen (Auto-Save).
-        Nur speichern wenn device_id vorhanden (Session initialisiert).
+        Nur speichern wenn session_id vorhanden (Session initialisiert).
         DUAL-HISTORY (v2.13.0+): Speichert sowohl chat_history als auch llm_history.
         """
-        if not self.device_id:
+        if not self.session_id:
             return
 
         from .lib.session_storage import update_chat_data
@@ -5034,7 +5054,7 @@ class AIState(rx.State):
         debug_to_save = self.debug_messages[-DEBUG_LOG_MAX_ENTRIES:] if self.debug_messages else []
 
         update_chat_data(
-            device_id=self.device_id,
+            session_id=self.session_id,
             chat_history=self.chat_history,
             chat_summaries=None,  # Aktuell nicht persistiert
             llm_history=self.llm_history,  # DUAL-HISTORY: LLM-komprimierte History
@@ -5064,7 +5084,7 @@ class AIState(rx.State):
         if self.current_session_title:
             return
 
-        existing_title = get_session_title(self.device_id)
+        existing_title = get_session_title(self.session_id)
         if existing_title:
             self.current_session_title = existing_title
             return
@@ -5147,7 +5167,7 @@ class AIState(rx.State):
             title = title.rstrip('.!?:')
 
             if title:
-                update_session_title(self.device_id, title)
+                update_session_title(self.session_id, title)
                 self.current_session_title = title
                 # Note: refresh_session_list() is called in send_message() finally block
 
@@ -5253,8 +5273,8 @@ class AIState(rx.State):
                     display_name = file.filename
 
                 # Save image as file (not Base64 in memory)
-                # Uses device_id for persistent session-based storage
-                image_path = save_image_to_file(resized_content, self.device_id, display_name)
+                # Uses session_id for persistent session-based storage
+                image_path = save_image_to_file(resized_content, self.session_id, display_name)
                 image_url = get_image_url(image_path)
 
                 # Store with file path (for LLM) and URL (for UI)
@@ -5408,8 +5428,8 @@ class AIState(rx.State):
             px_width, px_height = cropped_img.size
 
             # Save cropped image as new file (keeps original, adds cropped version)
-            # Uses device_id for persistent session-based storage
-            new_path = save_image_to_file(cropped_bytes, self.device_id, image_data["name"])
+            # Uses session_id for persistent session-based storage
+            new_path = save_image_to_file(cropped_bytes, self.session_id, image_data["name"])
             new_url = get_image_url(new_path)
 
             # Delete old file (optional: keep for undo functionality)
