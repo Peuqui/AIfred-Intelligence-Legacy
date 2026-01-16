@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Tuple, Optional
 
 # Imports for session-based image storage
-from .config import BACKEND_API_URL, PROJECT_ROOT
+from .config import PROJECT_ROOT
 
 # Images are stored in uploaded_files/images/{device_id}/
 # This directory is served by Reflex via /_upload/images/...
@@ -631,16 +631,20 @@ def save_image_to_file(image_bytes: bytes, device_id: str, filename: str) -> Pat
 
 def get_image_url(image_path: Path) -> str:
     """
-    Convert absolute file path to URL for UI display.
+    Convert absolute file path to relative URL for UI display.
 
     The URL uses Reflex's /_upload/ endpoint:
     uploaded_files/images/{device_id}/{filename}
+
+    Uses relative URL so the browser automatically uses the current host/port.
+    This ensures images work correctly regardless of which port the user
+    accessed the app from (e.g., :443 via nginx or :8443 directly).
 
     Args:
         image_path: Absolute path to image file
 
     Returns:
-        URL like "http://host:8002/_upload/images/{device_id}/{filename}"
+        Relative URL like "/_upload/images/{device_id}/{filename}"
     """
     # Extract relative path from IMAGES_BASE_DIR
     try:
@@ -649,7 +653,8 @@ def get_image_url(image_path: Path) -> str:
         # Path not under IMAGES_BASE_DIR - use full path as fallback
         relative_path = image_path.name
 
-    return f"{BACKEND_API_URL}/_upload/images/{relative_path}"
+    # Return relative URL - browser uses current host/port automatically
+    return f"/_upload/images/{relative_path}"
 
 
 def load_image_as_base64(image_path: Path) -> str:

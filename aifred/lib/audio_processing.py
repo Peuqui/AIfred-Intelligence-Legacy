@@ -186,9 +186,8 @@ async def generate_speech_edge(text, voice, rate="+0%"):
                 log_message(f"⚠️ Edge TTS: File suspiciously small ({file_size} bytes)")
                 return None
 
-            # Return FULL URL with backend host (frontend doesn't serve /_upload/)
-            from .config import BACKEND_API_URL
-            return f"{BACKEND_API_URL}/_upload/tts_audio/{filename}"
+            # Return relative URL - browser uses current host/port automatically
+            return f"/_upload/tts_audio/{filename}"
         else:
             log_message(f"❌ Edge TTS: File not created at {output_file}")
             return None
@@ -246,9 +245,8 @@ def generate_speech_piper(text, speed=1.0, voice_choice="Deutsch (Thorsten)"):
 
         if result.returncode == 0 and os.path.exists(output_file):
             log_message(f"✅ Piper TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
-            # Return FULL URL with backend host (frontend doesn't serve /_upload/)
-            from .config import BACKEND_API_URL
-            return f"{BACKEND_API_URL}/_upload/tts_audio/{filename}"
+            # Return relative URL - browser uses current host/port automatically
+            return f"/_upload/tts_audio/{filename}"
         else:
             log_message(f"❌ Piper TTS Error: {result.stderr.decode()}")
             return None
@@ -313,9 +311,8 @@ def generate_speech_espeak(text, speed=1.0, voice_choice="Deutsch (Roboter)"):
 
         if result.returncode == 0 and os.path.exists(output_file):
             log_message(f"✅ eSpeak TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
-            # Return FULL URL with backend host (frontend doesn't serve /_upload/)
-            from .config import BACKEND_API_URL
-            return f"{BACKEND_API_URL}/_upload/tts_audio/{filename}"
+            # Return relative URL - browser uses current host/port automatically
+            return f"/_upload/tts_audio/{filename}"
         else:
             error_msg = result.stderr.decode() if result.stderr else "Unknown error"
             log_message(f"❌ eSpeak TTS Error: {error_msg}")

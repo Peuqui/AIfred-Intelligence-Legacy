@@ -17,11 +17,9 @@ SSL_CERTFILE = PROJECT_ROOT / "ssl" / "fullchain.pem"
 # Settings are stored in ~/.config/aifred/settings.json (see aifred/lib/settings.py)
 
 # ============================================================
-# BACKEND API URL (for TTS audio URLs, HTML preview, etc.)
-# ============================================================
-# Import from rxconfig (single source of truth - auto-detects local IP)
-# The /_upload/ endpoint is only served by the backend, not frontend
-from rxconfig import API_URL as BACKEND_API_URL
+# NOTE: URLs for uploaded files (images, TTS audio, HTML preview) now use
+# relative paths like "/_upload/..." so the browser automatically uses
+# the correct host/port. No hardcoded backend URL needed anymore.
 
 # ============================================================
 # DEBUG CONFIGURATION

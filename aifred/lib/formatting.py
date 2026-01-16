@@ -19,7 +19,7 @@ from datetime import datetime
 # HTML Preview: Path to uploaded_files/html_preview directory
 # IMPORTANT: Must be outside assets/ to avoid triggering Reflex hot-reload!
 # Reflex serves uploaded_files/ via /_upload/ endpoint (backend only)
-from .config import PROJECT_ROOT, BACKEND_API_URL
+from .config import PROJECT_ROOT
 _HTML_PREVIEW_DIR = PROJECT_ROOT / "uploaded_files" / "html_preview"
 
 # LRU Cache for HTML preview files (max 50 files)
@@ -248,8 +248,8 @@ def _save_html_to_assets(html_code: str) -> str:
 
     log_message(f"🌐 HTML Preview: File saved → {filepath} (Cache: {len(_html_file_cache)}/{MAX_HTML_FILES})")
 
-    # Return full URL with auto-detected backend host
-    return f"{BACKEND_API_URL}/_upload/html_preview/{filename}"
+    # Return relative URL - browser uses current host/port automatically
+    return f"/_upload/html_preview/{filename}"
 
 
 @atexit.register
