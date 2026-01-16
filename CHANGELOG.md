@@ -31,11 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Zeigt echte Dateigröße in KB (aus `size_kb` Metadaten beim Upload)
   - Vorher: Berechnete fälschlicherweise die Base64-Länge (33% größer als Originaldatei)
 
-- **Port-unabhängige URLs für Uploads** ([vision_utils.py](aifred/lib/vision_utils.py), [formatting.py](aifred/lib/formatting.py), [audio_processing.py](aifred/lib/audio_processing.py)):
+- **Port-unabhängige URLs für Uploads** ([vision_utils.py](aifred/lib/vision_utils.py), [formatting.py](aifred/lib/formatting.py), [audio_processing.py](aifred/lib/audio_processing.py), [state.py](aifred/state.py)):
   - Alle Upload-URLs (Bilder, TTS Audio, HTML Preview) verwenden jetzt relative Pfade
   - Browser verwendet automatisch den aktuellen Host/Port
   - Problem behoben: Bilder über Port 443 aufgerufen → versuchte Port 8443 zu laden
   - Entfernt: `BACKEND_API_URL` nicht mehr benötigt (war hardcoded in config.py)
+  - **Neu: URL-Normalisierung beim Session-Restore** (`_normalize_upload_urls()`):
+    - Alte Sessions mit absoluten URLs werden beim Laden automatisch normalisiert
+    - Konvertiert `http(s)://host:port/_upload/...` → `/_upload/...`
+    - Betrifft sowohl HTML-Content als auch metadata.images URLs
 
 ---
 

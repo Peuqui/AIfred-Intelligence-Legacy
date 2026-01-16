@@ -4930,6 +4930,37 @@ class AIState(rx.State):
         """
         self.add_debug(f"🔊 TTS callback received: {result}")
 
+    def _normalize_upload_urls(self):
+        """
+        Konvertiert absolute URLs in chat_history zu relativen URLs.
+
+        Behebt das Problem, dass Sessions die auf einem Port erstellt wurden
+        (z.B. 8443) nicht korrekt von einem anderen Port (z.B. 443) aus
+        geladen werden können.
+
+        Pattern: http(s)://host:port/_upload/... → /_upload/...
+        """
+        import re
+
+        for msg in self.chat_history:
+            # 1. Normalisiere URLs im content (HTML)
+            if msg.get("content"):
+                msg["content"] = re.sub(
+                    r'https?://[^/]+/_upload/',
+                    '/_upload/',
+                    msg["content"]
+                )
+
+            # 2. Normalisiere URLs in metadata.images
+            if msg.get("metadata", {}).get("images"):
+                for img in msg["metadata"]["images"]:
+                    if img.get("url"):
+                        img["url"] = re.sub(
+                            r'https?://[^/]+/_upload/',
+                            '/_upload/',
+                            img["url"]
+                        )
+
     def _restore_session(self, session: dict):
         """
         Stellt Chat-History aus gespeicherter Session wieder her.
@@ -4956,6 +4987,8 @@ class AIState(rx.State):
             else:
                 # New dict format - use directly
                 self.chat_history = stored if stored else []
+                # Normalize URLs to relative paths (fixes port-dependent image loading)
+                self._normalize_upload_urls()
 
         # DUAL-HISTORY (v2.13.0+): llm_history laden
         # WICHTIG: Auch leere Listen setzen (für API-Clear)!
