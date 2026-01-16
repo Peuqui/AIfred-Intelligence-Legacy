@@ -3371,6 +3371,13 @@ class AIState(rx.State):
                     self.is_generating = False
                     yield  # Force UI update to show chat history
 
+                # CRITICAL: Generate title and save session before early return
+                # (finally block may not execute for async generators)
+                await self._generate_session_title(self.automatik_model_id)
+                self._save_current_session()
+                self.refresh_session_list()
+                yield
+
                 return  # Exit send_message - vision pipeline complete
 
             # ============================================================
