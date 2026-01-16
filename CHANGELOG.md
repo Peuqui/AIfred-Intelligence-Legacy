@@ -5,6 +5,28 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.0] - 2026-01-16
+
+### Added
+
+- **Bildrotation im Crop-Dialog** ([state.py](aifred/state.py), [aifred.py](aifred/aifred.py)):
+  - Zwei neue Buttons: 90° links drehen, 90° rechts drehen
+  - Behebt Problem mit PNG-Fotos von Handy-Kameras (kein EXIF-Support)
+  - Thumbnail wird nach Rotation automatisch aktualisiert (Cache-Busting)
+
+- **Session-Titel für Vision-Only Uploads** ([state.py](aifred/state.py)):
+  - Bilder ohne User-Text generieren jetzt auch einen Session-Titel
+  - Verwendet "📷 [Bildanalyse]" als Platzhalter für Titel-Generierung
+
+### Fixed
+
+- **Echtzeit Debug-Feedback bei Titel-Generierung** ([state.py](aifred/state.py)):
+  - `_generate_session_title()` zu async Generator konvertiert
+  - "🏷️ Generating session title..." erscheint sofort, nicht erst nach Fertigstellung
+  - Beide Call-Sites aktualisiert (regulärer Flow und Vision-Only)
+
+---
+
 ## [2.21.0] - 2026-01-16
 
 ### Fixed
