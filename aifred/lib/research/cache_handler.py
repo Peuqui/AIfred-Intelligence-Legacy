@@ -5,10 +5,11 @@ Extracted from perform_agent_research() to improve modularity.
 """
 
 import datetime
-import time
+import time  # For strftime
 from typing import Dict, List, Optional, AsyncIterator
 
 from ..cache_manager import get_cached_research
+from ..timer import Timer
 from ..agent_tools import build_context
 from ..prompt_loader import load_prompt, load_identity, load_personality, load_reasoning
 from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx, strip_thinking_blocks
@@ -31,7 +32,7 @@ async def handle_cache_hit(
     llm_options: Optional[Dict],
     temperature_mode: str,
     temperature: float,
-    agent_start: float,
+    agent_timer: Timer,
     state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
     user_name: Optional[str] = None,
     detected_language: str = "de"
@@ -239,7 +240,7 @@ async def handle_cache_hit(
             tokens_per_sec = metrics.get("tokens_per_second", 0)
             ttft = chunk.get("ttft")
 
-    total_time = time.time() - agent_start
+    total_time = agent_timer.elapsed()
 
     # Console: LLM finished (Cache-specific with total time)
     tokens_generated = metrics.get("tokens_generated", 0)

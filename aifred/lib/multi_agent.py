@@ -12,11 +12,11 @@ The functions work with async generators for streaming UI updates.
 """
 
 import asyncio
-import time
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 # Imports for the functions (same as original state.py methods)
 from .llm_client import LLMClient
+from .timer import Timer
 from .formatting import format_metadata, format_number, format_thinking_process
 from .message_builder import build_messages_from_llm_history
 from .i18n import t
@@ -228,7 +228,7 @@ async def _stream_sokrates_to_history(
     """
     full_response = ""
     token_count = 0
-    start_time = time.time()
+    timer = Timer()
     ttft = 0.0
     first_token = False
 
@@ -239,7 +239,7 @@ async def _stream_sokrates_to_history(
     async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "Sokrates", state):
         if chunk["type"] == "content":
             if not first_token:
-                ttft = time.time() - start_time
+                ttft = timer.elapsed()
                 log_message(f"⚡ Sokrates TTFT: {format_number(ttft, 2)}s")
                 state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                 first_token = True
@@ -258,7 +258,7 @@ async def _stream_sokrates_to_history(
             token_count = metrics.get("tokens_generated", token_count)
 
     # Calculate final metrics
-    inference_time = time.time() - start_time
+    inference_time = timer.elapsed()
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
     # Log completion metrics (include chars for complete info)
@@ -315,14 +315,14 @@ async def _stream_alfred_refinement(
 
     full_response = ""
     token_count = 0
-    start_time = time.time()
+    timer = Timer()
     ttft = 0.0
     first_token = False
 
     async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "AIfred Refinement", state):
         if chunk["type"] == "content":
             if not first_token:
-                ttft = time.time() - start_time
+                ttft = timer.elapsed()
                 log_message(f"⚡ AIfred Refinement TTFT: {format_number(ttft, 2)}s")
                 state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                 first_token = True
@@ -338,7 +338,7 @@ async def _stream_alfred_refinement(
             metrics = chunk.get("metrics", {})
             token_count = metrics.get("tokens_generated", token_count)
 
-    inference_time = time.time() - start_time
+    inference_time = timer.elapsed()
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
     # Log completion metrics (include chars for complete info)
@@ -386,7 +386,7 @@ async def _stream_salomo_to_history(
     """
     full_response = ""
     token_count = 0
-    start_time = time.time()
+    timer = Timer()
     ttft = 0.0
     first_token = False
 
@@ -397,7 +397,7 @@ async def _stream_salomo_to_history(
     async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "Salomo", state):
         if chunk["type"] == "content":
             if not first_token:
-                ttft = time.time() - start_time
+                ttft = timer.elapsed()
                 log_message(f"⚡ Salomo TTFT: {format_number(ttft, 2)}s")
                 state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                 first_token = True
@@ -416,7 +416,7 @@ async def _stream_salomo_to_history(
             token_count = metrics.get("tokens_generated", token_count)
 
     # Calculate final metrics
-    inference_time = time.time() - start_time
+    inference_time = timer.elapsed()
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
     # Log completion metrics (include chars for complete info)
@@ -604,7 +604,7 @@ async def run_sokrates_direct_response(
         # Streaming response
         full_response = ""
         token_count = 0
-        start_time = time.time()
+        timer = Timer()
         first_token = False
         sokrates_ttft = 0.0
 
@@ -613,11 +613,7 @@ async def run_sokrates_direct_response(
 
             if chunk_type == "content":
                 if not first_token:
-                    ttft = time.time() - start_time
-                    # Guard against negative TTFT (can happen with WSL2 time sync issues)
-                    if ttft < 0:
-                        log_message(f"⚠️ Negative TTFT detected: {format_number(ttft, 3)}s - possible WSL2 time sync issue")
-                        ttft = 0.0
+                    ttft = timer.elapsed()
                     log_message(f"⚡ Sokrates TTFT: {format_number(ttft, 2)}s")
                     state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                     first_token = True
@@ -642,7 +638,7 @@ async def run_sokrates_direct_response(
                 token_count = metrics.get("tokens_generated", token_count)
 
         # Calculate final metrics
-        inference_time = time.time() - start_time
+        inference_time = timer.elapsed()
         tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
         # Log completion metrics (include chars for complete info)
@@ -783,7 +779,7 @@ async def run_salomo_direct_response(
         # Streaming response
         full_response = ""
         token_count = 0
-        start_time = time.time()
+        timer = Timer()
         first_token = False
         salomo_ttft = 0.0
 
@@ -792,11 +788,7 @@ async def run_salomo_direct_response(
 
             if chunk_type == "content":
                 if not first_token:
-                    ttft = time.time() - start_time
-                    # Guard against negative TTFT (can happen with WSL2 time sync issues)
-                    if ttft < 0:
-                        log_message(f"⚠️ Negative TTFT detected: {format_number(ttft, 3)}s - possible WSL2 time sync issue")
-                        ttft = 0.0
+                    ttft = timer.elapsed()
                     log_message(f"⚡ Salomo TTFT: {format_number(ttft, 2)}s")
                     state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                     first_token = True
@@ -821,7 +813,7 @@ async def run_salomo_direct_response(
                 token_count = metrics.get("tokens_generated", token_count)
 
         # Calculate final metrics
-        inference_time = time.time() - start_time
+        inference_time = timer.elapsed()
         tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
         # Log completion metrics (include chars for complete info)

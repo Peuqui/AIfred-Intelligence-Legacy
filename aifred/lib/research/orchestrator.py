@@ -5,10 +5,10 @@ This module contains the main research orchestration function that coordinates
 all research pipeline modules (cache_handler, query_processor, scraper_orchestrator, context_builder).
 """
 
-import time
 from typing import Dict, List, Optional, AsyncIterator
 
 from ..llm_client import LLMClient
+from ..timer import Timer
 from ..logging_utils import log_message
 from .cache_handler import handle_cache_hit
 from .query_processor import process_query_and_search
@@ -72,7 +72,7 @@ async def perform_agent_research(
         Dict with: {"type": "debug"|"content"|"result", ...}
     """
 
-    agent_start = time.time()
+    agent_timer = Timer()
 
     # Initialize LLM clients with correct backend
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
@@ -100,7 +100,7 @@ async def perform_agent_research(
         llm_options=llm_options,
         temperature_mode=temperature_mode,
         temperature=temperature,
-        agent_start=agent_start,
+        agent_timer=agent_timer,
         state=state,  # Pass state for per-agent num_ctx lookup
         user_name=user_name
     ):
@@ -272,7 +272,7 @@ async def perform_agent_research(
         llm_options=llm_options,
         temperature_mode=temperature_mode,
         temperature=temperature,
-        agent_start=agent_start,
+        agent_timer=agent_timer,
         stt_time=stt_time,
         state=state,  # Pass state for per-agent num_ctx lookup
         user_name=user_name,

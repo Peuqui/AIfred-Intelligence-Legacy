@@ -6,10 +6,10 @@ All providers use OpenAI-compatible endpoints.
 """
 
 import os
-import time
 import logging
 from typing import List, Optional, AsyncIterator, Dict, Any
 from openai import AsyncOpenAI
+from ..lib.timer import Timer
 from .base import (
     LLMBackend,
     LLMMessage,
@@ -108,9 +108,9 @@ class CloudAPIBackend(LLMBackend):
             kwargs["max_tokens"] = options.num_predict
 
         try:
-            start_time = time.time()
+            timer = Timer()
             response = await self.client.chat.completions.create(**kwargs)
-            inference_time = time.time() - start_time
+            inference_time = timer.elapsed()
 
             choice = response.choices[0]
             text = choice.message.content or ""
@@ -180,7 +180,7 @@ class CloudAPIBackend(LLMBackend):
             kwargs["max_tokens"] = options.num_predict
 
         try:
-            start_time = time.time()
+            timer = Timer()
             stream = await self.client.chat.completions.create(**kwargs)
 
             total_tokens = 0
@@ -200,7 +200,7 @@ class CloudAPIBackend(LLMBackend):
                     total_tokens = completion_tokens
 
             # Send final metrics
-            inference_time = time.time() - start_time
+            inference_time = timer.elapsed()
             tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
 
             yield {

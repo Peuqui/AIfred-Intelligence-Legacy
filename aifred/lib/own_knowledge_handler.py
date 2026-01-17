@@ -13,10 +13,10 @@ Yields Dict-Messages die vom Aufrufer geroutet werden:
 - {"type": "result", "data": {...}}
 """
 
-import time
 from typing import AsyncIterator, Dict, List, Optional, Any
 
 from .llm_client import LLMClient
+from .timer import Timer
 from .formatting import format_number, format_thinking_process, format_metadata
 from .prompt_loader import get_aifred_direct_prompt, get_aifred_system_minimal
 from .context_manager import estimate_tokens, calculate_dynamic_num_ctx, strip_thinking_blocks
@@ -190,8 +190,8 @@ async def handle_own_knowledge(
         log_raw_messages("AIfred (Own Knowledge)", messages, estimate_tokens)
 
         # Stream response
-        log_message(f"🔬 DEBUG: Starting inference at {time.time()}")
-        inference_start = time.time()
+        timer = Timer()
+        log_message("🔬 DEBUG: Starting inference")
         full_response = ""
         ttft = None
         first_token_received = False
@@ -206,7 +206,7 @@ async def handle_own_knowledge(
             if chunk["type"] == "content":
                 # Measure TTFT
                 if not first_token_received:
-                    ttft = time.time() - inference_start
+                    ttft = timer.elapsed()
                     first_token_received = True
                     yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
 
@@ -219,7 +219,7 @@ async def handle_own_knowledge(
                 tokens_generated = metrics.get("tokens_generated", 0)
                 tokens_prompt = metrics.get("tokens_prompt", 0)
 
-        inference_time = time.time() - inference_start
+        inference_time = timer.elapsed()
 
         # Console: LLM finished
         tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0

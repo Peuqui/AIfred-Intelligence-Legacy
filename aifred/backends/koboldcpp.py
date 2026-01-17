@@ -11,11 +11,10 @@ Special Features:
 - Flash Attention and Quantized KV Cache support
 """
 
-import time
-import asyncio
 import logging
 from typing import List, Optional, AsyncIterator, Dict, Any
 from openai import AsyncOpenAI
+from ..lib.timer import Timer
 from .base import (
     LLMBackend,
     LLMMessage,
@@ -25,7 +24,6 @@ from .base import (
     BackendModelNotFoundError,
     BackendInferenceError
 )
-from aifred.lib.logging_utils import log_message
 
 logger = logging.getLogger(__name__)
 
@@ -226,9 +224,9 @@ class KoboldCPPBackend(LLMBackend):
             logger.info(f"📦 extra_body: {extra_body}")
 
         try:
-            start_time = time.time()
+            timer = Timer()
             response = await self.client.chat.completions.create(**kwargs)
-            inference_time = time.time() - start_time
+            inference_time = timer.elapsed()
 
             choice = response.choices[0]
             text = choice.message.content
@@ -314,7 +312,7 @@ class KoboldCPPBackend(LLMBackend):
             logger.info(f"📦 extra_body: {extra_body}")
 
         try:
-            start_time = time.time()
+            timer = Timer()
             stream = await self.client.chat.completions.create(**kwargs)
 
             total_tokens = 0
@@ -333,7 +331,7 @@ class KoboldCPPBackend(LLMBackend):
                     total_tokens = chunk.usage.completion_tokens
 
             # Final metrics
-            inference_time = time.time() - start_time
+            inference_time = timer.elapsed()
             tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
 
             # NOTE: No manual activity recording needed - GPU monitor tracks automatically

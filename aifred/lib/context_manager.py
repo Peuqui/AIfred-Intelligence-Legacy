@@ -9,8 +9,8 @@ Handles context limits and token estimation for LLMs:
 """
 
 import re
-import time
 import asyncio
+from .timer import Timer
 from typing import Any, Dict, List, Optional, AsyncIterator
 from .logging_utils import log_message, log_raw_messages, console_separator
 from .prompt_loader import load_prompt
@@ -838,7 +838,7 @@ async def summarize_history_if_needed(
     log_message(f"🗜️ [START {start_timestamp}] Compressing {len(messages_to_compress)} messages with {model_name}...")
     log_message(f"   └─ Compression LLM: {model_name} (num_ctx={format_number(compression_num_ctx)}, from VRAM cache)")
     yield {"type": "debug", "message": f"🗜️ Compression LLM: {model_name} (num_ctx={format_number(compression_num_ctx)})"}
-    summary_start = time.time()
+    summary_timer = Timer()
 
     summary_text = ""
     tokens_generated = 0
@@ -863,7 +863,7 @@ async def summarize_history_if_needed(
             options=options
         )
 
-        summary_time = time.time() - summary_start
+        summary_time = summary_timer.elapsed()
         end_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
         summary_text = response.text if response else ""

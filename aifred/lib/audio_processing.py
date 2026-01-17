@@ -7,13 +7,14 @@ This module handles Text-to-Speech (Edge TTS, Piper TTS) and Speech-to-Text
 
 import os
 import re
-import time
+import time  # Keep for timestamp (used in filenames)
 import subprocess
 import asyncio
 import atexit
 import edge_tts
 from .config import PIPER_MODEL_PATH, PROJECT_ROOT
 from .logging_utils import log_message
+from .timer import Timer
 
 
 # Determine platform-specific Piper binary path
@@ -490,10 +491,10 @@ def transcribe_audio(audio_path, whisper_model, language="de"):
     if audio_path is None or audio_path == "":
         return "", 0.0
 
-    start_time = time.time()
+    timer = Timer()
     # Use specified language for better accuracy
     segments, _ = whisper_model.transcribe(audio_path, language=language)
-    stt_time = time.time() - start_time
+    stt_time = timer.elapsed()
 
     user_text = " ".join([s.text for s in segments])
     log_message(f"✅ STT Transcription: {user_text[:100]}{'...' if len(user_text) > 100 else ''} (Time: {stt_time:.1f}s)")

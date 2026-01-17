@@ -25,8 +25,8 @@ USAGE:
     result = await cache.query("What is the weather?")
 """
 
-import time
 import chromadb
+from .timer import Timer
 from chromadb.config import Settings
 from chromadb.api.types import Documents, Embeddings, EmbeddingFunction
 import asyncio
@@ -168,7 +168,7 @@ class VectorCache:
             - metadata: Source metadata (if found)
             - query_time_ms: Query execution time in milliseconds
         """
-        start_time = time.time()
+        timer = Timer()
 
         # Run blocking HTTP call in thread pool
         # HttpClient calls are fast (typically <50ms), so to_thread overhead is acceptable
@@ -178,7 +178,7 @@ class VectorCache:
             n_results
         )
 
-        result['query_time_ms'] = (time.time() - start_time) * 1000
+        result['query_time_ms'] = timer.elapsed_ms()
         return result
 
     def _query_sync(self, user_query: str, n_results: int) -> Dict:
@@ -314,7 +314,7 @@ class VectorCache:
             - metadata: Source metadata (if found)
             - query_time_ms: Query execution time in milliseconds
         """
-        start_time = time.time()
+        timer = Timer()
 
         result = await asyncio.to_thread(
             self._query_newest_sync,
@@ -322,7 +322,7 @@ class VectorCache:
             n_results
         )
 
-        result['query_time_ms'] = (time.time() - start_time) * 1000
+        result['query_time_ms'] = timer.elapsed_ms()
         return result
 
     def _query_newest_sync(self, user_query: str, n_results: int) -> Dict:
@@ -517,8 +517,7 @@ class VectorCache:
         """
         # Build metadata (ChromaDB only supports str, int, float, bool)
         # Store answer in metadata since it can be large
-        source_urls = [s.get('url', 'N/A')[:100] for s in sources[:3]]  # Max 3 URLs
-        failed_urls = [f.get('url', 'N/A')[:100] for f in failed_sources[:5]]  # Max 5 failed URLs
+        source_urls = [s.get('url', 'N/A')[:100] for s in sources[:3]]  # Max 3 URLs (legacy format)
 
         # Generate unique ID
         entry_id = str(uuid.uuid4())
@@ -678,7 +677,7 @@ class VectorCache:
                 'metadata': cache metadata
             }
         """
-        start_time = time.time()
+        timer = Timer()
 
         # Run in thread pool
         results = await asyncio.to_thread(
@@ -687,7 +686,7 @@ class VectorCache:
             n_results
         )
 
-        query_time_ms = (time.time() - start_time) * 1000
+        query_time_ms = timer.elapsed_ms()
         log_message(f"📊 RAG query completed in {query_time_ms:.1f}ms, found {len(results)} candidates")
 
         return results

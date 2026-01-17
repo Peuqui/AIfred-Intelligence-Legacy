@@ -14,10 +14,10 @@ The pattern handles:
 5. Optional callback on first token (for VRAM monitoring)
 """
 
-import time
 from typing import AsyncIterator, Dict, Optional, Callable, Any, Tuple
 from .formatting import format_number
 from .logging_utils import log_message
+from .timer import Timer
 
 
 async def stream_llm_response(
@@ -66,7 +66,7 @@ async def stream_llm_response(
                 metrics = chunk["metrics"]
                 inference_time = chunk["inference_time"]
     """
-    inference_start = time.time()
+    timer = Timer()
     accumulated_text = ""
     metrics = {}
     ttft = None
@@ -80,7 +80,7 @@ async def stream_llm_response(
         if chunk["type"] == "content":
             # Measure TTFT on first content chunk
             if not first_token_received:
-                ttft = time.time() - inference_start
+                ttft = timer.elapsed()
                 first_token_received = True
 
                 if log_ttft:
@@ -107,7 +107,7 @@ async def stream_llm_response(
             # Extract metrics from final chunk
             metrics = chunk["metrics"]
 
-    inference_time = time.time() - inference_start
+    inference_time = timer.elapsed()
 
     # Yield final result with all accumulated data
     yield {

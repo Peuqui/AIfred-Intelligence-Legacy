@@ -4054,7 +4054,14 @@ class AIState(rx.State):
         # Load target session
         session = load_session(session_id)
         if session is None:
-            self.add_debug(f"⚠️ Session {session_id[:8]}... not found")
+            self.add_debug(f"⚠️ Session {session_id[:8]}... not found, switching to newest")
+            # Session was deleted - switch to newest available or create new
+            self.refresh_session_list()
+            if self.available_sessions:
+                newest = self.available_sessions[0]
+                self._load_session_by_id(newest["session_id"])
+            else:
+                self.new_session()
             return
 
         # Update session_id and load session data

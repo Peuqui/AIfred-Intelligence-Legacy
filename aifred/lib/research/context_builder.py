@@ -10,11 +10,11 @@ Handles:
 """
 
 import datetime
-import time
 import re
 from typing import Dict, List, Optional, AsyncIterator
 
 from ..agent_tools import build_context
+from ..timer import Timer
 # Cache system removed - will be replaced with Vector DB
 from ..prompt_loader import get_system_rag_prompt
 from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens, strip_thinking_blocks
@@ -49,7 +49,7 @@ async def build_and_generate_response(
     llm_options: Optional[Dict],
     temperature_mode: str,
     temperature: float,
-    agent_start: float,
+    agent_timer: Timer,
     stt_time: float,
     state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
     user_name: Optional[str] = None,
@@ -351,7 +351,7 @@ async def build_and_generate_response(
     )
 
     # Update history
-    total_time = time.time() - agent_start
+    total_time = agent_timer.elapsed()
     ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
     metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Web Research ({model_choice})")
 

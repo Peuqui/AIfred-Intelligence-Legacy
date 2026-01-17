@@ -12,10 +12,10 @@ Includes:
 """
 
 import datetime
-import time
 from typing import Dict, List, Optional, AsyncIterator
 
 from .llm_client import LLMClient
+from .timer import Timer
 from .logging_utils import log_message, log_raw_messages, CONSOLE_SEPARATOR
 from .prompt_loader import (
     get_research_decision_prompt,
@@ -149,7 +149,7 @@ async def _process_single_image_vision(
         **(llm_options or {})
     }
 
-    start_time = time.time()
+    timer = Timer()
     response_text = ""
     metrics = None
 
@@ -164,7 +164,7 @@ async def _process_single_image_vision(
             elif chunk.get("type") == "done":
                 metrics = chunk.get("metrics", {})
 
-        elapsed = time.time() - start_time
+        elapsed = timer.elapsed()
         log_message(f"✅ [{image_index + 1}] {img_name} done ({elapsed:.1f}s)")
 
         # Try to parse JSON
@@ -198,7 +198,7 @@ async def _process_single_image_vision(
             }
 
     except Exception as e:
-        elapsed = time.time() - start_time
+        elapsed = timer.elapsed()
         log_message(f"❌ [{image_index + 1}] {img_name} Error: {e}")
         return {
             "success": False,
@@ -590,7 +590,7 @@ async def detect_research_decision(
         "format": "json"  # Request JSON output format (Ollama)
     }
 
-    decision_start = time.time()
+    decision_timer = Timer()
 
     # DEBUG: Log raw messages sent to Automatik-LLM
     log_raw_messages("AUTOMATIK-LLM (detect_research_decision)", messages, estimate_tokens)
@@ -602,7 +602,7 @@ async def detect_research_decision(
             options=options
         )
         raw_response = response.text.strip()
-        decision_time = time.time() - decision_start
+        decision_time = decision_timer.elapsed()
 
         # DEBUG: Log raw response
         log_message("=" * 60)
@@ -673,8 +673,8 @@ async def detect_research_decision(
         }
 
     except Exception as e:
-        decision_time = time.time() - decision_start
-        log_message(f"❌ Research decision failed: {e}")
+        decision_time = decision_timer.elapsed()
+        log_message(f"❌ Research decision failed ({decision_time:.2f}s): {e}")
         # NO FALLBACK - re-raise to make the error visible!
         raise
 
@@ -828,7 +828,7 @@ async def chat_with_vision_pipeline(
     # ============================================================
 
     num_images = len(images)
-    vision_start_time = time.time()
+    vision_timer = Timer()
     corrected_json = None  # Will be set after processing
     vision_metrics = None  # Will hold metrics from last image
     all_results = []  # Collect results from each image
@@ -922,7 +922,7 @@ async def chat_with_vision_pipeline(
                 vision_metrics = r["metrics"]
                 break
 
-        total_time = time.time() - vision_start_time
+        total_time = vision_timer.elapsed()
         log_message(f"✅ All {num_images} images processed ({total_time:.1f}s total)")
 
         # === Combine results into multi_image JSON format ===
@@ -1501,7 +1501,7 @@ async def chat_interactive_mode(
             vram_before_inference = get_free_vram_mb()
 
             # Time measurement for final inference - STREAM response
-            inference_start = time.time()
+            inference_timer = Timer()
             ai_text = ""
             metrics = {}
             ttft = None
@@ -1516,7 +1516,7 @@ async def chat_interactive_mode(
                 if chunk["type"] == "content":
                     # Measure TTFT
                     if not first_token_received:
-                        ttft = time.time() - inference_start
+                        ttft = inference_timer.elapsed()
                         first_token_received = True
                         log_message(f"⚡ TTFT: {format_number(ttft, 2)}s")
                         yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
@@ -1540,7 +1540,7 @@ async def chat_interactive_mode(
                 elif chunk["type"] == "done":
                     metrics = chunk["metrics"]
 
-            inference_time = time.time() - inference_start
+            inference_time = inference_timer.elapsed()
 
             # Console: LLM finished
             tokens_generated = metrics.get("tokens_generated", 0)

@@ -7,8 +7,9 @@ Handles caching of research results including:
 - Session-based cache lookups
 """
 
-import time
+import time  # Keep for timestamp (time.time() for data, not duration)
 import threading
+from .timer import Timer
 from collections import OrderedDict
 from typing import Dict, List, Optional
 from .logging_utils import log_message
@@ -255,7 +256,7 @@ async def generate_cache_metadata(
         log_message(f"Total Messages: {len(messages)}, Temperature: 0.1, num_ctx: {metadata_num_ctx} (AIfred-LLM-Limit: {haupt_llm_context_limit})")
         log_message("=" * 60)
 
-        metadata_start = time.time()
+        metadata_timer = Timer()
 
         log_message(f"🔧 Using metadata model: {metadata_model}")
 
@@ -271,7 +272,7 @@ async def generate_cache_metadata(
         )
 
         metadata_summary = response.text.strip()
-        metadata_time = time.time() - metadata_start
+        metadata_time = metadata_timer.elapsed()
 
         # LLM follows the instructions in the prompt (max 60 words)
         # No hardcoded limit in code - the LLM controls the length itself

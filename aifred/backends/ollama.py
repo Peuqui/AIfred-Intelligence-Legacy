@@ -5,9 +5,9 @@ Wraps Ollama API into unified LLMBackend interface
 """
 
 import httpx
-import time
 import logging
 from typing import List, Optional, AsyncIterator, Dict
+from ..lib.timer import Timer
 from .base import (
     LLMBackend,
     LLMMessage,
@@ -19,7 +19,7 @@ from .base import (
 )
 from ..lib.logging_utils import log_message
 from ..lib.config import (
-    HYBRID_MIN_CONTEXT, RAM_RESERVE_MIN, DEFAULT_OLLAMA_URL,
+    DEFAULT_OLLAMA_URL,
     MIN_USEFUL_CONTEXT_TOKENS, MIN_FREE_RAM_MB
 )
 
@@ -47,8 +47,9 @@ async def wait_for_vram_stable(
     """
     import asyncio
     from ..lib.gpu_utils import get_free_vram_mb
+    from ..lib.timer import Timer
 
-    start_time = time.time()
+    timer = Timer()
     last_vram = get_free_vram_mb()
     stable_count = 0
     required_stable_checks = 2  # Need 2 consecutive stable readings
@@ -58,7 +59,7 @@ async def wait_for_vram_stable(
         await asyncio.sleep(2.0)
         return (True, 2.0, 0)
 
-    while (time.time() - start_time) < max_wait_seconds:
+    while timer.elapsed() < max_wait_seconds:
         await asyncio.sleep(check_interval)
         current_vram = get_free_vram_mb()
 
@@ -71,8 +72,7 @@ async def wait_for_vram_stable(
             stable_count += 1
             if stable_count >= required_stable_checks:
                 # VRAM is stable
-                wait_time = time.time() - start_time
-                return (True, wait_time, current_vram)
+                return (True, timer.elapsed(), current_vram)
         else:
             # VRAM still changing, reset counter
             stable_count = 0
@@ -80,9 +80,8 @@ async def wait_for_vram_stable(
         last_vram = current_vram
 
     # Timeout - return current state
-    wait_time = time.time() - start_time
     final_vram = get_free_vram_mb() or 0
-    return (False, wait_time, final_vram)
+    return (False, timer.elapsed(), final_vram)
 
 
 class OllamaBackend(LLMBackend):
@@ -195,7 +194,7 @@ class OllamaBackend(LLMBackend):
         payload["think"] = options.enable_thinking
 
         try:
-            start_time = time.time()
+            timer = Timer()
             # Use client's default timeout (unlimited) - Reflex handles timeouts
             response = await self.client.post(
                 f"{self.base_url}/api/chat",
@@ -203,7 +202,7 @@ class OllamaBackend(LLMBackend):
                 # No explicit timeout - uses client default (unlimited from __init__)
             )
             response.raise_for_status()
-            inference_time = time.time() - start_time
+            inference_time = timer.elapsed()
 
             data = response.json()
 
@@ -253,13 +252,13 @@ class OllamaBackend(LLMBackend):
                         payload["think"] = False
 
                         # Retry request
-                        start_time = time.time()
+                        retry_timer = Timer()
                         response = await self.client.post(
                             f"{self.base_url}/api/chat",
                             json=payload
                         )
                         response.raise_for_status()
-                        inference_time = time.time() - start_time
+                        inference_time = retry_timer.elapsed()
 
                         data = response.json()
                         message = data.get("message", {})
@@ -397,7 +396,7 @@ class OllamaBackend(LLMBackend):
         for attempt in range(2):
 
             try:
-                start_time = time.time()
+                timer = Timer()
                 thinking_started = False
                 thinking_buffer = ""
 
@@ -458,7 +457,7 @@ class OllamaBackend(LLMBackend):
                                 
                                 # Check if done - extract metrics
                                 if data.get("done", False):
-                                    inference_time = time.time() - start_time
+                                    inference_time = timer.elapsed()
                                     eval_count = data.get("eval_count", 0)
                                     eval_duration = data.get("eval_duration", 1)
                                     prompt_eval_count = data.get("prompt_eval_count", 0)
@@ -565,7 +564,7 @@ class OllamaBackend(LLMBackend):
         """
         try:
             from ..lib.logging_utils import log_message
-            start_time = time.time()
+            timer = Timer()
             log_message(f"⏱️ preload_model: START for {model} (num_ctx={num_ctx})")
 
             # Load the requested model
@@ -595,13 +594,13 @@ class OllamaBackend(LLMBackend):
                 # No timeout: Ollama queues requests automatically, even while model is loading
             )
 
-            load_time = time.time() - start_time
+            load_time = timer.elapsed()
             log_message(f"⏱️ preload_model: Response received after {load_time:.1f}s (status={response.status_code})")
             success = response.status_code == 200
             # Note: VRAM stabilization is handled in calculate_vram_based_context()
             return (success, load_time)
         except Exception as e:
-            load_time = time.time() - start_time
+            load_time = timer.elapsed()
             logger.warning(f"Preload failed for {model}: {e}")
             return (False, load_time)
 
@@ -1053,7 +1052,7 @@ class OllamaBackend(LLMBackend):
         # === HYBRID MODE DETECTION ===
         # Check if model is larger than available VRAM (requires CPU offloading)
         from ..lib.gpu_utils import (
-            get_free_vram_mb, get_free_ram_mb, get_dynamic_ram_reserve, is_moe_model,
+            get_free_vram_mb, get_free_ram_mb, is_moe_model,
             calculate_context_from_memory
         )
         from ..lib.config import (
@@ -1299,10 +1298,9 @@ class OllamaBackend(LLMBackend):
                 yield f"[{iteration}] Testing {format_number(mid)}..."
 
                 # Load model with test context
-                import time
-                start_time = time.time()
+                test_timer = Timer()
                 success, _ = await self.preload_model(model, num_ctx=mid)
-                elapsed = time.time() - start_time
+                elapsed = test_timer.elapsed()
 
                 if not success:
                     yield f"⚠️ Preload failed at {format_number(mid)}"
