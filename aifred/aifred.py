@@ -3206,60 +3206,9 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
-                # Thinking Mode Toggle (für alle Modelle sichtbar)
-                rx.divider(margin_top="12px", margin_bottom="12px"),
-                rx.vstack(
-                    rx.hstack(
-                        rx.text(t("thinking_mode_label"), font_weight="bold", font_size="12px"),
-                        rx.switch(
-                            checked=AIState.enable_thinking,
-                            on_change=AIState.toggle_thinking_mode,
-                            size="1",
-                        ),
-                        rx.text(
-                            rx.cond(
-                                AIState.enable_thinking,
-                                "ON",
-                                "OFF"
-                            ),
-                            font_size="11px",
-                            color=rx.cond(
-                                AIState.enable_thinking,
-                                "#4CAF50",
-                                "#999"
-                            ),
-                        ),
-                        spacing="2",
-                        align="center",
-                    ),
-                    rx.text(
-                        t("thinking_mode_info"),
-                        font_size="10px",
-                        color="#999",
-                        line_height="1.3",
-                    ),
-                    spacing="2",
-                    width="100%",
-                ),
-                # Pulsierende Warnung unterhalb der Erklärung (nur sichtbar wenn thinking_mode_warning gesetzt)
-                rx.cond(
-                    AIState.thinking_mode_warning != "",
-                    rx.box(
-                        rx.text(
-                            t("thinking_mode_unavailable") + " " + AIState.thinking_mode_warning,
-                            font_size="11px",
-                            font_weight="bold",
-                            color="#ff9800",
-                        ),
-                        padding="6px 10px",
-                        border_radius="4px",
-                        background_color="rgba(255, 152, 0, 0.15)",
-                        border="2px solid rgba(255, 152, 0, 0.5)",
-                        class_name="thinking-warning-pulse",
-                        margin_top="3px",
-                        margin_bottom="-12px",
-                    ),
-                ),
+                # NOTE: Global "Thinking Mode" toggle removed in v2.23.0
+                # Reasoning is now controlled per-agent via aifred_reasoning, sokrates_reasoning, salomo_reasoning
+                # which control BOTH the reasoning prompt AND the enable_thinking flag
 
                 # vLLM YaRN Context Extension (nur sichtbar bei vLLM)
                 rx.cond(

@@ -3168,9 +3168,10 @@ class AIState(rx.State):
                 # NOTE: display_user_msg was already prepared and added to chat_history above (line ~3113)
                 # No need to update it here - user panel is already correct
 
-                # Build LLM options (include enable_thinking toggle)
+                # Build LLM options - use per-agent reasoning toggle for enable_thinking
+                from .lib.prompt_loader import get_reasoning_enabled
                 llm_options = {
-                    'enable_thinking': self.enable_thinking
+                    'enable_thinking': get_reasoning_enabled("aifred")
                 }
 
                 # Storage für Vision-JSON (wird in history gespeichert statt readable text)
@@ -3415,9 +3416,10 @@ class AIState(rx.State):
 
                 # User message was already added to chat_history at the start of send_message()
 
-                # Build LLM options (include enable_thinking toggle)
+                # Build LLM options - use per-agent reasoning toggle for enable_thinking
+                from .lib.prompt_loader import get_reasoning_enabled
                 llm_options = {
-                    'enable_thinking': self.enable_thinking
+                    'enable_thinking': get_reasoning_enabled("aifred")
                 }
 
                 # REAL STREAMING: Call async generator directly
@@ -3544,9 +3546,10 @@ class AIState(rx.State):
 
                 # User message was already added to chat_history at the start of send_message()
 
-                # Build LLM options (include enable_thinking toggle)
+                # Build LLM options - use per-agent reasoning toggle for enable_thinking
+                from .lib.prompt_loader import get_reasoning_enabled
                 llm_options = {
-                    'enable_thinking': self.enable_thinking
+                    'enable_thinking': get_reasoning_enabled("aifred")
                 }
 
                 # Generate search queries via research_decision
@@ -3583,6 +3586,7 @@ class AIState(rx.State):
 
                     # Use centralized handle_own_knowledge() function
                     from .lib.own_knowledge_handler import handle_own_knowledge
+                    from .lib.prompt_loader import get_reasoning_enabled
 
                     # Prepare multimodal content if images present
                     multimodal_content = None
@@ -3612,7 +3616,7 @@ class AIState(rx.State):
                         temperature=self.temperature,
                         backend_type=self.backend_type,
                         backend_url=self.backend_url,
-                        enable_thinking=self.enable_thinking,
+                        enable_thinking=get_reasoning_enabled("aifred"),
                         state=self,
                         use_direct_prompt=use_aifred_direct_prompt,
                         multimodal_content=multimodal_content,
@@ -3788,6 +3792,7 @@ class AIState(rx.State):
                 # Uses centralized handle_own_knowledge() function
 
                 from .lib.own_knowledge_handler import handle_own_knowledge
+                from .lib.prompt_loader import get_reasoning_enabled
 
                 # Prepare multimodal content if images present
                 multimodal_content = None
@@ -3817,7 +3822,7 @@ class AIState(rx.State):
                     temperature=self.temperature,
                     backend_type=self.backend_type,
                     backend_url=self.backend_url,
-                    enable_thinking=self.enable_thinking,
+                    enable_thinking=get_reasoning_enabled("aifred"),
                     state=self,
                     use_direct_prompt=use_aifred_direct_prompt,
                     multimodal_content=multimodal_content,
@@ -3946,8 +3951,12 @@ class AIState(rx.State):
             self.current_ai_response = ""
 
 
-    def clear_chat(self, silent: bool = False):
-        """Clear chat history, pending images, and temporary files.
+    def clear_chat(self):
+        """UI Event Handler: Clear chat history (shows debug message)."""
+        self._clear_chat_internal(silent=False)
+
+    def _clear_chat_internal(self, silent: bool = False):
+        """Internal: Clear chat history, pending images, and temporary files.
 
         Args:
             silent: If True, don't show "Chat cleared" debug message.
@@ -4127,7 +4136,7 @@ class AIState(rx.State):
 
         # Reuse clear_chat() for state reset (avoids duplication)
         # silent=True: Avoid confusing "Chat cleared" message on new session creation
-        self.clear_chat(silent=True)
+        self._clear_chat_internal(silent=True)
 
         # Refresh session list
         self.refresh_session_list()
@@ -4276,7 +4285,7 @@ class AIState(rx.State):
         self.available_sessions = []
         self.session_id = ""
         # silent=True: Session data is preserved on disk, we're just clearing UI state
-        self.clear_chat(silent=True)
+        self._clear_chat_internal(silent=True)
 
         # Show login dialog again
         self.login_dialog_open = True

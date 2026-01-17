@@ -590,10 +590,11 @@ async def run_sokrates_direct_response(
         state.add_debug(f"📊 Context limit: {format_number(sokrates_num_ctx/1000, 3)}k")
         state.add_debug(f"🌡️ Temperature: {format_number(sokrates_direct_temp, 1)}")
 
-        # LLM options
+        # LLM options - use per-agent reasoning toggle for enable_thinking
+        from .prompt_loader import get_reasoning_enabled
         sokrates_options = LLMOptions(
             temperature=sokrates_direct_temp,
-            enable_thinking=state.enable_thinking,
+            enable_thinking=get_reasoning_enabled("sokrates"),
             num_ctx=sokrates_num_ctx
         )
 
@@ -765,10 +766,11 @@ async def run_salomo_direct_response(
         state.add_debug(f"📊 Context limit: {format_number(salomo_num_ctx/1000, 3)}k")
         state.add_debug(f"🌡️ Temperature: {format_number(salomo_direct_temp, 1)}")
 
-        # LLM options
+        # LLM options - use per-agent reasoning toggle for enable_thinking
+        from .prompt_loader import get_reasoning_enabled
         salomo_options = LLMOptions(
             temperature=salomo_direct_temp,
-            enable_thinking=state.enable_thinking,
+            enable_thinking=get_reasoning_enabled("salomo"),
             num_ctx=salomo_num_ctx
         )
 
@@ -979,14 +981,16 @@ async def run_sokrates_analysis(
         )
 
         # LLM options with calculated context and temperatures
+        # Use per-agent reasoning toggle for enable_thinking
+        from .prompt_loader import get_reasoning_enabled
         sokrates_options = LLMOptions(
             temperature=sokrates_temp,
-            enable_thinking=state.enable_thinking,  # Use global thinking toggle
+            enable_thinking=get_reasoning_enabled("sokrates"),
             num_ctx=sokrates_num_ctx
         )
         alfred_options = LLMOptions(
             temperature=alfred_temp,
-            enable_thinking=state.enable_thinking,  # Use global thinking toggle
+            enable_thinking=get_reasoning_enabled("aifred"),
             num_ctx=main_llm_ctx
         )
 
@@ -1127,7 +1131,7 @@ async def run_sokrates_analysis(
                 # salomo_temp already calculated above (before the loop)
                 salomo_options = LLMOptions(
                     temperature=salomo_temp,
-                    enable_thinking=state.enable_thinking,
+                    enable_thinking=get_reasoning_enabled("salomo"),
                     num_ctx=salomo_num_ctx
                 )
 
@@ -1444,19 +1448,21 @@ async def run_tribunal(
             sokrates_temp = min(1.0, alfred_temp + state.sokrates_temperature_offset)
             salomo_temp = min(1.0, alfred_temp + state.salomo_temperature_offset)
 
+        # Use per-agent reasoning toggle for enable_thinking
+        from .prompt_loader import get_reasoning_enabled
         sokrates_options = LLMOptions(
             temperature=sokrates_temp,
-            enable_thinking=state.enable_thinking,
+            enable_thinking=get_reasoning_enabled("sokrates"),
             num_ctx=sokrates_num_ctx
         )
         alfred_options = LLMOptions(
             temperature=alfred_temp,
-            enable_thinking=state.enable_thinking,
+            enable_thinking=get_reasoning_enabled("aifred"),
             num_ctx=main_llm_ctx
         )
         salomo_options = LLMOptions(
             temperature=salomo_temp,
-            enable_thinking=state.enable_thinking,
+            enable_thinking=get_reasoning_enabled("salomo"),
             num_ctx=salomo_num_ctx
         )
 
