@@ -4131,8 +4131,12 @@ class AIState(rx.State):
         self.refresh_session_list()
 
     def refresh_session_list(self):
-        """Refresh the list of available sessions for the session picker."""
-        from .lib.session_storage import list_sessions, get_session_title
+        """Refresh the list of available sessions for the session picker.
+
+        Also synchronizes current session if it was modified externally
+        (e.g., chat cleared in another tab/port).
+        """
+        from .lib.session_storage import list_sessions, get_session_title, load_session
 
         # Only show sessions owned by logged in user
         self.available_sessions = list_sessions(owner=self.logged_in_user)
@@ -4141,6 +4145,18 @@ class AIState(rx.State):
         if self.session_id:
             title = get_session_title(self.session_id)
             self.current_session_title = title or ""
+
+            # Sync check: Compare local state with server state
+            # If message counts differ, reload session from server
+            session = load_session(self.session_id)
+            if session and session.get("data"):
+                server_count = len(session["data"].get("chat_history", []))
+                local_count = len(self.chat_history)
+
+                if server_count != local_count:
+                    self.add_debug(f"🔄 Session changed externally ({local_count} → {server_count}), reloading...")
+                    self._restore_session(session)
+                    self.session_restored = True
 
     def switch_session(self, session_id: str):
         """Switch to a different session.
@@ -5289,7 +5305,8 @@ class AIState(rx.State):
             chat_summaries=None,  # Aktuell nicht persistiert
             llm_history=self.llm_history,  # DUAL-HISTORY: LLM-komprimierte History
             debug_messages=debug_to_save,  # DEBUG-PERSISTENCE: Last N debug entries
-            is_generating=self.is_generating  # API status check
+            is_generating=self.is_generating,  # API status check
+            owner=self.logged_in_user  # Required for session creation
         )
 
     async def _generate_session_title(self, model_id: str | None = None):

@@ -509,12 +509,13 @@ def update_chat_data(
     chat_summaries: Optional[List[str]] = None,
     llm_history: Optional[List[Dict[str, str]]] = None,
     debug_messages: Optional[List[str]] = None,
-    is_generating: Optional[bool] = None
+    is_generating: Optional[bool] = None,
+    owner: Optional[str] = None
 ) -> bool:
     """
     Update chat data of a session.
 
-    Creates new session if not present.
+    Creates new session if not present (requires owner for new sessions).
     More efficient than save_session() when only chat data changes.
 
     Args:
@@ -524,6 +525,7 @@ def update_chat_data(
         llm_history: Optional - List of {"role": ..., "content": ...} dicts (LLM - komprimiert)
         debug_messages: Optional - List of debug log entries (last N entries)
         is_generating: Optional - Current generation status (for API polling)
+        owner: Optional - Username for new sessions (required if session doesn't exist)
 
     Returns:
         True on success
@@ -532,9 +534,13 @@ def update_chat_data(
     session = load_session(session_id)
 
     if session is None:
+        # Session doesn't exist - create with owner (owner is REQUIRED)
+        if not owner:
+            raise ValueError(f"Cannot create session {session_id}: owner is required")
         session = {
             "created_at": datetime.now().isoformat(),
-            "data": {}
+            "data": {},
+            "owner": owner.lower()
         }
 
     # Update chat data (Dict-based format - no conversion needed)
