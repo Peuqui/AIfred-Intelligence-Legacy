@@ -217,6 +217,8 @@ class TranslationManager:
             "personality_aifred_tooltip": "Butler-Persönlichkeit: Britisch-höflicher Sprachstil",
             "personality_sokrates_tooltip": "Philosophen-Persönlichkeit: Sokratische Methode mit rhetorischen Fragen",
             "personality_salomo_tooltip": "König-Persönlichkeit: Weiser Richterstil mit hebräischen Weisheiten",
+            # Reasoning Tooltips
+            "reasoning_tooltip": "Reasoning Mode – Schritt-für-Schritt Analyse",
             "salomo_synthesis_label": "Synthese:",
             "salomo_verdict_label": "Urteil:",
             "tts_player_label": "Sprachausgabe",
@@ -432,6 +434,8 @@ class TranslationManager:
             "personality_aifred_tooltip": "Butler personality: Polite British speech style",
             "personality_sokrates_tooltip": "Philosopher personality: Socratic method with rhetorical questions",
             "personality_salomo_tooltip": "King personality: Wise arbiter style with Hebrew proverbs",
+            # Reasoning Tooltips
+            "reasoning_tooltip": "Reasoning Mode – Step-by-step analysis",
             "salomo_synthesis_label": "Synthesis:",
             "salomo_verdict_label": "Verdict:",
             "tts_player_label": "Text-to-Speech",

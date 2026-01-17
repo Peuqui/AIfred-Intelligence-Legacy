@@ -132,6 +132,11 @@ class AIState(rx.State):
     sokrates_personality: bool = True    # 🏛️ Sokrates philosophical style
     salomo_personality: bool = True      # 👑 Salomo judge style
 
+    # Per-Agent Reasoning Toggles (True = Chain-of-Thought reasoning enabled)
+    aifred_reasoning: bool = False       # 💭 AIfred step-by-step reasoning
+    sokrates_reasoning: bool = False     # 💭 Sokrates step-by-step reasoning
+    salomo_reasoning: bool = False       # 💭 Salomo step-by-step reasoning
+
     # Image Upload State
     pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "path": "/abs/path.jpg", "url": "/_upload/...", "size_kb": int}]
     image_upload_warning: str = ""  # Warning message if non-vision model selected
@@ -761,7 +766,7 @@ class AIState(rx.State):
                 self.user_name = saved_settings.get("user_name", self.user_name)
                 self.user_gender = saved_settings.get("user_gender", self.user_gender)
                 # Sync to prompt_loader for automatic injection into system prompts
-                from .lib.prompt_loader import set_user_name, set_user_gender, init_system_prompt_cache, set_personality_enabled
+                from .lib.prompt_loader import set_user_name, set_user_gender, init_system_prompt_cache, set_personality_enabled, set_reasoning_enabled
                 set_user_name(self.user_name)
                 set_user_gender(self.user_gender)
 
@@ -776,6 +781,14 @@ class AIState(rx.State):
                 # Persist personality defaults if not in settings (ensures they survive restarts)
                 if "aifred_personality" not in saved_settings or "sokrates_personality" not in saved_settings or "salomo_personality" not in saved_settings:
                     self._save_personality_settings()
+
+                # Load and sync reasoning toggles to prompt_loader
+                self.aifred_reasoning = saved_settings.get("aifred_reasoning", self.aifred_reasoning)
+                self.sokrates_reasoning = saved_settings.get("sokrates_reasoning", self.sokrates_reasoning)
+                self.salomo_reasoning = saved_settings.get("salomo_reasoning", self.salomo_reasoning)
+                set_reasoning_enabled("aifred", self.aifred_reasoning)
+                set_reasoning_enabled("sokrates", self.sokrates_reasoning)
+                set_reasoning_enabled("salomo", self.salomo_reasoning)
 
                 # Initialize system prompt token cache (v2.14.0+)
                 # This caches all prompt sizes for accurate compression calculations
@@ -1024,6 +1037,7 @@ class AIState(rx.State):
             # AFTER Backend-Init so chat history restore doesn't collide with loading
             if not self._session_initialized:
                 from .lib.browser_storage import get_username_script
+                print("🔐 Requesting username cookie from browser...")
                 # Read username cookie and handle login
                 yield rx.call_script(
                     get_username_script(),
@@ -3894,10 +3908,6 @@ class AIState(rx.State):
             async for _ in self._generate_session_title(self.automatik_model_id):
                 yield  # Forward UI updates from title generation
 
-            # Refresh session list to update sorting (last_seen changed)
-            self.refresh_session_list()
-            yield
-
             # TTS: Generate audio for AI response if enabled
             if self.enable_tts:
                 try:
@@ -3924,7 +3934,12 @@ class AIState(rx.State):
                     log_message(f"❌ TTS error in finally block: {tts_error}")
 
             # Auto-Save: Session nach jeder Chat-Nachricht speichern
+            # IMPORTANT: Save BEFORE refresh so message_count is up-to-date
             self._save_current_session()
+
+            # Refresh session list to update sorting (last_seen changed) and message count
+            self.refresh_session_list()
+            yield
 
             # Final cleanup: Clear streaming state
             self.current_agent = ""
@@ -4868,8 +4883,11 @@ class AIState(rx.State):
         Wird aufgerufen wenn das JavaScript den Username aus dem Cookie gelesen hat.
         Prüft ob Account existiert und loggt ein, sonst Login-Dialog öffnen.
         """
+        print(f"🔑 handle_username_loaded called: username='{username}'")
+
         # Guard: Nur einmal ausführen
         if self._session_initialized:
+            print("⏭️ Session already initialized, skipping")
             return
         self._session_initialized = True
 
@@ -5158,7 +5176,7 @@ class AIState(rx.State):
             options = {
                 "temperature": 0.3,  # Low temperature for consistent titles
                 "num_predict": 50,   # Short response
-                "think": False,      # Disable thinking for faster response
+                "enable_thinking": False,  # Disable thinking for faster response
             }
 
             response = await llm_client.chat(
@@ -6164,6 +6182,42 @@ class AIState(rx.State):
         settings["aifred_personality"] = self.aifred_personality
         settings["sokrates_personality"] = self.sokrates_personality
         settings["salomo_personality"] = self.salomo_personality
+        save_settings(settings)
+
+    def toggle_aifred_reasoning(self):
+        """Toggle AIfred chain-of-thought reasoning on/off"""
+        self.aifred_reasoning = not self.aifred_reasoning
+        status = "ON" if self.aifred_reasoning else "OFF"
+        self.add_debug(f"💭 AIfred reasoning: {status}")
+        self._save_reasoning_settings()
+        from .lib.prompt_loader import set_reasoning_enabled
+        set_reasoning_enabled("aifred", self.aifred_reasoning)
+
+    def toggle_sokrates_reasoning(self):
+        """Toggle Sokrates chain-of-thought reasoning on/off"""
+        self.sokrates_reasoning = not self.sokrates_reasoning
+        status = "ON" if self.sokrates_reasoning else "OFF"
+        self.add_debug(f"💭 Sokrates reasoning: {status}")
+        self._save_reasoning_settings()
+        from .lib.prompt_loader import set_reasoning_enabled
+        set_reasoning_enabled("sokrates", self.sokrates_reasoning)
+
+    def toggle_salomo_reasoning(self):
+        """Toggle Salomo chain-of-thought reasoning on/off"""
+        self.salomo_reasoning = not self.salomo_reasoning
+        status = "ON" if self.salomo_reasoning else "OFF"
+        self.add_debug(f"💭 Salomo reasoning: {status}")
+        self._save_reasoning_settings()
+        from .lib.prompt_loader import set_reasoning_enabled
+        set_reasoning_enabled("salomo", self.salomo_reasoning)
+
+    def _save_reasoning_settings(self):
+        """Save reasoning toggle states to settings.json"""
+        from .lib.settings import load_settings, save_settings
+        settings = load_settings() or {}
+        settings["aifred_reasoning"] = self.aifred_reasoning
+        settings["sokrates_reasoning"] = self.sokrates_reasoning
+        settings["salomo_reasoning"] = self.salomo_reasoning
         save_settings(settings)
 
     async def calibrate_context(self):

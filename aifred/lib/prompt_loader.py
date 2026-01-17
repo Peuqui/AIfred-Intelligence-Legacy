@@ -33,6 +33,13 @@ _personality_enabled = {
     "salomo": True
 }
 
+# Global reasoning toggle states (loaded from settings)
+_reasoning_enabled = {
+    "aifred": False,
+    "sokrates": False,
+    "salomo": False
+}
+
 # Cache for system prompt token counts (populated at startup)
 # Format: {"aifred": {"de": tokens, "en": tokens}, "sokrates": {...}, ...}
 _system_prompt_token_cache: dict[str, dict[str, int]] = {}
@@ -119,6 +126,72 @@ def sync_personality_from_settings():
     _personality_enabled["aifred"] = settings.get("aifred_personality", True)
     _personality_enabled["sokrates"] = settings.get("sokrates_personality", True)
     _personality_enabled["salomo"] = settings.get("salomo_personality", True)
+
+
+def set_reasoning_enabled(agent: str, enabled: bool):
+    """
+    Set reasoning toggle state for an agent.
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+        enabled: True to enable chain-of-thought reasoning
+    """
+    global _reasoning_enabled
+    if agent in _reasoning_enabled:
+        _reasoning_enabled[agent] = enabled
+
+
+def get_reasoning_enabled(agent: str) -> bool:
+    """
+    Get reasoning toggle state for an agent.
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+
+    Returns:
+        True if reasoning is enabled, False otherwise
+    """
+    return _reasoning_enabled.get(agent, False)
+
+
+def sync_reasoning_from_settings():
+    """
+    Sync reasoning toggle states from settings.json.
+
+    Called at startup and when settings change.
+    """
+    global _reasoning_enabled
+    from .settings import load_settings
+
+    settings = load_settings() or {}
+    _reasoning_enabled["aifred"] = settings.get("aifred_reasoning", False)
+    _reasoning_enabled["sokrates"] = settings.get("sokrates_reasoning", False)
+    _reasoning_enabled["salomo"] = settings.get("salomo_reasoning", False)
+
+
+def load_reasoning(agent: str, lang: Optional[str] = None) -> str:
+    """
+    Load reasoning prompt for an agent (if enabled).
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+        lang: Language code ("de" or "en"), defaults to current language
+
+    Returns:
+        Reasoning prompt text, or empty string if not enabled
+    """
+    if not get_reasoning_enabled(agent):
+        return ""
+
+    if lang is None:
+        lang = _current_language
+
+    reasoning_file = PROMPTS_DIR / lang / "utility" / "reasoning.txt"
+
+    if not reasoning_file.exists():
+        return ""
+
+    return reasoning_file.read_text(encoding="utf-8").strip()
 
 
 def load_identity(agent: str, lang: Optional[str] = None) -> str:
@@ -428,12 +501,13 @@ def get_followup_intent_prompt(original_query: str, followup_query: str, lang: O
 
 def _merge_prompt_layers(agent: str, task_prompt: str, lang: Optional[str] = None) -> str:
     """
-    Merge prompt layers in correct order: Identity + Personality + Task.
+    Merge prompt layers in correct order: Identity + Reasoning + Task + Personality.
 
-    This is the core 3-layer prompt system:
+    This is the core 4-layer prompt system:
     1. Identity (WHO am I) - always loaded
-    2. Personality (HOW do I speak) - toggleable via settings
+    2. Reasoning (HOW do I think) - toggleable via settings
     3. Task prompt (WHAT should I do) - situational
+    4. Personality (HOW do I speak) - toggleable via settings, LAST for priority
 
     Args:
         agent: Agent name ("aifred", "sokrates", "salomo")
@@ -450,10 +524,15 @@ def _merge_prompt_layers(agent: str, task_prompt: str, lang: Optional[str] = Non
     if identity:
         parts.append(identity)
 
-    # Layer 2: Task prompt (always)
+    # Layer 2: Reasoning (if enabled) - before task prompt
+    reasoning = load_reasoning(agent, lang)
+    if reasoning:
+        parts.append(reasoning)
+
+    # Layer 3: Task prompt (always)
     parts.append(task_prompt)
 
-    # Layer 3: Personality (if enabled) - LAST so LLM prioritizes it!
+    # Layer 4: Personality (if enabled) - LAST so LLM prioritizes it!
     # LLMs tend to follow instructions at the end more strongly.
     personality = load_personality(agent, lang)
     if personality:
@@ -464,7 +543,7 @@ def _merge_prompt_layers(agent: str, task_prompt: str, lang: Optional[str] = Non
 
 def get_aifred_system_minimal(lang: Optional[str] = None) -> str:
     """
-    Load AIfred minimal system prompt with 3-layer merging.
+    Load AIfred minimal system prompt with 4-layer merging.
 
     Layers: Identity + Personality (if enabled) + Task prompt
 
@@ -480,7 +559,7 @@ def get_aifred_system_minimal(lang: Optional[str] = None) -> str:
 
 def get_system_rag_prompt(context: str, user_text: str = "", lang: Optional[str] = None) -> str:
     """
-    Load system RAG prompt with 3-layer merging.
+    Load system RAG prompt with 4-layer merging.
 
     Layers: Identity + Personality (if enabled) + RAG task prompt
     """
@@ -559,7 +638,7 @@ def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) 
 
 def get_sokrates_system_minimal(lang: Optional[str] = None) -> str:
     """
-    Load Sokrates minimal system prompt with 3-layer merging.
+    Load Sokrates minimal system prompt with 4-layer merging.
 
     Layers: Identity + Personality (if enabled) + Task prompt
 
@@ -630,7 +709,7 @@ get_sokrates_refinement_prompt = get_aifred_refinement_prompt
 
 def get_sokrates_direct_prompt(lang: Optional[str] = None) -> str:
     """
-    Load Sokrates Direct Response prompt with 3-layer merging.
+    Load Sokrates Direct Response prompt with 4-layer merging.
 
     Layers: Identity + Personality (if enabled) + Direct task prompt
 
@@ -646,7 +725,7 @@ def get_sokrates_direct_prompt(lang: Optional[str] = None) -> str:
 
 def get_aifred_direct_prompt(lang: Optional[str] = None) -> str:
     """
-    Load AIfred Direct Response prompt with 3-layer merging.
+    Load AIfred Direct Response prompt with 4-layer merging.
 
     Layers: Identity + Personality (if enabled) + Direct task prompt
 
@@ -666,7 +745,7 @@ def get_aifred_direct_prompt(lang: Optional[str] = None) -> str:
 
 def get_salomo_direct_prompt(lang: Optional[str] = None) -> str:
     """
-    Load Salomo Direct Response prompt with 3-layer merging.
+    Load Salomo Direct Response prompt with 4-layer merging.
 
     Layers: Identity + Personality (if enabled) + Direct task prompt
 
@@ -682,7 +761,7 @@ def get_salomo_direct_prompt(lang: Optional[str] = None) -> str:
 
 def get_salomo_system_minimal(lang: Optional[str] = None) -> str:
     """
-    Load Salomo minimal system prompt with 3-layer merging.
+    Load Salomo minimal system prompt with 4-layer merging.
 
     Layers: Identity + Personality (if enabled) + Task prompt
 

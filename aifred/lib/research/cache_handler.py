@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, AsyncIterator
 
 from ..cache_manager import get_cached_research
 from ..agent_tools import build_context
-from ..prompt_loader import load_prompt, load_identity, load_personality
+from ..prompt_loader import load_prompt, load_identity, load_personality, load_reasoning
 from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx, strip_thinking_blocks
 from ..intent_detector import detect_cache_followup_intent, get_temperature_for_intent, get_temperature_label
 from ..formatting import format_thinking_process, format_number, format_metadata
@@ -95,9 +95,10 @@ async def handle_cache_hit(
     # Use detected_language from Intent Detection (passed from caller)
     detected_user_language = detected_language
 
-    # System prompt for cache hit with 3-layer merging:
-    # Identity + Personality (if enabled) + Task prompt
+    # System prompt for cache hit with 4-layer merging:
+    # Identity + Reasoning (if enabled) + Task prompt + Personality (if enabled)
     identity = load_identity("aifred", detected_user_language)
+    reasoning = load_reasoning("aifred", detected_user_language)
     personality = load_personality("aifred", detected_user_language)
     task_prompt = load_prompt(
         'aifred/system_rag_cache_hit',
@@ -109,13 +110,15 @@ async def handle_cache_hit(
         context=context
     )
 
-    # Merge layers: Identity + Personality + Task
+    # Merge layers: Identity + Reasoning + Task + Personality
     prompt_parts = []
     if identity:
         prompt_parts.append(identity)
+    if reasoning:
+        prompt_parts.append(reasoning)
+    prompt_parts.append(task_prompt)
     if personality:
         prompt_parts.append(personality)
-    prompt_parts.append(task_prompt)
     system_prompt = "\n\n".join(prompt_parts)
 
     # Generate response with cache data

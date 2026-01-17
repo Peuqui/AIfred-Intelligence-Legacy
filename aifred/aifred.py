@@ -2879,38 +2879,36 @@ def settings_accordion() -> rx.Component:
                             size="1",
                         ),
                         # 🎩 AIfred Personality Toggle
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("🎩", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.aifred_personality,
-                                        on_change=lambda _: AIState.toggle_aifred_personality(),
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="classic",
-                                    ),
-                                    spacing="1",
-                                    align="center",
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("🎩", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_personality,
+                                    on_change=lambda _: AIState.toggle_aifred_personality(),
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="classic",
                                 ),
-                                content="Butler-Persönlichkeit: Britisch-höflicher Sprachstil",
+                                spacing="1",
+                                align="center",
                             ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("🎩", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.aifred_personality,
-                                        on_change=lambda _: AIState.toggle_aifred_personality(),
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="classic",
-                                    ),
-                                    spacing="1",
-                                    align="center",
+                            content=t("personality_aifred_tooltip"),
+                        ),
+                        # 💭 AIfred Reasoning Toggle
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("💭", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_reasoning,
+                                    on_change=lambda _: AIState.toggle_aifred_reasoning(),
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="classic",
                                 ),
-                                content="Butler personality: Polite British speech style",
+                                spacing="1",
+                                align="center",
                             ),
+                            content=t("reasoning_tooltip"),
                         ),
                         spacing="2",
                         align="center",
@@ -2972,38 +2970,36 @@ def settings_accordion() -> rx.Component:
                             size="1",
                         ),
                         # 🏛️ Sokrates Personality Toggle
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("🏛️", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.sokrates_personality,
-                                        on_change=lambda _: AIState.toggle_sokrates_personality(),
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="classic",
-                                    ),
-                                    spacing="1",
-                                    align="center",
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("🏛️", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.sokrates_personality,
+                                    on_change=lambda _: AIState.toggle_sokrates_personality(),
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="classic",
                                 ),
-                                content="Philosophen-Persönlichkeit: Sokratische Methode mit rhetorischen Fragen",
+                                spacing="1",
+                                align="center",
                             ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("🏛️", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.sokrates_personality,
-                                        on_change=lambda _: AIState.toggle_sokrates_personality(),
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="classic",
-                                    ),
-                                    spacing="1",
-                                    align="center",
+                            content=t("personality_sokrates_tooltip"),
+                        ),
+                        # 💭 Sokrates Reasoning Toggle
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("💭", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.sokrates_reasoning,
+                                    on_change=lambda _: AIState.toggle_sokrates_reasoning(),
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="classic",
                                 ),
-                                content="Philosopher personality: Socratic method with rhetorical questions",
+                                spacing="1",
+                                align="center",
                             ),
+                            content=t("reasoning_tooltip"),
                         ),
                         spacing="2",
                         align="center",
@@ -3065,38 +3061,36 @@ def settings_accordion() -> rx.Component:
                             size="1",
                         ),
                         # 👑 Salomo Personality Toggle
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("👑", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.salomo_personality,
-                                        on_change=lambda _: AIState.toggle_salomo_personality(),
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="classic",
-                                    ),
-                                    spacing="1",
-                                    align="center",
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("👑", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.salomo_personality,
+                                    on_change=lambda _: AIState.toggle_salomo_personality(),
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="classic",
                                 ),
-                                content="König-Persönlichkeit: Weiser Richterstil mit hebräischen Weisheiten",
+                                spacing="1",
+                                align="center",
                             ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("👑", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.salomo_personality,
-                                        on_change=lambda _: AIState.toggle_salomo_personality(),
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="classic",
-                                    ),
-                                    spacing="1",
-                                    align="center",
+                            content=t("personality_salomo_tooltip"),
+                        ),
+                        # 💭 Salomo Reasoning Toggle
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("💭", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.salomo_reasoning,
+                                    on_change=lambda _: AIState.toggle_salomo_reasoning(),
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="classic",
                                 ),
-                                content="King personality: Wise arbiter style with Hebrew proverbs",
+                                spacing="1",
+                                align="center",
                             ),
+                            content=t("reasoning_tooltip"),
                         ),
                         spacing="2",
                         align="center",
