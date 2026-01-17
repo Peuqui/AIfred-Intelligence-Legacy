@@ -5,6 +5,59 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.23.0] - 2026-01-17
+
+### Added
+
+- **Timer-Utility Migration** ([timer.py](aifred/lib/timer.py)):
+  - Neue zentrale `Timer`-Klasse mit `time.monotonic()` für zuverlässige Zeitmessung
+  - Ersetzt fehleranfällige `time.time()` Start/Stop Muster im gesamten Codebase
+  - Monotone Uhr ist immun gegen Systemzeit-Änderungen (NTP-Sync, Zeitumstellung)
+  - Methoden: `reset()`, `elapsed()` - einfaches Interface, keine Fehlerquellen
+
+- **Scrollbar Gutter Stability** ([aifred.py](aifred/aifred.py)):
+  - Session-Liste verwendet `scrollbarGutter: stable` CSS-Property
+  - Verhindert UI-"Springen" wenn Scrollbar erscheint/verschwindet beim Löschen von Sessions
+  - Icons und Texte bleiben jetzt positionsstabil
+
+### Changed
+
+- **Per-Agent Reasoning Toggles steuern beide Systeme** ([state.py](aifred/state.py), [multi_agent.py](aifred/lib/multi_agent.py)):
+  - Die Per-Agent Reasoning-Toggles (`aifred_reasoning`, `sokrates_reasoning`, `salomo_reasoning`) kontrollieren jetzt BEIDE:
+    1. **Reasoning Prompt**: Chain-of-Thought Anweisungen im System-Prompt (funktioniert für alle Modelle)
+    2. **enable_thinking Flag**: Spezifisches Flag für Thinking-Modelle (Qwen3, QwQ, etc.)
+  - Design-Entscheidung: Instruct-Modelle (ohne native `<think>`-Tags) profitieren vom CoT-Prompt
+  - Thinking-Modelle erhalten beides: CoT-Prompt + technisches Flag für `<think>`-Block-Generierung
+  - 5 Stellen in `state.py` und 5 Stellen in `multi_agent.py` aktualisiert
+
+- **Globaler "Reasoning Mode" Toggle entfernt** ([aifred.py](aifred/aifred.py)):
+  - Der globale "Thinking Mode" Toggle wurde aus dem UI entfernt
+  - Reasoning wird jetzt ausschließlich per-Agent gesteuert in den LLM-Einstellungen
+  - Verhindert Verwirrung zwischen globalem und per-Agent Toggle
+
+### Fixed
+
+- **"Chat cleared" Meldung bei Startup/Logout** ([state.py](aifred/state.py)):
+  - `new_session()` und `do_logout()` zeigen nicht mehr irreführende "🗑️ Chat cleared" Debug-Meldung
+  - Neuer `silent=True` Parameter für `_clear_chat_internal()` (interne Methode)
+  - `clear_chat()` bleibt als UI-Event-Handler ohne Parameter (Reflex-Anforderung)
+
+### Design Notes
+
+**Per-Agent Reasoning Design-Entscheidung:**
+
+Die Reasoning-Toggles pro Agent steuern jetzt einheitlich beide Mechanismen:
+
+| Toggle Status | Reasoning Prompt | enable_thinking | Effekt |
+|---------------|------------------|-----------------|--------|
+| **ON** | ✅ Injiziert | ✅ True | Voller CoT mit `<think>`-Blocks (Thinking-Modelle) |
+| **ON** | ✅ Injiziert | ✅ True | CoT-Anweisungen befolgt (Instruct-Modelle, kein `<think>`) |
+| **OFF** | ❌ Nicht injiziert | ❌ False | Direkte Antworten, kein Reasoning |
+
+Diese Vereinheitlichung ermöglicht konsistentes Verhalten unabhängig vom Modelltyp.
+
+---
+
 ## [2.22.0] - 2026-01-16
 
 ### Added

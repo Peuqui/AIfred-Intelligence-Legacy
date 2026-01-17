@@ -1035,15 +1035,32 @@ Settings werden in `~/.config/aifred/settings.json` gespeichert:
 }
 ```
 
-### Thinking Mode (Chain-of-Thought)
+### Reasoning Mode (Chain-of-Thought)
 
-AIfred unterstützt Thinking Mode für Modelle mit `<think>` Tag-Unterstützung (Qwen3, QwQ, NemoTron, etc.):
+AIfred unterstützt per-Agent Reasoning-Konfiguration für verbesserte Antwortqualität.
 
-- **Thinking Mode ON**: Generiert `<think>...</think>` Blocks mit Denkprozess
-- **Thinking Mode OFF**: Direkte Antworten ohne Chain-of-Thought
-- **Temperature**: Unabhängig - nutzt Intent Detection (auto) oder manuellen Slider
+**Per-Agent Reasoning Toggles** (v2.23.0):
+
+Jeder Agent (AIfred, Sokrates, Salomo) hat seinen eigenen Reasoning-Toggle in den LLM-Einstellungen. Diese Toggles steuern **beide** Mechanismen:
+
+1. **Reasoning Prompt**: Chain-of-Thought Anweisungen im System-Prompt (funktioniert für ALLE Modelle)
+2. **enable_thinking Flag**: Technisches Flag für Thinking-Modelle (Qwen3, QwQ, NemoTron)
+
+| Toggle | Reasoning Prompt | enable_thinking | Effekt |
+|--------|------------------|-----------------|--------|
+| **ON** | ✅ Injiziert | ✅ True | Voller CoT mit `<think>`-Blocks (Thinking-Modelle) |
+| **ON** | ✅ Injiziert | ✅ True | CoT-Anweisungen befolgt (Instruct-Modelle, kein `<think>`) |
+| **OFF** | ❌ Nicht injiziert | ❌ False | Direkte Antworten, kein Reasoning |
+
+**Design-Begründung:**
+- Instruct-Modelle (ohne native `<think>`-Tags) profitieren von CoT-Prompt-Anweisungen
+- Thinking-Modelle erhalten beides: CoT-Prompt + technisches Flag für `<think>`-Block-Generierung
+- Dieser einheitliche Ansatz ermöglicht konsistentes Verhalten unabhängig vom Modelltyp
+
+**Weitere Features:**
 - **Formatierung**: Denkprozess als ausklappbares Collapsible mit Modellname und Inferenzzeit
-- **Automatik-LLM**: Thinking Mode für Automatik-Entscheidungen DEAKTIVIERT (8x schneller)
+- **Temperature**: Unabhängig vom Reasoning - nutzt Intent Detection (auto) oder manuellen Slider
+- **Automatik-LLM**: Reasoning immer DEAKTIVIERT für Automatik-Entscheidungen (8x schneller)
 
 ---
 

@@ -1997,6 +1997,7 @@ def session_list_display() -> rx.Component:
                     "maxHeight": "168px",
                     "overflowY": "auto",
                     "overflowX": "hidden",
+                    "scrollbarGutter": "stable",  # Prevent UI jump when scrollbar appears/disappears
                 },
                 width="100%",
             ),

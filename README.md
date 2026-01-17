@@ -1170,15 +1170,32 @@ Settings are saved in `~/.config/aifred/settings.json`:
 }
 ```
 
-### Thinking Mode (Chain-of-Thought)
+### Reasoning Mode (Chain-of-Thought)
 
-AIfred supports Thinking Mode for models with `<think>` tag support (Qwen3, QwQ, NemoTron, etc.):
+AIfred supports per-agent reasoning configuration for enhanced answer quality.
 
-- **Thinking Mode ON**: Generates `<think>...</think>` blocks with reasoning process
-- **Thinking Mode OFF**: Direct answers without Chain-of-Thought
-- **Temperature**: Independent - uses Intent Detection (auto) or manual slider
-- **Formatting**: Reasoning process as collapsible accordion with model name and inference time
-- **Automatik-LLM**: Thinking Mode DISABLED for Automatik decisions (8x faster)
+**Per-Agent Reasoning Toggles** (v2.23.0):
+
+Each agent (AIfred, Sokrates, Salomo) has its own reasoning toggle in the LLM settings. These toggles control **both** mechanisms:
+
+1. **Reasoning Prompt**: Chain-of-Thought instructions in the system prompt (works for ALL models)
+2. **enable_thinking Flag**: Technical flag for thinking-capable models (Qwen3, QwQ, NemoTron)
+
+| Toggle | Reasoning Prompt | enable_thinking | Effect |
+|--------|------------------|-----------------|--------|
+| **ON** | ✅ Injected | ✅ True | Full CoT with `<think>` blocks (thinking models) |
+| **ON** | ✅ Injected | ✅ True | CoT instructions followed (instruct models, no `<think>`) |
+| **OFF** | ❌ Not injected | ❌ False | Direct answers, no reasoning |
+
+**Design Rationale:**
+- Instruct models (without native `<think>` tags) benefit from CoT prompt instructions
+- Thinking models receive both: CoT prompt + technical flag for `<think>` block generation
+- This unified approach provides consistent behavior regardless of model type
+
+**Additional Features:**
+- **Formatting**: Reasoning process displayed as collapsible accordion with model name and inference time
+- **Temperature**: Independent from reasoning - uses Intent Detection (auto) or manual slider
+- **Automatik-LLM**: Reasoning always DISABLED for Automatik decisions (8x faster)
 
 ---
 
