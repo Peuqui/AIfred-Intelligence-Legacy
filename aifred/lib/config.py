@@ -5,6 +5,7 @@ This module contains all global configuration variables used across
 the AIfred Intelligence application.
 """
 
+import os
 from pathlib import Path
 
 # ============================================================
@@ -17,9 +18,12 @@ SSL_CERTFILE = PROJECT_ROOT / "ssl" / "fullchain.pem"
 # Settings are stored in ~/.config/aifred/settings.json (see aifred/lib/settings.py)
 
 # ============================================================
-# NOTE: URLs for uploaded files (images, TTS audio, HTML preview) now use
-# relative paths like "/_upload/..." so the browser automatically uses
-# the correct host/port. No hardcoded backend URL needed anymore.
+# BACKEND URL FOR STATIC FILES (HTML Preview, Images)
+# ============================================================
+# With NGINX proxy: Leave empty ("") - NGINX routes /_upload/ to backend
+# Without NGINX (dev): Set to backend URL, e.g. "http://localhost:8002"
+# Example for WSL dev: BACKEND_URL=http://172.30.8.72:8002
+BACKEND_URL = os.environ.get("BACKEND_URL", "")
 
 # ============================================================
 # DEBUG CONFIGURATION

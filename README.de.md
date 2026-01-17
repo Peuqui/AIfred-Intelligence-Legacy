@@ -1421,6 +1421,11 @@ TAVILY_API_KEY=dein_tavily_api_key
 
 # Ollama Konfiguration
 OLLAMA_BASE_URL=http://localhost:11434
+
+# Backend-URL für statische Dateien (HTML-Preview, Bilder)
+# Mit NGINX: Leer lassen oder weglassen - NGINX leitet /_upload/ ans Backend
+# Ohne NGINX (Dev): Auf Backend-URL setzen für direkten Zugriff
+# BACKEND_URL=http://localhost:8002
 ```
 
 **Warum wird `AIFRED_API_URL` benötigt?**

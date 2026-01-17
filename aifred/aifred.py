@@ -1398,96 +1398,13 @@ def parse_thinking(ai_response: str) -> tuple[str, str]:
     return "", ai_response
 
 
-def render_failed_sources_inline(failed_sources) -> rx.Component:
+def render_sources_collapsible_from_msg(msg) -> rx.Component:
     """
-    Rendert failed sources als kompaktes Collapsible innerhalb einer Chat-Message.
-    Dunkleres Orange-Theme für bessere Unterscheidbarkeit.
+    Placeholder - sources are shown only for current request via State variables.
+    For historical messages, sources are embedded in content as HTML comments
+    and rendered via HTML export.
     """
-    return rx.cond(
-        failed_sources.length() > 0,
-        rx.box(
-            rx.accordion.root(
-                rx.accordion.item(
-                    value="inline_failed_sources",
-                    header=rx.box(
-                        rx.hstack(
-                            rx.text("⚠", font_size="13px", line_height="1"),
-                            rx.text(
-                                rx.cond(
-                                    AIState.ui_language == "de",
-                                    # German: Singular/Plural
-                                    rx.cond(
-                                        failed_sources.length() == 1,
-                                        f"{failed_sources.length()} Quelle nicht erreichbar",
-                                        f"{failed_sources.length()} Quellen nicht erreichbar",
-                                    ),
-                                    # English: Singular/Plural
-                                    rx.cond(
-                                        failed_sources.length() == 1,
-                                        f"{failed_sources.length()} source unavailable",
-                                        f"{failed_sources.length()} sources unavailable",
-                                    ),
-                                ),
-                                font_weight="500",
-                                font_size="13px",
-                                color="#cc6a00",  # Darker orange
-                                line_height="1",
-                            ),
-                            spacing="1",
-                            align="center",
-                        ),
-                        padding="0",
-                        background_color="transparent",
-                        cursor="pointer",
-                    ),
-                    content=rx.box(
-                        rx.vstack(
-                            rx.foreach(
-                                failed_sources,
-                                lambda src: rx.hstack(
-                                    rx.link(
-                                        rx.text(
-                                            src["url"],
-                                            font_size="13px",
-                                            color=COLORS["accent_blue"],
-                                            _hover={"text_decoration": "underline"},
-                                            overflow="hidden",
-                                            text_overflow="ellipsis",
-                                            white_space="nowrap",
-                                            max_width="450px",
-                                        ),
-                                        href=src["url"],
-                                        is_external=True,
-                                    ),
-                                    rx.text(
-                                        f"({src['error']})",
-                                        font_size="12px",
-                                        color=COLORS["text_muted"],
-                                        font_style="italic",
-                                    ),
-                                    spacing="2",
-                                    align="center",
-                                    width="100%",
-                                )
-                            ),
-                            spacing="0",
-                            width="100%",
-                            align_items="start",
-                            padding_top="4px",
-                        ),
-                        padding="0",
-                        width="100%",
-                    ),
-                ),
-                collapsible=True,
-                variant="ghost",
-                width="auto",
-            ),
-            width="auto",
-            margin_y="0",
-        ),
-        rx.fragment(),  # Empty component when no failed sources
-    )
+    return rx.fragment()
 
 
 def render_history_thumbnail(img_data) -> rx.Component:
@@ -1675,6 +1592,10 @@ def render_assistant_message(msg: dict) -> rx.Component:
                             color=COLORS["primary"],
                             margin_bottom="1",
                         ),
+                        # Web sources collapsible (if available)
+                        # Use msg["used_sources"] / msg["failed_sources"] directly
+                        # These are top-level fields in the message dict
+                        render_sources_collapsible_from_msg(msg),
                         rx.markdown(
                             msg["content"],
                             color=COLORS["ai_text"],
@@ -2201,6 +2122,9 @@ def chat_history_display() -> rx.Component:
             ),
         ),
     )
+
+    # NOTE: Web sources collapsible is now embedded directly in the AI response HTML
+    # (like the Denkprozess collapsible), so we don't need a separate component here.
 
     chat_history_box = rx.box(
         rx.vstack(
@@ -4852,3 +4776,8 @@ from .lib.config import PROJECT_ROOT
 images_dir = PROJECT_ROOT / "uploaded_files" / "images"
 images_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/images", StaticFiles(directory=str(images_dir)), name="uploaded_images")
+
+# Mount html_preview directory for share_chat feature
+html_preview_dir = PROJECT_ROOT / "uploaded_files" / "html_preview"
+html_preview_dir.mkdir(parents=True, exist_ok=True)
+app._api.mount("/_upload/html_preview", StaticFiles(directory=str(html_preview_dir)), name="html_preview")

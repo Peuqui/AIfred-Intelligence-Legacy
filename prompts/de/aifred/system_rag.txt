@@ -135,18 +135,9 @@ Die Quellen sind auf Englisch? → Trotzdem auf DEUTSCH antworten!
   * Nutze **Listen** für Aufzählungen und Zusammenfassungen
   * Jeder Absatz sollte **3-5 Sätze** enthalten - nicht nur 1-2!
 
-- LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN MIT VOLLSTÄNDIGER URL AUF:
-
-  **Quellen:**
-  - Quelle 1: https://vollstaendige-url-hier.de/pfad
-  - Quelle 2: https://vollstaendige-url-hier.de/pfad
-
-  ⚠️ WICHTIG:
-  - Schreibe die KOMPLETTE URL aus den Recherche-Ergebnissen
-  - KEINE Beschreibungen, Themen oder Klammern hinter der URL
-  - NUR die nackten URLs in der Liste
-
-- ❌ NENNE KEINE URLs die NICHT in den Recherche-Ergebnissen oben stehen!
+- ❌ KEINE Quellen-Liste am Ende! Die URLs sind bereits oben im Web-Quellen Collapsible sichtbar!
+- ✅ Referenziere Quellen NUR mit "Quelle 1", "Quelle 2" etc. im Fließtext
+- ❌ KEINE URLs im Text oder am Ende ausgeben!
 - Falls Recherche leer: "Die Recherche ergab leider keine verwertbaren Informationen zu dieser Frage"
 - Falls Quellen nur allgemeine Info enthalten: "Die Quellen enthalten Hintergrundinformationen über [Thema], aber keine spezifischen Details zu [User-Frage]"
 - Stil: Informativ, detailliert, präzise, Deutsch

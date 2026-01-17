@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 from collections import OrderedDict
 from .logging_utils import log_message
-from .config import get_xml_tag_config  # Import function instead of static config
+from .config import get_xml_tag_config, BACKEND_URL  # Import function instead of static config
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
 
@@ -248,8 +248,13 @@ def _save_html_to_assets(html_code: str) -> str:
 
     log_message(f"🌐 HTML Preview: File saved → {filepath} (Cache: {len(_html_file_cache)}/{MAX_HTML_FILES})")
 
-    # Return relative URL - browser uses current host/port automatically
-    return f"/_upload/html_preview/{filename}"
+    # Return URL - absolute with BACKEND_URL if set, otherwise relative
+    # With NGINX: BACKEND_URL="" → relative URL works (NGINX routes to backend)
+    # Without NGINX (dev): BACKEND_URL="http://host:8002" → absolute URL to backend
+    relative_path = f"/_upload/html_preview/{filename}"
+    if BACKEND_URL:
+        return f"{BACKEND_URL}{relative_path}"
+    return relative_path
 
 
 @atexit.register
@@ -727,3 +732,114 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
     result = format_html_preview(result)
 
     return result
+
+
+def build_sources_collapsible(used_sources: list, failed_sources: list, lang: str = None) -> str:
+    """
+    Build HTML <details> collapsible for web sources.
+
+    Creates a compact collapsible matching the Denkprozess styling,
+    showing all sources sorted by rank_index (successful + failed mixed).
+
+    Args:
+        used_sources: List of dicts with 'url', 'word_count', 'rank_index', 'success'
+        failed_sources: List of dicts with 'url', 'error', 'rank_index'
+        lang: Language for labels (de/en). If None, uses get_ui_locale()
+
+    Returns:
+        HTML string with <details> collapsible, or empty string if no sources
+    """
+    if lang is None:
+        lang = get_ui_locale()
+
+    # Combine all sources and sort by rank_index
+    all_sources = []
+
+    for src in used_sources:
+        all_sources.append({
+            "url": src.get("url", ""),
+            "word_count": src.get("word_count", 0),
+            "rank_index": src.get("rank_index", 999),
+            "success": True,
+            "error": None
+        })
+
+    for src in failed_sources:
+        all_sources.append({
+            "url": src.get("url", ""),
+            "word_count": 0,
+            "rank_index": src.get("rank_index", 999),
+            "success": False,
+            "error": src.get("error", "Failed")
+        })
+
+    if not all_sources:
+        return ""
+
+    # Sort by rank_index
+    all_sources.sort(key=lambda x: x["rank_index"])
+
+    # Build summary text
+    total = len(all_sources)
+    failed_count = len(failed_sources)
+
+    if lang == "de":
+        if failed_count > 0:
+            summary_text = f"🔗 {total} Web-Quellen ({failed_count} fehlgeschlagen)"
+        else:
+            summary_text = f"🔗 {total} Web-Quellen"
+        words_label = "Wörter"
+        sorted_label = "Sortiert nach Relevanz"
+    else:
+        if failed_count > 0:
+            summary_text = f"🔗 {total} Web Sources ({failed_count} failed)"
+        else:
+            summary_text = f"🔗 {total} Web Sources"
+        words_label = "words"
+        sorted_label = "Sorted by relevance"
+
+    # Build source list HTML with table-like layout
+    # Number + status icon + URL (truncated) + metadata (word count or error)
+    # Numbering matches LLM's "Quelle 1, 2, 3" references
+    source_lines = []
+    for i, src in enumerate(all_sources, 1):
+        url = src["url"]
+        if src["success"]:
+            # Number + green checkmark + URL (cyan, styled via CSS) + word count
+            word_count = src["word_count"]
+            source_lines.append(
+                f'<div style="display: flex; align-items: baseline; gap: 0.8em;">'
+                f'<span style="color: #7d8590; flex-shrink: 0; min-width: 1.5em;">{i}.</span>'
+                f'<span style="color: #4ade80; flex-shrink: 0;">✓</span>'
+                f'<a href="{url}" target="_blank" rel="noopener" '
+                f'style="flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{url}</a>'
+                f'<span style="color: #7d8590; flex-shrink: 0; white-space: nowrap;">({word_count} {words_label})</span>'
+                f'</div>'
+            )
+        else:
+            # Number + orange X + URL (cyan, styled via CSS) + error
+            error = src["error"]
+            source_lines.append(
+                f'<div style="display: flex; align-items: baseline; gap: 0.8em;">'
+                f'<span style="color: #7d8590; flex-shrink: 0; min-width: 1.5em;">{i}.</span>'
+                f'<span style="color: #cc6a00; flex-shrink: 0;">✗</span>'
+                f'<a href="{url}" target="_blank" rel="noopener" '
+                f'style="flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{url}</a>'
+                f'<span style="color: #7d8590; font-style: italic; flex-shrink: 0; white-space: nowrap;">({error})</span>'
+                f'</div>'
+            )
+
+    sources_html = "\n".join(source_lines)
+
+    # Build complete collapsible (matching Denkprozess styling exactly)
+    collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">
+<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
+<div style="padding-left: 1em; padding-top: 0.3em; line-height: 1.6;">
+
+{sources_html}
+
+<div style="font-size: 0.9em; font-style: italic; color: #7d8590; margin-top: 0.3em;">{sorted_label}</div>
+</div>
+</details>"""
+
+    return collapsible

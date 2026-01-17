@@ -82,16 +82,12 @@ Die Quellen sind auf Englisch? → Trotzdem auf DEUTSCH antworten!
   * ✅ RICHTIG: "Laut Quelle 2 liegt die Temperatur bei 8°C..."
   * ❌ FALSCH: "Quelle 1 (https://www.wetter.com/...)"
   * ❌ FALSCH: "**Quelle 1 (https://...)**"
-  * ❌ NIEMALS URLs, Links oder Klammern bei Quellenangaben im Fließtext!
-  * 🚫 URLs gehören AUSSCHLIESSLICH in die Quellen-Liste am Ende!
+  * ❌ NIEMALS URLs, Links oder Klammern bei Quellenangaben!
+  * 🚫 KEINE URLs ausgeben - sie sind bereits im Web-Quellen Collapsible sichtbar!
 
-- LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN AUF:
-
-  **Quellen:**
-  - Quelle 1: https://... (Thema: [Was wurde dort behandelt])
-  - Quelle 2: https://... (Thema: [Was wurde dort behandelt])
-
-- ❌ NENNE KEINE URLs die NICHT in den Recherche-Ergebnissen oben stehen!
+- ❌ KEINE Quellen-Liste am Ende! Die URLs sind bereits oben im Web-Quellen Collapsible sichtbar!
+- ✅ Referenziere Quellen NUR mit "Quelle 1", "Quelle 2" etc. im Fließtext
+- ❌ KEINE URLs im Text oder am Ende ausgeben!
 - Falls Recherche leer: "Die Recherche ergab leider keine verwertbaren Informationen zu dieser Frage"
 - Falls Quellen die Nachfrage nicht beantworten können: "Die vorhandenen Quellen enthalten keine spezifischen Informationen über [Nachfrage]. Für diese Frage wäre eine neue Recherche nötig."
 - Stil: Informativ, detailliert, präzise, Deutsch

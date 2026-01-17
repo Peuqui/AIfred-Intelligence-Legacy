@@ -1579,6 +1579,11 @@ TAVILY_API_KEY=your_tavily_api_key
 # Ollama Configuration
 OLLAMA_BASE_URL=http://localhost:11434
 
+# Backend URL for static files (HTML Preview, Images)
+# With NGINX: Leave empty or omit - NGINX routes /_upload/ to backend
+# Without NGINX (dev): Set to backend URL for direct access
+# BACKEND_URL=http://localhost:8002
+
 # Cloud LLM API Keys (optional - only needed if using cloud backends)
 DASHSCOPE_API_KEY=your_key_here      # Qwen (DashScope)
 DEEPSEEK_API_KEY=your_key_here       # DeepSeek

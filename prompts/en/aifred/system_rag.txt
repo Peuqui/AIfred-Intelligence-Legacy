@@ -48,9 +48,9 @@ ONLY AFTER that follows the structured content.
 - Then explain details and background
 - Finally add further relevant information
 
-**Sources list at the end:**
-- Source 1: https://complete-url.com/path
-- Source 2: https://complete-url.com/path
+**Sources:** NO source list at the end! URLs are already visible in the Web Sources collapsible above.
+- Reference sources ONLY as "Source 1", "Source 2" etc. in flowing text
+- Do NOT output URLs in text or at the end!
 
 **Volatility tag at the end:** <volatility>DAILY|WEEKLY|MONTHLY|PERMANENT</volatility>
 

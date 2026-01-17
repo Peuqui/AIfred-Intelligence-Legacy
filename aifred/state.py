@@ -63,8 +63,11 @@ class ChatMessage(TypedDict):
     agent: str          # "" | "aifred" | "sokrates" | "salomo"
     mode: str           # "" | "direct" | "synthesis" | "tribunal" | "refinement" | ...
     round_num: int | None  # None/0 = no round, 1+ = round number
-    metadata: Dict[str, Any]  # ttft, inference_time, tokens_per_sec, failed_sources, images
+    metadata: Dict[str, Any]  # ttft, inference_time, tokens_per_sec, etc.
     timestamp: str      # ISO timestamp
+    # Web research sources (top-level for Reflex UI access - also in metadata for export)
+    used_sources: List[Dict[str, Any]]    # [{"url": str, "word_count": int}]
+    failed_sources: List[Dict[str, Any]]  # [{"url": str, "error": str, "method": str}]
 
 
 # ============================================================
@@ -145,9 +148,13 @@ class AIState(rx.State):
     _camera_detection_done: bool = False  # Internal flag to prevent duplicate logging from Reflex hydration
     _last_settings_mtime: float = 0.0  # Last seen settings.json mtime (for multi-browser sync)
 
-    # Failed Sources State (shown as clickable bubble before AI response)
+    # Web Research Sources State (for current request - shown in UI)
+    # all_sources: Combined list sorted by rank_index for UI display
+    all_sources: List[Dict[str, Any]] = []  # [{"url": str, "success": bool, "rank_index": int, ...}]
+    used_sources: List[Dict[str, Any]] = []  # [{"url": "...", "word_count": int}]
     failed_sources: List[Dict[str, str]] = []  # [{"url": "...", "error": "...", "method": "..."}]
-    # Pending failed sources for current request (will be embedded in AI response)
+    # Pending sources for current request (will be embedded in AI response)
+    _pending_used_sources: List[Dict[str, Any]] = []
     _pending_failed_sources: List[Dict[str, str]] = []
 
     # Image Crop State
@@ -2943,7 +2950,9 @@ class AIState(rx.State):
         self.is_generating = True
         self.current_ai_response = ""
         self.current_agent = "aifred"  # Set current agent for unified streaming UI
-        self.failed_sources = []  # Clear failed sources from previous request
+        self.used_sources = []  # Clear sources from previous request
+        self.failed_sources = []
+        self.all_sources = []  # Clear combined sources list
 
         # IMPORTANT: Yield immediately so UI shows spinner right away
         yield
@@ -3464,20 +3473,59 @@ class AIState(rx.State):
                         ai_text = result_data["response_clean"]
                         updated_history = result_data["history"]
 
-                        # Embed failed_sources in last message if any
+                        # Embed sources in last message (top-level for Reflex UI access)
                         failed_sources = result_data.get("failed_sources", [])
-                        if failed_sources or self._pending_failed_sources:
-                            all_failed = (self._pending_failed_sources or []) + (failed_sources or [])
-                            if all_failed and updated_history:
-                                import json as json_module
-                                last_msg = updated_history[-1]
-                                if last_msg.get("role") == "assistant":
-                                    failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(all_failed)}-->\n"
-                                    last_msg["content"] = failed_markup + last_msg.get("content", "")
-                                    if "metadata" not in last_msg:
-                                        last_msg["metadata"] = {}
-                                    last_msg["metadata"]["failed_sources"] = all_failed
-                            self._pending_failed_sources = []
+                        used_sources = result_data.get("used_sources", [])
+
+                        if updated_history:
+                            import json as json_module
+                            last_msg = updated_history[-1]
+                            if last_msg.get("role") == "assistant":
+                                if "metadata" not in last_msg:
+                                    last_msg["metadata"] = {}
+
+                                # Embed failed_sources (pending + from result)
+                                all_failed = []
+                                if failed_sources or self._pending_failed_sources:
+                                    all_failed = (self._pending_failed_sources or []) + (failed_sources or [])
+                                    if all_failed:
+                                        failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(all_failed)}-->\n"
+                                        last_msg["content"] = failed_markup + last_msg.get("content", "")
+                                        last_msg["metadata"]["failed_sources"] = all_failed
+
+                                # Embed used_sources (successfully scraped)
+                                if used_sources:
+                                    used_markup = f"<!--USED_SOURCES:{json_module.dumps(used_sources)}-->\n"
+                                    last_msg["content"] = used_markup + last_msg.get("content", "")
+                                    last_msg["metadata"]["used_sources"] = used_sources
+
+                                # Top-level fields for Reflex UI access (can't use nested msg["metadata"]["x"])
+                                last_msg["used_sources"] = used_sources if used_sources else []
+                                last_msg["failed_sources"] = all_failed if all_failed else []
+
+                        # Update State variables for UI access
+                        self.used_sources = used_sources if used_sources else []
+                        self.failed_sources = all_failed if all_failed else []
+                        self._pending_failed_sources = []
+                        self._pending_used_sources = []
+
+                        # Combine and sort all sources by rank_index for UI display
+                        combined = []
+                        for src in (used_sources or []):
+                            combined.append({
+                                "url": src.get("url", ""),
+                                "word_count": src.get("word_count", 0),
+                                "rank_index": src.get("rank_index", 999),
+                                "success": True
+                            })
+                        for src in (all_failed or []):
+                            combined.append({
+                                "url": src.get("url", ""),
+                                "error": src.get("error", "Unknown"),
+                                "rank_index": src.get("rank_index", 999),
+                                "success": False
+                            })
+                        self.all_sources = sorted(combined, key=lambda x: x.get("rank_index", 999))
 
                         # Update chat history from result
                         self.chat_history = updated_history
@@ -3724,20 +3772,59 @@ class AIState(rx.State):
                         ai_text = result_data["response_clean"]
                         updated_history = result_data["history"]
 
-                        # Embed failed_sources in last message if any
+                        # Embed sources in last message (top-level for Reflex UI access)
                         failed_sources = result_data.get("failed_sources", [])
-                        if failed_sources or self._pending_failed_sources:
-                            all_failed = (self._pending_failed_sources or []) + (failed_sources or [])
-                            if all_failed and updated_history:
-                                import json as json_module
-                                last_msg = updated_history[-1]
-                                if last_msg.get("role") == "assistant":
-                                    failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(all_failed)}-->\n"
-                                    last_msg["content"] = failed_markup + last_msg.get("content", "")
-                                    if "metadata" not in last_msg:
-                                        last_msg["metadata"] = {}
-                                    last_msg["metadata"]["failed_sources"] = all_failed
-                            self._pending_failed_sources = []
+                        used_sources = result_data.get("used_sources", [])
+
+                        if updated_history:
+                            import json as json_module
+                            last_msg = updated_history[-1]
+                            if last_msg.get("role") == "assistant":
+                                if "metadata" not in last_msg:
+                                    last_msg["metadata"] = {}
+
+                                # Embed failed_sources (pending + from result)
+                                all_failed = []
+                                if failed_sources or self._pending_failed_sources:
+                                    all_failed = (self._pending_failed_sources or []) + (failed_sources or [])
+                                    if all_failed:
+                                        failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(all_failed)}-->\n"
+                                        last_msg["content"] = failed_markup + last_msg.get("content", "")
+                                        last_msg["metadata"]["failed_sources"] = all_failed
+
+                                # Embed used_sources (successfully scraped)
+                                if used_sources:
+                                    used_markup = f"<!--USED_SOURCES:{json_module.dumps(used_sources)}-->\n"
+                                    last_msg["content"] = used_markup + last_msg.get("content", "")
+                                    last_msg["metadata"]["used_sources"] = used_sources
+
+                                # Top-level fields for Reflex UI access (can't use nested msg["metadata"]["x"])
+                                last_msg["used_sources"] = used_sources if used_sources else []
+                                last_msg["failed_sources"] = all_failed if all_failed else []
+
+                        # Update State variables for UI access
+                        self.used_sources = used_sources if used_sources else []
+                        self.failed_sources = all_failed if all_failed else []
+                        self._pending_failed_sources = []
+                        self._pending_used_sources = []
+
+                        # Combine and sort all sources by rank_index for UI display
+                        combined = []
+                        for src in (used_sources or []):
+                            combined.append({
+                                "url": src.get("url", ""),
+                                "word_count": src.get("word_count", 0),
+                                "rank_index": src.get("rank_index", 999),
+                                "success": True
+                            })
+                        for src in (all_failed or []):
+                            combined.append({
+                                "url": src.get("url", ""),
+                                "error": src.get("error", "Unknown"),
+                                "rank_index": src.get("rank_index", 999),
+                                "success": False
+                            })
+                        self.all_sources = sorted(combined, key=lambda x: x.get("rank_index", 999))
 
                         # Update chat history from result
                         self.chat_history = updated_history
@@ -4002,6 +4089,11 @@ class AIState(rx.State):
                     self.add_debug(f"🗑️ {deleted} session image(s) deleted")
             except Exception as e:
                 self.add_debug(f"⚠️ Image cleanup failed: {e}")
+
+        # Clear Web-Quellen State (Sources Collapsible)
+        self.used_sources = []
+        self.failed_sources = []
+        self.all_sources = []
 
         # Clear Sokrates Multi-Agent state
         self.sokrates_critique = ""
@@ -4324,7 +4416,6 @@ class AIState(rx.State):
         display_name = self.user_name if self.user_name else "User"
 
         # Import localization for failed sources
-        from .lib.i18n import t
         from .lib.prompt_loader import get_language
         current_lang = get_language()
         if current_lang == "auto":
@@ -4368,11 +4459,24 @@ class AIState(rx.State):
                 if not ai_msg or not ai_msg.strip():
                     continue
 
-                # Extract failed_sources from metadata or content
-                failed_sources_html = ""
+                # Extract sources from metadata or embedded comments
+                used_sources_data = metadata.get("used_sources", [])
                 failed_sources_data = metadata.get("failed_sources", [])
 
-                # Also check for embedded comment (legacy)
+                # Check for embedded USED_SOURCES comment
+                used_sources_pattern = r'<!--USED_SOURCES:(\[.*?\])-->\n?'
+                used_sources_match = re.search(used_sources_pattern, ai_msg, re.DOTALL)
+                if used_sources_match:
+                    try:
+                        import json as json_mod
+                        embedded_data = json_mod.loads(used_sources_match.group(1))
+                        if embedded_data:
+                            used_sources_data = embedded_data
+                        ai_msg = re.sub(used_sources_pattern, '', ai_msg, count=1)
+                    except Exception:
+                        pass
+
+                # Check for embedded FAILED_SOURCES comment (legacy)
                 failed_sources_pattern = r'<!--FAILED_SOURCES:(\[.*?\])-->\n?'
                 failed_sources_match = re.search(failed_sources_pattern, ai_msg, re.DOTALL)
                 if failed_sources_match:
@@ -4385,23 +4489,72 @@ class AIState(rx.State):
                     except Exception:
                         pass
 
-                if failed_sources_data:
-                    count = len(failed_sources_data)
-                    summary_text = t('sources_unavailable', lang=current_lang, count=count)
-                    sources_list = []
+                # Build sources HTML (sorted by rank_index, mixed successful/failed)
+                # Skip if content already contains a Web Sources collapsible
+                sources_html = ""
+                content_has_sources_collapsible = (
+                    "Web-Quellen" in ai_msg or "Web Sources" in ai_msg
+                ) and "<details" in ai_msg
+
+                total_sources = len(used_sources_data) + len(failed_sources_data)
+                if total_sources > 0 and not content_has_sources_collapsible:
+                    # Header text
+                    if current_lang == "de":
+                        summary_text = f"{total_sources} Web-Quellen"
+                        if failed_sources_data:
+                            summary_text += f" ({len(failed_sources_data)} fehlgeschlagen)"
+                        words_label = "Wörter"
+                        sorted_label = "Sortiert nach Relevanz"
+                    else:
+                        summary_text = f"{total_sources} Web Sources"
+                        if failed_sources_data:
+                            summary_text += f" ({len(failed_sources_data)} failed)"
+                        words_label = "words"
+                        sorted_label = "Sorted by relevance"
+
+                    # Combine and sort by rank_index
+                    all_sources = []
+                    for src in used_sources_data:
+                        all_sources.append({
+                            "url": src.get("url", ""),
+                            "word_count": src.get("word_count", 0),
+                            "rank_index": src.get("rank_index", 999),
+                            "success": True
+                        })
                     for src in failed_sources_data:
+                        all_sources.append({
+                            "url": src.get("url", ""),
+                            "error": src.get("error", "Unknown"),
+                            "rank_index": src.get("rank_index", 999),
+                            "success": False
+                        })
+                    all_sources.sort(key=lambda x: x.get("rank_index", 999))
+
+                    sources_list = []
+                    for src in all_sources:
                         url = src.get('url', 'Unknown URL')
-                        error = src.get('error', 'Unknown error')
-                        sources_list.append(
-                            f'<li><a href="{url}" target="_blank">{url}</a> '
-                            f'<span class="failed-error">({error})</span></li>'
-                        )
-                    failed_sources_html = f'''
-                    <details class="failed-sources-collapsible">
-                        <summary>⚠️ {summary_text}</summary>
-                        <ul class="failed-sources-list">
+                        if src.get('success'):
+                            word_count = src.get('word_count', 0)
+                            sources_list.append(
+                                f'<li class="used-source"><span class="source-icon">✓</span>'
+                                f'<a href="{url}" target="_blank">{url}</a> '
+                                f'<span class="source-info">({word_count} {words_label})</span></li>'
+                            )
+                        else:
+                            error = src.get('error', 'Unknown error')
+                            sources_list.append(
+                                f'<li class="failed-source"><span class="source-icon">✗</span>'
+                                f'<a href="{url}" target="_blank">{url}</a> '
+                                f'<span class="failed-error">({error})</span></li>'
+                            )
+
+                    sources_html = f'''
+                    <details class="sources-collapsible" style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
+                        <summary style="cursor: pointer; font-weight: bold; color: #aaa;">🔗 {summary_text}</summary>
+                        <ul class="sources-list">
                             {"".join(sources_list)}
                         </ul>
+                        <p style="font-size: 11px; font-style: italic; color: #7d8590; margin-top: 6px;">{sorted_label}</p>
                     </details>
                     '''
 
@@ -4449,7 +4602,7 @@ class AIState(rx.State):
                 html_parts.append(f'''
                 <div class="message {agent_class}">
                     <div class="message-header">{header}</div>
-                    {failed_sources_html}
+                    {sources_html}
                     <div class="message-content">{ai_msg_html}</div>
                 </div>
                 ''')
@@ -4600,7 +4753,7 @@ class AIState(rx.State):
             color: #e6edf3;
             line-height: 1.4;
             padding: 20px;
-            max-width: 900px;
+            max-width: 1000px;
             margin: 0 auto;
         }}
         .header {{
@@ -4776,41 +4929,64 @@ class AIState(rx.State):
         .thinking-compact p {{
             margin: 0.3em 0;
         }}
-        /* Failed Sources Collapsible */
-        .failed-sources-collapsible {{
+        /* Web Sources Collapsible */
+        .sources-collapsible {{
             margin-bottom: 12px;
-            border-color: #d29922;
+            border: 1px solid #30363d;
+            border-radius: 6px;
         }}
-        .failed-sources-collapsible summary {{
-            color: #d29922;
-            background-color: rgba(210, 153, 34, 0.1);
+        .sources-collapsible summary {{
+            color: #8b949e;
+            background-color: rgba(139, 148, 158, 0.1);
+            padding: 8px 12px;
+            cursor: pointer;
+            border-radius: 6px;
         }}
-        .failed-sources-collapsible summary:hover {{
-            background-color: rgba(210, 153, 34, 0.2);
+        .sources-collapsible summary:hover {{
+            background-color: rgba(139, 148, 158, 0.2);
         }}
-        .failed-sources-list {{
+        .sources-list {{
             list-style: none;
-            padding: 8px;
+            padding: 8px 12px;
             margin: 0;
         }}
-        .failed-sources-list li {{
+        .sources-list li {{
             padding: 4px 0;
             border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }}
-        .failed-sources-list li:last-child {{
+        .sources-list li:last-child {{
             border-bottom: none;
         }}
-        .failed-sources-list a {{
-            color: #58a6ff;
-            text-decoration: none;
+        .sources-list .source-icon {{
+            font-size: 12px;
+            width: 16px;
+            text-align: center;
+        }}
+        .sources-list .used-source .source-icon {{
+            color: #4ade80;
+        }}
+        .sources-list .failed-source .source-icon {{
+            color: #d29922;
+        }}
+        .sources-list a {{
+            color: #56d4dd;
+            text-decoration: underline;
             word-break: break-all;
         }}
-        .failed-sources-list a:hover {{
-            text-decoration: underline;
+        .sources-list a:hover {{
+            color: #a0f0ff;
+        }}
+        .source-info {{
+            color: #7d8590;
+            font-size: 0.85em;
         }}
         .failed-error {{
             color: #7d8590;
             font-size: 0.85em;
+            font-style: italic;
         }}
         /* Footer */
         .footer {{
@@ -4822,11 +4998,19 @@ class AIState(rx.State):
             font-size: 0.85em;
         }}
         .footer a {{
-            color: #58a6ff;
-            text-decoration: none;
+            color: #56d4dd;
+            text-decoration: underline;
         }}
         .footer a:hover {{
+            color: #a0f0ff;
+        }}
+        /* Global link styling (for embedded content) */
+        a {{
+            color: #56d4dd;
             text-decoration: underline;
+        }}
+        a:hover {{
+            color: #a0f0ff;
         }}
         /* Italic text (normal markdown *text*) */
         em {{

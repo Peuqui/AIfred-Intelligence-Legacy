@@ -186,7 +186,7 @@ details summary {
     margin-bottom: 0.3em !important;
 }
 
-/* Links - Helles Grau statt Blau (überall!) */
+/* Links - Cyan/Türkis (überall!) */
 a,
 a:link,
 a:visited,
@@ -196,7 +196,7 @@ p a,
 div a,
 li a,
 .radix-themes a {
-    color: #9ca3af !important;  /* Helles Grau (gut lesbar) */
+    color: #56d4dd !important;  /* Cyan-Türkis */
     text-decoration: underline !important;
 }
 
@@ -207,7 +207,23 @@ p a:hover,
 div a:hover,
 li a:hover,
 .radix-themes a:hover {
-    color: #d1d5db !important;  /* Noch heller beim Hover */
+    color: #a0f0ff !important;  /* Helleres Cyan beim Hover */
+}
+
+/* Web-Quellen Collapsible: URLs in Cyan (gleiche Farbe wie globale Links) */
+details a[href],
+details a:link,
+details a:visited {
+    color: #56d4dd !important;  /* Cyan-Türkis */
+}
+
+details a[href]:hover {
+    color: #a0f0ff !important;  /* Helleres Cyan beim Hover */
+}
+
+/* Chat-Box: Kein horizontaler Overflow */
+#chat-history-box {
+    overflow-x: hidden !important;
 }
 
 /* Thinking Mode Warning - Pulsing Animation */

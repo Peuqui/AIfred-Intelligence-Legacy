@@ -5,6 +5,49 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.24.0] - 2026-01-17
+
+### Added
+
+- **Web-Quellen Nummerierung** ([formatting.py](aifred/lib/formatting.py)):
+  - Quellen im Collapsible haben jetzt Nummern (1., 2., 3.)
+  - Passt zu LLM-Referenzen "Quelle 1, Quelle 2" im Antworttext
+  - Verbesserte Lesbarkeit und Zuordnung
+
+- **BACKEND_URL Environment-Variable** ([config.py](aifred/lib/config.py)):
+  - Neue Konfiguration für statische Dateien (HTML-Preview, Bilder)
+  - Ermöglicht Entwicklung ohne NGINX-Proxy (WSL, lokale Dev-Umgebung)
+  - Mit NGINX: Leer lassen (NGINX routet `/_upload/` ans Backend)
+
+### Changed
+
+- **Web-Quellen Sortierung nur noch per LLM-Relevanz** ([context_builder.py](aifred/lib/tools/context_builder.py)):
+  - Legacy `prioritize_source()` Heuristik entfernt
+  - Sortierung erfolgt jetzt ausschließlich nach `rank_index` (LLM-Ranking)
+  - Einfacherer, konsistenter Code
+
+- **Prompts: Keine URL-Liste am Ende** ([system_rag.txt](prompts/de/aifred/system_rag.txt)):
+  - LLM gibt keine redundante Quellenliste mehr aus
+  - URLs sind bereits im Web-Quellen Collapsible sichtbar
+  - Betrifft DE + EN Prompts für RAG und Cache-Hit
+
+- **HTML-Export Verbesserungen** ([state.py](aifred/state.py)):
+  - URL-Farben auf Cyan-Türkis angepasst (`#56d4dd`)
+  - max-width von 900px auf 1000px erhöht
+  - Konsistentes Design mit der Haupt-UI
+
+### Fixed
+
+- **HTML-Export: Doppeltes Collapsible** ([state.py](aifred/state.py)):
+  - Export zeigte zwei Web-Quellen Collapsibles (aus Content + aus Metadata)
+  - Jetzt wird geprüft ob Content bereits ein Collapsible enthält
+  - Verhindert Duplikate im Export
+
+- **HTML-Preview 404 in Dev-Umgebung** ([formatting.py](aifred/lib/formatting.py)):
+  - StaticFiles sind auf Backend-Port gemountet
+  - Mit `BACKEND_URL` werden absolute URLs generiert
+  - Funktioniert jetzt ohne NGINX-Proxy
+
 ## [2.23.0] - 2026-01-17
 
 ### Added

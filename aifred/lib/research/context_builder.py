@@ -19,7 +19,7 @@ from ..timer import Timer
 from ..prompt_loader import get_system_rag_prompt
 from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens, strip_thinking_blocks
 from ..message_builder import build_messages_from_llm_history
-from ..formatting import format_thinking_process, build_debug_accordion, format_metadata, format_number
+from ..formatting import format_thinking_process, build_debug_accordion, build_sources_collapsible, format_metadata, format_number
 from ..logging_utils import log_message
 from ..config import (
     CHARS_PER_TOKEN,
@@ -350,6 +350,27 @@ async def build_and_generate_response(
         final_time=inference_time
     )
 
+    # Build sources collapsible (embedded in response like Denkprozess)
+    # Extract used_sources for the collapsible
+    used_sources_for_collapsible = [
+        {
+            "url": src.get("url", ""),
+            "word_count": src.get("word_count", 0),
+            "rank_index": src.get("rank_index", idx),
+            "success": True
+        }
+        for idx, src in enumerate(scraped_only)
+        if src.get("url")
+    ]
+    sources_collapsible = build_sources_collapsible(
+        used_sources=used_sources_for_collapsible,
+        failed_sources=failed_sources
+    )
+
+    # Prepend sources collapsible to response (before Denkprozess)
+    if sources_collapsible:
+        ai_response_complete = f"{sources_collapsible}\n\n{ai_response_complete}"
+
     # Update history
     total_time = agent_timer.elapsed()
     ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
@@ -359,9 +380,15 @@ async def build_and_generate_response(
     # User message was already added by state.py before calling this function
     # Dict-based chat_history format
     source_label = f"Web Research ({model_choice})"
+
+    # Build history content with sources collapsible prepended (like Denkprozess)
+    history_content = thinking_html
+    if sources_collapsible:
+        history_content = f"{sources_collapsible}\n\n{history_content}"
+
     history.append({
         "role": "assistant",
-        "content": f"{thinking_html}\n\n{metadata}",
+        "content": f"{history_content}\n\n{metadata}",
         "agent": "aifred",
         "mode": "web_research",
         "round_num": 0,
@@ -450,6 +477,18 @@ async def build_and_generate_response(
     # Clear progress
     yield {"type": "progress", "clear": True}
 
+    # Extract used_sources (successful URLs with word counts and rank) for UI display
+    used_sources = [
+        {
+            "url": src.get("url", ""),
+            "word_count": src.get("word_count", 0),
+            "rank_index": src.get("rank_index", idx),  # Preserve ranking position
+            "success": True  # Mark as successful for UI sorting
+        }
+        for idx, src in enumerate(scraped_only)
+        if src.get("url")
+    ]
+
     # Final result - unified Dict format
     yield {
         "type": "result",
@@ -462,5 +501,6 @@ async def build_and_generate_response(
             "ttft": ttft,
             "model_choice": model_choice,
             "failed_sources": failed_sources,
+            "used_sources": used_sources,  # Successfully scraped URLs
         }
     }

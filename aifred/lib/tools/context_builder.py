@@ -17,14 +17,12 @@ def build_context(user_text: str, tool_results: List[Dict], max_context_tokens: 
     """
     Build structured context for AI from tool results
 
-    INTELLIGENT CONTEXT MANAGEMENT:
-    - Prioritizes SHORT, CURRENT sources
-    - Limits LONG sources (Wikipedia) to MAX_WORDS_PER_SOURCE
-    - Sorts: News articles > Wikipedia/Long articles
+    Sources are sorted by rank_index (LLM relevance ranking from url_ranker.py).
+    Long sources are truncated to MAX_WORDS_PER_SOURCE.
 
     Args:
         user_text: User question
-        tool_results: List of research results
+        tool_results: List of research results (with rank_index from LLM ranking)
         max_context_tokens: Optional, if None uses MAX_RAG_CONTEXT_TOKENS from config.py
     """
     if max_context_tokens is None:
@@ -38,22 +36,9 @@ def build_context(user_text: str, tool_results: List[Dict], max_context_tokens: 
         context = context_header + "*No successful research results found.*\n\n" + context_footer
         return context
 
-    # INTELLIGENT SORTING: News > Wikipedia
-    def prioritize_source(result):
-        url = result.get('url', '').lower()
-        word_count = result.get('word_count', 0)
-
-        # Wikipedia = low priority (large number = later)
-        if 'wikipedia.org' in url:
-            return 1000
-        # Short articles (news) = high priority (small number = earlier)
-        elif word_count < 5000:
-            return word_count
-        # Long articles = low priority
-        else:
-            return 500 + word_count
-
-    successful_results.sort(key=prioritize_source)
+    # Sort by rank_index (LLM relevance ranking from url_ranker.py)
+    # Lower rank_index = higher relevance (0 = most relevant)
+    successful_results.sort(key=lambda r: r.get('rank_index', 999))
 
     # Build context with intelligent limiting
     sources_text = []

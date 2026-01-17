@@ -285,6 +285,16 @@ async def handle_cache_hit(
     console_separator()
     yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
+    # Extract used_sources from cached sources (for UI display)
+    used_sources = [
+        {
+            "url": src.get("url", ""),
+            "word_count": src.get("word_count", 0)
+        }
+        for src in cached_sources
+        if src.get("url")
+    ]
+
     # Final result - unified Dict format
     yield {
         "type": "result",
@@ -297,6 +307,7 @@ async def handle_cache_hit(
             "ttft": ttft,
             "model_choice": model_choice,
             "failed_sources": [],  # Cache hits have no failed sources
+            "used_sources": used_sources,  # Successfully scraped URLs from cache
             "cache_hit": True,
         }
     }

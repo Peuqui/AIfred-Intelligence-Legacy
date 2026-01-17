@@ -101,20 +101,22 @@ async def orchestrate_scraping(
     # Start scraping progress
     yield {"type": "progress", "phase": "scraping", "current": 0, "total": len(urls_to_scrape), "failed": 0}
 
-    # Parallel execution
+    # Parallel execution - track rank_index for sorting in UI
     with ThreadPoolExecutor(max_workers=min(5, len(urls_to_scrape))) as executor:
         future_to_url = {
-            executor.submit(scrape_webpage, url): url
-            for url in urls_to_scrape
+            executor.submit(scrape_webpage, url): (url, rank_idx)
+            for rank_idx, url in enumerate(urls_to_scrape)
         }
 
         # Collect results as they complete
         for future in as_completed(future_to_url):
-            url = future_to_url[future]
+            url, rank_idx = future_to_url[future]
             url_short = url[:60] + '...' if len(url) > 60 else url
 
             try:
                 scrape_result = future.result(timeout=10)
+                # Add rank_index for UI sorting
+                scrape_result['rank_index'] = rank_idx
 
                 if scrape_result['success']:
                     tool_results.append(scrape_result)
@@ -154,18 +156,19 @@ async def orchestrate_scraping(
     log_message(f"✅ Parallel Scraping done: {len(scraped_results)}/{len(urls_to_scrape)} successful")
 
     # ============================================================
-    # COLLECT FAILED URLs for UI Display
+    # COLLECT FAILED URLs for UI Display (with rank_index for sorting)
     # ============================================================
     failed_sources = []
     for future in future_to_url:
-        url = future_to_url[future]
+        url, rank_idx = future_to_url[future]
         try:
             result = future.result(timeout=0)  # Already completed
             if not result.get('success'):
                 failed_sources.append({
                     'url': url,
                     'error': result.get('error', 'Unknown error'),
-                    'method': result.get('method', 'unknown')
+                    'method': result.get('method', 'unknown'),
+                    'rank_index': rank_idx  # Preserve ranking position
                 })
         except Exception:
             pass  # Already handled above

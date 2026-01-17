@@ -145,7 +145,7 @@ async def rank_urls_by_relevance(
             options={
                 "temperature": 0.0,  # Deterministic ranking
                 "num_ctx": AUTOMATIK_LLM_NUM_CTX,  # From config.py (12K)
-                **(llm_options or {})
+                "enable_thinking": False,  # Automatik-Task: Always disable thinking
             }
         )
 
