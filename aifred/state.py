@@ -133,9 +133,9 @@ class AIState(rx.State):
     salomo_personality: bool = True      # 👑 Salomo judge style
 
     # Per-Agent Reasoning Toggles (True = Chain-of-Thought reasoning enabled)
-    aifred_reasoning: bool = False       # 💭 AIfred step-by-step reasoning
-    sokrates_reasoning: bool = False     # 💭 Sokrates step-by-step reasoning
-    salomo_reasoning: bool = False       # 💭 Salomo step-by-step reasoning
+    aifred_reasoning: bool = True        # 💭 AIfred step-by-step reasoning
+    sokrates_reasoning: bool = True      # 💭 Sokrates step-by-step reasoning
+    salomo_reasoning: bool = True        # 💭 Salomo step-by-step reasoning
 
     # Image Upload State
     pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "path": "/abs/path.jpg", "url": "/_upload/...", "size_kb": int}]
@@ -789,6 +789,10 @@ class AIState(rx.State):
                 set_reasoning_enabled("aifred", self.aifred_reasoning)
                 set_reasoning_enabled("sokrates", self.sokrates_reasoning)
                 set_reasoning_enabled("salomo", self.salomo_reasoning)
+
+                # Persist reasoning defaults if not in settings (ensures they survive restarts)
+                if "aifred_reasoning" not in saved_settings or "sokrates_reasoning" not in saved_settings or "salomo_reasoning" not in saved_settings:
+                    self._save_reasoning_settings()
 
                 # Initialize system prompt token cache (v2.14.0+)
                 # This caches all prompt sizes for accurate compression calculations
