@@ -3946,8 +3946,13 @@ class AIState(rx.State):
             self.current_ai_response = ""
 
 
-    def clear_chat(self):
-        """Clear chat history, pending images, and temporary files"""
+    def clear_chat(self, silent: bool = False):
+        """Clear chat history, pending images, and temporary files.
+
+        Args:
+            silent: If True, don't show "Chat cleared" debug message.
+                    Used by new_session() to avoid confusing startup messages.
+        """
         self.chat_history = []
         self.llm_history = []  # DUAL-HISTORY: LLM-History auch leeren!
         self.current_ai_response = ""
@@ -4008,10 +4013,11 @@ class AIState(rx.State):
             from .lib.session_storage import update_session_title
             update_session_title(self.session_id, "")  # Empty title = will regenerate
 
-        self.add_debug("🗑️ Chat cleared")
-        # Separator after clear operation
-        self.add_debug(CONSOLE_SEPARATOR)
-        console_separator()  # Log-File
+        if not silent:
+            self.add_debug("🗑️ Chat cleared")
+            # Separator after clear operation
+            self.add_debug(CONSOLE_SEPARATOR)
+            console_separator()  # Log-File
 
         # Session speichern (leerer Chat)
         self._save_current_session()
@@ -4120,7 +4126,8 @@ class AIState(rx.State):
         self.current_session_title = ""
 
         # Reuse clear_chat() for state reset (avoids duplication)
-        self.clear_chat()
+        # silent=True: Avoid confusing "Chat cleared" message on new session creation
+        self.clear_chat(silent=True)
 
         # Refresh session list
         self.refresh_session_list()
@@ -4268,7 +4275,8 @@ class AIState(rx.State):
         self.logged_in_user = ""
         self.available_sessions = []
         self.session_id = ""
-        self.clear_chat()
+        # silent=True: Session data is preserved on disk, we're just clearing UI state
+        self.clear_chat(silent=True)
 
         # Show login dialog again
         self.login_dialog_open = True
