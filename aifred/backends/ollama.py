@@ -126,6 +126,9 @@ class OllamaBackend(LLMBackend):
         Returns:
             LLMResponse
         """
+        # Check if this is a hybrid model and unload if needed
+        await self._handle_hybrid_model_unload(model)
+
         if options is None:
             options = LLMOptions()
 
@@ -319,17 +322,20 @@ class OllamaBackend(LLMBackend):
     ) -> AsyncIterator[Dict]:
         """
         Streaming chat with Ollama
-        
+
         Args:
             model: Ollama model name
             messages: List of LLMMessage
             options: Generation options
-        
+
         Yields:
             Dict with either:
             - {"type": "content", "text": str} for content chunks
             - {"type": "done", "metrics": {...}} for final metrics
         """
+        # Check if this is a hybrid model and unload if needed
+        await self._handle_hybrid_model_unload(model)
+
         if options is None:
             options = LLMOptions()
         
@@ -551,6 +557,33 @@ class OllamaBackend(LLMBackend):
             logger.warning(f"Thinking capability test failed for {model}: {e}")
             return False
 
+    async def _handle_hybrid_model_unload(self, model: str) -> None:
+        """
+        Internal helper: Check if model is hybrid and unload all models if needed.
+
+        For HYBRID models (CPU+GPU offload), unloads all models first and waits
+        for VRAM stabilization to prevent CUDA OOM race conditions.
+
+        For VRAM-only models, Ollama's LRU handles unloading automatically (no action needed).
+
+        Args:
+            model: Model name to check
+        """
+        from ..lib.model_vram_cache import is_ollama_model_hybrid, get_rope_factor_for_model
+
+        # Check if this is a hybrid model (CPU+GPU offload)
+        rope_factor = get_rope_factor_for_model(model)
+        is_hybrid = is_ollama_model_hybrid(model, rope_factor=rope_factor)
+
+        if is_hybrid:
+            # Hybrid models need explicit unload + stabilization wait
+            # to prevent CUDA OOM race conditions
+            logger.info(f"🔀 Hybrid model detected ({model}) - unloading all models first...")
+            success, unloaded = await self.unload_all_models(wait_for_stability=True)
+            if success and unloaded:
+                logger.info(f"✅ Unloaded {len(unloaded)} model(s), VRAM stabilized")
+        # else: VRAM-only models use Ollama's fast LRU unloading
+
     async def unload_all_models(self, wait_for_stability: bool = True) -> tuple[bool, list[str]]:
         """
         Unload ALL currently loaded models from VRAM.
@@ -629,10 +662,7 @@ class OllamaBackend(LLMBackend):
         Preload a model into VRAM by sending a minimal chat request.
         This warms up the model so future requests are faster.
 
-        For HYBRID models (CPU+GPU offload), this function automatically unloads
-        all models first and waits for VRAM stabilization to prevent CUDA OOM errors.
-
-        For VRAM-only models, Ollama's LRU handles unloading automatically.
+        Hybrid model handling is done automatically in chat() and chat_stream().
 
         Args:
             model: Model name to preload (e.g., 'qwen3:8b')
@@ -645,23 +675,13 @@ class OllamaBackend(LLMBackend):
         """
         try:
             from ..lib.logging_utils import log_message
-            from ..lib.model_vram_cache import is_ollama_model_hybrid, get_rope_factor_for_model
 
             timer = Timer()
             log_message(f"⏱️ preload_model: START for {model} (num_ctx={num_ctx})")
 
-            # Check if this is a hybrid model (CPU+GPU offload)
-            rope_factor = get_rope_factor_for_model(model)
-            is_hybrid = is_ollama_model_hybrid(model, rope_factor=rope_factor)
-
-            if is_hybrid:
-                # Hybrid models need explicit unload + stabilization wait
-                # to prevent CUDA OOM race conditions
-                log_message(f"🔀 Hybrid model detected - unloading all models first...")
-                success, unloaded = await self.unload_all_models(wait_for_stability=True)
-                if success and unloaded:
-                    log_message(f"✅ Unloaded {len(unloaded)} model(s), VRAM stabilized")
-            # else: VRAM-only models use Ollama's fast LRU unloading
+            # Hybrid model unloading is handled in _handle_hybrid_model_unload()
+            # which is called from chat() and chat_stream()
+            await self._handle_hybrid_model_unload(model)
 
             # Load the requested model
             # Send minimal request to trigger model loading
