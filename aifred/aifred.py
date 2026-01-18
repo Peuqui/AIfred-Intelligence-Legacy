@@ -646,24 +646,50 @@ def text_input_section() -> rx.Component:
                     spacing="3",
                     align="center",
                 ),
-                # Max Debate Rounds Slider (visible for "auto_consensus" and "tribunal" modes)
+                # Max Debate Rounds +/- Buttons (visible for "auto_consensus" and "tribunal" modes)
                 rx.cond(
                     (AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal"),
                     rx.hstack(
                         rx.text(t("max_debate_rounds"), font_size="11px"),
-                        rx.text(
-                            AIState.max_debate_rounds,
-                            font_size="11px",
-                            font_weight="bold",
-                            color=COLORS["primary"],
-                        ),
-                        rx.slider(
-                            value=[AIState.max_debate_rounds],
-                            min=1,
-                            max=10,
-                            step=1,
-                            on_change=AIState.set_max_debate_rounds,
-                            width="100px",
+                        rx.hstack(
+                            rx.icon_button(
+                                rx.icon("circle-minus", size=18),
+                                on_click=AIState.decrease_debate_rounds,
+                                size="2",
+                                variant="soft",
+                                disabled=AIState.max_debate_rounds <= 1,
+                                style={
+                                    "background-color": "#2d1f00",
+                                    "color": "#cc8800",
+                                },
+                            ),
+                            rx.badge(
+                                AIState.max_debate_rounds,
+                                variant="soft",
+                                font_size="11px",
+                                font_weight="600",
+                                padding_x="8px",
+                                padding_y="2px",
+                                style={
+                                    "background-color": "#5d4200",
+                                    "color": "#cc8800",
+                                    "min-width": "24px",
+                                    "text-align": "center",
+                                },
+                            ),
+                            rx.icon_button(
+                                rx.icon("circle-plus", size=18),
+                                on_click=AIState.increase_debate_rounds,
+                                size="2",
+                                variant="soft",
+                                disabled=AIState.max_debate_rounds >= 10,
+                                style={
+                                    "background-color": "#2d1f00",
+                                    "color": "#cc8800",
+                                },
+                            ),
+                            spacing="2",
+                            align="center",
                         ),
                         spacing="2",
                         align="center",

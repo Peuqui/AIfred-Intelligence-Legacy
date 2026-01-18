@@ -7143,6 +7143,20 @@ class AIState(rx.State):
         self._save_settings()
         self.add_debug(f"🔄 Max debate rounds: {self.max_debate_rounds}")
 
+    def increase_debate_rounds(self):
+        """Increase max debate rounds by 1 (max 10)"""
+        if self.max_debate_rounds < 10:
+            self.max_debate_rounds += 1
+            self._save_settings()
+            self.add_debug(f"🔄 Max debate rounds: {self.max_debate_rounds}")
+
+    def decrease_debate_rounds(self):
+        """Decrease max debate rounds by 1 (min 1)"""
+        if self.max_debate_rounds > 1:
+            self.max_debate_rounds -= 1
+            self._save_settings()
+            self.add_debug(f"🔄 Max debate rounds: {self.max_debate_rounds}")
+
     def set_consensus_type(self, consensus_type: str | list[str]):
         """Set consensus type for auto_consensus mode ('majority' or 'unanimous')"""
         # Handle both str and list[str] from segmented_control
