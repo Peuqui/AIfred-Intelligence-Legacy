@@ -49,7 +49,7 @@ class TabbyAPIBackend(LLMBackend):
         self,
         model: str,
         messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
+        options: LLMOptions,
         stream: bool = False
     ) -> LLMResponse:
         """
@@ -64,9 +64,6 @@ class TabbyAPIBackend(LLMBackend):
         Returns:
             LLMResponse
         """
-        if options is None:
-            options = LLMOptions()
-
         # Convert LLMMessage to OpenAI format
         openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
@@ -127,7 +124,7 @@ class TabbyAPIBackend(LLMBackend):
         self,
         model: str,
         messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None
+        options: LLMOptions
     ) -> AsyncIterator[Dict]:
         """
         Streaming chat with TabbyAPI
@@ -142,9 +139,6 @@ class TabbyAPIBackend(LLMBackend):
             - {"type": "content", "text": str} for content chunks
             - {"type": "done", "metrics": {...}} for final metrics
         """
-        if options is None:
-            options = LLMOptions()
-
         # Convert messages
         openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 

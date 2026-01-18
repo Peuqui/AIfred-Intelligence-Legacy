@@ -172,11 +172,16 @@ async def handle_own_knowledge(
         # Show context info
         yield {"type": "debug", "message": f"📊 AIfred: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})"}
 
-        # Build LLM options
+        # Build LLM options (with supports_thinking from state)
+        supports_thinking_value = None
+        if state and backend_type == "ollama":
+            supports_thinking_value = state.aifred_supports_thinking
+
         llm_options = LLMOptions(
             temperature=final_temperature,
             num_ctx=final_num_ctx,
-            enable_thinking=enable_thinking
+            enable_thinking=enable_thinking,
+            supports_thinking=supports_thinking_value
         )
 
         # Console: LLM starts (with MoE/Dense architecture info)

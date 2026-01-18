@@ -595,6 +595,7 @@ async def run_sokrates_direct_response(
         sokrates_options = LLMOptions(
             temperature=sokrates_direct_temp,
             enable_thinking=get_reasoning_enabled("sokrates"),
+            supports_thinking=state.sokrates_supports_thinking,
             num_ctx=sokrates_num_ctx
         )
 
@@ -771,6 +772,7 @@ async def run_salomo_direct_response(
         salomo_options = LLMOptions(
             temperature=salomo_direct_temp,
             enable_thinking=get_reasoning_enabled("salomo"),
+            supports_thinking=state.salomo_supports_thinking,
             num_ctx=salomo_num_ctx
         )
 
@@ -986,11 +988,13 @@ async def run_sokrates_analysis(
         sokrates_options = LLMOptions(
             temperature=sokrates_temp,
             enable_thinking=get_reasoning_enabled("sokrates"),
+            supports_thinking=state.sokrates_supports_thinking,
             num_ctx=sokrates_num_ctx
         )
         alfred_options = LLMOptions(
             temperature=alfred_temp,
             enable_thinking=get_reasoning_enabled("aifred"),
+            supports_thinking=state.aifred_supports_thinking,
             num_ctx=main_llm_ctx
         )
 
@@ -1132,6 +1136,7 @@ async def run_sokrates_analysis(
                 salomo_options = LLMOptions(
                     temperature=salomo_temp,
                     enable_thinking=get_reasoning_enabled("salomo"),
+                    supports_thinking=state.salomo_supports_thinking,
                     num_ctx=salomo_num_ctx
                 )
 
@@ -1453,16 +1458,19 @@ async def run_tribunal(
         sokrates_options = LLMOptions(
             temperature=sokrates_temp,
             enable_thinking=get_reasoning_enabled("sokrates"),
+            supports_thinking=state.sokrates_supports_thinking,
             num_ctx=sokrates_num_ctx
         )
         alfred_options = LLMOptions(
             temperature=alfred_temp,
             enable_thinking=get_reasoning_enabled("aifred"),
+            supports_thinking=state.aifred_supports_thinking,
             num_ctx=main_llm_ctx
         )
         salomo_options = LLMOptions(
             temperature=salomo_temp,
             enable_thinking=get_reasoning_enabled("salomo"),
+            supports_thinking=state.salomo_supports_thinking,
             num_ctx=salomo_num_ctx
         )
 

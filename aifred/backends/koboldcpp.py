@@ -174,7 +174,7 @@ class KoboldCPPBackend(LLMBackend):
         self,
         model: str,
         messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
+        options: LLMOptions,
         stream: bool = False
     ) -> LLMResponse:
         """
@@ -194,9 +194,6 @@ class KoboldCPPBackend(LLMBackend):
 
         # NOTE: No Python lock needed - KoboldCPP handles queuing via --multiuser 5
         # The server queues up to 5 concurrent requests and processes them sequentially
-
-        if options is None:
-            options = LLMOptions()
 
         # Convert LLMMessage to OpenAI format
         openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
@@ -260,7 +257,7 @@ class KoboldCPPBackend(LLMBackend):
         self,
         model: str,
         messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None
+        options: LLMOptions
     ) -> AsyncIterator[Dict]:
         """
         Streaming chat with KoboldCPP
@@ -281,9 +278,6 @@ class KoboldCPPBackend(LLMBackend):
 
         # NOTE: No Python lock needed - KoboldCPP handles queuing via --multiuser 5
         # The server queues up to 5 concurrent requests and processes them sequentially
-
-        if options is None:
-            options = LLMOptions()
 
         # Convert messages
         openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]

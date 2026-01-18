@@ -15,7 +15,10 @@ from .lib.config import (
     UI_THINKING_MAX_HEIGHT_MOBILE,
     UI_DEBUG_CONSOLE_MAX_HEIGHT,
     UI_MOBILE_BREAKPOINT,
+    PROJECT_ROOT,
 )
+from .lib.api import api_app
+from starlette.staticfiles import StaticFiles
 
 
 # ============================================================
@@ -3752,7 +3755,7 @@ def login_dialog() -> rx.Component:
                             rx.hstack(
                                 rx.button(
                                     "Anmelden",
-                                    on_click=lambda: AIState.open_login_dialog("login"),
+                                    on_click=AIState.set_login_mode("login"),
                                     variant=rx.cond(AIState.login_mode == "login", "solid", "ghost"),
                                     color_scheme="orange",
                                     size="2",
@@ -3760,7 +3763,7 @@ def login_dialog() -> rx.Component:
                                 ),
                                 rx.button(
                                     "Registrieren",
-                                    on_click=lambda: AIState.open_login_dialog("register"),
+                                    on_click=AIState.set_login_mode("register"),
                                     variant=rx.cond(AIState.login_mode == "register", "solid", "ghost"),
                                     color_scheme="orange",
                                     size="2",
@@ -4763,21 +4766,28 @@ app = rx.App(
     ],
 )
 
-# Mount REST API routes directly on Reflex's backend
-# This avoids the "ASGI flow error: Connection already upgraded" bug
-# that occurs when using api_transformer with WebSocket connections
-from .lib.api import api_app
-app._api.mount("/api", api_app)
+# Initialize app-specific mounts after app creation
+def _initialize_app_mounts():
+    """
+    Mount REST API and static file directories.
 
-# Mount uploaded images directory for static file serving
-# Images are stored in uploaded_files/images/{session_id}/ and served via /_upload/images/
-from starlette.staticfiles import StaticFiles
-from .lib.config import PROJECT_ROOT
-images_dir = PROJECT_ROOT / "uploaded_files" / "images"
-images_dir.mkdir(parents=True, exist_ok=True)
-app._api.mount("/_upload/images", StaticFiles(directory=str(images_dir)), name="uploaded_images")
+    This must be called after app creation because it accesses app._api.
+    """
+    # Mount REST API routes directly on Reflex's backend
+    # This avoids the "ASGI flow error: Connection already upgraded" bug
+    # that occurs when using api_transformer with WebSocket connections
+    app._api.mount("/api", api_app)
 
-# Mount html_preview directory for share_chat feature
-html_preview_dir = PROJECT_ROOT / "uploaded_files" / "html_preview"
-html_preview_dir.mkdir(parents=True, exist_ok=True)
-app._api.mount("/_upload/html_preview", StaticFiles(directory=str(html_preview_dir)), name="html_preview")
+    # Mount uploaded images directory for static file serving
+    # Images are stored in uploaded_files/images/{session_id}/ and served via /_upload/images/
+    images_dir = PROJECT_ROOT / "uploaded_files" / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    app._api.mount("/_upload/images", StaticFiles(directory=str(images_dir)), name="uploaded_images")
+
+    # Mount html_preview directory for share_chat feature
+    html_preview_dir = PROJECT_ROOT / "uploaded_files" / "html_preview"
+    html_preview_dir.mkdir(parents=True, exist_ok=True)
+    app._api.mount("/_upload/html_preview", StaticFiles(directory=str(html_preview_dir)), name="html_preview")
+
+# Call initialization function
+_initialize_app_mounts()

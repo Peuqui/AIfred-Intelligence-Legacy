@@ -96,7 +96,7 @@ def search_web_multi(queries: List[str]) -> Dict:
     if len(queries) == 1:
         import logging
         logger = logging.getLogger(__name__)
-        logger.warning(f"⚠️ Only 1 query - using ALL APIs in parallel")
+        logger.warning("⚠️ Only 1 query - using ALL APIs in parallel")
 
         result = search_tool.execute(queries[0])  # All 3 APIs parallel
         return result

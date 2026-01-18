@@ -1496,6 +1496,10 @@ async def chat_interactive_mode(
             if llm_options and 'enable_thinking' in llm_options:
                 main_llm_options['enable_thinking'] = llm_options['enable_thinking']
 
+            # Add supports_thinking from state (prevents 400 errors for calibrated models)
+            if state and backend_type == "ollama":
+                main_llm_options['supports_thinking'] = state.aifred_supports_thinking
+
             # VRAM Monitoring: Measure before inference (baseline)
             from aifred.lib.gpu_utils import get_free_vram_mb
             vram_before_inference = get_free_vram_mb()

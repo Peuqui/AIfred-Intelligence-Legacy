@@ -43,6 +43,7 @@ class LLMOptions:
     top_k: int = 40
     seed: Optional[int] = None
     enable_thinking: Optional[bool] = None  # Qwen3 Thinking Mode (Chain-of-Thought)
+    supports_thinking: Optional[bool] = None  # Model capability (from cache, None=unknown)
 
 
 @dataclass
@@ -78,7 +79,7 @@ class LLMBackend(ABC):
         self,
         model: str,
         messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
+        options: LLMOptions,
         stream: bool = False
     ) -> LLMResponse:
         """
@@ -100,7 +101,7 @@ class LLMBackend(ABC):
         self,
         model: str,
         messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None
+        options: LLMOptions
     ) -> AsyncIterator[Dict]:
         """
         Streaming chat completion (async generator)

@@ -45,7 +45,7 @@ class vLLMBackend(LLMBackend):
         self,
         model: str,
         messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
+        options: LLMOptions,
         stream: bool = False
     ) -> LLMResponse:
         """
@@ -60,9 +60,6 @@ class vLLMBackend(LLMBackend):
         Returns:
             LLMResponse
         """
-        if options is None:
-            options = LLMOptions()
-
         # Convert LLLMMessage to OpenAI format
         openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
@@ -127,7 +124,7 @@ class vLLMBackend(LLMBackend):
         self,
         model: str,
         messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None
+        options: LLMOptions
     ) -> AsyncIterator[Dict]:
         """
         Streaming chat with vLLM
@@ -142,9 +139,6 @@ class vLLMBackend(LLMBackend):
             - {"type": "content", "text": str} for content chunks
             - {"type": "done", "metrics": {...}} for final metrics
         """
-        if options is None:
-            options = LLMOptions()
-
         # Convert messages
         openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 

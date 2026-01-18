@@ -109,11 +109,11 @@ class LLMClient:
                 top_p=options.get("top_p", 0.9),
                 top_k=options.get("top_k", 40),
                 seed=options.get("seed"),
-                enable_thinking=options.get("enable_thinking")
+                enable_thinking=options.get("enable_thinking"),
+                supports_thinking=options.get("supports_thinking")
             )
         else:
-            # Unknown type - use defaults
-            llm_options = LLMOptions()
+            raise TypeError(f"options must be None, LLMOptions, or dict, got {type(options).__name__}")
 
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
         response = await backend.chat(model, converted_messages, llm_options)
@@ -165,11 +165,11 @@ class LLMClient:
                 top_p=options.get("top_p", 0.9),
                 top_k=options.get("top_k", 40),
                 seed=options.get("seed"),
-                enable_thinking=options.get("enable_thinking")
+                enable_thinking=options.get("enable_thinking"),
+                supports_thinking=options.get("supports_thinking")
             )
         else:
-            # Unknown type - use defaults
-            llm_options = LLMOptions()
+            raise TypeError(f"options must be None, LLMOptions, or dict, got {type(options).__name__}")
 
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
         async for chunk in backend.chat_stream(model, converted_messages, llm_options):

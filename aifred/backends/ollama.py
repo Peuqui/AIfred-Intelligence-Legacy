@@ -111,7 +111,7 @@ class OllamaBackend(LLMBackend):
         self,
         model: str,
         messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
+        options: LLMOptions,
         stream: bool = False
     ) -> LLMResponse:
         """
@@ -128,9 +128,6 @@ class OllamaBackend(LLMBackend):
         """
         # Check if this is a hybrid model and unload if needed
         await self._handle_hybrid_model_unload(model)
-
-        if options is None:
-            options = LLMOptions()
 
         # Convert LLMMessage to Ollama format (supports multimodal content)
         ollama_messages = []
@@ -191,10 +188,16 @@ class OllamaBackend(LLMBackend):
             "stream": False
         }
 
-        # Thinking Mode: Set based on options
-        # - Non-thinking models ignore this parameter
-        # - Thinking models use it to enable/disable reasoning
-        payload["think"] = options.enable_thinking
+        # Thinking Mode: Set based on options AND model capability
+        # - If supports_thinking=False (known not supported), skip thinking even if enabled
+        # - If supports_thinking=None (unknown), try optimistically
+        # - If supports_thinking=True (known supported), use enable_thinking setting
+        if options.supports_thinking is False:
+            # Model known to NOT support thinking - skip it
+            payload["think"] = False
+        else:
+            # Unknown or known to support - use user preference
+            payload["think"] = options.enable_thinking
 
         try:
             timer = Timer()
@@ -312,7 +315,7 @@ class OllamaBackend(LLMBackend):
         self,
         model: str,
         messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None
+        options: LLMOptions
     ) -> AsyncIterator[Dict]:
         """
         Streaming chat with Ollama
@@ -330,9 +333,6 @@ class OllamaBackend(LLMBackend):
         # Check if this is a hybrid model and unload if needed
         await self._handle_hybrid_model_unload(model)
 
-        if options is None:
-            options = LLMOptions()
-        
         # Convert LLMMessage to Ollama format (supports multimodal content)
         ollama_messages = []
         for msg in messages:
@@ -392,9 +392,16 @@ class OllamaBackend(LLMBackend):
             "stream": True
         }
 
-        # Thinking Mode: Always send "think" parameter (true or false)
-        # Treat None as False (disabled)
-        payload["think"] = options.enable_thinking if options.enable_thinking is not None else False
+        # Thinking Mode: Set based on options AND model capability
+        # - If supports_thinking=False (known not supported), skip thinking even if enabled
+        # - If supports_thinking=None (unknown), try optimistically
+        # - If supports_thinking=True (known supported), use enable_thinking setting
+        if options.supports_thinking is False:
+            # Model known to NOT support thinking - skip it
+            payload["think"] = False
+        else:
+            # Unknown or known to support - use user preference
+            payload["think"] = options.enable_thinking if options.enable_thinking is not None else False
 
         # Retry loop: try once, retry with think=false if needed
         retry_message_shown = False
@@ -520,6 +527,56 @@ class OllamaBackend(LLMBackend):
             if success and unloaded:
                 logger.info(f"✅ Unloaded {len(unloaded)} model(s), VRAM stabilized")
         # else: VRAM-only models use Ollama's fast LRU unloading
+
+    async def test_thinking_capability(self, model: str) -> bool:
+        """
+        Test if a model supports thinking mode (<think> tags).
+
+        Sends a minimal test request with think=true and checks if Ollama
+        returns a 400 error indicating thinking is not supported.
+
+        Args:
+            model: Model name to test
+
+        Returns:
+            True if model supports thinking, False otherwise
+        """
+        try:
+            # Minimal test prompt
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": "test"}],
+                "think": True,
+                "stream": False
+            }
+
+            response = await self.client.post(
+                f"{self.base_url}/api/chat",
+                json=payload,
+                timeout=30.0
+            )
+            response.raise_for_status()
+
+            # If we get here, thinking is supported
+            return True
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400:
+                # Check if error is about thinking mode
+                try:
+                    error_data = e.response.json()
+                    error_msg = error_data.get("error", "")
+                    if "does not support thinking" in error_msg:
+                        return False
+                except Exception:
+                    pass
+            # Any other error - assume thinking not supported
+            logger.warning(f"Thinking capability test failed for {model}: {e}")
+            return False
+
+        except Exception as e:
+            logger.warning(f"Thinking capability test failed for {model}: {e}")
+            return False
 
     async def unload_all_models(self, wait_for_stability: bool = True) -> tuple[bool, list[str]]:
         """

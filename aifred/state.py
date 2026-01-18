@@ -41,6 +41,12 @@ from .lib.multi_agent import (
     run_sokrates_analysis,
     run_tribunal,
 )
+from .lib.vector_cache import initialize_vector_cache
+from .lib.audio_processing import (
+    initialize_whisper_model,
+    unload_whisper_model,
+    get_whisper_model
+)
 
 # ============================================================
 # TypedDicts for Reflex (foreach requires typed dicts)
@@ -71,12 +77,6 @@ class ChatMessage(TypedDict):
 
 
 # ============================================================
-# Vector Cache - Now in aifred/lib/vector_cache.py
-# ============================================================
-from .lib.vector_cache import initialize_vector_cache
-
-
-# ============================================================
 # Module-Level Backend State (Global across all sessions)
 # ============================================================
 # Prevents re-initialization on page reload
@@ -95,17 +95,6 @@ _global_backend_state: dict[str, Any] = {
 # Lock to prevent race conditions during backend initialization
 # (e.g., two browser tabs starting simultaneously)
 _backend_init_lock = asyncio.Lock()
-
-
-# ============================================================
-# Whisper STT - Now in aifred/lib/audio_processing.py
-# ============================================================
-# Import from audio_processing module
-from .lib.audio_processing import (
-    initialize_whisper_model,
-    unload_whisper_model,
-    get_whisper_model
-)
 
 
 class AIState(rx.State):
@@ -129,6 +118,19 @@ class AIState(rx.State):
     sokrates_rope_factor: float = 1.0    # Sokrates-LLM RoPE scaling
     salomo_rope_factor: float = 1.0      # Salomo-LLM RoPE scaling
     vision_rope_factor: float = 1.0      # Vision-LLM RoPE scaling
+
+    # Per-Model Parameters (loaded from VRAM cache on model selection)
+    aifred_max_context: int = 0          # Calibrated max context tokens
+    aifred_is_hybrid: bool = False       # CPU+GPU offload mode
+    aifred_supports_thinking: bool | None = None  # Reasoning capability (None=unknown)
+
+    sokrates_max_context: int = 0
+    sokrates_is_hybrid: bool = False
+    sokrates_supports_thinking: bool | None = None
+
+    salomo_max_context: int = 0
+    salomo_is_hybrid: bool = False
+    salomo_supports_thinking: bool | None = None
 
     # Per-Agent Personality Toggles (True = Butler/Philosopher/Judge style, False = factual)
     aifred_personality: bool = True      # 🎩 AIfred Butler style
@@ -874,36 +876,32 @@ class AIState(rx.State):
                     self.sokrates_model_id = extract_model_name(sokrates_raw)
                     self.salomo_model_id = extract_model_name(salomo_raw)
 
-                    # Load per-model RoPE 2x toggle from cache
-                    if self.backend_id == "ollama" and self.aifred_model_id:
-                        from .lib.model_vram_cache import get_rope_factor_for_model
-                        self.aifred_rope_factor = get_rope_factor_for_model(self.aifred_model_id)
+                    # Load all model parameters from cache (CRITICAL: prevents 400 errors on startup!)
+                    if self.backend_id == "ollama":
+                        from .lib.model_vram_cache import get_model_parameters
+
+                        if self.aifred_model_id:
+                            params = get_model_parameters(self.aifred_model_id)
+                            self.aifred_rope_factor = params["rope_factor"]
+                            self.aifred_max_context = params["max_context"]
+                            self.aifred_is_hybrid = params["is_hybrid"]
+                            self.aifred_supports_thinking = params["supports_thinking"]
+
+                        if self.sokrates_model_id:
+                            params = get_model_parameters(self.sokrates_model_id)
+                            self.sokrates_rope_factor = params["rope_factor"]
+                            self.sokrates_max_context = params["max_context"]
+                            self.sokrates_is_hybrid = params["is_hybrid"]
+                            self.sokrates_supports_thinking = params["supports_thinking"]
+
+                        if self.salomo_model_id:
+                            params = get_model_parameters(self.salomo_model_id)
+                            self.salomo_rope_factor = params["rope_factor"]
+                            self.salomo_max_context = params["max_context"]
+                            self.salomo_is_hybrid = params["is_hybrid"]
+                            self.salomo_supports_thinking = params["supports_thinking"]
 
                     # Sync deprecated variables (will be populated later after models load)
-                    self.aifred_model = selected_raw
-                    self.automatik_model = automatik_raw
-                    self.vision_model = vision_raw
-                    self.sokrates_model = sokrates_raw
-                    self.salomo_model = salomo_raw
-                else:
-                    # Fallback: Use old-style global model settings (legacy)
-                    selected_raw = saved_settings.get("aifred_model", "")
-                    automatik_raw = saved_settings.get("automatik_model", "")
-                    vision_raw = saved_settings.get("vision_model", "")
-                    sokrates_raw = saved_settings.get("sokrates_model", "")
-                    salomo_raw = saved_settings.get("salomo_model", "")
-
-                    self.aifred_model_id = extract_model_name(selected_raw)
-                    self.automatik_model_id = extract_model_name(automatik_raw)
-                    self.vision_model_id = extract_model_name(vision_raw)
-                    self.sokrates_model_id = extract_model_name(sokrates_raw)
-                    self.salomo_model_id = extract_model_name(salomo_raw)
-
-                    # Load per-model RoPE 2x toggle from cache
-                    if self.backend_id == "ollama" and self.aifred_model_id:
-                        from .lib.model_vram_cache import get_rope_factor_for_model
-                        self.aifred_rope_factor = get_rope_factor_for_model(self.aifred_model_id)
-
                     self.aifred_model = selected_raw
                     self.automatik_model = automatik_raw
                     self.vision_model = vision_raw
@@ -1052,7 +1050,7 @@ class AIState(rx.State):
                 # Read username cookie and handle login
                 yield rx.call_script(
                     get_username_script(),
-                    callback=AIState.handle_username_loaded
+                    callback=self.handle_username_loaded
                 )
 
     async def initialize_backend(self):
@@ -4044,6 +4042,10 @@ class AIState(rx.State):
 
     def clear_chat(self):
         """UI Event Handler: Clear chat history (shows debug message)."""
+        # Must be logged in to clear chat
+        if not self.logged_in_user:
+            self.add_debug("⚠️ Not logged in")
+            return
         self._clear_chat_internal(silent=False)
 
     def _clear_chat_internal(self, silent: bool = False):
@@ -4173,10 +4175,10 @@ class AIState(rx.State):
         # (can happen when session_id was set from cookie but data wasn't loaded)
         if session_id == self.session_id:
             if self.chat_history:
-                self.add_debug(f"⏭️ Already on this session, skipping")
+                self.add_debug("⏭️ Already on this session, skipping")
                 return
             else:
-                self.add_debug(f"🔄 Same session but empty history, reloading...")
+                self.add_debug("🔄 Same session but empty history, reloading...")
 
         # Load target session
         session = load_session(session_id)
@@ -4268,11 +4270,11 @@ class AIState(rx.State):
         # Delete session
         if storage_delete_session(session_id):
             log_message(f"🗑️ Deleted session: {session_id[:8]}...")
-            self.add_debug(f"🗑️ Session deleted")
+            self.add_debug("🗑️ Session deleted")
             # Refresh list
             self.refresh_session_list()
         else:
-            self.add_debug(f"⚠️ Failed to delete session")
+            self.add_debug("⚠️ Failed to delete session")
 
     # ============================================================
     # Authentication (Login / Register / Logout)
@@ -4303,6 +4305,11 @@ class AIState(rx.State):
             return AIState.do_login
         else:
             return AIState.do_register
+
+    def set_login_mode(self, mode: str):
+        """Set login mode (login or register)."""
+        self.login_mode = mode
+        self.login_error = ""
 
     def open_login_dialog(self, mode: str = "login"):
         """Open login dialog in specified mode."""
@@ -6595,6 +6602,31 @@ class AIState(rx.State):
                 suffix = " (auto)" if skip_rope_calibration and factor > 1.0 else ""
                 self.add_debug(f"   {label}: {format_number(ctx)} tok{suffix}")
             self.add_debug("   → Values will be used automatically based on RoPE setting")
+
+            # Test thinking capability if calibration was successful
+            if calibrated_ctx and calibrated_ctx > 0:
+                self.add_debug(CONSOLE_SEPARATOR)
+                self.add_debug("🧠 Testing reasoning capability...")
+                yield
+
+                try:
+                    supports_thinking = await backend.test_thinking_capability(self.aifred_model_id)
+
+                    from .lib.model_vram_cache import set_thinking_support_for_model
+                    set_thinking_support_for_model(self.aifred_model_id, supports_thinking)
+
+                    # Update state variable
+                    self.aifred_supports_thinking = supports_thinking
+
+                    if supports_thinking:
+                        self.add_debug("✅ Model supports reasoning mode (<think> tags)")
+                    else:
+                        self.add_debug("⚠️ Model does not support reasoning mode")
+
+                except Exception as e:
+                    self.add_debug(f"⚠️ Thinking test failed: {e}")
+                    # Continue anyway - not critical
+
             self.add_debug(CONSOLE_SEPARATOR)
 
         except Exception as e:
@@ -6689,9 +6721,13 @@ class AIState(rx.State):
         self.thinking_mode_warning = ""
         self.add_debug(f"📝 AIfred-LLM: {model}")
 
-        # Load saved RoPE factor for this model
-        from .lib.model_vram_cache import get_rope_factor_for_model
-        self.aifred_rope_factor = get_rope_factor_for_model(self.aifred_model_id)
+        # Load all model parameters from cache (rope_factor, max_context, is_hybrid, supports_thinking)
+        from .lib.model_vram_cache import get_model_parameters
+        params = get_model_parameters(self.aifred_model_id)
+        self.aifred_rope_factor = params["rope_factor"]
+        self.aifred_max_context = params["max_context"]
+        self.aifred_is_hybrid = params["is_hybrid"]
+        self.aifred_supports_thinking = params["supports_thinking"]
 
         # Show calibration info for Ollama models
         self._show_model_calibration_info(self.aifred_model_id)
@@ -7121,10 +7157,14 @@ class AIState(rx.State):
         # Extract pure model ID (remove size suffix)
         self.sokrates_model_id = extract_model_name(model)
 
-        # Load per-model RoPE factor from cache
+        # Load all model parameters from cache
         if self.backend_id == "ollama" and self.sokrates_model_id:
-            from .lib.model_vram_cache import get_rope_factor_for_model
-            self.sokrates_rope_factor = get_rope_factor_for_model(self.sokrates_model_id)
+            from .lib.model_vram_cache import get_model_parameters
+            params = get_model_parameters(self.sokrates_model_id)
+            self.sokrates_rope_factor = params["rope_factor"]
+            self.sokrates_max_context = params["max_context"]
+            self.sokrates_is_hybrid = params["is_hybrid"]
+            self.sokrates_supports_thinking = params["supports_thinking"]
 
         self._save_settings()
         if model:
@@ -7140,10 +7180,14 @@ class AIState(rx.State):
         # Extract pure model ID (remove size suffix)
         self.salomo_model_id = extract_model_name(model)
 
-        # Load per-model RoPE factor from cache
+        # Load all model parameters from cache
         if self.backend_id == "ollama" and self.salomo_model_id:
-            from .lib.model_vram_cache import get_rope_factor_for_model
-            self.salomo_rope_factor = get_rope_factor_for_model(self.salomo_model_id)
+            from .lib.model_vram_cache import get_model_parameters
+            params = get_model_parameters(self.salomo_model_id)
+            self.salomo_rope_factor = params["rope_factor"]
+            self.salomo_max_context = params["max_context"]
+            self.salomo_is_hybrid = params["is_hybrid"]
+            self.salomo_supports_thinking = params["supports_thinking"]
 
         self._save_settings()
         if model:
