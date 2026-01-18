@@ -188,10 +188,16 @@ class OllamaBackend(LLMBackend):
             "stream": False
         }
 
-        # Thinking Mode: Set based on options
-        # - Non-thinking models ignore this parameter
-        # - Thinking models use it to enable/disable reasoning
-        payload["think"] = options.enable_thinking
+        # Thinking Mode: Set based on options AND model capability
+        # - If supports_thinking=False (known not supported), skip thinking even if enabled
+        # - If supports_thinking=None (unknown), try optimistically
+        # - If supports_thinking=True (known supported), use enable_thinking setting
+        if options.supports_thinking is False:
+            # Model known to NOT support thinking - skip it
+            payload["think"] = False
+        else:
+            # Unknown or known to support - use user preference
+            payload["think"] = options.enable_thinking
 
         try:
             timer = Timer()
@@ -386,9 +392,16 @@ class OllamaBackend(LLMBackend):
             "stream": True
         }
 
-        # Thinking Mode: Always send "think" parameter (true or false)
-        # Treat None as False (disabled)
-        payload["think"] = options.enable_thinking if options.enable_thinking is not None else False
+        # Thinking Mode: Set based on options AND model capability
+        # - If supports_thinking=False (known not supported), skip thinking even if enabled
+        # - If supports_thinking=None (unknown), try optimistically
+        # - If supports_thinking=True (known supported), use enable_thinking setting
+        if options.supports_thinking is False:
+            # Model known to NOT support thinking - skip it
+            payload["think"] = False
+        else:
+            # Unknown or known to support - use user preference
+            payload["think"] = options.enable_thinking if options.enable_thinking is not None else False
 
         # Retry loop: try once, retry with think=false if needed
         retry_message_shown = False

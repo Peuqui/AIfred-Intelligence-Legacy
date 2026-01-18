@@ -109,7 +109,8 @@ class LLMClient:
                 top_p=options.get("top_p", 0.9),
                 top_k=options.get("top_k", 40),
                 seed=options.get("seed"),
-                enable_thinking=options.get("enable_thinking")
+                enable_thinking=options.get("enable_thinking"),
+                supports_thinking=options.get("supports_thinking")
             )
         else:
             # Unknown type - use defaults
@@ -165,7 +166,8 @@ class LLMClient:
                 top_p=options.get("top_p", 0.9),
                 top_k=options.get("top_k", 40),
                 seed=options.get("seed"),
-                enable_thinking=options.get("enable_thinking")
+                enable_thinking=options.get("enable_thinking"),
+                supports_thinking=options.get("supports_thinking")
             )
         else:
             # Unknown type - use defaults
