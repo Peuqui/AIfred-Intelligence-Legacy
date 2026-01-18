@@ -5,6 +5,19 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.24.2] - 2026-01-18
+
+### Changed
+
+- **Intent Detection Prompt - Semantic Understanding** ([intent_detection.txt](prompts/en/automatik/intent_detection.txt)):
+  - Radikal vereinfacht: 59 → 39 Zeilen (34% kürzer)
+  - Entfernt: Alle Beispiele, WRONG EXAMPLES, redundante Format-Hinweise
+  - Fokus auf semantische Intention statt Syntax: "Ignore grammar, spelling, or punctuation - focus on semantic intent"
+  - Robuster für umgangssprachliche User-Eingaben (schnelles Tippen, fehlende Kommas, Tippfehler)
+  - Striktes Output-Schema mit klaren Regeln für Parser-Kompatibilität
+  - Verbessert Addressee-Erkennung bei Patterns wie "was hältst du aifred von..." (ohne perfekte Komma-Platzierung)
+  - Backup des alten Prompts erstellt: `intent_detection.txt.backup`
+
 ## [2.24.1] - 2026-01-18
 
 ### Fixed

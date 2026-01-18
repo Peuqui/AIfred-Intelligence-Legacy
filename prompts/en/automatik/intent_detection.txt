@@ -2,57 +2,37 @@ Analyze this user request:
 
 "{user_query}"
 
-**1. Intent (Category):**
-- FACTUAL: Research, news, weather, current events, definitions, explanations, facts
-- CREATIVE: Poems, stories, brainstorming, generating ideas, creative texts
-- MIXED: Both aspects combined (e.g. "Explain quantum physics like a fairy tale")
+**1. Intent:**
+- FACTUAL: Facts, explanations, definitions, news, questions
+- CREATIVE: Stories, poems, creative writing, brainstorming
+- MIXED: Combination of both
 
-**2. Addressee Detection:**
-CRITICAL: ONLY detect addressee if one of these EXACT names appears in the query:
-- aifred: AIfred, Alfred, Eifred (including STT variations)
-- sokrates: Sokrates, Socrates
-- salomo: Salomo, Solomon
+**2. Addressee (who is being spoken to):**
+Detect if user directly addresses one of these agents by name:
+- aifred (variations: Alfred, Eifred)
+- sokrates (variation: Socrates)
+- salomo (variation: Solomon)
 
-⚠️ IF NO NAME APPEARS → Leave addressee field EMPTY (nothing between pipes: ||)
-⚠️ DO NOT write "(empty)" or "none" - just leave it blank!
-⚠️ DO NOT infer addressee from context, style, or associated words!
+Understand the INTENT: Is the user speaking TO someone or ABOUT someone?
+- Speaking TO: The user wants THIS agent to respond (addressee)
+- Speaking ABOUT: The agent is just mentioned as a topic (not addressee)
 
-EXAMPLES:
-- "Describe the Casimir effect for a Victorian gentleman" → NO addressee (||) - NO name mentioned!
-- "Alfred, explain quantum physics" → aifred - Name present!
-- "Hey Sokrates, what do you think?" → sokrates - Name present!
-- "What would Salomo say about this?" → NO addressee (||) - Name mentioned as topic, not addressed!
-- "Sokrates, was denkst du über Salomo?" → sokrates - Comma indicates addressing Sokrates!
-- "Tell me about British butlers" → NO addressee (||) - NO name, even if contextually related!
+Ignore grammar, spelling, or punctuation - focus on semantic intent.
 
-WRONG EXAMPLES (DO NOT DO THIS!):
-- "Und dennoch bin ich der Meinung..." → aifred ❌ WRONG! No name = leave blank!
-- "I think the butler style is nice" → aifred ❌ WRONG! "butler" is not a name!
-- "Was sagt ihr dazu?" → aifred ❌ WRONG! "ihr" is not a specific agent!
-- "Tell me more about this" → aifred ❌ WRONG! No name mentioned!
+If no one is directly addressed → Leave EMPTY (use || in output)
 
-CORRECT:
-- "Und dennoch bin ich der Meinung..." → || (blank) ✓
-- "I think the butler style is nice" → || (blank) ✓
-- "Was sagt ihr dazu?" → || (blank) ✓
-- "Tell me more about this" → || (blank) ✓
+**3. Language:**
+- DE: German text
+- EN: English or other languages
 
-**3. Language of the request:**
-- DE: German text (contains: der, die, das, ich, du, was, wie, bitte, etc.)
-- EN: English text (or any other language)
+**Output format - STRICT SCHEMA:**
 
-**Examples:**
-- "What's the weather like tomorrow?" → FACTUAL||EN
-- "Schreibe ein Gedicht über Klimawandel" → CREATIVE||DE
-- "Sokrates, what do you think?" → FACTUAL|sokrates|EN
-- "Alfred, erkläre mir das bitte" → FACTUAL|aifred|DE
-- "Was sagt Salomo dazu, Sokrates?" → FACTUAL|sokrates|DE
-- "Explain relativity as a story" → MIXED||EN
-- "Describe the Casimir effect for a Victorian gentleman" → FACTUAL||EN
+Return EXACTLY this format: INTENT|ADDRESSEE|LANGUAGE
 
-**IMPORTANT:** Answer ONLY in this format: INTENT|ADDRESSEE|LANGUAGE
-Examples:
-- FACTUAL|sokrates|DE (addressed to Sokrates)
-- CREATIVE||EN (NO addressee - note the double pipe ||)
-- MIXED|aifred|DE (addressed to AIfred)
-- FACTUAL||DE (NO addressee - double pipe, then language)
+Rules:
+- INTENT must be: FACTUAL, CREATIVE, or MIXED (uppercase)
+- ADDRESSEE must be: aifred, sokrates, salomo, or EMPTY (lowercase, no quotes)
+- LANGUAGE must be: DE or EN (uppercase)
+- Use | as separator (pipe character)
+- If no addressee: leave empty between pipes (example: FACTUAL||DE)
+- No explanations, no extra text, ONLY the three fields
