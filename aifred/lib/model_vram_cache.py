@@ -475,6 +475,68 @@ def is_ollama_model_hybrid(model_name: str, rope_factor: float = 1.0) -> bool:
     return False
 
 
+def get_model_parameters(model_name: str) -> Dict[str, Any]:
+    """
+    Get all cached parameters for a model (used by State to avoid repeated file I/O).
+
+    Returns ALL model parameters including rope_factor, max_context, is_hybrid,
+    and supports_thinking. This is the central function for loading model metadata.
+
+    Args:
+        model_name: Model name (e.g., "qwen3:30b")
+
+    Returns:
+        dict with keys: rope_factor, max_context, is_hybrid, supports_thinking
+        Default values if model not in cache: rope_factor=1.0, rest are 0/False/None
+    """
+    cache = load_cache()
+
+    if model_name not in cache:
+        return {
+            "rope_factor": 1.0,
+            "max_context": 0,
+            "is_hybrid": False,
+            "supports_thinking": None
+        }
+
+    model_data = cache[model_name]
+
+    # Get RoPE factor from cache
+    rope_factor = float(model_data.get("rope_factor", 1.0))
+
+    calibrations = model_data.get("ollama_calibrations", [])
+
+    # Determine max_context and is_hybrid based on rope_factor
+    max_context = 0
+    is_hybrid = False
+
+    if calibrations:
+        # Determine field name based on RoPE factor
+        if rope_factor == 1.5:
+            field_name = "max_context_1.5x"
+        elif rope_factor == 2.0:
+            field_name = "max_context_2.0x"
+        else:
+            field_name = "max_context_1.0x"
+
+        # Get latest calibration with the requested RoPE factor
+        for cal in reversed(calibrations):
+            if field_name in cal:
+                max_context = cal.get(field_name, 0)
+                is_hybrid = cal.get("is_hybrid", False)
+                break
+
+    # Get thinking support from model-level data (not calibration-specific)
+    supports_thinking = model_data.get("supports_thinking")
+
+    return {
+        "rope_factor": rope_factor,
+        "max_context": max_context,
+        "is_hybrid": is_hybrid,
+        "supports_thinking": supports_thinking
+    }
+
+
 def get_rope_factor_for_model(model_name: str) -> float:
     """
     Get the RoPE scaling factor for a specific Ollama model.
@@ -520,6 +582,37 @@ def set_rope_factor_for_model(model_name: str, rope_factor: float) -> bool:
         cache[model_name]["rope_factor"] = rope_factor
 
     logger.info(f"📊 Set rope_factor={rope_factor}x for {model_name}")
+    return save_cache(cache)
+
+
+def set_thinking_support_for_model(model_name: str, supports_thinking: bool) -> bool:
+    """
+    Set the thinking/reasoning capability for a model.
+
+    This is typically called after testing during calibration or first inference.
+
+    Args:
+        model_name: Model name (e.g., "qwen3:30b")
+        supports_thinking: True if model supports <think> tags, False otherwise
+
+    Returns:
+        True if successfully saved, False otherwise
+    """
+    cache = load_cache()
+
+    # Initialize model entry if not exists
+    if model_name not in cache:
+        cache[model_name] = {
+            "backend": "ollama",
+            "native_context": 0,
+            "gpu_model": "Unknown",
+            "supports_thinking": supports_thinking
+        }
+    else:
+        cache[model_name]["supports_thinking"] = supports_thinking
+
+    status = "✅" if supports_thinking else "⚠️"
+    logger.info(f"{status} Set thinking support={supports_thinking} for {model_name}")
     return save_cache(cache)
 
 

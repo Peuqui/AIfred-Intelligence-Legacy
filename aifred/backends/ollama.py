@@ -488,6 +488,56 @@ class OllamaBackend(LLMBackend):
                         raise BackendInferenceError(f"Ollama streaming error: {e}")
                 # else: continue to retry
 
+    async def test_thinking_capability(self, model: str) -> bool:
+        """
+        Test if a model supports thinking mode (<think> tags).
+
+        Sends a minimal test request with think=true and checks if Ollama
+        returns a 400 error indicating thinking is not supported.
+
+        Args:
+            model: Model name to test
+
+        Returns:
+            True if model supports thinking, False otherwise
+        """
+        try:
+            # Minimal test prompt
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": "test"}],
+                "think": True,
+                "stream": False
+            }
+
+            response = await self.client.post(
+                f"{self.base_url}/api/chat",
+                json=payload,
+                timeout=30.0
+            )
+            response.raise_for_status()
+
+            # If we get here, thinking is supported
+            return True
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400:
+                # Check if error is about thinking mode
+                try:
+                    error_data = e.response.json()
+                    error_msg = error_data.get("error", "")
+                    if "does not support thinking" in error_msg:
+                        return False
+                except Exception:
+                    pass
+            # Any other error - assume thinking not supported
+            logger.warning(f"Thinking capability test failed for {model}: {e}")
+            return False
+
+        except Exception as e:
+            logger.warning(f"Thinking capability test failed for {model}: {e}")
+            return False
+
     async def unload_all_models(self, wait_for_stability: bool = True) -> tuple[bool, list[str]]:
         """
         Unload ALL currently loaded models from VRAM.

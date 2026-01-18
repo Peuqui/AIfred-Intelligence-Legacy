@@ -42,7 +42,8 @@ class LLMOptions:
     top_p: float = 0.9
     top_k: int = 40
     seed: Optional[int] = None
-    enable_thinking: Optional[bool] = None  # Qwen3 Thinking Mode (Chain-of-Thought)
+    enable_thinking: Optional[bool] = None  # User preference: enable thinking if model supports it
+    supports_thinking: Optional[bool] = None  # Model capability: None=unknown, True=supports, False=not supported
 
 
 @dataclass

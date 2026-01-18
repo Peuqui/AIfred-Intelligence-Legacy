@@ -130,6 +130,19 @@ class AIState(rx.State):
     salomo_rope_factor: float = 1.0      # Salomo-LLM RoPE scaling
     vision_rope_factor: float = 1.0      # Vision-LLM RoPE scaling
 
+    # Per-Model Parameters (loaded from VRAM cache on model selection)
+    aifred_max_context: int = 0          # Calibrated max context tokens
+    aifred_is_hybrid: bool = False       # CPU+GPU offload mode
+    aifred_supports_thinking: bool | None = None  # Reasoning capability (None=unknown)
+
+    sokrates_max_context: int = 0
+    sokrates_is_hybrid: bool = False
+    sokrates_supports_thinking: bool | None = None
+
+    salomo_max_context: int = 0
+    salomo_is_hybrid: bool = False
+    salomo_supports_thinking: bool | None = None
+
     # Per-Agent Personality Toggles (True = Butler/Philosopher/Judge style, False = factual)
     aifred_personality: bool = True      # 🎩 AIfred Butler style
     sokrates_personality: bool = True    # 🏛️ Sokrates philosophical style
