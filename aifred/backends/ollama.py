@@ -488,12 +488,18 @@ class OllamaBackend(LLMBackend):
                         raise BackendInferenceError(f"Ollama streaming error: {e}")
                 # else: continue to retry
 
-    async def unload_all_models(self) -> tuple[bool, list[str]]:
+    async def unload_all_models(self, wait_for_stability: bool = True) -> tuple[bool, list[str]]:
         """
         Unload ALL currently loaded models from VRAM.
 
         This ensures maximum VRAM is available for the next model to be loaded.
         Uses /api/ps to get loaded models, then unloads each via keep_alive=0.
+
+        Args:
+            wait_for_stability: If True, waits for VRAM to stabilize after unloading.
+                                This prevents race conditions when loading large models
+                                immediately after unload (CUDA deallocation is async).
+                                Default: True
 
         Returns:
             tuple[bool, list[str]]: (success, list of unloaded model names)
@@ -539,6 +545,16 @@ class OllamaBackend(LLMBackend):
                 unloaded_models.append(model_name)
 
             logger.info(f"Successfully unloaded {len(unloaded_models)} model(s)")
+
+            # Wait for VRAM to stabilize if requested
+            # This prevents race conditions where next model tries to load before VRAM is fully freed
+            if wait_for_stability and unloaded_models:
+                stabilized, wait_time, final_vram = await wait_for_vram_stable()
+                if stabilized:
+                    logger.info(f"VRAM stabilized after {wait_time:.1f}s ({final_vram} MB free)")
+                else:
+                    logger.warning(f"VRAM stabilization timeout after {wait_time:.1f}s")
+
             return (True, unloaded_models)
 
         except Exception as e:
@@ -550,8 +566,10 @@ class OllamaBackend(LLMBackend):
         Preload a model into VRAM by sending a minimal chat request.
         This warms up the model so future requests are faster.
 
-        NOTE: Caller should explicitly call unload_all_models() BEFORE this
-        to ensure proper model loading order (e.g., unload Automatik-LLM first).
+        For HYBRID models (CPU+GPU offload), this function automatically unloads
+        all models first and waits for VRAM stabilization to prevent CUDA OOM errors.
+
+        For VRAM-only models, Ollama's LRU handles unloading automatically.
 
         Args:
             model: Model name to preload (e.g., 'qwen3:8b')
@@ -564,8 +582,23 @@ class OllamaBackend(LLMBackend):
         """
         try:
             from ..lib.logging_utils import log_message
+            from ..lib.model_vram_cache import is_ollama_model_hybrid, get_rope_factor_for_model
+
             timer = Timer()
             log_message(f"⏱️ preload_model: START for {model} (num_ctx={num_ctx})")
+
+            # Check if this is a hybrid model (CPU+GPU offload)
+            rope_factor = get_rope_factor_for_model(model)
+            is_hybrid = is_ollama_model_hybrid(model, rope_factor=rope_factor)
+
+            if is_hybrid:
+                # Hybrid models need explicit unload + stabilization wait
+                # to prevent CUDA OOM race conditions
+                log_message(f"🔀 Hybrid model detected - unloading all models first...")
+                success, unloaded = await self.unload_all_models(wait_for_stability=True)
+                if success and unloaded:
+                    log_message(f"✅ Unloaded {len(unloaded)} model(s), VRAM stabilized")
+            # else: VRAM-only models use Ollama's fast LRU unloading
 
             # Load the requested model
             # Send minimal request to trigger model loading
@@ -597,7 +630,6 @@ class OllamaBackend(LLMBackend):
             load_time = timer.elapsed()
             log_message(f"⏱️ preload_model: Response received after {load_time:.1f}s (status={response.status_code})")
             success = response.status_code == 200
-            # Note: VRAM stabilization is handled in calculate_vram_based_context()
             return (success, load_time)
         except Exception as e:
             load_time = timer.elapsed()
@@ -948,8 +980,8 @@ class OllamaBackend(LLMBackend):
             # Measure swap BEFORE unloading/loading
             swap_before = get_swap_used_mb()
 
-            await self.unload_all_models()
-            await asyncio.sleep(1.0)
+            # Unload and wait for VRAM stability (prevents race condition)
+            await self.unload_all_models(wait_for_stability=True)
 
             success, _ = await self.preload_model(model, num_ctx=mid)
             if success:
@@ -1040,7 +1072,8 @@ class OllamaBackend(LLMBackend):
 
         # 2. Unload all models for clean VRAM state
         yield "Unloading all models..."
-        await self.unload_all_models()
+        # Don't wait here - we do explicit wait_for_vram_stable() below
+        await self.unload_all_models(wait_for_stability=False)
 
         # Wait for VRAM to stabilize (handles slower GPUs like P40)
         stabilized, wait_time, free_vram = await wait_for_vram_stable()
@@ -1316,7 +1349,8 @@ class OllamaBackend(LLMBackend):
 
                             # Check if Ollama is still responsive
                             try:
-                                await self.unload_all_models()
+                                # Don't wait here - we do explicit wait_for_vram_stable() below
+                                await self.unload_all_models(wait_for_stability=False)
                                 await wait_for_vram_stable(max_wait_seconds=5.0)
                             except Exception:
                                 yield "❌ Ollama unresponsive - please restart manually"
@@ -1348,9 +1382,8 @@ class OllamaBackend(LLMBackend):
                     high = mid
                     yield f"✗ {format_number(mid)} → CPU offload"
 
-            # Unload for next iteration
-            await self.unload_all_models()
-            await asyncio.sleep(1.0)
+            # Unload for next iteration and wait for VRAM stability
+            await self.unload_all_models(wait_for_stability=True)
 
         # 4. Result (no safety buffer - Ollama handles memory management internally)
         final_ctx = result

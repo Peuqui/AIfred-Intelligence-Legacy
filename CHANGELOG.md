@@ -5,6 +5,18 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.24.1] - 2026-01-18
+
+### Fixed
+
+- **Ollama Hybrid-Model Race Condition** ([ollama.py](aifred/backends/ollama.py), [model_vram_cache.py](aifred/lib/model_vram_cache.py)):
+  - Große Hybrid-Modelle (CPU+GPU Offload) verursachten gelegentlich CUDA OOM Fehler
+  - Root cause: CUDA-Deallocation ist asynchron, nächstes Modell lud bevor VRAM freigegeben war
+  - `preload_model()` erkennt jetzt automatisch Hybrid-Modelle aus Kalibrierungs-Cache
+  - Hybrid-Modelle: Explizites Unload + VRAM-Stabilisierungs-Wait (1-3s auf P40 GPUs)
+  - VRAM-only Modelle: Weiterhin Ollama LRU (schnell, keine Änderung)
+  - Verhindert 500 Errors bei parallelen Requests (AIfred + Sokrates)
+
 ## [2.24.0] - 2026-01-17
 
 ### Added

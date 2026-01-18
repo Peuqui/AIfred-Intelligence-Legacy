@@ -436,6 +436,45 @@ def get_ollama_calibration(model_name: str, rope_factor: float = 1.0) -> Optiona
     return None
 
 
+def is_ollama_model_hybrid(model_name: str, rope_factor: float = 1.0) -> bool:
+    """
+    Check if an Ollama model is running in hybrid mode (CPU+GPU offload).
+
+    Args:
+        model_name: Ollama model name (e.g., "qwen3:30b")
+        rope_factor: RoPE scaling factor (1.0, 1.5, or 2.0)
+
+    Returns:
+        True if model uses hybrid mode, False otherwise (or if unknown)
+    """
+    cache = load_cache()
+
+    if model_name not in cache:
+        return False
+
+    model_data = cache[model_name]
+    calibrations = model_data.get("ollama_calibrations", [])
+
+    if not calibrations:
+        return False
+
+    # Determine field name based on RoPE factor
+    if rope_factor == 1.5:
+        field_name = "max_context_1.5x"
+    elif rope_factor == 2.0:
+        field_name = "max_context_2.0x"
+    else:
+        field_name = "max_context_1.0x"
+
+    # Get latest calibration with the requested RoPE factor
+    for cal in reversed(calibrations):
+        if field_name in cal:
+            # Return is_hybrid flag (default False if not present)
+            return cal.get("is_hybrid", False)
+
+    return False
+
+
 def get_rope_factor_for_model(model_name: str) -> float:
     """
     Get the RoPE scaling factor for a specific Ollama model.
