@@ -7429,8 +7429,13 @@ class AIState(rx.State):
             self.add_debug("⚠️ TTS Re-Synth: No response available")
             return
 
-        # Get last AI response from chat history
-        _, last_ai_response = self.chat_history[-1]
+        # Get last AI response from chat history (dict format)
+        last_message = self.chat_history[-1]
+        if last_message["role"] != "assistant":
+            self.add_debug("⚠️ TTS Re-Synth: Last message is not an AI response")
+            return
+
+        last_ai_response = last_message["content"]
         if not last_ai_response or not last_ai_response.strip():
             self.add_debug("⚠️ TTS Re-Synth: Last response is empty")
             return
