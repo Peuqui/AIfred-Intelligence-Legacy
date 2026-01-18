@@ -1146,7 +1146,7 @@ def llm_parameters_accordion() -> rx.Component:
         style={
             "border": "1px solid var(--gray-6)",
             "border_radius": "6px",
-            "background": "var(--gray-2)",
+            "background": "var(--gray-3)",  # Gleiche Helligkeit wie Select-Dropdowns
             "min_height": "32px",
         },
     )

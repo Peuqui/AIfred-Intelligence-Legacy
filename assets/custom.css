@@ -5,6 +5,58 @@ html, body, #root, .radix-themes {
     color-scheme: dark !important;  /* Force dark mode detection */
 }
 
+/* Radix UI Gray Scale Override - ALWAYS DARK (unabhängig vom Browser-Mode) */
+.radix-themes,
+:root,
+[data-is-root-theme="true"] {
+    /* Gray Scale 1-12: Von dunkelsten zu hellsten Grautönen */
+    --gray-1: #0d1117 !important;    /* Darkest - Page background */
+    --gray-2: #161b22 !important;    /* Dark - Card background (für Accordion!) */
+    --gray-3: #21262d !important;    /* Medium dark - Input background */
+    --gray-4: #30363d !important;    /* Border color */
+    --gray-5: #484f58 !important;    /* Border light */
+    --gray-6: #30363d !important;    /* Border (für Accordion border!) */
+    --gray-7: #6e7681 !important;    /* Text muted */
+    --gray-8: #7d8590 !important;    /* Text secondary */
+    --gray-9: #9198a1 !important;    /* Text secondary lighter */
+    --gray-10: #b1bac4 !important;   /* Text primary dimmed */
+    --gray-11: #e6edf3 !important;   /* Text primary */
+    --gray-12: #f0f6fc !important;   /* Text high contrast */
+
+    /* Alpha variants (transparent) */
+    --gray-a1: rgba(13, 17, 23, 0.9) !important;
+    --gray-a2: rgba(22, 27, 34, 0.9) !important;
+    --gray-a3: rgba(33, 38, 45, 0.9) !important;
+    --gray-a4: rgba(48, 54, 61, 0.9) !important;
+    --gray-a5: rgba(72, 79, 88, 0.9) !important;
+    --gray-a6: rgba(48, 54, 61, 0.9) !important;
+    --gray-a7: rgba(110, 118, 129, 0.9) !important;
+    --gray-a8: rgba(125, 133, 144, 0.9) !important;
+    --gray-a9: rgba(145, 152, 161, 0.9) !important;
+    --gray-a10: rgba(177, 186, 196, 0.9) !important;
+    --gray-a11: rgba(230, 237, 243, 0.9) !important;
+    --gray-a12: rgba(240, 246, 252, 0.9) !important;
+
+    /* Radix Accent Color (Default) - auch dunkel überschreiben */
+    --accent-1: #0d1117 !important;
+    --accent-2: #161b22 !important;
+    --accent-3: #21262d !important;
+    --accent-4: #30363d !important;
+    --accent-5: #484f58 !important;
+    --accent-6: #30363d !important;
+    --accent-7: #6e7681 !important;
+    --accent-8: #7d8590 !important;
+    --accent-9: #e67700 !important;   /* Orange Accent */
+    --accent-10: #ff9500 !important;
+    --accent-11: #e67700 !important;
+    --accent-12: #e67700 !important;
+
+    /* Color Background - für alle Komponenten */
+    --color-background: #0d1117 !important;
+    --color-panel: #161b22 !important;
+    --color-surface: #21262d !important;
+}
+
 /* Radix UI Custom Orange Color Scale Override */
 .radix-themes {
     /* Override Orange Scale mit Warning Colors */
@@ -510,20 +562,22 @@ div em {
    INLINE FAILED SOURCES - Kompaktes Collapsible im Chat
    ============================================================ */
 
-/* Ghost-Variante: Kompakt für inline Failed Sources */
-.rt-AccordionRoot[data-variant="ghost"] {
+/* Ghost-Variante: Kompakt für inline Failed Sources
+   WICHTIG: Diese Regeln gelten NUR für Chat-Accordions,
+   NICHT für LLM-Parameter Accordion! */
+.rt-AccordionRoot[data-variant="ghost"].inline-failed-sources {
     --accordion-content-padding: 0 !important;
 }
 
 /* Header komplett ohne Padding */
-.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionHeader {
+.rt-AccordionRoot[data-variant="ghost"].inline-failed-sources .rt-AccordionHeader {
     padding: 0 !important;
     min-height: unset !important;
     height: auto !important;
 }
 
 /* Trigger-Button minimal */
-.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionTrigger {
+.rt-AccordionRoot[data-variant="ghost"].inline-failed-sources .rt-AccordionTrigger {
     padding: 0 !important;
     min-height: unset !important;
     height: auto !important;
@@ -531,24 +585,24 @@ div em {
 }
 
 /* Trigger-Icon (Chevron) */
-.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionTrigger svg {
+.rt-AccordionRoot[data-variant="ghost"].inline-failed-sources .rt-AccordionTrigger svg {
     width: 14px !important;
     height: 14px !important;
 }
 
 /* Kein Hover-Hintergrund */
-.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionTrigger:hover {
+.rt-AccordionRoot[data-variant="ghost"].inline-failed-sources .rt-AccordionTrigger:hover {
     background-color: transparent !important;
 }
 
 /* Content ohne Padding */
-.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionContent {
+.rt-AccordionRoot[data-variant="ghost"].inline-failed-sources .rt-AccordionContent {
     padding: 0 !important;
     padding-top: 2px !important;
 }
 
 /* AccordionItem ohne extra Spacing */
-.rt-AccordionRoot[data-variant="ghost"] .rt-AccordionItem {
+.rt-AccordionRoot[data-variant="ghost"].inline-failed-sources .rt-AccordionItem {
     margin: 0 !important;
     padding: 0 !important;
 }
