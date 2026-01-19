@@ -124,7 +124,7 @@ async def handle_own_knowledge(
 
     # Inject Vision JSON context if available
     if vision_json_context:
-        from .rag_context_builder import inject_vision_json_context
+        from .message_builder import inject_vision_json_context
         inject_vision_json_context(messages, vision_json_context)
         log_message(f"📷 Vision JSON injected ({len(str(vision_json_context))} chars)")
 

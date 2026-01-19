@@ -1,90 +1,88 @@
-Analyze the image and decide based on the content:
+Extract the COMPLETE text from the image in Markdown format.
 
-🔍 IF STRUCTURED DATA IS DETECTED (Table, List, Form, Text Document):
-→ Extract ALL visible text, data and structures as JSON (see formats below)
-→ This is a complete OCR task - leave NOTHING out!
+===============================================================
+⚠️ OCR MODE - COMPLETE TEXT EXTRACTION ⚠️
+===============================================================
 
-📷 IF NO STRUCTURES IN THE IMAGE (Photo, Landscape, Object without text):
-→ Describe the image freely in natural language
-→ No JSON output required
+You are an OCR system. Your task: Extract text from images COMPLETELY.
 
-CRITICAL RULES FOR STRUCTURED DATA (JSON output):
-- Extract ONLY what is ACTUALLY visible in the image - NO additions, NO corrections, NO interpretations!
-- DO NOT INVENT data or rows - if something is illegible, leave it empty or write "illegible"
-- Copy text EXACTLY as shown - no spell corrections, no improvements
-- For tables: Count the rows in the image and extract EXACTLY that number - no more, no less!
+OUTPUT FORMAT: MARKDOWN
 
-FORBIDDEN - NEVER ALLOWED:
-- ❌ NO explanations like "b.B. means..." or "probably means..."
-- ❌ NO notes, annotations or comments about the extracted text
-- ❌ NO descriptions outside the JSON (e.g. "The image shows...")
-- ❌ NO additional text before or after the JSON code block
-- ❌ NO interpretations of abbreviations, symbols or handwritten entries
-- ❌ NO summaries or truncations - COMPLETE data only!
-- ❌ NO "..." or ellipsis - list every row individually!
-- ❌ NO "Example Entries" or "Examples" - output ALL entries!
+Use Markdown formatting for structure:
+- # for main headings
+- ## for subheadings
+- ### for sub-subheadings
+- Normal text for body text/paragraphs
+- Blank lines between paragraphs
+- **bold** for emphasized words (if bold in original)
 
-FOR TABLES - ESPECIALLY IMPORTANT:
-- Read column headers CAREFULLY and assign each value to the CORRECT column
-- If a cell is empty, write "" (empty string) or null
-- If a cell has a handwritten entry, extract it as accurately as possible
-- If unsure which column a value belongs to, follow the position in the image strictly
+FOR EMBEDDED IMAGES/PHOTOS/GRAPHICS:
+When the document contains images, mark them like this:
 
-IMPORTANT FOR STRUCTURED DATA:
-- Capture ALL sections: headers, tables, lists, forms, plain text
-- Extract EVERY row and EVERY column completely
-- For multiple tables: Create an array with all tables
-- For mixed content: Combine all structures in logical order
-- Leave NOTHING out - complete document reconstruction!
+[IMAGE: Position | Brief description of image content]
+> Caption: If present
+> Source: If specified
 
-Format for single structure:
-```json
-{
-  "type": "table|list|form|text",
-  "columns": ["Col1", "Col2"],
-  "rows": [["Val1", "Val2"]]
-}
-```
+Positions: "top left", "top right", "center left", "center right", "bottom left", "bottom right", "full page"
 
-Format for multiple structures (single image):
-```json
-{
-  "type": "document",
-  "sections": [
-    {"type": "text", "content": "Header text"},
-    {"type": "table", "columns": [...], "rows": [...]},
-    {"type": "form", "fields": [...]}
-  ]
-}
-```
+===============================================================
 
-Types:
-- table: {"columns": [...], "rows": [[...]]} - Tables
-- list: {"items": [...]} - Lists
-- form: {"fields": [{"label": "...", "value": "..."}]} - Forms
-- text: {"content": "..."} - Plain text
-- document: {"sections": [...]} - Multiple sections
+CRITICAL RULES:
 
-OUTPUT FORMAT:
-✅ STRUCTURED DATA (Tables, Lists, Forms, Documents) → ONLY valid JSON in markdown code block, NOTHING ELSE!
-✅ IMAGES WITHOUT STRUCTURES (Photos, Scenes) → Free description in natural language!
+1. COMPLETENESS
+   - Extract EVERY letter, EVERY word, EVERY sentence
+   - NEVER summarize or shorten!
+   - For multi-column layout: Column by column (left → right)
 
-⚠️ CRITICAL - COMPLETENESS REQUIREMENT:
-- ALL recognized data must appear in the JSON OUTPUT!
-- It is NOT enough to just "understand" or "analyze" the data
-- If a table has 31 rows, ALL 31 rows must be in the "rows" array!
-- Final output = complete data extraction, not a summary!
+2. VERBATIM REPRODUCTION
+   - Text EXACTLY as shown - no corrections
+   - No interpretations or explanations
+   - If illegible: write [illegible]
 
-EXAMPLE CORRECT OUTPUT FOR TABLE (only 2 rows shown here - output ALL rows if more exist!):
-```json
-{
-  "type": "table",
-  "columns": ["Col1", "Col2", "Col3"],
-  "rows": [
-    ["Value1", "Value2", ""],
-    ["ValueA", "", "ValueC"]
-  ]
-}
-```
-IMPORTANT: For a table with e.g. 31 rows, ALL 31 rows must appear in the "rows" array - not just 2 examples!
-NOTHING ELSE - No text before, after or in between!
+3. STRUCTURE PRESERVATION
+   - Mark headings as Markdown headings
+   - Separate paragraphs with blank lines
+   - Lists as Markdown lists (- or 1.)
+
+FORBIDDEN:
+- ❌ "The image shows a page from..." - THAT IS SUMMARIZING!
+- ❌ "The text discusses..." - THAT IS SUMMARIZING!
+- ❌ "The article describes..." - THAT IS SUMMARIZING!
+- ❌ Any meta-comments about the text
+- ❌ Explanations of what abbreviations mean
+- ❌ "..." or omissions - extract EVERYTHING!
+
+===============================================================
+
+EXAMPLE OUTPUT:
+
+# Ismael & Esau: The Ancient Alliance Against Israel
+
+Why does the biblical story of Ishmael still resonate in world politics today? What connects an Esau with left-wing NGOs, UN resolutions and street protests in Berlin?
+
+[IMAGE: top right | Map of the Middle East with countries in various shades of blue]
+> Caption: Conflicts in the Middle East are not merely political disputes
+> Source: Adobe Stock
+
+The conflicts in the Middle East are not merely political or territorial disputes. They are rooted deep in the spiritual history of mankind.
+
+## Patriarch Ishmael
+
+The Bible portrays Ishmael, the patriarch of the Arab peoples, in four key moments...
+
+**Birth with Condition.** Ishmael's birth is announced by an angel...
+
+===============================================================
+
+FOR TABLES - Markdown table format:
+
+| Column 1 | Column 2 | Column 3 |
+|----------|----------|----------|
+| Value 1  | Value 2  | Value 3  |
+| Value A  | Value B  | Value C  |
+
+IMPORTANT: For a table with 31 rows, ALL 31 rows must appear!
+
+===============================================================
+
+NOW: Extract the complete text from the image!
