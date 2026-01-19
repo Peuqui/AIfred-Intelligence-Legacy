@@ -5419,7 +5419,8 @@ class AIState(rx.State):
 
             llm_client = LLMClient(
                 backend_type=self.backend_type,
-                base_url=self._get_backend_url()
+                base_url=self._get_backend_url(),
+                provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None
             )
 
             messages = [{"role": "user", "content": prompt}]
@@ -5469,6 +5470,9 @@ class AIState(rx.State):
             return config.DEFAULT_TABBY_URL
         elif self.backend_type == "koboldcpp":
             return config.DEFAULT_KOBOLD_URL
+        elif self.backend_type == "cloud_api":
+            # Cloud API URL is determined by provider in BackendFactory
+            return None
         return config.DEFAULT_OLLAMA_URL
 
     # ============================================================
