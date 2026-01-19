@@ -3222,7 +3222,8 @@ class AIState(rx.State):
                     backend_url=self.backend_url,
                     llm_options=llm_options,
                     state=self,  # Pass entire state object (for per-agent num_ctx lookup)
-                    detected_language=detected_language  # From Intent Detection
+                    detected_language=detected_language,  # From Intent Detection
+                    provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None
                 ):
 
                     # Route Vision-LLM items only (NOT Automatik items!)

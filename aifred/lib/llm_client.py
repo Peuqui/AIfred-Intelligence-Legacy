@@ -34,7 +34,8 @@ class LLMClient:
     def __init__(
         self,
         backend_type: str = "ollama",
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
+        provider: Optional[str] = None
     ):
         """
         Initialize LLM client
@@ -42,9 +43,11 @@ class LLMClient:
         Args:
             backend_type: "ollama", "vllm", etc.
             base_url: Override default backend URL
+            provider: Cloud API provider ("claude", "qwen", "kimi") - only for cloud_api
         """
         self.backend_type = backend_type
         self.base_url = base_url
+        self.provider = provider
         # Cache backend instance to prevent premature GC during async operations
         self._backend = None
 
@@ -53,7 +56,8 @@ class LLMClient:
         if self._backend is None:
             self._backend = BackendFactory.create(
                 self.backend_type,
-                base_url=self.base_url
+                base_url=self.base_url,
+                provider=self.provider
             )
         return self._backend
 

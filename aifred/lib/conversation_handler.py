@@ -65,7 +65,8 @@ async def _process_single_image_vision(
     num_ctx: int,
     supports_chat_template: bool,
     lang: str,
-    llm_options: Optional[Dict] = None
+    llm_options: Optional[Dict] = None,
+    provider: Optional[str] = None  # Cloud API provider
 ) -> Dict:
     """
     Process a single image with Vision-LLM.
@@ -146,7 +147,7 @@ async def _process_single_image_vision(
         ]
 
     # Call Vision-LLM
-    llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
+    llm_client = LLMClient(backend_type=backend_type, base_url=backend_url, provider=provider)
 
     vision_options = {
         "temperature": 0.1,
@@ -696,7 +697,8 @@ async def chat_with_vision_pipeline(
     backend_url: Optional[str] = None,
     llm_options: Optional[Dict] = None,
     state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
-    detected_language: str = "de"  # Language from Intent Detection or UI setting
+    detected_language: str = "de",  # Language from Intent Detection or UI setting
+    provider: Optional[str] = None  # Cloud API provider ("claude", "qwen", "kimi")
 ) -> AsyncIterator[Dict]:
     """
     3-Model Architecture: Vision-LLM extracts structured data, Main-LLM optionally formats it.
@@ -743,13 +745,24 @@ async def chat_with_vision_pipeline(
     # === Get model capabilities (chat template + context window) in single API call ===
     from .vision_utils import get_vision_model_capabilities
 
-    # Ensure backend_url is set (fallback to default Ollama URL)
+    # Ensure backend_url is set (fallback based on backend type)
     if not backend_url:
-        backend_url = DEFAULT_OLLAMA_URL
-        log_message(f"⚠️ No backend_url provided, using default: {DEFAULT_OLLAMA_URL}")
+        if backend_type == "cloud_api":
+            # Cloud API URL is determined by provider in BackendFactory - don't override!
+            log_message(f"📋 Cloud API: URL will be set by provider config")
+        else:
+            backend_url = DEFAULT_OLLAMA_URL
+            log_message(f"⚠️ No backend_url provided, using default: {DEFAULT_OLLAMA_URL}")
 
     log_message(f"📐 Reading model capabilities for Vision-LLM ({vision_model})...")
-    supports_chat_template, intrinsic_num_ctx = await get_vision_model_capabilities(backend_url, vision_model)
+
+    # Cloud API doesn't have /api/show endpoint - use sensible defaults
+    if backend_type == "cloud_api":
+        supports_chat_template = True  # Cloud APIs always support chat format
+        intrinsic_num_ctx = 128000     # Most cloud models have 128K+ context
+        log_message(f"📋 Cloud API: assuming chat support, 128K context")
+    else:
+        supports_chat_template, intrinsic_num_ctx = await get_vision_model_capabilities(backend_url, vision_model)
 
     # === Calculate VRAM-based context limit (same as Main-LLM) ===
     # This prevents OOM errors when models have large intrinsic context (e.g., 262K for Ministral-3)
@@ -850,7 +863,8 @@ async def chat_with_vision_pipeline(
             num_ctx=num_ctx,
             supports_chat_template=supports_chat_template,
             lang=lang,
-            llm_options=llm_options
+            llm_options=llm_options,
+            provider=provider
         )
 
         if not result["success"]:
@@ -910,7 +924,8 @@ async def chat_with_vision_pipeline(
                 num_ctx=num_ctx,
                 supports_chat_template=supports_chat_template,
                 lang=lang,
-                llm_options=llm_options
+                llm_options=llm_options,
+                provider=provider
             )
 
             all_results.append(result)

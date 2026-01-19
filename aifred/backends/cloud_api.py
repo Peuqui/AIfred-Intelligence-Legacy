@@ -180,6 +180,10 @@ class CloudAPIBackend(LLMBackend):
             kwargs["max_tokens"] = options.num_predict
 
         try:
+            # Debug: Log request details
+            logger.info(f"☁️ Vision request: model={model}, base_url={self.client.base_url}")
+            logger.info(f"☁️ Message structure: {[{k: type(v).__name__ if k == 'content' else v for k, v in m.items()} for m in openai_messages]}")
+
             timer = Timer()
             stream = await self.client.chat.completions.create(**kwargs)
 

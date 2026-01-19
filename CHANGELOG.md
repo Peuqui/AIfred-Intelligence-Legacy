@@ -5,6 +5,31 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.26.0] - 2026-01-19 🎯 Cloud API Vision Support
+
+### Added
+
+- **Cloud API Vision Support** ([conversation_handler.py](aifred/lib/conversation_handler.py), [llm_client.py](aifred/lib/llm_client.py)):
+  - Vision-Pipeline funktioniert jetzt mit Cloud APIs (Qwen DashScope, etc.)
+  - `qwen-vl-max` und andere Cloud-VL-Modelle nutzbar für OCR
+  - ~48 tok/s bei Cloud vs ~22 tok/s lokal - deutlich schneller!
+
+### Fixed
+
+- **Cloud API Backend URL Bug** ([conversation_handler.py](aifred/lib/conversation_handler.py)):
+  - Vision-Pipeline setzte fälschlicherweise Ollama-URL wenn `backend_url` leer war
+  - Cloud APIs nutzen Provider-Config für URL - darf nicht überschrieben werden
+  - Fix: URL-Fallback nur für nicht-Cloud-Backends
+
+- **Provider-Parameter fehlte in Vision-Pipeline** ([llm_client.py](aifred/lib/llm_client.py), [conversation_handler.py](aifred/lib/conversation_handler.py), [state.py](aifred/state.py)):
+  - `LLMClient` akzeptiert jetzt `provider` Parameter für Cloud APIs
+  - `chat_with_vision_pipeline` reicht Provider durch
+  - `_process_single_image_vision` erhält Provider für korrekten API-Aufruf
+
+- **get_vision_model_capabilities für Cloud API** ([conversation_handler.py](aifred/lib/conversation_handler.py)):
+  - Ollama-spezifischer `/api/show` Endpoint verursachte 404 bei Cloud APIs
+  - Cloud APIs nutzen jetzt sensible Defaults (chat support, 128K context)
+
 ## [2.25.1] - 2026-01-19
 
 ### Changed
