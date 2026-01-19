@@ -1054,10 +1054,10 @@ def llm_parameters_accordion() -> rx.Component:
                             ),
                             rx.input(
                                 placeholder="16384",
-                                value=AIState.num_ctx_manual_aifred,
-                                on_change=AIState.set_num_ctx_manual_aifred,
+                                default_value=AIState.num_ctx_manual_aifred.to(str),
+                                on_blur=AIState.set_num_ctx_manual_aifred,
                                 type="number",
-                                width="75px",
+                                width="78px",
                                 disabled=~AIState.num_ctx_manual_aifred_enabled,
                                 opacity=rx.cond(
                                     AIState.num_ctx_manual_aifred_enabled,
@@ -1086,10 +1086,10 @@ def llm_parameters_accordion() -> rx.Component:
                             ),
                             rx.input(
                                 placeholder="16384",
-                                value=AIState.num_ctx_manual_sokrates,
-                                on_change=AIState.set_num_ctx_manual_sokrates,
+                                default_value=AIState.num_ctx_manual_sokrates.to(str),
+                                on_blur=AIState.set_num_ctx_manual_sokrates,
                                 type="number",
-                                width="75px",
+                                width="78px",
                                 disabled=~AIState.num_ctx_manual_sokrates_enabled,
                                 opacity=rx.cond(
                                     AIState.num_ctx_manual_sokrates_enabled,
@@ -1118,10 +1118,10 @@ def llm_parameters_accordion() -> rx.Component:
                             ),
                             rx.input(
                                 placeholder="16384",
-                                value=AIState.num_ctx_manual_salomo,
-                                on_change=AIState.set_num_ctx_manual_salomo,
+                                default_value=AIState.num_ctx_manual_salomo.to(str),
+                                on_blur=AIState.set_num_ctx_manual_salomo,
                                 type="number",
-                                width="75px",
+                                width="78px",
                                 disabled=~AIState.num_ctx_manual_salomo_enabled,
                                 opacity=rx.cond(
                                     AIState.num_ctx_manual_salomo_enabled,
@@ -1131,10 +1131,54 @@ def llm_parameters_accordion() -> rx.Component:
                             ),
                             spacing="1",
                         ),
+                        # Vision num_ctx (PERSISTENT - saved to settings.json)
+                        # Note: num_predict removed - doesn't work with thinking models (Ollama ignores it)
+                        rx.vstack(
+                            rx.hstack(
+                                rx.text(
+                                    "👁️ Vision",
+                                    font_size="11px",
+                                    font_weight="bold",
+                                    color=COLORS["text_secondary"],
+                                ),
+                                rx.switch(
+                                    checked=AIState.vision_num_ctx_enabled,
+                                    on_change=AIState.toggle_vision_num_ctx,
+                                    size="1",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            rx.vstack(
+                                rx.input(
+                                    placeholder="32768",
+                                    default_value=AIState.vision_num_ctx.to(str),  # Uncontrolled: user can type freely
+                                    on_blur=AIState.set_vision_num_ctx,  # Save only when leaving field (Tab/Enter/click away)
+                                    type="number",
+                                    width="78px",
+                                    disabled=~AIState.vision_num_ctx_enabled,
+                                    opacity=rx.cond(
+                                        AIState.vision_num_ctx_enabled,
+                                        "1.0",
+                                        "0.5"
+                                    ),
+                                ),
+                                rx.text(
+                                    "ctx",
+                                    font_size="9px",
+                                    color=COLORS["warning_text"],
+                                    font_style="italic",
+                                ),
+                                spacing="0",
+                                align="center",
+                            ),
+                            spacing="1",
+                            margin_left="8px",  # Extra spacing from Salomo
+                        ),
                         spacing="3",
                     ),
 
-                    # Show Calculation Button (always visible since it's in a collapsible)
+                    # Show Calculation Button (styled like "Text senden" button)
                     rx.button(
                         rx.cond(
                             AIState.ui_language == "de",
@@ -1143,16 +1187,26 @@ def llm_parameters_accordion() -> rx.Component:
                         ),
                         on_click=AIState.calculate_manual_context,
                         size="1",
-                        variant="soft",
-                        color_scheme="gray",
+                        variant="solid",
+                        margin_top="8px",
+                        style={
+                            "background": "#3d2a00 !important",
+                            "color": COLORS["accent_warning"] + " !important",
+                            "border": f"1px solid {COLORS['accent_warning']}",
+                            "font_weight": "600",
+                            "&:hover": {
+                                "background": "#4d3500 !important",
+                                "color": "#ffb84d !important",
+                            },
+                        },
                     ),
 
-                    # Info Text
+                    # Info Text (Chat context resets, Vision is saved)
                     rx.text(
                         rx.cond(
                             AIState.ui_language == "de",
-                            "Einstellung wird bei Neustart zurückgesetzt (nicht gespeichert)",
-                            "Setting resets on restart (not saved)"
+                            "AIfred/Sokrates/Salomo: Neustart setzt zurück | Vision: wird gespeichert",
+                            "AIfred/Sokrates/Salomo: resets on restart | Vision: saved"
                         ),
                         font_size="11px",
                         color=COLORS["warning_text"],
@@ -3195,8 +3249,8 @@ def settings_accordion() -> rx.Component:
                                 rx.hstack(
                                     rx.text(t("yarn_factor_label"), font_size="11px", font_weight="500"),
                                     rx.input(
-                                        value=AIState.yarn_factor_input,
-                                        on_change=AIState.set_yarn_factor_input,
+                                        default_value=AIState.yarn_factor_input,
+                                        on_blur=AIState.set_yarn_factor_input,
                                         type="number",
                                         step="0.1",
                                         min="1.0",

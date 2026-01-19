@@ -741,6 +741,23 @@ tr:hover {
 }
 
 /* ============================================================
+   LLM PARAMETERS - Compact number inputs
+   ============================================================ */
+
+/* Number inputs in LLM parameters: Remove spinner buttons for compact layout */
+.rt-AccordionContent input[type="number"] {
+    -moz-appearance: textfield !important;  /* Firefox */
+    box-sizing: border-box !important;  /* Width includes padding+border */
+}
+
+/* Hide spinner buttons in Chrome/Safari/Edge */
+.rt-AccordionContent input[type="number"]::-webkit-outer-spin-button,
+.rt-AccordionContent input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none !important;
+    margin: 0 !important;
+}
+
+/* ============================================================
    RESPONSIVE LAYOUT - Media Queries (Single Source: config.py)
    ============================================================ */
 

@@ -258,6 +258,11 @@ class AIState(rx.State):
     num_ctx_manual_sokrates_enabled: bool = False
     num_ctx_manual_salomo_enabled: bool = False
 
+    # Vision Context Window Control (PERSISTENT - saved to settings.json)
+    # Unlike Chat LLMs, Vision context is saved because it significantly affects OCR quality vs speed
+    vision_num_ctx_enabled: bool = False  # True = use manual value, False = use calibrated
+    vision_num_ctx: int = 32768  # Manual context value (default: 32K - reasonable for most OCR)
+
     # Cached Model Metadata (to avoid repeated API calls)
     _automatik_model_context_limit: int = 0  # Cached context limit for automatik model
     _min_agent_context_limit: int = 0  # Cached min context limit of AIfred/Sokrates/Salomo (for session-load display)
@@ -813,6 +818,10 @@ class AIState(rx.State):
                 # Persist reasoning defaults if not in settings (ensures they survive restarts)
                 if "aifred_reasoning" not in saved_settings or "sokrates_reasoning" not in saved_settings or "salomo_reasoning" not in saved_settings:
                     self._save_reasoning_settings()
+
+                # Load Vision settings (PERSISTENT - unlike Chat LLM num_ctx)
+                self.vision_num_ctx_enabled = saved_settings.get("vision_num_ctx_enabled", self.vision_num_ctx_enabled)
+                self.vision_num_ctx = saved_settings.get("vision_num_ctx", self.vision_num_ctx)
 
                 # Initialize system prompt token cache (v2.14.0+)
                 # This caches all prompt sizes for accurate compression calculations
@@ -6983,8 +6992,8 @@ class AIState(rx.State):
         if aifred_ctx > 0:
             effective_limits.append(aifred_ctx)
 
-        # Sokrates (only in multi-agent modes)
-        if self.multi_agent_mode != "standard" and self.sokrates_model_id:
+        # Sokrates - always show (needed for multi-agent context display)
+        if self.sokrates_model_id:
             if self.num_ctx_manual_sokrates_enabled:
                 sokrates_ctx = self.num_ctx_manual_sokrates
                 mode = "manual"
@@ -6996,8 +7005,8 @@ class AIState(rx.State):
             if sokrates_ctx > 0:
                 effective_limits.append(sokrates_ctx)
 
-        # Salomo (only in auto_consensus/tribunal modes)
-        if self.multi_agent_mode in ["auto_consensus", "tribunal"] and self.salomo_model_id:
+        # Salomo - always show (needed for multi-agent context display)
+        if self.salomo_model_id:
             if self.num_ctx_manual_salomo_enabled:
                 salomo_ctx = self.num_ctx_manual_salomo
                 mode = "manual"
@@ -7008,6 +7017,18 @@ class AIState(rx.State):
             self.add_debug(f"   Salomo: {format_model_with_ctx(self.salomo_model, salomo_ctx, mode)}")
             if salomo_ctx > 0:
                 effective_limits.append(salomo_ctx)
+
+        # Vision - always show if vision model is selected
+        if self.vision_model_id:
+            if self.vision_num_ctx_enabled:
+                vision_ctx = self.vision_num_ctx
+                mode = "manual"
+            else:
+                rope_factor = get_rope_factor_for_model(self.vision_model_id)
+                vision_ctx = get_ollama_calibration(self.vision_model_id, rope_factor) or 0
+                mode = "auto"
+            self.add_debug(f"   Vision: {format_model_with_ctx(self.vision_model, vision_ctx, mode)}")
+            # Vision context is NOT added to effective_limits - it's separate from chat context
 
         # Calculate effective limit (minimum of all active limits)
         effective_limit = min(effective_limits) if effective_limits else 0
@@ -7103,6 +7124,39 @@ class AIState(rx.State):
         self.num_ctx_manual_salomo_enabled = enabled
         status = "Manual" if enabled else "Auto"
         self.add_debug(f"👑 Salomo Context: {status}")
+
+    def toggle_vision_num_ctx(self, enabled: bool):
+        """Toggle manual context for Vision-LLM (PERSISTENT)"""
+        self.vision_num_ctx_enabled = enabled
+        status = "Manual" if enabled else "Auto (calibrated)"
+        self.add_debug(f"👁️ Vision Context: {status}")
+        self._save_vision_settings()
+
+    def set_vision_num_ctx(self, value: str):
+        """Set manual vision context value (PERSISTENT)"""
+        from .lib.config import NUM_CTX_MANUAL_MAX
+        from .lib.formatting import format_number
+        try:
+            num_value = int(value)
+            if num_value < 1024:  # Minimum 1K for vision
+                num_value = 1024
+            if num_value > NUM_CTX_MANUAL_MAX:
+                num_value = NUM_CTX_MANUAL_MAX
+            self.vision_num_ctx = num_value
+            self.add_debug(f"👁️ Manual num_ctx (Vision): {format_number(num_value)}")
+            self._save_vision_settings()
+        except (ValueError, TypeError):
+            self.add_debug(f"❌ Invalid Vision num_ctx value: {value}")
+
+    def _save_vision_settings(self):
+        """Save Vision settings to settings.json"""
+        from .lib.settings import load_settings, save_settings
+        settings = load_settings() or {}
+        settings["vision_num_ctx_enabled"] = self.vision_num_ctx_enabled
+        settings["vision_num_ctx"] = self.vision_num_ctx
+        # Remove deprecated vision_num_predict if present
+        settings.pop("vision_num_predict", None)
+        save_settings(settings)
 
     def set_research_mode(self, mode: str):
         """Set research mode"""

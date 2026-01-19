@@ -153,11 +153,9 @@ async def _process_single_image_vision(
         "num_ctx": num_ctx,
         **(llm_options or {})
     }
-
-    # NOTE: Thinking models now use calibrated num_ctx from VRAM cache
-    # No num_predict limit needed - the KV-Cache has enough room for both
-    # reasoning AND output within the calibrated context window.
-    # This was tested with 30B-A3B-Thinking (160K ctx) and 32B-Thinking (52K ctx).
+    # Note: num_predict intentionally NOT set for Vision
+    # - Ollama ignores it for thinking models anyway
+    # - For OCR, we want complete output without arbitrary limits
 
     timer = Timer()
     response_text = ""
@@ -809,12 +807,20 @@ async def chat_with_vision_pipeline(
     # Model limit (fallback to 128K if detection failed)
     model_limit = intrinsic_num_ctx or 131072
 
-    # Use the VRAM-calibrated context directly (no "needed" calculation!)
-    num_ctx = min(vram_num_ctx, model_limit)
+    # Check for manual vision context override (PERSISTENT setting from UI)
+    # Note: num_predict removed - Ollama ignores it for thinking models anyway
+    if state and getattr(state, 'vision_num_ctx_enabled', False):
+        manual_ctx = getattr(state, 'vision_num_ctx', 32768)
+        num_ctx = min(manual_ctx, model_limit)
+        ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok (MANUAL)"
+        ctx_msg2 = f"   (Manual: {format_number(manual_ctx)}, Model-max: {format_number(model_limit)})"
+    else:
+        # Use the VRAM-calibrated context directly (no "needed" calculation!)
+        num_ctx = min(vram_num_ctx, model_limit)
+        ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok (calibrated)"
+        ctx_msg2 = f"   (VRAM-max: {format_number(vram_num_ctx)}, Model-max: {format_number(model_limit)})"
 
     # Log the context choice
-    ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok (calibrated)"
-    ctx_msg2 = f"   (VRAM-max: {format_number(vram_num_ctx)}, Model-max: {format_number(model_limit)})"
     yield {"type": "debug", "message": ctx_msg1}
     yield {"type": "debug", "message": ctx_msg2}
 
