@@ -5,6 +5,17 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.24.3] - 2026-01-19
+
+### Fixed
+
+- **Hybrid-Model Reload-Optimierung** ([ollama.py](aifred/backends/ollama.py)):
+  - Bei Multi-Agent-Anfragen mit gleichem Modell wurde das Modell bei jedem Agent-Wechsel neu geladen (~60-70s pro Reload)
+  - Neue Logik prüft via `/api/ps` ob das Modell bereits geladen ist, bevor ein Unload ausgelöst wird
+  - TTFT-Verbesserung bei Folge-Agents: **~100s → ~30s** (75-85s schneller)
+  - Gesamtersparnis bei 5-Agent-Pipeline: **~4 Minuten** pro Anfrage
+  - Erster Agent-Call weiterhin ~78s (initiales Laden nötig)
+
 ## [2.24.2] - 2026-01-18
 
 ### Changed

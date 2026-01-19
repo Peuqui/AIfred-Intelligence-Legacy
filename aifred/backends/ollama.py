@@ -564,6 +564,10 @@ class OllamaBackend(LLMBackend):
         For HYBRID models (CPU+GPU offload), unloads all models first and waits
         for VRAM stabilization to prevent CUDA OOM race conditions.
 
+        OPTIMIZATION: Skip unload if the requested model is already loaded.
+        This prevents unnecessary reload cycles when the same hybrid model
+        is used across multiple agents.
+
         For VRAM-only models, Ollama's LRU handles unloading automatically (no action needed).
 
         Args:
@@ -576,6 +580,21 @@ class OllamaBackend(LLMBackend):
         is_hybrid = is_ollama_model_hybrid(model, rope_factor=rope_factor)
 
         if is_hybrid:
+            # Check if the requested model is already loaded
+            try:
+                response = await self.client.get(f"{self.base_url}/api/ps")
+                if response.status_code == 200:
+                    data = response.json()
+                    loaded_models = [m.get("name", "") for m in data.get("models", [])]
+
+                    # If requested model is already loaded, skip unload
+                    if model in loaded_models:
+                        logger.info(f"♻️ Hybrid model ({model}) already loaded - skipping unload")
+                        return
+            except Exception as e:
+                logger.warning(f"Failed to check loaded models: {e}")
+                # Continue with unload on error (safer)
+
             # Hybrid models need explicit unload + stabilization wait
             # to prevent CUDA OOM race conditions
             logger.info(f"🔀 Hybrid model detected ({model}) - unloading all models first...")
