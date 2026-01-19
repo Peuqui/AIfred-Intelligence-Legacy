@@ -1,7 +1,7 @@
 """
 Settings Persistence
 
-Saves and loads user settings from ~/.config/aifred/settings.json
+Saves and loads user settings from data/settings.json
 Falls back to config.py defaults if no settings file exists.
 """
 
@@ -9,8 +9,10 @@ import json
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+from .config import DATA_DIR
 
-SETTINGS_DIR = Path.home() / ".config" / "aifred"
+# Settings directory is the centralized data directory
+SETTINGS_DIR = DATA_DIR
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 
 

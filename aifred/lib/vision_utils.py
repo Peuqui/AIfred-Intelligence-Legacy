@@ -10,11 +10,12 @@ from pathlib import Path
 from typing import Tuple, Optional
 
 # Imports for session-based image storage
-from .config import PROJECT_ROOT
+from .config import DATA_DIR
+from .logging_utils import log_message
 
-# Images are stored in uploaded_files/images/{session_id}/
+# Images are stored in data/images/{session_id}/
 # This directory is served by Reflex via /_upload/images/...
-IMAGES_BASE_DIR = PROJECT_ROOT / "uploaded_files" / "images"
+IMAGES_BASE_DIR = DATA_DIR / "images"
 
 logger = logging.getLogger(__name__)
 
@@ -401,7 +402,7 @@ async def get_vision_model_capabilities(backend_url: str, model_name: str) -> Tu
             supports_chat_template = True  # Default: assume chat support
 
             if template_normalized == "{{ .Prompt }}":
-                logger.info(f"⚠️ Model {model_name} has simple prompt-only template (no chat support)")
+                log_message(f"📋 Model {model_name}: simple template (no chat support)")
                 supports_chat_template = False
             else:
                 # Check for role-based markers
@@ -410,10 +411,10 @@ async def get_vision_model_capabilities(backend_url: str, model_name: str) -> Tu
                     '[/INST]', '<|im_start|>', '<|start_header_id|>'
                 ]
                 if any(marker in template for marker in chat_markers):
-                    logger.info(f"✅ Model {model_name} has full chat template support")
+                    log_message(f"📋 Model {model_name}: full chat template support")
                     supports_chat_template = True
                 else:
-                    logger.warning(f"⚠️ Model {model_name} has unknown template format, assuming no chat support")
+                    log_message(f"📋 Model {model_name}: unknown template, assuming no chat support")
                     supports_chat_template = False
 
             # === Check 2: Context Window Size ===
@@ -594,7 +595,7 @@ def crop_and_resize_image(
 # Image File Storage (Session-based)
 # ============================================================
 
-# Images are stored in uploaded_files/images/{session_id}/
+# Images are stored in data/images/{session_id}/
 # Structure: {session_id}/{timestamp}_{filename}
 # Served by Reflex via /_upload/images/...
 
@@ -603,7 +604,7 @@ def save_image_to_file(image_bytes: bytes, session_id: str, filename: str) -> Pa
     """
     Save image bytes as JPEG file in session-specific directory.
 
-    Files are stored in: uploaded_files/images/{session_id}/{timestamp}_{filename}
+    Files are stored in: data/images/{session_id}/{timestamp}_{filename}
     Served via: /_upload/images/{session_id}/{filename}
 
     Args:
@@ -617,7 +618,7 @@ def save_image_to_file(image_bytes: bytes, session_id: str, filename: str) -> Pa
     import time
 
     # Ensure session images directory exists
-    # Structure: uploaded_files/images/{session_id}/
+    # Structure: data/images/{session_id}/
     images_dir = IMAGES_BASE_DIR / session_id
     images_dir.mkdir(parents=True, exist_ok=True)
 
@@ -639,7 +640,7 @@ def get_image_url(image_path: Path) -> str:
     Convert absolute file path to relative URL for UI display.
 
     The URL uses Reflex's /_upload/ endpoint:
-    uploaded_files/images/{session_id}/{filename}
+    data/images/{session_id}/{filename}
 
     Uses relative URL so the browser automatically uses the current host/port.
     This ensures images work correctly regardless of which port the user
@@ -743,7 +744,7 @@ def cleanup_session_images(session_id: str) -> int:
     Delete all images for a session.
 
     Called when chat is cleared or session is deleted.
-    Removes the images directory under uploaded_files/images/{session_id}/.
+    Removes the images directory under data/images/{session_id}/.
 
     Args:
         session_id: Device identifier (32-char hex string)

@@ -12,10 +12,29 @@ from pathlib import Path
 # PROJECT PATHS
 # ============================================================
 PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()  # Go up to repo root
+
+# Centralized data directory (all persistent user data)
+# Structure:
+#   data/
+#   ├── sessions/           # Chat session files (.json)
+#   ├── images/             # Uploaded/cropped images
+#   ├── tts_audio/          # Generated TTS audio files
+#   ├── html_preview/       # Exported HTML chat previews
+#   ├── logs/               # Debug log files
+#   ├── settings.json       # User settings
+#   ├── accounts.json       # User accounts (username → password hash)
+#   ├── allowed_users.json  # Whitelist of allowed usernames
+#   └── model_vram_cache.json  # VRAM calibration cache
+#
+# Benefits:
+# - All data in one place (easy backup, portable)
+# - Excluded from Reflex hot reload (REFLEX_HOT_RELOAD_EXCLUDE_PATHS=data)
+# - Excluded from git (.gitignore)
+DATA_DIR = PROJECT_ROOT / "data"
+
 PIPER_MODEL_PATH = PROJECT_ROOT / "piper_models" / "de_DE-thorsten-medium.onnx"
 SSL_KEYFILE = PROJECT_ROOT / "ssl" / "privkey.pem"
 SSL_CERTFILE = PROJECT_ROOT / "ssl" / "fullchain.pem"
-# Settings are stored in ~/.config/aifred/settings.json (see aifred/lib/settings.py)
 
 # ============================================================
 # BACKEND URL FOR STATIC FILES (HTML Preview, Images)
@@ -492,15 +511,14 @@ MAX_SWAP_INCREASE_MB = 512  # Max swap increase per test iteration
 # ============================================================
 # VISION/OCR CONTEXT CONSTANTS
 # ============================================================
-# Minimum context for Vision-LLM (OCR, image analysis)
-# Below this value, vision processing does not work reliably
-VISION_MINIMUM_CONTEXT = 4096  # 4K minimum for Vision-LLM
-
-# Token reserve for Vision-LLM response output
-# Larger values allow for more detailed OCR extraction (tables, long texts)
-# Total needed_tokens = image_tokens (2K) + system_prompt (0.5K) + VISION_RESPONSE_RESERVE
-# Example: 2500 + 12500 = 15000 tokens minimum for Vision
-VISION_RESPONSE_RESERVE = 12500  # 12.5K reserve for Vision response (allows ~15K total)
+# NOTE: Vision models now use the CALIBRATED num_ctx from model_vram_cache.json
+# This is more accurate than any hardcoded calculation because:
+# - The calibration is done on THIS hardware with THIS model
+# - Thinking models need full context for <think> blocks (can be 40K+ tokens)
+# - No more guessing with arbitrary "response reserves"
+#
+# The old constants (VISION_MINIMUM_CONTEXT, VISION_RESPONSE_RESERVE) were removed
+# because they led to incorrect 15K context limits for models that support 160K+.
 
 # ============================================================
 # WEB SCRAPING CONSTANTS

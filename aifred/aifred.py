@@ -4795,15 +4795,22 @@ app = rx.App(
 from .lib.api import api_app
 app._api.mount("/api", api_app)
 
-# Mount uploaded images directory for static file serving
-# Images are stored in uploaded_files/images/{session_id}/ and served via /_upload/images/
+# Mount static file directories from data/
+# All user data is stored in data/ which is excluded from hot-reload
 from starlette.staticfiles import StaticFiles
-from .lib.config import PROJECT_ROOT
-images_dir = PROJECT_ROOT / "uploaded_files" / "images"
+from .lib.config import DATA_DIR
+
+# Mount images directory for Vision uploads
+images_dir = DATA_DIR / "images"
 images_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/images", StaticFiles(directory=str(images_dir)), name="uploaded_images")
 
 # Mount html_preview directory for share_chat feature
-html_preview_dir = PROJECT_ROOT / "uploaded_files" / "html_preview"
+html_preview_dir = DATA_DIR / "html_preview"
 html_preview_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/html_preview", StaticFiles(directory=str(html_preview_dir)), name="html_preview")
+
+# Mount tts_audio directory for TTS playback
+tts_audio_dir = DATA_DIR / "tts_audio"
+tts_audio_dir.mkdir(parents=True, exist_ok=True)
+app._api.mount("/_upload/tts_audio", StaticFiles(directory=str(tts_audio_dir)), name="tts_audio")

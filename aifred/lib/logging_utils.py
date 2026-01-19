@@ -13,20 +13,17 @@ import os
 import time
 from datetime import datetime
 from typing import List
-from .config import CONSOLE_DEBUG_ENABLED, FILE_DEBUG_ENABLED
+from .config import CONSOLE_DEBUG_ENABLED, FILE_DEBUG_ENABLED, DATA_DIR
 
 # ============================================================
 # DEBUG-LOG-FILE Configuration
 # ============================================================
-_LIB_DIR = os.path.dirname(os.path.abspath(__file__))
-_AIFRED_DIR = os.path.dirname(_LIB_DIR)
-_PROJECT_ROOT = os.path.dirname(_AIFRED_DIR)
-_LOGS_DIR = os.path.join(_PROJECT_ROOT, "logs")
+_LOGS_DIR = DATA_DIR / "logs"
 
 # Create logs directory if not exists
-os.makedirs(_LOGS_DIR, exist_ok=True)
+_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-DEBUG_LOG_FILE = os.path.join(_LOGS_DIR, "aifred_debug.log")
+DEBUG_LOG_FILE = str(_LOGS_DIR / "aifred_debug.log")
 _debug_log_initialized = False
 DEBUG_LOG_MAX_SIZE_MB = 1  # Max 1 MB, then rotate
 

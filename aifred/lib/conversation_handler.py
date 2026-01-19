@@ -108,13 +108,17 @@ async def _process_single_image_vision(
         model_lower = vision_model.lower()
         if "ocr" in model_lower or "deepseek-ocr" in model_lower:
             default_prompt = get_vision_templateless_ocr_prompt(lang=lang)
+            log_message(f"📝 Vision Prompt: vision_templateless_ocr.txt ({lang})")
         else:
             default_prompt = get_vision_templateless_default_prompt(lang=lang)
+            log_message(f"📝 Vision Prompt: vision_ocr.txt ({lang})")
         content_parts.append({"type": "text", "text": default_prompt})
 
     # Add single image (load from file on-demand)
     image_path = Path(image['path'])
+    log_message(f"📂 Loading image: {image_path}")
     base64_data = load_image_as_base64(image_path)
+    log_message(f"📦 Base64 size: {len(base64_data)} chars ({len(base64_data) // 1024} KB)")
     content_parts.append({
         "type": "image_url",
         "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"}
@@ -123,6 +127,7 @@ async def _process_single_image_vision(
     # Build messages
     if supports_chat_template:
         vision_system_prompt = get_vision_ocr_prompt(lang=lang)
+        log_message(f"📝 Vision Prompt: vision_ocr.txt [system] ({lang})")
 
         # Add /no_think to user content if thinking is disabled
         # This is needed because Qwen3-VL ignores the API "think" parameter
@@ -148,6 +153,11 @@ async def _process_single_image_vision(
         "num_ctx": num_ctx,
         **(llm_options or {})
     }
+
+    # NOTE: Thinking models now use calibrated num_ctx from VRAM cache
+    # No num_predict limit needed - the KV-Cache has enough room for both
+    # reasoning AND output within the calibrated context window.
+    # This was tested with 30B-A3B-Thinking (160K ctx) and 32B-Thinking (52K ctx).
 
     timer = Timer()
     response_text = ""
@@ -784,39 +794,27 @@ async def chat_with_vision_pipeline(
     for msg in debug_msgs:
         yield {"type": "debug", "message": msg}
 
-    # Calculate required tokens for Vision (SEQUENTIAL: only 1 image at a time!)
-    # - Image embeddings: ~2000 tokens per image (conservative estimate)
-    # - System prompt: ~500 tokens
-    # - Reserve for response: configured in config.py (default 12.5K for large tables)
-    # NOTE: We always calculate for 1 image since we process sequentially!
-    from .config import VISION_RESPONSE_RESERVE
-    image_tokens = 1 * 2000  # Only 1 image at a time
-    system_prompt_tokens = 500
-    response_reserve = VISION_RESPONSE_RESERVE  # From config.py (default 12.5K)
-
-    estimated_tokens = image_tokens + system_prompt_tokens
-    needed_tokens = estimated_tokens + response_reserve
+    # === Vision num_ctx: Use calibrated value from VRAM cache ===
+    # The calibrated max_context is the experimentally measured maximum that fits
+    # in GPU memory without CPU offloading. This is the ONLY reliable source.
+    #
+    # Why not calculate dynamically?
+    # - Thinking models need the FULL context for <think> blocks (can be 40K+ tokens)
+    # - Hardcoded "response reserves" are arbitrary guesses
+    # - The calibration was done with THIS model on THIS hardware = accurate
+    #
+    # vram_num_ctx comes from calculate_vram_based_context() which already
+    # checks the calibration cache first (see gpu_utils.py line 543-566)
 
     # Model limit (fallback to 128K if detection failed)
     model_limit = intrinsic_num_ctx or 131072
 
-    # CRITICAL: Minimum for Vision (image embedding needs at least this)
-    from .config import VISION_MINIMUM_CONTEXT  # Central constant
+    # Use the VRAM-calibrated context directly (no "needed" calculation!)
+    num_ctx = min(vram_num_ctx, model_limit)
 
-    if vram_num_ctx < VISION_MINIMUM_CONTEXT:
-        msg = f"⚠️ VRAM context {vram_num_ctx} too small for Vision → Using minimum {VISION_MINIMUM_CONTEXT} tokens"
-        log_message(msg)
-        yield {"type": "debug", "message": msg}
-        vram_num_ctx = VISION_MINIMUM_CONTEXT
-
-    # Final context = min(needed, VRAM-max, model-max) - same as Main-LLM!
-    # But ensure at least VISION_MINIMUM_CONTEXT
-    calculated_ctx = max(needed_tokens, VISION_MINIMUM_CONTEXT)
-    num_ctx = min(calculated_ctx, vram_num_ctx, model_limit)
-
-    # Log detailed calculation (same style as Main-LLM)
-    ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok"
-    ctx_msg2 = f"   (needed: {format_number(needed_tokens)}, VRAM-max: {format_number(vram_num_ctx)}, Model-max: {format_number(model_limit)})"
+    # Log the context choice
+    ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok (calibrated)"
+    ctx_msg2 = f"   (VRAM-max: {format_number(vram_num_ctx)}, Model-max: {format_number(model_limit)})"
     yield {"type": "debug", "message": ctx_msg1}
     yield {"type": "debug", "message": ctx_msg2}
 

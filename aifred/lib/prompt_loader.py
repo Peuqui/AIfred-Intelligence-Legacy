@@ -596,14 +596,19 @@ def get_vision_templateless_ocr_prompt(lang: Optional[str] = None) -> str:
 
 def get_vision_templateless_default_prompt(lang: Optional[str] = None) -> str:
     """
-    Load default Vision prompt for template-less models
+    Load default Vision prompt for template-less models.
+
+    Uses the same prompt as vision_ocr.txt - the difference is only
+    in how it's injected (as user content vs. system prompt).
 
     Note: No timestamp injection for template-less models (keeps prompt minimal)
     """
     if lang is None:
         lang = _current_language
 
-    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_templateless_default.txt"
+    # Use vision_ocr.txt for both template and non-template models
+    # (same content, different injection method)
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_ocr.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
 

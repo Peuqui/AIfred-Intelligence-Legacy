@@ -6,7 +6,7 @@ Manages a JSON-based cache for VRAM-related measurements across ALL backends
 - VRAM ratio measurements (MB/token) - Universal for all backends
 - vLLM context calibrations - vLLM-specific
 
-Cache location: ~/.config/aifred/model_vram_cache.json
+Cache location: data/model_vram_cache.json
 
 Structure:
 {
@@ -44,12 +44,15 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
+from .config import DATA_DIR
+
 logger = logging.getLogger(__name__)
 
-# Cache file location (same directory as settings.json)
-CACHE_DIR = Path.home() / ".config" / "aifred"
+# Cache file location (centralized data directory)
+CACHE_DIR = DATA_DIR
 CACHE_FILE = CACHE_DIR / "model_vram_cache.json"
-OLD_VLLM_CACHE = CACHE_DIR / "vllm_context_cache.json"
+# Legacy location for migration
+OLD_VLLM_CACHE = Path.home() / ".config" / "aifred" / "vllm_context_cache.json"
 
 
 def ensure_cache_dir() -> None:

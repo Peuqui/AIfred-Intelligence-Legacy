@@ -5,8 +5,8 @@ Stores chat history and session data per user account.
 Uses username from cookie for identification.
 
 Storage structure:
-- ~/.config/aifred/accounts.json - Username → Password-Hash mapping
-- ~/.config/aifred/sessions/<session_id>.json - Individual chat sessions
+- data/accounts.json - Username → Password-Hash mapping
+- data/sessions/<session_id>.json - Individual chat sessions
 
 Each session belongs to a user (owner field).
 Users can access their sessions from any device via username + password.
@@ -19,17 +19,17 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
-from .settings import SETTINGS_DIR
+from .config import DATA_DIR
 
 
-# Session directory (subdirectory of Settings)
-SESSION_DIR = SETTINGS_DIR / "sessions"
+# Session directory (subdirectory of data/)
+SESSION_DIR = DATA_DIR / "sessions"
 
 # Accounts file (username → password_hash mapping)
-ACCOUNTS_FILE = SETTINGS_DIR / "accounts.json"
+ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 
 # Whitelist file (list of allowed usernames)
-WHITELIST_FILE = SETTINGS_DIR / "allowed_users.json"
+WHITELIST_FILE = DATA_DIR / "allowed_users.json"
 
 
 def _ensure_session_dir() -> None:
@@ -566,7 +566,7 @@ def update_chat_data(
 
 def delete_session(session_id: str) -> bool:
     """
-    Delete session completely.
+    Delete session completely, including associated images.
 
     Args:
         session_id: Session identifier
@@ -575,9 +575,15 @@ def delete_session(session_id: str) -> bool:
         True on success
     """
     try:
+        # Delete session JSON file
         session_path = get_session_path(session_id)
         if session_path.exists():
             session_path.unlink()
+
+        # Also cleanup associated images
+        from .vision_utils import cleanup_session_images
+        cleanup_session_images(session_id)
+
         return True
     except (ValueError, IOError):
         return False

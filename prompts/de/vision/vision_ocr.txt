@@ -30,16 +30,23 @@ Positionen: "oben links", "oben rechts", "mitte links", "mitte rechts", "unten l
 KRITISCHE REGELN:
 
 1. VOLLSTÄNDIGKEIT
+   - Beginne mit dem ERSTEN Wort oben links auf der Seite
    - Extrahiere JEDEN Buchstaben, JEDES Wort, JEDEN Satz
    - NIEMALS zusammenfassen oder kürzen!
-   - Bei mehrspaltigem Layout: Spalte für Spalte (links → rechts)
+   - Fußnoten/Quellenangaben am Seitenende VOLLSTÄNDIG übernehmen
 
-2. WÖRTLICHE WIEDERGABE
+2. MEHRSPALTIGE LAYOUTS (SEHR WICHTIG!)
+   - Erst die KOMPLETTE linke Spalte von oben bis unten
+   - Dann die KOMPLETTE rechte Spalte von oben bis unten
+   - Spalten NIEMALS vermischen oder durcheinander bringen!
+   - Bei Unsicherheit: Visuell prüfen wo die Spaltengrenze verläuft
+
+3. WÖRTLICHE WIEDERGABE
    - Text EXAKT wie er dasteht - keine Korrekturen
    - Keine Interpretationen oder Erklärungen
    - Wenn unleserlich: [unleserlich] schreiben
 
-3. STRUKTURERHALTUNG
+4. STRUKTURERHALTUNG
    - Überschriften als Markdown-Überschriften markieren
    - Absätze durch Leerzeilen trennen
    - Listen als Markdown-Listen (- oder 1.)

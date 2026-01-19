@@ -12,7 +12,7 @@ import subprocess
 import asyncio
 import atexit
 import edge_tts
-from .config import PIPER_MODEL_PATH, PROJECT_ROOT
+from .config import PIPER_MODEL_PATH, PROJECT_ROOT, DATA_DIR
 from .logging_utils import log_message
 from .timer import Timer
 
@@ -24,10 +24,9 @@ else:  # Linux/Mac
     PIPER_BIN = PROJECT_ROOT / "venv" / "bin" / "piper"
 
 # TTS Audio output directory
-# IMPORTANT: Use uploaded_files/ instead of assets/ to avoid hot-reload!
-# Reflex watches assets/ and restarts the server when files change.
-# uploaded_files/ is served via /_upload/ endpoint and is NOT watched.
-TTS_AUDIO_DIR = PROJECT_ROOT / "uploaded_files" / "tts_audio"
+# Located in data/ directory which is excluded from hot-reload
+# Served via /_upload/ endpoint
+TTS_AUDIO_DIR = DATA_DIR / "tts_audio"
 TTS_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 

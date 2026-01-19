@@ -531,8 +531,8 @@ class OllamaBackend(LLMBackend):
 
             response = await self.client.post(
                 f"{self.base_url}/api/chat",
-                json=payload,
-                timeout=30.0
+                json=payload
+                # No timeout - model may need to load first (can take 60+ seconds for large models)
             )
             response.raise_for_status()
 

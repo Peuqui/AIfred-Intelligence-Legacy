@@ -85,8 +85,10 @@ Mathematik_Loesungen.html
 # TTS Audio Cache
 assets/tts_audio/
 
-# Uploaded Files (TTS audio, HTML preview, etc.)
-uploaded_files/
+# Centralized Data Directory (user data, not code)
+# Contains: sessions/, images/, tts_audio/, html_preview/, logs/
+# Plus: settings.json, accounts.json, allowed_users.json, model_vram_cache.json
+data/
 
 # Test Directory (local test files)
 Test/

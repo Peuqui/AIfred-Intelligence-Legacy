@@ -30,16 +30,23 @@ Positions: "top left", "top right", "center left", "center right", "bottom left"
 CRITICAL RULES:
 
 1. COMPLETENESS
+   - Start with the FIRST word at the top left of the page
    - Extract EVERY letter, EVERY word, EVERY sentence
    - NEVER summarize or shorten!
-   - For multi-column layout: Column by column (left → right)
+   - Footnotes/references at the bottom of the page must be included COMPLETELY
 
-2. VERBATIM REPRODUCTION
+2. MULTI-COLUMN LAYOUTS (VERY IMPORTANT!)
+   - First the COMPLETE left column from top to bottom
+   - Then the COMPLETE right column from top to bottom
+   - NEVER mix or interleave columns!
+   - When uncertain: Visually check where the column boundary runs
+
+3. VERBATIM REPRODUCTION
    - Text EXACTLY as shown - no corrections
    - No interpretations or explanations
    - If illegible: write [illegible]
 
-3. STRUCTURE PRESERVATION
+4. STRUCTURE PRESERVATION
    - Mark headings as Markdown headings
    - Separate paragraphs with blank lines
    - Lists as Markdown lists (- or 1.)

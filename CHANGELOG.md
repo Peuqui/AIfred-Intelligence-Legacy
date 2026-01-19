@@ -5,6 +5,45 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.25.0] - 2026-01-19
+
+### Added
+
+- **Collapsible Thinking Output für Vision-Modelle** ([conversation_handler.py](aifred/lib/conversation_handler.py)):
+  - Thinking-Modelle (Qwen3-VL, etc.) zeigen `<think>`-Blöcke jetzt in einklappbaren Sections
+  - "🧠 Reasoning" als Titel, standardmäßig eingeklappt
+  - Konsistent mit Chat-Thinking-Output
+
+### Changed
+
+- **Vision num_ctx: Calibrated statt Hardcoded** ([conversation_handler.py](aifred/lib/conversation_handler.py), [config.py](aifred/lib/config.py)):
+  - Entfernt: `VISION_RESPONSE_RESERVE` (12.500) und `VISION_MINIMUM_CONTEXT` (4.096)
+  - Vision-Pipeline nutzt jetzt direkt den kalibrierten `max_context` aus VRAM-Cache
+  - Ermöglicht 160K+ Context für MoE-Modelle (statt hardcoded 15K Limit)
+  - Kalibrierte Werte sind experimentell gemessen = zuverlässig
+
+- **OCR-Prompts für Multi-Column-Layouts verbessert** ([vision_ocr.txt](prompts/de/vision/vision_ocr.txt), [vision_templateless_ocr.txt](prompts/de/vision/vision_templateless_ocr.txt)):
+  - Explizite Anweisungen für Spalten-Reihenfolge (erst links komplett, dann rechts)
+  - "VERBOTEN"-Section mit Beispielen was NICHT erlaubt ist (Zusammenfassungen)
+  - Tabellen-Format-Beispiel für vollständige Extraktion
+  - DE + EN Versionen synchron aktualisiert
+
+- **Vision Prompt-Konsolidierung** ([prompt_loader.py](aifred/lib/prompt_loader.py)):
+  - `vision_templateless_default.txt` gelöscht (DE + EN)
+  - Logik vereinfacht: OCR-Prompt wird für alle faktischen Anfragen verwendet
+  - Weniger Dateien, klarere Struktur
+
+### Fixed
+
+- **Session-Löschung bereinigt Bilder** ([session_storage.py](aifred/lib/session_storage.py), [state.py](aifred/state.py)):
+  - Beim Löschen einer Session werden zugehörige Bilder aus `data/images/{session_id}/` entfernt
+  - Verhindert Speicher-Akkumulation durch verwaiste Bild-Dateien
+  - Session-ID wird jetzt in State getrackt für Image-Cleanup
+
+- **Hot-Reload während Vision-Inferenz** ([aifred-intelligence.service](systemd/aifred-intelligence.service)):
+  - `REFLEX_HOT_RELOAD_EXCLUDE_PATHS=data:prompts` verhindert Reloads bei Datei-Änderungen
+  - Behebt Abbrüche wenn Bilder in `data/images/` geschrieben werden
+
 ## [2.24.3] - 2026-01-19
 
 ### Fixed

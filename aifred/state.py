@@ -1538,10 +1538,9 @@ class AIState(rx.State):
 
         # Update mtime tracker to prevent immediate reload by check_for_updates()
         import os
-        from pathlib import Path
-        settings_path = Path.home() / ".config/aifred/settings.json"
+        from .lib.settings import SETTINGS_FILE
         try:
-            self._last_settings_mtime = os.path.getmtime(settings_path)
+            self._last_settings_mtime = os.path.getmtime(SETTINGS_FILE)
         except OSError:
             pass
 
@@ -2184,10 +2183,9 @@ class AIState(rx.State):
         # Check if settings.json was modified (mtime-based, multi-browser safe)
         # Each browser tracks its own last-seen mtime - no race conditions
         import os
-        from pathlib import Path
-        settings_path = Path.home() / ".config/aifred/settings.json"
+        from .lib.settings import SETTINGS_FILE
         try:
-            current_mtime = os.path.getmtime(settings_path)
+            current_mtime = os.path.getmtime(SETTINGS_FILE)
             if current_mtime > self._last_settings_mtime:
                 self._reload_settings_from_file()
                 self._last_settings_mtime = current_mtime
@@ -3239,8 +3237,12 @@ class AIState(rx.State):
                         if not isinstance(content, str):
                             self.add_debug(f"⚠️ WARNING: Vision response content is {type(content)}, expected str. Converting...")
                             content = str(content) if content is not None else ""
+                        # Collect FULL response (with <think> tags) for later formatting
                         vision_readable_text += content
-                        self.current_ai_response += content
+                        # Stream to UI WITHOUT <think> tags (will be shown as collapsible later)
+                        # This prevents raw <think>...</think> from appearing during streaming
+                        content_for_stream = strip_thinking_blocks(content)
+                        self.current_ai_response += content_for_stream
                         yield
 
                     elif item["type"] == "done":
@@ -4079,8 +4081,8 @@ class AIState(rx.State):
             self.add_debug(f"⚠️ TTS cleanup failed: {e}")
 
         # HTML Preview Dateien aufräumen
-        from .lib.config import PROJECT_ROOT
-        html_preview_dir = PROJECT_ROOT / "uploaded_files" / "html_preview"
+        from .lib.config import DATA_DIR
+        html_preview_dir = DATA_DIR / "html_preview"
         try:
             if html_preview_dir.exists():
                 for f in html_preview_dir.iterdir():
@@ -4089,7 +4091,7 @@ class AIState(rx.State):
         except Exception as e:
             self.add_debug(f"⚠️ HTML preview cleanup failed: {e}")
 
-        # Session-Bilder aufräumen (~/.config/aifred/sessions/{session_id}/images/)
+        # Session-Bilder aufräumen (data/images/{session_id}/)
         if self.session_id:
             from .lib.vision_utils import cleanup_session_images
             try:
@@ -5964,9 +5966,10 @@ class AIState(rx.State):
 
             if audio_url:
                 # Verify file exists on disk (convert URL to filesystem path)
-                # URL: /_upload/tts_audio/audio_123.mp3 -> uploaded_files/tts_audio/audio_123.mp3
+                # URL: /_upload/tts_audio/audio_123.mp3 -> data/tts_audio/audio_123.mp3
+                from .lib.config import DATA_DIR
                 filename = audio_url.split("/")[-1]
-                file_path = PROJECT_ROOT / "uploaded_files" / "tts_audio" / filename
+                file_path = DATA_DIR / "tts_audio" / filename
 
                 if os.path.exists(file_path):
                     # Store audio URL for playback

@@ -12,15 +12,14 @@ import threading
 from pathlib import Path
 from collections import OrderedDict
 from .logging_utils import log_message
-from .config import get_xml_tag_config, BACKEND_URL  # Import function instead of static config
+from .config import get_xml_tag_config, BACKEND_URL, DATA_DIR
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
 
-# HTML Preview: Path to uploaded_files/html_preview directory
-# IMPORTANT: Must be outside assets/ to avoid triggering Reflex hot-reload!
-# Reflex serves uploaded_files/ via /_upload/ endpoint (backend only)
-from .config import PROJECT_ROOT
-_HTML_PREVIEW_DIR = PROJECT_ROOT / "uploaded_files" / "html_preview"
+# HTML Preview: Path to data/html_preview directory
+# Located in data/ which is excluded from hot-reload
+# Served via /_upload/ endpoint
+_HTML_PREVIEW_DIR = DATA_DIR / "html_preview"
 
 # LRU Cache for HTML preview files (max 50 files)
 _html_file_cache: OrderedDict[str, Path] = OrderedDict()

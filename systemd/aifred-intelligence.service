@@ -11,9 +11,12 @@ Group=__USER__
 WorkingDirectory=__PROJECT_DIR__
 Environment="PATH=__PROJECT_DIR__/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
-# Exclude uploaded_files from hot reload to prevent reload during Vision inference
-Environment="REFLEX_HOT_RELOAD_EXCLUDE_PATHS=uploaded_files"
-ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --env prod --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
+# Exclude data/ and prompts/ from hot reload to prevent reload during Vision inference
+# data/ contains runtime files (images, audio, sessions)
+# prompts/ are loaded on-demand, no need for hot reload
+# Multiple paths separated by colon (:) as per Reflex documentation
+Environment="REFLEX_HOT_RELOAD_EXCLUDE_PATHS=data:prompts"
+ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
 KillMode=control-group
 ExecStopPost=/usr/bin/pkill -f koboldcpp || true
