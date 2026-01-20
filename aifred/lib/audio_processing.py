@@ -326,6 +326,78 @@ def generate_speech_espeak(text, speed=1.0, voice_choice="Deutsch (Roboter)"):
         return None
 
 
+def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Claribel Dervla", language: str = "de") -> str | None:
+    """
+    XTTS v2 TTS - Local voice cloning TTS via Docker service.
+
+    XTTS v2 supports voice cloning from reference audio and multilingual
+    text generation. The voice character is preserved across languages.
+
+    Args:
+        text: Text to synthesize
+        speed: Speed multiplier (currently unused - XTTS generates at fixed rate)
+        voice_choice: Voice name (built-in speaker or custom cloned voice)
+                     Custom voices are prefixed with "★ " in the UI
+        language: Language code for text (de, en, es, fr, etc.)
+
+    Returns:
+        str: Path to generated WAV file (relative URL for Reflex frontend), or None on error
+
+    Note:
+        Requires XTTS Docker service running: cd docker/xtts && docker-compose up -d
+    """
+    import requests
+    from .config import XTTS_SERVICE_URL
+
+    # Save to data/tts_audio/ (served via /_upload/)
+    filename = f"audio_{int(time.time() * 1000)}.wav"
+    output_file = str(TTS_AUDIO_DIR / filename)
+
+    try:
+        # Remove "★ " prefix if present (UI marker for custom voices)
+        speaker = voice_choice
+        if speaker.startswith("★ "):
+            speaker = speaker[2:]
+
+        log_message(f"🎤 XTTS v2: speaker={speaker}, language={language}, text_length={len(text)}")
+
+        # Call XTTS Docker service
+        response = requests.post(
+            f"{XTTS_SERVICE_URL}/tts",
+            json={"text": text, "speaker": speaker, "language": language},
+            timeout=120  # XTTS is faster than Bark (~1-3s per sentence)
+        )
+
+        if response.status_code == 200:
+            # Save audio to file
+            with open(output_file, "wb") as f:
+                f.write(response.content)
+
+            file_size = os.path.getsize(output_file)
+            log_message(f"✅ XTTS v2: Audio saved → {output_file} ({file_size} bytes)")
+
+            if file_size < 100:
+                log_message(f"⚠️ XTTS v2: File suspiciously small ({file_size} bytes)")
+                return None
+
+            # Return relative URL - browser uses current host/port automatically
+            return f"/_upload/tts_audio/{filename}"
+        else:
+            error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
+            log_message(f"❌ XTTS v2 Error: {error_msg}")
+            return None
+
+    except requests.exceptions.ConnectionError:
+        log_message("❌ XTTS v2: Service not running. Start with: cd docker/xtts && docker-compose up -d")
+        return None
+    except requests.exceptions.Timeout:
+        log_message("❌ XTTS v2: Timeout after 120 seconds")
+        return None
+    except Exception as e:
+        log_message(f"❌ XTTS v2 Exception: {e}")
+        return None
+
+
 def clean_text_for_tts(text):
     """
     Prepare text for TTS output: Remove elements that sound bad when read aloud.
@@ -503,11 +575,11 @@ def transcribe_audio(audio_path, whisper_model, language="de"):
 
 async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: float = 1.0):
     """
-    Generate TTS audio from text (Edge, Piper or eSpeak).
+    Generate TTS audio from text (Edge, XTTS, Piper or eSpeak).
 
     Args:
         text: Text for TTS (already cleaned)
-        voice_choice: Voice display name (e.g. "Deutsch (Katja)" for Edge, "Deutsch (Thorsten)" for Piper)
+        voice_choice: Voice display name (e.g. "Deutsch (Katja)" for Edge, "★ aifred" for XTTS custom)
         speed_choice: Speed multiplier (e.g. 1.25)
         tts_engine: Engine name (e.g. "Edge TTS (Cloud, best quality)")
         pitch: Pitch factor (0.8 = 20% lower, 1.0 = unchanged, 1.2 = 20% higher)
@@ -515,12 +587,16 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
     Returns:
         str: Path to generated audio file, or None
     """
-    from .config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
+    from .config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES, XTTS_VOICES_FALLBACK
 
     try:
         audio_url = None
 
-        if "Piper" in tts_engine:
+        if "XTTS" in tts_engine:
+            # XTTS v2 (local via Docker) - voice cloning TTS
+            # Supports custom voices (★ prefix) and built-in speakers
+            audio_url = generate_speech_xtts(text, speed_choice, voice_choice, language="de")
+        elif "Piper" in tts_engine:
             # Piper TTS (local) - synchronous subprocess call
             # Use Piper-specific voice, fallback to first available if not found
             if voice_choice not in PIPER_VOICES:

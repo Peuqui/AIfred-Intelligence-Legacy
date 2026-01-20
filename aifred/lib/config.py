@@ -314,9 +314,58 @@ RESEARCH_MODES = [
 # ============================================================
 TTS_ENGINES = [
     "Edge TTS (Cloud, best quality)",
+    "XTTS v2 (Local, voice cloning)",
     "Piper TTS (Local, Offline)",
     "eSpeak (Robot, Offline)"
 ]
+
+# ============================================================
+# XTTS v2 CONFIGURATION (Docker Service)
+# ============================================================
+# XTTS v2 runs as a Docker service for voice cloning and multilingual TTS
+# Start with: cd docker/xtts && docker-compose up -d
+XTTS_SERVICE_URL = "http://localhost:5051"
+
+# XTTS voices are loaded dynamically from the service
+# Custom voices are auto-generated from WAV files in docker/xtts/voices/
+# Built-in voices (58 speakers) are always available
+# Use get_xtts_voices() to fetch the current list from the service
+
+def get_xtts_voices() -> dict:
+    """
+    Fetch available XTTS voices from the Docker service.
+
+    Returns:
+        dict: Voice name -> voice ID mapping
+              Custom voices are prefixed with "★ " in the display name
+              Returns empty dict if service is unavailable
+    """
+    import requests
+
+    try:
+        response = requests.get(f"{XTTS_SERVICE_URL}/voices", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            voices = {}
+            # Custom voices first (marked with ★)
+            for name in data.get("custom", []):
+                voices[f"★ {name}"] = name
+            # Built-in voices
+            for name in data.get("builtin", []):
+                voices[name] = name
+            return voices
+    except Exception:
+        pass
+    return {}
+
+# Fallback voices when service is unavailable (for UI initialization)
+XTTS_VOICES_FALLBACK = {
+    "Claribel Dervla": "Claribel Dervla",
+    "Daisy Studious": "Daisy Studious",
+    "Gracie Wise": "Gracie Wise",
+    "Tammie Ema": "Tammie Ema",
+    "Alison Dietlinde": "Alison Dietlinde",
+}
 
 # eSpeak Voices (Local - system package)
 # Install: sudo apt install espeak-ng (or espeak)

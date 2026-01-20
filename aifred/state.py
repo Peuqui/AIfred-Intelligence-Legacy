@@ -318,17 +318,27 @@ class AIState(rx.State):
 
     # TTS/STT Settings
     enable_tts: bool = False
-    tts_voice: str = "Deutsch (Katja)"  # Voice selection (from VOICES dict)
+    tts_voice: str = "Deutsch (Katja)"  # Default voice (AIfred) - from VOICES dict
     tts_speed: float = 1.0  # Speed multiplier (1.0 = normal, browser playback handles tempo)
     tts_engine: str = "Edge TTS (Cloud, best quality)"  # TTS engine selection
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
     tts_playback_rate: str = "1.25x"  # Browser playback rate (persisted)
     tts_pitch: str = "1.0"  # Pitch adjustment (0.8 = lower, 1.0 = normal, 1.2 = higher)
+    # Per-Agent TTS Voice Settings (for Multi-Agent mode with distinct voices)
+    # Format: agent_id -> {"voice": str, "speed": str, "pitch": str, "enabled": bool}
+    # Agents: aifred (default), sokrates, salomo
+    tts_agent_voices: Dict[str, Dict[str, Any]] = {
+        "aifred": {"voice": "", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+        "sokrates": {"voice": "", "speed": "1.0x", "pitch": "0.9", "enabled": True},
+        "salomo": {"voice": "", "speed": "1.1x", "pitch": "1.1", "enabled": True},
+    }
+    # XTTS voices cache - refreshed when engine changes to XTTS
+    xtts_voices_cache: List[str] = []
     whisper_model_key: str = "small"  # Whisper model key (tiny/base/small/medium/large)
     # whisper_device removed - now configured in config.py (WHISPER_DEVICE)
     show_transcription: bool = False  # Show transcribed text for editing before sending
     # NOTE: Whisper model is now managed in aifred/lib/audio_processing.py (use get_whisper_model())
-    tts_audio_path: str = ""  # Path to generated TTS audio file (TODO: UI player missing)
+    tts_audio_path: str = ""  # Path to generated TTS audio file
     tts_trigger_counter: int = 0  # Incremented to trigger TTS playback in frontend
 
     # Session Persistence (Cookie-based session identification)
@@ -647,21 +657,37 @@ class AIState(rx.State):
                 for mid in self.vision_models_cache
                 if mid in self.available_models_dict]
 
-    @rx.var(deps=["tts_engine"], auto_deps=False)
+    @rx.var(deps=["tts_engine", "xtts_voices_cache"], auto_deps=False)
     def available_tts_voices(self) -> List[str]:
         """
         Returns list of available TTS voices for the current engine.
-        Edge TTS, Piper and eSpeak have different voice sets.
+        Edge TTS, XTTS v2, Piper and eSpeak have different voice sets.
 
         Note: Uses auto_deps=False with explicit deps to disable automatic
         dependency detection (Reflex cannot introspect module-level imports).
+        XTTS voices come from xtts_voices_cache (refreshed via _refresh_xtts_voices).
         """
-        if "Piper" in self.tts_engine:
+        if "XTTS" in self.tts_engine:
+            # Use cached voices (refreshed when engine changes to XTTS)
+            if self.xtts_voices_cache:
+                return self.xtts_voices_cache
+            # Fallback when service unavailable
+            from .lib.config import XTTS_VOICES_FALLBACK
+            return list(XTTS_VOICES_FALLBACK.keys())
+        elif "Piper" in self.tts_engine:
             return list(PIPER_VOICES.keys())
         elif "eSpeak" in self.tts_engine:
             return list(ESPEAK_VOICES.keys())
         else:
             return list(EDGE_TTS_VOICES.keys())
+
+    def _refresh_xtts_voices(self):
+        """Refresh XTTS voices from Docker service."""
+        from .lib.config import get_xtts_voices
+        voices = get_xtts_voices()
+        if voices:
+            self.xtts_voices_cache = list(voices.keys())
+            self.add_debug(f"🎤 XTTS: {len(voices)} voices loaded")
 
     async def on_load(self):
         """
@@ -7449,6 +7475,10 @@ class AIState(rx.State):
         """Set TTS engine and restore saved voice for this engine"""
         self.tts_engine = engine
         self.add_debug(f"🔊 TTS Engine: {engine}")
+
+        # Refresh XTTS voices from Docker service if XTTS engine selected
+        if "XTTS" in engine:
+            self._refresh_xtts_voices()
 
         # Restore user's saved voice preference for this engine (calls _switch_tts_voice_for_language)
         # This will either restore the saved voice or fallback to defaults
