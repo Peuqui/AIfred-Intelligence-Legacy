@@ -4741,25 +4741,29 @@ console.log('✂️ Crop handler loaded');
                         spacing="2",
                         align="center",
                     ),
-                    # HTML5 Audio Element - only show when audio exists
-                    rx.cond(
-                        AIState.tts_audio_path != "",
-                        rx.el.audio(
-                            src=AIState.tts_audio_path,
-                            id="tts-audio-player",
-                            controls=True,
-                            autoPlay=True,  # Auto-play when audio element is mounted
-                            key="tts-audio-" + AIState.tts_trigger_counter.to(str),  # Force remount on new audio
-                            style={"width": "100%", "height": "40px", "margin_top": "8px"},
-                        ),
-                        # Placeholder when no audio yet - shows hint
-                        rx.text(
-                            t("tts_regenerate_hint"),
-                            font_size="11px",
-                            color="#888",
-                            margin_top="8px",
-                            font_style="italic",
-                        ),
+                    # HTML5 Audio Element - ALWAYS rendered to avoid React Hook order issues
+                    # Use display:none instead of rx.cond to prevent mount/unmount cycles
+                    rx.el.audio(
+                        src=AIState.tts_audio_path,
+                        id="tts-audio-player",
+                        controls=True,
+                        autoPlay=AIState.tts_audio_path != "",  # Only autoplay when path exists
+                        key="tts-audio-" + AIState.tts_trigger_counter.to(str),  # Force remount on new audio
+                        style={
+                            "width": "100%",
+                            "height": "40px",
+                            "margin_top": "8px",
+                            "display": rx.cond(AIState.tts_audio_path != "", "block", "none"),
+                        },
+                    ),
+                    # Placeholder when no audio yet - shows hint (inverse visibility)
+                    rx.text(
+                        t("tts_regenerate_hint"),
+                        font_size="11px",
+                        color="#888",
+                        margin_top="8px",
+                        font_style="italic",
+                        display=rx.cond(AIState.tts_audio_path != "", "none", "block"),
                     ),
                     padding="3",
                     background_color="rgba(66, 135, 245, 0.08)",

@@ -4020,15 +4020,10 @@ class AIState(rx.State):
             if len(self.pending_images) > 0:
                 self.clear_pending_images()
 
-            # Generate session title at end of flow (uses small Automatik model)
-            # Only runs on first Q&A pair, skipped if title already exists
-            async for _ in self._generate_session_title(self.automatik_model_id):
-                yield  # Forward UI updates from title generation
-
-            # TTS: Generate audio for AI response if enabled
+            # TTS: Generate audio for AI response if enabled (BEFORE title generation for faster feedback)
             if self.enable_tts:
                 try:
-                    self.add_debug("🔊 TTS: Starting TTS generation in finally block...")
+                    self.add_debug("🔊 TTS: Starting TTS generation...")
                     # Get AI response from LAST message in chat history
                     # With APPEND-only architecture, AI responses are always in the last message
                     if len(self.chat_history) > 0:
@@ -4049,6 +4044,11 @@ class AIState(rx.State):
                 except Exception as tts_error:
                     self.add_debug(f"⚠️ TTS generation failed: {tts_error}")
                     log_message(f"❌ TTS error in finally block: {tts_error}")
+
+            # Generate session title at end of flow (uses small Automatik model)
+            # Only runs on first Q&A pair, skipped if title already exists
+            async for _ in self._generate_session_title(self.automatik_model_id):
+                yield  # Forward UI updates from title generation
 
             # Auto-Save: Session nach jeder Chat-Nachricht speichern
             # IMPORTANT: Save BEFORE refresh so message_count is up-to-date

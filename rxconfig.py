@@ -27,6 +27,31 @@ except ImportError:
 # Environment mode (affects Reflex optimizations)
 is_prod = os.getenv("AIFRED_ENV", "dev") == "prod"
 
+# ============================================================
+# Hot Reload Exclusions
+# ============================================================
+# Exclude directories without Python code from hot reload to prevent
+# unnecessary recompilation when runtime files change (e.g., TTS audio).
+# See: https://reflex.dev/docs/api-reference/environment-variables/
+os.environ.setdefault(
+    "REFLEX_HOT_RELOAD_EXCLUDE_PATHS",
+    ":".join([
+        "data",              # Runtime data (TTS audio, sessions, etc.)
+        "logs",              # Log files
+        "docker",            # Docker configs
+        "docs",              # Documentation
+        "prompts",           # Prompt templates
+        "assets",            # Static assets
+        "Bilder",            # Images
+        "piper_models",      # TTS models
+        "uploaded_files",    # User uploads
+        "aifred_vector_cache",  # ChromaDB cache
+        "systemd",           # Service configs
+        "scripts",           # Utility scripts
+        "__pycache__",       # Python bytecode cache
+    ])
+)
+
 config = rx.Config(
     app_name="aifred",
     backend_host="0.0.0.0",  # Listen on all interfaces
