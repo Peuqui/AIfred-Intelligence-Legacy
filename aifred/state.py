@@ -318,9 +318,9 @@ class AIState(rx.State):
 
     # TTS/STT Settings
     enable_tts: bool = False
-    tts_voice: str = "Deutsch (Katja)"  # Default voice (AIfred) - from VOICES dict
+    tts_voice: str = "AIfred"  # Default voice - XTTS custom voice
     tts_speed: float = 1.0  # Speed multiplier (1.0 = normal, browser playback handles tempo)
-    tts_engine: str = "Edge TTS (Cloud, best quality)"  # TTS engine selection
+    tts_engine: str = "XTTS v2 (Local, voice cloning)"  # TTS engine selection (default: XTTS)
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
     tts_playback_rate: str = "1.25x"  # Browser playback rate (persisted)
     tts_pitch: str = "1.0"  # Pitch adjustment (0.8 = lower, 1.0 = normal, 1.2 = higher)
@@ -328,9 +328,9 @@ class AIState(rx.State):
     # Format: agent_id -> {"voice": str, "speed": str, "pitch": str, "enabled": bool}
     # Agents: aifred (default), sokrates, salomo
     tts_agent_voices: Dict[str, Dict[str, Any]] = {
-        "aifred": {"voice": "", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "", "speed": "1.0x", "pitch": "0.9", "enabled": True},
-        "salomo": {"voice": "", "speed": "1.1x", "pitch": "1.1", "enabled": True},
+        "aifred": {"voice": "AIfred", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+        "sokrates": {"voice": "Sokrates", "speed": "1.0x", "pitch": "0.9", "enabled": True},
+        "salomo": {"voice": "Baldur Sanjin", "speed": "1.1x", "pitch": "1.1", "enabled": True},  # Built-in voice until custom Salomo is created
     }
     # XTTS voices cache - refreshed when engine changes to XTTS
     xtts_voices_cache: List[str] = []
@@ -877,6 +877,13 @@ class AIState(rx.State):
                     self.tts_voice = saved_voice
                 else:
                     self.tts_voice = saved_settings.get("voice", self.tts_voice)  # Legacy key
+
+                # Load per-agent TTS voice settings for current engine
+                self._restore_agent_voices_for_engine(engine_key)
+
+                # Refresh XTTS voices from Docker service if XTTS engine is selected
+                if "XTTS" in self.tts_engine:
+                    self._refresh_xtts_voices()
 
                 # Load vLLM YaRN Settings (only enable/disable, factor always starts at 1.0)
                 self.enable_yarn = saved_settings.get("enable_yarn", self.enable_yarn)
@@ -1558,6 +1565,8 @@ class AIState(rx.State):
             "show_transcription": self.show_transcription,
             # Language-specific TTS voices (user preferences per engine/language)
             "tts_voices_per_language": existing.get("tts_voices_per_language", {}),
+            # Per-engine agent voice settings
+            "tts_agent_voices_per_engine": existing.get("tts_agent_voices_per_engine", {}),
             # UI Settings
             "auto_scroll": self.auto_refresh_enabled,
         }
@@ -1569,6 +1578,12 @@ class AIState(rx.State):
         if engine_key not in settings["tts_voices_per_language"]:
             settings["tts_voices_per_language"][engine_key] = {}
         settings["tts_voices_per_language"][engine_key][lang] = self.tts_voice
+
+        # Update tts_agent_voices_per_engine with current agent voice settings
+        import copy
+        if "tts_agent_voices_per_engine" not in settings:
+            settings["tts_agent_voices_per_engine"] = {}
+        settings["tts_agent_voices_per_engine"][engine_key] = copy.deepcopy(self.tts_agent_voices)
         save_settings(settings)
 
         # Update mtime tracker to prevent immediate reload by check_for_updates()
@@ -5970,12 +5985,13 @@ class AIState(rx.State):
             except Exception:
                 pass
 
-    async def _generate_tts_for_response(self, ai_response: str, autoplay: bool = True):
+    async def _generate_tts_for_response(self, ai_response: str, autoplay: bool = True, agent: str = "aifred"):
         """Generate TTS audio for AI response and store path for playback
 
         Args:
             ai_response: The AI response text to convert to speech
             autoplay: If True, set autoplay flag (respects user setting). If False, never autoplay.
+            agent: Agent name for per-agent voice settings (aifred, sokrates, salomo)
 
         Note: This is a simple async function, NOT a generator. State updates happen directly.
         """
@@ -5992,14 +6008,40 @@ class AIState(rx.State):
 
             self.add_debug(f"🔊 TTS: Generating audio ({len(clean_text)} chars)...")
 
-            # Generate TTS audio (returns URL path like "/tts_audio/audio_123.mp3")
-            # Note: speed_choice is always 1.0 - tempo control happens in browser via tts_playback_rate
-            # Pitch adjustment is applied via ffmpeg post-processing
+            # Determine voice, pitch, and speed based on agent settings (generic for all engines)
+            voice_choice = self.tts_voice
             pitch_value = float(self.tts_pitch) if self.tts_pitch else 1.0
+            speed_value = 1.0  # Default speed
+
+            # Use per-agent settings if configured (works with all TTS engines)
+            if agent in self.tts_agent_voices:
+                agent_settings = self.tts_agent_voices[agent]
+                agent_voice = agent_settings.get("voice", "")
+                agent_pitch = agent_settings.get("pitch", "")
+                agent_speed = agent_settings.get("speed", "")
+
+                if agent_voice:
+                    voice_choice = agent_voice
+                    self.add_debug(f"🎭 Using {agent}'s voice: {voice_choice}")
+                if agent_pitch:
+                    try:
+                        pitch_value = float(agent_pitch)
+                    except ValueError:
+                        pass
+                if agent_speed:
+                    try:
+                        # Parse speed like "1.1x" -> 1.1
+                        speed_value = float(agent_speed.replace("x", ""))
+                    except ValueError:
+                        pass
+
+            # Generate TTS audio (returns URL path like "/tts_audio/audio_123.mp3")
+            # Per-agent speed is applied at generation time (different from browser playback rate)
+            # Pitch adjustment is applied via ffmpeg post-processing
             audio_url = await generate_tts(
                 text=clean_text,
-                voice_choice=self.tts_voice,
-                speed_choice=1.0,  # Always generate at normal speed
+                voice_choice=voice_choice,
+                speed_choice=speed_value,
                 tts_engine=self.tts_engine,
                 pitch=pitch_value
             )
@@ -7472,13 +7514,26 @@ class AIState(rx.State):
         self._save_settings()
 
     def set_tts_engine(self, engine: str):
-        """Set TTS engine and restore saved voice for this engine"""
+        """Set TTS engine and restore saved voice for this engine.
+
+        Saves current agent voices before switching and restores agent voices
+        for the new engine from saved preferences.
+        """
+        # Save current agent voices for old engine BEFORE switching
+        old_engine_key = self._get_engine_key()
+        self._save_agent_voices_for_engine(old_engine_key)
+
+        # Switch engine
         self.tts_engine = engine
         self.add_debug(f"🔊 TTS Engine: {engine}")
 
         # Refresh XTTS voices from Docker service if XTTS engine selected
         if "XTTS" in engine:
             self._refresh_xtts_voices()
+
+        # Restore agent voices for new engine
+        new_engine_key = self._get_engine_key()
+        self._restore_agent_voices_for_engine(new_engine_key)
 
         # Restore user's saved voice preference for this engine (calls _switch_tts_voice_for_language)
         # This will either restore the saved voice or fallback to defaults
@@ -7514,6 +7569,149 @@ class AIState(rx.State):
         self.tts_pitch = pitch
         self.add_debug(f"🔊 TTS Pitch: {pitch}")
         self._save_settings()
+
+    # ============================================================
+    # PER-AGENT VOICE SETTINGS (for Multi-Agent mode with XTTS)
+    # ============================================================
+
+    def set_agent_voice(self, agent: str, voice: str):
+        """Set voice for a specific agent (aifred, sokrates, salomo)"""
+        if agent in self.tts_agent_voices:
+            self.tts_agent_voices[agent]["voice"] = voice
+            self.add_debug(f"🔊 {agent.capitalize()} Voice: {voice}")
+            self._save_settings()
+
+    def set_agent_speed(self, agent: str, speed: str):
+        """Set playback speed for a specific agent"""
+        if agent in self.tts_agent_voices:
+            self.tts_agent_voices[agent]["speed"] = speed
+            self.add_debug(f"🔊 {agent.capitalize()} Speed: {speed}")
+            self._save_settings()
+
+    def set_agent_pitch(self, agent: str, pitch: str):
+        """Set pitch for a specific agent"""
+        if agent in self.tts_agent_voices:
+            self.tts_agent_voices[agent]["pitch"] = pitch
+            self.add_debug(f"🔊 {agent.capitalize()} Pitch: {pitch}")
+            self._save_settings()
+
+    def toggle_agent_tts(self, agent: str):
+        """Toggle TTS enabled for a specific agent"""
+        if agent in self.tts_agent_voices:
+            self.tts_agent_voices[agent]["enabled"] = not self.tts_agent_voices[agent]["enabled"]
+            status = "enabled" if self.tts_agent_voices[agent]["enabled"] else "disabled"
+            self.add_debug(f"🔊 {agent.capitalize()} TTS: {status}")
+            self._save_settings()
+
+    # Helper methods to create bound event handlers for UI
+    def set_aifred_voice(self, voice: str):
+        """Set AIfred's voice"""
+        self.set_agent_voice("aifred", voice)
+
+    def set_sokrates_voice(self, voice: str):
+        """Set Sokrates' voice"""
+        self.set_agent_voice("sokrates", voice)
+
+    def set_salomo_voice(self, voice: str):
+        """Set Salomo's voice"""
+        self.set_agent_voice("salomo", voice)
+
+    def set_aifred_speed(self, speed: str):
+        """Set AIfred's playback speed"""
+        self.set_agent_speed("aifred", speed)
+
+    def set_sokrates_speed(self, speed: str):
+        """Set Sokrates' playback speed"""
+        self.set_agent_speed("sokrates", speed)
+
+    def set_salomo_speed(self, speed: str):
+        """Set Salomo's playback speed"""
+        self.set_agent_speed("salomo", speed)
+
+    def set_aifred_pitch(self, pitch: str):
+        """Set AIfred's pitch"""
+        self.set_agent_pitch("aifred", pitch)
+
+    def set_sokrates_pitch(self, pitch: str):
+        """Set Sokrates' pitch"""
+        self.set_agent_pitch("sokrates", pitch)
+
+    def set_salomo_pitch(self, pitch: str):
+        """Set Salomo's pitch"""
+        self.set_agent_pitch("salomo", pitch)
+
+    def toggle_aifred_tts(self):
+        """Toggle AIfred's TTS"""
+        self.toggle_agent_tts("aifred")
+
+    def toggle_sokrates_tts(self):
+        """Toggle Sokrates' TTS"""
+        self.toggle_agent_tts("sokrates")
+
+    def toggle_salomo_tts(self):
+        """Toggle Salomo's TTS"""
+        self.toggle_agent_tts("salomo")
+
+    # Computed vars for per-agent voice settings (for UI binding)
+    @rx.var
+    def aifred_voice(self) -> str:
+        """Get AIfred's current voice"""
+        return self.tts_agent_voices.get("aifred", {}).get("voice", "")
+
+    @rx.var
+    def sokrates_voice(self) -> str:
+        """Get Sokrates' current voice"""
+        return self.tts_agent_voices.get("sokrates", {}).get("voice", "")
+
+    @rx.var
+    def salomo_voice(self) -> str:
+        """Get Salomo's current voice"""
+        return self.tts_agent_voices.get("salomo", {}).get("voice", "")
+
+    @rx.var
+    def aifred_speed(self) -> str:
+        """Get AIfred's current speed"""
+        return self.tts_agent_voices.get("aifred", {}).get("speed", "1.0x")
+
+    @rx.var
+    def sokrates_speed(self) -> str:
+        """Get Sokrates' current speed"""
+        return self.tts_agent_voices.get("sokrates", {}).get("speed", "1.0x")
+
+    @rx.var
+    def salomo_speed(self) -> str:
+        """Get Salomo's current speed"""
+        return self.tts_agent_voices.get("salomo", {}).get("speed", "1.1x")
+
+    @rx.var
+    def aifred_pitch(self) -> str:
+        """Get AIfred's current pitch"""
+        return self.tts_agent_voices.get("aifred", {}).get("pitch", "1.0")
+
+    @rx.var
+    def sokrates_pitch(self) -> str:
+        """Get Sokrates' current pitch"""
+        return self.tts_agent_voices.get("sokrates", {}).get("pitch", "0.9")
+
+    @rx.var
+    def salomo_pitch(self) -> str:
+        """Get Salomo's current pitch"""
+        return self.tts_agent_voices.get("salomo", {}).get("pitch", "1.1")
+
+    @rx.var
+    def aifred_tts_enabled(self) -> bool:
+        """Check if AIfred's TTS is enabled"""
+        return self.tts_agent_voices.get("aifred", {}).get("enabled", True)
+
+    @rx.var
+    def sokrates_tts_enabled(self) -> bool:
+        """Check if Sokrates' TTS is enabled"""
+        return self.tts_agent_voices.get("sokrates", {}).get("enabled", True)
+
+    @rx.var
+    def salomo_tts_enabled(self) -> bool:
+        """Check if Salomo's TTS is enabled"""
+        return self.tts_agent_voices.get("salomo", {}).get("enabled", True)
 
     async def resynthesize_tts(self):
         """Re-synthesize TTS for the last AI response"""
@@ -7595,13 +7793,59 @@ class AIState(rx.State):
             self.add_debug(f"❌ Invalid language: {lang}. Use 'de' or 'en'")
 
     def _get_engine_key(self) -> str:
-        """Get engine key for config lookup (edge, piper, espeak)"""
-        if "Piper" in self.tts_engine:
+        """Get engine key for config lookup (xtts, piper, espeak, edge)"""
+        if "XTTS" in self.tts_engine:
+            return "xtts"
+        elif "Piper" in self.tts_engine:
             return "piper"
         elif "eSpeak" in self.tts_engine:
             return "espeak"
         else:
             return "edge"
+
+    def _save_agent_voices_for_engine(self, engine_key: str):
+        """Save current agent voices to settings for the specified engine.
+
+        Called before switching to a different TTS engine to preserve
+        the user's agent voice preferences for that engine.
+        """
+        from .lib.settings import load_settings, save_settings
+
+        settings = load_settings() or {}
+        if "tts_agent_voices_per_engine" not in settings:
+            settings["tts_agent_voices_per_engine"] = {}
+
+        # Deep copy current agent voices
+        import copy
+        settings["tts_agent_voices_per_engine"][engine_key] = copy.deepcopy(self.tts_agent_voices)
+        save_settings(settings)
+
+    def _restore_agent_voices_for_engine(self, engine_key: str):
+        """Restore agent voices from settings for the specified engine.
+
+        Called after switching to a different TTS engine to restore
+        the user's previously saved agent voice preferences for that engine.
+        Falls back to engine-specific defaults if no saved preferences exist.
+        """
+        from .lib.settings import load_settings
+        from .lib.config import TTS_AGENT_VOICE_DEFAULTS
+
+        settings = load_settings() or {}
+        saved_agent_voices = settings.get("tts_agent_voices_per_engine", {}).get(engine_key)
+
+        if saved_agent_voices:
+            # Restore from saved preferences
+            for agent in self.tts_agent_voices:
+                if agent in saved_agent_voices:
+                    self.tts_agent_voices[agent].update(saved_agent_voices[agent])
+            self.add_debug(f"🔊 Restored agent voices for {engine_key}")
+        else:
+            # Use engine-specific defaults
+            defaults = TTS_AGENT_VOICE_DEFAULTS.get(engine_key, {})
+            for agent, settings_dict in defaults.items():
+                if agent in self.tts_agent_voices:
+                    self.tts_agent_voices[agent].update(settings_dict)
+            self.add_debug(f"🔊 Using default agent voices for {engine_key}")
 
     def _switch_tts_voice_for_language(self, lang: str):
         """Switch TTS voice to appropriate language voice for current engine.

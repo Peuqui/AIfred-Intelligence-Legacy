@@ -3327,7 +3327,9 @@ def settings_accordion() -> rx.Component:
 
                 # TTS (Text-to-Speech) Section
                 rx.vstack(
+                    # TTS Toggle + Autoplay Toggle (side by side)
                     rx.hstack(
+                        # TTS Enable Toggle
                         rx.text(t("tts_heading"), font_weight="bold", font_size="12px"),
                         rx.switch(
                             checked=AIState.enable_tts,
@@ -3335,20 +3337,35 @@ def settings_accordion() -> rx.Component:
                             size="1",
                         ),
                         rx.text(
-                            rx.cond(
-                                AIState.enable_tts,
-                                "ON",
-                                "OFF"
-                            ),
+                            rx.cond(AIState.enable_tts, "ON", "OFF"),
                             font_size="11px",
-                            color=rx.cond(
-                                AIState.enable_tts,
-                                "#4CAF50",
-                                "#999"
+                            color=rx.cond(AIState.enable_tts, "#4CAF50", "#999"),
+                        ),
+                        # Spacer
+                        rx.box(flex="1"),
+                        # Autoplay Toggle (only show when TTS enabled)
+                        rx.cond(
+                            AIState.enable_tts,
+                            rx.hstack(
+                                rx.text(t("tts_autoplay_label"), font_size="11px", color="#888"),
+                                rx.switch(
+                                    checked=AIState.tts_autoplay,
+                                    on_change=AIState.toggle_tts_autoplay,
+                                    size="1",
+                                ),
+                                rx.text(
+                                    rx.cond(AIState.tts_autoplay, "ON", "OFF"),
+                                    font_size="10px",
+                                    color=rx.cond(AIState.tts_autoplay, "#4CAF50", "#999"),
+                                ),
+                                spacing="1",
+                                align="center",
                             ),
+                            rx.box(),
                         ),
                         spacing="2",
                         align="center",
+                        width="100%",
                     ),
                     rx.cond(
                         AIState.enable_tts,
@@ -3362,11 +3379,11 @@ def settings_accordion() -> rx.Component:
                                     native_select_tts(
                                         AIState.tts_engine,
                                         AIState.set_tts_engine,
-                                        ["Edge TTS (Cloud)", "XTTS v2 (Voice Cloning)", "Piper TTS (Offline)", "eSpeak (Roboter, Offline)"],
+                                        ["XTTS v2 (Local, voice cloning)", "Piper TTS (Local, Offline)", "eSpeak (Robot, Offline)", "Edge TTS (Cloud, Fallback)"],
                                     ),
                                     # Desktop: Radix UI select
                                     rx.select(
-                                        ["Edge TTS (Cloud)", "XTTS v2 (Voice Cloning)", "Piper TTS (Offline)", "eSpeak (Roboter, Offline)"],
+                                        ["XTTS v2 (Local, voice cloning)", "Piper TTS (Local, Offline)", "eSpeak (Robot, Offline)", "Edge TTS (Cloud, Fallback)"],
                                         value=AIState.tts_engine,
                                         on_change=AIState.set_tts_engine,
                                         size="2",
@@ -3376,98 +3393,113 @@ def settings_accordion() -> rx.Component:
                                 align="center",
                                 width="100%",
                             ),
-                            # Voice Selection (dynamic based on engine)
-                            rx.hstack(
-                                rx.text(t("tts_voice_label"), font_size="11px", font_weight="500", width="80px"),
-                                rx.cond(
-                                    AIState.is_mobile,
-                                    # Mobile: Native select
-                                    native_select_tts(
-                                        AIState.tts_voice,
-                                        AIState.set_tts_voice,
-                                        AIState.available_tts_voices,
+                            # Per-Agent Voice Settings (generic for all TTS engines)
+                            rx.vstack(
+                                rx.divider(margin_top="8px", margin_bottom="8px"),
+                                rx.text("🎭 Agent Voices", font_weight="bold", font_size="11px", color="#888"),
+                                # Header row with labels
+                                rx.hstack(
+                                    rx.text("", width="70px"),  # Spacer for agent name
+                                    rx.box(rx.text("Voice", font_size="9px", color="#d4a14a"), flex="1"),
+                                    rx.text("Pitch", font_size="9px", color="#d4a14a", width="55px", text_align="center"),
+                                    rx.text("Speed", font_size="9px", color="#d4a14a", width="55px", text_align="center"),
+                                    spacing="2",
+                                    width="100%",
+                                ),
+                                # AIfred Voice Settings
+                                rx.hstack(
+                                    rx.text("🎩 AIfred", font_size="10px", width="70px"),
+                                    rx.box(
+                                        rx.select(
+                                            AIState.available_tts_voices,
+                                            value=AIState.aifred_voice,
+                                            on_change=AIState.set_aifred_voice,
+                                            placeholder="Default",
+                                            size="1",
+                                        ),
+                                        flex="1",
                                     ),
-                                    # Desktop: Radix UI select
                                     rx.select(
-                                        AIState.available_tts_voices,
-                                        value=AIState.tts_voice,
-                                        on_change=AIState.set_tts_voice,
-                                        size="2",
+                                        ["0.9", "0.95", "1.0", "1.05", "1.1"],
+                                        value=AIState.aifred_pitch,
+                                        on_change=AIState.set_aifred_pitch,
+                                        size="1",
+                                        width="55px",
                                     ),
-                                ),
-                                spacing="2",
-                                align="center",
-                                width="100%",
-                            ),
-                            # Playback Speed Selection (browser playback rate, persisted)
-                            rx.hstack(
-                                rx.text(t("tts_speed_label"), font_size="11px", font_weight="500", width="80px"),
-                                rx.cond(
-                                    AIState.is_mobile,
-                                    # Mobile: Native select
-                                    native_select_tts(
-                                        AIState.tts_playback_rate,
-                                        AIState.set_tts_playback_rate,
-                                        ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"],
-                                    ),
-                                    # Desktop: Radix UI select
                                     rx.select(
-                                        ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"],
-                                        value=AIState.tts_playback_rate,
-                                        on_change=AIState.set_tts_playback_rate,
-                                        size="2",
+                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x"],
+                                        value=AIState.aifred_speed,
+                                        on_change=AIState.set_aifred_speed,
+                                        size="1",
+                                        width="55px",
                                     ),
+                                    spacing="2",
+                                    align="center",
+                                    width="100%",
                                 ),
-                                spacing="2",
-                                align="center",
-                                width="100%",
-                            ),
-                            # Pitch Selection (applied via ffmpeg post-processing)
-                            rx.hstack(
-                                rx.text(t("tts_pitch_label"), font_size="11px", font_weight="500", width="80px"),
-                                rx.cond(
-                                    AIState.is_mobile,
-                                    # Mobile: Native select
-                                    native_select_tts(
-                                        AIState.tts_pitch,
-                                        AIState.set_tts_pitch,
-                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
+                                # Sokrates Voice Settings
+                                rx.hstack(
+                                    rx.text("🏛️ Sokrates", font_size="10px", width="70px"),
+                                    rx.box(
+                                        rx.select(
+                                            AIState.available_tts_voices,
+                                            value=AIState.sokrates_voice,
+                                            on_change=AIState.set_sokrates_voice,
+                                            placeholder="Default",
+                                            size="1",
+                                        ),
+                                        flex="1",
                                     ),
-                                    # Desktop: Radix UI select
                                     rx.select(
-                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
-                                        value=AIState.tts_pitch,
-                                        on_change=AIState.set_tts_pitch,
-                                        size="2",
+                                        ["0.9", "0.95", "1.0", "1.05", "1.1"],
+                                        value=AIState.sokrates_pitch,
+                                        on_change=AIState.set_sokrates_pitch,
+                                        size="1",
+                                        width="55px",
                                     ),
+                                    rx.select(
+                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x"],
+                                        value=AIState.sokrates_speed,
+                                        on_change=AIState.set_sokrates_speed,
+                                        size="1",
+                                        width="55px",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                    width="100%",
+                                ),
+                                # Salomo Voice Settings
+                                rx.hstack(
+                                    rx.text("👑 Salomo", font_size="10px", width="70px"),
+                                    rx.box(
+                                        rx.select(
+                                            AIState.available_tts_voices,
+                                            value=AIState.salomo_voice,
+                                            on_change=AIState.set_salomo_voice,
+                                            placeholder="Default",
+                                            size="1",
+                                        ),
+                                        flex="1",
+                                    ),
+                                    rx.select(
+                                        ["0.9", "0.95", "1.0", "1.05", "1.1"],
+                                        value=AIState.salomo_pitch,
+                                        on_change=AIState.set_salomo_pitch,
+                                        size="1",
+                                        width="55px",
+                                    ),
+                                    rx.select(
+                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x"],
+                                        value=AIState.salomo_speed,
+                                        on_change=AIState.set_salomo_speed,
+                                        size="1",
+                                        width="55px",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                    width="100%",
                                 ),
                                 spacing="2",
-                                align="center",
-                                width="100%",
-                            ),
-                            # Auto-Play Toggle
-                            rx.hstack(
-                                rx.text(t("tts_autoplay_label"), font_size="11px", font_weight="500", width="80px"),
-                                rx.switch(
-                                    checked=AIState.tts_autoplay,
-                                    on_change=AIState.toggle_tts_autoplay,
-                                    size="1",
-                                ),
-                                rx.text(
-                                    rx.cond(
-                                        AIState.tts_autoplay,
-                                        "ON",
-                                        "OFF"
-                                    ),
-                                    font_size="10px",
-                                    color=rx.cond(
-                                        AIState.tts_autoplay,
-                                        "#4CAF50",
-                                        "#999"
-                                    ),
-                                ),
-                                spacing="2",
-                                align="center",
                                 width="100%",
                             ),
                             spacing="3",
