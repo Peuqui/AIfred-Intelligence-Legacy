@@ -7,7 +7,8 @@ Coqui XTTS v2 als Docker-Service für AIfred mit Voice Cloning und multilinguale
 - **Voice Cloning**: Klone Stimmen aus 6-10 Sekunden Referenz-Audio
 - **Multilinguale Unterstützung**: 16 Sprachen inkl. automatisches Code-Switching (DE/EN gemischt)
 - **58 Built-in Stimmen**: Sofort nutzbare Stimmen aus der XTTS-Bibliothek
-- **Custom Voices**: Eigene Stimmen persistent speichern (aifred, sokrates, ...)
+- **Custom Voices**: Eigene Stimmen persistent speichern (AIfred, Sokrates, ...)
+- **Auto-Chunking**: Lange Texte werden automatisch aufgeteilt (XTTS 400-Token-Limit)
 - **Smart Device Selection**: Automatische GPU/CPU-Auswahl basierend auf VRAM
 - **Web UI**: Integriertes Test-Interface unter `http://localhost:5051`
 
@@ -152,6 +153,24 @@ curl http://localhost:5051/status | jq .device
 - Klare Sprache ohne Hintergrundgeräusche
 - Mono-Kanal, 22-24kHz Sample-Rate
 - Keine Musik oder Effekte
+
+## Auto-Chunking (Lange Texte)
+
+XTTS hat ein internes Limit von 400 Tokens (~250 Zeichen). Der Service teilt längere Texte automatisch auf:
+
+1. **Satz-basiert**: Trennung an `.` `!` `?`
+2. **Klausel-basiert**: Bei langen Sätzen Trennung an `,` `;` `:`
+3. **Wort-basiert**: Fallback für sehr lange Passagen ohne Interpunktion
+
+Die Audio-Chunks werden mit 100ms Pause dazwischen zusammengefügt.
+
+```bash
+# Beispiel: Langer Text wird automatisch verarbeitet
+curl -X POST http://localhost:5051/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Ein sehr langer Text mit vielen Sätzen...", "speaker": "AIfred"}' \
+  --output long_text.wav
+```
 
 ## Performance
 
