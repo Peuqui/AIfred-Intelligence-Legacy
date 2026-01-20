@@ -149,8 +149,9 @@ def build_messages_from_llm_history(
         list: Messages in Ollama format [{"role": "...", "content": "..."}, ...]
 
     Note:
-        All agent labels ([AIFRED]:, [SOKRATES]:, [SALOMO]:) are preserved in the content.
-        This allows agents to reference each other's statements.
+        Agent labels are handled per perspective:
+        - Own labels are STRIPPED from assistant messages (prevents LLM from imitating them)
+        - Other agents' labels are PRESERVED in user messages (allows referencing their statements)
     """
     if not llm_history:
         messages = []
@@ -186,8 +187,10 @@ def build_messages_from_llm_history(
 
             elif perspective_lower == "sokrates":
                 if is_sokrates:
-                    # Sokrates sees his own messages as 'assistant' (label preserved)
-                    messages.append({"role": "assistant", "content": content})
+                    # Sokrates sees his own messages as 'assistant' (label STRIPPED!)
+                    # Important: Remove [SOKRATES]: prefix to prevent LLM from imitating it
+                    clean_content = content[12:].strip() if content.startswith("[SOKRATES]: ") else content
+                    messages.append({"role": "assistant", "content": clean_content})
                 elif is_user:
                     messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
                 else:
@@ -196,8 +199,10 @@ def build_messages_from_llm_history(
 
             elif perspective_lower == "aifred":
                 if is_aifred:
-                    # AIfred sees his own messages as 'assistant' (label preserved)
-                    messages.append({"role": "assistant", "content": content})
+                    # AIfred sees his own messages as 'assistant' (label STRIPPED!)
+                    # Important: Remove [AIFRED]: prefix to prevent LLM from imitating it
+                    clean_content = content[10:].strip() if content.startswith("[AIFRED]: ") else content
+                    messages.append({"role": "assistant", "content": clean_content})
                 elif is_user:
                     messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
                 else:
@@ -206,8 +211,10 @@ def build_messages_from_llm_history(
 
             elif perspective_lower == "salomo":
                 if is_salomo:
-                    # Salomo sees his own messages as 'assistant' (label preserved)
-                    messages.append({"role": "assistant", "content": content})
+                    # Salomo sees his own messages as 'assistant' (label STRIPPED!)
+                    # Important: Remove [SALOMO]: prefix to prevent LLM from imitating it
+                    clean_content = content[10:].strip() if content.startswith("[SALOMO]: ") else content
+                    messages.append({"role": "assistant", "content": clean_content})
                 elif is_user:
                     messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
                 else:

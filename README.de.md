@@ -76,6 +76,38 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 - AIfred sieht Sokrates' Kritik als `[SOKRATES]:` (user role), seine eigene als `assistant`
 - Verhindert Identitätsverwechslung zwischen Agenten bei mehrrundigen Debatten
 
+```
+┌─────────────────────────────────────────┐
+│          llm_history (gespeichert)      │
+│                                         │
+│  [AIFRED]: "Antwort 1"                  │
+│  [SOKRATES]: "Kritik"                   │
+│  [AIFRED]: "Antwort 2"                  │
+└─────────────────────────────────────────┘
+                    │
+                    ▼
+    ┌───────────────┼───────────────┐
+    │               │               │
+    ▼               ▼               ▼
+┌─────────┐   ┌──────────┐   ┌─────────┐
+│ AIfred  │   │ Sokrates │   │ Salomo  │
+│ ruft an │   │ ruft an  │   │ ruft an │
+└────┬────┘   └────┬─────┘   └────┬────┘
+     │             │              │
+     ▼             ▼              ▼
+┌─────────┐   ┌──────────┐   ┌─────────┐
+│assistant│   │  user    │   │  user   │
+│"Antw 1" │   │[AIFRED]: │   │[AIFRED]:│
+│  user   │   │assistant │   │  user   │
+│[SOKR].. │   │"Kritik"  │   │[SOKR].. │
+│assistant│   │  user    │   │  user   │
+│"Antw 2" │   │[AIFRED]: │   │[AIFRED]:│
+└─────────┘   └──────────┘   └─────────┘
+
+Eine Quelle, drei Sichten - je nachdem wer gerade spricht.
+Eigene Nachrichten = assistant (ohne Label), andere = user (mit Label).
+```
+
 **Strukturierte Kritik-Prompts** (v2.10.3):
 - Rundennummer-Platzhalter `{round_num}` - Sokrates weiß welche Runde es ist
 - Maximal 1-2 Kritikpunkte pro Runde

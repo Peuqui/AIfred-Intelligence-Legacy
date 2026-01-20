@@ -77,6 +77,38 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 - AIfred sees Sokrates' critiques as `[SOKRATES]:` (user role), his own as `assistant`
 - Prevents identity confusion between agents during multi-round debates
 
+```
+┌─────────────────────────────────────────┐
+│          llm_history (stored)           │
+│                                         │
+│  [AIFRED]: "Answer 1"                   │
+│  [SOKRATES]: "Critique"                 │
+│  [AIFRED]: "Answer 2"                   │
+└─────────────────────────────────────────┘
+                    │
+                    ▼
+    ┌───────────────┼───────────────┐
+    │               │               │
+    ▼               ▼               ▼
+┌─────────┐   ┌──────────┐   ┌─────────┐
+│ AIfred  │   │ Sokrates │   │ Salomo  │
+│  calls  │   │  calls   │   │  calls  │
+└────┬────┘   └────┬─────┘   └────┬────┘
+     │             │              │
+     ▼             ▼              ▼
+┌─────────┐   ┌──────────┐   ┌─────────┐
+│assistant│   │  user    │   │  user   │
+│"Answ 1" │   │[AIFRED]: │   │[AIFRED]:│
+│  user   │   │assistant │   │  user   │
+│[SOKR].. │   │"Critique"│   │[SOKR].. │
+│assistant│   │  user    │   │  user   │
+│"Answ 2" │   │[AIFRED]: │   │[AIFRED]:│
+└─────────┘   └──────────┘   └─────────┘
+
+One source, three views - depending on who is speaking.
+Own messages = assistant (no label), others = user (with label).
+```
+
 **Structured Critic Prompts** (v2.10.3):
 - Round number placeholder `{round_num}` - Sokrates knows which round it is
 - Maximum 1-2 critique points per round
