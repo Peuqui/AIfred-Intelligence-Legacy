@@ -4071,13 +4071,18 @@ class AIState(rx.State):
                         last_msg = self.llm_history[-1]
                         if last_msg.get("role") == "assistant":
                             ai_response = last_msg.get("content", "")
-                            # Strip agent label prefix like "[AIFRED]: " or "[SOKRATES]: "
+                            # Extract agent from label prefix like "[AIFRED]: " or "[SOKRATES]: "
                             import re
-                            ai_response = re.sub(r'^\[(?:AIFRED|SOKRATES|SALOMO)\]:\s*', '', ai_response)
+                            agent = "aifred"  # Default
+                            agent_match = re.match(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', ai_response)
+                            if agent_match:
+                                agent = agent_match.group(1).lower()
+                                ai_response = ai_response[agent_match.end():]
                             if ai_response and ai_response.strip():
                                 # Generate TTS (sets tts_audio_path and increments tts_trigger_counter)
                                 # State changes automatically propagate to frontend → audio plays via autoPlay
-                                await self._generate_tts_for_response(ai_response)
+                                await self._generate_tts_for_response(ai_response, agent=agent)
+                                yield  # Update UI after TTS generation
                             else:
                                 self.add_debug("⚠️ TTS: Enabled but no AI response to convert")
                                 console_separator()
