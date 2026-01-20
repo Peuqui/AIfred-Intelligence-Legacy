@@ -8,6 +8,11 @@ XTTS v2 is a voice cloning model - it requires a reference audio to clone.
 We provide built-in speaker embeddings from the model's speaker library,
 plus support for custom voice cloning from WAV files.
 
+**Smart Device Selection:**
+Automatically detects available VRAM and decides GPU vs CPU:
+- If CUDA available AND >= VRAM_THRESHOLD free: use GPU
+- Otherwise: use CPU (slower but doesn't compete with Ollama)
+
 Usage:
     POST /tts
     {
@@ -35,12 +40,23 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# ============================================================
+# VRAM Configuration
+# ============================================================
+# Minimum free VRAM required to use GPU (in GB)
+# XTTS needs ~1.5-2GB, we require a bit more headroom
+VRAM_THRESHOLD_GB = float(os.environ.get("XTTS_VRAM_THRESHOLD", "2.0"))
+
+# Force CPU mode (override auto-detection)
+FORCE_CPU = os.environ.get("XTTS_FORCE_CPU", "").lower() in ("1", "true", "yes")
+
 # Lazy loading - model loaded on first request
 _model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
 _config = None
 _synthesizer = None
 _speaker_embeddings = None  # Pre-loaded speaker embeddings (built-in)
 _custom_voices = {}  # Custom cloned voices
+_device = None  # "cuda" or "cpu" - set on model load
 
 # Paths
 CUSTOM_VOICES_DIR = Path("/app/custom_voices")  # Persistent storage for embeddings
@@ -50,15 +66,119 @@ REFERENCE_AUDIO_DIR = Path("/app/voices")  # Reference WAV files (mounted from h
 DEFAULT_SPEAKER = "Claribel Dervla"
 
 
+def get_gpu_memory_info() -> dict:
+    """Get GPU memory information using nvidia-smi or torch."""
+    import torch
+
+    if not torch.cuda.is_available():
+        return {"available": False, "reason": "CUDA not available"}
+
+    try:
+        # Get memory info from torch
+        device_id = 0
+        total = torch.cuda.get_device_properties(device_id).total_memory
+        allocated = torch.cuda.memory_allocated(device_id)
+        reserved = torch.cuda.memory_reserved(device_id)
+
+        # Free = total - reserved (reserved includes allocated + cached)
+        free = total - reserved
+
+        return {
+            "available": True,
+            "device_name": torch.cuda.get_device_name(device_id),
+            "total_gb": round(total / (1024**3), 2),
+            "allocated_gb": round(allocated / (1024**3), 2),
+            "reserved_gb": round(reserved / (1024**3), 2),
+            "free_gb": round(free / (1024**3), 2),
+        }
+    except Exception as e:
+        return {"available": False, "reason": str(e)}
+
+
+def check_system_vram() -> dict:
+    """
+    Check available VRAM across all GPUs using nvidia-smi.
+    This gives us the real system-wide free VRAM, not just PyTorch's view.
+    """
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,name,memory.total,memory.used,memory.free",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5
+        )
+
+        if result.returncode != 0:
+            return {"available": False, "reason": "nvidia-smi failed"}
+
+        gpus = []
+        for line in result.stdout.strip().split("\n"):
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 5:
+                gpus.append({
+                    "index": int(parts[0]),
+                    "name": parts[1],
+                    "total_mb": int(parts[2]),
+                    "used_mb": int(parts[3]),
+                    "free_mb": int(parts[4]),
+                    "free_gb": round(int(parts[4]) / 1024, 2),
+                })
+
+        return {"available": True, "gpus": gpus}
+    except Exception as e:
+        return {"available": False, "reason": str(e)}
+
+
+def select_device() -> str:
+    """
+    Intelligently select GPU or CPU based on available VRAM.
+
+    Returns "cuda" or "cpu"
+    """
+    if FORCE_CPU:
+        logger.info("🔧 FORCE_CPU enabled - using CPU")
+        return "cpu"
+
+    # Check system VRAM via nvidia-smi (more accurate than torch)
+    vram_info = check_system_vram()
+
+    if not vram_info.get("available"):
+        logger.info(f"🔧 No GPU available ({vram_info.get('reason', 'unknown')}) - using CPU")
+        return "cpu"
+
+    # Find GPU with most free VRAM (in case of multi-GPU)
+    gpus = vram_info.get("gpus", [])
+    if not gpus:
+        logger.info("🔧 No GPUs found - using CPU")
+        return "cpu"
+
+    # Use GPU 0 (as configured in docker-compose)
+    gpu = gpus[0]
+    free_gb = gpu["free_gb"]
+
+    logger.info(f"🔍 GPU 0 ({gpu['name']}): {free_gb:.2f} GB free / {gpu['total_mb']/1024:.1f} GB total")
+
+    if free_gb >= VRAM_THRESHOLD_GB:
+        logger.info(f"✅ Sufficient VRAM ({free_gb:.2f} GB >= {VRAM_THRESHOLD_GB} GB) - using GPU")
+        return "cuda"
+    else:
+        logger.info(f"⚠️ Insufficient VRAM ({free_gb:.2f} GB < {VRAM_THRESHOLD_GB} GB) - using CPU")
+        return "cpu"
+
+
 def get_synthesizer():
     """Load XTTS synthesizer on first request (lazy loading)."""
-    global _synthesizer, _config, _speaker_embeddings
+    global _synthesizer, _config, _speaker_embeddings, _device
     if _synthesizer is None:
         logger.info("Loading XTTS v2 model (first request)...")
         import torch
         from TTS.tts.configs.xtts_config import XttsConfig
         from TTS.tts.models.xtts import Xtts
         from TTS.utils.manage import ModelManager
+
+        # Select device based on available VRAM
+        _device = select_device()
+        logger.info(f"🎯 Selected device: {_device.upper()}")
 
         # Get model path
         manager = ModelManager()
@@ -75,13 +195,20 @@ def get_synthesizer():
 
         # Load model
         _synthesizer = Xtts.init_from_config(_config)
-        _synthesizer.load_checkpoint(_config, checkpoint_dir=model_path, eval=True)
-        _synthesizer.cuda()
+
+        # Load checkpoint with appropriate device
+        if _device == "cuda":
+            _synthesizer.load_checkpoint(_config, checkpoint_dir=model_path, eval=True, use_deepspeed=False)
+            _synthesizer.cuda()
+        else:
+            # CPU mode - load without CUDA
+            _synthesizer.load_checkpoint(_config, checkpoint_dir=model_path, eval=True, use_deepspeed=False)
+            _synthesizer.cpu()
 
         # Load speaker embeddings from the speaker library
         speaker_file = Path(model_path) / "speakers_xtts.pth"
         if speaker_file.exists():
-            _speaker_embeddings = torch.load(speaker_file)
+            _speaker_embeddings = torch.load(speaker_file, map_location=_device)
             logger.info(f"Loaded {len(_speaker_embeddings)} built-in speakers")
         else:
             _speaker_embeddings = {}
@@ -93,7 +220,7 @@ def get_synthesizer():
         # Auto-generate embeddings from reference audio directory
         auto_generate_voice_embeddings()
 
-        logger.info("XTTS v2 model loaded successfully")
+        logger.info(f"✅ XTTS v2 model loaded successfully on {_device.upper()}")
     return _synthesizer
 
 
@@ -107,7 +234,8 @@ def load_custom_voices():
     for pth_file in CUSTOM_VOICES_DIR.glob("*.pth"):
         voice_name = pth_file.stem
         try:
-            _custom_voices[voice_name] = torch.load(pth_file)
+            # Load to the selected device
+            _custom_voices[voice_name] = torch.load(pth_file, map_location=_device)
             logger.info(f"Loaded custom voice: {voice_name}")
         except Exception as e:
             logger.error(f"Failed to load custom voice {voice_name}: {e}")
@@ -518,7 +646,30 @@ def health():
         "status": "ok",
         "model_loaded": _synthesizer is not None,
         "model": _model_name,
+        "device": _device or "not loaded",
         "custom_voices": len(_custom_voices)
+    })
+
+
+@app.route("/status", methods=["GET"])
+def status():
+    """
+    Detailed status endpoint with GPU/VRAM information.
+
+    Returns system info, device selection, and memory stats.
+    """
+    vram_info = check_system_vram()
+    torch_info = get_gpu_memory_info()
+
+    return jsonify({
+        "model_loaded": _synthesizer is not None,
+        "device": _device or "not loaded yet",
+        "force_cpu": FORCE_CPU,
+        "vram_threshold_gb": VRAM_THRESHOLD_GB,
+        "system_vram": vram_info,
+        "torch_memory": torch_info,
+        "custom_voices": len(_custom_voices),
+        "builtin_speakers": len(_speaker_embeddings) if _speaker_embeddings else 0,
     })
 
 
@@ -573,8 +724,13 @@ def tts():
                 "available_speakers": get_all_speakers()[:30]
             }), 400
 
-        gpt_cond_latent = speaker_data["gpt_cond_latent"].cuda()
-        speaker_embedding = speaker_data["speaker_embedding"].cuda()
+        # Move embeddings to the selected device
+        if _device == "cuda":
+            gpt_cond_latent = speaker_data["gpt_cond_latent"].cuda()
+            speaker_embedding = speaker_data["speaker_embedding"].cuda()
+        else:
+            gpt_cond_latent = speaker_data["gpt_cond_latent"].cpu()
+            speaker_embedding = speaker_data["speaker_embedding"].cpu()
 
         # Create temp file for output
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
