@@ -95,7 +95,7 @@ DEFAULT_SETTINGS = {
     "user_name": "",  # User's name (leave empty - set via UI, saved in settings.json)
     "backend_type": "ollama",  # Default backend: "ollama", "vllm", "tabbyapi"
     "voice": "Deutsch (Katja)",
-    "tts_playback_rate": "1.25x",  # Browser playback speed (generation always at 1.0)
+    "tts_playback_rate": "1.0x",  # Browser playback speed (1.0 = neutral, speed via Agent Settings)
     "enable_tts": False,
     "tts_engine": "Edge TTS (Cloud, best quality)",
     "whisper_model": "small (466MB, better quality, multilingual)",

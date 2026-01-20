@@ -30,43 +30,45 @@ TTS_AUDIO_DIR = DATA_DIR / "tts_audio"
 TTS_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def apply_pitch_adjustment(input_file: str, pitch: float) -> str | None:
+def apply_audio_adjustments(input_file: str, pitch: float = 1.0, speed: float = 1.0) -> str | None:
     """
-    Apply pitch adjustment to audio file using ffmpeg.
+    Apply pitch and/or speed adjustment to audio file using ffmpeg.
 
-    The pitch adjustment works by changing the sample rate (asetrate) and then
-    resampling back to the original rate (aresample). This changes pitch without
-    changing tempo.
+    Pitch adjustment: asetrate + aresample (changes pitch without tempo)
+    Speed adjustment: atempo filter (changes tempo without pitch)
 
     Args:
         input_file: Path to input audio file (wav or mp3)
         pitch: Pitch factor (0.8 = 20% lower, 1.0 = unchanged, 1.2 = 20% higher)
+        speed: Speed factor (0.8 = 20% slower, 1.0 = unchanged, 1.2 = 20% faster)
 
     Returns:
-        Path to pitch-adjusted file, or original file if pitch is 1.0 or on error
+        Path to adjusted file, or original file if no adjustment needed or on error
     """
-    # Skip if pitch is 1.0 (no change needed)
-    if abs(pitch - 1.0) < 0.01:
+    # Skip if both are 1.0 (no change needed)
+    needs_pitch = abs(pitch - 1.0) >= 0.01
+    needs_speed = abs(speed - 1.0) >= 0.01
+
+    if not needs_pitch and not needs_speed:
         return input_file
 
     try:
         # Check if ffmpeg is available
         result = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
         if result.returncode != 0:
-            log_message("⚠️ Pitch: ffmpeg not available, skipping pitch adjustment")
+            log_message("⚠️ Audio: ffmpeg not available, skipping adjustments")
             return input_file
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        log_message("⚠️ Pitch: ffmpeg not installed, skipping pitch adjustment")
+        log_message("⚠️ Audio: ffmpeg not installed, skipping adjustments")
         return input_file
 
     try:
         # Determine output format based on input
         input_ext = os.path.splitext(input_file)[1].lower()
-        output_file = input_file.replace(input_ext, f"_pitch{input_ext}")
+        output_file = input_file.replace(input_ext, f"_adjusted{input_ext}")
 
-        # Get original sample rate (default 22050 for Piper, 24000 for Edge TTS)
-        # We'll use ffprobe to detect it, or fall back to a reasonable default
-        sample_rate = 22050  # Default for Piper
+        # Get original sample rate (default 22050 for Piper, 24000 for XTTS)
+        sample_rate = 24000  # Default for XTTS
         try:
             probe_result = subprocess.run(
                 ["ffprobe", "-v", "error", "-show_entries", "stream=sample_rate",
@@ -80,17 +82,41 @@ def apply_pitch_adjustment(input_file: str, pitch: float) -> str | None:
         except (subprocess.CalledProcessError, ValueError, OSError):
             pass  # Use default
 
-        # Apply pitch adjustment:
-        # asetrate changes playback rate (affects both pitch and tempo)
-        # aresample brings it back to original rate (restores tempo, keeps new pitch)
-        new_rate = int(sample_rate * pitch)
+        # Build filter chain
+        filters = []
 
-        log_message(f"🎵 Pitch: Adjusting {pitch}x (sample rate {sample_rate} → {new_rate} → {sample_rate})")
+        # Pitch adjustment: asetrate + aresample
+        if needs_pitch:
+            new_rate = int(sample_rate * pitch)
+            filters.append(f"asetrate={new_rate}")
+            filters.append(f"aresample={sample_rate}")
+
+        # Speed adjustment: atempo (limited to 0.5-2.0 range per filter)
+        if needs_speed:
+            # atempo only supports 0.5 to 2.0, chain multiple for extreme values
+            remaining_speed = speed
+            while remaining_speed > 2.0:
+                filters.append("atempo=2.0")
+                remaining_speed /= 2.0
+            while remaining_speed < 0.5:
+                filters.append("atempo=0.5")
+                remaining_speed /= 0.5
+            if abs(remaining_speed - 1.0) >= 0.01:
+                filters.append(f"atempo={remaining_speed}")
+
+        filter_chain = ",".join(filters)
+
+        adjustments = []
+        if needs_pitch:
+            adjustments.append(f"pitch={pitch}x")
+        if needs_speed:
+            adjustments.append(f"speed={speed}x")
+        log_message(f"🎵 Audio: Applying {', '.join(adjustments)}")
 
         ffmpeg_result = subprocess.run(
             [
                 "ffmpeg", "-y", "-i", input_file,
-                "-af", f"asetrate={new_rate},aresample={sample_rate}",
+                "-af", filter_chain,
                 output_file
             ],
             capture_output=True,
@@ -98,18 +124,23 @@ def apply_pitch_adjustment(input_file: str, pitch: float) -> str | None:
         )
 
         if ffmpeg_result.returncode == 0 and os.path.exists(output_file):
-            # Replace original file with pitch-adjusted version
+            # Replace original file with adjusted version
             os.replace(output_file, input_file)
-            log_message(f"✅ Pitch: Applied {pitch}x adjustment")
+            log_message("✅ Audio: Applied adjustments successfully")
             return input_file
         else:
             error_msg = ffmpeg_result.stderr.decode() if ffmpeg_result.stderr else "Unknown error"
-            log_message(f"⚠️ Pitch: ffmpeg failed: {error_msg[:200]}")
+            log_message(f"⚠️ Audio: ffmpeg failed: {error_msg[:200]}")
             return input_file
 
     except Exception as e:
-        log_message(f"⚠️ Pitch: Error during adjustment: {e}")
+        log_message(f"⚠️ Audio: Error during adjustment: {e}")
         return input_file
+
+
+def apply_pitch_adjustment(input_file: str, pitch: float) -> str | None:
+    """Legacy wrapper for pitch-only adjustment."""
+    return apply_audio_adjustments(input_file, pitch=pitch, speed=1.0)
 
 
 def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> bool:
@@ -418,16 +449,8 @@ def clean_text_for_tts(text):
         str: Cleaned text suitable for TTS
     """
     # Remove <think> tags and content (raw thinking from LLM)
+    # Note: llm_history should be clean, but this handles edge cases
     clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
-
-    # Remove <details> blocks (collapsible UI elements like thinking process, HTML preview)
-    # These contain debug info that should NOT be read aloud
-    clean_text = re.sub(r'<details[^>]*>.*?</details>', '', clean_text, flags=re.DOTALL).strip()
-
-    # Remove ALL HTML tags including <span style="..."> tags from multi-agent formatting
-    # This handles: <span style="color: rgb(...)">text</span>, <div>, <p>, etc.
-    # Keep the text content, just remove the tags
-    clean_text = re.sub(r'<[^>]+>', '', clean_text).strip()
 
     # Remove code blocks (``` ... ```) - code sounds terrible when read aloud
     clean_text = re.sub(r'```[^`]*```', '', clean_text, flags=re.DOTALL).strip()
@@ -592,7 +615,7 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
     Returns:
         str: Path to generated audio file, or None
     """
-    from .config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES, XTTS_VOICES_FALLBACK
+    from .config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
 
     try:
         audio_url = None
@@ -600,7 +623,8 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
         if "XTTS" in tts_engine:
             # XTTS v2 (local via Docker) - voice cloning TTS
             # Supports custom voices (★ prefix) and built-in speakers
-            audio_url = generate_speech_xtts(text, speed_choice, voice_choice, language="de")
+            # Speed is applied via ffmpeg post-processing (XTTS generates at fixed rate)
+            audio_url = generate_speech_xtts(text, 1.0, voice_choice, language="de")
         elif "Piper" in tts_engine:
             # Piper TTS (local) - synchronous subprocess call
             # Use Piper-specific voice, fallback to first available if not found
@@ -622,12 +646,11 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
             audio_url = await generate_speech_edge(text, voice_id, rate)
 
         # Apply pitch adjustment if needed (works for all engines via ffmpeg)
+        # Note: Speed is handled by browser playback rate (faster, no delay)
         if audio_url and abs(pitch - 1.0) >= 0.01:
-            # Extract local file path from URL
-            # URL format: http://host:port/_upload/tts_audio/filename.ext
             filename = audio_url.split("/")[-1]
             local_path = str(TTS_AUDIO_DIR / filename)
-            apply_pitch_adjustment(local_path, pitch)
+            apply_audio_adjustments(local_path, pitch=pitch, speed=1.0)
             # URL stays the same, file was modified in-place
 
         return audio_url

@@ -322,7 +322,7 @@ class AIState(rx.State):
     tts_speed: float = 1.0  # Speed multiplier (1.0 = normal, browser playback handles tempo)
     tts_engine: str = "XTTS v2 (Local, voice cloning)"  # TTS engine selection (default: XTTS)
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
-    tts_playback_rate: str = "1.25x"  # Browser playback rate (persisted)
+    tts_playback_rate: str = "1.0x"  # Browser playback rate (1.0 = neutral, speed via Agent Settings)
     tts_pitch: str = "1.0"  # Pitch adjustment (0.8 = lower, 1.0 = normal, 1.2 = higher)
     # Per-Agent TTS Voice Settings (for Multi-Agent mode with distinct voices)
     # Format: agent_id -> {"voice": str, "speed": str, "pitch": str, "enabled": bool}
@@ -4065,21 +4065,29 @@ class AIState(rx.State):
             if self.enable_tts:
                 try:
                     self.add_debug("🔊 TTS: Starting TTS generation...")
-                    # Get AI response from LAST message in chat history
-                    # With APPEND-only architecture, AI responses are always in the last message
-                    if len(self.chat_history) > 0:
-                        last_msg = self.chat_history[-1]
-                        ai_response = last_msg.get("content", "") if last_msg.get("role") == "assistant" else ""
-                        if ai_response and ai_response.strip():
-                            # Generate TTS (sets tts_audio_path and increments tts_trigger_counter)
-                            # State changes automatically propagate to frontend → audio plays via autoPlay
-                            await self._generate_tts_for_response(ai_response)
+                    # Get AI response from llm_history (clean text without HTML formatting)
+                    # Format: {"role": "assistant", "content": "[AGENT]: text"}
+                    if len(self.llm_history) > 0:
+                        last_msg = self.llm_history[-1]
+                        if last_msg.get("role") == "assistant":
+                            ai_response = last_msg.get("content", "")
+                            # Strip agent label prefix like "[AIFRED]: " or "[SOKRATES]: "
+                            import re
+                            ai_response = re.sub(r'^\[(?:AIFRED|SOKRATES|SALOMO)\]:\s*', '', ai_response)
+                            if ai_response and ai_response.strip():
+                                # Generate TTS (sets tts_audio_path and increments tts_trigger_counter)
+                                # State changes automatically propagate to frontend → audio plays via autoPlay
+                                await self._generate_tts_for_response(ai_response)
+                            else:
+                                self.add_debug("⚠️ TTS: Enabled but no AI response to convert")
+                                console_separator()
+                                self.add_debug("────────────────────")
                         else:
-                            self.add_debug("⚠️ TTS: Enabled but no AI response to convert")
+                            self.add_debug("⚠️ TTS: Last message is not from assistant")
                             console_separator()
                             self.add_debug("────────────────────")
                     else:
-                        self.add_debug("⚠️ TTS: Enabled but chat history is empty")
+                        self.add_debug("⚠️ TTS: Enabled but LLM history is empty")
                         console_separator()
                         self.add_debug("────────────────────")
                 except Exception as tts_error:
@@ -5997,7 +6005,6 @@ class AIState(rx.State):
         """
         try:
             from .lib.audio_processing import clean_text_for_tts, generate_tts
-            from .lib.config import PROJECT_ROOT
 
             # Clean text: Remove <think> tags, emojis, markdown, URLs, timing info
             clean_text = clean_text_for_tts(ai_response)
@@ -6054,6 +6061,9 @@ class AIState(rx.State):
                 file_path = DATA_DIR / "tts_audio" / filename
 
                 if os.path.exists(file_path):
+                    # Set browser playback rate from agent speed setting
+                    self.tts_playback_rate = f"{speed_value}x"
+                    self.add_debug(f"🔊 TTS: Playback rate set to {speed_value}x")
                     # Store audio URL for playback
                     self.tts_audio_path = audio_url
                     # Increment counter to trigger frontend playback via rx.use_effect
@@ -7715,17 +7725,26 @@ class AIState(rx.State):
 
     async def resynthesize_tts(self):
         """Re-synthesize TTS for the last AI response"""
-        if not self.chat_history:
+        if not self.llm_history:
             self.add_debug("⚠️ TTS Re-Synth: No response available")
             return
 
-        # Get last AI response from chat history (dict format)
-        last_message = self.chat_history[-1]
+        # Get last AI response from llm_history (clean text without HTML)
+        last_message = self.llm_history[-1]
         if last_message["role"] != "assistant":
             self.add_debug("⚠️ TTS Re-Synth: Last message is not an AI response")
             return
 
         last_ai_response = last_message["content"]
+
+        # Extract agent from label prefix like "[AIFRED]: " or "[SOKRATES]: "
+        import re
+        agent = "aifred"  # Default
+        agent_match = re.match(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', last_ai_response)
+        if agent_match:
+            agent = agent_match.group(1).lower()
+            last_ai_response = last_ai_response[agent_match.end():]
+
         if not last_ai_response or not last_ai_response.strip():
             self.add_debug("⚠️ TTS Re-Synth: Last response is empty")
             return
@@ -7733,11 +7752,11 @@ class AIState(rx.State):
         # FIRST: Stop any currently playing audio to avoid overlap
         yield rx.call_script("stopTts()")
 
-        self.add_debug("🔄 TTS Re-Synth: Regenerating audio...")
+        self.add_debug(f"🔄 TTS Re-Synth: Regenerating audio for {agent}...")
 
-        # Generate TTS for last response
+        # Generate TTS for last response with correct agent voice settings
         # State changes (tts_audio_path, tts_trigger_counter) auto-propagate to frontend
-        await self._generate_tts_for_response(last_ai_response, autoplay=True)
+        await self._generate_tts_for_response(last_ai_response, autoplay=True, agent=agent)
 
     # TODO: clear_tts_autoplay removed - TTS Playback will be reimplemented
 

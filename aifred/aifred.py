@@ -3396,7 +3396,7 @@ def settings_accordion() -> rx.Component:
                             # Per-Agent Voice Settings (generic for all TTS engines)
                             rx.vstack(
                                 rx.divider(margin_top="8px", margin_bottom="8px"),
-                                rx.text("🎭 Agent Voices", font_weight="bold", font_size="11px", color="#888"),
+                                rx.text("🎭 Agentenstimmen", font_weight="bold", font_size="11px", color="#888"),
                                 # Header row with labels
                                 rx.hstack(
                                     rx.text("", width="70px"),  # Spacer for agent name
@@ -3420,14 +3420,14 @@ def settings_accordion() -> rx.Component:
                                         flex="1",
                                     ),
                                     rx.select(
-                                        ["0.9", "0.95", "1.0", "1.05", "1.1"],
+                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
                                         value=AIState.aifred_pitch,
                                         on_change=AIState.set_aifred_pitch,
                                         size="1",
                                         width="55px",
                                     ),
                                     rx.select(
-                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x"],
+                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"],
                                         value=AIState.aifred_speed,
                                         on_change=AIState.set_aifred_speed,
                                         size="1",
@@ -3451,14 +3451,14 @@ def settings_accordion() -> rx.Component:
                                         flex="1",
                                     ),
                                     rx.select(
-                                        ["0.9", "0.95", "1.0", "1.05", "1.1"],
+                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
                                         value=AIState.sokrates_pitch,
                                         on_change=AIState.set_sokrates_pitch,
                                         size="1",
                                         width="55px",
                                     ),
                                     rx.select(
-                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x"],
+                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"],
                                         value=AIState.sokrates_speed,
                                         on_change=AIState.set_sokrates_speed,
                                         size="1",
@@ -3482,14 +3482,14 @@ def settings_accordion() -> rx.Component:
                                         flex="1",
                                     ),
                                     rx.select(
-                                        ["0.9", "0.95", "1.0", "1.05", "1.1"],
+                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
                                         value=AIState.salomo_pitch,
                                         on_change=AIState.set_salomo_pitch,
                                         size="1",
                                         width="55px",
                                     ),
                                     rx.select(
-                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x"],
+                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"],
                                         value=AIState.salomo_speed,
                                         on_change=AIState.set_salomo_speed,
                                         size="1",
@@ -4781,6 +4781,9 @@ console.log('✂️ Crop handler loaded');
                         controls=True,
                         autoPlay=AIState.tts_audio_path != "",  # Only autoplay when path exists
                         key="tts-audio-" + AIState.tts_trigger_counter.to(str),  # Force remount on new audio
+                        # Set playback rate from agent settings via data attribute
+                        # JavaScript reads this on play event
+                        **{"data-playback-rate": AIState.tts_playback_rate},
                         style={
                             "width": "100%",
                             "height": "40px",

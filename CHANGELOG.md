@@ -26,10 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `/health` - Zeigt aktuelles Device (GPU/CPU)
   - `/voices` - Liste aller verfügbaren Stimmen (custom + builtin)
 
-- **Per-Agent Voice Settings** ([state.py](aifred/state.py)):
-  - `tts_agent_voices` Dict für agentenspezifische Stimmen
-  - AIfred, Sokrates, Salomo können verschiedene Stimmen haben
-  - Vorbereitung für zukünftige UI-Komponenten
+- **Per-Agent Voice Settings UI** ([aifred.py](aifred/aifred.py), [state.py](aifred/state.py)):
+  - Agentenstimmen-Sektion in TTS Settings mit Voice, Pitch und Speed pro Agent
+  - AIfred, Sokrates, Salomo können verschiedene Stimmen, Tonhöhen und Geschwindigkeiten haben
+  - Per-Engine Speicherung: Stimmen-Einstellungen werden pro TTS-Engine gespeichert
+  - Speed wird bei Playback auf Browser-Seite angewendet (data-playback-rate Attribut)
+  - Pitch wird via ffmpeg nachbearbeitet (asetrate + aresample)
 
 - **Custom Voice Embeddings** ([docker/xtts/voices/](docker/xtts/voices/)):
   - `aifred.wav` und `sokrates.wav` als Referenz-Audio
@@ -54,6 +56,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **TTS Response Time** ([state.py](aifred/state.py)):
   - TTS-Generierung vor Session-Title für schnelleres Audio-Feedback
+
+- **TTS Text Source** ([state.py](aifred/state.py)):
+  - TTS verwendet jetzt `llm_history` statt `chat_history` (kein HTML)
+  - Agent-Label (`[AIFRED]:`, `[SOKRATES]:`, `[SALOMO]:`) wird vor TTS gestrippt
+  - Re-Synthesize erkennt den Agenten und verwendet dessen Stimm-Einstellungen
+
+- **Multi-Agent HTML in TTS** ([audio_processing.py](aifred/lib/audio_processing.py)):
+  - `clean_text_for_tts()` vereinfacht - HTML-Stripping entfernt (nicht mehr nötig)
 
 ### Documentation
 

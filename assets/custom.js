@@ -227,7 +227,14 @@ function playTtsFromUrl(audioUrl) {
             }
         }
 
-        // Apply playback rate
+        // Apply playback rate from data attribute (set by agent settings) or global default
+        const dataRate = player.dataset.playbackRate;
+        if (dataRate) {
+            const rate = parseFloat(dataRate.replace('x', ''));
+            if (!isNaN(rate) && rate > 0) {
+                ttsPlaybackRate = rate;
+            }
+        }
         player.playbackRate = ttsPlaybackRate;
         console.log('🔊 TTS: Applied playback rate', ttsPlaybackRate);
 
@@ -305,7 +312,7 @@ function playTtsAudio() {
 // ============================================================
 
 // Store current playback rate (persisted via backend)
-let ttsPlaybackRate = 1.25;  // Default
+let ttsPlaybackRate = 1.0;  // Default (speed via Agent Settings)
 
 /**
  * Set TTS playback rate - called from Python backend via rx.call_script()
@@ -367,7 +374,7 @@ function setupTtsAudioObserver() {
 
     // Function to handle a found audio player
     // When a NEW audio element is detected (React re-mounts with new key), we:
-    // 1. Apply the saved playback rate
+    // 1. Apply the playback rate from data attribute (agent-specific speed)
     // 2. Trigger play() on the VISIBLE player after a short delay
     // The HTML5 player has autoPlay=True, but browsers may block it. This is a backup.
     const handleAudioPlayer = (player) => {
@@ -378,6 +385,16 @@ function setupTtsAudioObserver() {
 
         // Only process TTS audio URLs
         if (!src.includes('/tts_audio/')) return;
+
+        // Read playback rate from data attribute (set by backend per agent)
+        const dataRate = player.dataset.playbackRate;
+        if (dataRate) {
+            const rate = parseFloat(dataRate.replace('x', ''));
+            if (!isNaN(rate) && rate > 0) {
+                ttsPlaybackRate = rate;
+                console.log('🔊 TTS Observer: Agent speed from data-playback-rate =', rate);
+            }
+        }
 
         // Apply playback rate immediately
         player.playbackRate = ttsPlaybackRate;
