@@ -25,7 +25,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
 - **Automatic Context Calibration**: VRAM-aware context sizing with RoPE scaling (1.0x, 1.5x, 2.0x), hybrid mode for oversized models (CPU offload)
-- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech)
+- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **User Authentication**: Username + password login with whitelist-based registration, admin CLI for user management
@@ -1016,7 +1016,7 @@ playwright install chromium
 | LLM Backends | httpx, openai, pynvml, psutil |
 | Web Research | trafilatura, playwright, requests, pymupdf |
 | Vector Cache | chromadb, ollama, numpy |
-| Audio (STT/TTS) | edge-tts, openai-whisper |
+| Audio (STT/TTS) | edge-tts, XTTS v2 (Docker), openai-whisper |
 
 4. **Environment variables** (.env):
 ```env
@@ -1146,7 +1146,26 @@ except Exception as e:
 "
 ```
 
-7. **Start application**:
+7. **Start XTTS Voice Cloning** (Optional, Docker):
+
+XTTS v2 provides high-quality voice cloning with multilingual support and smart GPU/CPU selection.
+
+```bash
+cd docker/xtts
+docker compose up -d
+```
+
+First start takes ~2-3 minutes (model download ~1.5GB). After that, XTTS is available as TTS engine in the UI settings.
+
+**Features:**
+- 58 built-in voices + custom voice cloning
+- Automatic GPU/CPU selection based on available VRAM
+- Multilingual support (16 languages) with code-switching
+- Per-agent voices (AIfred, Sokrates, Salomo can have different voices)
+
+See [docker/xtts/README.md](docker/xtts/README.md) for full documentation.
+
+8. **Start application**:
 ```bash
 reflex run
 ```

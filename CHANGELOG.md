@@ -5,6 +5,62 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.0] - 2026-01-20 🎤 XTTS v2 Voice Cloning
+
+### Added
+
+- **XTTS v2 Voice Cloning Integration** ([docker/xtts/](docker/xtts/)):
+  - Neuer Docker-Service für Coqui XTTS v2 mit Voice Cloning
+  - 58 eingebaute Stimmen + eigene Stimmklonung aus 6-10s Referenz-Audio
+  - Mehrsprachige Unterstützung (16 Sprachen) mit automatischem Code-Switching (DE/EN gemischt)
+  - Web UI unter `http://localhost:5051` für Tests und Voice Cloning
+
+- **Smart GPU/CPU Device Selection** ([docker/xtts/server.py](docker/xtts/server.py)):
+  - Automatische VRAM-Erkennung via `nvidia-smi`
+  - GPU-Modus wenn freies VRAM >= Threshold (Standard: 2.0 GB)
+  - Automatischer CPU-Fallback bei VRAM-Knappheit (konkurriert nicht mit Ollama)
+  - Konfigurierbar via `XTTS_VRAM_THRESHOLD` und `XTTS_FORCE_CPU` Umgebungsvariablen
+
+- **XTTS Status Endpoints** ([docker/xtts/server.py](docker/xtts/server.py)):
+  - `/status` - Detaillierte VRAM/Device-Info
+  - `/health` - Zeigt aktuelles Device (GPU/CPU)
+  - `/voices` - Liste aller verfügbaren Stimmen (custom + builtin)
+
+- **Per-Agent Voice Settings** ([state.py](aifred/state.py)):
+  - `tts_agent_voices` Dict für agentenspezifische Stimmen
+  - AIfred, Sokrates, Salomo können verschiedene Stimmen haben
+  - Vorbereitung für zukünftige UI-Komponenten
+
+- **Custom Voice Embeddings** ([docker/xtts/voices/](docker/xtts/voices/)):
+  - `aifred.wav` und `sokrates.wav` als Referenz-Audio
+  - Automatische Embedding-Generierung beim Container-Start
+  - Persistente Speicherung in Docker-Volume
+
+### Changed
+
+- **TTS Engine Dropdown** ([aifred.py](aifred/aifred.py)):
+  - XTTS v2 als neue TTS-Engine Option hinzugefügt
+  - Dynamische Voice-Liste aus XTTS Docker-Service
+
+- **Audio Processing** ([audio_processing.py](aifred/lib/audio_processing.py)):
+  - `generate_speech_xtts()` Funktion für XTTS API-Aufrufe
+  - Dispatcher unterstützt XTTS Engine
+
+### Fixed
+
+- **TTS Audio Playback** ([aifred.py](aifred/aifred.py)):
+  - React Hook Order Error behoben (rx.cond → CSS display:none)
+  - Audio-Element wird immer gerendert, nur CSS-visibility wechselt
+
+- **TTS Response Time** ([state.py](aifred/state.py)):
+  - TTS-Generierung vor Session-Title für schnelleres Audio-Feedback
+
+### Documentation
+
+- **XTTS README** ([docker/xtts/README.md](docker/xtts/README.md)):
+  - Vollständige Dokumentation für XTTS Docker-Service
+  - API Endpoints, Voice Cloning, Troubleshooting
+
 ## [2.26.0] - 2026-01-19 🎯 Cloud API Vision Support
 
 ### Added
