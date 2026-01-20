@@ -65,6 +65,141 @@ REFERENCE_AUDIO_DIR = Path("/app/voices")  # Reference WAV files (mounted from h
 # Default speaker from XTTS speaker library
 DEFAULT_SPEAKER = "Claribel Dervla"
 
+# XTTS has a hard limit of 400 tokens (~250-350 characters depending on language)
+# We use a conservative limit to avoid hitting the boundary
+MAX_CHUNK_CHARS = 250
+
+
+def split_text_into_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
+    """
+    Split text into chunks that fit within XTTS token limit.
+
+    XTTS has a hard limit of 400 tokens per generation.
+    We split by sentences first, then by clauses if needed.
+
+    Args:
+        text: The text to split
+        max_chars: Maximum characters per chunk (default: 250, conservative for token limit)
+
+    Returns:
+        List of text chunks
+    """
+    import re
+
+    # If text is already short enough, return as-is
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks = []
+
+    # First, split by sentence-ending punctuation
+    # Match: . ! ? followed by space or end of string
+    # Also handle German quotation marks: »« „"
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+
+    current_chunk = ""
+
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+
+        # If this sentence alone is too long, split by comma/semicolon
+        if len(sentence) > max_chars:
+            # Save current chunk if any
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+                current_chunk = ""
+
+            # Split long sentence by clauses (comma, semicolon, colon, dash)
+            clauses = re.split(r'(?<=[,;:\-–—])\s+', sentence)
+
+            for clause in clauses:
+                clause = clause.strip()
+                if not clause:
+                    continue
+
+                # If even a clause is too long, force-split by words
+                if len(clause) > max_chars:
+                    words = clause.split()
+                    temp_chunk = ""
+                    for word in words:
+                        if len(temp_chunk) + len(word) + 1 <= max_chars:
+                            temp_chunk = f"{temp_chunk} {word}".strip()
+                        else:
+                            if temp_chunk:
+                                chunks.append(temp_chunk)
+                            temp_chunk = word
+                    if temp_chunk:
+                        # Don't append yet, might combine with next clause
+                        if current_chunk:
+                            chunks.append(current_chunk.strip())
+                        current_chunk = temp_chunk
+                else:
+                    # Clause fits, try to combine
+                    if len(current_chunk) + len(clause) + 1 <= max_chars:
+                        current_chunk = f"{current_chunk} {clause}".strip()
+                    else:
+                        if current_chunk:
+                            chunks.append(current_chunk.strip())
+                        current_chunk = clause
+        else:
+            # Sentence fits within limit
+            if len(current_chunk) + len(sentence) + 1 <= max_chars:
+                current_chunk = f"{current_chunk} {sentence}".strip()
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = sentence
+
+    # Don't forget the last chunk
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+
+    # Filter out empty chunks
+    chunks = [c for c in chunks if c.strip()]
+
+    logger.info(f"Split text ({len(text)} chars) into {len(chunks)} chunks")
+    for i, chunk in enumerate(chunks):
+        logger.debug(f"  Chunk {i+1}: {len(chunk)} chars - '{chunk[:50]}...'")
+
+    return chunks
+
+
+def concatenate_audio_arrays(audio_arrays: list, sample_rate: int = 24000) -> "np.ndarray":
+    """
+    Concatenate multiple audio arrays into one.
+
+    Adds a small pause between chunks for natural speech.
+
+    Args:
+        audio_arrays: List of numpy arrays containing audio samples
+        sample_rate: Sample rate (default: 24000 for XTTS)
+
+    Returns:
+        Single numpy array with all audio concatenated
+    """
+    import numpy as np
+
+    if not audio_arrays:
+        return np.array([], dtype=np.float32)
+
+    if len(audio_arrays) == 1:
+        return audio_arrays[0]
+
+    # Add a small pause between chunks (100ms silence)
+    pause_samples = int(sample_rate * 0.1)  # 100ms
+    pause = np.zeros(pause_samples, dtype=np.float32)
+
+    result = []
+    for i, audio in enumerate(audio_arrays):
+        result.append(audio)
+        # Add pause between chunks (but not after the last one)
+        if i < len(audio_arrays) - 1:
+            result.append(pause)
+
+    return np.concatenate(result)
+
 
 def get_gpu_memory_info() -> dict:
     """Get GPU memory information using nvidia-smi or torch."""
@@ -678,8 +813,12 @@ def tts():
     """
     Generate TTS audio from text.
 
+    Automatically handles long texts by splitting into chunks and concatenating.
+    XTTS has a 400 token limit (~250 chars), so texts are split at sentence
+    boundaries when needed.
+
     Request JSON:
-        text (str): Text to synthesize
+        text (str): Text to synthesize (any length)
         language (str, optional): Language code (default: de)
         speaker (str, optional): Speaker name (default: Claribel Dervla)
             - Use "* name" for custom voices or just "name"
@@ -689,6 +828,7 @@ def tts():
     """
     import torch
     import torchaudio
+    import numpy as np
 
     # Parse request
     data = request.get_json()
@@ -711,7 +851,7 @@ def tts():
     if language not in supported_languages:
         return jsonify({"error": f"Unsupported language: {language}. Supported: {supported_languages}"}), 400
 
-    logger.info(f"Generating TTS: '{text[:50]}...' with language {language}, speaker {speaker}")
+    logger.info(f"Generating TTS: '{text[:50]}...' ({len(text)} chars) with language {language}, speaker {speaker}")
 
     try:
         model = get_synthesizer()
@@ -732,26 +872,39 @@ def tts():
             gpt_cond_latent = speaker_data["gpt_cond_latent"].cpu()
             speaker_embedding = speaker_data["speaker_embedding"].cpu()
 
+        # Split text into chunks to avoid 400 token limit
+        chunks = split_text_into_chunks(text)
+
+        # Generate audio for each chunk
+        audio_arrays = []
+        for i, chunk in enumerate(chunks):
+            logger.info(f"  Generating chunk {i+1}/{len(chunks)}: '{chunk[:40]}...' ({len(chunk)} chars)")
+
+            outputs = model.inference(
+                text=chunk,
+                language=language,
+                gpt_cond_latent=gpt_cond_latent,
+                speaker_embedding=speaker_embedding,
+                temperature=0.7,
+            )
+
+            audio_arrays.append(outputs["wav"])
+
+        # Concatenate all audio chunks
+        if len(audio_arrays) > 1:
+            logger.info(f"Concatenating {len(audio_arrays)} audio chunks")
+            final_audio = concatenate_audio_arrays(audio_arrays)
+        else:
+            final_audio = audio_arrays[0]
+
         # Create temp file for output
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             temp_path = f.name
 
-        # Generate audio using inference method
-        outputs = model.inference(
-            text=text,
-            language=language,
-            gpt_cond_latent=gpt_cond_latent,
-            speaker_embedding=speaker_embedding,
-            temperature=0.7,
-        )
-
-        # Get audio array
-        audio = outputs["wav"]
-
         # Save to file (sample rate is 24kHz for XTTS)
-        torchaudio.save(temp_path, torch.tensor(audio).unsqueeze(0), 24000)
+        torchaudio.save(temp_path, torch.tensor(final_audio).unsqueeze(0), 24000)
 
-        logger.info(f"Generated audio: {temp_path}")
+        logger.info(f"Generated audio: {temp_path} ({len(chunks)} chunks)")
 
         # Send file and schedule cleanup
         response = send_file(
