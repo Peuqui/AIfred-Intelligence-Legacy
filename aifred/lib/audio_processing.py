@@ -424,6 +424,11 @@ def clean_text_for_tts(text):
     # These contain debug info that should NOT be read aloud
     clean_text = re.sub(r'<details[^>]*>.*?</details>', '', clean_text, flags=re.DOTALL).strip()
 
+    # Remove ALL HTML tags including <span style="..."> tags from multi-agent formatting
+    # This handles: <span style="color: rgb(...)">text</span>, <div>, <p>, etc.
+    # Keep the text content, just remove the tags
+    clean_text = re.sub(r'<[^>]+>', '', clean_text).strip()
+
     # Remove code blocks (``` ... ```) - code sounds terrible when read aloud
     clean_text = re.sub(r'```[^`]*```', '', clean_text, flags=re.DOTALL).strip()
 
