@@ -4788,8 +4788,19 @@ console.log('✂️ Crop handler loaded');
                             "width": "100%",
                             "height": "40px",
                             "margin_top": "8px",
-                            "display": rx.cond(AIState.tts_audio_path != "", "block", "none"),
+                            # Visible when: tts_audio_path OR tts_audio_queue has items
+                            "display": rx.cond(AIState.tts_player_visible, "block", "none"),
                         },
+                    ),
+                    # Hidden element for TTS queue data - JavaScript reads this to update local queue
+                    # The MutationObserver in custom.js watches for changes to data-queue attribute
+                    rx.el.div(
+                        id="tts-queue-data",
+                        **{
+                            "data-queue": AIState.tts_queue_json,
+                            "data-version": AIState.tts_queue_version.to(str),
+                        },
+                        style={"display": "none"},
                     ),
                     # Placeholder when no audio yet - shows hint (inverse visibility)
                     rx.text(
@@ -4798,7 +4809,8 @@ console.log('✂️ Crop handler loaded');
                         color="#888",
                         margin_top="8px",
                         font_style="italic",
-                        display=rx.cond(AIState.tts_audio_path != "", "none", "block"),
+                        # Hide when player is visible (audio playing or queued)
+                        display=rx.cond(AIState.tts_player_visible, "none", "block"),
                     ),
                     padding="3",
                     background_color="rgba(66, 135, 245, 0.08)",

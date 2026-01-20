@@ -484,24 +484,24 @@ TTS_DEFAULT_VOICES = {
 # User preferences are saved per engine in assistant_settings.json.
 TTS_AGENT_VOICE_DEFAULTS = {
     "xtts": {
-        "aifred": {"voice": "AIfred", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "Sokrates", "speed": "1.0x", "pitch": "0.9", "enabled": True},
-        "salomo": {"voice": "Baldur Sanjin", "speed": "1.1x", "pitch": "1.1", "enabled": True},
+        "aifred": {"voice": "★ AIfred", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+        "sokrates": {"voice": "★ Sokrates", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+        "salomo": {"voice": "Baldur Sanjin", "speed": "1.0x", "pitch": "1.0", "enabled": True},
     },
     "piper": {
         "aifred": {"voice": "Deutsch (Thorsten)", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "Deutsch (Karlsson)", "speed": "1.0x", "pitch": "0.9", "enabled": True},
-        "salomo": {"voice": "Deutsch (MLS)", "speed": "1.1x", "pitch": "1.1", "enabled": True},
+        "sokrates": {"voice": "Deutsch (Karlsson)", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+        "salomo": {"voice": "Deutsch (MLS)", "speed": "1.0x", "pitch": "1.0", "enabled": True},
     },
     "espeak": {
         "aifred": {"voice": "Deutsch Standard", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "Deutsch Standard", "speed": "1.0x", "pitch": "0.9", "enabled": True},
-        "salomo": {"voice": "Deutsch Standard", "speed": "1.1x", "pitch": "1.1", "enabled": True},
+        "sokrates": {"voice": "Deutsch Standard", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+        "salomo": {"voice": "Deutsch Standard", "speed": "1.0x", "pitch": "1.0", "enabled": True},
     },
     "edge": {
         "aifred": {"voice": "Deutsch (Katja)", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "Deutsch (Conrad)", "speed": "1.0x", "pitch": "0.9", "enabled": True},
-        "salomo": {"voice": "Deutsch (Florian)", "speed": "1.1x", "pitch": "1.1", "enabled": True},
+        "sokrates": {"voice": "Deutsch (Conrad)", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+        "salomo": {"voice": "Deutsch (Florian)", "speed": "1.0x", "pitch": "1.0", "enabled": True},
     },
 }
 

@@ -25,7 +25,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Automatische Web-Recherche**: KI entscheidet selbst, wann Recherche nötig ist
 - **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung
 - **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße mit RoPE-Skalierung (1.0x, 1.5x, 2.0x), Hybrid-Modus für übergroße Modelle (CPU-Offload)
-- **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**
+- **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **Multi-Agent TTS Queue** (sequentielle Wiedergabe der Agenten-Antworten)
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
 - **Session-Persistenz**: Mobile Chat-History überlebt Browser-Hintergrund/Neustart (Cookie-basiert)
@@ -1023,10 +1023,12 @@ docker compose up -d
 Erster Start dauert ~2-3 Minuten (Modell-Download ~1.5GB). Danach ist XTTS als TTS-Engine in den UI-Einstellungen verfügbar.
 
 **Features:**
-- 58 eingebaute Stimmen + eigene Stimmklonung
+- 58 eingebaute Stimmen + eigene Stimmklonung (6-10s Referenz-Audio)
 - Automatische GPU/CPU-Auswahl basierend auf verfügbarem VRAM
-- Mehrsprachige Unterstützung (16 Sprachen) mit Code-Switching
-- Agentenspezifische Stimmen (AIfred, Sokrates, Salomo können verschiedene Stimmen haben)
+- Mehrsprachige Unterstützung (16 Sprachen) mit automatischem Code-Switching (DE/EN gemischt)
+- Agentenspezifische Stimmen mit individueller Tonhöhe und Geschwindigkeit
+- **Multi-Agent TTS Queue**: Sequentielle Wiedergabe von AIfred → Sokrates → Salomo
+- Asynchrone TTS-Generierung (blockiert nächste LLM-Inferenz nicht)
 
 Siehe [docker/xtts/README.md](docker/xtts/README.md) für vollständige Dokumentation.
 

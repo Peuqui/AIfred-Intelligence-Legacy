@@ -25,7 +25,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
 - **Automatic Context Calibration**: VRAM-aware context sizing with RoPE scaling (1.0x, 1.5x, 2.0x), hybrid mode for oversized models (CPU offload)
-- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**
+- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **Multi-Agent TTS Queue** (sequential playback of agent responses)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **User Authentication**: Username + password login with whitelist-based registration, admin CLI for user management
@@ -1158,10 +1158,12 @@ docker compose up -d
 First start takes ~2-3 minutes (model download ~1.5GB). After that, XTTS is available as TTS engine in the UI settings.
 
 **Features:**
-- 58 built-in voices + custom voice cloning
+- 58 built-in voices + custom voice cloning (6-10s reference audio)
 - Automatic GPU/CPU selection based on available VRAM
-- Multilingual support (16 languages) with code-switching
-- Per-agent voices (AIfred, Sokrates, Salomo can have different voices)
+- Multilingual support (16 languages) with automatic code-switching (DE/EN mixed)
+- Per-agent voices with individual pitch and speed settings
+- **Multi-Agent TTS Queue**: Sequential playback of AIfred → Sokrates → Salomo responses
+- Async TTS generation (doesn't block next LLM inference)
 
 See [docker/xtts/README.md](docker/xtts/README.md) for full documentation.
 

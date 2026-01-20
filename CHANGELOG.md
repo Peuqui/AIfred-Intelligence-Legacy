@@ -5,7 +5,7 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.27.0] - 2026-01-20 🎤 XTTS v2 Voice Cloning
+## [2.27.0] - 2026-01-20 🎤 XTTS v2 Voice Cloning & Multi-Agent TTS Queue
 
 ### Added
 
@@ -38,6 +38,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatische Embedding-Generierung beim Container-Start
   - Persistente Speicherung in Docker-Volume
 
+- **TTS Audio Queue für Multi-Agent** ([state.py](aifred/state.py), [custom.js](assets/custom.js)):
+  - Sequentielle Wiedergabe von Multi-Agent Responses (AIfred → Sokrates → Salomo)
+  - JavaScript Queue mit Version-Tracking für Backend-Sync
+  - `clearTtsQueue()` und `skipTtsQueueItem()` Funktionen im Browser
+  - MutationObserver für `#tts-queue-data` Element
+
+- **Async TTS Generation** ([state.py](aifred/state.py)):
+  - TTS läuft als Hintergrund-Task (`asyncio.create_task`)
+  - Nächste LLM-Inferenz kann parallel starten
+  - Keine Blockierung mehr durch TTS-Generierung
+
+- **TTS Player Visibility** ([aifred.py](aifred/aifred.py), [state.py](aifred/state.py)):
+  - Player erscheint automatisch wenn Audio in Queue oder generiert
+  - `tts_player_visible` computed var für UI-Steuerung
+
 ### Changed
 
 - **TTS Engine Dropdown** ([aifred.py](aifred/aifred.py)):
@@ -47,6 +62,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Audio Processing** ([audio_processing.py](aifred/lib/audio_processing.py)):
   - `generate_speech_xtts()` Funktion für XTTS API-Aufrufe
   - Dispatcher unterstützt XTTS Engine
+
+- **Agent Voice Defaults** ([config.py](aifred/lib/config.py), [state.py](aifred/state.py)):
+  - Alle Agenten auf Speed 1.0x und Pitch 1.0 normalisiert
+  - XTTS Custom Voices mit `★` Prefix (★ AIfred, ★ Sokrates)
 
 ### Fixed
 
@@ -64,6 +83,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Multi-Agent HTML in TTS** ([audio_processing.py](aifred/lib/audio_processing.py)):
   - `clean_text_for_tts()` vereinfacht - HTML-Stripping entfernt (nicht mehr nötig)
+
+- **XTTS Voice Validation** ([state.py](aifred/state.py)):
+  - Ungültige gespeicherte Stimmen werden auf Defaults zurückgesetzt
+  - Verhindert Fehler wenn Custom Voice nicht mehr existiert
+
+- **Gender Toggle Styling** ([custom.css](assets/custom.css)):
+  - Bessere Sichtbarkeit der ausgewählten Option (heller orange Hintergrund)
 
 ### Documentation
 

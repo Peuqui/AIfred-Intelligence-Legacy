@@ -779,10 +779,34 @@ tr:hover {
     #chat-history-box {
         max-height: var(--chat-max-height-mobile) !important;
     }
-    
+
     details {
         max-height: var(--thinking-max-height-mobile) !important;
     }
-    
+
     /* Debug console: Keep default behavior on mobile (no override needed) */
+}
+
+/* ============================================================
+ * Segmented Control (Gender Toggle) - Selected State Highlight
+ * ============================================================ */
+/* Base styling for segmented control items */
+.rt-SegmentedControlItem {
+    background-color: transparent !important;
+    color: #7d8590 !important;  /* Muted text for unselected */
+    transition: all 0.15s ease !important;
+}
+
+/* Selected/Active state - brighter background and text */
+.rt-SegmentedControlItem[data-state="on"],
+.rt-SegmentedControlItem[data-state="active"],
+.rt-SegmentedControlItem:has(input:checked) {
+    background-color: rgba(204, 136, 0, 0.4) !important;  /* Bright orange background */
+    color: #ffc107 !important;  /* Bright yellow-orange text */
+}
+
+/* Hover state for better UX */
+.rt-SegmentedControlItem:hover:not([data-state="on"]):not([data-state="active"]) {
+    background-color: rgba(204, 136, 0, 0.15) !important;
+    color: #b1bac4 !important;
 }

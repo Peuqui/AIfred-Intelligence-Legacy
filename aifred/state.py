@@ -328,9 +328,9 @@ class AIState(rx.State):
     # Format: agent_id -> {"voice": str, "speed": str, "pitch": str, "enabled": bool}
     # Agents: aifred (default), sokrates, salomo
     tts_agent_voices: Dict[str, Dict[str, Any]] = {
-        "aifred": {"voice": "AIfred", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "Sokrates", "speed": "1.0x", "pitch": "0.9", "enabled": True},
-        "salomo": {"voice": "Baldur Sanjin", "speed": "1.1x", "pitch": "1.1", "enabled": True},  # Built-in voice until custom Salomo is created
+        "aifred": {"voice": "★ AIfred", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+        "sokrates": {"voice": "★ Sokrates", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+        "salomo": {"voice": "Baldur Sanjin", "speed": "1.0x", "pitch": "1.0", "enabled": True},
     }
     # XTTS voices cache - refreshed when engine changes to XTTS
     xtts_voices_cache: List[str] = []
@@ -340,6 +340,11 @@ class AIState(rx.State):
     # NOTE: Whisper model is now managed in aifred/lib/audio_processing.py (use get_whisper_model())
     tts_audio_path: str = ""  # Path to generated TTS audio file
     tts_trigger_counter: int = 0  # Incremented to trigger TTS playback in frontend
+    # TTS Audio Queue - for sequential playback of multiple agent responses
+    # Queue URLs are added when add_agent_panel() generates TTS
+    # Frontend plays queue sequentially (first in, first out)
+    tts_audio_queue: List[str] = []  # Queue of audio URLs to play
+    tts_queue_version: int = 0  # Incremented when queue changes (triggers frontend update)
 
     # Session Persistence (Cookie-based session identification)
     session_id: str = ""  # Session ID from cookie (32 hex chars)
@@ -681,13 +686,48 @@ class AIState(rx.State):
         else:
             return list(EDGE_TTS_VOICES.keys())
 
+    @rx.var(deps=["tts_audio_queue"], auto_deps=False)
+    def tts_queue_json(self) -> str:
+        """Returns TTS audio queue as JSON string for frontend.
+
+        The frontend JavaScript reads this to update its local queue
+        for sequential playback of multi-agent responses.
+        """
+        import json
+        return json.dumps(self.tts_audio_queue)
+
+    @rx.var(deps=["tts_audio_path", "tts_audio_queue"], auto_deps=False)
+    def tts_player_visible(self) -> bool:
+        """Returns True if TTS audio player should be visible.
+
+        Player is visible when:
+        - tts_audio_path is set (single audio mode), OR
+        - tts_audio_queue has items (queue mode)
+        """
+        return bool(self.tts_audio_path) or len(self.tts_audio_queue) > 0
+
     def _refresh_xtts_voices(self):
-        """Refresh XTTS voices from Docker service."""
-        from .lib.config import get_xtts_voices
+        """Refresh XTTS voices from Docker service.
+
+        Also validates that agent voices are in the available list.
+        If a saved voice is not found, it resets to the default.
+        """
+        from .lib.config import get_xtts_voices, TTS_AGENT_VOICE_DEFAULTS
         voices = get_xtts_voices()
         if voices:
             self.xtts_voices_cache = list(voices.keys())
             self.add_debug(f"🎤 XTTS: {len(voices)} voices loaded")
+
+            # Validate agent voices - reset if not in available list
+            xtts_defaults = TTS_AGENT_VOICE_DEFAULTS.get("xtts", {})
+            for agent in ["aifred", "sokrates", "salomo"]:
+                current_voice = self.tts_agent_voices.get(agent, {}).get("voice", "")
+                if current_voice and current_voice not in self.xtts_voices_cache:
+                    # Voice not found - use default
+                    default_voice = xtts_defaults.get(agent, {}).get("voice", "")
+                    if default_voice:
+                        self.tts_agent_voices[agent]["voice"] = default_voice
+                        self.add_debug(f"⚠️ XTTS: Reset {agent} voice to {default_voice}")
 
     async def on_load(self):
         """
@@ -1764,7 +1804,8 @@ class AIState(rx.State):
         mode: str = "standard",
         round_num: int | None = None,
         metadata: dict | None = None,
-        sync_llm_history: bool = True
+        sync_llm_history: bool = True,
+        generate_tts: bool | None = None
     ) -> None:
         """Add an agent response as a new message to chat_history.
 
@@ -1776,6 +1817,7 @@ class AIState(rx.State):
         - Metadata formatting (TTFT, Inference time, tok/s, Source)
         - LLM history synchronization
         - Session persistence
+        - TTS generation (queued for sequential playback)
 
         With the new dict-based chat_history, each message is standalone.
         No more replace_last logic - just append new messages.
@@ -1787,6 +1829,8 @@ class AIState(rx.State):
             round_num: Round number for multi-round debates (None/0 = no round, 1+ = round number)
             metadata: Optional dict with TTFT, inference_time, tokens_per_sec, source
             sync_llm_history: If True, syncs to llm_history (set False if caller already did)
+            generate_tts: If True, generate TTS and add to queue. If None, uses self.enable_tts.
+                         If False, skip TTS. For multi-agent modes, this enables per-response TTS.
 
         Examples:
             # Sokrates direct response
@@ -1816,6 +1860,7 @@ class AIState(rx.State):
             )
         """
         from datetime import datetime
+        import asyncio
 
         # 1. Build marker (emoji + mode label + round number)
         marker = self._build_marker(agent, mode, round_num if round_num and round_num > 0 else None)
@@ -1852,6 +1897,23 @@ class AIState(rx.State):
 
         # 7. Save session (async, non-blocking)
         self._save_current_session()
+
+        # 8. Generate TTS and add to queue (if enabled)
+        # Determine if TTS should be generated
+        should_generate_tts = generate_tts if generate_tts is not None else self.enable_tts
+        if should_generate_tts:
+            # Check per-agent TTS enabled setting
+            agent_tts_enabled = self.tts_agent_voices.get(agent, {}).get("enabled", True)
+            if agent_tts_enabled:
+                # Schedule TTS generation as background task
+                # This runs async without blocking add_agent_panel()
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._queue_tts_for_agent(content, agent))
+                except RuntimeError:
+                    # No running loop - this shouldn't happen in normal operation
+                    # but we handle it gracefully
+                    self.add_debug(f"⚠️ TTS: No event loop for {agent}")
 
     # ============================================================
     # END: CENTRAL AGENT PANEL MANAGEMENT
@@ -2968,6 +3030,17 @@ class AIState(rx.State):
         if self.multi_agent_mode == "standard" or not ai_text or skip_analysis:
             return
 
+        # Generate TTS for AIfred's initial response BEFORE Multi-Agent starts
+        # This ensures AIfred's voice is heard first, then Sokrates/Salomo follow
+        # (Sokrates/Salomo TTS is generated via add_agent_panel() in multi_agent.py)
+        # NOTE: TTS runs as background task to not block next agent's inference
+        if self.enable_tts:
+            agent_tts_enabled = self.tts_agent_voices.get("aifred", {}).get("enabled", True)
+            if agent_tts_enabled:
+                # Fire-and-forget: TTS generates in background while next agent starts
+                asyncio.create_task(self._queue_tts_for_agent(ai_text, agent="aifred"))
+                yield  # Update UI (queue version increments when TTS completes)
+
         if self.multi_agent_mode == "tribunal":
             self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
             yield
@@ -3010,6 +3083,8 @@ class AIState(rx.State):
         self.used_sources = []  # Clear sources from previous request
         self.failed_sources = []
         self.all_sources = []  # Clear combined sources list
+        # Clear TTS queue for new message (multi-agent responses will add to it)
+        self.clear_tts_queue()
 
         # IMPORTANT: Yield immediately so UI shows spinner right away
         yield
@@ -4062,7 +4137,9 @@ class AIState(rx.State):
                 self.clear_pending_images()
 
             # TTS: Generate audio for AI response if enabled (BEFORE title generation for faster feedback)
-            if self.enable_tts:
+            # IMPORTANT: Only for Standard mode! Multi-Agent modes generate TTS via add_agent_panel()
+            # which adds to tts_audio_queue. This prevents duplicate TTS generation.
+            if self.enable_tts and self.multi_agent_mode == "standard":
                 try:
                     self.add_debug("🔊 TTS: Starting TTS generation...")
                     # Get AI response from llm_history (clean text without HTML formatting)
@@ -4079,10 +4156,11 @@ class AIState(rx.State):
                                 agent = agent_match.group(1).lower()
                                 ai_response = ai_response[agent_match.end():]
                             if ai_response and ai_response.strip():
-                                # Generate TTS (sets tts_audio_path and increments tts_trigger_counter)
-                                # State changes automatically propagate to frontend → audio plays via autoPlay
-                                await self._generate_tts_for_response(ai_response, agent=agent)
-                                yield  # Update UI after TTS generation
+                                # Generate TTS as background task (non-blocking)
+                                # This allows title generation to start in parallel
+                                # State changes propagate to frontend when task completes
+                                asyncio.create_task(self._generate_tts_for_response(ai_response, agent=agent))
+                                # Don't yield here - let title generation proceed immediately
                             else:
                                 self.add_debug("⚠️ TTS: Enabled but no AI response to convert")
                                 console_separator()
@@ -6091,6 +6169,92 @@ class AIState(rx.State):
             self.add_debug(f"❌ TTS Error: {e}")
             log_message(f"❌ TTS generation error: {e}")
 
+    async def _queue_tts_for_agent(self, content: str, agent: str) -> None:
+        """Generate TTS and add to queue for sequential playback.
+
+        This is called by add_agent_panel() when TTS is enabled.
+        The audio is generated and added to tts_audio_queue.
+        Frontend plays queue items sequentially.
+
+        Args:
+            content: The text content to convert to speech (will be cleaned)
+            agent: Agent name for per-agent voice settings (aifred, sokrates, salomo)
+        """
+        from .lib.audio_processing import clean_text_for_tts, generate_tts
+        from .lib.config import DATA_DIR
+        import os
+
+        try:
+            # Clean text: Remove <think> tags, emojis, markdown, URLs, timing info
+            clean_text = clean_text_for_tts(content)
+
+            if not clean_text or len(clean_text.strip()) < 5:
+                self.add_debug(f"🔇 TTS Queue: Text too short for {agent}")
+                return
+
+            self.add_debug(f"🔊 TTS Queue: Generating audio for {agent} ({len(clean_text)} chars)...")
+
+            # Determine voice, pitch, and speed based on agent settings
+            voice_choice = self.tts_voice
+            pitch_value = float(self.tts_pitch) if self.tts_pitch else 1.0
+            speed_value = 1.0
+
+            # Use per-agent settings if configured
+            if agent in self.tts_agent_voices:
+                agent_settings = self.tts_agent_voices[agent]
+                agent_voice = agent_settings.get("voice", "")
+                agent_pitch = agent_settings.get("pitch", "")
+                agent_speed = agent_settings.get("speed", "")
+
+                if agent_voice:
+                    voice_choice = agent_voice
+                if agent_pitch:
+                    try:
+                        pitch_value = float(agent_pitch)
+                    except ValueError:
+                        pass
+                if agent_speed:
+                    try:
+                        speed_value = float(agent_speed.replace("x", ""))
+                    except ValueError:
+                        pass
+
+            # Generate TTS audio
+            audio_url = await generate_tts(
+                text=clean_text,
+                voice_choice=voice_choice,
+                speed_choice=speed_value,
+                tts_engine=self.tts_engine,
+                pitch=pitch_value
+            )
+
+            if audio_url:
+                # Verify file exists
+                filename = audio_url.split("/")[-1]
+                file_path = DATA_DIR / "tts_audio" / filename
+
+                if os.path.exists(file_path):
+                    # Add to queue
+                    self.tts_audio_queue = self.tts_audio_queue + [audio_url]
+                    self.tts_queue_version += 1
+                    file_size_kb = os.path.getsize(file_path) / 1024
+                    self.add_debug(f"✅ TTS Queue: Added {agent} audio ({file_size_kb:.1f} KB), queue size: {len(self.tts_audio_queue)}")
+                else:
+                    self.add_debug(f"⚠️ TTS Queue: Audio file not found at {file_path}")
+            else:
+                self.add_debug(f"⚠️ TTS Queue: Generation failed for {agent}")
+
+        except Exception as e:
+            self.add_debug(f"❌ TTS Queue Error ({agent}): {e}")
+            log_message(f"❌ TTS queue generation error for {agent}: {e}")
+
+    def clear_tts_queue(self) -> None:
+        """Clear the TTS audio queue (called when starting new message)."""
+        if self.tts_audio_queue:
+            self.tts_audio_queue = []
+            self.tts_queue_version += 1
+            self.add_debug("🔊 TTS Queue: Cleared")
+
     async def load_default_settings(self):
         """Load default settings from config.py and apply them to state"""
         from .lib.settings import reset_to_defaults, load_settings
@@ -7696,7 +7860,7 @@ class AIState(rx.State):
     @rx.var
     def salomo_speed(self) -> str:
         """Get Salomo's current speed"""
-        return self.tts_agent_voices.get("salomo", {}).get("speed", "1.1x")
+        return self.tts_agent_voices.get("salomo", {}).get("speed", "1.0x")
 
     @rx.var
     def aifred_pitch(self) -> str:
@@ -7706,12 +7870,12 @@ class AIState(rx.State):
     @rx.var
     def sokrates_pitch(self) -> str:
         """Get Sokrates' current pitch"""
-        return self.tts_agent_voices.get("sokrates", {}).get("pitch", "0.9")
+        return self.tts_agent_voices.get("sokrates", {}).get("pitch", "1.0")
 
     @rx.var
     def salomo_pitch(self) -> str:
         """Get Salomo's current pitch"""
-        return self.tts_agent_voices.get("salomo", {}).get("pitch", "1.1")
+        return self.tts_agent_voices.get("salomo", {}).get("pitch", "1.0")
 
     @rx.var
     def aifred_tts_enabled(self) -> bool:

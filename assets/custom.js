@@ -353,6 +353,135 @@ window.setTtsPlaybackRate = setTtsPlaybackRate;
 window.getTtsPlaybackRate = getTtsPlaybackRate;
 
 // ============================================================
+// TTS AUDIO QUEUE - Sequential playback of multiple audio files
+// ============================================================
+
+// Queue state
+let ttsQueue = [];  // Array of audio URLs to play
+let ttsQueuePlaying = false;  // Is queue currently playing?
+let ttsQueueCurrentIndex = 0;  // Current position in queue
+let ttsQueueVersion = 0;  // Track version to detect updates from backend
+
+/**
+ * Update the TTS queue from backend state
+ * Called when tts_audio_queue or tts_queue_version changes in Python
+ * @param {string[]} queue - Array of audio URLs
+ * @param {number} version - Queue version number
+ */
+function updateTtsQueue(queue, version) {
+    console.log('🔊 TTS Queue: Update received, version', version, 'items:', queue.length);
+
+    // Check if this is a new version
+    if (version <= ttsQueueVersion && queue.length === ttsQueue.length) {
+        console.log('🔊 TTS Queue: Same version, skipping');
+        return;
+    }
+
+    ttsQueueVersion = version;
+
+    // Find new items (items not yet in our local queue)
+    const newItems = queue.slice(ttsQueue.length);
+    ttsQueue = [...queue];  // Sync local queue with backend
+
+    console.log('🔊 TTS Queue: New items:', newItems.length);
+
+    // If we have new items and not currently playing, start playback
+    if (newItems.length > 0 && !ttsQueuePlaying) {
+        playNextInQueue();
+    }
+}
+
+/**
+ * Play the next item in the queue
+ */
+function playNextInQueue() {
+    if (ttsQueueCurrentIndex >= ttsQueue.length) {
+        console.log('🔊 TTS Queue: Finished playing all items');
+        ttsQueuePlaying = false;
+        return;
+    }
+
+    ttsQueuePlaying = true;
+    const audioUrl = ttsQueue[ttsQueueCurrentIndex];
+    console.log('🔊 TTS Queue: Playing item', ttsQueueCurrentIndex + 1, '/', ttsQueue.length, audioUrl);
+
+    const player = document.getElementById('tts-audio-player');
+    if (player) {
+        // Apply playback rate
+        const dataRate = player.dataset.playbackRate;
+        if (dataRate) {
+            const rate = parseFloat(dataRate.replace('x', ''));
+            if (!isNaN(rate) && rate > 0) {
+                ttsPlaybackRate = rate;
+            }
+        }
+        player.playbackRate = ttsPlaybackRate;
+
+        // Set source and play
+        player.src = audioUrl;
+        player.load();
+
+        // Remove old ended handler and add new one
+        player.onended = () => {
+            console.log('🔊 TTS Queue: Item finished, moving to next');
+            ttsQueueCurrentIndex++;
+            playNextInQueue();
+        };
+
+        player.play()
+            .then(() => {
+                console.log('✅ TTS Queue: Playback started');
+            })
+            .catch(err => {
+                console.warn('⚠️ TTS Queue: Autoplay blocked:', err.message);
+                // Still move to next after a delay if autoplay blocked
+                setTimeout(() => {
+                    ttsQueueCurrentIndex++;
+                    playNextInQueue();
+                }, 1000);
+            });
+    } else {
+        console.warn('⚠️ TTS Queue: Player not found');
+        ttsQueuePlaying = false;
+    }
+}
+
+/**
+ * Clear the TTS queue and stop playback
+ */
+function clearTtsQueue() {
+    console.log('🔊 TTS Queue: Clearing');
+    ttsQueue = [];
+    ttsQueueCurrentIndex = 0;
+    ttsQueuePlaying = false;
+
+    // Stop current playback
+    const player = document.getElementById('tts-audio-player');
+    if (player) {
+        player.pause();
+        player.onended = null;
+    }
+}
+
+/**
+ * Skip to next item in queue
+ */
+function skipTtsQueueItem() {
+    console.log('🔊 TTS Queue: Skipping current item');
+    const player = document.getElementById('tts-audio-player');
+    if (player) {
+        player.pause();
+    }
+    ttsQueueCurrentIndex++;
+    playNextInQueue();
+}
+
+// Make queue functions available globally
+window.updateTtsQueue = updateTtsQueue;
+window.clearTtsQueue = clearTtsQueue;
+window.skipTtsQueueItem = skipTtsQueueItem;
+
+// ============================================================
 // TTS AUDIO OBSERVER - Watch for NEW audio elements (React re-mounts)
 // ============================================================
 
@@ -424,6 +553,25 @@ function setupTtsAudioObserver() {
         }, 200);
     };
 
+    // Function to handle TTS queue data updates
+    const handleQueueDataUpdate = (element) => {
+        if (!element) return;
+
+        const queueJson = element.dataset.queue;
+        const version = parseInt(element.dataset.version || '0', 10);
+
+        if (!queueJson) return;
+
+        try {
+            const queue = JSON.parse(queueJson);
+            if (Array.isArray(queue)) {
+                updateTtsQueue(queue, version);
+            }
+        } catch (e) {
+            console.warn('⚠️ TTS Queue: Failed to parse queue JSON', e);
+        }
+    };
+
     // Create document-level observer to watch for added nodes
     ttsDocumentObserver = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
@@ -442,15 +590,30 @@ function setupTtsAudioObserver() {
                             console.log('🔊 TTS Observer: Audio element found in added subtree');
                             handleAudioPlayer(audio);
                         }
+                        // Check for queue data element
+                        const queueData = node.querySelector('#tts-queue-data');
+                        if (queueData) {
+                            handleQueueDataUpdate(queueData);
+                        }
+                    }
+                    // Check if the added node IS the queue data element
+                    if (node.id === 'tts-queue-data') {
+                        handleQueueDataUpdate(node);
                     }
                 });
             }
-            // Also watch for attribute changes on audio elements
-            if (mutation.type === 'attributes' && mutation.attributeName === 'src') {
+            // Watch for attribute changes
+            if (mutation.type === 'attributes') {
                 const target = mutation.target;
-                if (target.nodeName === 'AUDIO' && target.id === 'tts-audio-player') {
+                // Audio src changes
+                if (mutation.attributeName === 'src' && target.nodeName === 'AUDIO' && target.id === 'tts-audio-player') {
                     console.log('🔊 TTS Observer: Audio src attribute changed');
                     handleAudioPlayer(target);
+                }
+                // Queue data changes (data-queue or data-version)
+                if ((mutation.attributeName === 'data-queue' || mutation.attributeName === 'data-version') && target.id === 'tts-queue-data') {
+                    console.log('🔊 TTS Observer: Queue data attribute changed');
+                    handleQueueDataUpdate(target);
                 }
             }
         }
@@ -461,7 +624,7 @@ function setupTtsAudioObserver() {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['src']
+        attributeFilter: ['src', 'data-queue', 'data-version']
     });
 
     // Also check if audio element already exists
@@ -469,6 +632,13 @@ function setupTtsAudioObserver() {
     if (existingPlayer) {
         console.log('🔊 TTS Observer: Found existing audio player');
         handleAudioPlayer(existingPlayer);
+    }
+
+    // Check if queue data element already exists
+    const existingQueueData = document.getElementById('tts-queue-data');
+    if (existingQueueData) {
+        console.log('🔊 TTS Observer: Found existing queue data element');
+        handleQueueDataUpdate(existingQueueData);
     }
 
     console.log('🔊 TTS Observer: Document observer active');
