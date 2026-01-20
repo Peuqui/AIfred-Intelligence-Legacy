@@ -236,6 +236,10 @@ async def _stream_sokrates_to_history(
     state.current_agent = "sokrates"
     state.current_ai_response = ""
 
+    # Initialize streaming TTS for Sokrates
+    if state.enable_tts and state.tts_streaming_enabled:
+        state._init_streaming_tts(agent="sokrates")
+
     async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "Sokrates", state):
         if chunk["type"] == "content":
             if not first_token:
@@ -247,15 +251,16 @@ async def _stream_sokrates_to_history(
             full_response += chunk["text"]
             token_count += 1
 
-            # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
-            # History is updated only at the end to avoid O(n) regex parsing on each token
-            state.current_ai_response += chunk["text"]
-
-            yield  # UI Update - only current_ai_response changes, not chat_history
+            state.stream_text_to_ui(chunk["text"])
+            yield
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
             token_count = metrics.get("tokens_generated", token_count)
+
+    # Finalize streaming TTS: send any remaining text in buffer
+    if state.enable_tts and state.tts_streaming_enabled:
+        state._finalize_streaming_tts()
 
     # Calculate final metrics
     inference_time = timer.elapsed()
@@ -313,6 +318,10 @@ async def _stream_alfred_refinement(
     state.current_agent = "aifred"
     state.current_ai_response = ""
 
+    # Initialize streaming TTS for AIfred Refinement
+    if state.enable_tts and state.tts_streaming_enabled:
+        state._init_streaming_tts(agent="aifred")
+
     full_response = ""
     token_count = 0
     timer = Timer()
@@ -329,14 +338,16 @@ async def _stream_alfred_refinement(
             full_response += chunk["text"]
             token_count += 1
 
-            # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
-            # History is updated only at the end via "result" to avoid O(n) regex parsing on each token
-            state.current_ai_response += chunk["text"]
-            yield  # Update UI - only current_ai_response changes, not chat_history
+            state.stream_text_to_ui(chunk["text"])
+            yield
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
             token_count = metrics.get("tokens_generated", token_count)
+
+    # Finalize streaming TTS: send any remaining text in buffer
+    if state.enable_tts and state.tts_streaming_enabled:
+        state._finalize_streaming_tts()
 
     inference_time = timer.elapsed()
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
@@ -394,6 +405,10 @@ async def _stream_salomo_to_history(
     state.current_agent = "salomo"
     state.current_ai_response = ""
 
+    # Initialize streaming TTS for Salomo
+    if state.enable_tts and state.tts_streaming_enabled:
+        state._init_streaming_tts(agent="salomo")
+
     async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "Salomo", state):
         if chunk["type"] == "content":
             if not first_token:
@@ -405,15 +420,16 @@ async def _stream_salomo_to_history(
             full_response += chunk["text"]
             token_count += 1
 
-            # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
-            # History is updated only at the end to avoid O(n) regex parsing on each token
-            state.current_ai_response += chunk["text"]
-
-            yield  # UI Update - only current_ai_response changes, not chat_history
+            state.stream_text_to_ui(chunk["text"])
+            yield
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
             token_count = metrics.get("tokens_generated", token_count)
+
+    # Finalize streaming TTS: send any remaining text in buffer
+    if state.enable_tts and state.tts_streaming_enabled:
+        state._finalize_streaming_tts()
 
     # Calculate final metrics
     inference_time = timer.elapsed()

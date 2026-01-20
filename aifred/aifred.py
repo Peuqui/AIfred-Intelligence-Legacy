@@ -3363,6 +3363,26 @@ def settings_accordion() -> rx.Component:
                             ),
                             rx.box(),
                         ),
+                        # Streaming TTS Toggle (only show when TTS enabled)
+                        rx.cond(
+                            AIState.enable_tts,
+                            rx.hstack(
+                                rx.text("Streaming", font_size="11px", color="#888"),
+                                rx.switch(
+                                    checked=AIState.tts_streaming_enabled,
+                                    on_change=AIState.toggle_tts_streaming,
+                                    size="1",
+                                ),
+                                rx.text(
+                                    rx.cond(AIState.tts_streaming_enabled, "ON", "OFF"),
+                                    font_size="10px",
+                                    color=rx.cond(AIState.tts_streaming_enabled, "#4CAF50", "#999"),
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            rx.box(),
+                        ),
                         spacing="2",
                         align="center",
                         width="100%",
@@ -4763,12 +4783,24 @@ console.log('✂️ Crop handler loaded');
                         rx.spacer(),
                         # Regenerate TTS Button - re-synthesize with current voice settings
                         rx.button(
-                            t("tts_regenerate"),
+                            rx.cond(
+                                AIState.tts_regenerating,
+                                rx.hstack(
+                                    rx.spinner(size="1"),
+                                    rx.text(t("tts_regenerate")),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                rx.text(t("tts_regenerate")),
+                            ),
                             on_click=AIState.resynthesize_tts,
                             size="1",
                             variant="soft",
                             color_scheme="blue",
                             cursor="pointer",
+                            disabled=AIState.tts_regenerating,
+                            # Slight transparency when regenerating (not full loading state)
+                            opacity=rx.cond(AIState.tts_regenerating, "0.7", "1"),
                         ),
                         spacing="2",
                         align="center",

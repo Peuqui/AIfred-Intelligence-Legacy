@@ -369,25 +369,41 @@ let ttsQueueVersion = 0;  // Track version to detect updates from backend
  * @param {number} version - Queue version number
  */
 function updateTtsQueue(queue, version) {
-    console.log('🔊 TTS Queue: Update received, version', version, 'items:', queue.length);
-
     // Check if this is a new version
     if (version <= ttsQueueVersion && queue.length === ttsQueue.length) {
-        console.log('🔊 TTS Queue: Same version, skipping');
         return;
+    }
+
+    console.log(`🔊 TTS Queue: Update received - version ${ttsQueueVersion} → ${version}, items ${ttsQueue.length} → ${queue.length}`);
+
+    // Detect queue reset (new queue is shorter or empty)
+    // This happens when user clears chat or starts new conversation
+    if (queue.length < ttsQueue.length || queue.length === 0) {
+        console.log('🔊 TTS Queue: Queue was reset, resetting index and state');
+        ttsQueueCurrentIndex = 0;
+        ttsQueuePlaying = false;
+        // Stop current playback if any
+        const player = document.getElementById('tts-audio-player');
+        if (player) {
+            player.pause();
+            player.onended = null;
+        }
     }
 
     ttsQueueVersion = version;
 
     // Find new items (items not yet in our local queue)
-    const newItems = queue.slice(ttsQueue.length);
+    // Only calculate new items if queue grew (not if it was reset)
+    const newItems = queue.length > ttsQueue.length ? queue.slice(ttsQueue.length) : queue;
     ttsQueue = [...queue];  // Sync local queue with backend
 
-    console.log('🔊 TTS Queue: New items:', newItems.length);
-
     // If we have new items and not currently playing, start playback
+    // Small delay to allow React to update the data-playback-rate attribute first
     if (newItems.length > 0 && !ttsQueuePlaying) {
-        playNextInQueue();
+        console.log(`🔊 TTS Queue: Starting playback of ${newItems.length} new items (with 50ms delay for DOM sync)`);
+        setTimeout(() => {
+            playNextInQueue();
+        }, 50);
     }
 }
 
@@ -396,41 +412,65 @@ function updateTtsQueue(queue, version) {
  */
 function playNextInQueue() {
     if (ttsQueueCurrentIndex >= ttsQueue.length) {
-        console.log('🔊 TTS Queue: Finished playing all items');
         ttsQueuePlaying = false;
+        console.log('🔊 TTS Queue: Playback complete (no more items)');
         return;
     }
 
     ttsQueuePlaying = true;
     const audioUrl = ttsQueue[ttsQueueCurrentIndex];
-    console.log('🔊 TTS Queue: Playing item', ttsQueueCurrentIndex + 1, '/', ttsQueue.length, audioUrl);
+    console.log(`🔊 TTS Queue: Playing item ${ttsQueueCurrentIndex + 1}/${ttsQueue.length}: ${audioUrl}`);
 
     const player = document.getElementById('tts-audio-player');
     if (player) {
-        // Apply playback rate
+        // Read playback rate from data attribute (set by Python backend)
         const dataRate = player.dataset.playbackRate;
         if (dataRate) {
             const rate = parseFloat(dataRate.replace('x', ''));
             if (!isNaN(rate) && rate > 0) {
                 ttsPlaybackRate = rate;
+                console.log(`🔊 TTS Queue: Using playback rate ${rate}x from data attribute`);
             }
         }
+
+        // Set source first
+        player.src = audioUrl;
+
+        // Set playback rate AFTER setting src but BEFORE load
+        // Also set it again on canplay event (browsers sometimes reset it)
         player.playbackRate = ttsPlaybackRate;
 
-        // Set source and play
-        player.src = audioUrl;
+        // Handler to ensure playbackRate is applied after audio is ready
+        const applyPlaybackRate = () => {
+            if (player.playbackRate !== ttsPlaybackRate) {
+                console.log(`🔊 TTS Queue: Re-applying playback rate ${ttsPlaybackRate}x on canplay`);
+                player.playbackRate = ttsPlaybackRate;
+            }
+        };
+        player.oncanplay = applyPlaybackRate;
+        player.onloadeddata = applyPlaybackRate;
+
         player.load();
 
+        // Apply rate again after load (belt and suspenders)
+        player.playbackRate = ttsPlaybackRate;
+
         // Remove old ended handler and add new one
+        // Add a small pause between sentences for natural speech rhythm
         player.onended = () => {
-            console.log('🔊 TTS Queue: Item finished, moving to next');
+            console.log('🔊 TTS Queue: Item finished, adding sentence pause before next');
             ttsQueueCurrentIndex++;
-            playNextInQueue();
+            // 300ms pause between sentences for natural rhythm
+            setTimeout(() => {
+                playNextInQueue();
+            }, 300);
         };
 
         player.play()
             .then(() => {
-                console.log('✅ TTS Queue: Playback started');
+                // Apply rate one more time after play starts
+                player.playbackRate = ttsPlaybackRate;
+                console.log(`✅ TTS Queue: Playback started at ${player.playbackRate}x`);
             })
             .catch(err => {
                 console.warn('⚠️ TTS Queue: Autoplay blocked:', err.message);
@@ -506,6 +546,7 @@ function setupTtsAudioObserver() {
     // 1. Apply the playback rate from data attribute (agent-specific speed)
     // 2. Trigger play() on the VISIBLE player after a short delay
     // The HTML5 player has autoPlay=True, but browsers may block it. This is a backup.
+    // NOTE: If queue is playing, the queue controls playback - observer should not interfere
     const handleAudioPlayer = (player) => {
         if (!player || !player.src) return;
 
@@ -514,6 +555,12 @@ function setupTtsAudioObserver() {
 
         // Only process TTS audio URLs
         if (!src.includes('/tts_audio/')) return;
+
+        // If queue is actively playing, don't interfere - queue controls playback
+        if (ttsQueuePlaying) {
+            console.log('🔊 TTS Observer: Queue is playing, skipping observer play trigger');
+            return;
+        }
 
         // Read playback rate from data attribute (set by backend per agent)
         const dataRate = player.dataset.playbackRate;
@@ -542,6 +589,11 @@ function setupTtsAudioObserver() {
         // Small delay to ensure audio is fully loaded, then ensure it plays
         // The autoPlay attribute should work, but this is a backup in case browser blocks it
         setTimeout(() => {
+            // Double-check queue isn't playing (might have started during delay)
+            if (ttsQueuePlaying) {
+                console.log('🔊 TTS Observer: Queue started playing during delay, skipping');
+                return;
+            }
             if (player.paused && player.readyState >= 2) {
                 console.log('🔊 TTS Observer: AutoPlay may have been blocked, triggering play()');
                 player.play()
@@ -610,6 +662,18 @@ function setupTtsAudioObserver() {
                     console.log('🔊 TTS Observer: Audio src attribute changed');
                     handleAudioPlayer(target);
                 }
+                // Playback rate changes (from dropdown) - apply IMMEDIATELY to playing audio
+                if (mutation.attributeName === 'data-playback-rate' && target.nodeName === 'AUDIO' && target.id === 'tts-audio-player') {
+                    const newRate = target.dataset.playbackRate;
+                    if (newRate) {
+                        const rate = parseFloat(newRate.replace('x', ''));
+                        if (!isNaN(rate) && rate > 0) {
+                            ttsPlaybackRate = rate;
+                            target.playbackRate = rate;
+                            console.log(`🔊 TTS Observer: Playback rate changed to ${rate}x (applied immediately)`);
+                        }
+                    }
+                }
                 // Queue data changes (data-queue or data-version)
                 if ((mutation.attributeName === 'data-queue' || mutation.attributeName === 'data-version') && target.id === 'tts-queue-data') {
                     console.log('🔊 TTS Observer: Queue data attribute changed');
@@ -624,7 +688,7 @@ function setupTtsAudioObserver() {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['src', 'data-queue', 'data-version']
+        attributeFilter: ['src', 'data-queue', 'data-version', 'data-playback-rate']
     });
 
     // Also check if audio element already exists

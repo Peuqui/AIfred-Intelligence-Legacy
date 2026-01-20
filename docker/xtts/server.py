@@ -66,8 +66,96 @@ REFERENCE_AUDIO_DIR = Path("/app/voices")  # Reference WAV files (mounted from h
 DEFAULT_SPEAKER = "Claribel Dervla"
 
 # XTTS has a hard limit of 400 tokens (~250-350 characters depending on language)
-# We use a conservative limit to avoid hitting the boundary
-MAX_CHUNK_CHARS = 250
+# We use a conservative limit to stay safely within the token limit
+MAX_CHUNK_CHARS = int(os.environ.get("XTTS_MAX_CHUNK_CHARS", "250"))
+
+# ============================================================
+# Inference Parameters (configurable via environment variables)
+# ============================================================
+# These can be tuned to reduce hallucinations/repetitions
+# See: https://github.com/coqui-ai/TTS/discussions/4146
+#
+# Lower temperature = more stable, less creative
+# Higher repetition_penalty = prevents repeating
+# Lower top_k/top_p = more deterministic output
+
+XTTS_TEMPERATURE = float(os.environ.get("XTTS_TEMPERATURE", "0.65"))
+XTTS_REPETITION_PENALTY = float(os.environ.get("XTTS_REPETITION_PENALTY", "15.0"))
+XTTS_LENGTH_PENALTY = float(os.environ.get("XTTS_LENGTH_PENALTY", "1.0"))
+XTTS_TOP_K = int(os.environ.get("XTTS_TOP_K", "30"))
+XTTS_TOP_P = float(os.environ.get("XTTS_TOP_P", "0.75"))
+
+logger.info(f"XTTS Inference Parameters: temperature={XTTS_TEMPERATURE}, "
+            f"repetition_penalty={XTTS_REPETITION_PENALTY}, length_penalty={XTTS_LENGTH_PENALTY}, "
+            f"top_k={XTTS_TOP_K}, top_p={XTTS_TOP_P}")
+
+
+def normalize_text_for_tts(text: str) -> str:
+    """
+    Normalize text to reduce XTTS hallucinations/repetitions.
+
+    XTTS hallucinates when text doesn't end with proper sentence-ending punctuation.
+    This function ensures lines ending with newlines have proper punctuation.
+
+    Based on community findings:
+    - https://github.com/coqui-ai/TTS/discussions/4146
+    - https://huggingface.co/coqui/XTTS-v2/discussions/104
+    - Sentences ending without punctuation cause hallucinations
+    - Spaces after periods (". ") can trigger hallucinations
+
+    CONSERVATIVE approach:
+    - Replace colons with periods (colons cause rushed speech)
+    - Add punctuation to lines without any ending punctuation
+    - Leave commas, semicolons alone - they're part of natural speech flow
+
+    Args:
+        text: Raw text input
+
+    Returns:
+        Normalized text with proper punctuation on line endings
+    """
+    import re
+
+    if not text or not text.strip():
+        return text
+
+    text = text.strip()
+
+    # Replace colons with periods (colons cause rushed speech in XTTS)
+    # But preserve time formats like "10:30" and URLs
+    text = re.sub(r'(?<!\d):(?!\d|//)', '.', text)
+
+    # Split into lines (preserves paragraph structure)
+    lines = text.split('\n')
+    normalized_lines = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            normalized_lines.append('')
+            continue
+
+        # Only add punctuation if line ends without ANY sentence-ending punctuation
+        # Valid endings: . ! ? (with optional quotes/brackets)
+        # Leave commas, semicolons alone - they're part of natural speech flow
+        if not re.search(r'[.!?]["\'\)\]»"]*$', line):
+            # Line ends without sentence punctuation (could be heading, list item, etc.)
+            # Add period - conservative choice to not change intonation too much
+            line = line + '.'
+            logger.debug(f"Added '.' to line without punctuation: '{line}'")
+
+        normalized_lines.append(line)
+
+    result = '\n'.join(normalized_lines)
+
+    # Final check: ensure the entire text ends with proper punctuation
+    if result and not re.search(r'[.!?]["\'\)\]»"]*$', result):
+        result = result + '.'
+
+    # Remove any trailing whitespace that might cause issues
+    result = result.rstrip()
+
+    return result
 
 
 def split_text_into_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
@@ -805,6 +893,14 @@ def status():
         "torch_memory": torch_info,
         "custom_voices": len(_custom_voices),
         "builtin_speakers": len(_speaker_embeddings) if _speaker_embeddings else 0,
+        "inference_params": {
+            "temperature": XTTS_TEMPERATURE,
+            "repetition_penalty": XTTS_REPETITION_PENALTY,
+            "length_penalty": XTTS_LENGTH_PENALTY,
+            "top_k": XTTS_TOP_K,
+            "top_p": XTTS_TOP_P,
+            "max_chunk_chars": MAX_CHUNK_CHARS,
+        },
     })
 
 
@@ -851,6 +947,12 @@ def tts():
     if language not in supported_languages:
         return jsonify({"error": f"Unsupported language: {language}. Supported: {supported_languages}"}), 400
 
+    # Normalize text to prevent hallucinations (ensure proper punctuation)
+    original_text = text
+    text = normalize_text_for_tts(text)
+    if text != original_text:
+        logger.info(f"Text normalized for TTS (added punctuation)")
+
     logger.info(f"Generating TTS: '{text[:50]}...' ({len(text)} chars) with language {language}, speaker {speaker}")
 
     try:
@@ -880,12 +982,18 @@ def tts():
         for i, chunk in enumerate(chunks):
             logger.info(f"  Generating chunk {i+1}/{len(chunks)}: '{chunk[:40]}...' ({len(chunk)} chars)")
 
+            # XTTS inference with configurable parameters (via environment variables)
+            # See: https://github.com/coqui-ai/TTS/discussions/4146
             outputs = model.inference(
                 text=chunk,
                 language=language,
                 gpt_cond_latent=gpt_cond_latent,
                 speaker_embedding=speaker_embedding,
-                temperature=0.7,
+                temperature=XTTS_TEMPERATURE,
+                repetition_penalty=XTTS_REPETITION_PENALTY,
+                length_penalty=XTTS_LENGTH_PENALTY,
+                top_k=XTTS_TOP_K,
+                top_p=XTTS_TOP_P,
             )
 
             audio_arrays.append(outputs["wav"])

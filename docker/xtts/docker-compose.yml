@@ -26,6 +26,22 @@ services:
       # XTTS_FORCE_CPU: Force CPU mode regardless of VRAM
       # Set to "1" or "true" to always use CPU
       # - XTTS_FORCE_CPU=0
+      # ============================================================
+      # Inference Parameters (tune to reduce hallucinations)
+      # ============================================================
+      # See: https://github.com/coqui-ai/TTS/discussions/4146
+      # Lower temperature = more stable, less creative (default: 0.75)
+      - XTTS_TEMPERATURE=0.65
+      # Higher repetition_penalty = prevents repeating (default: 10.0)
+      - XTTS_REPETITION_PENALTY=15.0
+      # Length penalty for longer sentences (default: 1.0)
+      - XTTS_LENGTH_PENALTY=1.0
+      # Lower top_k = more deterministic (default: 50)
+      - XTTS_TOP_K=30
+      # Lower top_p = more deterministic (default: 0.85)
+      - XTTS_TOP_P=0.75
+      # Max characters per chunk (default: 250)
+      - XTTS_MAX_CHUNK_CHARS=250
     volumes:
       # Cache models persistently
       - xtts_models:/root/.local/share/tts

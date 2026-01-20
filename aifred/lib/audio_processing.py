@@ -143,6 +143,215 @@ def apply_pitch_adjustment(input_file: str, pitch: float) -> str | None:
     return apply_audio_adjustments(input_file, pitch=pitch, speed=1.0)
 
 
+# ============================================================
+# STREAMING TTS - Sentence Detection
+# ============================================================
+
+# Common abbreviations that should NOT be treated as sentence endings
+# Pattern: word ending with period that is NOT a sentence end
+ABBREVIATIONS_DE = {
+    "z.b.", "z. b.", "d.h.", "d. h.", "u.a.", "u. a.", "o.ä.", "o. ä.",
+    "bzw.", "ca.", "etc.", "evtl.", "ggf.", "inkl.", "max.", "min.",
+    "nr.", "s.", "str.", "tel.", "usw.", "vgl.", "vs.", "z.t.",
+    "dr.", "prof.", "hr.", "fr.", "ing.", "dipl.",  # Titles
+    "jan.", "feb.", "mär.", "apr.", "jun.", "jul.", "aug.", "sep.", "okt.", "nov.", "dez.",  # Months
+    "mo.", "di.", "mi.", "do.", "fr.", "sa.", "so.",  # Days
+}
+
+ABBREVIATIONS_EN = {
+    "e.g.", "i.e.", "etc.", "vs.", "mr.", "mrs.", "ms.", "dr.", "prof.",
+    "inc.", "ltd.", "corp.", "co.", "jr.", "sr.",
+    "jan.", "feb.", "mar.", "apr.", "jun.", "jul.", "aug.", "sep.", "oct.", "nov.", "dec.",
+    "mon.", "tue.", "wed.", "thu.", "fri.", "sat.", "sun.",
+    "no.", "vol.", "ch.", "pg.", "pp.", "fig.", "approx.", "dept.",
+}
+
+# Combined set (lowercase)
+ABBREVIATIONS = ABBREVIATIONS_DE | ABBREVIATIONS_EN
+
+
+def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
+    """
+    Extract complete sentences from a text buffer.
+
+    This function is designed for streaming TTS: it accumulates text tokens
+    and returns sentences as soon as they are complete, keeping incomplete
+    text in the buffer for the next call.
+
+    Handles:
+    - Standard sentence endings: . ! ?
+    - German/English abbreviations (z.B., e.g., Dr., etc.)
+    - Quotations and parentheses
+    - Numbers with decimals (3.14, 1.5)
+    - URLs (http://example.com)
+    - Code blocks (```...```) - skipped entirely
+
+    Args:
+        buffer: Text accumulated so far
+
+    Returns:
+        Tuple of (list of complete sentences, remaining buffer)
+
+    Example:
+        >>> extract_complete_sentences("Hello world. This is a test")
+        (['Hello world.'], ' This is a test')
+        >>> extract_complete_sentences("Dr. Smith said hello. How are you?")
+        (['Dr. Smith said hello.', 'How are you?'], '')
+    """
+    if not buffer or not buffer.strip():
+        return [], buffer
+
+    sentences = []
+    remaining = buffer
+
+    # Skip if we're in a code block (``` ... ```)
+    if "```" in remaining:
+        # Count occurrences - odd number means we're inside a code block
+        if remaining.count("```") % 2 == 1:
+            # Inside code block - don't extract sentences
+            return [], buffer
+
+    # Regex pattern for sentence boundaries
+    # Matches: . ! ? followed by:
+    #   - Whitespace and uppercase letter (new sentence)
+    #   - End of string (final sentence)
+    #   - Quotation marks/parentheses then whitespace
+    # Negative lookbehind for common abbreviations handled separately
+
+    # Simple approach: find potential sentence ends and validate
+    i = 0
+    sentence_start = 0
+
+    while i < len(remaining):
+        char = remaining[i]
+
+        # Check for sentence-ending punctuation
+        if char in '.!?':
+            # Get context around this character
+            before = remaining[max(0, i-10):i+1].lower()
+            after = remaining[i+1:i+3] if i+1 < len(remaining) else ""
+
+            # Check if this is a real sentence end
+            is_sentence_end = False
+
+            if char in '!?':
+                # Exclamation and question marks are almost always sentence ends
+                is_sentence_end = True
+            elif char == '.':
+                # Period needs more careful checking
+                is_abbreviation = False
+
+                # Check against known abbreviations
+                for abbr in ABBREVIATIONS:
+                    if before.endswith(abbr):
+                        is_abbreviation = True
+                        break
+
+                # Check for decimal numbers (1.5, 3.14)
+                if not is_abbreviation and i > 0 and i < len(remaining) - 1:
+                    char_before = remaining[i-1]
+                    char_after = remaining[i+1] if i+1 < len(remaining) else ""
+                    if char_before.isdigit() and char_after.isdigit():
+                        is_abbreviation = True  # It's a decimal number
+
+                # Check for URLs
+                if not is_abbreviation:
+                    url_context = remaining[max(0, i-20):i+10].lower()
+                    if "http" in url_context or "www." in url_context or ".com" in url_context:
+                        is_abbreviation = True
+
+                # Check for ellipsis (...)
+                if not is_abbreviation and i >= 2:
+                    if remaining[i-2:i+1] == "...":
+                        # Ellipsis at end of sentence IS a sentence end
+                        # But only if followed by space+uppercase or end
+                        if after and after[0].isupper():
+                            is_sentence_end = True
+                        elif not after.strip():
+                            is_sentence_end = True
+                        is_abbreviation = True  # Don't double-check
+
+                if not is_abbreviation:
+                    # Real sentence end if followed by:
+                    # - Whitespace (or end of string)
+                    # - Whitespace + uppercase letter
+                    # - Closing quote/paren then whitespace
+                    if not after:
+                        # End of buffer - might be complete sentence
+                        is_sentence_end = True
+                    elif after[0] in ' \n\t':
+                        # Followed by whitespace
+                        if len(after) > 1 and after[1].isupper():
+                            is_sentence_end = True
+                        elif len(after) == 1:
+                            # Just whitespace at end - likely sentence end
+                            is_sentence_end = True
+                    elif after[0] in '"\')»"':
+                        # Closing quote/paren - check what's after that
+                        is_sentence_end = True
+
+            if is_sentence_end:
+                # Extract the sentence
+                sentence = remaining[sentence_start:i+1].strip()
+
+                # Handle closing quotes/parens that belong to the sentence
+                j = i + 1
+                while j < len(remaining) and remaining[j] in '"\')»"':
+                    j += 1
+
+                if j > i + 1:
+                    sentence = remaining[sentence_start:j].strip()
+                    i = j - 1
+
+                if sentence and len(sentence) > 1:
+                    sentences.append(sentence)
+
+                sentence_start = i + 1
+
+        i += 1
+
+    # Whatever remains goes back to the buffer
+    remaining = remaining[sentence_start:].strip()
+
+    return sentences, remaining
+
+
+def is_inside_think_block(text: str) -> bool:
+    """
+    Check if text ends inside an unclosed <think> block.
+
+    Args:
+        text: Text to check
+
+    Returns:
+        True if inside <think>...</think> block
+    """
+    # Count open and close tags
+    open_count = text.lower().count("<think>")
+    close_count = text.lower().count("</think>")
+    return open_count > close_count
+
+
+def strip_think_content_streaming(text: str) -> str:
+    """
+    Remove content inside <think> blocks for streaming TTS.
+
+    Unlike strip_thinking_blocks(), this handles partial blocks
+    that may span multiple streaming chunks.
+
+    Args:
+        text: Text that may contain <think> blocks
+
+    Returns:
+        Text with <think> content removed
+    """
+    # Remove complete <think>...</think> blocks
+    result = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    # Remove any remaining <think> or </think> tags (partial blocks)
+    result = re.sub(r'</?think>', '', result, flags=re.IGNORECASE)
+    return result.strip()
+
+
 def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> bool:
     """
     Synchronous Edge TTS wrapper - runs in separate event loop.
@@ -619,27 +828,37 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
 
     try:
         audio_url = None
+        loop = asyncio.get_running_loop()
 
         if "XTTS" in tts_engine:
             # XTTS v2 (local via Docker) - voice cloning TTS
             # Supports custom voices (★ prefix) and built-in speakers
             # Speed is applied via ffmpeg post-processing (XTTS generates at fixed rate)
-            audio_url = generate_speech_xtts(text, 1.0, voice_choice, language="de")
+            # Run in thread pool to avoid blocking event loop during HTTP call
+            audio_url = await loop.run_in_executor(
+                None, generate_speech_xtts, text, 1.0, voice_choice, "de"
+            )
         elif "Piper" in tts_engine:
             # Piper TTS (local) - synchronous subprocess call
             # Use Piper-specific voice, fallback to first available if not found
             if voice_choice not in PIPER_VOICES:
                 voice_choice = list(PIPER_VOICES.keys())[0] if PIPER_VOICES else "Deutsch (Thorsten)"
                 log_message(f"⚠️ TTS: Voice not available for Piper, using: {voice_choice}")
-            audio_url = generate_speech_piper(text, speed_choice, voice_choice)
+            # Run in thread pool to avoid blocking event loop
+            audio_url = await loop.run_in_executor(
+                None, generate_speech_piper, text, speed_choice, voice_choice
+            )
         elif "eSpeak" in tts_engine:
             # eSpeak TTS (local, robotic) - synchronous subprocess call
             if voice_choice not in ESPEAK_VOICES:
                 voice_choice = list(ESPEAK_VOICES.keys())[0] if ESPEAK_VOICES else "Deutsch (Roboter)"
                 log_message(f"⚠️ TTS: Voice not available for eSpeak, using: {voice_choice}")
-            audio_url = generate_speech_espeak(text, speed_choice, voice_choice)
+            # Run in thread pool to avoid blocking event loop
+            audio_url = await loop.run_in_executor(
+                None, generate_speech_espeak, text, speed_choice, voice_choice
+            )
         else:
-            # Edge TTS (Cloud) - async API call
+            # Edge TTS (Cloud) - async API call (already non-blocking)
             rate = f"+{int((speed_choice - 1.0) * 100)}%"
             # Use Edge-specific voice, fallback if not found
             voice_id = EDGE_TTS_VOICES.get(voice_choice, "de-DE-KatjaNeural")
@@ -650,8 +869,9 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
         if audio_url and abs(pitch - 1.0) >= 0.01:
             filename = audio_url.split("/")[-1]
             local_path = str(TTS_AUDIO_DIR / filename)
-            apply_audio_adjustments(local_path, pitch=pitch, speed=1.0)
-            # URL stays the same, file was modified in-place
+            await loop.run_in_executor(
+                None, apply_audio_adjustments, local_path, pitch, 1.0
+            )
 
         return audio_url
 
