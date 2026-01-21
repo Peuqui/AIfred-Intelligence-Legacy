@@ -788,6 +788,146 @@ async def run_calibration():
 
 
 # ============================================================
+# TTS Queue for Streaming Audio (SSE + Polling Endpoints)
+# ============================================================
+
+# Global TTS queue storage: {session_id: {"queue": [...], "version": int}}
+_tts_queue_storage: Dict[str, Dict[str, Any]] = {}
+
+# Global asyncio.Queue per session for SSE streaming
+# When audio is pushed, it goes to both storage (for polling) and queue (for SSE)
+_tts_sse_queues: Dict[str, asyncio.Queue] = {}
+
+
+class TTSQueueResponse(BaseModel):
+    """Response for TTS queue polling"""
+    queue: List[str] = Field(default_factory=list, description="Audio URLs to play")
+    version: int = Field(default=0, description="Queue version for change detection")
+    playback_rate: str = Field(default="1.0x", description="Playback speed")
+
+
+def tts_queue_push(session_id: str, audio_url: str, playback_rate: str = "1.0x") -> None:
+    """
+    Push audio URL to TTS queue (called from state.py create_task).
+
+    This is the bridge between asyncio.create_task (which can't update Reflex state)
+    and the frontend (via SSE stream or polling).
+    """
+    if session_id not in _tts_queue_storage:
+        _tts_queue_storage[session_id] = {"queue": [], "version": 0, "playback_rate": "1.0x"}
+
+    storage = _tts_queue_storage[session_id]
+    storage["queue"].append(audio_url)
+    storage["version"] += 1
+    storage["playback_rate"] = playback_rate
+    log_message(f"🔊 TTS API: Pushed {audio_url.split('/')[-1]} to session {session_id[:8]}... (v{storage['version']})")
+
+    # Also push to SSE queue if listener is connected
+    if session_id in _tts_sse_queues:
+        try:
+            _tts_sse_queues[session_id].put_nowait({
+                "audio_url": audio_url,
+                "version": storage["version"],
+                "playback_rate": playback_rate
+            })
+            log_message(f"🔊 TTS SSE: Queued for stream")
+        except asyncio.QueueFull:
+            log_message(f"⚠️ TTS SSE: Queue full, skipping")
+
+
+def tts_queue_clear(session_id: str) -> None:
+    """Clear TTS queue for session (called at start of new message)."""
+    if session_id in _tts_queue_storage:
+        _tts_queue_storage[session_id] = {"queue": [], "version": 0, "playback_rate": "1.0x"}
+        log_message(f"🔊 TTS API: Cleared queue for session {session_id[:8]}...")
+
+
+@api_app.get("/tts/queue/{session_id}", response_model=TTSQueueResponse, tags=["TTS"])
+async def get_tts_queue(session_id: str, since_version: int = 0):
+    """
+    Get TTS audio queue for streaming playback.
+
+    The frontend polls this endpoint to get new audio URLs.
+    Use since_version to only get updates since last poll.
+    """
+    if session_id not in _tts_queue_storage:
+        return TTSQueueResponse(queue=[], version=0, playback_rate="1.0x")
+
+    storage = _tts_queue_storage[session_id]
+
+    # Only return if there are new items
+    if storage["version"] <= since_version:
+        return TTSQueueResponse(queue=[], version=storage["version"], playback_rate=storage["playback_rate"])
+
+    return TTSQueueResponse(
+        queue=storage["queue"],
+        version=storage["version"],
+        playback_rate=storage["playback_rate"]
+    )
+
+
+@api_app.delete("/tts/queue/{session_id}", tags=["TTS"])
+async def clear_tts_queue(session_id: str):
+    """Clear TTS queue for session."""
+    tts_queue_clear(session_id)
+    return {"status": "ok", "message": "Queue cleared"}
+
+
+@api_app.get("/tts/stream/{session_id}", tags=["TTS"])
+async def tts_stream(session_id: str):
+    """
+    Server-Sent Events (SSE) endpoint for real-time TTS audio streaming.
+
+    Browser opens this connection once. Server pushes audio URLs immediately
+    when they become available - no polling needed.
+    """
+    from fastapi.responses import StreamingResponse
+    import json
+
+    async def event_generator():
+        # Create queue for this session
+        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        _tts_sse_queues[session_id] = queue
+        log_message(f"🔊 TTS SSE: Stream opened for session {session_id[:8]}...")
+
+        try:
+            while True:
+                try:
+                    # Wait for next audio item (with timeout for keepalive)
+                    item = await asyncio.wait_for(queue.get(), timeout=15.0)
+
+                    # Send audio URL as SSE event
+                    data = json.dumps(item)
+                    yield f"data: {data}\n\n"
+                    log_message(f"🔊 TTS SSE: Sent {item['audio_url'].split('/')[-1]}")
+
+                except asyncio.TimeoutError:
+                    # Send keepalive comment (SSE spec: lines starting with : are comments)
+                    yield ": keepalive\n\n"
+
+                except asyncio.CancelledError:
+                    # Client disconnected
+                    log_message(f"🔊 TTS SSE: Stream cancelled for session {session_id[:8]}...")
+                    break
+
+        finally:
+            # Cleanup queue when connection closes
+            if session_id in _tts_sse_queues:
+                del _tts_sse_queues[session_id]
+            log_message(f"🔊 TTS SSE: Stream closed for session {session_id[:8]}...")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
+
+
+# ============================================================
 # Export for api_transformer
 # ============================================================
 

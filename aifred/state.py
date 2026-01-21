@@ -9,6 +9,7 @@ from typing import List, Any, Dict, TypedDict
 import uuid
 import os
 import asyncio
+import json
 from .lib import (
     initialize_debug_log,
     log_message,
@@ -43,6 +44,8 @@ from .lib.multi_agent import (
 )
 
 # ============================================================
+# TTS Audio Broker - Bridge between create_task and Frontend
+# ============================================================
 # TypedDicts for Reflex (foreach requires typed dicts)
 # ============================================================
 
@@ -68,6 +71,9 @@ class ChatMessage(TypedDict):
     # Web research sources (top-level for Reflex UI access - also in metadata for export)
     used_sources: List[Dict[str, Any]]    # [{"url": str, "word_count": int}]
     failed_sources: List[Dict[str, Any]]  # [{"url": str, "error": str, "method": str}]
+    # Audio replay (top-level for Reflex UI access)
+    has_audio: bool  # True if audio_urls is non-empty
+    audio_urls_json: str  # JSON string of audio URLs (for JS playback)
 
 
 # ============================================================
@@ -351,8 +357,11 @@ class AIState(rx.State):
     _tts_in_think_block: bool = False  # True when inside <think>...</think> block
     _tts_streaming_active: bool = False  # True during active streaming session
     _tts_streaming_agent: str = "aifred"  # Current agent for voice selection (aifred/sokrates/salomo)
+    _pending_audio_urls: List[str] = []  # Audio URLs collected during streaming, for message assignment
     tts_regenerating: bool = False  # True while TTS regeneration is in progress (for spinner)
-
+    # TTS Task Tracking - ensures finalize waits for all TTS tasks to complete
+    _pending_tts_requests: List[str] = []  # Request-IDs of TTS tasks in flight (via create_task)
+    _completed_tts_urls: Dict[str, str] = {}  # {request_id: audio_url} - completed TTS results
     # Session Persistence (Cookie-based session identification)
     session_id: str = ""  # Session ID from cookie (32 hex chars)
     session_restored: bool = False  # True if chat history was loaded from session
@@ -1883,14 +1892,26 @@ class AIState(rx.State):
             final_content = f"{content}\n\n{meta_footer}" if meta_footer else content
 
         # 4. Create new message entry (dict-based format)
+        # Include audio URLs if streaming TTS generated them
+        msg_metadata = metadata.copy() if metadata else {}
+        if self._pending_audio_urls:
+            msg_metadata["audio_urls"] = self._pending_audio_urls.copy()
+            log_message(f"🔊 add_agent_panel: Stored {len(self._pending_audio_urls)} audio URLs in message metadata")
+            self._pending_audio_urls = []  # Clear after storing
+
+        audio_urls = msg_metadata.get("audio_urls", [])
         new_message: Dict[str, Any] = {
             "role": "assistant",
             "content": final_content,
             "agent": agent,
             "mode": mode,
             "round_num": round_num,
-            "metadata": metadata or {},
-            "timestamp": datetime.now().isoformat()
+            "metadata": msg_metadata,
+            "timestamp": datetime.now().isoformat(),
+            "used_sources": [],
+            "failed_sources": [],
+            "has_audio": bool(audio_urls),
+            "audio_urls_json": json.dumps(audio_urls) if audio_urls else "[]",
         }
 
         # 5. Append to chat_history (no more replace_last!)
@@ -3041,14 +3062,13 @@ class AIState(rx.State):
         # Generate TTS for AIfred's initial response BEFORE Multi-Agent starts
         # This ensures AIfred's voice is heard first, then Sokrates/Salomo follow
         # (Sokrates/Salomo TTS is generated via add_agent_panel() in multi_agent.py)
-        # NOTE: TTS runs as background task to not block next agent's inference
         # SKIP if streaming TTS is enabled - text was already sent sentence-by-sentence
         if self.enable_tts and not self.tts_streaming_enabled:
             agent_tts_enabled = self.tts_agent_voices.get("aifred", {}).get("enabled", True)
             if agent_tts_enabled:
-                # Fire-and-forget: TTS generates in background while next agent starts
-                asyncio.create_task(self._queue_tts_for_agent(ai_text, agent="aifred"))
-                yield  # Update UI (queue version increments when TTS completes)
+                # Wait for TTS to complete so we can update message metadata with audio URL
+                await self._queue_tts_for_agent(ai_text, agent="aifred")
+                yield  # Update UI with audio button (chat_history was reassigned in _queue_tts_for_agent)
 
         if self.multi_agent_mode == "tribunal":
             self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
@@ -3105,6 +3125,11 @@ class AIState(rx.State):
         # Streaming requires AutoPlay - without autoplay, streaming makes no sense (generates but doesn't play)
         if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
             self._init_streaming_tts(agent="aifred")
+            # Clear API queue for this session (new message = new queue)
+            from .lib.api import tts_queue_clear
+            tts_queue_clear(self.session_id)
+            # NOTE: SSE stream is started on page load (custom.js initializeAllObservers)
+            # No need to start it here - it's already listening
 
         # IMPORTANT: Yield immediately so UI shows spinner right away
         yield
@@ -3245,7 +3270,11 @@ class AIState(rx.State):
                 # Store both name and URL for frontend image display
                 "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []
             },
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "used_sources": [],
+            "failed_sources": [],
+            "has_audio": False,
+            "audio_urls_json": "[]",
         })
         # Sync to llm_history (for LLM context - use ORIGINAL user_msg, not display variant)
         self.llm_history.append({"role": "user", "content": user_msg})
@@ -3525,11 +3554,32 @@ class AIState(rx.State):
                             result_data = item["data"]
                             # Unified Dict format - history always included
                             self.chat_history = result_data["history"]
-                            # Clear AI response and user message windows
+
+                            # Clear AI response and user message windows - yield IMMEDIATELY
                             self.current_ai_response = ""
                             self.current_user_message = ""
                             self.is_generating = False
                             yield
+
+                            # Finalize streaming TTS and store audio URLs in message metadata
+                            # (after yield so bubble is visible while waiting for TTS)
+                            if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
+                                # Wait for TTS completion and get combined audio URL
+                                # (TTS tasks run in parallel via create_task, finalize waits for them)
+                                audio_urls = await self._finalize_streaming_tts()
+                                if audio_urls and self.chat_history:
+                                    for i in range(len(self.chat_history) - 1, -1, -1):
+                                        if self.chat_history[i].get("role") == "assistant":
+                                            if "metadata" not in self.chat_history[i]:
+                                                self.chat_history[i]["metadata"] = {}
+                                            self.chat_history[i]["metadata"]["audio_urls"] = audio_urls
+                                            self.chat_history[i]["has_audio"] = True
+                                            self.chat_history[i]["audio_urls_json"] = json.dumps(audio_urls)
+                                            log_message(f"🔊 TTS: Added {len(audio_urls)} audio URLs to message metadata (vision-mode)")
+                                            break
+                                    # Force Reflex to recognize the change by reassigning the list
+                                    self.chat_history = list(self.chat_history)
+                                    yield  # Update UI with audio button
 
                         elif item["type"] == "progress":
                             # Update processing progress
@@ -3687,14 +3737,31 @@ class AIState(rx.State):
                         # Update chat history from result
                         self.chat_history = updated_history
 
-                        # Finalize streaming TTS: send any remaining text in buffer
-                        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
-                            self._finalize_streaming_tts()
-
-                        # Clear streaming box
+                        # Clear streaming box and yield IMMEDIATELY so bubble appears
                         self.current_ai_response = ""
                         self.current_user_message = ""
                         yield
+
+                        # Finalize streaming TTS: wait for all tasks to complete
+                        # (TTS tasks run in parallel via create_task, finalize waits for them)
+                        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
+                            audio_urls = await self._finalize_streaming_tts()
+
+                            # Add audio URLs to the last assistant message in chat_history
+                            if audio_urls and self.chat_history:
+                                # Find last assistant message and add audio_urls to metadata
+                                for i in range(len(self.chat_history) - 1, -1, -1):
+                                    if self.chat_history[i].get("role") == "assistant":
+                                        if "metadata" not in self.chat_history[i]:
+                                            self.chat_history[i]["metadata"] = {}
+                                        self.chat_history[i]["metadata"]["audio_urls"] = audio_urls
+                                        self.chat_history[i]["has_audio"] = True
+                                        self.chat_history[i]["audio_urls_json"] = json.dumps(audio_urls)
+                                        log_message(f"🔊 TTS: Added {len(audio_urls)} audio URLs to message metadata")
+                                        break
+                                # Force Reflex to recognize the change by reassigning the list
+                                self.chat_history = list(self.chat_history)
+                                yield  # Update UI with audio button
 
                         # Multi-Agent analysis (if enabled)
                         async for _ in self._maybe_run_multi_agent(
@@ -4103,10 +4170,30 @@ class AIState(rx.State):
                         self.llm_history = result_data["llm_history"]
                     ai_text = result_data["response_clean"]
 
-                    # Clear streaming buffer IMMEDIATELY after history update
+                    # Clear streaming buffer IMMEDIATELY after history update - yield first
                     # (prevents double bubble: streaming + history showing same content)
                     self.current_ai_response = ""
                     yield
+
+                    # Finalize streaming TTS and store audio URLs in message metadata
+                    # (TTS tasks run in parallel via create_task, finalize waits for them)
+                    if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
+                        audio_urls = await self._finalize_streaming_tts()
+
+                        # Add audio URLs to the last assistant message
+                        if audio_urls and self.chat_history:
+                            for i in range(len(self.chat_history) - 1, -1, -1):
+                                if self.chat_history[i].get("role") == "assistant":
+                                    if "metadata" not in self.chat_history[i]:
+                                        self.chat_history[i]["metadata"] = {}
+                                    self.chat_history[i]["metadata"]["audio_urls"] = audio_urls
+                                    self.chat_history[i]["has_audio"] = True
+                                    self.chat_history[i]["audio_urls_json"] = json.dumps(audio_urls)
+                                    log_message(f"🔊 TTS: Added {len(audio_urls)} audio URLs to message metadata (none-mode)")
+                                    break
+                            # Force Reflex to recognize the change by reassigning the list
+                            self.chat_history = list(self.chat_history)
+                            yield  # Update UI with audio button
 
                     # Multi-Agent analysis (if enabled)
                     async for _ in self._maybe_run_multi_agent(
@@ -4154,6 +4241,7 @@ class AIState(rx.State):
 
         finally:
             self.is_generating = False
+            # NOTE: TTS polling stops automatically via data-polling attribute (MutationObserver)
             # Clear pending images after sending
             if len(self.pending_images) > 0:
                 self.clear_pending_images()
@@ -4179,11 +4267,10 @@ class AIState(rx.State):
                                 agent = agent_match.group(1).lower()
                                 ai_response = ai_response[agent_match.end():]
                             if ai_response and ai_response.strip():
-                                # Generate TTS as background task (non-blocking)
-                                # This allows title generation to start in parallel
-                                # State changes propagate to frontend when task completes
-                                asyncio.create_task(self._generate_tts_for_response(ai_response, agent=agent))
-                                # Don't yield here - let title generation proceed immediately
+                                # Generate TTS and wait for completion
+                                # This allows audio URL to be added to message metadata
+                                await self._generate_tts_for_response(ai_response, agent=agent)
+                                yield  # Update UI with audio button
                             else:
                                 self.add_debug("⚠️ TTS: Enabled but no AI response to convert")
                                 console_separator()
@@ -4268,6 +4355,16 @@ class AIState(rx.State):
                     self.add_debug(f"🗑️ {deleted} session image(s) deleted")
             except Exception as e:
                 self.add_debug(f"⚠️ Image cleanup failed: {e}")
+
+        # Session-Audio aufräumen (data/audio/{session_id}/)
+        if self.session_id:
+            from .lib.audio_processing import cleanup_session_audio
+            try:
+                deleted = cleanup_session_audio(self.session_id)
+                if deleted > 0:
+                    self.add_debug(f"🗑️ {deleted} session audio file(s) deleted")
+            except Exception as e:
+                self.add_debug(f"⚠️ Audio cleanup failed: {e}")
 
         # Clear Web-Quellen State (Sources Collapsible)
         self.used_sources = []
@@ -4532,8 +4629,10 @@ class AIState(rx.State):
             self.new_session()
             self.add_debug(f"✅ Logged in as: {self.logged_in_user} (new)")
 
-        # Save username to cookie
-        return rx.call_script(set_username_script(self.logged_in_user))
+        # Save username to cookie + start TTS SSE stream
+        # Combined into one script execution for simplicity
+        combined_script = set_username_script(self.logged_in_user) + f"; if(window.startTtsStream) startTtsStream('{self.session_id}');"
+        return rx.call_script(combined_script)
 
     def do_register(self):
         """Attempt to create new account."""
@@ -4564,8 +4663,9 @@ class AIState(rx.State):
         self.new_session()
         self.add_debug(f"✅ Account created: {self.logged_in_user}")
 
-        # Save username to cookie
-        return rx.call_script(set_username_script(self.logged_in_user))
+        # Save username to cookie + start TTS SSE stream
+        combined_script = set_username_script(self.logged_in_user) + f"; if(window.startTtsStream) startTtsStream('{self.session_id}');"
+        return rx.call_script(combined_script)
 
     def do_logout(self):
         """Log out current user."""
@@ -5319,6 +5419,9 @@ class AIState(rx.State):
 
             console_separator()  # File log
             self.debug_messages.append("────────────────────")  # UI
+
+            # Start TTS SSE stream for this session
+            return rx.call_script(f"if(window.startTtsStream) startTtsStream('{self.session_id}');")
         else:
             # No valid username - show login dialog
             self.login_dialog_open = True
@@ -6113,7 +6216,10 @@ class AIState(rx.State):
         Note: This is a simple async function, NOT a generator. State updates happen directly.
         """
         try:
-            from .lib.audio_processing import clean_text_for_tts, generate_tts
+            from .lib.audio_processing import clean_text_for_tts, generate_tts, set_tts_agent
+
+            # Set agent name for audio filename prefixing
+            set_tts_agent(agent)
 
             # Clean text: Remove <think> tags, emojis, markdown, URLs, timing info
             clean_text = clean_text_for_tts(ai_response)
@@ -6173,13 +6279,38 @@ class AIState(rx.State):
                     # Set browser playback rate from agent speed setting
                     self.tts_playback_rate = f"{speed_value}x"
                     self.add_debug(f"🔊 TTS: Playback rate set to {speed_value}x")
-                    # Store audio URL for playback
+                    # Store audio URL for playback (use temporary URL for autoplay)
                     self.tts_audio_path = audio_url
                     # Increment counter to trigger frontend playback via rx.use_effect
                     self.tts_trigger_counter += 1
                     file_size_kb = os.path.getsize(file_path) / 1024
                     self.add_debug(f"✅ TTS: Audio generated ({file_size_kb:.1f} KB) → {audio_url}")
                     self.add_debug(f"🔊 TTS: Trigger counter incremented to {self.tts_trigger_counter}")
+
+                    # Save to session directory for permanent storage (replay button)
+                    from .lib.audio_processing import save_audio_to_session
+                    session_audio_url = save_audio_to_session([audio_url], self.session_id)
+                    if session_audio_url:
+                        log_message(f"🔊 TTS: Saved to session → {session_audio_url}")
+                    else:
+                        # Fall back to temporary URL if session save fails
+                        session_audio_url = audio_url
+
+                    # Update last assistant message with session audio URL (for replay button)
+                    if self.chat_history:
+                        for i in range(len(self.chat_history) - 1, -1, -1):
+                            if self.chat_history[i].get("role") == "assistant":
+                                if "metadata" not in self.chat_history[i]:
+                                    self.chat_history[i]["metadata"] = {}
+                                self.chat_history[i]["metadata"]["audio_urls"] = [session_audio_url]
+                                self.chat_history[i]["has_audio"] = True
+                                self.chat_history[i]["audio_urls_json"] = json.dumps([session_audio_url])
+                                log_message("🔊 TTS: Added audio URL to message metadata")
+                                break
+                        # Force Reflex to recognize the change
+                        self.chat_history = list(self.chat_history)
+                        self._save_current_session()
+
                     # Separator nach TTS-Ausgabe (Log-File + Debug-Konsole)
                     from aifred.lib.logging_utils import console_separator
                     console_separator()  # Schreibt in Log-File
@@ -6206,7 +6337,7 @@ class AIState(rx.State):
             content: The text content to convert to speech (will be cleaned)
             agent: Agent name for per-agent voice settings (aifred, sokrates, salomo)
         """
-        from .lib.audio_processing import clean_text_for_tts, generate_tts
+        from .lib.audio_processing import clean_text_for_tts, generate_tts, set_tts_agent
         from .lib.config import DATA_DIR
         import os
 
@@ -6245,6 +6376,9 @@ class AIState(rx.State):
                     except ValueError:
                         pass
 
+            # Set agent name for audio filename prefixing
+            set_tts_agent(agent)
+
             # Generate TTS audio
             audio_url = await generate_tts(
                 text=clean_text,
@@ -6260,15 +6394,42 @@ class AIState(rx.State):
                 file_path = DATA_DIR / "tts_audio" / filename
 
                 if os.path.exists(file_path):
-                    # Add to queue
+                    # Add to queue (use temporary URL for autoplay)
                     self.tts_audio_queue = self.tts_audio_queue + [audio_url]
                     self.tts_queue_version += 1
+                    # Also add to pending URLs for message metadata assignment
+                    self._pending_audio_urls = self._pending_audio_urls + [audio_url]
                     # Also set tts_audio_path so HTML5 player shows current audio
                     self.tts_audio_path = audio_url
                     # Set browser playback rate from agent speed setting
                     self.tts_playback_rate = f"{speed_value}x"
                     file_size_kb = os.path.getsize(file_path) / 1024
-                    self.add_debug(f"✅ TTS Queue: Added {agent} audio ({file_size_kb:.1f} KB), queue size: {len(self.tts_audio_queue)}")
+                    self.add_debug(f"✅ TTS Queue: Added {agent} audio ({file_size_kb:.1f} KB), queue size: {len(self.tts_audio_queue)}, pending: {len(self._pending_audio_urls)}")
+
+                    # Save to session directory for permanent storage (replay button)
+                    from .lib.audio_processing import save_audio_to_session
+                    session_audio_url = save_audio_to_session([audio_url], self.session_id)
+                    if session_audio_url:
+                        log_message(f"🔊 TTS Queue: Saved to session → {session_audio_url}")
+                    else:
+                        # Fall back to temporary URL if session save fails
+                        session_audio_url = audio_url
+
+                    # Update last assistant message with session audio URL (for replay button)
+                    # This is needed for Non-Streaming TTS where audio is generated AFTER the message
+                    if self.chat_history:
+                        for i in range(len(self.chat_history) - 1, -1, -1):
+                            if self.chat_history[i].get("role") == "assistant":
+                                if "metadata" not in self.chat_history[i]:
+                                    self.chat_history[i]["metadata"] = {}
+                                self.chat_history[i]["metadata"]["audio_urls"] = [session_audio_url]
+                                self.chat_history[i]["has_audio"] = True
+                                self.chat_history[i]["audio_urls_json"] = json.dumps([session_audio_url])
+                                log_message("🔊 TTS Queue: Added audio URL to message metadata")
+                                break
+                        # Force Reflex to recognize the change
+                        self.chat_history = list(self.chat_history)
+                        self._save_current_session()
                 else:
                     self.add_debug(f"⚠️ TTS Queue: Audio file not found at {file_path}")
             else:
@@ -6303,13 +6464,16 @@ class AIState(rx.State):
         if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
             self._process_streaming_tts_chunk(chunk)
 
-    def _init_streaming_tts(self, agent: str = "aifred") -> None:
+    def _init_streaming_tts(self, agent: str = "aifred"):
         """Initialize streaming TTS state for a new response.
 
         Call this at the start of send_message() when streaming TTS is enabled.
 
         Args:
             agent: Agent name for per-agent voice settings
+
+        Returns:
+            Background event to start TTS broker (if not already running), or None
         """
         log_message(f"🔊 TTS Init: Starting streaming TTS for agent={agent}")
         log_message(f"🔊 TTS Init: enable_tts={self.enable_tts}, tts_streaming_enabled={self.tts_streaming_enabled}, engine={self.tts_engine}")
@@ -6318,44 +6482,81 @@ class AIState(rx.State):
         self._tts_streaming_active = True
         self._tts_streaming_agent = agent  # Store current agent for voice settings
         log_message("🔊 TTS Init: State initialized, ready for chunks")
+        # NOTE: No broker needed - frontend polls API directly via startTtsPolling()
+    async def _finalize_streaming_tts(self) -> list[str]:
+        """Wait for TTS tasks to complete and return combined audio URL.
 
-    def _finalize_streaming_tts(self) -> None:
-        """Finalize streaming TTS, sending any remaining text in the buffer.
+        With create_task(), TTS generation runs truly in parallel. This function
+        waits for all pending tasks to complete (or timeout), then collects
+        all generated audio URLs.
 
-        Call this at the end of send_message() to flush the buffer.
+        Returns:
+            List with single combined audio URL, or empty list if no audio
         """
         if not self._tts_streaming_active:
             log_message("🔊 TTS Finalize: Not active, skipping")
-            return
+            return []
 
-        log_message(f"🔊 TTS Finalize: Buffer has {len(self._tts_sentence_buffer)} chars")
-        log_message(f"🔊 TTS Finalize: Buffer content: {repr(self._tts_sentence_buffer)}")
-
-        # Send any remaining text in the buffer
+        # Process any remaining buffer content
         if self._tts_sentence_buffer and len(self._tts_sentence_buffer.strip()) >= 10:
-            # Final buffer content - send even if not a complete sentence
             agent = getattr(self, '_tts_streaming_agent', 'aifred')
-            log_message(f"🔊 TTS Finalize: Sending remaining buffer to TTS (agent={agent})")
-            try:
-                import asyncio
-                loop = asyncio.get_running_loop()
-                loop.create_task(self._queue_tts_for_sentence(self._tts_sentence_buffer, agent))
-            except RuntimeError as e:
-                log_message(f"🔊 TTS Finalize: RuntimeError - {e}")
-        else:
-            log_message("🔊 TTS Finalize: Buffer too short or empty, not sending")
+            request_id = f"tts_{uuid.uuid4().hex[:8]}"
+            self._pending_tts_requests = self._pending_tts_requests + [request_id]
+            log_message(f"🔊 TTS Finalize: Adding remaining buffer ({len(self._tts_sentence_buffer)} chars)")
+            asyncio.create_task(self._tts_generate_sentence_async(
+                self._tts_sentence_buffer, agent, request_id, self.session_id
+            ))
+            self._tts_sentence_buffer = ""
 
-        # Reset streaming state
+        # Wait for all pending TTS tasks to complete
+        log_message(f"🔊 TTS Finalize: Waiting for {len(self._pending_tts_requests)} pending tasks...")
+        max_wait = 60  # Max 60 seconds - TTS can be slow for long sentences
+        wait_interval = 0.2  # Check every 200ms
+        waited = 0
+        while self._pending_tts_requests and waited < max_wait:
+            await asyncio.sleep(wait_interval)
+            waited += wait_interval
+            if waited % 2.0 < wait_interval:  # Log every 2 seconds
+                log_message(f"🔊 TTS Finalize: Still waiting... pending={len(self._pending_tts_requests)}, completed={len(self._completed_tts_urls)}, waited={waited:.1f}s")
+
+        if self._pending_tts_requests:
+            log_message(f"🔊 TTS Finalize: ⚠️ Timeout! {len(self._pending_tts_requests)} tasks still pending after {max_wait}s")
+        else:
+            log_message(f"🔊 TTS Finalize: ✅ All {len(self._completed_tts_urls)} tasks completed in {waited:.1f}s")
+
+        # Collect completed URLs
+        completed_urls = list(self._completed_tts_urls.values())
+        log_message(f"🔊 TTS Finalize: {len(completed_urls)} audio chunks collected")
+
+        # Save audio to session directory (permanent storage)
+        # - Single chunk: copies to session dir
+        # - Multiple chunks: concatenates to session dir
+        # Original chunks stay in tts_audio/ for browser autoplay, 24h cleanup handles them
+        combined_url: str | None = None
+        if completed_urls:
+            from .lib.audio_processing import save_audio_to_session
+            combined_url = save_audio_to_session(completed_urls, self.session_id)
+            if combined_url:
+                log_message(f"🔊 TTS Finalize: Saved to session → {combined_url}")
+
+        # Reset streaming state and handshake tracking
         self._tts_sentence_buffer = ""
         self._tts_in_think_block = False
         self._tts_streaming_active = False
+        self._pending_tts_requests = []
+        self._completed_tts_urls = {}
+        self._pending_audio_urls = []  # Legacy field - keep in sync
         log_message("🔊 TTS Finalize: State reset complete")
+
+        # Return as list for backward compatibility
+        return [combined_url] if combined_url else []
 
     def _process_streaming_tts_chunk(self, chunk: str) -> None:
         """Process a streaming chunk for sentence-based TTS.
 
         This is called for each content chunk during LLM streaming.
-        When a complete sentence is detected, it's sent to TTS immediately.
+        When a complete sentence is detected, TTS generation starts IMMEDIATELY
+        via asyncio.create_task() - runs truly in parallel with streaming.
 
         Args:
             chunk: Text chunk from LLM streaming
@@ -6397,7 +6598,7 @@ class AIState(rx.State):
             for i, s in enumerate(sentences):
                 log_message(f"🔊 TTS Chunk: Sentence {i+1}: {repr(s)}")
 
-        # Send each complete sentence to TTS
+        # Send each complete sentence to TTS IMMEDIATELY via create_task
         agent = getattr(self, '_tts_streaming_agent', 'aifred')
         for sentence in sentences:
             # Skip very short sentences
@@ -6405,29 +6606,35 @@ class AIState(rx.State):
                 log_message(f"🔊 TTS Chunk: Skipping short sentence ({len(sentence)} chars)")
                 continue
 
-            log_message(f"🔊 TTS Chunk: Queuing sentence for TTS (agent={agent}): {repr(sentence)}")
-            # Fire-and-forget: send to TTS queue
-            try:
-                import asyncio
-                loop = asyncio.get_running_loop()
-                loop.create_task(self._queue_tts_for_sentence(sentence, agent))
-            except RuntimeError as e:
-                # No event loop - shouldn't happen in normal operation
-                log_message(f"🔊 TTS Chunk: RuntimeError - {e}")
+            log_message(f"🔊 TTS Chunk: Starting TTS task for (agent={agent}): {repr(sentence)}")
+            # Track pending request
+            request_id = f"tts_{uuid.uuid4().hex[:8]}"
+            self._pending_tts_requests = self._pending_tts_requests + [request_id]
+            log_message(f"🔊 TTS Chunk: Created request {request_id}, pending={len(self._pending_tts_requests)}")
+            # Start TTS generation IMMEDIATELY in parallel - no waiting!
+            # Pass session_id for API-based queue push (create_task can't use Reflex state)
+            session_id = self.session_id
+            asyncio.create_task(self._tts_generate_sentence_async(sentence, agent, request_id, session_id))
 
-    async def _queue_tts_for_sentence(self, sentence: str, agent: str) -> None:
-        """Generate TTS for a single sentence and add to queue.
+    async def _tts_generate_sentence_async(self, sentence: str, agent: str, request_id: str, session_id: str) -> None:
+        """Generate TTS for a single sentence - runs in parallel via create_task.
 
-        Similar to _queue_tts_for_agent but optimized for streaming:
-        - Minimal text cleanup (sentence is already clean)
-        - No think-block stripping (already done)
-        - Faster turnaround
+        This is a plain async function called via asyncio.create_task() from
+        _process_streaming_tts_chunk(). It runs truly in parallel with streaming,
+        without waiting for event handler completion.
+
+        Since create_task runs outside Reflex's event system, we can't use
+        `async with self:` to push state. Instead, we push to a global API queue
+        that the frontend polls via HTTP.
 
         Args:
             sentence: Clean sentence text to synthesize
-            agent: Agent name for per-agent voice settings
+            agent: Agent name for per-agent voice settings and filename prefix
+            request_id: Unique ID for tracking (removed from pending on completion)
+            session_id: Session ID for API-based queue push
         """
         from .lib.audio_processing import clean_text_for_tts, generate_tts
+        from .lib.api import tts_queue_push
         from .lib.config import DATA_DIR
         import os
 
@@ -6436,15 +6643,19 @@ class AIState(rx.State):
             clean_text = clean_text_for_tts(sentence)
 
             if not clean_text or len(clean_text.strip()) < 5:
+                # Remove request from pending for skipped sentences
+                self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
                 return
 
-            # Get voice settings for agent
+            # Read voice settings (snapshot for this task)
             voice_choice = self.tts_voice
             pitch_value = float(self.tts_pitch) if self.tts_pitch else 1.0
             speed_value = 1.0
+            tts_engine = self.tts_engine
+            tts_agent_voices = dict(self.tts_agent_voices)  # Copy to avoid issues
 
-            if agent in self.tts_agent_voices:
-                agent_settings = self.tts_agent_voices[agent]
+            if agent in tts_agent_voices:
+                agent_settings = tts_agent_voices[agent]
                 agent_voice = agent_settings.get("voice", "")
                 agent_pitch = agent_settings.get("pitch", "")
                 agent_speed = agent_settings.get("speed", "")
@@ -6462,16 +6673,17 @@ class AIState(rx.State):
                     except ValueError:
                         pass
 
-            # Generate TTS audio
-            log_message(f"🔊 TTS Generate: Calling generate_tts() for: {repr(clean_text)}")
-            log_message(f"🔊 TTS Generate: voice={voice_choice}, speed={speed_value}, pitch={pitch_value}, engine={self.tts_engine}")
+            # Generate TTS audio (this is the slow part - runs in parallel)
+            log_message(f"🔊 TTS Generate: Calling generate_tts() for agent={agent}: {repr(clean_text)}")
+            log_message(f"🔊 TTS Generate: voice={voice_choice}, speed={speed_value}, pitch={pitch_value}, engine={tts_engine}")
 
             audio_url = await generate_tts(
                 text=clean_text,
                 voice_choice=voice_choice,
                 speed_choice=speed_value,
-                tts_engine=self.tts_engine,
-                pitch=pitch_value
+                tts_engine=tts_engine,
+                pitch=pitch_value,
+                agent=agent  # Pass agent for correct filename prefix
             )
 
             if audio_url:
@@ -6482,23 +6694,30 @@ class AIState(rx.State):
                 if os.path.exists(file_path):
                     file_size = os.path.getsize(file_path)
                     log_message(f"🔊 TTS Generate: File exists, size={file_size} bytes")
-                    # Set browser playback rate from agent speed setting
-                    # This is read by the queue player in custom.js
-                    self.tts_playback_rate = f"{speed_value}x"
-                    # Add to queue - frontend will play sequentially
-                    self.tts_audio_queue = self.tts_audio_queue + [audio_url]
-                    self.tts_queue_version += 1
-                    log_message(f"🔊 TTS Generate: ✅ Queued {filename} ({len(clean_text)} chars text → {file_size} bytes audio)")
-                    log_message(f"🔊 TTS Generate: Queue now has {len(self.tts_audio_queue)} items, version={self.tts_queue_version}, speed={speed_value}x")
+
+                    # Push to API queue (frontend polls this)
+                    # This works from create_task because it's a plain function, not Reflex state
+                    playback_rate = f"{speed_value}x"
+                    tts_queue_push(session_id, audio_url, playback_rate)
+                    log_message(f"🔊 TTS Generate: ✅ Pushed {filename} to API queue ({len(clean_text)} chars → {file_size} bytes)")
+
+                    # Track completion locally (for finalize to know when all tasks done)
+                    self._completed_tts_urls = {**self._completed_tts_urls, request_id: audio_url}
+                    self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
+                    log_message(f"🔊 TTS Generate: pending_requests={len(self._pending_tts_requests)}")
                 else:
                     log_message(f"🔊 TTS Generate: ⚠️ File does not exist: {file_path}")
+                    self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
             else:
                 log_message("🔊 TTS Generate: ⚠️ No audio_url returned from generate_tts()")
+                self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
 
         except Exception as e:
             log_message(f"❌ TTS Stream Error: {e}")
             import traceback
             log_message(f"❌ TTS Stream Traceback: {traceback.format_exc()}")
+            # Remove request from pending on error
+            self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
 
     async def load_default_settings(self):
         """Load default settings from config.py and apply them to state"""

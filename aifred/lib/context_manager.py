@@ -930,7 +930,9 @@ async def summarize_history_if_needed(
                 "summary_number": summary_number,
                 "message_count": non_summary_compressed,
             },
-            "timestamp": datetime.datetime.now().isoformat()
+            "timestamp": datetime.datetime.now().isoformat(),
+            "has_audio": False,
+            "audio_urls_json": "[]"
         }
 
         # ============================================================

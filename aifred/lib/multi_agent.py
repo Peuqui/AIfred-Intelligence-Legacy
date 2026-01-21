@@ -259,8 +259,9 @@ async def _stream_sokrates_to_history(
             token_count = metrics.get("tokens_generated", token_count)
 
     # Finalize streaming TTS: send any remaining text in buffer
+    audio_urls: list[str] = []
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-        state._finalize_streaming_tts()
+        audio_urls = await state._finalize_streaming_tts()
 
     # Calculate final metrics
     inference_time = timer.elapsed()
@@ -269,6 +270,8 @@ async def _stream_sokrates_to_history(
     # Log completion metrics (include chars for complete info)
     log_message(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
     state.add_debug(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+    if audio_urls:
+        log_message(f"🔊 Sokrates: {len(audio_urls)} audio URLs collected for message")
 
     metadata = format_metadata(
         f"TTFT: {format_number(ttft, 2)}s    "
@@ -296,7 +299,8 @@ async def _stream_sokrates_to_history(
             "tokens": token_count,
             "tok_per_sec": tokens_per_sec,
             "ttft": ttft
-        }
+        },
+        "audio_urls": audio_urls  # For message audio button
     }
 
 
@@ -346,8 +350,9 @@ async def _stream_alfred_refinement(
             token_count = metrics.get("tokens_generated", token_count)
 
     # Finalize streaming TTS: send any remaining text in buffer
+    audio_urls: list[str] = []
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-        state._finalize_streaming_tts()
+        audio_urls = await state._finalize_streaming_tts()
 
     inference_time = timer.elapsed()
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
@@ -355,6 +360,8 @@ async def _stream_alfred_refinement(
     # Log completion metrics (include chars for complete info)
     log_message(f"✅ AIfred Refinement done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
     state.add_debug(f"✅ AIfred Refinement done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+    if audio_urls:
+        log_message(f"🔊 AIfred Refinement: {len(audio_urls)} audio URLs collected for message")
 
     metadata = format_metadata(
         f"TTFT: {format_number(ttft, 2)}s    "
@@ -373,7 +380,8 @@ async def _stream_alfred_refinement(
     yield {
         "text": full_response,
         "metadata": metadata,
-        "metrics": {"time": inference_time, "tokens": token_count, "tok_per_sec": tokens_per_sec, "ttft": ttft}
+        "metrics": {"time": inference_time, "tokens": token_count, "tok_per_sec": tokens_per_sec, "ttft": ttft},
+        "audio_urls": audio_urls  # For message audio button
     }
 
     # Clear streaming state (cleanup)
@@ -428,8 +436,9 @@ async def _stream_salomo_to_history(
             token_count = metrics.get("tokens_generated", token_count)
 
     # Finalize streaming TTS: send any remaining text in buffer
+    audio_urls: list[str] = []
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-        state._finalize_streaming_tts()
+        audio_urls = await state._finalize_streaming_tts()
 
     # Calculate final metrics
     inference_time = timer.elapsed()
@@ -438,6 +447,8 @@ async def _stream_salomo_to_history(
     # Log completion metrics (include chars for complete info)
     log_message(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
     state.add_debug(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+    if audio_urls:
+        log_message(f"🔊 Salomo: {len(audio_urls)} audio URLs collected for message")
 
     metadata = format_metadata(
         f"TTFT: {format_number(ttft, 2)}s    "
@@ -455,7 +466,8 @@ async def _stream_salomo_to_history(
             "tokens": token_count,
             "tok_per_sec": tokens_per_sec,
             "ttft": ttft
-        }
+        },
+        "audio_urls": audio_urls  # For message audio button
     }
 
     # DUAL-HISTORY: Sync Salomo response to llm_history
@@ -660,8 +672,9 @@ async def run_sokrates_direct_response(
                 token_count = metrics.get("tokens_generated", token_count)
 
         # Finalize streaming TTS: send any remaining text in buffer
+        audio_urls: list[str] = []
         if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-            state._finalize_streaming_tts()
+            audio_urls = await state._finalize_streaming_tts()
 
         # Calculate final metrics
         inference_time = timer.elapsed()
@@ -670,6 +683,8 @@ async def run_sokrates_direct_response(
         # Log completion metrics (include chars for complete info)
         log_message(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
         state.add_debug(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+        if audio_urls:
+            log_message(f"🔊 Sokrates Direct: {len(audio_urls)} audio URLs collected for message")
 
         # Format thinking blocks if present
         formatted_response = format_thinking_process(
@@ -687,7 +702,8 @@ async def run_sokrates_direct_response(
                 "ttft": sokrates_ttft,
                 "inference_time": inference_time,
                 "tokens_per_sec": tokens_per_sec,
-                "source": f"Sokrates ({sokrates_model})"
+                "source": f"Sokrates ({sokrates_model})",
+                "audio_urls": audio_urls  # For message audio button
             }
         )
 
@@ -845,8 +861,9 @@ async def run_salomo_direct_response(
                 token_count = metrics.get("tokens_generated", token_count)
 
         # Finalize streaming TTS: send any remaining text in buffer
+        audio_urls: list[str] = []
         if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-            state._finalize_streaming_tts()
+            audio_urls = await state._finalize_streaming_tts()
 
         # Calculate final metrics
         inference_time = timer.elapsed()
@@ -855,6 +872,8 @@ async def run_salomo_direct_response(
         # Log completion metrics (include chars for complete info)
         log_message(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
         state.add_debug(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+        if audio_urls:
+            log_message(f"🔊 Salomo Direct: {len(audio_urls)} audio URLs collected for message")
 
         # Format thinking blocks if present
         formatted_response = format_thinking_process(
@@ -872,7 +891,8 @@ async def run_salomo_direct_response(
                 "ttft": salomo_ttft,
                 "inference_time": inference_time,
                 "tokens_per_sec": tokens_per_sec,
-                "source": f"Salomo ({salomo_model})"
+                "source": f"Salomo ({salomo_model})",
+                "audio_urls": audio_urls  # For message audio button
             }
         )
 
@@ -1106,6 +1126,7 @@ async def run_sokrates_analysis(
             sokrates_response_text = result["text"]
             metadata = result["metadata"]
             metrics = result["metrics"]
+            audio_urls = result.get("audio_urls", [])
 
             # Format <think> tags as collapsible (if present)
             formatted_sokrates = format_thinking_process(
@@ -1127,7 +1148,8 @@ async def run_sokrates_analysis(
                     "ttft": metrics.get("ttft", 0),
                     "inference_time": metrics.get("time", 0),
                     "tokens_per_sec": metrics.get("tok_per_sec", 0),
-                    "source": f"Sokrates ({sokrates_model})"
+                    "source": f"Sokrates ({sokrates_model})",
+                    "audio_urls": audio_urls  # For message audio button
                 },
                 sync_llm_history=False  # Already done by _stream_sokrates_to_history
             )
@@ -1221,6 +1243,7 @@ async def run_sokrates_analysis(
                 salomo_response_text = salomo_result["text"]
                 salomo_metadata = salomo_result["metadata"]
                 salomo_metrics = salomo_result["metrics"]
+                salomo_audio_urls = salomo_result.get("audio_urls", [])
 
                 # Format <think> tags as collapsible
                 formatted_salomo = format_thinking_process(
@@ -1240,7 +1263,8 @@ async def run_sokrates_analysis(
                         "ttft": salomo_metrics.get("ttft", 0),
                         "inference_time": salomo_metrics.get("time", 0),
                         "tokens_per_sec": salomo_metrics.get("tok_per_sec", 0),
-                        "source": f"Salomo ({salomo_model})"
+                        "source": f"Salomo ({salomo_model})",
+                        "audio_urls": salomo_audio_urls  # For message audio button
                     },
                     sync_llm_history=False  # Already done by _stream_salomo_to_history
                 )
@@ -1337,6 +1361,7 @@ async def run_sokrates_analysis(
                     current_answer = alfred_result["text"]
                     alfred_metadata = alfred_result["metadata"]
                     alfred_metrics = alfred_result.get("metrics", {})
+                    alfred_audio_urls = alfred_result.get("audio_urls", [])
 
                     # Format <think> tags as collapsible
                     formatted_alfred = format_thinking_process(
@@ -1357,7 +1382,8 @@ async def run_sokrates_analysis(
                             "ttft": alfred_metrics.get("ttft", 0),
                             "inference_time": alfred_metrics.get("time", 0),
                             "tokens_per_sec": alfred_metrics.get("tok_per_sec", 0),
-                            "source": f"AIfred ({alfred_model})"
+                            "source": f"AIfred ({alfred_model})",
+                            "audio_urls": alfred_audio_urls  # For message audio button
                         },
                         sync_llm_history=False  # Already done by _stream_alfred_refinement
                     )
@@ -1565,6 +1591,7 @@ async def run_tribunal(
             # Extract Sokrates result from final yield
             sokrates_response_text = result["text"]
             metrics = result["metrics"]
+            audio_urls = result.get("audio_urls", [])
 
             formatted_sokrates = format_thinking_process(
                 sokrates_response_text,
@@ -1582,7 +1609,8 @@ async def run_tribunal(
                     "ttft": metrics.get("ttft", 0),
                     "inference_time": metrics.get("time", 0),
                     "tokens_per_sec": metrics.get("tok_per_sec", 0),
-                    "source": f"Sokrates ({sokrates_model})"
+                    "source": f"Sokrates ({sokrates_model})",
+                    "audio_urls": audio_urls  # For message audio button
                 },
                 sync_llm_history=False  # Already done by _stream_sokrates_to_history
             )
@@ -1646,6 +1674,7 @@ async def run_tribunal(
                 # Extract Alfred result from final yield
                 current_answer = alfred_result["text"]
                 alfred_metrics = alfred_result.get("metrics", {})
+                alfred_audio_urls = alfred_result.get("audio_urls", [])
 
                 formatted_alfred = format_thinking_process(
                     current_answer,
@@ -1665,7 +1694,8 @@ async def run_tribunal(
                         "ttft": alfred_metrics.get("ttft", 0),
                         "inference_time": alfred_metrics.get("time", 0),
                         "tokens_per_sec": alfred_metrics.get("tok_per_sec", 0),
-                        "source": f"AIfred ({alfred_model})"
+                        "source": f"AIfred ({alfred_model})",
+                        "audio_urls": alfred_audio_urls  # For message audio button
                     },
                     sync_llm_history=False  # Already done by _stream_alfred_refinement
                 )
@@ -1722,6 +1752,7 @@ async def run_tribunal(
         # Extract Salomo result from final yield
         salomo_response_text = salomo_result["text"]
         salomo_metrics = salomo_result["metrics"]
+        salomo_audio_urls = salomo_result.get("audio_urls", [])
 
         state.add_debug(
             f"👑 Salomo Verdict: {len(salomo_response_text)} chars, "
@@ -1744,7 +1775,8 @@ async def run_tribunal(
                 "ttft": salomo_metrics.get("ttft", 0),
                 "inference_time": salomo_metrics.get("time", 0),
                 "tokens_per_sec": salomo_metrics.get("tok_per_sec", 0),
-                "source": f"Salomo ({salomo_model})"
+                "source": f"Salomo ({salomo_model})",
+                "audio_urls": salomo_audio_urls  # For message audio button
             },
             sync_llm_history=False  # Already done by _stream_salomo_to_history
         )

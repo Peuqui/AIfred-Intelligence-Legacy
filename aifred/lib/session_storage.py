@@ -566,7 +566,7 @@ def update_chat_data(
 
 def delete_session(session_id: str) -> bool:
     """
-    Delete session completely, including associated images.
+    Delete session completely, including associated images and audio.
 
     Args:
         session_id: Session identifier
@@ -583,6 +583,10 @@ def delete_session(session_id: str) -> bool:
         # Also cleanup associated images
         from .vision_utils import cleanup_session_images
         cleanup_session_images(session_id)
+
+        # Also cleanup associated audio
+        from .audio_processing import cleanup_session_audio
+        cleanup_session_audio(session_id)
 
         return True
     except (ValueError, IOError):

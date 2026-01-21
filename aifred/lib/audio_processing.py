@@ -23,11 +23,265 @@ if os.name == 'nt':  # Windows
 else:  # Linux/Mac
     PIPER_BIN = PROJECT_ROOT / "venv" / "bin" / "piper"
 
-# TTS Audio output directory
+# TTS Audio output directory (temporary chunks, 24h cleanup)
 # Located in data/ directory which is excluded from hot-reload
 # Served via /_upload/ endpoint
 TTS_AUDIO_DIR = DATA_DIR / "tts_audio"
 TTS_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+
+# Session audio directory (permanent, deleted with session)
+# Structure: data/audio/{session_id}/
+SESSION_AUDIO_DIR = DATA_DIR / "audio"
+SESSION_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+
+# Current agent for filename prefixing (set by state before TTS calls)
+_current_tts_agent: str = "aifred"
+
+
+def set_tts_agent(agent_name: str) -> None:
+    """Set current agent name for TTS filename prefixing."""
+    global _current_tts_agent
+    _current_tts_agent = agent_name.lower()
+
+
+def _generate_tts_filename(extension: str = "wav") -> str:
+    """
+    Generate TTS audio filename with agent prefix.
+
+    Format: audio_{agent}_{timestamp_ms}.{ext}
+    Example: audio_aifred_1737489600123.wav
+
+    Args:
+        extension: File extension (wav, mp3)
+
+    Returns:
+        Filename string
+    """
+    global _current_tts_agent
+    agent = _current_tts_agent or "aifred"
+    timestamp = int(time.time() * 1000)
+    return f"audio_{agent}_{timestamp}.{extension}"
+
+
+def concatenate_wav_files(wav_urls: list[str], delete_originals: bool = True) -> str | None:
+    """
+    Concatenate multiple WAV files into a single WAV file using ffmpeg.
+
+    Uses ffmpeg because XTTS generates IEEE Float WAV files which Python's
+    wave module cannot read (only supports PCM format).
+
+    Args:
+        wav_urls: List of WAV URLs (format: /_upload/tts_audio/filename.wav)
+        delete_originals: If True, delete the original chunk files after concatenation
+
+    Returns:
+        URL of the combined WAV file, or None on error
+    """
+    if not wav_urls:
+        return None
+
+    if len(wav_urls) == 1:
+        # Only one file, no concatenation needed
+        return wav_urls[0]
+
+    # Convert URLs to file paths
+    file_paths: list[str] = []
+    for url in wav_urls:
+        # URL format: /_upload/tts_audio/filename.wav
+        # File path: TTS_AUDIO_DIR / filename.wav
+        if "/_upload/tts_audio/" in url:
+            filename = url.split("/_upload/tts_audio/")[-1]
+            file_path = str(TTS_AUDIO_DIR / filename)
+            if os.path.exists(file_path):
+                file_paths.append(file_path)
+            else:
+                log_message(f"⚠️ WAV concat: File not found: {file_path}")
+
+    if len(file_paths) < 2:
+        # Not enough files to concatenate
+        return wav_urls[0] if wav_urls else None
+
+    # Generate output filename
+    output_filename = _generate_tts_filename("wav").replace(".wav", "_combined.wav")
+    output_path = str(TTS_AUDIO_DIR / output_filename)
+
+    try:
+        # Use ffmpeg concat filter to join WAV files
+        # This handles IEEE Float format that Python's wave module can't read
+        # Format: ffmpeg -i file1.wav -i file2.wav -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" out.wav
+
+        # Build input arguments
+        input_args = []
+        for fp in file_paths:
+            input_args.extend(["-i", fp])
+
+        # Build filter string: [0:a][1:a][2:a]...concat=n=N:v=0:a=1
+        filter_inputs = "".join(f"[{i}:a]" for i in range(len(file_paths)))
+        filter_str = f"{filter_inputs}concat=n={len(file_paths)}:v=0:a=1"
+
+        cmd = [
+            "ffmpeg", "-y",  # Overwrite output
+            *input_args,
+            "-filter_complex", filter_str,
+            output_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+
+        if result.returncode == 0 and os.path.exists(output_path):
+            log_message(f"✅ WAV concat: {len(file_paths)} files → {output_filename}")
+
+            # Delete original chunk files if requested
+            if delete_originals:
+                for file_path in file_paths:
+                    try:
+                        os.remove(file_path)
+                    except OSError:
+                        pass  # Ignore deletion errors
+
+            return f"/_upload/tts_audio/{output_filename}"
+        else:
+            error_msg = result.stderr.decode()[:200] if result.stderr else "Unknown error"
+            log_message(f"❌ WAV concat ffmpeg error: {error_msg}")
+            return wav_urls[0] if wav_urls else None
+
+    except Exception as e:
+        log_message(f"❌ WAV concat error: {e}")
+        # Return first URL as fallback
+        return wav_urls[0] if wav_urls else None
+
+
+def save_audio_to_session(wav_urls: list[str], session_id: str) -> str | None:
+    """
+    Save TTS audio to session directory for permanent storage.
+
+    For single audio files: copies to session directory
+    For multiple chunks: concatenates and saves to session directory
+
+    Audio in session directory is NOT subject to 24h cleanup.
+    It's deleted when the session is deleted.
+
+    Args:
+        wav_urls: List of WAV URLs (format: /_upload/tts_audio/filename.wav)
+        session_id: Session ID for directory structure
+
+    Returns:
+        URL of the session audio file (/_upload/audio/{session_id}/filename.wav)
+        or None on error
+    """
+    import shutil
+
+    if not wav_urls or not session_id:
+        return None
+
+    # Ensure session audio directory exists
+    session_audio_dir = SESSION_AUDIO_DIR / session_id
+    session_audio_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate output filename
+    output_filename = _generate_tts_filename("wav")
+
+    if len(wav_urls) == 1:
+        # Single file: copy to session directory
+        url = wav_urls[0]
+        if "/_upload/tts_audio/" in url:
+            filename = url.split("/_upload/tts_audio/")[-1]
+            source_path = TTS_AUDIO_DIR / filename
+            if source_path.exists():
+                dest_path = session_audio_dir / output_filename
+                shutil.copy2(str(source_path), str(dest_path))
+                log_message(f"📁 Audio copied to session: {output_filename}")
+                return f"/_upload/audio/{session_id}/{output_filename}"
+            else:
+                log_message(f"⚠️ Audio file not found: {source_path}")
+                return None
+        return None
+
+    # Multiple files: concatenate to session directory
+    file_paths: list[str] = []
+    for url in wav_urls:
+        if "/_upload/tts_audio/" in url:
+            filename = url.split("/_upload/tts_audio/")[-1]
+            file_path = str(TTS_AUDIO_DIR / filename)
+            if os.path.exists(file_path):
+                file_paths.append(file_path)
+            else:
+                log_message(f"⚠️ WAV concat: File not found: {file_path}")
+
+    if len(file_paths) < 2:
+        # Not enough files, fall back to single file handling
+        if file_paths:
+            dest_path = session_audio_dir / output_filename
+            shutil.copy2(file_paths[0], str(dest_path))
+            log_message(f"📁 Audio copied to session: {output_filename}")
+            return f"/_upload/audio/{session_id}/{output_filename}"
+        return wav_urls[0] if wav_urls else None
+
+    # Concatenate using ffmpeg
+    output_path = str(session_audio_dir / output_filename)
+
+    try:
+        # Build ffmpeg command
+        input_args = []
+        for fp in file_paths:
+            input_args.extend(["-i", fp])
+
+        filter_inputs = "".join(f"[{i}:a]" for i in range(len(file_paths)))
+        filter_str = f"{filter_inputs}concat=n={len(file_paths)}:v=0:a=1"
+
+        cmd = [
+            "ffmpeg", "-y",
+            *input_args,
+            "-filter_complex", filter_str,
+            output_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+
+        if result.returncode == 0 and os.path.exists(output_path):
+            log_message(f"✅ Session audio: {len(file_paths)} chunks → {output_filename}")
+            return f"/_upload/audio/{session_id}/{output_filename}"
+        else:
+            error_msg = result.stderr.decode()[:200] if result.stderr else "Unknown error"
+            log_message(f"❌ Session audio ffmpeg error: {error_msg}")
+            return wav_urls[0] if wav_urls else None
+
+    except Exception as e:
+        log_message(f"❌ Session audio error: {e}")
+        return wav_urls[0] if wav_urls else None
+
+
+def cleanup_session_audio(session_id: str) -> int:
+    """
+    Delete all audio files for a session.
+
+    Called when session is deleted.
+    Removes the audio directory under data/audio/{session_id}/.
+
+    Args:
+        session_id: Session identifier
+
+    Returns:
+        Number of files deleted
+    """
+    import shutil
+
+    audio_dir = SESSION_AUDIO_DIR / session_id
+    if not audio_dir.exists():
+        return 0
+
+    # Count files before deletion
+    files = list(audio_dir.glob("*"))
+    count = len(files)
+
+    try:
+        shutil.rmtree(audio_dir)
+        log_message(f"🗑️ Deleted {count} audio file(s) for session {session_id[:8]}...")
+    except OSError as e:
+        log_message(f"⚠️ Could not delete session audio: {e}")
+        return 0
+
+    return count
 
 
 def apply_audio_adjustments(input_file: str, pitch: float = 1.0, speed: float = 1.0) -> str | None:
@@ -402,7 +656,7 @@ async def generate_speech_edge(text, voice, rate="+0%"):
             return None
 
         # Save to uploaded_files/tts_audio/ (served via /_upload/)
-        filename = f"audio_{int(time.time() * 1000)}.mp3"
+        filename = _generate_tts_filename("mp3")
         output_file = str(TTS_AUDIO_DIR / filename)
 
         # Run Edge TTS in separate thread with its own event loop
@@ -457,7 +711,7 @@ def generate_speech_piper(text, speed=1.0, voice_choice="Deutsch (Thorsten)"):
     from .config import PIPER_VOICES, PROJECT_ROOT
 
     # Save to uploaded_files/tts_audio/ (served via /_upload/)
-    filename = f"audio_{int(time.time() * 1000)}.wav"
+    filename = _generate_tts_filename("wav")
     output_file = str(TTS_AUDIO_DIR / filename)
 
     try:
@@ -511,7 +765,7 @@ def generate_speech_espeak(text, speed=1.0, voice_choice="Deutsch (Roboter)"):
     from .config import ESPEAK_VOICES
 
     # Save to uploaded_files/tts_audio/ (served via /_upload/)
-    filename = f"audio_{int(time.time() * 1000)}.wav"
+    filename = _generate_tts_filename("wav")
     output_file = str(TTS_AUDIO_DIR / filename)
 
     try:
@@ -590,7 +844,7 @@ def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Cla
     from .config import XTTS_SERVICE_URL
 
     # Save to data/tts_audio/ (served via /_upload/)
-    filename = f"audio_{int(time.time() * 1000)}.wav"
+    filename = _generate_tts_filename("wav")
     output_file = str(TTS_AUDIO_DIR / filename)
 
     try:
@@ -810,7 +1064,7 @@ def transcribe_audio(audio_path, whisper_model, language="de"):
     return user_text, stt_time
 
 
-async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: float = 1.0):
+async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: float = 1.0, agent: str = "aifred"):
     """
     Generate TTS audio from text (Edge, XTTS, Piper or eSpeak).
 
@@ -820,11 +1074,16 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
         speed_choice: Speed multiplier (e.g. 1.25)
         tts_engine: Engine name (e.g. "Edge TTS (Cloud, best quality)")
         pitch: Pitch factor (0.8 = 20% lower, 1.0 = unchanged, 1.2 = 20% higher)
+        agent: Agent name for filename prefix (e.g. "sokrates", "aifred")
 
     Returns:
         str: Path to generated audio file, or None
     """
     from .config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
+
+    # Set agent for filename generation BEFORE any TTS call
+    # This ensures correct filename even with parallel create_task calls
+    set_tts_agent(agent)
 
     try:
         audio_url = None

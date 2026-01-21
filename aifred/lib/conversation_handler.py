@@ -749,7 +749,7 @@ async def chat_with_vision_pipeline(
     if not backend_url:
         if backend_type == "cloud_api":
             # Cloud API URL is determined by provider in BackendFactory - don't override!
-            log_message(f"📋 Cloud API: URL will be set by provider config")
+            log_message("📋 Cloud API: URL will be set by provider config")
         else:
             backend_url = DEFAULT_OLLAMA_URL
             log_message(f"⚠️ No backend_url provided, using default: {DEFAULT_OLLAMA_URL}")
@@ -760,7 +760,7 @@ async def chat_with_vision_pipeline(
     if backend_type == "cloud_api":
         supports_chat_template = True  # Cloud APIs always support chat format
         intrinsic_num_ctx = 128000     # Most cloud models have 128K+ context
-        log_message(f"📋 Cloud API: assuming chat support, 128K context")
+        log_message("📋 Cloud API: assuming chat support, 128K context")
     else:
         supports_chat_template, intrinsic_num_ctx = await get_vision_model_capabilities(backend_url, vision_model)
 
@@ -1189,7 +1189,9 @@ async def chat_interactive_mode(
                         "mode": "cache_hit",
                         "round_num": 0,
                         "metadata": {"source": "Vector Cache", "cache_time": cache_time_ms},
-                        "timestamp": datetime.datetime.now().isoformat()
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "has_audio": False,
+                        "audio_urls_json": "[]"
                     })
                     # llm_history: answer is already clean (from cache), no metadata
                     answer_clean = strip_thinking_blocks(answer) if answer else ""
@@ -1322,7 +1324,9 @@ async def chat_interactive_mode(
                     "mode": "cache_hit",
                     "round_num": 0,
                     "metadata": {"source": "Vector DB", "cache_time": cache_time},
-                    "timestamp": datetime.datetime.now().isoformat()
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "has_audio": False,
+                    "audio_urls_json": "[]"
                 })
                 # llm_history: answer is already clean (from cache), no metadata
                 answer_clean = strip_thinking_blocks(answer) if answer else ""
@@ -1632,7 +1636,9 @@ async def chat_interactive_mode(
                     "tokens_per_sec": tokens_per_sec,
                     "source": source_label
                 },
-                "timestamp": datetime.datetime.now().isoformat()
+                "timestamp": datetime.datetime.now().isoformat(),
+                "has_audio": False,
+                "audio_urls_json": "[]"
             })
             # llm_history: ai_text is raw LLM output, strip thinking blocks
             ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""

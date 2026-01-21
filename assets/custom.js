@@ -353,6 +353,239 @@ window.setTtsPlaybackRate = setTtsPlaybackRate;
 window.getTtsPlaybackRate = getTtsPlaybackRate;
 
 // ============================================================
+// BUBBLE AUDIO PLAYBACK - Replay audio from chat bubbles
+// ============================================================
+
+/**
+ * Play audio from a chat bubble button
+ * Extracts audio_urls from the button's data attribute and plays the last one
+ * @param {HTMLElement} button - The button element clicked
+ */
+function playBubbleAudioFromButton(button) {
+    if (!button) {
+        console.warn('playBubbleAudioFromButton: No button provided');
+        return;
+    }
+
+    // audio_urls_json is a proper JSON array string
+    const audioUrlsJson = button.dataset.audioUrls;
+    if (!audioUrlsJson) {
+        console.warn('playBubbleAudioFromButton: No audio URLs in data attribute');
+        return;
+    }
+
+    try {
+        const audioUrls = JSON.parse(audioUrlsJson);
+
+        if (!Array.isArray(audioUrls) || audioUrls.length === 0) {
+            console.log('🔊 Bubble Audio: Empty audio URLs array');
+            return;
+        }
+
+        // Play the last audio URL (most complete chunk)
+        const audioUrl = audioUrls[audioUrls.length - 1];
+        console.log('🔊 Bubble Audio: Playing', audioUrl);
+        playBubbleAudio(audioUrl);
+    } catch (e) {
+        console.warn('playBubbleAudioFromButton: Failed to parse JSON:', e, audioUrlsJson);
+    }
+}
+
+// Bubble audio playback state
+let bubbleAudioUrls = [];
+let bubbleAudioIndex = 0;
+let bubbleAudioPlaying = false;
+
+/**
+ * Play all audio URLs from a bubble sequentially
+ * @param {string[]} audioUrls - Array of audio URLs to play
+ */
+function playBubbleAudioAll(audioUrls) {
+    if (!audioUrls || !Array.isArray(audioUrls) || audioUrls.length === 0) {
+        console.warn('playBubbleAudioAll: No audio URLs provided');
+        return;
+    }
+
+    console.log(`🔊 Bubble Audio: Playing ${audioUrls.length} chunks sequentially`);
+
+    // Stop any current playback
+    const player = document.getElementById('tts-audio-player');
+    if (player) {
+        player.pause();
+        player.onended = null;
+    }
+
+    // Stop TTS queue if playing
+    if (ttsQueuePlaying) {
+        console.log('🔊 Bubble Audio: Stopping TTS queue playback');
+        ttsQueuePlaying = false;
+    }
+
+    // Setup bubble playback state
+    bubbleAudioUrls = audioUrls;
+    bubbleAudioIndex = 0;
+    bubbleAudioPlaying = true;
+
+    // Start playing
+    playNextBubbleChunk();
+}
+
+/**
+ * Play the next chunk in the bubble audio sequence
+ */
+function playNextBubbleChunk() {
+    if (bubbleAudioIndex >= bubbleAudioUrls.length || !bubbleAudioPlaying) {
+        bubbleAudioPlaying = false;
+        console.log('🔊 Bubble Audio: Playback complete');
+        return;
+    }
+
+    const audioUrl = bubbleAudioUrls[bubbleAudioIndex];
+    console.log(`🔊 Bubble Audio: Playing chunk ${bubbleAudioIndex + 1}/${bubbleAudioUrls.length}`);
+
+    const player = document.getElementById('tts-audio-player');
+    if (player) {
+        player.src = audioUrl;
+        player.playbackRate = ttsPlaybackRate || 1.0;
+
+        // Play next chunk when current finishes
+        player.onended = () => {
+            bubbleAudioIndex++;
+            // Small pause between chunks for natural rhythm
+            setTimeout(playNextBubbleChunk, 150);
+        };
+
+        player.play()
+            .then(() => console.log(`✅ Bubble Audio: Chunk ${bubbleAudioIndex + 1} started`))
+            .catch(err => {
+                console.warn('⚠️ Bubble Audio: Autoplay blocked:', err.message);
+                bubbleAudioPlaying = false;
+            });
+    } else {
+        // Fallback: Create temporary audio element
+        const audio = new Audio(audioUrl);
+        audio.playbackRate = ttsPlaybackRate || 1.0;
+        audio.onended = () => {
+            bubbleAudioIndex++;
+            setTimeout(playNextBubbleChunk, 150);
+        };
+        audio.play()
+            .catch(err => {
+                console.warn('⚠️ Bubble Audio: Autoplay blocked:', err.message);
+                bubbleAudioPlaying = false;
+            });
+    }
+}
+
+/**
+ * Stop bubble audio playback
+ */
+function stopBubbleAudio() {
+    bubbleAudioPlaying = false;
+    bubbleAudioUrls = [];
+    bubbleAudioIndex = 0;
+    const player = document.getElementById('tts-audio-player');
+    if (player) {
+        player.pause();
+        player.onended = null;
+    }
+    console.log('🔊 Bubble Audio: Stopped');
+}
+
+/**
+ * Play audio from a URL (single URL - legacy compatibility)
+ * @param {string} audioUrl - The URL of the audio file to play
+ */
+function playBubbleAudio(audioUrl) {
+    if (!audioUrl) {
+        console.warn('playBubbleAudio: No audio URL provided');
+        return;
+    }
+    // Delegate to playBubbleAudioAll with single-item array
+    playBubbleAudioAll([audioUrl]);
+}
+
+/**
+ * Initialize bubble audio buttons - hide those without audio URLs
+ * Called after DOM updates to manage button visibility
+ */
+function initBubbleAudioButtons() {
+    const buttons = document.querySelectorAll('.bubble-audio-btn');
+    console.log(`🔊 initBubbleAudioButtons: Found ${buttons.length} buttons`);
+    buttons.forEach((button, idx) => {
+        const audioUrlsJson = button.dataset.audioUrls;
+        console.log(`🔊 Button[${idx}] data-audio-urls:`, audioUrlsJson);
+        if (!audioUrlsJson) {
+            console.log(`🔊 Button[${idx}] → HIDE (no data attribute)`);
+            button.style.display = 'none';
+            return;
+        }
+        try {
+            const audioUrls = JSON.parse(audioUrlsJson);
+            if (!Array.isArray(audioUrls) || audioUrls.length === 0) {
+                console.log(`🔊 Button[${idx}] → HIDE (empty array)`);
+                button.style.display = 'none';
+            } else {
+                console.log(`🔊 Button[${idx}] → SHOW (${audioUrls.length} URLs)`);
+                button.style.display = 'inline-flex';
+                // Attach click handler via JS (Reflex doesn't support native onclick strings)
+                if (!button.dataset.clickAttached) {
+                    button.addEventListener('click', () => {
+                        console.log(`🔊 Button clicked, playing all ${audioUrls.length} URLs`);
+                        playBubbleAudioAll(audioUrls);
+                    });
+                    button.dataset.clickAttached = 'true';
+                }
+            }
+        } catch (e) {
+            console.log(`🔊 Button[${idx}] → HIDE (parse error)`, e);
+            button.style.display = 'none';
+        }
+    });
+}
+
+/**
+ * Play bubble audio from click event (called from Reflex with event object)
+ * @param {Event} event - The click event
+ */
+function playBubbleAudioFromEvent(event) {
+    if (!event || !event.currentTarget) {
+        console.warn('playBubbleAudioFromEvent: No event or currentTarget');
+        return;
+    }
+
+    const button = event.currentTarget;
+    const audioUrlsJson = button.dataset.audioUrls;
+
+    if (!audioUrlsJson) {
+        console.warn('playBubbleAudioFromEvent: No audio URLs in data attribute');
+        return;
+    }
+
+    try {
+        const audioUrls = JSON.parse(audioUrlsJson);
+
+        if (!Array.isArray(audioUrls) || audioUrls.length === 0) {
+            console.log('🔊 Bubble Audio: Empty audio URLs array');
+            return;
+        }
+
+        // Play all audio URLs sequentially
+        console.log(`🔊 Bubble Audio Event: Playing all ${audioUrls.length} URLs`);
+        playBubbleAudioAll(audioUrls);
+    } catch (e) {
+        console.warn('playBubbleAudioFromEvent: Failed to parse JSON:', e, audioUrlsJson);
+    }
+}
+
+window.playBubbleAudioFromButton = playBubbleAudioFromButton;
+window.playBubbleAudio = playBubbleAudio;
+window.playBubbleAudioAll = playBubbleAudioAll;
+window.stopBubbleAudio = stopBubbleAudio;
+window.playBubbleAudioFromEvent = playBubbleAudioFromEvent;
+window.initBubbleAudioButtons = initBubbleAudioButtons;
+
+// ============================================================
 // TTS AUDIO QUEUE - Sequential playback of multiple audio files
 // ============================================================
 
@@ -398,12 +631,17 @@ function updateTtsQueue(queue, version) {
     ttsQueue = [...queue];  // Sync local queue with backend
 
     // If we have new items and not currently playing, start playback
-    // Small delay to allow React to update the data-playback-rate attribute first
-    if (newItems.length > 0 && !ttsQueuePlaying) {
+    // But ONLY if AutoPlay is enabled (check data-autoplay attribute)
+    const queueElement = document.getElementById('tts-queue-data');
+    const autoplayEnabled = queueElement?.dataset?.autoplay === 'true';
+
+    if (newItems.length > 0 && !ttsQueuePlaying && autoplayEnabled) {
         console.log(`🔊 TTS Queue: Starting playback of ${newItems.length} new items (with 50ms delay for DOM sync)`);
         setTimeout(() => {
             playNextInQueue();
         }, 50);
+    } else if (newItems.length > 0 && !autoplayEnabled) {
+        console.log('🔊 TTS Queue: New items received but AutoPlay is OFF - not playing');
     }
 }
 
@@ -520,6 +758,127 @@ function skipTtsQueueItem() {
 window.updateTtsQueue = updateTtsQueue;
 window.clearTtsQueue = clearTtsQueue;
 window.skipTtsQueueItem = skipTtsQueueItem;
+
+// ============================================================
+// TTS SSE STREAM - Server-Sent Events for immediate audio playback
+// ============================================================
+
+let ttsStreamActive = false;
+let ttsEventSource = null;
+let ttsStreamSessionId = null;
+
+/**
+ * Get session ID from cookie
+ */
+function getSessionIdFromCookie() {
+    const name = 'aifred_session_id=';
+    const decodedCookie = decodeURIComponent(document.cookie);
+    const cookies = decodedCookie.split(';');
+    for (let cookie of cookies) {
+        cookie = cookie.trim();
+        if (cookie.indexOf(name) === 0) {
+            return cookie.substring(name.length);
+        }
+    }
+    return null;
+}
+
+/**
+ * Start SSE stream for TTS audio
+ * Called when user starts a message (is_generating becomes true)
+ * Server pushes audio URLs immediately as they're generated
+ * @param {string} sessionIdParam - Optional session ID (if not provided, read from cookie)
+ */
+function startTtsStream(sessionIdParam) {
+    const sessionId = sessionIdParam || getSessionIdFromCookie();
+    if (!sessionId) {
+        console.warn('🔊 TTS SSE: No session ID found');
+        return;
+    }
+
+    if (ttsStreamActive && ttsStreamSessionId === sessionId && ttsEventSource) {
+        console.log('🔊 TTS SSE: Already connected for this session');
+        return;
+    }
+
+    // Close existing connection if any
+    if (ttsEventSource) {
+        ttsEventSource.close();
+        ttsEventSource = null;
+    }
+
+    ttsStreamSessionId = sessionId;
+    ttsStreamActive = true;
+    console.log(`🔊 TTS SSE: Connecting for session ${sessionId.substring(0, 8)}...`);
+
+    // Build SSE URL - use backend port (8002) instead of frontend port
+    // The backend API is mounted at /api, so full path is :8002/api/tts/stream/...
+    const backendPort = 8002;
+    const sseUrl = `${window.location.protocol}//${window.location.hostname}:${backendPort}/api/tts/stream/${sessionId}`;
+    console.log(`🔊 TTS SSE: URL = ${sseUrl}`);
+
+    // Create EventSource connection to SSE endpoint
+    ttsEventSource = new EventSource(sseUrl);
+
+    ttsEventSource.onopen = () => {
+        console.log('🔊 TTS SSE: Connection opened');
+    };
+
+    ttsEventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            console.log(`🔊 TTS SSE: Received audio URL, version ${data.version}`);
+
+            // Add to queue and play immediately
+            if (data.audio_url) {
+                // Build queue incrementally
+                const newQueue = [...ttsQueue, data.audio_url];
+                updateTtsQueue(newQueue, data.version);
+
+                // Update playback rate from SSE data
+                if (data.playback_rate) {
+                    const rate = parseFloat(data.playback_rate.replace('x', ''));
+                    if (!isNaN(rate) && rate > 0) {
+                        ttsPlaybackRate = rate;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('🔊 TTS SSE: Failed to parse event data:', e);
+        }
+    };
+
+    ttsEventSource.onerror = (event) => {
+        if (ttsEventSource.readyState === EventSource.CLOSED) {
+            console.log('🔊 TTS SSE: Connection closed by server');
+        } else {
+            console.warn('🔊 TTS SSE: Connection error, will retry...');
+        }
+    };
+}
+
+/**
+ * Stop TTS SSE stream
+ * Called when generation completes (is_generating becomes false)
+ */
+function stopTtsStream() {
+    if (ttsEventSource) {
+        ttsEventSource.close();
+        ttsEventSource = null;
+    }
+    ttsStreamActive = false;
+    console.log('🔊 TTS SSE: Stopped');
+}
+
+// Legacy aliases for compatibility with existing MutationObserver code
+function startTtsPolling() { startTtsStream(); }
+function stopTtsPolling() { stopTtsStream(); }
+
+// Make SSE functions available globally
+window.startTtsStream = startTtsStream;
+window.stopTtsStream = stopTtsStream;
+window.startTtsPolling = startTtsPolling;  // Legacy alias
+window.stopTtsPolling = stopTtsPolling;    // Legacy alias
 
 // ============================================================
 // TTS AUDIO OBSERVER - Watch for NEW audio elements (React re-mounts)
@@ -679,6 +1038,16 @@ function setupTtsAudioObserver() {
                     console.log('🔊 TTS Observer: Queue data attribute changed');
                     handleQueueDataUpdate(target);
                 }
+                // SSE control (data-polling) - start/stop SSE stream for streaming TTS
+                if (mutation.attributeName === 'data-polling' && target.id === 'tts-queue-data') {
+                    const shouldStream = target.dataset.polling === 'true';
+                    console.log(`🔊 TTS Observer: Streaming attribute changed to ${shouldStream}`);
+                    if (shouldStream && !ttsStreamActive) {
+                        startTtsStream();
+                    } else if (!shouldStream && ttsStreamActive) {
+                        stopTtsStream();
+                    }
+                }
             }
         }
     });
@@ -688,7 +1057,7 @@ function setupTtsAudioObserver() {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['src', 'data-queue', 'data-version', 'data-playback-rate']
+        attributeFilter: ['src', 'data-queue', 'data-version', 'data-playback-rate', 'data-polling']
     });
 
     // Also check if audio element already exists
@@ -703,6 +1072,14 @@ function setupTtsAudioObserver() {
     if (existingQueueData) {
         console.log('🔊 TTS Observer: Found existing queue data element');
         handleQueueDataUpdate(existingQueueData);
+
+        // Also check if SSE should be started (data-polling might already be true)
+        const shouldStream = existingQueueData.dataset.polling === 'true';
+        console.log(`🔊 TTS Observer: Initial polling state = ${shouldStream}`);
+        if (shouldStream && !ttsStreamActive) {
+            console.log('🔊 TTS Observer: Starting SSE stream on init');
+            startTtsStream();
+        }
     }
 
     console.log('🔊 TTS Observer: Document observer active');
@@ -718,10 +1095,48 @@ function initializeAllObservers() {
     // Setup TTS audio observer
     setupTtsAudioObserver();
 
+    // Initialize bubble audio buttons (hide those without audio)
+    initBubbleAudioButtons();
+
+    // NOTE: TTS SSE stream is started by Reflex via rx.call_script("startTtsStream('...')")
+    // when session is loaded (_load_session_by_id) or created (new_session).
+    // No cookie polling needed.
+
     // Retry after 500ms in case elements render later
     setTimeout(() => {
         setupTtsAudioObserver();
+        initBubbleAudioButtons();
     }, 500);
+
+    // Setup a MutationObserver to initialize new bubble audio buttons as they're added
+    const chatObserver = new MutationObserver((mutations) => {
+        let hasNewButtons = false;
+        for (const mutation of mutations) {
+            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                for (const node of mutation.addedNodes) {
+                    if (node.querySelector && node.querySelector('.bubble-audio-btn')) {
+                        hasNewButtons = true;
+                        break;
+                    }
+                    if (node.classList && node.classList.contains('bubble-audio-btn')) {
+                        hasNewButtons = true;
+                        break;
+                    }
+                }
+            }
+            if (hasNewButtons) break;
+        }
+        if (hasNewButtons) {
+            // Debounce initialization
+            setTimeout(initBubbleAudioButtons, 50);
+        }
+    });
+
+    // Observe the document body for new chat bubbles
+    chatObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
 }
 
 // Handle both cases: DOMContentLoaded not yet fired, or already fired

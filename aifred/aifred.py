@@ -1582,6 +1582,32 @@ def render_user_message(msg: dict) -> rx.Component:
     )
 
 
+def render_bubble_audio_button(msg: dict) -> rx.Component:
+    """Render small play button for audio replay.
+
+    KISS: Button wird IMMER gerendert mit display:none.
+    JavaScript (initBubbleAudioButtons) zeigt ihn und bindet click-handler.
+    Das umgeht alle rx.cond Typ-Probleme mit Dict-Feldern.
+    """
+    return rx.el.button(
+        rx.icon("volume-2", size=14),
+        type="button",
+        title="Audio abspielen",
+        **{"data-audio-urls": msg["audio_urls_json"]},
+        class_name="bubble-audio-btn",
+        style={
+            "display": "none",  # JS zeigt Button wenn Audio vorhanden
+            "opacity": "0.6",
+            "cursor": "pointer",
+            "padding": "2px 4px",
+            "background": "transparent",
+            "border": "none",
+            "border_radius": "4px",
+            "align_items": "center",
+        },
+    )
+
+
 def render_assistant_message(msg: dict) -> rx.Component:
     """Render assistant message (left-aligned, styled per agent)"""
     # Check agent type with nested rx.cond
@@ -1592,11 +1618,16 @@ def render_assistant_message(msg: dict) -> rx.Component:
             rx.hstack(
                 rx.text("🏛️", font_size="13px"),
                 rx.box(
-                    rx.text(
-                        "Sokrates",
-                        font_weight="bold",
-                        font_size="12px",
-                        color="#cd7f32",
+                    rx.hstack(
+                        rx.text(
+                            "Sokrates",
+                            font_weight="bold",
+                            font_size="12px",
+                            color="#cd7f32",
+                        ),
+                        render_bubble_audio_button(msg),
+                        spacing="2",
+                        align="center",
                         margin_bottom="1",
                     ),
                     rx.markdown(
@@ -1630,11 +1661,16 @@ def render_assistant_message(msg: dict) -> rx.Component:
                 rx.hstack(
                     rx.text("👑", font_size="13px"),
                     rx.box(
-                        rx.text(
-                            "Salomo",
-                            font_weight="bold",
-                            font_size="12px",
-                            color="#daa520",
+                        rx.hstack(
+                            rx.text(
+                                "Salomo",
+                                font_weight="bold",
+                                font_size="12px",
+                                color="#daa520",
+                            ),
+                            render_bubble_audio_button(msg),
+                            spacing="2",
+                            align="center",
                             margin_bottom="1",
                         ),
                         rx.markdown(
@@ -1665,11 +1701,16 @@ def render_assistant_message(msg: dict) -> rx.Component:
                 rx.hstack(
                     rx.text("🎩", font_size="13px"),
                     rx.box(
-                        rx.text(
-                            "AIfred",
-                            font_weight="bold",
-                            font_size="12px",
-                            color=COLORS["primary"],
+                        rx.hstack(
+                            rx.text(
+                                "AIfred",
+                                font_weight="bold",
+                                font_size="12px",
+                                color=COLORS["primary"],
+                            ),
+                            render_bubble_audio_button(msg),
+                            spacing="2",
+                            align="center",
                             margin_bottom="1",
                         ),
                         # Web sources collapsible (if available)
@@ -3363,26 +3404,26 @@ def settings_accordion() -> rx.Component:
                             ),
                             rx.box(),
                         ),
-                        # Streaming TTS Toggle (only show when TTS AND AutoPlay enabled)
-                        # Streaming without AutoPlay makes no sense (generates audio but doesn't play)
-                        rx.cond(
-                            AIState.enable_tts & AIState.tts_autoplay,
-                            rx.hstack(
-                                rx.text("Streaming", font_size="11px", color="#888"),
-                                rx.switch(
-                                    checked=AIState.tts_streaming_enabled,
-                                    on_change=AIState.toggle_tts_streaming,
-                                    size="1",
-                                ),
-                                rx.text(
-                                    rx.cond(AIState.tts_streaming_enabled, "ON", "OFF"),
-                                    font_size="10px",
-                                    color=rx.cond(AIState.tts_streaming_enabled, "#4CAF50", "#999"),
-                                ),
-                                spacing="1",
-                                align="center",
+                        # Streaming TTS Toggle (always rendered to prevent layout jumping)
+                        # Visibility controlled by opacity - hidden when TTS OFF or AutoPlay OFF
+                        rx.hstack(
+                            rx.text("Streaming", font_size="11px", color="#888"),
+                            rx.switch(
+                                checked=AIState.tts_streaming_enabled,
+                                on_change=AIState.toggle_tts_streaming,
+                                size="1",
+                                disabled=~(AIState.enable_tts & AIState.tts_autoplay),
                             ),
-                            rx.box(),
+                            rx.text(
+                                rx.cond(AIState.tts_streaming_enabled, "ON", "OFF"),
+                                font_size="10px",
+                                color=rx.cond(AIState.tts_streaming_enabled, "#4CAF50", "#999"),
+                            ),
+                            spacing="1",
+                            align="center",
+                            # Hidden but takes space when TTS OFF or AutoPlay OFF
+                            opacity=rx.cond(AIState.enable_tts & AIState.tts_autoplay, "1", "0"),
+                            pointer_events=rx.cond(AIState.enable_tts & AIState.tts_autoplay, "auto", "none"),
                         ),
                         spacing="2",
                         align="center",
@@ -4651,7 +4692,7 @@ console.log('✂️ Crop handler loaded');
         rx.script(crop_js),
 
         # Load custom.js for MediaRecorder and other features (cache-busting version)
-        rx.script(src="/custom.js?v=13"),
+        rx.script(src="/custom.js?v=18"),
 
         # Login Dialog (rendered but hidden until needed)
         login_dialog(),
@@ -4812,7 +4853,8 @@ console.log('✂️ Crop handler loaded');
                         src=AIState.tts_audio_path,
                         id="tts-audio-player",
                         controls=True,
-                        autoPlay=AIState.tts_audio_path != "",  # Only autoplay when path exists
+                        # Only autoplay when AutoPlay is ON and path exists
+                        autoPlay=AIState.tts_autoplay & (AIState.tts_audio_path != ""),
                         key="tts-audio-" + AIState.tts_trigger_counter.to(str),  # Force remount on new audio
                         # Set playback rate from agent settings via data attribute
                         # JavaScript reads this on play event
@@ -4827,11 +4869,18 @@ console.log('✂️ Crop handler loaded');
                     ),
                     # Hidden element for TTS queue data - JavaScript reads this to update local queue
                     # The MutationObserver in custom.js watches for changes to data-queue attribute
+                    # data-polling triggers start/stop of API polling for streaming TTS
                     rx.el.div(
                         id="tts-queue-data",
                         **{
                             "data-queue": AIState.tts_queue_json,
                             "data-version": AIState.tts_queue_version.to(str),
+                            "data-autoplay": rx.cond(AIState.tts_autoplay, "true", "false"),
+                            "data-polling": rx.cond(
+                                AIState.is_generating & AIState.enable_tts & AIState.tts_streaming_enabled,
+                                "true",
+                                "false"
+                            ),
                         },
                         style={"display": "none"},
                     ),
@@ -4948,7 +4997,12 @@ html_preview_dir = DATA_DIR / "html_preview"
 html_preview_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/html_preview", StaticFiles(directory=str(html_preview_dir)), name="html_preview")
 
-# Mount tts_audio directory for TTS playback
+# Mount tts_audio directory for TTS playback (temporary chunks)
 tts_audio_dir = DATA_DIR / "tts_audio"
 tts_audio_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/tts_audio", StaticFiles(directory=str(tts_audio_dir)), name="tts_audio")
+
+# Mount audio directory for permanent session audio (replay button)
+session_audio_dir = DATA_DIR / "audio"
+session_audio_dir.mkdir(parents=True, exist_ok=True)
+app._api.mount("/_upload/audio", StaticFiles(directory=str(session_audio_dir)), name="session_audio")
