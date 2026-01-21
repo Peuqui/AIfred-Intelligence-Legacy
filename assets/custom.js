@@ -609,12 +609,17 @@ function updateTtsQueue(queue, version) {
 
     console.log(`🔊 TTS Queue: Update received - version ${ttsQueueVersion} → ${version}, items ${ttsQueue.length} → ${queue.length}`);
 
-    // Detect queue reset (new queue is shorter or empty)
-    // This happens when user clears chat or starts new conversation
-    if (queue.length < ttsQueue.length || queue.length === 0) {
-        console.log('🔊 TTS Queue: Queue was reset, resetting index and state');
+    // Detect queue reset - this happens when:
+    // 1. Queue becomes shorter or empty (user clears chat)
+    // 2. Version goes DOWN (new inference started, server reset version to 1)
+    const versionReset = version < ttsQueueVersion && ttsQueueVersion > 0;
+    const queueShrunk = queue.length < ttsQueue.length || queue.length === 0;
+
+    if (queueShrunk || versionReset) {
+        console.log(`🔊 TTS Queue: Queue was reset (versionReset=${versionReset}, queueShrunk=${queueShrunk}), resetting index and state`);
         ttsQueueCurrentIndex = 0;
         ttsQueuePlaying = false;
+        ttsQueue = [];  // Clear local queue so new items are treated as fresh
         // Stop current playback if any
         const player = document.getElementById('tts-audio-player');
         if (player) {
@@ -796,9 +801,16 @@ function startTtsStream(sessionIdParam) {
         return;
     }
 
+    // Check if already connected AND connection is still open
     if (ttsStreamActive && ttsStreamSessionId === sessionId && ttsEventSource) {
-        console.log('🔊 TTS SSE: Already connected for this session');
-        return;
+        // EventSource.OPEN = 1, CONNECTING = 0, CLOSED = 2
+        if (ttsEventSource.readyState === EventSource.OPEN || ttsEventSource.readyState === EventSource.CONNECTING) {
+            console.log('🔊 TTS SSE: Already connected for this session');
+            return;
+        } else {
+            // Connection was closed, need to reconnect
+            console.log('🔊 TTS SSE: Previous connection closed, reconnecting...');
+        }
     }
 
     // Close existing connection if any
@@ -831,7 +843,18 @@ function startTtsStream(sessionIdParam) {
 
             // Add to queue and play immediately
             if (data.audio_url) {
-                // Build queue incrementally
+                // Check for version reset BEFORE building queue
+                // Version reset means new inference started - clear old queue first
+                const versionReset = data.version < ttsQueueVersion && ttsQueueVersion > 0;
+                if (versionReset) {
+                    console.log(`🔊 TTS SSE: Version reset detected (${ttsQueueVersion} → ${data.version}), clearing local queue`);
+                    ttsQueue = [];
+                    ttsQueueVersion = 0;
+                    ttsQueueCurrentIndex = 0;
+                    ttsQueuePlaying = false;
+                }
+
+                // Build queue incrementally (now with potentially cleared queue)
                 const newQueue = [...ttsQueue, data.audio_url];
                 updateTtsQueue(newQueue, data.version);
 
@@ -851,8 +874,18 @@ function startTtsStream(sessionIdParam) {
     ttsEventSource.onerror = (event) => {
         if (ttsEventSource.readyState === EventSource.CLOSED) {
             console.log('🔊 TTS SSE: Connection closed by server');
+            // Reset state and attempt reconnect after delay
+            ttsStreamActive = false;
+            ttsEventSource = null;
+            console.log('🔊 TTS SSE: Will attempt reconnect in 2 seconds...');
+            setTimeout(() => {
+                if (!ttsStreamActive && ttsStreamSessionId) {
+                    console.log('🔊 TTS SSE: Attempting reconnect...');
+                    startTtsStream(ttsStreamSessionId);
+                }
+            }, 2000);
         } else {
-            console.warn('🔊 TTS SSE: Connection error, will retry...');
+            console.warn('🔊 TTS SSE: Connection error, EventSource will auto-retry...');
         }
     };
 }
@@ -1038,16 +1071,12 @@ function setupTtsAudioObserver() {
                     console.log('🔊 TTS Observer: Queue data attribute changed');
                     handleQueueDataUpdate(target);
                 }
-                // SSE control (data-polling) - start/stop SSE stream for streaming TTS
-                if (mutation.attributeName === 'data-polling' && target.id === 'tts-queue-data') {
-                    const shouldStream = target.dataset.polling === 'true';
-                    console.log(`🔊 TTS Observer: Streaming attribute changed to ${shouldStream}`);
-                    if (shouldStream && !ttsStreamActive) {
-                        startTtsStream();
-                    } else if (!shouldStream && ttsStreamActive) {
-                        stopTtsStream();
-                    }
-                }
+                // NOTE: SSE stream is started once on login via rx.call_script("startTtsStream('...')")
+                // and stays open for the entire session. We no longer stop it based on data-polling.
+                // The stream handles idle periods automatically (SSE keeps connection open).
+                //
+                // Old behavior (removed): stopTtsStream() when data-polling becomes false
+                // This caused the stream to close after each inference, requiring restart.
             }
         }
     });
