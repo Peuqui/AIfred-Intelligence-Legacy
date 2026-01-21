@@ -237,7 +237,7 @@ async def _stream_sokrates_to_history(
     state.current_ai_response = ""
 
     # Initialize streaming TTS for Sokrates
-    if state.enable_tts and state.tts_streaming_enabled:
+    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         state._init_streaming_tts(agent="sokrates")
 
     async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "Sokrates", state):
@@ -259,7 +259,7 @@ async def _stream_sokrates_to_history(
             token_count = metrics.get("tokens_generated", token_count)
 
     # Finalize streaming TTS: send any remaining text in buffer
-    if state.enable_tts and state.tts_streaming_enabled:
+    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         state._finalize_streaming_tts()
 
     # Calculate final metrics
@@ -319,7 +319,7 @@ async def _stream_alfred_refinement(
     state.current_ai_response = ""
 
     # Initialize streaming TTS for AIfred Refinement
-    if state.enable_tts and state.tts_streaming_enabled:
+    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         state._init_streaming_tts(agent="aifred")
 
     full_response = ""
@@ -346,7 +346,7 @@ async def _stream_alfred_refinement(
             token_count = metrics.get("tokens_generated", token_count)
 
     # Finalize streaming TTS: send any remaining text in buffer
-    if state.enable_tts and state.tts_streaming_enabled:
+    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         state._finalize_streaming_tts()
 
     inference_time = timer.elapsed()
@@ -406,7 +406,7 @@ async def _stream_salomo_to_history(
     state.current_ai_response = ""
 
     # Initialize streaming TTS for Salomo
-    if state.enable_tts and state.tts_streaming_enabled:
+    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         state._init_streaming_tts(agent="salomo")
 
     async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "Salomo", state):
@@ -428,7 +428,7 @@ async def _stream_salomo_to_history(
             token_count = metrics.get("tokens_generated", token_count)
 
     # Finalize streaming TTS: send any remaining text in buffer
-    if state.enable_tts and state.tts_streaming_enabled:
+    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         state._finalize_streaming_tts()
 
     # Calculate final metrics
@@ -619,6 +619,10 @@ async def run_sokrates_direct_response(
         state.current_agent = "sokrates"
         state.current_ai_response = ""
 
+        # Initialize streaming TTS for Sokrates direct response
+        if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
+            state._init_streaming_tts(agent="sokrates")
+
         # Streaming response
         full_response = ""
         token_count = 0
@@ -641,8 +645,8 @@ async def run_sokrates_direct_response(
                 full_response += content
                 token_count += 1
 
-                # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
-                state.current_ai_response += content
+                # REAL-TIME streaming to UI + TTS chunk processing
+                state.stream_text_to_ui(content)
                 yield
 
             elif chunk_type == "thinking":
@@ -654,6 +658,10 @@ async def run_sokrates_direct_response(
             elif chunk_type == "done":
                 metrics = chunk.get("metrics", {})
                 token_count = metrics.get("tokens_generated", token_count)
+
+        # Finalize streaming TTS: send any remaining text in buffer
+        if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
+            state._finalize_streaming_tts()
 
         # Calculate final metrics
         inference_time = timer.elapsed()
@@ -796,6 +804,10 @@ async def run_salomo_direct_response(
         state.current_agent = "salomo"
         state.current_ai_response = ""
 
+        # Initialize streaming TTS for Salomo direct response
+        if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
+            state._init_streaming_tts(agent="salomo")
+
         # Streaming response
         full_response = ""
         token_count = 0
@@ -818,8 +830,8 @@ async def run_salomo_direct_response(
                 full_response += content
                 token_count += 1
 
-                # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
-                state.current_ai_response += content
+                # REAL-TIME streaming to UI + TTS chunk processing
+                state.stream_text_to_ui(content)
                 yield
 
             elif chunk_type == "thinking":
@@ -831,6 +843,10 @@ async def run_salomo_direct_response(
             elif chunk_type == "done":
                 metrics = chunk.get("metrics", {})
                 token_count = metrics.get("tokens_generated", token_count)
+
+        # Finalize streaming TTS: send any remaining text in buffer
+        if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
+            state._finalize_streaming_tts()
 
         # Calculate final metrics
         inference_time = timer.elapsed()

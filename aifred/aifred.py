@@ -3363,9 +3363,10 @@ def settings_accordion() -> rx.Component:
                             ),
                             rx.box(),
                         ),
-                        # Streaming TTS Toggle (only show when TTS enabled)
+                        # Streaming TTS Toggle (only show when TTS AND AutoPlay enabled)
+                        # Streaming without AutoPlay makes no sense (generates audio but doesn't play)
                         rx.cond(
-                            AIState.enable_tts,
+                            AIState.enable_tts & AIState.tts_autoplay,
                             rx.hstack(
                                 rx.text("Streaming", font_size="11px", color="#888"),
                                 rx.switch(

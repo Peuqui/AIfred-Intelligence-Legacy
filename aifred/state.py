@@ -3102,7 +3102,8 @@ class AIState(rx.State):
 
         # Initialize streaming TTS if enabled (sentences are sent to TTS as they're detected)
         # Works for all modes - Multi-Agent also streams and benefits from sentence-by-sentence TTS
-        if self.enable_tts and self.tts_streaming_enabled:
+        # Streaming requires AutoPlay - without autoplay, streaming makes no sense (generates but doesn't play)
+        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
             self._init_streaming_tts(agent="aifred")
 
         # IMPORTANT: Yield immediately so UI shows spinner right away
@@ -3687,7 +3688,7 @@ class AIState(rx.State):
                         self.chat_history = updated_history
 
                         # Finalize streaming TTS: send any remaining text in buffer
-                        if self.enable_tts and self.tts_streaming_enabled:
+                        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
                             self._finalize_streaming_tts()
 
                         # Clear streaming box
@@ -6299,7 +6300,7 @@ class AIState(rx.State):
         """
         self.current_ai_response += chunk
 
-        if self.enable_tts and self.tts_streaming_enabled:
+        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
             self._process_streaming_tts_chunk(chunk)
 
     def _init_streaming_tts(self, agent: str = "aifred") -> None:
