@@ -594,6 +594,7 @@ let ttsQueue = [];  // Array of audio URLs to play
 let ttsQueuePlaying = false;  // Is queue currently playing?
 let ttsQueueCurrentIndex = 0;  // Current position in queue
 let ttsQueueVersion = 0;  // Track version to detect updates from backend
+let ttsQueuePlaybackScheduled = false;  // Prevents multiple playback starts from rapid updates
 
 /**
  * Update the TTS queue from backend state
@@ -619,6 +620,7 @@ function updateTtsQueue(queue, version) {
         console.log(`🔊 TTS Queue: Queue was reset (versionReset=${versionReset}, queueShrunk=${queueShrunk}), resetting index and state`);
         ttsQueueCurrentIndex = 0;
         ttsQueuePlaying = false;
+        ttsQueuePlaybackScheduled = false;  // Also reset the scheduling flag
         ttsQueue = [];  // Clear local queue so new items are treated as fresh
         // Stop current playback if any
         const player = document.getElementById('tts-audio-player');
@@ -640,11 +642,16 @@ function updateTtsQueue(queue, version) {
     const queueElement = document.getElementById('tts-queue-data');
     const autoplayEnabled = queueElement?.dataset?.autoplay === 'true';
 
-    if (newItems.length > 0 && !ttsQueuePlaying && autoplayEnabled) {
+    if (newItems.length > 0 && !ttsQueuePlaying && !ttsQueuePlaybackScheduled && autoplayEnabled) {
+        // Set flag IMMEDIATELY to prevent race conditions from rapid updates
+        ttsQueuePlaybackScheduled = true;
         console.log(`🔊 TTS Queue: Starting playback of ${newItems.length} new items (with 50ms delay for DOM sync)`);
         setTimeout(() => {
+            ttsQueuePlaybackScheduled = false;  // Clear flag when actually starting
             playNextInQueue();
         }, 50);
+    } else if (newItems.length > 0 && ttsQueuePlaybackScheduled) {
+        console.log(`🔊 TTS Queue: ${newItems.length} new items added, playback already scheduled`);
     } else if (newItems.length > 0 && !autoplayEnabled) {
         console.log('🔊 TTS Queue: New items received but AutoPlay is OFF - not playing');
     }
@@ -716,12 +723,20 @@ function playNextInQueue() {
                 console.log(`✅ TTS Queue: Playback started at ${player.playbackRate}x`);
             })
             .catch(err => {
-                console.warn('⚠️ TTS Queue: Autoplay blocked:', err.message);
-                // Still move to next after a delay if autoplay blocked
-                setTimeout(() => {
-                    ttsQueueCurrentIndex++;
-                    playNextInQueue();
-                }, 1000);
+                // Check if this is an interrupt error (race condition, now fixed)
+                // vs a real autoplay policy block
+                if (err.message && err.message.includes('interrupted')) {
+                    console.warn('⚠️ TTS Queue: Play interrupted (race condition), retrying current item');
+                    // Retry the SAME item after a short delay (don't skip)
+                    setTimeout(() => {
+                        playNextInQueue();
+                    }, 100);
+                } else {
+                    console.warn('⚠️ TTS Queue: Autoplay blocked by browser policy:', err.message);
+                    // Real autoplay block - stop trying, user needs to interact first
+                    ttsQueuePlaying = false;
+                    console.log('🔊 TTS Queue: Paused - click anywhere on page to enable audio, then try again');
+                }
             });
     } else {
         console.warn('⚠️ TTS Queue: Player not found');
@@ -737,6 +752,7 @@ function clearTtsQueue() {
     ttsQueue = [];
     ttsQueueCurrentIndex = 0;
     ttsQueuePlaying = false;
+    ttsQueuePlaybackScheduled = false;
 
     // Stop current playback
     const player = document.getElementById('tts-audio-player');
@@ -1132,6 +1148,24 @@ function initializeAllObservers() {
     if (sessionId && !ttsStreamActive) {
         console.log('🔊 TTS SSE: Auto-starting stream on page load');
         startTtsStream(sessionId);
+    } else if (!sessionId) {
+        // Cookie not yet set (Reflex hasn't initialized session yet)
+        // Poll quickly until we have a session, then start SSE immediately
+        console.log('🔊 TTS SSE: No session cookie yet, starting fast poll...');
+        let fastPollCount = 0;
+        const fastPollInterval = setInterval(() => {
+            fastPollCount++;
+            const newSessionId = getSessionIdFromCookie();
+            if (newSessionId && !ttsStreamActive) {
+                console.log(`🔊 TTS SSE: Session cookie found after ${fastPollCount * 100}ms, starting stream`);
+                startTtsStream(newSessionId);
+                clearInterval(fastPollInterval);
+            } else if (fastPollCount >= 50) {
+                // Stop fast polling after 5 seconds, fall back to slow poll
+                console.log('🔊 TTS SSE: Fast poll timeout, falling back to slow poll');
+                clearInterval(fastPollInterval);
+            }
+        }, 100);  // Check every 100ms for up to 5 seconds
     }
 
     // Also setup a periodic check to ensure stream stays connected

@@ -479,6 +479,35 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
     while i < len(remaining):
         char = remaining[i]
 
+        # Check for newline - treat as sentence boundary if followed by ALL CAPS line (headline)
+        # This handles cases like "...er ist humanitas.\n\nALTERNATIVE LÖSUNG\nNun denn..."
+        # where "ALTERNATIVE LÖSUNG" is a headline that should be spoken separately
+        if char == '\n':
+            # Look ahead to see if next non-whitespace line is ALL CAPS (headline)
+            next_content_start = i + 1
+            while next_content_start < len(remaining) and remaining[next_content_start] in ' \t\n':
+                next_content_start += 1
+
+            if next_content_start < len(remaining):
+                # Find the end of the next line
+                next_line_end = remaining.find('\n', next_content_start)
+                if next_line_end == -1:
+                    next_line_end = len(remaining)
+                next_line = remaining[next_content_start:next_line_end].strip()
+
+                # Check if it's an ALL CAPS headline (at least 3 chars, mostly uppercase)
+                if len(next_line) >= 3:
+                    alpha_chars = [c for c in next_line if c.isalpha()]
+                    if alpha_chars and sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars) > 0.7:
+                        # This is a headline - treat newline as sentence boundary
+                        sentence = remaining[sentence_start:i].strip()
+                        if sentence and len(sentence) > 1:
+                            # Add period if sentence doesn't end with punctuation
+                            if sentence[-1] not in '.!?:;':
+                                sentence += '.'
+                            sentences.append(sentence)
+                        sentence_start = next_content_start
+
         # Check for sentence-ending punctuation
         if char in '.!?':
             # Get context around this character
@@ -950,6 +979,17 @@ def clean_text_for_tts(text):
 
     # Remove blockquotes (> at start of line) but keep the text
     clean_text = re.sub(r'^>\s*', '', clean_text, flags=re.MULTILINE)
+
+    # Remove Multi-Agent consensus tags - these are internal markers, not speech
+    # [LGTM], [WEITER], [VETO], [KONSENS], [DISSENS], etc.
+    clean_text = re.sub(r'\[LGTM\]', '', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'\[WEITER\]', '', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'\[VETO\]', '', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'\[KONSENS\]', '', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'\[DISSENS\]', '', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'\[OK\]', '', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'\[APPROVED\]', '', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'\[REJECTED\]', '', clean_text, flags=re.IGNORECASE)
 
     # Remove most emojis, but KEEP laughter emojis for XTTS to convert to "hahaha"
     # Laughter emojis: 😂🤣😆😄😅😁🙂😊 (handled by XTTS server.py)

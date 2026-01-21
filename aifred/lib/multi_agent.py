@@ -1143,7 +1143,7 @@ async def run_sokrates_analysis(
                 agent="sokrates",
                 content=formatted_sokrates,
                 mode=sokrates_mode,
-                round_num=round_num if max_rounds > 1 else 0,
+                round_num=round_num,  # Always show round number for consistency
                 metadata={
                     "ttft": metrics.get("ttft", 0),
                     "inference_time": metrics.get("time", 0),

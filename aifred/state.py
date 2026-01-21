@@ -4508,6 +4508,10 @@ class AIState(rx.State):
         log_message(f"📂 Switched to session: {session_id[:8]}...")
         self.add_debug(f"📂 Switched to session: {self.current_session_title or session_id[:8]}...")
 
+        # Update session cookie for TTS SSE (so custom.js can open SSE on page reload)
+        from .lib.browser_storage import set_session_id_script
+        return rx.call_script(set_session_id_script(session_id))
+
     def new_session(self):
         """Create a new empty session and switch to it."""
         from .lib.session_storage import generate_session_id, create_empty_session
@@ -4537,6 +4541,10 @@ class AIState(rx.State):
         self.refresh_session_list()
 
         log_message(f"📄 Created new session: {new_id[:8]}...")
+
+        # Update session cookie for TTS SSE (so custom.js can open SSE on page reload)
+        from .lib.browser_storage import set_session_id_script
+        return rx.call_script(set_session_id_script(new_id))
 
     def delete_session(self, session_id: str):
         """Delete a session (cannot delete current session)."""
@@ -5427,8 +5435,14 @@ class AIState(rx.State):
             console_separator()  # File log
             self.debug_messages.append("────────────────────")  # UI
 
-            # Start TTS SSE stream for this session
-            return rx.call_script(f"if(window.startTtsStream) startTtsStream('{self.session_id}');")
+            # Set session cookie AND start TTS SSE stream
+            # The cookie allows custom.js to open SSE immediately on next page load
+            from .lib.browser_storage import set_session_id_script
+            combined_script = f"""
+                {set_session_id_script(self.session_id)}
+                if(window.startTtsStream) startTtsStream('{self.session_id}');
+            """
+            return rx.call_script(combined_script)
         else:
             # No valid username - show login dialog
             self.login_dialog_open = True
