@@ -1025,6 +1025,14 @@ def clean_text_for_tts(text):
     clean_text = re.sub(r'[\u200b\u200c\u200d\u2060\ufeff]', '', clean_text)  # Zero-width chars
     clean_text = re.sub(r'\u00a0', ' ', clean_text)  # Non-breaking space → normal space
 
+    # Convert dashes to punctuation BEFORE the general filter removes them
+    # Gedankenstriche (EN DASH, EM DASH) mark pauses - convert to comma for natural TTS pause
+    # Without this, "Text – mehr Text" becomes "Text mehr Text" (no pause, words run together)
+    clean_text = clean_text.replace('–', ',')  # EN DASH (U+2013) → comma
+    clean_text = clean_text.replace('—', ',')  # EM DASH (U+2014) → comma
+    clean_text = clean_text.replace('‒', ',')  # FIGURE DASH (U+2012) → comma
+    clean_text = clean_text.replace('―', ',')  # HORIZONTAL BAR (U+2015) → comma
+
     # Remove other special characters that cause "quirzel" sounds in TTS
     # Keep basic punctuation and letters (including German/French/Spanish chars)
     # This catches arrows (→←↑↓), math symbols (±×÷), etc.
@@ -1037,10 +1045,18 @@ def clean_text_for_tts(text):
     clean_text = re.sub(r'\n{3,}', '\n\n', clean_text)  # Max 2 newlines
     clean_text = clean_text.strip()  # Remove leading/trailing whitespace
 
-    # Ensure text ends with proper punctuation (fixes Piper "PFFT/HÖ" artifacts)
-    # Piper needs a clear sentence ending, otherwise it produces artifacts
-    if clean_text and clean_text[-1] not in '.!?:;':
-        clean_text += '.'
+    # Ensure EACH LINE ends with proper punctuation
+    # Without this, headlines like "Kapitel 1\nDer Text..." are read too fast
+    # XTTS needs punctuation to create natural pauses between sections
+    # Use splitlines() to handle all line endings (LF, CRLF, CR)
+    lines = clean_text.splitlines()
+    punctuated_lines = []
+    for line in lines:
+        line = line.strip()
+        if line and line[-1] not in '.!?:;':
+            line += '.'
+        punctuated_lines.append(line)
+    clean_text = '\n'.join(punctuated_lines)
 
     return clean_text
 

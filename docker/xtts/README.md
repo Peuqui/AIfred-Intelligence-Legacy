@@ -201,6 +201,68 @@ curl -X POST http://localhost:5051/tts \
 - Magyar (hu)
 - 한국어 (ko)
 
+## Text-Normalisierung & Best Practices
+
+XTTS v2 ist empfindlich gegenüber bestimmten Textmustern. Der Service führt automatische Normalisierung durch, um Halluzinationen und Artefakte zu vermeiden.
+
+### Automatische Normalisierung (in server.py)
+
+| Was | Transformation | Grund |
+|-----|----------------|-------|
+| Lach-Emojis | 😂🤣😆 → "hahaha" | Klingt natürlich |
+| Andere Emojis | Entfernt | Nicht aussprechbar |
+| Doppelpunkte | `:` → `.` (außer in Zeiten/URLs) | Verursacht hastiges Sprechen |
+| Fehlende Satzzeichen | Punkt am Ende hinzufügen | Verhindert Halluzinationen |
+| Sonderzeichen | Entfernt (außer Whitelist) | Verursacht "Quirzel"-Sounds |
+
+### Erlaubte Zeichen (Whitelist)
+
+```
+Buchstaben:  a-z A-Z äöüÄÖÜß (+ weitere europäische Zeichen)
+Zahlen:      0-9
+Interpunktion: . , ! ? ; : - ' " ( ) [ ]
+Whitespace:  Leerzeichen, Newlines
+```
+
+### Community Best Practices
+
+Basierend auf Erfahrungen der Coqui TTS Community:
+
+**Interpunktion:**
+- ✅ Sätze immer mit `.` `!` oder `?` beenden (verhindert Halluzinationen)
+- ✅ Anführungszeichen `"` und `'` bleiben erhalten
+- ✅ Bindestriche `-` funktionieren gut für zusammengesetzte Wörter
+- ⚠️ Doppelpunkte `:` werden zu Punkten konvertiert (verursachen hastiges Sprechen)
+- ⚠️ Keine Kommas am Satzanfang (mittlere Abschnitte werden übersprungen)
+
+**Text-Struktur:**
+- ✅ Kurze bis mittellange Sätze (< 250 Zeichen)
+- ✅ Natürliche Pausen durch Interpunktion
+- ⚠️ Keine trailing Leerzeichen nach `.` (verursacht Halluzinationen)
+- ❌ Markdown, Code-Blöcke, Tabellen (vom Client vorfiltern!)
+
+**Inference-Parameter (Umgebungsvariablen):**
+
+| Variable | Default | Beschreibung |
+|----------|---------|--------------|
+| `XTTS_TEMPERATURE` | `0.65` | Niedrigere Werte = stabiler, weniger kreativ |
+| `XTTS_REPETITION_PENALTY` | `15.0` | Höhere Werte = weniger Wiederholungen |
+| `XTTS_TOP_K` | `30` | Niedrigere Werte = deterministischer |
+| `XTTS_TOP_P` | `0.75` | Niedrigere Werte = weniger Variation |
+| `XTTS_LENGTH_PENALTY` | `1.0` | Beeinflusst Output-Länge |
+| `XTTS_MAX_CHUNK_CHARS` | `250` | Max. Zeichen pro Chunk (400 Token Limit) |
+
+**Bei Halluzinationen/Wiederholungen:**
+1. `XTTS_REPETITION_PENALTY` erhöhen (z.B. auf 20.0)
+2. `XTTS_TEMPERATURE` senken (z.B. auf 0.5)
+3. `XTTS_TOP_K` senken (z.B. auf 20)
+
+### Quellen
+
+- [GitHub Discussion #4146 - Hallucination Prevention](https://github.com/coqui-ai/TTS/discussions/4146)
+- [HuggingFace Discussion #104 - Problematic Tokens](https://huggingface.co/coqui/XTTS-v2/discussions/104)
+- [GitHub Discussion #2742 - Reducing Hallucinations](https://github.com/coqui-ai/TTS/discussions/2742)
+
 ## Lizenz
 
 XTTS v2 ist unter der Coqui Public Model License lizenziert.
