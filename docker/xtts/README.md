@@ -174,11 +174,48 @@ curl -X POST http://localhost:5051/tts \
 
 ## Performance
 
-| Device | RTF* | ~Latenz pro Satz |
-|--------|------|------------------|
-| RTX 3090 Ti | ~0.15 | 2-3s |
-| RTX 3060 | ~0.3 | 4-5s |
-| CPU (i7-12700) | ~2.0 | 15-30s |
+### Hardware-Konfigurationen
+
+| System | CPU | RAM | GPU | Anbindung |
+|--------|-----|-----|-----|-----------|
+| **Aragon** | AMD Ryzen 9 9900X3D | 64 GB | NVIDIA RTX 3090 Ti | PCIe 4.0 x16 |
+| **Mini** | AMD Ryzen 7 7850HS | 32 GB | Tesla P40 | eGPU (Oculink + USB 4) |
+
+### Benchmark-Ergebnisse
+
+| System | Testdaten | Audio-Länge |
+|--------|-----------|-------------|
+| Aragon | 10 Sätze, 671 Zeichen | ~32s |
+| Mini | 10 Sätze, 826 Zeichen | ~53s |
+
+### Rohdaten
+
+**Aragon:**
+
+| Modus | Gen.-Zeit | RTF* | Speedup |
+|-------|-----------|------|---------|
+| GPU (RTX 3090 Ti) | 5.9s | 0.18x | ~8x |
+| CPU (9900X3D) | 47.7s | 1.48x | — |
+
+**Mini:**
+
+| Modus | Gen.-Zeit | RTF* | Speedup |
+|-------|-----------|------|---------|
+| GPU (Tesla P40) | 20.4s | 0.38x | ~7.4x |
+| CPU (7850HS) | 150.6s | 2.8x | — |
+
+### Normalisierter Vergleich
+
+Zeichen pro Sekunde Generierungszeit (höher = besser):
+
+| System | GPU | CPU |
+|--------|-----|-----|
+| Aragon (RTX 3090 Ti) | **114 Z/s** | 14 Z/s |
+| Mini (Tesla P40 eGPU) | **40 Z/s** | 5.5 Z/s |
+
+**Fazit:** Die RTX 3090 Ti ist ~2.8x schneller als die Tesla P40 via eGPU.
+Dies erklärt sich durch die externe Anbindung (Oculink/USB4 Bandbreiten-Overhead)
+und den Generationsunterschied (P40 = Pascal 2016, 3090 Ti = Ampere 2022).
 
 *RTF = Real-Time Factor (< 1.0 = schneller als Echtzeit)
 
