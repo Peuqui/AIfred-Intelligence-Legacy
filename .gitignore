@@ -43,6 +43,7 @@ scripts/patch-vite-config.sh
 # Logs
 *.log
 /var/log/
+logs
 
 # Temporary files
 /tmp/
