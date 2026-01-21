@@ -823,10 +823,9 @@ function startTtsStream(sessionIdParam) {
     ttsStreamActive = true;
     console.log(`🔊 TTS SSE: Connecting for session ${sessionId.substring(0, 8)}...`);
 
-    // Build SSE URL - use backend port (8002) instead of frontend port
-    // The backend API is mounted at /api, so full path is :8002/api/tts/stream/...
-    const backendPort = 8002;
-    const sseUrl = `${window.location.protocol}//${window.location.hostname}:${backendPort}/api/tts/stream/${sessionId}`;
+    // Build SSE URL - fully relative path, works through Nginx proxy
+    // No hardcoded ports or hosts - Nginx handles forwarding to backend:8002
+    const sseUrl = `/api/tts/stream/${sessionId}`;
     console.log(`🔊 TTS SSE: URL = ${sseUrl}`);
 
     // Create EventSource connection to SSE endpoint
