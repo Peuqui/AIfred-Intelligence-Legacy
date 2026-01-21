@@ -1138,33 +1138,44 @@ function initializeAllObservers() {
     }, 500);
 
     // Setup a MutationObserver to initialize new bubble audio buttons as they're added
+    // AND to detect when data-audio-urls attribute changes on existing buttons
     const chatObserver = new MutationObserver((mutations) => {
-        let hasNewButtons = false;
+        let needsInit = false;
         for (const mutation of mutations) {
+            // Check for new buttons added to DOM
             if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
                 for (const node of mutation.addedNodes) {
                     if (node.querySelector && node.querySelector('.bubble-audio-btn')) {
-                        hasNewButtons = true;
+                        needsInit = true;
                         break;
                     }
                     if (node.classList && node.classList.contains('bubble-audio-btn')) {
-                        hasNewButtons = true;
+                        needsInit = true;
                         break;
                     }
                 }
             }
-            if (hasNewButtons) break;
+            // Check for data-audio-urls attribute changes on existing buttons
+            if (mutation.type === 'attributes' && mutation.attributeName === 'data-audio-urls') {
+                if (mutation.target.classList && mutation.target.classList.contains('bubble-audio-btn')) {
+                    console.log('🔊 Bubble Audio: data-audio-urls attribute changed');
+                    needsInit = true;
+                }
+            }
+            if (needsInit) break;
         }
-        if (hasNewButtons) {
+        if (needsInit) {
             // Debounce initialization
             setTimeout(initBubbleAudioButtons, 50);
         }
     });
 
-    // Observe the document body for new chat bubbles
+    // Observe the document body for new chat bubbles AND attribute changes
     chatObserver.observe(document.body, {
         childList: true,
-        subtree: true
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['data-audio-urls']
     });
 }
 
