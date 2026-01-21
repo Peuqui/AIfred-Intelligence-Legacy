@@ -92,27 +92,27 @@ logger.info(f"XTTS Inference Parameters: temperature={XTTS_TEMPERATURE}, "
 
 def normalize_text_for_tts(text: str) -> str:
     """
-    Normalize text to reduce XTTS hallucinations/repetitions.
+    Minimal XTTS-specific text normalization.
 
-    XTTS hallucinates when text doesn't end with proper sentence-ending punctuation.
-    This function ensures lines ending with newlines have proper punctuation.
+    This function handles ONLY what's necessary for clean XTTS output:
+    - Convert laughter emojis to "hahaha" (sounds natural)
+    - Remove other emojis (unpronounceable)
+    - Remove special characters that cause "quirzel" sounds
+    - Ensure proper punctuation for natural pauses (prevents hallucinations)
+    - Replace colons with periods (colons cause rushed speech)
+
+    Content filtering (Markdown, code blocks, tables, <think> tags, etc.)
+    is the responsibility of the client (e.g., AIfred's clean_text_for_tts).
 
     Based on community findings:
     - https://github.com/coqui-ai/TTS/discussions/4146
     - https://huggingface.co/coqui/XTTS-v2/discussions/104
-    - Sentences ending without punctuation cause hallucinations
-    - Spaces after periods (". ") can trigger hallucinations
-
-    CONSERVATIVE approach:
-    - Replace colons with periods (colons cause rushed speech)
-    - Add punctuation to lines without any ending punctuation
-    - Leave commas, semicolons alone - they're part of natural speech flow
 
     Args:
-        text: Raw text input
+        text: Text input (should already be content-filtered by client)
 
     Returns:
-        Normalized text with proper punctuation on line endings
+        Normalized text suitable for XTTS synthesis
     """
     import re
 
@@ -121,11 +121,54 @@ def normalize_text_for_tts(text: str) -> str:
 
     text = text.strip()
 
+    # ============================================================
+    # Phase 1: Emoji handling
+    # ============================================================
+
+    # Convert laughter emojis to "hahaha" (tested, sounds natural)
+    laughter_emojis = ['😂', '🤣', '😆', '😄', '😅', '😁', '🙂', '😊']
+    for emoji in laughter_emojis:
+        text = text.replace(emoji, ' hahaha ')
+
+    # Remove all other emojis (unpronounceable)
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols & pictographs
+        "\U0001F680-\U0001F6FF"  # transport & map symbols
+        "\U0001F1E0-\U0001F1FF"  # flags
+        "\U00002702-\U000027B0"  # dingbats
+        "\U000024C2-\U0001F251"  # enclosed characters
+        "\U0001F900-\U0001F9FF"  # supplemental symbols
+        "\U0001FA00-\U0001FA6F"  # chess symbols
+        "\U0001FA70-\U0001FAFF"  # symbols extended
+        "\U00002600-\U000026FF"  # misc symbols
+        "\U00002700-\U000027BF"  # dingbats
+        "]+",
+        flags=re.UNICODE
+    )
+    text = emoji_pattern.sub('', text)
+
+    # ============================================================
+    # Phase 2: Remove characters that cause "quirzel" sounds
+    # ============================================================
+
+    # Keep basic punctuation and letters (including German/European chars)
+    # Allow: letters, numbers, basic punctuation, spaces
+    text = re.sub(r'[^\w\s.,!?;:\-\'\"()\[\]äöüÄÖÜßàáâãèéêëìíîïòóôõùúûýÿñçÀÁÂÃÈÉÊËÌÍÎÏÒÓÔÕÙÚÛÝŸÑÇ\n]', ' ', text)
+
+    # Clean up multiple spaces
+    text = re.sub(r'  +', ' ', text)
+
+    # ============================================================
+    # Phase 3: Ensure proper punctuation for natural pauses
+    # ============================================================
+
     # Replace colons with periods (colons cause rushed speech in XTTS)
     # But preserve time formats like "10:30" and URLs
     text = re.sub(r'(?<!\d):(?!\d|//)', '.', text)
 
-    # Split into lines (preserves paragraph structure)
+    # Process lines - add punctuation where missing
     lines = text.split('\n')
     normalized_lines = []
 
@@ -135,27 +178,21 @@ def normalize_text_for_tts(text: str) -> str:
             normalized_lines.append('')
             continue
 
-        # Only add punctuation if line ends without ANY sentence-ending punctuation
-        # Valid endings: . ! ? (with optional quotes/brackets)
-        # Leave commas, semicolons alone - they're part of natural speech flow
+        # Add period if line ends without sentence-ending punctuation
+        # This prevents XTTS hallucinations
         if not re.search(r'[.!?]["\'\)\]»"]*$', line):
-            # Line ends without sentence punctuation (could be heading, list item, etc.)
-            # Add period - conservative choice to not change intonation too much
             line = line + '.'
-            logger.debug(f"Added '.' to line without punctuation: '{line}'")
+            logger.debug(f"Added '.' to line: '{line}'")
 
         normalized_lines.append(line)
 
     result = '\n'.join(normalized_lines)
 
-    # Final check: ensure the entire text ends with proper punctuation
+    # Final check: ensure text ends with proper punctuation
     if result and not re.search(r'[.!?]["\'\)\]»"]*$', result):
         result = result + '.'
 
-    # Remove any trailing whitespace that might cause issues
-    result = result.rstrip()
-
-    return result
+    return result.strip()
 
 
 def split_text_into_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:

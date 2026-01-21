@@ -3123,16 +3123,23 @@ class AIState(rx.State):
         # Initialize streaming TTS if enabled (sentences are sent to TTS as they're detected)
         # Works for all modes - Multi-Agent also streams and benefits from sentence-by-sentence TTS
         # Streaming requires AutoPlay - without autoplay, streaming makes no sense (generates but doesn't play)
+        tts_stream_script = None
         if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
             self._init_streaming_tts(agent="aifred")
             # Clear API queue for this session (new message = new queue)
             from .lib.api import tts_queue_clear
             tts_queue_clear(self.session_id)
-            # NOTE: SSE stream is started on page load (custom.js initializeAllObservers)
-            # No need to start it here - it's already listening
+            # IMPORTANT: Ensure SSE stream is active BEFORE generating audio
+            # This guarantees the browser is listening when audio events are pushed
+            # The startTtsStream() function is idempotent - it checks ttsStreamActive
+            tts_stream_script = rx.call_script(f"if(window.startTtsStream) startTtsStream('{self.session_id}');")
 
         # IMPORTANT: Yield immediately so UI shows spinner right away
-        yield
+        # Also starts TTS SSE stream if TTS is enabled (must be before audio generation!)
+        if tts_stream_script:
+            yield tts_stream_script
+        else:
+            yield
 
         # Create LLM client once - used for ALL LLM operations
         from .lib.llm_client import LLMClient

@@ -5,6 +5,39 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.1] - 2026-01-21 🔊 TTS Text Processing & SSE Streaming Fixes
+
+### Changed
+
+- **TTS Text Normalization Architecture** ([audio_processing.py](aifred/lib/audio_processing.py), [docker/xtts/server.py](docker/xtts/server.py)):
+  - Klare Trennung der Verantwortlichkeiten zwischen AIfred und XTTS Docker
+  - **AIfred** (`clean_text_for_tts`): Content-Filterung (Markdown, Code-Blöcke, Tabellen, `<think>` Tags, HTML, LaTeX)
+  - **XTTS Docker** (`normalize_text_for_tts`): XTTS-spezifische Normalisierung (Emojis, Sonderzeichen, Interpunktion)
+  - Lach-Emojis (😂🤣😆😄😅😁🙂😊) werden zu "hahaha" konvertiert (klingt natürlich)
+  - Andere Emojis werden entfernt (unaussprechbar)
+  - Sonderzeichen die "Quirzel"-Sounds verursachen werden gefiltert
+  - Doppelpunkte → Punkte (verhindert "rushed speech" in XTTS)
+
+- **TTS SSE Stream Handling** ([api.py](aifred/lib/api.py), [state.py](aifred/state.py), [custom.js](assets/custom.js)):
+  - Race-Condition behoben: Bereits generierte Audio-URLs werden sofort beim SSE-Connect gesendet
+  - SSE-Stream wird vor TTS-Generierung gestartet (garantiert Browser ist bereit)
+  - Auto-Start des TTS-Streams beim Page-Load
+  - Periodischer Reconnect-Check alle 5 Sekunden (Tab-Sleep, Netzwerk-Unterbrechungen)
+
+### Fixed
+
+- **TTS Text Cleaning** ([audio_processing.py](aifred/lib/audio_processing.py)):
+  - HTML-Tags (`<br>`, `<span>`, etc.) werden jetzt korrekt entfernt
+  - Markdown-Links `[text](url)` → behält "text", entfernt URL
+  - Markdown-Bilder `![alt](url)` → komplett entfernt
+  - Blockquotes (`> text`) → Text bleibt, Marker wird entfernt
+  - Listen-Marker (`- `, `* `, `1. `) → entfernt, Text bleibt
+  - Tabellen-Trennzeilen (`|---|---|`) werden gefiltert
+
+- **XTTS Hallucination Prevention** ([docker/xtts/server.py](docker/xtts/server.py)):
+  - Zeilen ohne Satzzeichen bekommen automatisch einen Punkt
+  - Verhindert XTTS-Halluzinationen bei Überschriften, Listen, etc.
+
 ## [2.27.0] - 2026-01-20 🎤 XTTS v2 Voice Cloning & Multi-Agent TTS Queue
 
 ### Added

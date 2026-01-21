@@ -1126,9 +1126,23 @@ function initializeAllObservers() {
     // Initialize bubble audio buttons (hide those without audio)
     initBubbleAudioButtons();
 
-    // NOTE: TTS SSE stream is started by Reflex via rx.call_script("startTtsStream('...')")
-    // when session is loaded (_load_session_by_id) or created (new_session).
-    // No cookie polling needed.
+    // AUTO-START TTS SSE stream on page load if session exists
+    // This ensures the stream is always open and ready BEFORE any TTS generation starts
+    const sessionId = getSessionIdFromCookie();
+    if (sessionId && !ttsStreamActive) {
+        console.log('🔊 TTS SSE: Auto-starting stream on page load');
+        startTtsStream(sessionId);
+    }
+
+    // Also setup a periodic check to ensure stream stays connected
+    // (handles tab sleep, network interruptions, etc.)
+    setInterval(() => {
+        const currentSessionId = getSessionIdFromCookie();
+        if (currentSessionId && !ttsStreamActive) {
+            console.log('🔊 TTS SSE: Reconnecting (periodic check)');
+            startTtsStream(currentSessionId);
+        }
+    }, 5000);  // Check every 5 seconds
 
     // Retry after 500ms in case elements render later
     setTimeout(() => {

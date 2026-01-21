@@ -898,12 +898,15 @@ def clean_text_for_tts(text):
 
     Removes:
     - <think> tags (raw LLM thinking)
-    - <details> blocks (collapsible UI elements)
+    - <details>/<summary> blocks (collapsible UI elements)
+    - HTML/XML tags (all generic tags like <br>, <span>, etc.)
     - Code blocks (``` ... ```) and inline code (`...`)
     - Markdown tables (| ... |)
     - LaTeX formulas ($...$ and $$...$$)
     - Emojis, markdown formatting, URLs
     - Timing metadata (Inference: X.Xs, etc.)
+    - Markdown links [text](url) → keeps text, removes URL
+    - Blockquotes (> text)
 
     Args:
         text: Raw text from AI response
@@ -915,12 +918,22 @@ def clean_text_for_tts(text):
     # Note: llm_history should be clean, but this handles edge cases
     clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
+    # Remove <details>/<summary> blocks (collapsible UI elements) - entire blocks
+    clean_text = re.sub(r'<details>.*?</details>', '', clean_text, flags=re.DOTALL).strip()
+
+    # Remove ALL HTML/XML tags but keep content between them
+    # Catches <br>, <span>, <div>, <p>, <b>, <i>, <u>, <strong>, <em>, etc.
+    # Also catches self-closing tags like <br/>, <hr/>
+    clean_text = re.sub(r'<[^>]+/?>', '', clean_text)
+
     # Remove code blocks (``` ... ```) - code sounds terrible when read aloud
     clean_text = re.sub(r'```[^`]*```', '', clean_text, flags=re.DOTALL).strip()
 
     # Remove markdown tables (lines starting with |)
     # Tables are unreadable as speech: "pipe Name pipe Age pipe newline pipe dash dash..."
     clean_text = re.sub(r'^\|.*\|$', '', clean_text, flags=re.MULTILINE).strip()
+    # Also catch table separator lines like |---|---|
+    clean_text = re.sub(r'^\|[-:|\s]+\|$', '', clean_text, flags=re.MULTILINE).strip()
     # Clean up multiple empty lines left by table removal
     clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
 
@@ -929,10 +942,20 @@ def clean_text_for_tts(text):
     clean_text = re.sub(r'\$\$[^$]+\$\$', '', clean_text, flags=re.DOTALL).strip()  # Block formulas
     clean_text = re.sub(r'\$[^$]+\$', '', clean_text).strip()  # Inline formulas
 
-    # Remove ALL emojis (comprehensive Unicode ranges)
+    # Remove markdown links [text](url) → keep "text", remove URL
+    clean_text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', clean_text)
+
+    # Remove markdown images ![alt](url) → remove entirely
+    clean_text = re.sub(r'!\[[^\]]*\]\([^)]+\)', '', clean_text)
+
+    # Remove blockquotes (> at start of line) but keep the text
+    clean_text = re.sub(r'^>\s*', '', clean_text, flags=re.MULTILINE)
+
+    # Remove most emojis, but KEEP laughter emojis for XTTS to convert to "hahaha"
+    # Laughter emojis: 😂🤣😆😄😅😁🙂😊 (handled by XTTS server.py)
+    # First, remove all emojis EXCEPT laughter ones
     emoji_pattern = re.compile(
         "["
-        "\U0001F600-\U0001F64F"  # Emoticons
         "\U0001F300-\U0001F5FF"  # Symbols & Pictographs (incl. clock faces 🕐-🕧)
         "\U0001F680-\U0001F6FF"  # Transport & Maps
         "\U0001F700-\U0001F77F"  # Alchemy Symbols
@@ -954,6 +977,15 @@ def clean_text_for_tts(text):
     )
     clean_text = emoji_pattern.sub(r'', clean_text).strip()
 
+    # Remove non-laughter emoticons (U+1F600-1F64F) but keep 😂🤣😆😄😅😁🙂😊
+    # These are: U+1F602, U+1F923, U+1F606, U+1F604, U+1F605, U+1F601, U+1F642, U+1F60A
+    laughter_emojis = {'😂', '🤣', '😆', '😄', '😅', '😁', '🙂', '😊'}
+    # Remove other emoticons one by one (safer than regex for this range)
+    for codepoint in range(0x1F600, 0x1F650):
+        char = chr(codepoint)
+        if char not in laughter_emojis:
+            clean_text = clean_text.replace(char, '')
+
     # Replace decorative separator lines with pause (cause crackling in Piper TTS)
     # Unicode box-drawing characters: ─ (U+2500), ═ (U+2550), │ (U+2502), etc.
     # Replace with newline to create a natural pause in speech
@@ -969,6 +1001,10 @@ def clean_text_for_tts(text):
     clean_text = re.sub(r'`[^`]+`', '', clean_text)  # Inline code `variable` - remove entirely
     clean_text = re.sub(r'`', '', clean_text)     # Stray backticks
     clean_text = re.sub(r'#+\s', '', clean_text)  # Markdown Headers ### Text
+
+    # Remove list markers but keep text
+    clean_text = re.sub(r'^[-*+]\s+', '', clean_text, flags=re.MULTILINE)  # Bullet points
+    clean_text = re.sub(r'^\d+\.\s+', '', clean_text, flags=re.MULTILINE)  # Numbered lists
 
     # Remove URLs (http://, https://, www.)
     clean_text = re.sub(r'https?://\S+', '', clean_text)  # http:// and https://
@@ -988,6 +1024,14 @@ def clean_text_for_tts(text):
     # Zero-width characters, non-breaking spaces, etc.
     clean_text = re.sub(r'[\u200b\u200c\u200d\u2060\ufeff]', '', clean_text)  # Zero-width chars
     clean_text = re.sub(r'\u00a0', ' ', clean_text)  # Non-breaking space → normal space
+
+    # Remove other special characters that cause "quirzel" sounds in TTS
+    # Keep basic punctuation and letters (including German/French/Spanish chars)
+    # This catches arrows (→←↑↓), math symbols (±×÷), etc.
+    clean_text = re.sub(r'[^\w\s.,!?;:\-\'\"()\[\]äöüÄÖÜßàáâãèéêëìíîïòóôõùúûýÿñçÀÁÂÃÈÉÊËÌÍÎÏÒÓÔÕÙÚÛÝŸÑÇ\n]', ' ', clean_text)
+
+    # Clean up multiple spaces
+    clean_text = re.sub(r'  +', ' ', clean_text)
 
     # Clean up trailing whitespace and excessive newlines (Piper crackling fix)
     clean_text = re.sub(r'\n{3,}', '\n\n', clean_text)  # Max 2 newlines

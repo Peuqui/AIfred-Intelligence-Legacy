@@ -890,6 +890,22 @@ async def tts_stream(session_id: str):
         _tts_sse_queues[session_id] = queue
         log_message(f"🔊 TTS SSE: Stream opened for session {session_id[:8]}...")
 
+        # IMPORTANT: Send any already-generated audio URLs immediately
+        # This handles the race condition where TTS generation starts before SSE connects
+        if session_id in _tts_queue_storage:
+            storage = _tts_queue_storage[session_id]
+            if storage["queue"]:
+                log_message(f"🔊 TTS SSE: Sending {len(storage['queue'])} existing items (v{storage['version']})")
+                for i, audio_url in enumerate(storage["queue"]):
+                    item = {
+                        "audio_url": audio_url,
+                        "version": i + 1,  # Reconstruct version sequence
+                        "playback_rate": storage["playback_rate"]
+                    }
+                    data = json.dumps(item)
+                    yield f"data: {data}\n\n"
+                    log_message(f"🔊 TTS SSE: Sent existing {audio_url.split('/')[-1]}")
+
         try:
             while True:
                 try:
