@@ -354,8 +354,8 @@ def get_xtts_voices() -> dict:
             for name in data.get("builtin", []):
                 voices[name] = name
             return voices
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️ Failed to fetch XTTS voices: {e}")
     return {}
 
 # Fallback voices when service is unavailable (for UI initialization)

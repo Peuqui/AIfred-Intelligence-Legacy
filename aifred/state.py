@@ -1611,6 +1611,13 @@ class AIState(rx.State):
             # Vision LLM Context Settings (PERSISTENT)
             "vision_num_ctx_enabled": self.vision_num_ctx_enabled,
             "vision_num_ctx": self.vision_num_ctx,
+            # Agent Personality & Reasoning Settings
+            "aifred_personality": self.aifred_personality,
+            "sokrates_personality": self.sokrates_personality,
+            "salomo_personality": self.salomo_personality,
+            "aifred_reasoning": self.aifred_reasoning,
+            "sokrates_reasoning": self.sokrates_reasoning,
+            "salomo_reasoning": self.salomo_reasoning,
             # TTS/STT Settings
             "enable_tts": self.enable_tts,
             "voice": self.tts_voice,  # Legacy key name for backward compatibility
