@@ -830,9 +830,9 @@ def tts_queue_push(session_id: str, audio_url: str, playback_rate: str = "1.0x")
                 "version": storage["version"],
                 "playback_rate": playback_rate
             })
-            log_message(f"🔊 TTS SSE: Queued for stream")
+            log_message("🔊 TTS SSE: Queued for stream")
         except asyncio.QueueFull:
-            log_message(f"⚠️ TTS SSE: Queue full, skipping")
+            log_message("⚠️ TTS SSE: Queue full, skipping")
 
 
 def tts_queue_clear(session_id: str) -> None:

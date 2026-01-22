@@ -79,7 +79,7 @@ class ChatMessage(TypedDict):
 # ============================================================
 # Vector Cache - Now in aifred/lib/vector_cache.py
 # ============================================================
-from .lib.vector_cache import initialize_vector_cache
+from .lib.vector_cache import initialize_vector_cache  # noqa: E402
 
 
 # ============================================================
@@ -107,7 +107,7 @@ _backend_init_lock = asyncio.Lock()
 # Whisper STT - Now in aifred/lib/audio_processing.py
 # ============================================================
 # Import from audio_processing module
-from .lib.audio_processing import (
+from .lib.audio_processing import (  # noqa: E402
     initialize_whisper_model,
     unload_whisper_model,
     get_whisper_model
@@ -4371,17 +4371,6 @@ class AIState(rx.State):
             cleanup_old_tts_audio(max_age_hours=0)  # 0 = alle löschen
         except Exception as e:
             self.add_debug(f"⚠️ TTS cleanup failed: {e}")
-
-        # HTML Preview Dateien aufräumen
-        from .lib.config import DATA_DIR
-        html_preview_dir = DATA_DIR / "html_preview"
-        try:
-            if html_preview_dir.exists():
-                for f in html_preview_dir.iterdir():
-                    if f.is_file():
-                        f.unlink()
-        except Exception as e:
-            self.add_debug(f"⚠️ HTML preview cleanup failed: {e}")
 
         # Session-Bilder aufräumen (data/images/{session_id}/)
         if self.session_id:

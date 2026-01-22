@@ -5008,13 +5008,13 @@ app = rx.App(
 # Mount REST API routes directly on Reflex's backend
 # This avoids the "ASGI flow error: Connection already upgraded" bug
 # that occurs when using api_transformer with WebSocket connections
-from .lib.api import api_app
+from .lib.api import api_app  # noqa: E402
 app._api.mount("/api", api_app)
 
 # Mount static file directories from data/
 # All user data is stored in data/ which is excluded from hot-reload
-from starlette.staticfiles import StaticFiles
-from .lib.config import DATA_DIR
+from starlette.staticfiles import StaticFiles  # noqa: E402
+from .lib.config import DATA_DIR  # noqa: E402
 
 # Mount images directory for Vision uploads
 images_dir = DATA_DIR / "images"

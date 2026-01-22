@@ -71,7 +71,7 @@ def _save_whitelist(whitelist: List[str]) -> bool:
         True on success
     """
     try:
-        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         with open(WHITELIST_FILE, "w", encoding="utf-8") as f:
             json.dump(whitelist, f, ensure_ascii=False, indent=2)
         return True
@@ -185,7 +185,7 @@ def _save_accounts(accounts: Dict[str, str]) -> bool:
         True on success
     """
     try:
-        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         with open(ACCOUNTS_FILE, "w", encoding="utf-8") as f:
             json.dump(accounts, f, ensure_ascii=False, indent=2)
         return True

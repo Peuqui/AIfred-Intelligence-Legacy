@@ -6,7 +6,6 @@ Falls back to config.py defaults if no settings file exists.
 """
 
 import json
-from pathlib import Path
 from typing import Dict, Any, Optional
 
 from .config import DATA_DIR

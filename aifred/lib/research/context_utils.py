@@ -5,7 +5,7 @@ This module eliminates code duplication between context_builder.py and cache_han
 by providing common utility functions for context budget calculation.
 """
 
-from typing import Tuple, Optional, TYPE_CHECKING
+from typing import Tuple, TYPE_CHECKING
 
 from ..context_manager import get_max_available_context, calculate_adaptive_reserve
 from ..config import (
