@@ -936,10 +936,11 @@ def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Cla
         log_message(f"🎤 XTTS v2: speaker={speaker}, language={language}, text_length={len(text)}")
 
         # Call XTTS Docker service
+        # No timeout - XTTS runs async and may take long on CPU (10+ min for long texts)
         response = requests.post(
             f"{XTTS_SERVICE_URL}/tts",
             json={"text": text, "speaker": speaker, "language": language},
-            timeout=120  # XTTS is faster than Bark (~1-3s per sentence)
+            timeout=None
         )
 
         if response.status_code == 200:
@@ -963,9 +964,6 @@ def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Cla
 
     except requests.exceptions.ConnectionError:
         log_message("❌ XTTS v2: Service not running. Start with: cd docker/xtts && docker-compose up -d")
-        return None
-    except requests.exceptions.Timeout:
-        log_message("❌ XTTS v2: Timeout after 120 seconds")
         return None
     except Exception as e:
         log_message(f"❌ XTTS v2 Exception: {e}")
