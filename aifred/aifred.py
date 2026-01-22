@@ -1149,28 +1149,18 @@ def llm_parameters_accordion() -> rx.Component:
                                 spacing="1",
                                 align="center",
                             ),
-                            rx.vstack(
-                                rx.input(
-                                    placeholder="32768",
-                                    default_value=AIState.vision_num_ctx.to(str),  # Uncontrolled: user can type freely
-                                    on_blur=AIState.set_vision_num_ctx,  # Save only when leaving field (Tab/Enter/click away)
-                                    type="number",
-                                    width="78px",
-                                    disabled=~AIState.vision_num_ctx_enabled,
-                                    opacity=rx.cond(
-                                        AIState.vision_num_ctx_enabled,
-                                        "1.0",
-                                        "0.5"
-                                    ),
+                            rx.input(
+                                placeholder="32768",
+                                default_value=AIState.vision_num_ctx.to(str),  # Uncontrolled: user can type freely
+                                on_blur=AIState.set_vision_num_ctx,  # Save only when leaving field (Tab/Enter/click away)
+                                type="number",
+                                width="78px",
+                                disabled=~AIState.vision_num_ctx_enabled,
+                                opacity=rx.cond(
+                                    AIState.vision_num_ctx_enabled,
+                                    "1.0",
+                                    "0.5"
                                 ),
-                                rx.text(
-                                    "ctx",
-                                    font_size="9px",
-                                    color=COLORS["warning_text"],
-                                    font_style="italic",
-                                ),
-                                spacing="0",
-                                align="center",
                             ),
                             spacing="1",
                             margin_left="8px",  # Extra spacing from Salomo

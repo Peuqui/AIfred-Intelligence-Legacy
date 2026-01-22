@@ -1691,12 +1691,29 @@ For a local home network server, these drawbacks are negligible.
 
 **Additionally required for Dev Mode with external access:**
 
-In `.web/vite.config.js`, `allowedHosts` must be extended (gets overwritten on every build!):
+> ⚠️ **IMPORTANT:** The `.web/vite.config.js` file gets overwritten on Reflex updates!
+> Use the patch script after updates: `./scripts/patch-vite-config.sh`
+
+In `.web/vite.config.js`, the following must be configured:
+
+1. **allowedHosts** - for external domain access:
 ```javascript
 server: {
   allowedHosts: ["your-domain.com", "localhost", "127.0.0.1"],
 }
 ```
+
+2. **proxy** - for API and TTS SSE streaming (required when accessing via frontend port 3002):
+```javascript
+server: {
+  proxy: {
+    '/_upload': { target: 'http://0.0.0.0:8002', changeOrigin: true },
+    '/api': { target: 'http://0.0.0.0:8002', changeOrigin: true },
+  },
+}
+```
+
+Without the `/api` proxy, TTS streaming will fail with "text/html instead of text/event-stream" errors.
 
 **Optional: Polkit Rule for Restart Without sudo**
 

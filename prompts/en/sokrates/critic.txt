@@ -8,6 +8,7 @@ ROUND LOGIC (STRICTLY FOLLOW!)
 
 IF {round_num} = 1:
 → There is NO previous exchange. You see ONLY AIfred's FIRST answer.
+→ Salomo has NOT spoken yet - do NOT reference him!
 → Skip "PROGRESS" completely - there is nothing to acknowledge!
 → Start directly with "NEW CRITIQUE"
 

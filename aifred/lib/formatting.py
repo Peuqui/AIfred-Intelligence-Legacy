@@ -208,7 +208,7 @@ def get_timestamp() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
 
-def _save_html_to_assets(html_code: str) -> str:
+def _save_html_to_assets(html_code: str, title: str = "") -> str:
     """
     Save HTML code as file in uploaded_files/html_preview/ and return URL.
 
@@ -217,6 +217,7 @@ def _save_html_to_assets(html_code: str) -> str:
 
     Args:
         html_code: The HTML code to save
+        title: Optional title for filename (sanitized, max 50 chars)
 
     Returns:
         Full URL to saved file (e.g., "http://host:8002/_upload/html_preview/abc123.html")
@@ -224,8 +225,15 @@ def _save_html_to_assets(html_code: str) -> str:
     # Ensure directory exists
     _HTML_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Generate unique filename
-    filename = f"{uuid.uuid4().hex[:8]}.html"
+    # Generate filename from title or UUID
+    if title:
+        # Sanitize title for filename: remove/replace problematic characters
+        safe_title = re.sub(r'[<>:"/\\|?*]', '', title)  # Remove forbidden chars
+        safe_title = re.sub(r'\s+', '_', safe_title.strip())  # Spaces to underscores
+        safe_title = safe_title[:50]  # Limit length
+        filename = f"🎩 AIfred - {safe_title}.html"
+    else:
+        filename = f"{uuid.uuid4().hex[:8]}.html"
     filepath = _HTML_PREVIEW_DIR / filename
 
     # Save HTML code

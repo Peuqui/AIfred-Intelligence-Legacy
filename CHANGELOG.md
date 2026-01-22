@@ -5,6 +5,39 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.2] - 2026-01-22 🔧 Multi-Agent Prompt Fixes & Export Improvements
+
+### Fixed
+
+- **Multi-Agent Round Number Injection** ([prompts/de/aifred/refinement.txt](prompts/de/aifred/refinement.txt), [prompts/en/aifred/refinement.txt](prompts/en/aifred/refinement.txt), [prompt_loader.py](aifred/lib/prompt_loader.py)):
+  - AIfred refinement prompt now receives `{round_num}` like Sokrates and Salomo
+  - Ensures AIfred knows which round of debate it's responding to
+
+- **Sokrates R1 Salomo Reference Bug** ([prompts/de/sokrates/critic.txt](prompts/de/sokrates/critic.txt), [prompts/en/sokrates/critic.txt](prompts/en/sokrates/critic.txt)):
+  - Added explicit warning: "Salomo has NOT spoken yet - do NOT reference him!"
+  - Prevents Sokrates from referencing Salomo in Round 1 before Salomo has responded
+
+- **Multi-Agent Label Duplication** ([state.py](aifred/state.py)):
+  - Fixed "[Critical Review: Critical Review R1]" appearing in message markers
+  - Mode prefix now skipped when mode equals multi_agent_mode
+
+- **UI Legacy Label Cleanup** ([aifred.py](aifred/aifred.py)):
+  - Removed legacy "ctx" label under Vision context input field
+
+### Changed
+
+- **HTML Export Filenames** ([formatting.py](aifred/lib/formatting.py), [state.py](aifred/state.py)):
+  - Export files now use chat title instead of UUID (e.g., `🎩 AIfred - Hund_oder_Katze.html`)
+  - HTML `<title>` tag uses session title for better browser tab identification
+
+### Added
+
+- **Showcase Documentation** ([docs/examples/README.md](docs/examples/README.md)):
+  - Added "Hund oder Katze" multi-agent debate showcase with analysis
+  - Links to full HTML export and markdown analyses (DE/EN)
+
+---
+
 ## [2.27.1] - 2026-01-21 🔊 TTS Text Processing & SSE Streaming Fixes
 
 ### Changed

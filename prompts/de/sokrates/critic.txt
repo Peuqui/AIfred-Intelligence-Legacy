@@ -21,6 +21,7 @@ RUNDEN-LOGIK (STRIKT BEFOLGEN!)
 
 WENN {round_num} = 1:
 → Es gibt KEINEN vorherigen Austausch. Du siehst NUR AIfred's ERSTE Antwort.
+→ Salomo hat noch NICHT gesprochen - referenziere ihn NICHT!
 → Überspringe "FORTSCHRITT" komplett - es gibt nichts anzuerkennen!
 → Beginne direkt mit "NEUE KRITIK"
 

@@ -687,7 +687,8 @@ def get_sokrates_devils_advocate_prompt(lang: Optional[str] = None) -> str:
 def get_aifred_refinement_prompt(
     critique: str,
     user_interjection: str = "",
-    lang: Optional[str] = None
+    lang: Optional[str] = None,
+    round_num: int = 2
 ) -> str:
     """
     Load AIfred Refinement prompt (when responding to Sokrates' critique).
@@ -696,6 +697,7 @@ def get_aifred_refinement_prompt(
         critique: Sokrates' critique text
         user_interjection: Optional user interjection during debate
         lang: Language code (de/en), defaults to current language
+        round_num: Current debate round (default 2, since refinement starts at R2)
 
     Returns:
         Formatted refinement prompt with critique and timestamp prefix
@@ -704,7 +706,8 @@ def get_aifred_refinement_prompt(
         'aifred/refinement',
         lang=lang,
         critique=critique,
-        user_interjection=user_interjection
+        user_interjection=user_interjection,
+        round_num=round_num
     )
 
 

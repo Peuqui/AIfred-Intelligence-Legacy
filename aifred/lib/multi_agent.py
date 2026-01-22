@@ -1304,7 +1304,8 @@ async def run_sokrates_analysis(
                     refinement_prompt = get_sokrates_refinement_prompt(
                         critique=cleaned_salomo_text,  # Use Salomo's synthesis as guidance (cleaned)
                         user_interjection="",
-                        lang=detected_lang
+                        lang=detected_lang,
+                        round_num=round_num + 1  # AIfred refinement is R{n+1} after Salomo R{n}
                     )
 
                     # PRE-AIFRED: Check if compression needed before AIfred refinement
@@ -1631,7 +1632,8 @@ async def run_tribunal(
                 refinement_prompt = get_sokrates_refinement_prompt(
                     critique=cleaned_sokrates_text,
                     user_interjection="",
-                    lang=detected_lang
+                    lang=detected_lang,
+                    round_num=round_num + 1  # AIfred response is R{n+1} after Sokrates R{n}
                 )
 
                 # PRE-AIFRED: Check if compression needed before AIfred refinement

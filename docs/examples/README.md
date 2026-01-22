@@ -4,6 +4,26 @@ This folder contains example conversations demonstrating AIfred's capabilities.
 
 ## Multi-Agent Debates
 
+### 🏆 Showcase: Hund oder Katze – Philosophische Debatte
+
+**Why this example is remarkable:** Research shows multi-agent debate systems commonly fail through "rubber-stamping" (critics just agreeing), echo chambers, and information loss during synthesis ([arxiv:2503.13657](https://arxiv.org/abs/2503.13657)). This debate demonstrates AIfred avoiding all these failure modes – running on a local 30B model.
+
+**[View Full Debate (German)](https://peuqui.github.io/AIfred-Intelligence/examples/🎩%20AIfred%20-%20Hund_oder_Katze.html)** | **[Analysis (DE)](Showcase_Hund_oder_Katze_MultiAgent_Debatte_DE.md)** | **[Analysis (EN)](Showcase_Dog_or_Cat_MultiAgent_Debate_EN.md)**
+
+**Categorical Progression:**
+1. **Phase 1 - Characterology:** Dog = Servant, Cat = Queen
+2. **Phase 2 - Virtue Ethics:** Dog = aretē (virtue), Cat = contemplatio
+3. **Phase 3 - Relationship Theory:** Both as teachers of the soul
+4. **Phase 4 - Meta-Ethics:** Animal as fellow citizen, not tool
+
+**What makes this special:**
+- Sokrates **actually disagrees** (no rubber-stamping)
+- Salomo **synthesizes without information loss**
+- Roles **remain stable** across all turns
+- Running on **Qwen3:30B locally** (not GPT-4)
+
+---
+
 ### Tribunal: Cats vs Dogs
 A simple question turns into a philosophical debate between a British butler, an ancient Greek philosopher, and King Solomon.
 

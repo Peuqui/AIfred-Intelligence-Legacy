@@ -1739,9 +1739,10 @@ class AIState(rx.State):
             return ""  # No marker for standard mode
 
         # Prepend multi-agent mode prefix (e.g., "Auto-Konsens:", "Tribunal:")
-        # Skip for "standard" mode and when mode already includes the prefix
+        # Skip for "standard" mode, when mode already includes the prefix,
+        # or when mode equals multi_agent_mode (prevents "[Critical Review: Critical Review R1]")
         mode_prefix = ""
-        if self.multi_agent_mode != "standard" and mode not in ["auto_consensus", "tribunal", "devils_advocate"]:
+        if self.multi_agent_mode != "standard" and mode not in ["auto_consensus", "tribunal", "devils_advocate"] and mode != self.multi_agent_mode:
             # Get localized multi-agent mode label
             multi_mode_label = self._get_mode_label(self.multi_agent_mode, None)
             if multi_mode_label:
@@ -4731,7 +4732,8 @@ class AIState(rx.State):
 
         # Build HTML document
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        html_parts = [self._get_export_html_header(timestamp)]
+        chat_title = self.current_session_title or ""
+        html_parts = [self._get_export_html_header(timestamp, chat_title)]
 
         # Get username for display
         display_name = self.user_name if self.user_name else "User"
@@ -4931,8 +4933,8 @@ class AIState(rx.State):
         html_parts.append(self._get_export_html_footer())
         html_content = "\n".join(html_parts)
 
-        # Save HTML file and get URL
-        preview_url = _save_html_to_assets(html_content)
+        # Save HTML file and get URL (with chat title for filename)
+        preview_url = _save_html_to_assets(html_content, chat_title)
 
         self.add_debug(f"📋 Chat exported as HTML ({len(self.chat_history)} messages)")
 
@@ -5029,7 +5031,7 @@ class AIState(rx.State):
             .replace("'", "&#39;")
             .replace("\n", "<br>"))
 
-    def _get_export_html_header(self, timestamp: str) -> str:
+    def _get_export_html_header(self, timestamp: str, title: str = "") -> str:
         """Generate HTML header with embedded CSS for chat export"""
         # KaTeX Assets inline einbetten (Fonts als Base64)
         from .lib.formatting import get_katex_inline_assets
@@ -5039,12 +5041,15 @@ class AIState(rx.State):
         mhchem_js = katex_assets.get('mhchem_js', '')
         autorender_js = katex_assets.get('autorender_js', '')
 
+        # Use session title if available, otherwise generic
+        html_title = f"🎩 AIfred - {title}" if title else "🎩 AIfred Intelligence - Chat Export"
+
         return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎩 AIfred Intelligence - Chat Export</title>
+    <title>{html_title}</title>
     <!-- KaTeX CSS mit eingebetteten Fonts -->
     <style>{katex_css}</style>
     <!-- KaTeX JavaScript -->

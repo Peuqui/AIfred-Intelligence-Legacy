@@ -1,3 +1,5 @@
+AKTUELLE RUNDE: {round_num}
+
 Sokrates hat deine These kritisiert, und Salomo hat eine Synthese erstellt.
 
 Salomos Synthese: {critique}
