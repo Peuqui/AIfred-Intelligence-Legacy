@@ -4418,6 +4418,9 @@ class AIState(rx.State):
 
         Also synchronizes current session if it was modified externally
         (e.g., chat cleared in another tab/port).
+
+        Additionally reconnects TTS SSE stream to ensure this device receives
+        audio events (multi-device support - Last Writer Wins).
         """
         from .lib.session_storage import list_sessions, get_session_title, load_session
 
@@ -4440,6 +4443,12 @@ class AIState(rx.State):
                     self.add_debug(f"🔄 Session changed externally ({local_count} → {server_count}), reloading...")
                     self._restore_session(session)
                     self.session_restored = True
+
+        # Reconnect TTS SSE stream for this device (multi-device support)
+        # When user clicks reload button, they signal "I want to work here now"
+        # This ensures TTS audio plays on this device (Last Writer Wins)
+        if self.session_id:
+            return rx.call_script(f"if(window.startTtsStream) startTtsStream('{self.session_id}');")
 
     def switch_session(self, session_id: str):
         """Switch to a different session.
@@ -4644,9 +4653,10 @@ class AIState(rx.State):
             self.new_session()
             self.add_debug(f"✅ Logged in as: {self.logged_in_user} (new)")
 
-        # Save username to cookie + start TTS SSE stream
+        # Save username AND session cookies + start TTS SSE stream
         # Combined into one script execution for simplicity
-        combined_script = set_username_script(self.logged_in_user) + f"; if(window.startTtsStream) startTtsStream('{self.session_id}');"
+        from .lib.browser_storage import set_session_id_script
+        combined_script = set_username_script(self.logged_in_user) + "; " + set_session_id_script(self.session_id) + f"; if(window.startTtsStream) startTtsStream('{self.session_id}');"
         return rx.call_script(combined_script)
 
     def do_register(self):
@@ -4678,8 +4688,9 @@ class AIState(rx.State):
         self.new_session()
         self.add_debug(f"✅ Account created: {self.logged_in_user}")
 
-        # Save username to cookie + start TTS SSE stream
-        combined_script = set_username_script(self.logged_in_user) + f"; if(window.startTtsStream) startTtsStream('{self.session_id}');"
+        # Save username AND session cookies + start TTS SSE stream
+        from .lib.browser_storage import set_session_id_script
+        combined_script = set_username_script(self.logged_in_user) + "; " + set_session_id_script(self.session_id) + f"; if(window.startTtsStream) startTtsStream('{self.session_id}');"
         return rx.call_script(combined_script)
 
     def do_logout(self):

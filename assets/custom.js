@@ -639,10 +639,11 @@ function updateTtsQueue(queue, version) {
 
     // If we have new items and not currently playing, start playback
     // But ONLY if AutoPlay is enabled (check data-autoplay attribute)
+    // AND the tab is visible (prevent multiple devices from playing simultaneously)
     const queueElement = document.getElementById('tts-queue-data');
     const autoplayEnabled = queueElement?.dataset?.autoplay === 'true';
 
-    if (newItems.length > 0 && !ttsQueuePlaying && !ttsQueuePlaybackScheduled && autoplayEnabled) {
+    if (newItems.length > 0 && !ttsQueuePlaying && !ttsQueuePlaybackScheduled && autoplayEnabled && !document.hidden) {
         // Set flag IMMEDIATELY to prevent race conditions from rapid updates
         ttsQueuePlaybackScheduled = true;
         console.log(`🔊 TTS Queue: Starting playback of ${newItems.length} new items (with 50ms delay for DOM sync)`);
@@ -654,6 +655,8 @@ function updateTtsQueue(queue, version) {
         console.log(`🔊 TTS Queue: ${newItems.length} new items added, playback already scheduled`);
     } else if (newItems.length > 0 && !autoplayEnabled) {
         console.log('🔊 TTS Queue: New items received but AutoPlay is OFF - not playing');
+    } else if (newItems.length > 0 && document.hidden) {
+        console.log('🔇 TTS Queue: New items received but tab is hidden - not playing (multi-device support)');
     }
 }
 
