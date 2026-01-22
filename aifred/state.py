@@ -1902,6 +1902,7 @@ class AIState(rx.State):
         # Uses detected language (from Intent Detection) for correct localization
         import re
         from .lib.i18n import t
+        from .lib.prompt_loader import get_language
         lang = self._last_detected_language or get_language()
         content = re.sub(r'\[LGTM\]', t("consensus_agreed", lang=lang), content, flags=re.IGNORECASE)
         content = re.sub(r'\[WEITER\]', t("consensus_continue", lang=lang), content, flags=re.IGNORECASE)
@@ -8300,7 +8301,7 @@ class AIState(rx.State):
                     self.add_debug(f"✅ XTTS model unloaded from {freed_device}")
                     yield rx.toast.success(f"XTTS model unloaded from {freed_device}", duration=3000)
                 else:
-                    self.add_debug(f"⚠️ XTTS unload failed")
+                    self.add_debug("⚠️ XTTS unload failed")
                     yield rx.toast.error("Failed to unload XTTS model", duration=3000)
 
         except Exception as e:
@@ -8756,6 +8757,7 @@ class AIState(rx.State):
                                 if "metadata" not in self.chat_history[bubble_idx]:
                                     self.chat_history[bubble_idx]["metadata"] = {}
                                 self.chat_history[bubble_idx]["metadata"]["audio_urls"] = [session_audio_url]
+                                self.chat_history[bubble_idx]["metadata"]["playback_rate"] = f"{speed_value}x"
                                 self.chat_history[bubble_idx]["has_audio"] = True
                                 self.chat_history[bubble_idx]["audio_urls_json"] = json.dumps([session_audio_url])
 

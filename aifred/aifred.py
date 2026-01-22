@@ -4317,9 +4317,9 @@ function isAutoScrollEnabled() {
 function autoScrollElement(element) {
     if (!element) return;
 
-    // Only auto-scroll if user is already at the bottom (within 100px threshold)
+    // Only auto-scroll if user is already at the bottom (within 150px threshold)
     // This prevents auto-scroll when user manually scrolls up or opens collapsibles
-    const isNearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+    const isNearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 150;
 
     if (isNearBottom) {
         element.scrollTop = element.scrollHeight;
