@@ -224,6 +224,8 @@ class TranslationManager:
             "salomo_verdict_label": "Urteil:",
             "tts_player_label": "Sprachausgabe",
             "tts_regenerate_hint": "Klicke 'Neu generieren' um die letzte Antwort vorzulesen",
+            "audio_play_tooltip": "Audio abspielen",
+            "audio_regenerate_tooltip": "Audio neu generieren",
             # Vision & Advanced Settings (Phase 4)
             "thinking_mode_label": "🔗 Reasoning Mode:",
             "thinking_mode_info": "ℹ️ Chain-of-Thought Reasoning für komplexe Aufgaben",
@@ -442,6 +444,8 @@ class TranslationManager:
             "salomo_verdict_label": "Verdict:",
             "tts_player_label": "Text-to-Speech",
             "tts_regenerate_hint": "Click 'Regenerate' to read the last response aloud",
+            "audio_play_tooltip": "Play audio",
+            "audio_regenerate_tooltip": "Regenerate audio",
             # Vision & Advanced Settings (Phase 4)
             "thinking_mode_label": "🔗 Reasoning Mode:",
             "thinking_mode_info": "ℹ️ Chain-of-Thought Reasoning for complex tasks",

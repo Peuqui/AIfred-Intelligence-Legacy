@@ -1584,7 +1584,7 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
         rx.el.button(
             rx.icon("volume-2", size=18),
             type="button",
-            title="Audio abspielen",
+            title=t("audio_play_tooltip"),
             **{"data-audio-urls": msg["audio_urls_json"]},
             class_name="bubble-audio-btn",
             style={
@@ -1602,7 +1602,7 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
         rx.button(
             rx.icon("refresh-cw", size=16),
             on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),
-            title="Audio neu generieren",
+            title=t("audio_regenerate_tooltip"),
             size="1",
             variant="ghost",
             color_scheme="gray",

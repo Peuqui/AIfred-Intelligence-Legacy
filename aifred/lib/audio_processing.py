@@ -284,6 +284,57 @@ def cleanup_session_audio(session_id: str) -> int:
     return count
 
 
+def load_audio_url_as_base64(audio_url: str) -> str | None:
+    """
+    Load audio from URL and return as Base64 data URI.
+
+    Converts internal URLs (/_upload/audio/...) to filesystem paths
+    and returns the audio as a data: URI for HTML embedding.
+
+    Args:
+        audio_url: Internal audio URL (e.g., /_upload/audio/{session_id}/file.wav)
+
+    Returns:
+        Data URI string (data:audio/wav;base64,...) or None if failed
+    """
+    import base64
+    import re
+
+    # Extract path part after /_upload/audio/
+    match = re.search(r'/_upload/audio/(.+)$', audio_url)
+    if not match:
+        log_message(f"⚠️ Invalid audio URL format: {audio_url}")
+        return None
+
+    relative_path = match.group(1)
+    file_path = SESSION_AUDIO_DIR / relative_path
+
+    if not file_path.exists():
+        log_message(f"⚠️ Audio file not found: {file_path}")
+        return None
+
+    try:
+        # Determine MIME type from extension
+        suffix = file_path.suffix.lower()
+        mime_types = {
+            '.wav': 'audio/wav',
+            '.mp3': 'audio/mpeg',
+            '.ogg': 'audio/ogg',
+            '.m4a': 'audio/mp4',
+            '.flac': 'audio/flac',
+        }
+        mime_type = mime_types.get(suffix, 'audio/wav')
+
+        with open(file_path, 'rb') as f:
+            audio_bytes = f.read()
+
+        base64_data = base64.b64encode(audio_bytes).decode('utf-8')
+        return f"data:{mime_type};base64,{base64_data}"
+    except Exception as e:
+        log_message(f"⚠️ Failed to load audio: {e}")
+        return None
+
+
 def apply_audio_adjustments(input_file: str, pitch: float = 1.0, speed: float = 1.0) -> str | None:
     """
     Apply pitch and/or speed adjustment to audio file using ffmpeg.
@@ -980,16 +1031,13 @@ def clean_text_for_tts(text):
     # Remove blockquotes (> at start of line) but keep the text
     clean_text = re.sub(r'^>\s*', '', clean_text, flags=re.MULTILINE)
 
-    # Remove Multi-Agent consensus tags - these are internal markers, not speech
-    # [LGTM], [WEITER], [VETO], [KONSENS], [DISSENS], etc.
-    clean_text = re.sub(r'\[LGTM\]', '', clean_text, flags=re.IGNORECASE)
-    clean_text = re.sub(r'\[WEITER\]', '', clean_text, flags=re.IGNORECASE)
-    clean_text = re.sub(r'\[VETO\]', '', clean_text, flags=re.IGNORECASE)
-    clean_text = re.sub(r'\[KONSENS\]', '', clean_text, flags=re.IGNORECASE)
-    clean_text = re.sub(r'\[DISSENS\]', '', clean_text, flags=re.IGNORECASE)
-    clean_text = re.sub(r'\[OK\]', '', clean_text, flags=re.IGNORECASE)
-    clean_text = re.sub(r'\[APPROVED\]', '', clean_text, flags=re.IGNORECASE)
-    clean_text = re.sub(r'\[REJECTED\]', '', clean_text, flags=re.IGNORECASE)
+    # Note: Multi-Agent consensus tags ([LGTM], [WEITER]) are translated to natural
+    # language in add_agent_panel() BEFORE they reach chat_history. TTS speaks
+    # what the user sees in the UI - no duplicate translation needed here.
+
+    # Remove Multi-Agent round labels - these are UI markers prepended to messages
+    # e.g., "[Auto-Konsens: Synthese R1]", "[Tribunal: Kritische Prüfung R2]"
+    clean_text = re.sub(r'\[(Auto-Konsens|Tribunal|Devils? Advocate|Auto-Consensus):[^\]]+R\d+\]', '', clean_text, flags=re.IGNORECASE)
 
     # Remove most emojis, but KEEP laughter emojis for XTTS to convert to "hahaha"
     # Laughter emojis: 😂🤣😆😄😅😁🙂😊 (handled by XTTS server.py)

@@ -529,10 +529,17 @@ function initBubbleAudioButtons() {
                 console.log(`🔊 Button[${idx}] → SHOW (${audioUrls.length} URLs)`);
                 button.style.display = 'inline-flex';
                 // Attach click handler via JS (Reflex doesn't support native onclick strings)
+                // Important: Read URLs fresh on click, not from closure (URLs may change after regeneration)
                 if (!button.dataset.clickAttached) {
                     button.addEventListener('click', () => {
-                        console.log(`🔊 Button clicked, playing all ${audioUrls.length} URLs`);
-                        playBubbleAudioAll(audioUrls);
+                        const freshUrlsJson = button.dataset.audioUrls;
+                        try {
+                            const freshUrls = JSON.parse(freshUrlsJson);
+                            console.log(`🔊 Button clicked, playing ${freshUrls.length} URLs (fresh read)`);
+                            playBubbleAudioAll(freshUrls);
+                        } catch (e) {
+                            console.warn('🔊 Button click: Failed to parse audio URLs', e);
+                        }
                     });
                     button.dataset.clickAttached = 'true';
                 }

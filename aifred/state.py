@@ -1754,7 +1754,7 @@ class AIState(rx.State):
         # Format with HTML span for styling (no emoji - already in UI)
         # Color: rgba(255, 255, 255, 1.0) = 100% opacity white (fully opaque)
         # Style: italic, smaller font
-        # Spacing: 2 line breaks after
+        # Spacing: 2 newlines after (converted to <br><br> in HTML export)
         return f"<span style='color: rgba(255, 255, 255, 0.6; font-style: italic; font-size: 12px;'>[{mode_prefix}{label}{round_suffix}]</span>\n\n"
 
     def _format_panel_metadata(self, metadata: dict | None) -> str:
@@ -1885,18 +1885,28 @@ class AIState(rx.State):
         # 2. Format metadata footer
         meta_footer = self._format_panel_metadata(metadata)
 
-        # 3. Assemble final content for display
+        # 3. Translate consensus tags to natural language for UI display
+        # These are trigger words for the Multi-Agent system, already parsed by count_lgtm_votes()
+        # Now we make them human-readable in the UI (and TTS will speak what's displayed)
+        import re
+        content = re.sub(r'\[LGTM\]', 'Einverstanden.', content, flags=re.IGNORECASE)
+        content = re.sub(r'\[WEITER\]', 'Weiter diskutieren.', content, flags=re.IGNORECASE)
+
+        # 4. Assemble final content for display
         if marker:
             final_content = f"{marker}{content}\n\n{meta_footer}"
         else:
             # Standard mode: no marker, just content + metadata
             final_content = f"{content}\n\n{meta_footer}" if meta_footer else content
 
-        # 4. Create new message entry (dict-based format)
+        # 5. Create new message entry (dict-based format)
         # Include audio URLs if streaming TTS generated them
         msg_metadata = metadata.copy() if metadata else {}
         if self._pending_audio_urls:
             msg_metadata["audio_urls"] = self._pending_audio_urls.copy()
+            # Store agent's playback rate for HTML export (browser speed setting, per-agent)
+            agent_speed = self.tts_agent_voices.get(agent, {}).get("speed", "1.0x")
+            msg_metadata["playback_rate"] = agent_speed
             log_message(f"🔊 add_agent_panel: Stored {len(self._pending_audio_urls)} audio URLs in message metadata")
             self._pending_audio_urls = []  # Clear after storing
 
@@ -4922,11 +4932,35 @@ class AIState(rx.State):
                 # Convert markdown to HTML
                 ai_msg_html = self._convert_markdown_preserve_html(ai_msg_content, md)
 
+                # Add line break after marker spans (e.g., "[Auto-Konsens: ...]")
+                # The \n\n gets lost during markdown conversion, so add <br><br> after </span>
+                ai_msg_html = re.sub(r'(</span>)(?!<br>)', r'\1<br><br>', ai_msg_html)
+
+                # Embed audio as Base64 for portable HTML export
+                audio_html = ""
+                audio_urls = metadata.get("audio_urls", [])
+                if audio_urls:
+                    from .lib.audio_processing import load_audio_url_as_base64
+                    # Get playback rate from metadata (per-agent setting, e.g. "1.25x")
+                    playback_rate = metadata.get("playback_rate", "1.0x").replace("x", "")
+                    audio_players = []
+                    for audio_url in audio_urls:
+                        base64_uri = load_audio_url_as_base64(audio_url)
+                        if base64_uri:
+                            # Set playback rate via onloadedmetadata event
+                            audio_players.append(
+                                f'<audio controls src="{base64_uri}" preload="none" '
+                                f'onloadedmetadata="this.playbackRate={playback_rate}"></audio>'
+                            )
+                    if audio_players:
+                        audio_html = f'<div class="message-audio">{"".join(audio_players)}</div>'
+
                 html_parts.append(f'''
                 <div class="message {agent_class}">
                     <div class="message-header">{header}</div>
                     {sources_html}
                     <div class="message-content">{ai_msg_html}</div>
+                    {audio_html}
                 </div>
                 ''')
 
@@ -5222,6 +5256,18 @@ class AIState(rx.State):
         }}
         .summary-message .message-header {{
             color: #7d8590;
+        }}
+        /* Audio player styling */
+        .message-audio {{
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid #30363d;
+        }}
+        .message-audio audio {{
+            width: 100%;
+            max-width: 400px;
+            height: 36px;
+            border-radius: 8px;
         }}
         /* Collapsible details styling */
         details {{
@@ -8480,10 +8526,32 @@ class AIState(rx.State):
             self.add_debug("⚠️ TTS Re-Synth: Message is not an assistant response")
             return
 
-        content = msg.get("content", "")
         agent = msg.get("agent", "aifred")
 
-        if not content or not content.strip():
+        # Use llm_history instead of chat_history - it's already cleaned
+        # (no HTML labels, no performance metadata, no thinking blocks)
+        # Find the corresponding entry in llm_history by counting assistant messages
+        assistant_count = 0
+        for i in range(bubble_index + 1):
+            if self.chat_history[i].get("role") == "assistant":
+                assistant_count += 1
+
+        # Find the N-th assistant message in llm_history
+        llm_content = None
+        llm_assistant_count = 0
+        for entry in self.llm_history:
+            if entry.get("role") == "assistant":
+                llm_assistant_count += 1
+                if llm_assistant_count == assistant_count:
+                    llm_content = entry.get("content", "")
+                    break
+
+        if not llm_content:
+            # Fallback to chat_history if llm_history entry not found
+            llm_content = msg.get("content", "")
+            self.add_debug("⚠️ TTS Re-Synth: llm_history entry not found, using chat_history")
+
+        if not llm_content or not llm_content.strip():
             self.add_debug("⚠️ TTS Re-Synth: Message content is empty")
             return
 
@@ -8504,7 +8572,10 @@ class AIState(rx.State):
             import json
 
             set_tts_agent(agent)
-            clean_text = clean_text_for_tts(content)
+            # llm_history has format "[AGENT]: content" - remove the label
+            import re
+            content_without_label = re.sub(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', '', llm_content, flags=re.IGNORECASE)
+            clean_text = clean_text_for_tts(content_without_label)
 
             if not clean_text or len(clean_text.strip()) < 5:
                 self.add_debug("🔇 TTS: Text too short after cleanup")
