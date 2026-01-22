@@ -719,7 +719,7 @@ def text_input_section() -> rx.Component:
                 size="2",
                 variant="solid",  # Explizit solid, ohne color_scheme
                 loading=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
+                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.tts_regenerating,
                 flex="1",  # Nimmt mehr Platz
                 style={
                     "background": "#3d2a00 !important",  # Dunkles Orange (wichtig!)
@@ -1580,17 +1580,18 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
     Das umgeht alle rx.cond Typ-Probleme mit Dict-Feldern.
     """
     return rx.hstack(
-        # Play button
+        # Play button - disabled during TTS regeneration
         rx.el.button(
             rx.icon("volume-2", size=18),
             type="button",
             title=t("audio_play_tooltip"),
+            disabled=AIState.tts_regenerating,
             **{"data-audio-urls": msg["audio_urls_json"]},
             class_name="bubble-audio-btn",
             style={
                 "display": "none",  # JS zeigt Button wenn Audio vorhanden
-                "opacity": "0.6",
-                "cursor": "pointer",
+                "opacity": rx.cond(AIState.tts_regenerating, "0.3", "0.6"),
+                "cursor": rx.cond(AIState.tts_regenerating, "not-allowed", "pointer"),
                 "padding": "6px 8px",
                 "background": "transparent",
                 "border": "none",
@@ -1598,19 +1599,24 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
                 "align_items": "center",
             },
         ),
-        # Regenerate button (native Reflex button for proper on_click handling)
+        # Regenerate button - shows spinner during TTS regeneration
         rx.button(
-            rx.icon("refresh-cw", size=16),
+            rx.cond(
+                AIState.tts_regenerating,
+                rx.spinner(size="1"),
+                rx.icon("refresh-cw", size=16),
+            ),
             on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),
             title=t("audio_regenerate_tooltip"),
             size="1",
             variant="ghost",
             color_scheme="gray",
+            disabled=AIState.tts_regenerating,
             class_name="bubble-regenerate-btn",
             style={
                 "display": "none",  # JS zeigt Button wenn Audio vorhanden
-                "opacity": "0.5",
-                "cursor": "pointer",
+                "opacity": rx.cond(AIState.tts_regenerating, "0.3", "0.5"),
+                "cursor": rx.cond(AIState.tts_regenerating, "not-allowed", "pointer"),
                 "padding": "6px 8px",
                 "min_width": "auto",
             },
@@ -2620,7 +2626,7 @@ def settings_accordion() -> rx.Component:
                             on_change=AIState.set_user_name,
                             on_blur=AIState.save_user_name,
                             size="2",
-                            width="100px",
+                            width="140px",
                             class_name="username-input-subtle",
                         ),
                         # Gender Toggle (♂/♀)

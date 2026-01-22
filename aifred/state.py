@@ -367,6 +367,7 @@ class AIState(rx.State):
     session_restored: bool = False  # True if chat history was loaded from session
     _session_initialized: bool = False  # Guard against multiple session restore callbacks
     _on_load_running: bool = False  # Guard against multiple on_load() calls
+    _last_detected_language: str = ""  # Last detected language from Intent Detection (for title generation)
 
     # Backend Status
     backend_healthy: bool = False
@@ -1888,9 +1889,12 @@ class AIState(rx.State):
         # 3. Translate consensus tags to natural language for UI display
         # These are trigger words for the Multi-Agent system, already parsed by count_lgtm_votes()
         # Now we make them human-readable in the UI (and TTS will speak what's displayed)
+        # Uses detected language (from Intent Detection) for correct localization
         import re
-        content = re.sub(r'\[LGTM\]', 'Einverstanden.', content, flags=re.IGNORECASE)
-        content = re.sub(r'\[WEITER\]', 'Weiter diskutieren.', content, flags=re.IGNORECASE)
+        from .lib.i18n import t
+        lang = self._last_detected_language or get_language()
+        content = re.sub(r'\[LGTM\]', t("consensus_agreed", lang=lang), content, flags=re.IGNORECASE)
+        content = re.sub(r'\[WEITER\]', t("consensus_continue", lang=lang), content, flags=re.IGNORECASE)
 
         # 4. Assemble final content for display
         if marker:
@@ -1904,13 +1908,15 @@ class AIState(rx.State):
         msg_metadata = metadata.copy() if metadata else {}
         if self._pending_audio_urls:
             msg_metadata["audio_urls"] = self._pending_audio_urls.copy()
-            # Store agent's playback rate for HTML export (browser speed setting, per-agent)
-            agent_speed = self.tts_agent_voices.get(agent, {}).get("speed", "1.0x")
-            msg_metadata["playback_rate"] = agent_speed
             log_message(f"🔊 add_agent_panel: Stored {len(self._pending_audio_urls)} audio URLs in message metadata")
             self._pending_audio_urls = []  # Clear after storing
 
+        # Store agent's playback rate for HTML export (browser speed setting, per-agent)
+        # Always set when audio_urls are present, regardless of source
         audio_urls = msg_metadata.get("audio_urls", [])
+        if audio_urls:
+            agent_speed = self.tts_agent_voices.get(agent, {}).get("speed", "1.0x")
+            msg_metadata["playback_rate"] = agent_speed
         new_message: Dict[str, Any] = {
             "role": "assistant",
             "content": final_content,
@@ -3173,6 +3179,7 @@ class AIState(rx.State):
             detected_language = get_language()
             intent_raw = ""
             self.add_debug(f"🎯 Intent: {detected_intent} (image-only), Lang: {detected_language.upper()} (UI)")
+            self._last_detected_language = detected_language  # Store for title generation
         else:
             detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(
                 user_msg,
@@ -3182,6 +3189,7 @@ class AIState(rx.State):
             # Log Intent Detection result to UI debug console (always visible)
             addressee_display = addressed_to.capitalize() if addressed_to else "–"
             self.add_debug(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}, Lang: {detected_language.upper()}")
+            self._last_detected_language = detected_language  # Store for title generation
 
         # ============================================================
         # PRE-MESSAGE: History Compression Check
@@ -4941,15 +4949,15 @@ class AIState(rx.State):
                 audio_urls = metadata.get("audio_urls", [])
                 if audio_urls:
                     from .lib.audio_processing import load_audio_url_as_base64
-                    # Get playback rate from metadata (per-agent setting, e.g. "1.25x")
+                    # Get playback rate from message metadata
                     playback_rate = metadata.get("playback_rate", "1.0x").replace("x", "")
                     audio_players = []
                     for audio_url in audio_urls:
                         base64_uri = load_audio_url_as_base64(audio_url)
                         if base64_uri:
-                            # Set playback rate via onloadedmetadata event
+                            # Set playback rate via onloadedmetadata (preload=metadata loads only duration/metadata, not full audio)
                             audio_players.append(
-                                f'<audio controls src="{base64_uri}" preload="none" '
+                                f'<audio controls src="{base64_uri}" preload="metadata" '
                                 f'onloadedmetadata="this.playbackRate={playback_rate}"></audio>'
                             )
                     if audio_players:
@@ -5750,10 +5758,10 @@ class AIState(rx.State):
             self.add_debug("🏷️ Generating session title...")
             yield  # Update UI immediately to show "Generating..." message
 
-            # Load prompt in current UI language
+            # Load prompt in detected language (from Intent Detection, fallback to UI language)
             prompt = load_prompt(
                 "utility/chat_title",
-                lang=get_language(),
+                lang=self._last_detected_language or get_language(),
                 user_message=first_user_msg,
                 ai_response=first_ai_response
             )
@@ -6375,24 +6383,23 @@ class AIState(rx.State):
                     session_audio_url = save_audio_to_session([audio_url], self.session_id)
                     if session_audio_url:
                         log_message(f"🔊 TTS: Saved to session → {session_audio_url}")
-                    else:
-                        # Fall back to temporary URL if session save fails
-                        session_audio_url = audio_url
 
-                    # Update last assistant message with session audio URL (for replay button)
-                    if self.chat_history:
-                        for i in range(len(self.chat_history) - 1, -1, -1):
-                            if self.chat_history[i].get("role") == "assistant":
-                                if "metadata" not in self.chat_history[i]:
-                                    self.chat_history[i]["metadata"] = {}
-                                self.chat_history[i]["metadata"]["audio_urls"] = [session_audio_url]
-                                self.chat_history[i]["has_audio"] = True
-                                self.chat_history[i]["audio_urls_json"] = json.dumps([session_audio_url])
-                                log_message("🔊 TTS: Added audio URL to message metadata")
-                                break
-                        # Force Reflex to recognize the change
-                        self.chat_history = list(self.chat_history)
-                        self._save_current_session()
+                        # Update last assistant message with session audio URL (for replay button)
+                        if self.chat_history:
+                            for i in range(len(self.chat_history) - 1, -1, -1):
+                                if self.chat_history[i].get("role") == "assistant":
+                                    if "metadata" not in self.chat_history[i]:
+                                        self.chat_history[i]["metadata"] = {}
+                                    self.chat_history[i]["metadata"]["audio_urls"] = [session_audio_url]
+                                    self.chat_history[i]["has_audio"] = True
+                                    self.chat_history[i]["audio_urls_json"] = json.dumps([session_audio_url])
+                                    log_message("🔊 TTS: Added audio URL to message metadata")
+                                    break
+                            # Force Reflex to recognize the change
+                            self.chat_history = list(self.chat_history)
+                            self._save_current_session()
+                    else:
+                        log_message("⚠️ TTS: Failed to save audio to session")
 
                     # Separator nach TTS-Ausgabe (Log-File + Debug-Konsole)
                     from aifred.lib.logging_utils import console_separator
@@ -6480,39 +6487,43 @@ class AIState(rx.State):
                     # Add to queue (use temporary URL for autoplay)
                     self.tts_audio_queue = self.tts_audio_queue + [audio_url]
                     self.tts_queue_version += 1
-                    # Also add to pending URLs for message metadata assignment
-                    self._pending_audio_urls = self._pending_audio_urls + [audio_url]
+                    # NOTE: Do NOT add to _pending_audio_urls here!
+                    # _pending_audio_urls is for Streaming-TTS only, where URLs are collected
+                    # during streaming and then passed to add_agent_panel().
+                    # For Queue-TTS, we save directly to the agent's message below.
                     # Also set tts_audio_path so HTML5 player shows current audio
                     self.tts_audio_path = audio_url
                     # Set browser playback rate from agent speed setting
                     self.tts_playback_rate = f"{speed_value}x"
                     file_size_kb = os.path.getsize(file_path) / 1024
-                    self.add_debug(f"✅ TTS Queue: Added {agent} audio ({file_size_kb:.1f} KB), queue size: {len(self.tts_audio_queue)}, pending: {len(self._pending_audio_urls)}")
+                    self.add_debug(f"✅ TTS Queue: Added {agent} audio ({file_size_kb:.1f} KB), queue size: {len(self.tts_audio_queue)}")
 
                     # Save to session directory for permanent storage (replay button)
                     from .lib.audio_processing import save_audio_to_session
                     session_audio_url = save_audio_to_session([audio_url], self.session_id)
                     if session_audio_url:
                         log_message(f"🔊 TTS Queue: Saved to session → {session_audio_url}")
-                    else:
-                        # Fall back to temporary URL if session save fails
-                        session_audio_url = audio_url
 
-                    # Update last assistant message with session audio URL (for replay button)
-                    # This is needed for Non-Streaming TTS where audio is generated AFTER the message
-                    if self.chat_history:
-                        for i in range(len(self.chat_history) - 1, -1, -1):
-                            if self.chat_history[i].get("role") == "assistant":
-                                if "metadata" not in self.chat_history[i]:
-                                    self.chat_history[i]["metadata"] = {}
-                                self.chat_history[i]["metadata"]["audio_urls"] = [session_audio_url]
-                                self.chat_history[i]["has_audio"] = True
-                                self.chat_history[i]["audio_urls_json"] = json.dumps([session_audio_url])
-                                log_message("🔊 TTS Queue: Added audio URL to message metadata")
-                                break
-                        # Force Reflex to recognize the change
-                        self.chat_history = list(self.chat_history)
-                        self._save_current_session()
+                        # Update THIS agent's message with session audio URL (for replay button)
+                        # IMPORTANT: Find message by agent name, not "last assistant-message"!
+                        # Multi-Agent runs TTS async, so other agents may have added messages already.
+                        if self.chat_history:
+                            for i in range(len(self.chat_history) - 1, -1, -1):
+                                msg = self.chat_history[i]
+                                if msg.get("role") == "assistant" and msg.get("agent") == agent:
+                                    if "metadata" not in msg:
+                                        msg["metadata"] = {}
+                                    msg["metadata"]["audio_urls"] = [session_audio_url]
+                                    msg["metadata"]["playback_rate"] = f"{speed_value}x"
+                                    msg["has_audio"] = True
+                                    msg["audio_urls_json"] = json.dumps([session_audio_url])
+                                    log_message(f"🔊 TTS Queue: Added audio URL + playback_rate to {agent}'s message")
+                                    break
+                            # Force Reflex to recognize the change
+                            self.chat_history = list(self.chat_history)
+                            self._save_current_session()
+                    else:
+                        log_message(f"⚠️ TTS Queue: Failed to save audio to session for {agent}")
                 else:
                     self.add_debug(f"⚠️ TTS Queue: Audio file not found at {file_path}")
             else:

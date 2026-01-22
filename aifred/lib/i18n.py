@@ -210,6 +210,8 @@ class TranslationManager:
             "sokrates_llm": "Sokrates-LLM:",
             "sokrates_llm_same": "(wie AIfred-LLM)",
             "lgtm_tooltip": "Salomo ist zufrieden mit der Antwort",
+            "consensus_agreed": "Einverstanden.",
+            "consensus_continue": "Weiter diskutieren.",
             "alfred_title": "🎩 AIfred",
             # Salomo Labels
             "salomo_title": "👑 Salomo",
@@ -430,6 +432,8 @@ class TranslationManager:
             "sokrates_llm": "Sokrates-LLM:",
             "sokrates_llm_same": "(same as AIfred-LLM)",
             "lgtm_tooltip": "Salomo is satisfied with the answer",
+            "consensus_agreed": "Agreed.",
+            "consensus_continue": "Continue discussion.",
             "alfred_title": "🎩 AIfred",
             # Salomo Labels
             "salomo_title": "👑 Salomo",

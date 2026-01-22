@@ -69,22 +69,12 @@ def get_user_gender() -> str:
 
 def get_salutation() -> str:
     """
-    Get proper salutation based on user name and gender.
+    Get user salutation (name as configured by user).
 
-    Returns:
-        - "Herr {name}" / "Mr. {name}" for male
-        - "Frau {name}" / "Ms. {name}" for female
-        - Empty string if no name set
+    Returns the name exactly as the user entered it.
+    User decides how they want to be addressed (e.g. "Lord Helmet", "Herr Müller").
     """
-    if not _current_user_name:
-        return ""
-
-    if _current_language == "de":
-        title = "Herr" if _current_user_gender == "male" else "Frau"
-    else:
-        title = "Mr." if _current_user_gender == "male" else "Ms."
-
-    return f"{title} {_current_user_name}"
+    return _current_user_name or ""
 
 
 def set_personality_enabled(agent: str, enabled: bool):

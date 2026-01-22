@@ -27,7 +27,7 @@ This folder contains example conversations demonstrating AIfred's capabilities.
 - Running on **Qwen3:30B locally** (not GPT-4)
 
 **Interactive Debate / Interaktive Debatte:**
-- 🇩🇪 **[Vollständige Debatte (DE)](https://peuqui.github.io/AIfred-Intelligence/examples/🎩%20AIfred%20-%20Hund_oder_Katze.html)**
+- 🇩🇪 **[Vollständige Debatte (DE)](https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Hund_oder_Katze_DE.html)**
 - 🇬🇧 **[Full Debate (EN)](https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Dog_or_Cat_EN.html)** 
 **Analysis / Analyse:**
 - 🇩🇪 **[Analyse (DE)](https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Hund_oder_Katze_MultiAgent_Debatte_DE.html)**
