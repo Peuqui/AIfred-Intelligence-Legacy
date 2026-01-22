@@ -1608,6 +1608,9 @@ class AIState(rx.State):
             # NOTE: yarn_factor is NOT saved - always starts at 1.0, system calibrates maximum
             # NOTE: vllm_max_tokens and vllm_native_context are NEVER saved!
             # They are calculated dynamically on every vLLM startup based on VRAM
+            # Vision LLM Context Settings (PERSISTENT)
+            "vision_num_ctx_enabled": self.vision_num_ctx_enabled,
+            "vision_num_ctx": self.vision_num_ctx,
             # TTS/STT Settings
             "enable_tts": self.enable_tts,
             "voice": self.tts_voice,  # Legacy key name for backward compatibility
@@ -7940,7 +7943,7 @@ class AIState(rx.State):
         self.vision_num_ctx_enabled = enabled
         status = "Manual" if enabled else "Auto (calibrated)"
         self.add_debug(f"👁️ Vision Context: {status}")
-        self._save_vision_settings()
+        self._save_settings()
 
     def set_vision_num_ctx(self, value: str):
         """Set manual vision context value (PERSISTENT)"""
@@ -7954,19 +7957,9 @@ class AIState(rx.State):
                 num_value = NUM_CTX_MANUAL_MAX
             self.vision_num_ctx = num_value
             self.add_debug(f"👁️ Manual num_ctx (Vision): {format_number(num_value)}")
-            self._save_vision_settings()
+            self._save_settings()
         except (ValueError, TypeError):
             self.add_debug(f"❌ Invalid Vision num_ctx value: {value}")
-
-    def _save_vision_settings(self):
-        """Save Vision settings to settings.json"""
-        from .lib.settings import load_settings, save_settings
-        settings = load_settings() or {}
-        settings["vision_num_ctx_enabled"] = self.vision_num_ctx_enabled
-        settings["vision_num_ctx"] = self.vision_num_ctx
-        # Remove deprecated vision_num_predict if present
-        settings.pop("vision_num_predict", None)
-        save_settings(settings)
 
     def set_research_mode(self, mode: str):
         """Set research mode"""
@@ -8283,6 +8276,29 @@ class AIState(rx.State):
         self.tts_voice = voice
         self.add_debug(f"🔊 TTS Voice: {voice}")
         self._save_settings()
+
+    async def unload_xtts_model(self):
+        """Unload XTTS model from memory to free VRAM."""
+        import httpx
+        from .lib.config import XTTS_SERVICE_URL
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(f"{XTTS_SERVICE_URL}/unload")
+                response.raise_for_status()
+                data = response.json()
+
+                if data.get("success"):
+                    freed_device = data.get("freed_device", "unknown")
+                    self.add_debug(f"✅ XTTS model unloaded from {freed_device}")
+                    yield rx.toast.success(f"XTTS model unloaded from {freed_device}", duration=3000)
+                else:
+                    self.add_debug(f"⚠️ XTTS unload failed")
+                    yield rx.toast.error("Failed to unload XTTS model", duration=3000)
+
+        except Exception as e:
+            self.add_debug(f"❌ XTTS unload error: {e}")
+            yield rx.toast.error(f"Error: {e}", duration=3000)
 
     # Note: set_tts_speed removed - generation always at 1.0, tempo via browser playback rate
 

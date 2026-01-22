@@ -733,11 +733,20 @@ WEB_UI_HTML = """
         <div id="cloneStatus" class="status"></div>
     </div>
 
+    <div class="section">
+        <h2>Model Management</h2>
+        <p style="color:#888; margin-bottom:15px;">Unload the model to free GPU memory (for Ollama, etc.). Model reloads on next TTS request.</p>
+        <button onclick="unloadModel()" id="unloadBtn">Unload Model</button>
+        <div id="unloadStatus" class="status"></div>
+    </div>
+
     <div class="info">
         <strong>API Endpoints:</strong><br>
         <code>GET /voices</code> - List all voices<br>
         <code>GET /languages</code> - List supported languages<br>
+        <code>GET /status</code> - Detailed status with GPU/VRAM info<br>
         <code>POST /tts</code> - Generate speech (JSON: text, speaker, language)<br>
+        <code>POST /unload</code> - Unload model to free memory<br>
         <code>POST /voices/clone</code> - Clone voice (multipart: audio, name)<br>
         <code>DELETE /voices/&lt;name&gt;</code> - Delete custom voice
     </div>
@@ -906,6 +915,34 @@ WEB_UI_HTML = """
             if (e.ctrlKey && e.key === 'Enter') generateTTS();
         });
 
+        async function unloadModel() {
+            const status = document.getElementById('unloadStatus');
+            const btn = document.getElementById('unloadBtn');
+
+            btn.disabled = true;
+            status.className = 'status loading';
+            status.textContent = 'Unloading model...';
+
+            try {
+                const res = await fetch('/unload', { method: 'POST' });
+                const data = await res.json();
+
+                if (data.success) {
+                    status.className = 'status success';
+                    status.textContent = `Model unloaded from ${data.freed_device}. Memory freed.`;
+                    // Clear voice dropdown since model is unloaded
+                    document.getElementById('voice').innerHTML = '<option disabled>Model unloaded - will reload on next TTS</option>';
+                } else {
+                    throw new Error(data.error || 'Unload failed');
+                }
+            } catch (e) {
+                status.className = 'status error';
+                status.textContent = 'Error: ' + e.message;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         // Load voices on start
         loadVoices();
     </script>
@@ -959,6 +996,63 @@ def status():
             "top_p": XTTS_TOP_P,
             "max_chunk_chars": MAX_CHUNK_CHARS,
         },
+    })
+
+
+@app.route("/unload", methods=["POST"])
+def unload_model():
+    """
+    Unload the XTTS model from memory.
+
+    This frees GPU VRAM (or RAM if on CPU) by:
+    - Setting all model references to None
+    - Clearing CUDA cache
+    - Running Python garbage collection
+
+    The model will be lazy-loaded again on the next /tts request.
+
+    Returns:
+        {"success": true, "freed_device": "cuda|cpu|not_loaded"}
+    """
+    global _synthesizer, _config, _speaker_embeddings, _custom_voices, _device
+    import gc
+
+    if _synthesizer is None:
+        return jsonify({
+            "success": True,
+            "freed_device": "not_loaded",
+            "message": "Model was not loaded"
+        })
+
+    freed_device = _device or "unknown"
+    logger.info(f"🗑️ Unloading XTTS model from {freed_device}...")
+
+    # Clear model references
+    _synthesizer = None
+    _config = None
+    _speaker_embeddings = None
+    _custom_voices = {}
+    _device = None
+
+    # Force garbage collection
+    gc.collect()
+
+    # Clear CUDA cache if available
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            logger.info("✅ CUDA cache cleared")
+    except Exception as e:
+        logger.warning(f"Could not clear CUDA cache: {e}")
+
+    logger.info(f"✅ XTTS model unloaded from {freed_device}")
+
+    return jsonify({
+        "success": True,
+        "freed_device": freed_device,
+        "message": f"Model unloaded from {freed_device}, memory freed"
     })
 
 

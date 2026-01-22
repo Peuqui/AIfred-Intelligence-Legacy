@@ -3469,6 +3469,17 @@ def settings_accordion() -> rx.Component:
                                         size="2",
                                     ),
                                 ),
+                                # Unload button (only for XTTS v2)
+                                rx.cond(
+                                    AIState.tts_engine.contains("XTTS"),
+                                    rx.button(
+                                        rx.icon("trash-2", color="orange"),
+                                        on_click=AIState.unload_xtts_model,
+                                        size="2",
+                                        variant="ghost",
+                                        title="Unload XTTS model from memory",
+                                    ),
+                                ),
                                 spacing="2",
                                 align="center",
                                 width="100%",
