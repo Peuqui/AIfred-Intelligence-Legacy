@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIfred Multi-Agent Showcase - Hund oder Katze?</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #1f2937;
+            --text-primary: #e5e7eb;
+            --text-secondary: #9ca3af;
+            --accent-gold: #d4af37;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-green: #10b981;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+            line-height: 1.7;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { color: var(--accent-gold); font-size: 2rem; margin-bottom: 0.5rem; }
+        h2 { color: var(--accent-blue); font-size: 1.5rem; margin: 2rem 0 1rem; border-bottom: 1px solid #374151; padding-bottom: 0.5rem; }
+        h3 { color: var(--text-primary); font-size: 1.2rem; margin: 1.5rem 0 0.75rem; }
+        h4 { color: var(--text-secondary); font-size: 1rem; margin: 1rem 0 0.5rem; }
+        p { margin-bottom: 1rem; }
+        a { color: var(--accent-blue); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .meta { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 2rem; }
+        .meta span { margin-right: 2rem; }
+        hr { border: none; border-top: 1px solid #374151; margin: 2rem 0; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; background: var(--bg-card); border-radius: 8px; overflow: hidden; }
+        th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #374151; }
+        th { background: #374151; color: var(--accent-gold); font-weight: 600; }
+        tr:last-child td { border-bottom: none; }
+        .message { background: var(--bg-card); border-radius: 12px; padding: 1.5rem; margin: 1.5rem 0; border-left: 4px solid; }
+        .message-user { border-color: #6b7280; }
+        .message-aifred { border-color: var(--accent-gold); }
+        .message-sokrates { border-color: var(--accent-purple); }
+        .message-salomo { border-color: var(--accent-green); }
+        .message-header { font-weight: bold; margin-bottom: 1rem; font-size: 1.1rem; }
+        .message-user .message-header { color: #9ca3af; }
+        .message-aifred .message-header { color: var(--accent-gold); }
+        .message-sokrates .message-header { color: var(--accent-purple); }
+        .message-salomo .message-header { color: var(--accent-green); }
+        blockquote { background: #374151; border-left: 4px solid var(--accent-blue); padding: 1rem; margin: 1rem 0; border-radius: 0 8px 8px 0; font-style: italic; }
+        code { background: #374151; padding: 0.2rem 0.5rem; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 0.9rem; }
+        pre { background: #374151; padding: 1rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        pre code { background: none; padding: 0; }
+        ul, ol { margin: 1rem 0 1rem 2rem; }
+        li { margin-bottom: 0.5rem; }
+        .check { color: var(--accent-green); }
+        .highlight { background: linear-gradient(120deg, rgba(212,175,55,0.2) 0%, rgba(212,175,55,0.1) 100%); padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+        .footer { text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #374151; color: var(--text-secondary); }
+        .footer a { color: var(--accent-gold); }
+        strong { color: var(--accent-gold); }
+        em { color: var(--text-secondary); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎩 AIfred Intelligence - Multi-Agent Showcase</h1>
+        <h2>Philosophische Debatte: "Was ist besser - Hund oder Katze?"</h2>
+
+        <div class="meta">
+            <span><strong>Datum:</strong> Januar 2026</span>
+            <span><strong>System:</strong> AIfred Multi-Agent</span>
+            <span><strong>Modus:</strong> Auto-Konsens (2 Runden)</span>
+            <span><strong>Modell:</strong> Qwen3 30B (lokal)</span>
+        </div>
+
+        <hr>
+
+        <h2>Warum dieses Beispiel bemerkenswert ist</h2>
+        <p>Multi-Agent-Debate-Systeme haben laut aktueller Forschung systematische Probleme:</p>
+
+        <table>
+            <tr><th>Problem</th><th>Beschreibung</th><th>Quelle</th></tr>
+            <tr><td><strong>Rubber-Stamping</strong></td><td>Kritiker-Agenten stimmen nur zu statt zu widersprechen</td><td><a href="https://arxiv.org/abs/2503.13657">arxiv:2503.13657</a></td></tr>
+            <tr><td><strong>Echo Chamber</strong></td><td>Alle Agenten konvergieren auf gleiche (oft falsche) Meinung</td><td><a href="https://openreview.net/forum?id=t6QHYUOQL7">OpenReview</a></td></tr>
+            <tr><td><strong>Information Loss</strong></td><td>Synthese verliert wichtige Punkte der Debatte</td><td><a href="https://arxiv.org/abs/2503.13657">arxiv:2503.13657</a></td></tr>
+            <tr><td><strong>Agent Drift</strong></td><td>Rollen verschwimmen über mehrere Turns</td><td><a href="https://arxiv.org/html/2601.04170">arxiv:2601.04170</a></td></tr>
+            <tr><td><strong>Fixed Mental Set</strong></td><td>Gleiche Denkweise trotz verschiedener Personas</td><td><a href="https://openreview.net/forum?id=t6QHYUOQL7">OpenReview</a></td></tr>
+        </table>
+
+        <div class="highlight">
+            <strong>AIfred vermeidet diese Probleme</strong> – wie das folgende Beispiel demonstriert.
+        </div>
+
+        <hr>
+
+        <h2>Der Dialog</h2>
+
+        <div class="message message-user">
+            <div class="message-header">🙋 User</div>
+            <blockquote>Was ist besser, Hund oder Katze?</blockquote>
+        </div>
+
+        <div class="message message-aifred">
+            <div class="message-header">🎩 AIfred (These, Runde 1)</div>
+            <p>Eine Frage von durchaus aristokratischer Tiefe.</p>
+            <table>
+                <tr><th>Merkmal</th><th>Hund</th><th>Katze</th></tr>
+                <tr><td><strong>Treue</strong></td><td>Unverbrüchlich, wie ein guter Butler</td><td>Diskret, im eigenen Tempo</td></tr>
+                <tr><td><strong>Pflegebedarf</strong></td><td>Regelmäßige Spaziergänge</td><td>Selbstversorgend</td></tr>
+                <tr><td><strong>Gesellschaft</strong></td><td>Stürmische Begrüßung</td><td>Geziertes Nicken</td></tr>
+            </table>
+            <p>Ein Hund schlüpft manchmal zu leicht in die Rolle des <strong>Dieners</strong>. Eine Katze versteht die Kunst der <strong>Selbstbehauptung</strong>.</p>
+            <p><strong>Fazit:</strong> Die Katze – die elegantere Wahl.</p>
+        </div>
+
+        <div class="message message-sokrates">
+            <div class="message-header">🏛️ Sokrates (Kritik, Runde 1)</div>
+            <p><strong>Neue Kritik:</strong><br>
+            Du hast die Frage ästhetisch beantwortet, doch nicht <em>wesentlich</em>: Was ist das <strong>Ziel</strong> der Tierhaltung? Unterhaltung? Zuneigung? Bildung der Seele?</p>
+            <ul>
+                <li>Ein Hund lehrt <strong>aretē</strong> (Tugend) – Verantwortung, Hingabe</li>
+                <li>Eine Katze lehrt Distanz – aber wo bleibt der <strong>logos</strong>?</li>
+            </ul>
+            <p><strong>Alternative Position:</strong><br>
+            Der Hund ist nicht "besser", sondern <strong>notwendiger</strong> – er ermöglicht Gemeinschaft, die Katze riskiert Isolation.</p>
+            <p><strong>Pro/Contra zu AIfred:</strong></p>
+            <ul>
+                <li><em>Pro:</em> Gutes Bild, feine Nuancen</li>
+                <li><em>Contra:</em> Zu ästhetisch, ohne moralische Tiefenschicht</li>
+            </ul>
+            <p><code>[WEITER]</code></p>
+        </div>
+
+        <div class="message message-salomo">
+            <div class="message-header">👑 Salomo (Synthese, Runde 1)</div>
+            <p>AIfred zeigt <em>Metaphern</em> der Beziehung. Sokrates zeigt <em>Ethik</em> und <em>Zweck</em>.</p>
+            <p><strong>Synthese:</strong></p>
+            <ul>
+                <li>Hund = Hingabe, Mitgehen, Verantwortung</li>
+                <li>Katze = Grenze, Respekt, Eleganz als Lehrmeisterin</li>
+                <li>Die Frage ist nicht "besser", sondern: <em>Welche Art Beziehung suchst du?</em></li>
+            </ul>
+            <p><strong>Empfehlungen:</strong></p>
+            <ul>
+                <li>AIfred → mehr Ethik einbeziehen</li>
+                <li>Sokrates → Eleganz der Katze nicht nur als Gefahr, sondern als Lernchance sehen</li>
+            </ul>
+            <p><code>[LGTM]</code></p>
+        </div>
+
+        <div class="message message-aifred">
+            <div class="message-header">🎩 AIfred (Verfeinerung, Runde 2)</div>
+            <p><em>Integriert die Kritik:</em></p>
+            <p>Die Kritik von Sokrates ist berechtigt. Die Wahl zwischen Hund und Katze ist nicht bloß Vorliebe, sondern eine Frage der <strong>Lebensform</strong>.</p>
+            <ul>
+                <li><strong>Hund</strong> = Spiegel der <em>aretē</em>, Tugendlehrer, Mitbürger</li>
+                <li><strong>Katze</strong> = Lehrmeisterin der Grenze, stille Art des Mutes</li>
+            </ul>
+            <p>Die Wahl spiegelt, wie wir <strong>uns selbst</strong> sehen wollen:</p>
+            <ul>
+                <li>Wer den Hund wählt → Verantwortung, Hingabe, gemeinsame Existenz</li>
+                <li>Wer die Katze wählt → Distanz, Selbstbehauptung, Anerkennung des Anderen</li>
+            </ul>
+            <p><strong>Beide verändern uns</strong> – das ist die eigentliche Wahrheit.</p>
+            <p><code>[LGTM]</code></p>
+        </div>
+
+        <div class="message message-sokrates">
+            <div class="message-header">🏛️ Sokrates (Kritik, Runde 2)</div>
+            <p><strong>Fortschritt:</strong><br>
+            AIfred hat die ethische Dimension aufgenommen und in eine reichhaltige Reflexion verwandelt.</p>
+            <p><strong>Neue Kritik:</strong><br>
+            Verfangen wir uns in der Symbolik?</p>
+            <ul>
+                <li>Hund kann <strong>Abhängigkeit</strong> erzeugen (Herrscher-Gefühl)</li>
+                <li>Katze kann <strong>Isolation</strong> verfestigen (Illusion der Unabhängigkeit)</li>
+            </ul>
+            <p><strong>Alternative:</strong><br>
+            Wahre Beziehung = <strong>Gleichwertigkeit</strong>. Tier als <em>Mitwesen</em>, nicht als Mittel.</p>
+            <p><code>[LGTM]</code></p>
+        </div>
+
+        <div class="message message-salomo">
+            <div class="message-header">👑 Salomo (Finale Synthese, Runde 2)</div>
+            <p><strong>Integration:</strong></p>
+            <ul>
+                <li>Hund = Spiegel gemeinsamer Existenz</li>
+                <li>Katze = Lehrerin der Grenze</li>
+                <li>Beide Wege sind gültig</li>
+                <li>Wahre Ethik = Gleichwertigkeit, Mitbürgerlichkeit</li>
+            </ul>
+            <p><strong>Empfehlung:</strong></p>
+            <ul>
+                <li>AIfred → "Mitbürger"-Idee konkretisieren</li>
+                <li>Sokrates → Gefahr der Überinterpretation ansprechen</li>
+            </ul>
+            <p><code>[LGTM]</code> – Konsens erreicht.</p>
+        </div>
+
+        <hr>
+
+        <h2>Analyse</h2>
+
+        <h3>Meta-Analyse: Warum diese Debatte bemerkenswert gut ist</h3>
+        <table>
+            <tr><th>Kriterium</th><th>Beobachtung</th></tr>
+            <tr><td><strong>Rollentrennung</strong></td><td>AIfred: ästhetisch, Sokrates: epistemisch, Salomo: synthetisch</td></tr>
+            <tr><td><strong>Semantische Bewegung</strong></td><td>Jede Runde macht die Debatte tiefer – kein Leerlauf</td></tr>
+            <tr><td><strong>Keine typischen LLM-Fehler</strong></td><td>Keine Selbstbestätigung, kein Rollendrift, keine Weichspül-Synthese</td></tr>
+            <tr><td><strong>Philosophische Tiefe</strong></td><td>Von Oberflächenpräferenz → Beziehungstypologie → Tugendethik → Meta-Ethik</td></tr>
+        </table>
+
+        <h3>Kategoriale Progression</h3>
+        <p>Die Debatte durchläuft vier distinkte Phasen:</p>
+        <pre><code>Phase 1: Charakterologie     → Hund = Diener, Katze = Königin
+Phase 2: Tugendethik         → Hund = aretē, Katze = contemplatio
+Phase 3: Beziehungstypologie → Beide als Lehrmeister
+Phase 4: Meta-Ethik          → Tier als Mitwesen</code></pre>
+        <p>Diese Progression ist <strong>keine Wiederholung</strong> – jede Runde hebt das Abstraktionsniveau.</p>
+
+        <hr>
+
+        <h3>Identifizierte Cruxes (Kernfragen)</h3>
+        <table>
+            <tr><th>Crux</th><th>Beschreibung</th></tr>
+            <tr><td><strong>Zweck der Tierhaltung</strong></td><td>Unterhaltung vs. Tugendbildung vs. Begleitung</td></tr>
+            <tr><td><strong>Welche Tugend formen?</strong></td><td>Hund → Verantwortung / Katze → Grenzen</td></tr>
+            <tr><td><strong>Beziehungsvorstellung</strong></td><td>Dyade (Hund) vs. Koexistenz (Katze)</td></tr>
+            <tr><td><strong>Metaphysisches Tierbild</strong></td><td>Mittel vs. Mitwesen vs. Mitbürger</td></tr>
+            <tr><td><strong>Identitätsfokus</strong></td><td>Beschützer-Selbst vs. Beobachter-Selbst</td></tr>
+        </table>
+
+        <hr>
+
+        <h3>Was AIfred richtig macht (vs. typische LLM-Fehler)</h3>
+        <table>
+            <tr><th>Typischer Fehler</th><th>AIfred's Verhalten</th></tr>
+            <tr><td>Kritiker stimmt nur zu</td><td>Sokrates widerspricht substantiell</td></tr>
+            <tr><td>Rollen verschwimmen</td><td>Klare Persona-Trennung über alle Turns</td></tr>
+            <tr><td>Synthese = Mittelweg</td><td>Salomo integriert auf höherer Ebene</td></tr>
+            <tr><td>Endlose Kritik ohne Fortschritt</td><td>Stop nach 2 Runden mit Konsens</td></tr>
+            <tr><td>Echo Chamber</td><td>Echte kategoriale Progression</td></tr>
+        </table>
+
+        <hr>
+
+        <h3>Finale Synthese: Wann welches Tier?</h3>
+        <p><strong>Hund ist besser, wenn du:</strong></p>
+        <ul>
+            <li>Bindung und Nähe brauchst</li>
+            <li>Verantwortung als Tugend siehst</li>
+            <li>Kooperation und Co-Regulation schätzt</li>
+        </ul>
+        <p><strong>Katze ist besser, wenn du:</strong></p>
+        <ul>
+            <li>Autonomie und Raum brauchst</li>
+            <li>Grenzen und Stille schätzt</li>
+            <li>Koexistenz statt Verschmelzung bevorzugst</li>
+        </ul>
+        <div class="highlight">
+            <strong>Meta-Ergebnis:</strong> Die Wahl spiegelt nicht das Tier – sondern <strong>deine Beziehung zu Nähe, Distanz, Verantwortung und Grenzen</strong>.
+        </div>
+
+        <hr>
+
+        <h2>Systemleistung - Zusammenfassung</h2>
+        <table>
+            <tr><th>Kriterium</th><th>Bewertung</th></tr>
+            <tr><td>Rollentrennung</td><td><span class="check">✅</span> Stabil über alle Turns</td></tr>
+            <tr><td>Kritikqualität</td><td><span class="check">✅</span> Substantiell, nicht nur formal</td></tr>
+            <tr><td>Synthesequalität</td><td><span class="check">✅</span> Integration ohne Informationsverlust</td></tr>
+            <tr><td>Kategoriale Progression</td><td><span class="check">✅</span> 4 distinkte Phasen</td></tr>
+            <tr><td>Typische LLM-Fehler</td><td><span class="check">✅</span> Keine beobachtet</td></tr>
+        </table>
+
+        <div class="highlight">
+            <strong>Gesamturteil:</strong> Das Multi-Agent-System produziert <strong>Tiefe statt Länge</strong>, identifiziert echte Cruxes, und liefert eine kohärente Synthese – mit einem lokalen 30B-Modell.
+        </div>
+
+        <hr>
+
+        <h2>Technische Details</h2>
+        <ul>
+            <li><strong>Framework:</strong> AIfred Intelligence (Reflex/Python)</li>
+            <li><strong>Modell:</strong> Qwen3 30B-A3B Instruct Q8</li>
+            <li><strong>Modus:</strong> Auto-Konsens</li>
+            <li><strong>Runden:</strong> 2 (Stop-Rule: Konsens erreicht)</li>
+            <li><strong>Hardware:</strong> Lokale Inferenz (2x Tesla P40)</li>
+        </ul>
+
+        <div class="footer">
+            <p>Exportiert aus <a href="https://github.com/Peuqui/AIfred-Intelligence">AIfred Intelligence</a></p>
+            <p>🎩 KI zu Ihren Diensten • Multi-Agent Debate System</p>
+        </div>
+    </div>
+</body>
+</html>

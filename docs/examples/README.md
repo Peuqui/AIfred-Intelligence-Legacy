@@ -30,8 +30,8 @@ This folder contains example conversations demonstrating AIfred's capabilities.
 - 🇩🇪 **[Vollständige Debatte (DE)](https://peuqui.github.io/AIfred-Intelligence/examples/🎩%20AIfred%20-%20Hund_oder_Katze.html)**
 - 🇬🇧 **[Full Debate (EN)](https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Dog_or_Cat_EN.html)** 
 **Analysis / Analyse:**
-- 🇩🇪 **[Analyse (DE)](Showcase_Hund_oder_Katze_MultiAgent_Debatte_DE.md)**
-- 🇬🇧 **[Analysis (EN)](Showcase_Dog_or_Cat_MultiAgent_Debate_EN.md)**
+- 🇩🇪 **[Analyse (DE)](https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Hund_oder_Katze_MultiAgent_Debatte_DE.html)**
+- 🇬🇧 **[Analysis (EN)](https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Dog_or_Cat_MultiAgent_Debate_EN.html)**
 
 ---
 
