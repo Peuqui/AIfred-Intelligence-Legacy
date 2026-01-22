@@ -5,6 +5,45 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.3] - 2026-01-22 🔊 TTS Regeneration & Multi-Device Support
+
+### Added
+
+- **TTS Regeneration Buttons** ([aifred.py](aifred/aifred.py), [state.py](aifred/state.py), [i18n.py](aifred/lib/i18n.py), [custom.js](assets/custom.js)):
+  - Per-Bubble Regenerate Button (🔄) next to speaker icon for individual audio regeneration
+  - Global "Alles neu generieren" button to regenerate all bubble audio at once
+  - Complete bubble regeneration (not concatenated sentences) for better audio quality
+  - Automatic button visibility management based on audio existence
+
+- **Multi-Device TTS Support** ([custom.js](assets/custom.js)):
+  - Page Visibility API (`document.hidden`) prevents simultaneous audio playback on multiple devices
+  - Only visible/focused browser tab plays TTS audio automatically
+  - Other tabs/devices receive audio URLs but don't autoplay
+
+### Changed
+
+- **Touch-Friendly Audio UI** ([aifred.py](aifred/aifred.py)):
+  - Increased audio button size: icons 14px → 18px, padding 2px 4px → 6px 8px
+  - Better mobile/tablet usability for audio controls
+
+- **SSE Reconnect on Session Refresh** ([state.py](aifred/state.py)):
+  - Session refresh button now reconnects TTS SSE stream automatically
+  - Elegant "Last Writer Wins" device switching without F5 reload
+
+### Fixed
+
+- **XTTS Ordinal Number Splitting** ([docker/xtts/server.py](docker/xtts/server.py)):
+  - Date formats like "Donnerstag, den 22. Januar" no longer split after ordinal numbers
+  - Detects 1-3 digit numbers before periods followed by uppercase words and keeps them together
+  - Prevents audio cutoff in the middle of dates and structured text
+
+- **XTTS Colon Processing** ([docker/xtts/server.py](docker/xtts/server.py)):
+  - Re-enabled colon-to-period replacement for better speech pauses in flowing text
+  - Protects time formats (19:20) and URLs (https://) from replacement via negative lookahead/lookbehind
+  - Regex: `(?<!\d):(?!\d|//)` ensures colons between digits remain unchanged
+
+---
+
 ## [2.27.2] - 2026-01-22 🔧 Multi-Agent Prompt Fixes & Export Improvements
 
 ### Fixed

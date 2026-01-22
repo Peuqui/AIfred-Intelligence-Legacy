@@ -84,6 +84,7 @@ class TranslationManager:
             "tts_output": "🔊 Sprachausgabe (AI-Antwort)",
             "tts_enabled": "Sprachausgabe aktiviert",
             "tts_regenerate": "🔄 Neu generieren",
+            "tts_regenerate_all": "🔄 Alles neu generieren",
             "tts_not_ported": "⚠️ TTS noch nicht portiert - Coming Soon!",
             
             # Chat History
@@ -301,6 +302,7 @@ class TranslationManager:
             "tts_output": "🔊 Text-to-Speech (AI Answer)",
             "tts_enabled": "Text-to-Speech enabled",
             "tts_regenerate": "🔄 Regenerate",
+            "tts_regenerate_all": "🔄 Regenerate All",
             "tts_not_ported": "⚠️ TTS not yet ported - Coming Soon!",
             
             # Chat History

@@ -1572,29 +1572,51 @@ def render_user_message(msg: dict) -> rx.Component:
     )
 
 
-def render_bubble_audio_button(msg: dict) -> rx.Component:
-    """Render small play button for audio replay.
+def render_bubble_audio_buttons(msg: dict) -> rx.Component:
+    """Render play and regenerate buttons for audio replay.
 
-    KISS: Button wird IMMER gerendert mit display:none.
-    JavaScript (initBubbleAudioButtons) zeigt ihn und bindet click-handler.
+    KISS: Buttons werden IMMER gerendert mit display:none.
+    JavaScript (initBubbleAudioButtons) zeigt sie und bindet click-handler.
     Das umgeht alle rx.cond Typ-Probleme mit Dict-Feldern.
     """
-    return rx.el.button(
-        rx.icon("volume-2", size=14),
-        type="button",
-        title="Audio abspielen",
-        **{"data-audio-urls": msg["audio_urls_json"]},
-        class_name="bubble-audio-btn",
-        style={
-            "display": "none",  # JS zeigt Button wenn Audio vorhanden
-            "opacity": "0.6",
-            "cursor": "pointer",
-            "padding": "2px 4px",
-            "background": "transparent",
-            "border": "none",
-            "border_radius": "4px",
-            "align_items": "center",
-        },
+    return rx.hstack(
+        # Play button
+        rx.el.button(
+            rx.icon("volume-2", size=18),
+            type="button",
+            title="Audio abspielen",
+            **{"data-audio-urls": msg["audio_urls_json"]},
+            class_name="bubble-audio-btn",
+            style={
+                "display": "none",  # JS zeigt Button wenn Audio vorhanden
+                "opacity": "0.6",
+                "cursor": "pointer",
+                "padding": "6px 8px",
+                "background": "transparent",
+                "border": "none",
+                "border_radius": "4px",
+                "align_items": "center",
+            },
+        ),
+        # Regenerate button (native Reflex button for proper on_click handling)
+        rx.button(
+            rx.icon("refresh-cw", size=16),
+            on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),
+            title="Audio neu generieren",
+            size="1",
+            variant="ghost",
+            color_scheme="gray",
+            class_name="bubble-regenerate-btn",
+            style={
+                "display": "none",  # JS zeigt Button wenn Audio vorhanden
+                "opacity": "0.5",
+                "cursor": "pointer",
+                "padding": "6px 8px",
+                "min_width": "auto",
+            },
+        ),
+        spacing="1",
+        align="center",
     )
 
 
@@ -1615,7 +1637,7 @@ def render_assistant_message(msg: dict) -> rx.Component:
                             font_size="12px",
                             color="#cd7f32",
                         ),
-                        render_bubble_audio_button(msg),
+                        render_bubble_audio_buttons(msg),
                         spacing="2",
                         align="center",
                         margin_bottom="1",
@@ -1658,7 +1680,7 @@ def render_assistant_message(msg: dict) -> rx.Component:
                                 font_size="12px",
                                 color="#daa520",
                             ),
-                            render_bubble_audio_button(msg),
+                            render_bubble_audio_buttons(msg),
                             spacing="2",
                             align="center",
                             margin_bottom="1",
@@ -1698,7 +1720,7 @@ def render_assistant_message(msg: dict) -> rx.Component:
                                 font_size="12px",
                                 color=COLORS["primary"],
                             ),
-                            render_bubble_audio_button(msg),
+                            render_bubble_audio_buttons(msg),
                             spacing="2",
                             align="center",
                             margin_bottom="1",
@@ -4813,19 +4835,19 @@ console.log('✂️ Crop handler loaded');
                         rx.text("🔊", font_size="18px"),
                         rx.text(t("tts_player_label"), font_weight="bold", font_size="13px", color=COLORS["accent_blue"]),
                         rx.spacer(),
-                        # Regenerate TTS Button - re-synthesize with current voice settings
+                        # Regenerate ALL TTS Button - re-synthesize all bubbles with current voice settings
                         rx.button(
                             rx.cond(
                                 AIState.tts_regenerating,
                                 rx.hstack(
                                     rx.spinner(size="1"),
-                                    rx.text(t("tts_regenerate")),
+                                    rx.text(t("tts_regenerate_all")),
                                     spacing="2",
                                     align="center",
                                 ),
-                                rx.text(t("tts_regenerate")),
+                                rx.text(t("tts_regenerate_all")),
                             ),
-                            on_click=AIState.resynthesize_tts,
+                            on_click=AIState.resynthesize_all_tts,
                             size="1",
                             variant="soft",
                             color_scheme="blue",

@@ -8454,6 +8454,218 @@ class AIState(rx.State):
             # Hide spinner and re-enable button
             self.tts_regenerating = False
 
+    async def resynthesize_bubble_tts(self, timestamp: str):
+        """Re-synthesize TTS for a specific chat bubble
+
+        Args:
+            timestamp: Timestamp of the message to regenerate
+        """
+        # Prevent double-clicks while regenerating
+        if self.tts_regenerating:
+            return
+
+        # Find message by timestamp
+        bubble_index = None
+        for i, msg in enumerate(self.chat_history):
+            if msg.get("timestamp") == timestamp:
+                bubble_index = i
+                break
+
+        if bubble_index is None:
+            self.add_debug(f"⚠️ TTS Re-Synth: Message not found (timestamp: {timestamp})")
+            return
+
+        msg = self.chat_history[bubble_index]
+        if msg.get("role") != "assistant":
+            self.add_debug("⚠️ TTS Re-Synth: Message is not an assistant response")
+            return
+
+        content = msg.get("content", "")
+        agent = msg.get("agent", "aifred")
+
+        if not content or not content.strip():
+            self.add_debug("⚠️ TTS Re-Synth: Message content is empty")
+            return
+
+        # Show spinner
+        self.tts_regenerating = True
+        yield
+
+        # Stop any currently playing audio
+        yield rx.call_script("stopTts()")
+
+        self.add_debug(f"🔄 TTS Re-Synth: Regenerating bubble {bubble_index} ({agent})...")
+        yield
+
+        try:
+            # Generate TTS for this bubble - full content at once (better quality)
+            from .lib.audio_processing import clean_text_for_tts, generate_tts, set_tts_agent, save_audio_to_session
+            from .lib.logging_utils import log_message
+            import json
+
+            set_tts_agent(agent)
+            clean_text = clean_text_for_tts(content)
+
+            if not clean_text or len(clean_text.strip()) < 5:
+                self.add_debug("🔇 TTS: Text too short after cleanup")
+                return
+
+            # Get agent voice settings
+            voice_choice = self.tts_voice
+            pitch_value = float(self.tts_pitch) if self.tts_pitch else 1.0
+            speed_value = 1.0
+
+            if agent in self.tts_agent_voices:
+                agent_settings = self.tts_agent_voices[agent]
+                if agent_settings.get("voice"):
+                    voice_choice = agent_settings["voice"]
+                if agent_settings.get("pitch"):
+                    try:
+                        pitch_value = float(agent_settings["pitch"])
+                    except ValueError:
+                        pass
+                if agent_settings.get("speed"):
+                    try:
+                        speed_value = float(agent_settings["speed"].replace("x", ""))
+                    except ValueError:
+                        pass
+
+            # Generate TTS (complete bubble at once for best quality)
+            audio_url = await generate_tts(
+                text=clean_text,
+                voice_choice=voice_choice,
+                speed_choice=speed_value,
+                tts_engine=self.tts_engine,
+                pitch=pitch_value
+            )
+
+            if audio_url:
+                # Save to session directory for permanent storage
+                session_audio_url = save_audio_to_session([audio_url], self.session_id)
+                if session_audio_url:
+                    log_message(f"🔊 TTS: Saved to session → {session_audio_url}")
+
+                    # Update message with new audio URL
+                    if "metadata" not in self.chat_history[bubble_index]:
+                        self.chat_history[bubble_index]["metadata"] = {}
+                    self.chat_history[bubble_index]["metadata"]["audio_urls"] = [session_audio_url]
+                    self.chat_history[bubble_index]["has_audio"] = True
+                    self.chat_history[bubble_index]["audio_urls_json"] = json.dumps([session_audio_url])
+
+                    # Force Reflex to recognize the change
+                    self.chat_history = list(self.chat_history)
+                    self._save_current_session()
+
+                    self.add_debug(f"✅ TTS: Bubble {bubble_index} regenerated")
+                else:
+                    self.add_debug("⚠️ TTS: Failed to save to session")
+            else:
+                self.add_debug("⚠️ TTS: Audio generation failed")
+
+        except Exception as e:
+            self.add_debug(f"❌ TTS Error: {e}")
+            log_message(f"❌ TTS regeneration error: {e}")
+        finally:
+            self.tts_regenerating = False
+
+    async def resynthesize_all_tts(self):
+        """Re-synthesize TTS for all assistant messages in chat history"""
+        # Prevent double-clicks while regenerating
+        if self.tts_regenerating:
+            return
+
+        if not self.chat_history:
+            self.add_debug("⚠️ TTS Re-Synth: No chat history available")
+            return
+
+        # Count assistant messages
+        assistant_messages = [i for i, msg in enumerate(self.chat_history) if msg.get("role") == "assistant"]
+        if not assistant_messages:
+            self.add_debug("⚠️ TTS Re-Synth: No assistant messages found")
+            return
+
+        # Show spinner
+        self.tts_regenerating = True
+        yield
+
+        # Stop any currently playing audio
+        yield rx.call_script("stopTts()")
+
+        self.add_debug(f"🔄 TTS Re-Synth: Regenerating all {len(assistant_messages)} bubbles...")
+        yield
+
+        try:
+            # Regenerate each assistant message
+            for i, bubble_idx in enumerate(assistant_messages):
+                self.add_debug(f"🔄 Processing bubble {i+1}/{len(assistant_messages)}...")
+                yield
+
+                # Call the single-bubble regeneration (without spinner since we already have one)
+                msg = self.chat_history[bubble_idx]
+                content = msg.get("content", "")
+                agent = msg.get("agent", "aifred")
+
+                if content and content.strip():
+                    from .lib.audio_processing import clean_text_for_tts, generate_tts, set_tts_agent, save_audio_to_session
+                    from .lib.logging_utils import log_message
+                    import json
+
+                    set_tts_agent(agent)
+                    clean_text = clean_text_for_tts(content)
+
+                    if clean_text and len(clean_text.strip()) >= 5:
+                        # Get agent voice settings
+                        voice_choice = self.tts_voice
+                        pitch_value = float(self.tts_pitch) if self.tts_pitch else 1.0
+                        speed_value = 1.0
+
+                        if agent in self.tts_agent_voices:
+                            agent_settings = self.tts_agent_voices[agent]
+                            if agent_settings.get("voice"):
+                                voice_choice = agent_settings["voice"]
+                            if agent_settings.get("pitch"):
+                                try:
+                                    pitch_value = float(agent_settings["pitch"])
+                                except ValueError:
+                                    pass
+                            if agent_settings.get("speed"):
+                                try:
+                                    speed_value = float(agent_settings["speed"].replace("x", ""))
+                                except ValueError:
+                                    pass
+
+                        # Generate TTS
+                        audio_url = await generate_tts(
+                            text=clean_text,
+                            voice_choice=voice_choice,
+                            speed_choice=speed_value,
+                            tts_engine=self.tts_engine,
+                            pitch=pitch_value
+                        )
+
+                        if audio_url:
+                            # Save to session directory
+                            session_audio_url = save_audio_to_session([audio_url], self.session_id)
+                            if session_audio_url:
+                                # Update message with new audio URL
+                                if "metadata" not in self.chat_history[bubble_idx]:
+                                    self.chat_history[bubble_idx]["metadata"] = {}
+                                self.chat_history[bubble_idx]["metadata"]["audio_urls"] = [session_audio_url]
+                                self.chat_history[bubble_idx]["has_audio"] = True
+                                self.chat_history[bubble_idx]["audio_urls_json"] = json.dumps([session_audio_url])
+
+            # Save session once after all regenerations
+            self.chat_history = list(self.chat_history)
+            self._save_current_session()
+
+            self.add_debug(f"✅ TTS: All {len(assistant_messages)} bubbles regenerated")
+
+        except Exception as e:
+            self.add_debug(f"❌ TTS Error: {e}")
+            log_message(f"❌ TTS regeneration error: {e}")
+        finally:
+            self.tts_regenerating = False
+
     # TODO: clear_tts_autoplay removed - TTS Playback will be reimplemented
 
     def set_whisper_model(self, model_display_name: str):

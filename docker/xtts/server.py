@@ -164,8 +164,9 @@ def normalize_text_for_tts(text: str) -> str:
     # Phase 3: Ensure proper punctuation for natural pauses
     # ============================================================
 
-    # Replace colons with periods (colons cause rushed speech in XTTS)
-    # But preserve time formats like "10:30" and URLs
+    # Replace colons with periods for better pauses in speech
+    # Preserves time formats (19:20) and URLs (https://)
+    # Regex: Replace : only if NOT between digits and NOT before //
     text = re.sub(r'(?<!\d):(?!\d|//)', '.', text)
 
     # Process lines - add punctuation where missing
@@ -220,7 +221,27 @@ def split_text_into_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[
     # First, split by sentence-ending punctuation
     # Match: . ! ? followed by space or end of string
     # Also handle German quotation marks: »« „"
-    sentences = re.split(r'(?<=[.!?])\s+', text)
+    raw_sentences = re.split(r'(?<=[.!?])\s+', text)
+
+    # Post-process: Merge ordinal numbers (22. Januar) that were incorrectly split
+    sentences = []
+    i = 0
+    while i < len(raw_sentences):
+        sentence = raw_sentences[i]
+
+        # Check if sentence ends with ordinal number (1-3 digits + period)
+        # and next sentence starts with uppercase word (month, noun, etc.)
+        if i + 1 < len(raw_sentences) and re.search(r'\d{1,3}\.$', sentence):
+            next_sentence = raw_sentences[i + 1]
+            # Common German month names and continuation patterns
+            if re.match(r'^[A-ZÄÖÜ]', next_sentence):
+                # Likely an ordinal number continuation - merge them
+                sentence = sentence + ' ' + next_sentence
+                i += 1  # Skip next sentence since we merged it
+                logger.debug(f"Merged ordinal: '{sentence}'")
+
+        sentences.append(sentence)
+        i += 1
 
     current_chunk = ""
 

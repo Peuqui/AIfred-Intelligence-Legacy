@@ -578,12 +578,54 @@ function playBubbleAudioFromEvent(event) {
     }
 }
 
+/**
+ * Initialize bubble regenerate buttons - show/hide based on audio availability
+ * Called after DOM updates to manage button visibility
+ * Click handling is done by Reflex on_click, not JavaScript
+ */
+function initBubbleRegenerateButtons() {
+    const buttons = document.querySelectorAll('.bubble-regenerate-btn');
+    console.log(`🔄 initBubbleRegenerateButtons: Found ${buttons.length} buttons`);
+    buttons.forEach((button, idx) => {
+        // Find the corresponding audio button (sibling) to check if audio exists
+        const audioButton = button.previousElementSibling;
+        if (!audioButton || !audioButton.classList.contains('bubble-audio-btn')) {
+            console.log(`🔄 Button[${idx}] → HIDE (no audio button sibling)`);
+            button.style.display = 'none';
+            return;
+        }
+
+        // Check if audio button is visible (has audio URLs)
+        const audioUrlsJson = audioButton.dataset.audioUrls;
+        if (!audioUrlsJson) {
+            console.log(`🔄 Button[${idx}] → HIDE (no audio)`);
+            button.style.display = 'none';
+            return;
+        }
+
+        try {
+            const audioUrls = JSON.parse(audioUrlsJson);
+            if (!Array.isArray(audioUrls) || audioUrls.length === 0) {
+                console.log(`🔄 Button[${idx}] → HIDE (empty audio)`);
+                button.style.display = 'none';
+            } else {
+                console.log(`🔄 Button[${idx}] → SHOW`);
+                button.style.display = 'inline-flex';
+            }
+        } catch (e) {
+            console.log(`🔄 Button[${idx}] → HIDE (parse error)`, e);
+            button.style.display = 'none';
+        }
+    });
+}
+
 window.playBubbleAudioFromButton = playBubbleAudioFromButton;
 window.playBubbleAudio = playBubbleAudio;
 window.playBubbleAudioAll = playBubbleAudioAll;
 window.stopBubbleAudio = stopBubbleAudio;
 window.playBubbleAudioFromEvent = playBubbleAudioFromEvent;
 window.initBubbleAudioButtons = initBubbleAudioButtons;
+window.initBubbleRegenerateButtons = initBubbleRegenerateButtons;
 
 // ============================================================
 // TTS AUDIO QUEUE - Sequential playback of multiple audio files
@@ -1142,8 +1184,9 @@ function initializeAllObservers() {
     // Setup TTS audio observer
     setupTtsAudioObserver();
 
-    // Initialize bubble audio buttons (hide those without audio)
+    // Initialize bubble audio and regenerate buttons (hide those without audio)
     initBubbleAudioButtons();
+    initBubbleRegenerateButtons();
 
     // AUTO-START TTS SSE stream on page load if session exists
     // This ensures the stream is always open and ready BEFORE any TTS generation starts
@@ -1185,9 +1228,10 @@ function initializeAllObservers() {
     setTimeout(() => {
         setupTtsAudioObserver();
         initBubbleAudioButtons();
+        initBubbleRegenerateButtons();
     }, 500);
 
-    // Setup a MutationObserver to initialize new bubble audio buttons as they're added
+    // Setup a MutationObserver to initialize new bubble audio/regenerate buttons as they're added
     // AND to detect when data-audio-urls attribute changes on existing buttons
     const chatObserver = new MutationObserver((mutations) => {
         let needsInit = false;
@@ -1195,11 +1239,11 @@ function initializeAllObservers() {
             // Check for new buttons added to DOM
             if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
                 for (const node of mutation.addedNodes) {
-                    if (node.querySelector && node.querySelector('.bubble-audio-btn')) {
+                    if (node.querySelector && (node.querySelector('.bubble-audio-btn') || node.querySelector('.bubble-regenerate-btn'))) {
                         needsInit = true;
                         break;
                     }
-                    if (node.classList && node.classList.contains('bubble-audio-btn')) {
+                    if (node.classList && (node.classList.contains('bubble-audio-btn') || node.classList.contains('bubble-regenerate-btn'))) {
                         needsInit = true;
                         break;
                     }
@@ -1216,7 +1260,10 @@ function initializeAllObservers() {
         }
         if (needsInit) {
             // Debounce initialization
-            setTimeout(initBubbleAudioButtons, 50);
+            setTimeout(() => {
+                initBubbleAudioButtons();
+                initBubbleRegenerateButtons();
+            }, 50);
         }
     });
 
