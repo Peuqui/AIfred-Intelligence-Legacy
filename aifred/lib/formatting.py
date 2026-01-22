@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 from collections import OrderedDict
 from .logging_utils import log_message
-from .config import get_xml_tag_config, BACKEND_URL, DATA_DIR
+from .config import get_xml_tag_config, BACKEND_URL, DATA_DIR, PROJECT_ROOT
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
 
