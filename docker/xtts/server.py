@@ -59,6 +59,12 @@ _speaker_names = None  # Just the names (loaded without model for /voices endpoi
 _custom_voices = {}  # Custom cloned voices
 _device = None  # "cuda" or "cpu" - set on model load
 
+# Auto-unload configuration (like Ollama's KEEP_ALIVE)
+# Set to 0 to disable auto-unload
+KEEP_ALIVE_MINUTES = int(os.environ.get("XTTS_KEEP_ALIVE", "5"))
+_last_request_time = None  # Timestamp of last TTS request
+_unload_timer = None  # Background timer for auto-unload
+
 # Paths
 CUSTOM_VOICES_DIR = Path("/app/custom_voices")  # Persistent storage for embeddings
 REFERENCE_AUDIO_DIR = Path("/app/voices")  # Reference WAV files (mounted from host)
@@ -1056,6 +1062,12 @@ def unload_model():
     freed_device = _device or "unknown"
     logger.info(f"🗑️ Unloading XTTS model from {freed_device}...")
 
+    # Cancel any pending auto-unload timer
+    global _unload_timer
+    if _unload_timer is not None:
+        _unload_timer.cancel()
+        _unload_timer = None
+
     # Clear model references
     _synthesizer = None
     _config = None
@@ -1063,18 +1075,8 @@ def unload_model():
     _custom_voices = {}
     _device = None
 
-    # Force garbage collection
-    gc.collect()
-
-    # Clear CUDA cache if available
-    try:
-        import torch
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            logger.info("✅ CUDA cache cleared")
-    except Exception as e:
-        logger.warning(f"Could not clear CUDA cache: {e}")
+    # Deep CUDA cleanup
+    _deep_cuda_cleanup()
 
     logger.info(f"✅ XTTS model unloaded from {freed_device}")
 
@@ -1083,6 +1085,81 @@ def unload_model():
         "freed_device": freed_device,
         "message": f"Model unloaded from {freed_device}, memory freed"
     })
+
+
+def _deep_cuda_cleanup():
+    """Aggressive CUDA memory cleanup."""
+    import gc
+
+    # Multiple GC passes
+    for _ in range(3):
+        gc.collect()
+
+    try:
+        import torch
+        if torch.cuda.is_available():
+            # Clear all cached memory
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+            # Reset memory stats
+            torch.cuda.reset_peak_memory_stats()
+            torch.cuda.reset_accumulated_memory_stats()
+
+            # IPC cleanup (shared memory)
+            torch.cuda.ipc_collect()
+
+            logger.info("✅ Deep CUDA cleanup completed")
+    except Exception as e:
+        logger.warning(f"CUDA cleanup error: {e}")
+
+
+def _auto_unload_model():
+    """Background task: Unload model after KEEP_ALIVE_MINUTES of inactivity."""
+    global _synthesizer, _config, _speaker_embeddings, _custom_voices, _device, _unload_timer
+    import gc
+
+    if _synthesizer is None:
+        logger.debug("Auto-unload: Model already unloaded")
+        return
+
+    freed_device = _device or "unknown"
+    logger.info(f"⏰ Auto-unloading XTTS model after {KEEP_ALIVE_MINUTES} min inactivity...")
+
+    # Clear model references
+    _synthesizer = None
+    _config = None
+    _speaker_embeddings = None
+    _custom_voices = {}
+    _device = None
+    _unload_timer = None
+
+    # Deep cleanup
+    _deep_cuda_cleanup()
+
+    logger.info(f"✅ XTTS model auto-unloaded from {freed_device}")
+
+
+def _reset_unload_timer():
+    """Reset the auto-unload timer after a TTS request."""
+    global _unload_timer, _last_request_time
+    import time
+    import threading
+
+    if KEEP_ALIVE_MINUTES <= 0:
+        return  # Auto-unload disabled
+
+    _last_request_time = time.time()
+
+    # Cancel existing timer
+    if _unload_timer is not None:
+        _unload_timer.cancel()
+
+    # Start new timer
+    _unload_timer = threading.Timer(KEEP_ALIVE_MINUTES * 60, _auto_unload_model)
+    _unload_timer.daemon = True  # Don't block shutdown
+    _unload_timer.start()
+    logger.debug(f"Auto-unload timer reset: {KEEP_ALIVE_MINUTES} min")
 
 
 @app.route("/tts", methods=["POST"])
@@ -1224,6 +1301,9 @@ def tts():
             download_name = "xtts_tts.ogg"
 
         logger.info(f"Generated audio: {temp_path} ({len(chunks)} chunks)")
+
+        # Reset auto-unload timer
+        _reset_unload_timer()
 
         # Send file and schedule cleanup
         response = send_file(
