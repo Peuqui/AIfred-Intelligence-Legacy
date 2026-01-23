@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://peuqui.github.io/AIfred-Intelligence/sitemap.xml
