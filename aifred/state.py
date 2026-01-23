@@ -1926,8 +1926,7 @@ class AIState(rx.State):
         # Always set when audio_urls are present, regardless of source
         audio_urls = msg_metadata.get("audio_urls", [])
         if audio_urls:
-            agent_speed = self.tts_agent_voices.get(agent, {}).get("speed", "1.0x")
-            msg_metadata["playback_rate"] = agent_speed
+            msg_metadata["playback_rate"] = self.tts_agent_voices[agent]["speed"]
         new_message: Dict[str, Any] = {
             "role": "assistant",
             "content": final_content,
@@ -4949,8 +4948,8 @@ class AIState(rx.State):
                 audio_urls = metadata.get("audio_urls", [])
                 if audio_urls:
                     from .lib.audio_processing import load_audio_url_as_base64
-                    # Get playback rate from message metadata
-                    playback_rate = metadata.get("playback_rate", "1.0x").replace("x", "")
+                    # Get playback rate from CURRENT UI settings (not historical message metadata)
+                    playback_rate = self.tts_agent_voices[agent]["speed"].replace("x", "")
                     audio_players = []
                     for audio_url in audio_urls:
                         base64_uri = load_audio_url_as_base64(audio_url)
