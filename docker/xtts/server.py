@@ -44,8 +44,9 @@ app = Flask(__name__)
 # VRAM Configuration
 # ============================================================
 # Minimum free VRAM required to use GPU (in GB)
-# XTTS needs ~1.5-2GB, we require a bit more headroom
-VRAM_THRESHOLD_GB = float(os.environ.get("XTTS_VRAM_THRESHOLD", "2.0"))
+# XTTS needs ~1.5-2GB base, cache clear after request should keep it low
+# TODO: Test actual VRAM usage with cache clearing enabled
+VRAM_THRESHOLD_GB = float(os.environ.get("XTTS_VRAM_THRESHOLD", "3.0"))
 
 # Force CPU mode (override auto-detection)
 FORCE_CPU = os.environ.get("XTTS_FORCE_CPU", "").lower() in ("1", "true", "yes")
@@ -1317,6 +1318,14 @@ def tts():
             download_name = "xtts_tts.ogg"
 
         logger.info(f"Generated audio: {temp_path} ({len(chunks)} chunks)")
+
+        # Clear CUDA cache to free VRAM for other services (e.g., Ollama)
+        if _device == "cuda":
+            try:
+                torch.cuda.empty_cache()
+                logger.debug("CUDA cache cleared after TTS request")
+            except Exception:
+                pass
 
         # Request done - decrement counter and reset timer
         _active_requests -= 1
