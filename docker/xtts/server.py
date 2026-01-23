@@ -55,6 +55,7 @@ _model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
 _config = None
 _synthesizer = None
 _speaker_embeddings = None  # Pre-loaded speaker embeddings (built-in)
+_speaker_names = None  # Just the names (loaded without model for /voices endpoint)
 _custom_voices = {}  # Custom cloned voices
 _device = None  # "cuda" or "cpu" - set on model load
 
@@ -445,6 +446,34 @@ def select_device() -> str:
     else:
         logger.info(f"⚠️ Insufficient VRAM ({free_gb:.2f} GB < {VRAM_THRESHOLD_GB} GB) - using CPU")
         return "cpu"
+
+
+def ensure_speaker_names_loaded():
+    """Load speaker names without loading the full model (for /voices endpoint)."""
+    global _speaker_names
+    if _speaker_names is not None:
+        return  # Already loaded
+
+    import torch
+    from TTS.utils.manage import ModelManager
+
+    logger.info("Loading speaker names (lightweight, no model load)...")
+
+    # Get model path
+    manager = ModelManager()
+    model_path, _, _ = manager.download_model(_model_name)
+
+    # Load just the speaker names from the embeddings file
+    speaker_file = Path(model_path) / "speakers_xtts.pth"
+    if speaker_file.exists():
+        # Load embeddings temporarily just to get the keys
+        embeddings = torch.load(speaker_file, map_location="cpu")
+        _speaker_names = sorted(embeddings.keys())
+        del embeddings  # Free memory immediately
+        logger.info(f"Loaded {len(_speaker_names)} built-in speaker names")
+    else:
+        _speaker_names = []
+        logger.warning("No built-in speaker embeddings found!")
 
 
 def get_synthesizer():
@@ -1301,17 +1330,21 @@ def clone_voice():
 
 @app.route("/voices", methods=["GET"])
 def list_voices():
-    """List all available voices (built-in + custom)."""
-    # Ensure model is loaded
-    get_synthesizer()
+    """List all available voices (built-in + custom). Does NOT load the model."""
+    # Load only speaker names (lightweight, no model load)
+    ensure_speaker_names_loaded()
 
-    custom = sorted(_custom_voices.keys())
-    builtin = sorted(_speaker_embeddings.keys()) if _speaker_embeddings else []
+    # Get custom voice names from filesystem (no model needed)
+    custom = sorted([f.stem for f in CUSTOM_VOICES_DIR.glob("*.pth")])
+    builtin = _speaker_names if _speaker_names else []
+
+    # Build combined list with custom voices marked
+    all_speakers = [f"* {name}" for name in custom] + builtin
 
     return jsonify({
         "custom": custom,
         "builtin": builtin,
-        "all": get_all_speakers(),
+        "all": all_speakers,
         "default": DEFAULT_SPEAKER
     })
 
@@ -1345,12 +1378,19 @@ def delete_voice(name: str):
 
 @app.route("/speakers", methods=["GET"])
 def list_speakers():
-    """List available speakers (legacy endpoint, use /voices instead)."""
-    # Ensure model is loaded
-    get_synthesizer()
+    """List available speakers (legacy endpoint, use /voices instead). Does NOT load the model."""
+    # Load only speaker names (lightweight, no model load)
+    ensure_speaker_names_loaded()
+
+    # Get custom voice names from filesystem
+    custom = sorted([f.stem for f in CUSTOM_VOICES_DIR.glob("*.pth")])
+    builtin = _speaker_names if _speaker_names else []
+
+    # Build combined list
+    all_speakers = [f"* {name}" for name in custom] + builtin
 
     return jsonify({
-        "speakers": get_all_speakers(),
+        "speakers": all_speakers,
         "default": DEFAULT_SPEAKER
     })
 
