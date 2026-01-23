@@ -59,11 +59,14 @@ _speaker_names = None  # Just the names (loaded without model for /voices endpoi
 _custom_voices = {}  # Custom cloned voices
 _device = None  # "cuda" or "cpu" - set on model load
 
-# Auto-unload configuration (like Ollama's KEEP_ALIVE)
-# Set to 0 to disable auto-unload
+# Auto-restart configuration (like Ollama's KEEP_ALIVE)
+# After KEEP_ALIVE_MINUTES of inactivity, the server exits and Docker restarts it
+# This fully releases CUDA context memory (~198MB) allowing GPU to enter P8 state
+# Set to 0 to disable auto-restart
 KEEP_ALIVE_MINUTES = int(os.environ.get("XTTS_KEEP_ALIVE", "5"))
 _last_request_time = None  # Timestamp of last TTS request
-_unload_timer = None  # Background timer for auto-unload
+_restart_timer = None  # Background timer for auto-restart
+_active_requests = 0  # Counter for in-flight requests
 
 # Paths
 CUSTOM_VOICES_DIR = Path("/app/custom_voices")  # Persistent storage for embeddings
@@ -1062,11 +1065,11 @@ def unload_model():
     freed_device = _device or "unknown"
     logger.info(f"🗑️ Unloading XTTS model from {freed_device}...")
 
-    # Cancel any pending auto-unload timer
-    global _unload_timer
-    if _unload_timer is not None:
-        _unload_timer.cancel()
-        _unload_timer = None
+    # Cancel any pending auto-restart timer
+    global _restart_timer
+    if _restart_timer is not None:
+        _restart_timer.cancel()
+        _restart_timer = None
 
     # Clear model references
     _synthesizer = None
@@ -1114,52 +1117,61 @@ def _deep_cuda_cleanup():
         logger.warning(f"CUDA cleanup error: {e}")
 
 
-def _auto_unload_model():
-    """Background task: Unload model after KEEP_ALIVE_MINUTES of inactivity."""
-    global _synthesizer, _config, _speaker_embeddings, _custom_voices, _device, _unload_timer
-    import gc
+def _auto_restart_server():
+    """Background task: Exit server after KEEP_ALIVE_MINUTES of inactivity.
+
+    Docker's restart policy will bring the container back up with a fresh
+    Python process, fully releasing CUDA context memory (~198MB).
+    This allows the GPU to enter P8 power state.
+    """
+    global _active_requests
 
     if _synthesizer is None:
-        logger.debug("Auto-unload: Model already unloaded")
+        logger.debug("Auto-restart: Model not loaded, skipping restart")
         return
 
-    freed_device = _device or "unknown"
-    logger.info(f"⏰ Auto-unloading XTTS model after {KEEP_ALIVE_MINUTES} min inactivity...")
+    # Don't restart if requests are in-flight
+    if _active_requests > 0:
+        logger.info(f"⏰ Auto-restart delayed: {_active_requests} request(s) in progress")
+        # Retry in 30 seconds
+        import threading
+        retry_timer = threading.Timer(30, _auto_restart_server)
+        retry_timer.daemon = True
+        retry_timer.start()
+        return
 
-    # Clear model references
-    _synthesizer = None
-    _config = None
-    _speaker_embeddings = None
-    _custom_voices = {}
-    _device = None
-    _unload_timer = None
+    logger.info(f"⏰ Auto-restart after {KEEP_ALIVE_MINUTES} min inactivity - freeing VRAM completely...")
+    logger.info("🔄 Server exiting, Docker will restart container...")
 
-    # Deep cleanup
-    _deep_cuda_cleanup()
+    # Give logs time to flush
+    import time
+    time.sleep(0.5)
 
-    logger.info(f"✅ XTTS model auto-unloaded from {freed_device}")
+    # Exit gracefully - Docker will restart us
+    import sys
+    sys.exit(0)
 
 
-def _reset_unload_timer():
-    """Reset the auto-unload timer after a TTS request."""
-    global _unload_timer, _last_request_time
+def _reset_restart_timer():
+    """Reset the auto-restart timer after a TTS request."""
+    global _restart_timer, _last_request_time
     import time
     import threading
 
     if KEEP_ALIVE_MINUTES <= 0:
-        return  # Auto-unload disabled
+        return  # Auto-restart disabled
 
     _last_request_time = time.time()
 
     # Cancel existing timer
-    if _unload_timer is not None:
-        _unload_timer.cancel()
+    if _restart_timer is not None:
+        _restart_timer.cancel()
 
     # Start new timer
-    _unload_timer = threading.Timer(KEEP_ALIVE_MINUTES * 60, _auto_unload_model)
-    _unload_timer.daemon = True  # Don't block shutdown
-    _unload_timer.start()
-    logger.debug(f"Auto-unload timer reset: {KEEP_ALIVE_MINUTES} min")
+    _restart_timer = threading.Timer(KEEP_ALIVE_MINUTES * 60, _auto_restart_server)
+    _restart_timer.daemon = True  # Don't block shutdown
+    _restart_timer.start()
+    logger.debug(f"Auto-restart timer reset: {KEEP_ALIVE_MINUTES} min")
 
 
 @app.route("/tts", methods=["POST"])
@@ -1215,6 +1227,10 @@ def tts():
         logger.info(f"Text normalized for TTS (added punctuation)")
 
     logger.info(f"Generating TTS: '{text[:50]}...' ({len(text)} chars) with language {language}, speaker {speaker}")
+
+    # Track active requests for safe auto-restart
+    global _active_requests
+    _active_requests += 1
 
     try:
         model = get_synthesizer()
@@ -1302,8 +1318,9 @@ def tts():
 
         logger.info(f"Generated audio: {temp_path} ({len(chunks)} chunks)")
 
-        # Reset auto-unload timer
-        _reset_unload_timer()
+        # Request done - decrement counter and reset timer
+        _active_requests -= 1
+        _reset_restart_timer()
 
         # Send file and schedule cleanup
         response = send_file(
@@ -1324,6 +1341,8 @@ def tts():
         return response
 
     except Exception as e:
+        # Request done (with error) - decrement counter
+        _active_requests -= 1
         logger.error(f"TTS generation failed: {e}")
         import traceback
         traceback.print_exc()
