@@ -20,7 +20,7 @@ Usage:
         "language": "de",
         "speaker": "Claribel Dervla"  // or custom voice name
     }
-    Returns: WAV audio file
+    Returns: OGG/Opus audio file (48kbps, ~90% smaller than WAV)
 
     POST /voices/clone (multipart/form-data)
     - audio: WAV file (6-10 seconds of speech, mono, 22-24kHz)
@@ -1065,6 +1065,9 @@ def tts():
     XTTS has a 400 token limit (~250 chars), so texts are split at sentence
     boundaries when needed.
 
+    Output is OGG/Opus encoded for smaller file size (~90% smaller than WAV).
+    Falls back to WAV if ffmpeg conversion fails.
+
     Request JSON:
         text (str): Text to synthesize (any length)
         language (str, optional): Language code (default: de)
@@ -1072,7 +1075,7 @@ def tts():
             - Use "* name" for custom voices or just "name"
 
     Returns:
-        WAV audio file
+        OGG/Opus audio file (48kbps) or WAV as fallback
     """
     import torch
     import torchaudio
@@ -1159,19 +1162,46 @@ def tts():
 
         # Create temp file for output
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            temp_path = f.name
+            wav_path = f.name
 
-        # Save to file (sample rate is 24kHz for XTTS)
-        torchaudio.save(temp_path, torch.tensor(final_audio).unsqueeze(0), 24000)
+        # Save to WAV first (sample rate is 24kHz for XTTS)
+        torchaudio.save(wav_path, torch.tensor(final_audio).unsqueeze(0), 24000)
+
+        # Convert WAV to OGG/Opus for smaller file size (~90% reduction)
+        ogg_path = wav_path.replace(".wav", ".ogg")
+        import subprocess
+        ffmpeg_result = subprocess.run([
+            "ffmpeg", "-y", "-i", wav_path,
+            "-c:a", "libopus", "-b:a", "48k",  # 48kbps Opus - excellent for speech
+            ogg_path
+        ], capture_output=True, text=True)
+
+        # Clean up WAV immediately
+        try:
+            os.unlink(wav_path)
+        except Exception:
+            pass
+
+        if ffmpeg_result.returncode != 0:
+            logger.error(f"ffmpeg conversion failed: {ffmpeg_result.stderr}")
+            # Fallback: recreate WAV and send that
+            torchaudio.save(wav_path, torch.tensor(final_audio).unsqueeze(0), 24000)
+            temp_path = wav_path
+            mimetype = "audio/wav"
+            download_name = "xtts_tts.wav"
+        else:
+            temp_path = ogg_path
+            mimetype = "audio/ogg"
+            download_name = "xtts_tts.ogg"
 
         logger.info(f"Generated audio: {temp_path} ({len(chunks)} chunks)")
 
         # Send file and schedule cleanup
         response = send_file(
             temp_path,
-            mimetype="audio/wav",
+            mimetype=mimetype,
             as_attachment=True,
-            download_name="xtts_tts.wav"
+            download_name=download_name
         )
 
         # Cleanup after response
