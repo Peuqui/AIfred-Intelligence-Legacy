@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **OLLAMA_NUM_PARALLEL=1 Optimization Guide** ([README.md](README.md), [README.de.md](README.de.md)):
+  - Documented critical performance optimization for single-user Ollama setups
+  - Default PARALLEL=2 doubles KV-cache allocation for unused parallel slot
+  - Setting PARALLEL=1 doubles available context (111K → 222K for 30B models)
+  - Step-by-step systemd override instructions included
+
+- **AIfred Typo Correction** ([personality.txt](prompts/de/aifred/personality.txt), [personality.txt](prompts/en/aifred/personality.txt)):
+  - AIfred now corrects user spelling errors in responses instead of copying them
+  - Examples: "Mamellade" → "Marmelade", "Gurken Sandwich" → "Gurkensandwich"
+  - Instruction added to both German and English personality prompts
+
 - **XTTS CPU-Mode Toggle** ([aifred.py](aifred/aifred.py), [state.py](aifred/state.py)):
   - New GPU/CPU toggle in TTS settings (only visible when XTTS selected)
   - CPU mode: Slower TTS but saves ~2 GB GPU VRAM for larger LLM context
@@ -37,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Docker Compose** ([docker/xtts/docker-compose.yml](docker/xtts/docker-compose.yml)):
   - `XTTS_FORCE_CPU` now read from `.env` file for runtime configuration
   - Supports dynamic GPU/CPU switching without manual file edits
+
+### Fixed
+
+- **XTTS VRAM Reservation Not Applied** ([context_utils.py](aifred/lib/research/context_utils.py), [multi_agent.py](aifred/lib/multi_agent.py)):
+  - XTTS GPU VRAM reservation (~14K tokens) was never subtracted from context window
+  - Moved XTTS logic to `get_agent_num_ctx()` - the single source of truth for num_ctx
+  - Sokrates/Salomo agents now also use centralized `get_agent_num_ctx()` function
+  - Added comprehensive TTS debug output for all TTS engines (XTTS GPU/CPU, Edge TTS, etc.)
 
 ---
 
