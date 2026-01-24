@@ -24,8 +24,8 @@ services:
       # If free VRAM < threshold: automatically falls back to CPU
       - XTTS_VRAM_THRESHOLD=2.0
       # XTTS_FORCE_CPU: Force CPU mode regardless of VRAM
-      # Set to "1" or "true" to always use CPU
-      # - XTTS_FORCE_CPU=0
+      # Set to "1" or "true" to always use CPU (read from .env file)
+      - XTTS_FORCE_CPU=${XTTS_FORCE_CPU:-0}
       # ============================================================
       # Inference Parameters (tune to reduce hallucinations)
       # ============================================================

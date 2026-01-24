@@ -340,6 +340,8 @@ class AIState(rx.State):
     }
     # XTTS voices cache - refreshed when engine changes to XTTS
     xtts_voices_cache: List[str] = []
+    # XTTS CPU Mode - Force CPU inference (slower but saves GPU VRAM for LLM)
+    xtts_force_cpu: bool = False
     whisper_model_key: str = "small"  # Whisper model key (tiny/base/small/medium/large)
     # whisper_device removed - now configured in config.py (WHISPER_DEVICE)
     show_transcription: bool = False  # Show transcribed text for editing before sending
@@ -912,6 +914,7 @@ class AIState(rx.State):
                 self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)
                 # Note: tts_speed no longer loaded - generation always at 1.0
                 self.tts_engine = saved_settings.get("tts_engine", self.tts_engine)
+                self.xtts_force_cpu = saved_settings.get("xtts_force_cpu", self.xtts_force_cpu)
                 self.tts_autoplay = saved_settings.get("tts_autoplay", self.tts_autoplay)
                 self.tts_streaming_enabled = saved_settings.get("tts_streaming_enabled", self.tts_streaming_enabled)
                 self.tts_playback_rate = saved_settings.get("tts_playback_rate", self.tts_playback_rate)
@@ -1623,6 +1626,7 @@ class AIState(rx.State):
             "voice": self.tts_voice,  # Legacy key name for backward compatibility
             # Note: tts_speed removed - generation always at 1.0, tempo via tts_playback_rate
             "tts_engine": self.tts_engine,
+            "xtts_force_cpu": self.xtts_force_cpu,
             "tts_autoplay": self.tts_autoplay,
             "tts_streaming_enabled": self.tts_streaming_enabled,
             "tts_playback_rate": self.tts_playback_rate,
@@ -8234,9 +8238,34 @@ class AIState(rx.State):
     # ============================================================
 
     def toggle_tts(self):
-        """Toggle TTS on/off"""
+        """Toggle TTS on/off.
+
+        When XTTS is selected:
+        - TTS OFF: Stop XTTS container (free VRAM)
+        - TTS ON: Start XTTS container with current CPU/GPU setting
+        """
         self.enable_tts = not self.enable_tts
         self.add_debug(f"🔊 TTS: {'enabled' if self.enable_tts else 'disabled'}")
+
+        # Handle XTTS container start/stop
+        if "XTTS" in self.tts_engine:
+            from .lib.process_utils import set_xtts_cpu_mode, stop_xtts_container
+
+            if self.enable_tts:
+                # Start container with current CPU/GPU setting
+                success, message = set_xtts_cpu_mode(self.xtts_force_cpu)
+                if success:
+                    self.add_debug("✅ XTTS Container gestartet")
+                else:
+                    self.add_debug(f"❌ {message}")
+            else:
+                # Stop container to free VRAM
+                success, message = stop_xtts_container()
+                if success:
+                    self.add_debug("✅ XTTS Container gestoppt")
+                else:
+                    self.add_debug(f"❌ {message}")
+
         self._save_settings()
 
     def set_tts_engine(self, engine: str):
@@ -8271,6 +8300,33 @@ class AIState(rx.State):
         """Set TTS voice"""
         self.tts_voice = voice
         self.add_debug(f"🔊 TTS Voice: {voice}")
+        self._save_settings()
+
+    def set_xtts_force_cpu(self, force_cpu: bool):
+        """Set XTTS CPU mode and restart container.
+
+        When force_cpu=True:
+        - XTTS runs on CPU (slower, but saves GPU VRAM for LLM)
+        - No VRAM reservation needed for context calculation
+
+        When force_cpu=False:
+        - XTTS auto-detects GPU/CPU based on available VRAM
+        - VRAM reservation applied to context calculation
+        """
+        from .lib.process_utils import set_xtts_cpu_mode
+
+        self.xtts_force_cpu = force_cpu
+        mode_str = "CPU (forced)" if force_cpu else "GPU (auto)"
+        self.add_debug(f"🔊 XTTS Mode: {mode_str} - restarting container...")
+
+        # Restart XTTS container with new setting
+        success, message = set_xtts_cpu_mode(force_cpu)
+
+        if success:
+            self.add_debug(f"✅ {message}")
+        else:
+            self.add_debug(f"❌ {message}")
+
         self._save_settings()
 
     async def unload_xtts_model(self):

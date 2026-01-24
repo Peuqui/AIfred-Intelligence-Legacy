@@ -1160,10 +1160,12 @@ First start takes ~2-3 minutes (model download ~1.5GB). After that, XTTS is avai
 **Features:**
 - 58 built-in voices + custom voice cloning (6-10s reference audio)
 - Automatic GPU/CPU selection based on available VRAM
+- **Manual CPU-Mode Toggle**: Save GPU VRAM for larger LLM context window (slower TTS)
 - Multilingual support (16 languages) with automatic code-switching (DE/EN mixed)
 - Per-agent voices with individual pitch and speed settings
 - **Multi-Agent TTS Queue**: Sequential playback of AIfred → Sokrates → Salomo responses
 - Async TTS generation (doesn't block next LLM inference)
+- **VRAM Management**: In GPU mode, ~2 GB VRAM is reserved and deducted from LLM context window
 
 See [docker/xtts/README.md](docker/xtts/README.md) for full documentation.
 

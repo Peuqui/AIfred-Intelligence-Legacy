@@ -3386,27 +3386,31 @@ def settings_accordion() -> rx.Component:
 
                 # TTS (Text-to-Speech) Section
                 rx.vstack(
-                    # TTS Toggle + Autoplay Toggle (side by side)
+                    # TTS Toggle + Autoplay Toggle + Streaming Toggle (grouped)
                     rx.hstack(
-                        # TTS Enable Toggle
-                        rx.text(t("tts_heading"), font_weight="bold", font_size="12px"),
-                        rx.switch(
-                            checked=AIState.enable_tts,
-                            on_change=AIState.toggle_tts,
-                            size="1",
-                        ),
-                        rx.text(
-                            rx.cond(AIState.enable_tts, "ON", "OFF"),
-                            font_size="11px",
-                            color=rx.cond(AIState.enable_tts, "#4CAF50", "#999"),
+                        # TTS Enable Toggle Group
+                        rx.hstack(
+                            rx.text(t("tts_heading"), font_weight="bold", font_size="12px"),
+                            rx.switch(
+                                checked=AIState.enable_tts,
+                                on_change=AIState.toggle_tts,
+                                size="1",
+                            ),
+                            rx.text(
+                                rx.cond(AIState.enable_tts, "ON", "OFF"),
+                                font_size="11px",
+                                color=rx.cond(AIState.enable_tts, "#d4a14a", "#666"),
+                            ),
+                            spacing="1",
+                            align="center",
                         ),
                         # Spacer
                         rx.box(flex="1"),
-                        # Autoplay Toggle (only show when TTS enabled)
+                        # Autoplay Toggle Group (only show when TTS enabled)
                         rx.cond(
                             AIState.enable_tts,
                             rx.hstack(
-                                rx.text(t("tts_autoplay_label"), font_size="11px", color="#888"),
+                                rx.text(t("tts_autoplay_label"), font_size="11px", color="#d4a14a"),
                                 rx.switch(
                                     checked=AIState.tts_autoplay,
                                     on_change=AIState.toggle_tts_autoplay,
@@ -3415,17 +3419,17 @@ def settings_accordion() -> rx.Component:
                                 rx.text(
                                     rx.cond(AIState.tts_autoplay, "ON", "OFF"),
                                     font_size="10px",
-                                    color=rx.cond(AIState.tts_autoplay, "#4CAF50", "#999"),
+                                    color=rx.cond(AIState.tts_autoplay, "#d4a14a", "#666"),
                                 ),
                                 spacing="1",
                                 align="center",
                             ),
                             rx.box(),
                         ),
-                        # Streaming TTS Toggle (always rendered to prevent layout jumping)
+                        # Streaming TTS Toggle Group
                         # Visibility controlled by opacity - hidden when TTS OFF or AutoPlay OFF
                         rx.hstack(
-                            rx.text("Streaming", font_size="11px", color="#888"),
+                            rx.text("Streaming", font_size="11px", color="#d4a14a"),
                             rx.switch(
                                 checked=AIState.tts_streaming_enabled,
                                 on_change=AIState.toggle_tts_streaming,
@@ -3435,7 +3439,7 @@ def settings_accordion() -> rx.Component:
                             rx.text(
                                 rx.cond(AIState.tts_streaming_enabled, "ON", "OFF"),
                                 font_size="10px",
-                                color=rx.cond(AIState.tts_streaming_enabled, "#4CAF50", "#999"),
+                                color=rx.cond(AIState.tts_streaming_enabled, "#d4a14a", "#666"),
                             ),
                             spacing="1",
                             align="center",
@@ -3452,7 +3456,7 @@ def settings_accordion() -> rx.Component:
                         rx.vstack(
                             # TTS Engine Selection
                             rx.hstack(
-                                rx.text(t("tts_engine_label"), font_size="11px", font_weight="500", width="80px"),
+                                rx.text(t("tts_engine_label"), font_size="11px", font_weight="500"),
                                 rx.cond(
                                     AIState.is_mobile,
                                     # Mobile: Native select
@@ -3469,15 +3473,26 @@ def settings_accordion() -> rx.Component:
                                         size="2",
                                     ),
                                 ),
-                                # Unload button (only for XTTS v2)
+                                # XTTS CPU Mode Toggle (only for XTTS v2)
                                 rx.cond(
                                     AIState.tts_engine.contains("XTTS"),
-                                    rx.button(
-                                        rx.icon("trash-2", color="orange"),
-                                        on_click=AIState.unload_xtts_model,
-                                        size="2",
-                                        variant="ghost",
-                                        title="Unload XTTS model from memory",
+                                    rx.hstack(
+                                        rx.switch(
+                                            checked=AIState.xtts_force_cpu,
+                                            on_change=AIState.set_xtts_force_cpu,
+                                            size="1",
+                                        ),
+                                        rx.text(
+                                            rx.cond(
+                                                AIState.xtts_force_cpu,
+                                                "CPU (langsamer)",
+                                                "GPU (schneller)",
+                                            ),
+                                            font_size="10px",
+                                            color="#d4a14a",
+                                        ),
+                                        spacing="1",
+                                        align="center",
                                     ),
                                 ),
                                 spacing="2",

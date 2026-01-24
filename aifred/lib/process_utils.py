@@ -181,3 +181,133 @@ async def stop_backend_process(backend_type: str, wait_for_vram: bool = True) ->
         return False
 
     return await stop_process(pattern, wait_for_vram=wait_for_vram)
+
+
+# ============================================================
+# Docker Container Management
+# ============================================================
+
+def restart_docker_container(
+    compose_file: str,
+    service_name: str,
+    env_vars: dict[str, str] | None = None
+) -> tuple[bool, str]:
+    """
+    Restart a Docker container with optional environment variable changes.
+
+    Uses docker compose down + up to ensure env vars are reloaded.
+    If env_vars is provided, writes them to .env file before restart.
+
+    Args:
+        compose_file: Path to docker-compose.yml
+        service_name: Name of the service to restart (e.g., "xtts")
+        env_vars: Optional dict of environment variables to write to .env
+
+    Returns:
+        tuple[bool, str]: (success, message)
+    """
+    from pathlib import Path
+
+    compose_path = Path(compose_file)
+    if not compose_path.exists():
+        return False, f"docker-compose.yml not found: {compose_file}"
+
+    compose_dir = compose_path.parent
+
+    # Write .env file if env_vars provided
+    if env_vars:
+        env_file = compose_dir / ".env"
+        try:
+            with open(env_file, "w") as f:
+                for key, value in env_vars.items():
+                    f.write(f"{key}={value}\n")
+            log_message(f"Wrote .env: {env_vars}")
+        except Exception as e:
+            return False, f"Failed to write .env: {e}"
+
+    # Stop container
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(compose_file), "down"],
+            capture_output=True,
+            text=True,
+            cwd=str(compose_dir)
+        )
+        if result.returncode != 0:
+            return False, f"docker compose down failed: {result.stderr}"
+        log_message(f"Docker container '{service_name}' stopped")
+    except Exception as e:
+        return False, f"docker compose down error: {e}"
+
+    # Start container
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(compose_file), "up", "-d"],
+            capture_output=True,
+            text=True,
+            cwd=str(compose_dir)
+        )
+        if result.returncode != 0:
+            return False, f"docker compose up failed: {result.stderr}"
+        log_message(f"Docker container '{service_name}' started")
+    except Exception as e:
+        return False, f"docker compose up error: {e}"
+
+    return True, f"Container '{service_name}' restarted successfully"
+
+
+def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
+    """
+    Set XTTS CPU mode and restart the container.
+
+    Args:
+        force_cpu: True = force CPU mode, False = auto-detect (prefer GPU)
+
+    Returns:
+        tuple[bool, str]: (success, message)
+    """
+    from .config import XTTS_DOCKER_COMPOSE_PATH
+
+    env_vars = {"XTTS_FORCE_CPU": "1" if force_cpu else "0"}
+    mode_str = "CPU" if force_cpu else "GPU (auto)"
+
+    success, message = restart_docker_container(
+        compose_file=XTTS_DOCKER_COMPOSE_PATH,
+        service_name="xtts",
+        env_vars=env_vars
+    )
+
+    if success:
+        return True, f"XTTS switched to {mode_str} mode"
+    return False, message
+
+
+def stop_xtts_container() -> tuple[bool, str]:
+    """
+    Stop the XTTS Docker container to free VRAM.
+
+    Returns:
+        tuple[bool, str]: (success, message)
+    """
+    from .config import XTTS_DOCKER_COMPOSE_PATH
+    from pathlib import Path
+
+    compose_path = Path(XTTS_DOCKER_COMPOSE_PATH)
+    if not compose_path.exists():
+        return False, f"docker-compose.yml not found: {XTTS_DOCKER_COMPOSE_PATH}"
+
+    compose_dir = compose_path.parent
+
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(XTTS_DOCKER_COMPOSE_PATH), "down"],
+            capture_output=True,
+            text=True,
+            cwd=str(compose_dir)
+        )
+        if result.returncode != 0:
+            return False, f"docker compose down failed: {result.stderr}"
+        log_message("XTTS container stopped")
+        return True, "XTTS container stopped"
+    except Exception as e:
+        return False, f"docker compose down error: {e}"

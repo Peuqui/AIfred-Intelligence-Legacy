@@ -684,6 +684,18 @@ ENABLE_VRAM_CONTEXT_CALCULATION = True
 # Optimized: 512MB for desktop + overhead (not wasteful)
 VRAM_SAFETY_MARGIN = 512  # MB
 
+# XTTS VRAM reservation (MB)
+# XTTS model uses ~2044 MiB when loaded. Add small buffer for safety.
+# This is subtracted from available context when TTS is enabled with XTTS engine.
+XTTS_VRAM_MB = 2100  # MB (~2044 measured + 56 buffer)
+
+# XTTS Docker-Compose path (for container restart when switching CPU/GPU mode)
+import os as _os
+XTTS_DOCKER_COMPOSE_PATH = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
+    "docker", "xtts", "docker-compose.yml"
+)
+
 # Empirical ratio: MB of VRAM per context token
 # Based on KV cache measurements and research:
 # - LLaMA-2 7B: ~0.5 MB/token (research baseline)

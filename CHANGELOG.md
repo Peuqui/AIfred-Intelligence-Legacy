@@ -5,6 +5,41 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.4] - 2026-01-24 🔊 XTTS CPU-Mode & VRAM Management
+
+### Added
+
+- **XTTS CPU-Mode Toggle** ([aifred.py](aifred/aifred.py), [state.py](aifred/state.py)):
+  - New GPU/CPU toggle in TTS settings (only visible when XTTS selected)
+  - CPU mode: Slower TTS but saves ~2 GB GPU VRAM for larger LLM context
+  - GPU mode (default): Faster TTS, VRAM reserved for XTTS
+  - Toggle automatically restarts XTTS Docker container with new setting
+
+- **XTTS VRAM Reservation** ([context_manager.py](aifred/lib/context_manager.py), [config.py](aifred/lib/config.py)):
+  - When XTTS runs on GPU: ~2.1 GB VRAM reserved (14,000 tokens)
+  - Automatic context window reduction to prevent GPU memory overflow
+  - No reservation when CPU mode enabled or TTS disabled
+
+- **TTS Container Management** ([process_utils.py](aifred/lib/process_utils.py)):
+  - TTS toggle now starts/stops XTTS Docker container
+  - TTS OFF: Container stopped, VRAM fully freed
+  - TTS ON: Container started with current CPU/GPU setting
+  - New functions: `restart_docker_container()`, `set_xtts_cpu_mode()`, `stop_xtts_container()`
+
+### Changed
+
+- **TTS UI Improvements** ([aifred.py](aifred/aifred.py)):
+  - Removed XTTS unload button (replaced by CPU-mode toggle)
+  - All TTS toggle labels now in consistent gold color (#d4a14a)
+  - Improved toggle grouping for better visual clarity
+  - Debug console height increased by 80px
+
+- **Docker Compose** ([docker/xtts/docker-compose.yml](docker/xtts/docker-compose.yml)):
+  - `XTTS_FORCE_CPU` now read from `.env` file for runtime configuration
+  - Supports dynamic GPU/CPU switching without manual file edits
+
+---
+
 ## [2.27.3] - 2026-01-22 🔊 TTS Regeneration & Multi-Device Support
 
 ### Added

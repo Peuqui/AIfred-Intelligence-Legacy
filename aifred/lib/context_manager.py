@@ -23,7 +23,9 @@ from .config import (
     HISTORY_SUMMARY_TOLERANCE,
     HISTORY_MAX_SUMMARIES,
     HISTORY_SUMMARY_MAX_RATIO,
-    HISTORY_SUMMARY_TEMPERATURE
+    HISTORY_SUMMARY_TEMPERATURE,
+    XTTS_VRAM_MB,
+    VRAM_CONTEXT_RATIO_DENSE
 )
 
 # Global tokenizer cache (model_name -> tokenizer)
@@ -565,6 +567,20 @@ async def calculate_dynamic_num_ctx(
         # VRAM limit disabled - use full model limit
         max_practical_ctx = model_limit
         log_message(f"⚠️ VRAM limit disabled - using full model limit {model_limit:,} (risk: CPU offload)")
+
+    # XTTS VRAM reservation: Reduce context when XTTS is active on GPU
+    # XTTS uses ~2044 MiB VRAM - subtract equivalent tokens from max context
+    # Skip reservation if xtts_force_cpu=True (XTTS runs on CPU, no GPU VRAM needed)
+    xtts_on_gpu = (
+        state
+        and getattr(state, 'enable_tts', False)
+        and 'xtts' in getattr(state, 'tts_engine', '').lower()
+        and not getattr(state, 'xtts_force_cpu', False)
+    )
+    if xtts_on_gpu:
+        xtts_token_reserve = int(XTTS_VRAM_MB / VRAM_CONTEXT_RATIO_DENSE)
+        max_practical_ctx = max(2048, max_practical_ctx - xtts_token_reserve)
+        vram_debug_msgs.append(f"🔊 XTTS reserviert: ~{format_number(XTTS_VRAM_MB)} MB ({format_number(xtts_token_reserve)} tok)")
 
     # Backend-specific context calculation
     calculated_ctx = needed_tokens

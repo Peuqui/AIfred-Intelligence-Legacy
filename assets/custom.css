@@ -515,7 +515,7 @@ div em {
     width: 100%;
     max-width: 100%;
     overflow-x: hidden;
-    min-height: 1050px;  /* Minimum für Desktop */
+    min-height: 1130px;  /* Minimum für Desktop (+80px für Settings-Höhe) */
     flex: 1 1 auto !important;  /* Wächst um Wrapper zu füllen */
 }
 
