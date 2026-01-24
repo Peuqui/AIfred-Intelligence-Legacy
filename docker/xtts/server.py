@@ -170,8 +170,8 @@ def normalize_text_for_tts(text: str) -> str:
 
     # Box-drawing characters (═ ─ │ etc.) - decorative lines that cause "quirzel"
     # These are often used for ASCII art borders around headings
-    text = re.sub(r'[─━═┄┅┈┉╌╍┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋]+', ' ', text)  # Horizontal lines
-    text = re.sub(r'[│┃║┆┇┊┋╎╏]+', '', text)  # Vertical lines (remove entirely)
+    # Remove completely - they have no spoken equivalent
+    text = re.sub(r'[─━═┄┅┈┉╌╍┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋│┃║┆┇┊┋╎╏]+', '', text)
 
     # En-dash, Em-dash, Figure-dash, Horizontal bar → comma (creates pause)
     # "Text – mehr Text" → "Text, mehr Text" (natural speech pause)
@@ -219,6 +219,12 @@ def normalize_text_for_tts(text: str) -> str:
         line = line.strip()
         if not line:
             normalized_lines.append('')
+            continue
+
+        # Skip lines with only punctuation (no actual words)
+        # This catches decorative lines that were filtered to just "." or similar
+        if not re.search(r'[a-zA-ZäöüÄÖÜß0-9]', line):
+            logger.debug(f"Skipping punctuation-only line: '{line}'")
             continue
 
         # Add period if line ends without sentence-ending punctuation
