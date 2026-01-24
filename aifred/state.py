@@ -1304,6 +1304,29 @@ class AIState(rx.State):
             self.backend_info = f"{self.backend_type} initializing..."
             self.add_debug(f"⚡ Backend: {self.backend_type} (skip health check)")
 
+            # XTTS: Start container before Ollama loads models (reserves VRAM)
+            if self.enable_tts and "XTTS" in self.tts_engine and not self.xtts_force_cpu:
+                from .lib.process_utils import start_xtts_container
+                from .lib.config import XTTS_SERVICE_URL
+                import requests
+                import time
+
+                self.add_debug("🔊 XTTS: Starte Container...")
+                success, msg = start_xtts_container()
+                if success:
+                    self.add_debug("⏳ XTTS: Warte auf Modell...")
+                    for _ in range(60):
+                        try:
+                            r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=2)
+                            if r.ok and r.json().get("model_loaded"):
+                                self.add_debug(f"✅ XTTS bereit ({r.json().get('device')})")
+                                break
+                        except Exception:
+                            pass
+                        time.sleep(1)
+                else:
+                    self.add_debug(f"⚠️ XTTS: {msg}")
+
             # Load models using centralized discovery module
             from .lib.model_discovery import discover_models
             try:

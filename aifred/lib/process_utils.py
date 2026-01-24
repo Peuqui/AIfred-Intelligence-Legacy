@@ -282,6 +282,37 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
     return False, message
 
 
+def start_xtts_container() -> tuple[bool, str]:
+    """
+    Start the XTTS Docker container.
+
+    Returns:
+        tuple[bool, str]: (success, message)
+    """
+    from .config import XTTS_DOCKER_COMPOSE_PATH
+    from pathlib import Path
+
+    compose_path = Path(XTTS_DOCKER_COMPOSE_PATH)
+    if not compose_path.exists():
+        return False, f"docker-compose.yml not found: {XTTS_DOCKER_COMPOSE_PATH}"
+
+    compose_dir = compose_path.parent
+
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(XTTS_DOCKER_COMPOSE_PATH), "up", "-d"],
+            capture_output=True,
+            text=True,
+            cwd=str(compose_dir)
+        )
+        if result.returncode != 0:
+            return False, f"docker compose up failed: {result.stderr}"
+        log_message("XTTS container started")
+        return True, "XTTS container started"
+    except Exception as e:
+        return False, f"docker compose up error: {e}"
+
+
 def stop_xtts_container() -> tuple[bool, str]:
     """
     Stop the XTTS Docker container to free VRAM.

@@ -51,6 +51,9 @@ VRAM_THRESHOLD_GB = float(os.environ.get("XTTS_VRAM_THRESHOLD", "3.0"))
 # Force CPU mode (override auto-detection)
 FORCE_CPU = os.environ.get("XTTS_FORCE_CPU", "").lower() in ("1", "true", "yes")
 
+# Eager loading - load model at startup instead of first request
+EAGER_LOAD = os.environ.get("XTTS_EAGER_LOAD", "").lower() in ("1", "true", "yes")
+
 # Lazy loading - model loaded on first request
 _model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
 _config = None
@@ -1526,6 +1529,13 @@ def list_languages():
         "ko": "Korean",
     }
     return jsonify(languages)
+
+
+# Eager load model at startup (if enabled)
+if EAGER_LOAD:
+    logger.info("🚀 EAGER_LOAD enabled - loading model at startup...")
+    get_synthesizer()
+    logger.info("✅ Model loaded and ready")
 
 
 if __name__ == "__main__":

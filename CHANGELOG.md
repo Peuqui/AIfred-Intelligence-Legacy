@@ -5,6 +5,32 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.5] - 2026-01-24 🚀 XTTS Eager Loading & Startup-Kontrolle
+
+### Added
+
+- **XTTS Eager Loading** ([docker/xtts/server.py](docker/xtts/server.py)):
+  - `XTTS_EAGER_LOAD` environment variable - Model lädt beim Container-Start
+  - Kein Lazy-Loading mehr - Model ist sofort bereit nach Container-Start
+  - Health-Endpoint `/health` zeigt `model_loaded: true` erst wenn fertig
+
+- **XTTS Startup in AIfred** ([aifred/state.py](aifred/state.py)):
+  - Bei TTS=ON + Engine=XTTS: Container startet VOR Ollama-Model-Discovery
+  - Synchrones Polling auf `model_loaded: true` (max 60s)
+  - XTTS reserviert VRAM bevor Ollama lädt
+
+- **start_xtts_container()** ([aifred/lib/process_utils.py](aifred/lib/process_utils.py)):
+  - Neue Funktion zum Starten des XTTS-Containers
+
+### Changed
+
+- **Docker Restart-Policy** ([docker/xtts/docker-compose.yml](docker/xtts/docker-compose.yml)):
+  - `restart: "no"` statt `unless-stopped`
+  - AIfred kontrolliert Container-Lifecycle vollständig
+  - Kein Auto-Start bei System-Reboot
+
+---
+
 ## [2.27.4] - 2026-01-24 🔊 XTTS CPU-Mode & VRAM Management
 
 ### Added

@@ -2,7 +2,7 @@ services:
   xtts:
     build: .
     container_name: xtts
-    restart: unless-stopped
+    restart: "no"  # AIfred controls container lifecycle
     ports:
       - "5051:5051"
     deploy:
@@ -26,6 +26,8 @@ services:
       # XTTS_FORCE_CPU: Force CPU mode regardless of VRAM
       # Set to "1" or "true" to always use CPU (read from .env file)
       - XTTS_FORCE_CPU=${XTTS_FORCE_CPU:-0}
+      # XTTS_EAGER_LOAD: Load model at startup (not on first request)
+      - XTTS_EAGER_LOAD=${XTTS_EAGER_LOAD:-1}
       # ============================================================
       # Inference Parameters (tune to reduce hallucinations)
       # ============================================================
