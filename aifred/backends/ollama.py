@@ -35,7 +35,8 @@ async def wait_for_vram_stable(
     Wait for VRAM to stabilize after model unloading.
 
     Instead of a fixed sleep, this polls VRAM until it stops changing.
-    This handles slower GPUs (like P40) that take longer to release memory.
+    This handles slower GPUs (like P40) and large models that take
+    longer to release memory.
 
     Args:
         max_wait_seconds: Maximum time to wait (default 10s)
@@ -52,7 +53,7 @@ async def wait_for_vram_stable(
     timer = Timer()
     last_vram = get_free_vram_mb()
     stable_count = 0
-    required_stable_checks = 2  # Need 2 consecutive stable readings
+    required_stable_checks = 4  # Need 4 consecutive stable readings (was 2)
 
     if last_vram is None:
         # No VRAM info available, just wait a bit
@@ -71,7 +72,7 @@ async def wait_for_vram_stable(
         if vram_change < stability_threshold_mb:
             stable_count += 1
             if stable_count >= required_stable_checks:
-                # VRAM is stable
+                # VRAM is stable after 4 consecutive readings
                 return (True, timer.elapsed(), current_vram)
         else:
             # VRAM still changing, reset counter
