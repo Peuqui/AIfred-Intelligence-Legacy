@@ -572,14 +572,12 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
             if i + 1 < len(remaining) and remaining[i + 1] == '\n':
                 sentence = remaining[sentence_start:i].strip()
                 if sentence and len(sentence) > 1:
-                    # Clean the sentence (remove markdown, tables, etc.)
-                    cleaned = clean_text_for_tts(sentence)
-                    if cleaned and len(cleaned) > 1:
-                        # Add period if sentence doesn't end with punctuation
-                        # This ensures XTTS gets proper sentence boundaries
-                        if cleaned[-1] not in '.!?:;':
-                            cleaned += '.'
-                        sentences.append(cleaned)
+                    # Add period if sentence doesn't end with punctuation
+                    # This ensures XTTS gets proper sentence boundaries
+                    # NOTE: Don't clean here - cleaning happens in _tts_generate_sentence_async()
+                    if sentence[-1] not in '.!?:;':
+                        sentence += '.'
+                    sentences.append(sentence)
                 # Skip past all the newlines (even if sentence was filtered/empty)
                 next_content_start = i + 1
                 while next_content_start < len(remaining) and remaining[next_content_start] in ' \t\n':
@@ -594,14 +592,11 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
                 if sentence and len(sentence) > 1:
                     # If line doesn't end with punctuation, it's likely a heading
                     # Treat newline as sentence boundary and add period
+                    # NOTE: Don't clean here - cleaning happens in _tts_generate_sentence_async()
                     if sentence[-1] not in '.!?:;':
-                        # Clean the sentence (remove markdown, tables, etc.)
-                        cleaned = clean_text_for_tts(sentence)
-                        if cleaned and len(cleaned) > 1:
-                            cleaned += '.'
-                            sentences.append(cleaned)
+                        sentence += '.'
+                        sentences.append(sentence)
                         # Always update sentence_start to skip past this content
-                        # (even if it was a table row that got filtered out)
                         sentence_start = i + 1
                     # If it DOES end with punctuation, it was already extracted
                     # by the normal punctuation handling below
@@ -613,15 +608,13 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
             # Colon followed by newline(s) = sentence end (intro before list/table)
             if after_colon.startswith('\n\n') or after_colon.startswith('\n'):
                 sentence = remaining[sentence_start:i+1].strip()
+                # NOTE: Don't clean here - cleaning happens in _tts_generate_sentence_async()
                 if sentence and len(sentence) > 10:  # Minimum length to avoid false positives
-                    # Clean the sentence (remove markdown, tables, etc.)
-                    sentence = clean_text_for_tts(sentence)
-                    if sentence and len(sentence) > 5:
-                        sentences.append(sentence)
-                    sentence_start = i + 1
-                    # Skip the newlines
-                    while i + 1 < len(remaining) and remaining[i + 1] in '\n\t ':
-                        i += 1
+                    sentences.append(sentence)
+                sentence_start = i + 1
+                # Skip the newlines
+                while i + 1 < len(remaining) and remaining[i + 1] in '\n\t ':
+                    i += 1
 
         # Check for sentence-ending punctuation
         if char in '.!?':
@@ -719,11 +712,9 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
                     sentence = remaining[sentence_start:j].strip()
                     i = j - 1
 
+                # NOTE: Don't clean here - cleaning happens in _tts_generate_sentence_async()
                 if sentence and len(sentence) > 1:
-                    # Clean the sentence (remove markdown, tables, etc.)
-                    sentence = clean_text_for_tts(sentence)
-                    if sentence and len(sentence) > 1:
-                        sentences.append(sentence)
+                    sentences.append(sentence)
 
                 sentence_start = i + 1
 
@@ -1170,16 +1161,8 @@ def clean_text_for_tts(text):
         # Only reset if there's actual readable content (words), not just:
         # - Empty strings (from filtered decorative lines ═══)
         # - Pure punctuation or formatting remnants
-        # - Our own hint texts (they pass through clean_text_for_tts twice!)
         # This prevents false resets between table rows
-        CONTENT_HINT_TEXTS = {
-            "Hier wird eine Tabelle angezeigt.",
-            "Hier steht eine Formel.",
-            "Hier steht Code.",
-        }
-        if (stripped and
-            stripped not in CONTENT_HINT_TEXTS and
-            re.search(r'[a-zA-ZäöüÄÖÜß]{2,}', stripped)):
+        if stripped and re.search(r'[a-zA-ZäöüÄÖÜß]{2,}', stripped):
             reset_content_hint_flags()
 
     # Multi-line: replace table blocks with hint (Re-Synth / non-streaming full response)
