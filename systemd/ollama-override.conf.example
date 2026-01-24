@@ -1,0 +1,24 @@
+# Ollama Service Override Configuration
+# =====================================
+# Copy this file to enable Ollama optimizations:
+#
+#   sudo mkdir -p /etc/systemd/system/ollama.service.d/
+#   sudo cp ollama-override.conf.example /etc/systemd/system/ollama.service.d/override.conf
+#   sudo systemctl daemon-reload
+#   sudo systemctl restart ollama
+#
+# After restart, recalibrate your models in AIfred UI to use the freed VRAM.
+
+[Service]
+# CRITICAL: Single-User Optimization
+# -----------------------------------
+# Default OLLAMA_NUM_PARALLEL=2 doubles KV-cache allocation for unused parallel slot.
+# Setting to 1 can DOUBLE your available context window (e.g., 111K -> 222K for 30B models).
+# Only use values > 1 if you need concurrent request processing (multi-user server).
+Environment="OLLAMA_NUM_PARALLEL=1"
+
+# Optional: Custom model storage location
+# Environment="OLLAMA_MODELS=/path/to/models"
+
+# Optional: Bind to specific address (default: 127.0.0.1:11434)
+# Environment="OLLAMA_HOST=0.0.0.0:11434"

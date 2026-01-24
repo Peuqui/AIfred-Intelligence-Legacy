@@ -174,6 +174,31 @@ sudo systemctl enable aifred-intelligence.service
 sudo systemctl disable aifred-intelligence.service
 ```
 
+## Ollama Optimization
+
+### `ollama-override.conf.example`
+
+**Critical performance optimization for single-user setups!**
+
+Ollama's default `OLLAMA_NUM_PARALLEL=2` doubles KV-cache allocation for an unused parallel slot, wasting ~50% of GPU VRAM.
+
+**Impact:** Setting `OLLAMA_NUM_PARALLEL=1` can double your available context window (e.g., 111K → 222K for 30B models).
+
+```bash
+# Install the override
+sudo mkdir -p /etc/systemd/system/ollama.service.d/
+sudo cp systemd/ollama-override.conf.example /etc/systemd/system/ollama.service.d/override.conf
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+
+# Verify
+systemctl status ollama  # Should show "Drop-In: override.conf"
+```
+
+After applying, **recalibrate your models** in the AIfred UI to take advantage of the freed VRAM.
+
+---
+
 ## Notes
 
 - ChromaDB must start before AIfred (ensured via `Requires=`)
