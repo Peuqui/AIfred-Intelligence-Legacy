@@ -198,7 +198,7 @@ async def handle_cache_hit(
 
     # Console: LLM starts (with MoE/Dense architecture info)
     from ..gpu_utils import is_moe_model
-    is_moe = await is_moe_model(model_choice)
+    is_moe = is_moe_model(model_choice)
     arch_label = "MoE" if is_moe else "Dense"
     yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} ({arch_label}, cache data)"}
 

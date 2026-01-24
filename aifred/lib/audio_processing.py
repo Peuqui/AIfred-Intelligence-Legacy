@@ -516,6 +516,26 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
             # Inside code block - don't extract sentences
             return [], buffer
 
+    # ============================================================
+    # IMPORTANT: Newline detection must happen BEFORE clean_text_for_tts()!
+    #
+    # clean_text_for_tts() uses .strip() which removes trailing newlines.
+    # In streaming mode, the buffer might be "Heading text\n\n" (waiting for
+    # next paragraph). If we clean first, the \n\n gets stripped and the
+    # next chunk gets concatenated directly: "Heading textNext paragraph"
+    #
+    # Solution: First normalize newlines and detect paragraph breaks,
+    # then clean each extracted sentence individually.
+    # ============================================================
+
+    # Normalize all newline formats to \n (LF) FIRST
+    # Different systems use different line endings:
+    # - Unix/Linux/macOS: \n (LF, ASCII 10)
+    # - Windows: \r\n (CRLF, ASCII 13 + 10)
+    # - Old Mac (pre-OS X): \r (CR, ASCII 13)
+    # LLMs typically output \n, but API responses might vary
+    remaining = remaining.replace('\r\n', '\n').replace('\r', '\n')
+
     # Regex pattern for sentence boundaries
     # Matches: . ! ? followed by:
     #   - Whitespace and uppercase letter (new sentence)
@@ -530,37 +550,85 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
     while i < len(remaining):
         char = remaining[i]
 
-        # Check for newline - treat as sentence boundary if followed by ALL CAPS line (headline)
-        # This handles cases like "...er ist humanitas.\n\nALTERNATIVE LÖSUNG\nNun denn..."
-        # where "ALTERNATIVE LÖSUNG" is a headline that should be spoken separately
+        # Check for paragraph break (double newline) - treat as sentence boundary
+        # This handles headings without punctuation: "Ein Marmeladenbrot\n\nEin Text..."
+        # The heading should be spoken separately, not concatenated with the next paragraph
         if char == '\n':
-            # Look ahead to see if next non-whitespace line is ALL CAPS (headline)
-            next_content_start = i + 1
-            while next_content_start < len(remaining) and remaining[next_content_start] in ' \t\n':
-                next_content_start += 1
+            # Check if this is a double newline (paragraph break)
+            if i + 1 < len(remaining) and remaining[i + 1] == '\n':
+                sentence = remaining[sentence_start:i].strip()
+                if sentence and len(sentence) > 1:
+                    # Clean the sentence (remove markdown, tables, etc.)
+                    cleaned = clean_text_for_tts(sentence)
+                    if cleaned and len(cleaned) > 1:
+                        # Add period if sentence doesn't end with punctuation
+                        # This ensures XTTS gets proper sentence boundaries
+                        if cleaned[-1] not in '.!?:;':
+                            cleaned += '.'
+                        sentences.append(cleaned)
+                # Skip past all the newlines (even if sentence was filtered/empty)
+                next_content_start = i + 1
+                while next_content_start < len(remaining) and remaining[next_content_start] in ' \t\n':
+                    next_content_start += 1
+                sentence_start = next_content_start
+                i = next_content_start - 1  # -1 because loop will increment
+            else:
+                # Single newline - treat as sentence boundary if current line has no punctuation
+                # This handles headings like "Ein Marmeladenbrot\nEin Text..."
+                # where there's no blank line between heading and content
+                sentence = remaining[sentence_start:i].strip()
+                if sentence and len(sentence) > 1:
+                    # If line doesn't end with punctuation, it's likely a heading
+                    # Treat newline as sentence boundary and add period
+                    if sentence[-1] not in '.!?:;':
+                        # Clean the sentence (remove markdown, tables, etc.)
+                        cleaned = clean_text_for_tts(sentence)
+                        if cleaned and len(cleaned) > 1:
+                            cleaned += '.'
+                            sentences.append(cleaned)
+                        # Always update sentence_start to skip past this content
+                        # (even if it was a table row that got filtered out)
+                        sentence_start = i + 1
+                    # If it DOES end with punctuation, it was already extracted
+                    # by the normal punctuation handling below
 
-            if next_content_start < len(remaining):
-                # Find the end of the next line
-                next_line_end = remaining.find('\n', next_content_start)
-                if next_line_end == -1:
-                    next_line_end = len(remaining)
-                next_line = remaining[next_content_start:next_line_end].strip()
-
-                # Check if it's an ALL CAPS headline (at least 3 chars, mostly uppercase)
-                if len(next_line) >= 3:
-                    alpha_chars = [c for c in next_line if c.isalpha()]
-                    if alpha_chars and sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars) > 0.7:
-                        # This is a headline - treat newline as sentence boundary
-                        sentence = remaining[sentence_start:i].strip()
-                        if sentence and len(sentence) > 1:
-                            # Add period if sentence doesn't end with punctuation
-                            if sentence[-1] not in '.!?:;':
-                                sentence += '.'
-                            sentences.append(sentence)
-                        sentence_start = next_content_start
+        # Check for colon followed by double newline (intro sentence before list/table)
+        # "Hier nun die gewünschte Tabelle:\n\n| ..." → extract as sentence
+        if char == ':':
+            after_colon = remaining[i+1:i+3] if i+1 < len(remaining) else ""
+            # Colon followed by newline(s) = sentence end (intro before list/table)
+            if after_colon.startswith('\n\n') or after_colon.startswith('\n'):
+                sentence = remaining[sentence_start:i+1].strip()
+                if sentence and len(sentence) > 10:  # Minimum length to avoid false positives
+                    # Clean the sentence (remove markdown, tables, etc.)
+                    sentence = clean_text_for_tts(sentence)
+                    if sentence and len(sentence) > 5:
+                        sentences.append(sentence)
+                    sentence_start = i + 1
+                    # Skip the newlines
+                    while i + 1 < len(remaining) and remaining[i + 1] in '\n\t ':
+                        i += 1
 
         # Check for sentence-ending punctuation
         if char in '.!?':
+            # ============================================================
+            # STREAMING TABLE DETECTION: Don't extract inside table rows
+            #
+            # In streaming mode, table rows arrive piece by piece:
+            #   "| Marmelade (z." → period here is NOT a sentence end!
+            #
+            # Check if we're currently inside a table row by looking at
+            # the current line (from last newline to current position).
+            # ============================================================
+            current_line_start = remaining.rfind('\n', 0, i) + 1
+            current_line = remaining[current_line_start:i+1]
+
+            # If current line starts with | (table row), skip punctuation detection
+            # Wait until the row is complete (newline handler will process it)
+            if current_line.lstrip().startswith('|'):
+                i += 1
+                continue
+
             # Get context around this character
             before = remaining[max(0, i-10):i+1].lower()
             after = remaining[i+1:i+3] if i+1 < len(remaining) else ""
@@ -638,14 +706,21 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
                     i = j - 1
 
                 if sentence and len(sentence) > 1:
-                    sentences.append(sentence)
+                    # Clean the sentence (remove markdown, tables, etc.)
+                    sentence = clean_text_for_tts(sentence)
+                    if sentence and len(sentence) > 1:
+                        sentences.append(sentence)
 
                 sentence_start = i + 1
 
         i += 1
 
     # Whatever remains goes back to the buffer
-    remaining = remaining[sentence_start:].strip()
+    # IMPORTANT: Only strip LEADING whitespace, not trailing!
+    # Trailing newlines are needed to detect paragraph breaks in the next call.
+    # If we have "Heading\n\n" and strip(), the \n\n gets removed, and
+    # the next chunk "Text" gets concatenated directly: "HeadingText"
+    remaining = remaining[sentence_start:].lstrip()
 
     return sentences, remaining
 
@@ -974,17 +1049,25 @@ def clean_text_for_tts(text):
     """
     Prepare text for TTS output: Remove elements that sound bad when read aloud.
 
+    This function handles CONTENT FILTERING only. TTS-specific normalization
+    (punctuation, special characters) is handled by the XTTS server's
+    normalize_text_for_tts() function.
+
     Removes:
     - <think> tags (raw LLM thinking)
     - <details>/<summary> blocks (collapsible UI elements)
     - HTML/XML tags (all generic tags like <br>, <span>, etc.)
     - Code blocks (``` ... ```) and inline code (`...`)
-    - Markdown tables (| ... |)
+    - Markdown tables (| ... |) → replaced with spoken hint
     - LaTeX formulas ($...$ and $$...$$)
-    - Emojis, markdown formatting, URLs
-    - Timing metadata (Inference: X.Xs, etc.)
+    - Emojis (keeps laughter emojis for XTTS to convert to "hahaha")
+    - Markdown formatting (**, *, #, etc.)
+    - URLs, timing metadata
     - Markdown links [text](url) → keeps text, removes URL
     - Blockquotes (> text)
+
+    NOTE: Punctuation is NOT added here - XTTS server handles that to prevent
+    issues with partial text in streaming mode.
 
     Args:
         text: Raw text from AI response
@@ -1015,20 +1098,35 @@ def clean_text_for_tts(text):
     # Tables are unreadable as speech: "pipe Name pipe Age pipe newline pipe dash dash..."
     # Instead of just removing, add a spoken cue so listener knows a table was shown
     #
-    # Handle BOTH:
-    # 1. Multi-line tables (full block in non-streaming mode)
-    # 2. Single table lines (streaming mode sends line by line)
+    # Handle THREE cases:
+    # 1. Complete table rows: starts AND ends with | (e.g., "| Name | Age |")
+    # 2. Partial table rows in streaming: starts with | but incomplete (e.g., "| Marmelade (z.")
+    # 3. Multi-line table blocks in non-streaming mode
     #
-    # Single line detection: starts with | and ends with | (ignoring whitespace)
-    # Examples: "| Name | Age |", "|---|---|", "| Max | 25 |"
-    single_table_line = re.compile(r'^\s*\|.*\|\s*$', flags=re.MULTILINE)
+    # IMPORTANT for streaming: Table cells come in piece by piece, so we must detect
+    # PARTIAL table content, not just complete rows!
 
-    # Check if this text IS a table line (streaming: single sentence might be just "| Name | Age |")
-    if single_table_line.match(clean_text.strip()):
-        # Entire input is a table line - replace with hint or skip
-        # Use a simple flag to avoid repeating the hint for every table row
-        # Since we can't track state across calls, just return empty to skip table rows
-        # The first row will still be spoken if it wasn't caught, but subsequent are filtered
+    stripped = clean_text.strip()
+
+    # Check 1: Complete table line (starts AND ends with |)
+    if re.match(r'^\s*\|.*\|\s*$', stripped):
+        return ""
+
+    # Check 2: Partial table row (starts with | but doesn't end with |)
+    # This catches streaming fragments like "| Marmelade (z." before the row is complete
+    if stripped.startswith('|'):
+        return ""
+
+    # Check 3: Text that contains table cell separators (multiple |)
+    # This catches mid-row content that doesn't start with | but is clearly table data
+    # Example: "Marmelade (z. B. Himbeere) | 1 Esslöffel"
+    pipe_count = stripped.count('|')
+    if pipe_count >= 2:
+        # Multiple pipes = likely table content
+        return ""
+
+    # Check 4: Table separator rows (|---|---|)
+    if re.match(r'^\s*\|[-:\s|]+\|\s*$', stripped):
         return ""
 
     # Multi-line: replace table blocks with hint (non-streaming full response)
@@ -1162,18 +1260,8 @@ def clean_text_for_tts(text):
     clean_text = re.sub(r'\n{3,}', '\n\n', clean_text)  # Max 2 newlines
     clean_text = clean_text.strip()  # Remove leading/trailing whitespace
 
-    # Ensure EACH LINE ends with proper punctuation
-    # Without this, headlines like "Kapitel 1\nDer Text..." are read too fast
-    # XTTS needs punctuation to create natural pauses between sections
-    # Use splitlines() to handle all line endings (LF, CRLF, CR)
-    lines = clean_text.splitlines()
-    punctuated_lines = []
-    for line in lines:
-        line = line.strip()
-        if line and line[-1] not in '.!?:;':
-            line += '.'
-        punctuated_lines.append(line)
-    clean_text = '\n'.join(punctuated_lines)
+    # NOTE: Punctuation is handled by XTTS server's normalize_text_for_tts()
+    # This avoids issues with partial text in streaming mode where "S" became "S."
 
     return clean_text
 

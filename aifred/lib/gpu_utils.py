@@ -6,7 +6,7 @@ based on available GPU memory.
 """
 
 import logging
-import httpx
+import requests
 from typing import Optional, Dict, List
 from .config import (
     VRAM_SAFETY_MARGIN,
@@ -341,7 +341,7 @@ def calculate_context_from_memory(
     return calculated_tokens
 
 
-async def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
+def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
     """
     Detect if model is MoE (Mixture of Experts) architecture
 
@@ -365,7 +365,6 @@ async def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) ->
     model_lower = model_name.lower()
 
     # Method 1: Check model name for MoE patterns (fast, no API call needed)
-    # These patterns clearly indicate MoE architecture
     moe_name_patterns = [
         "mixtral",      # Mixtral 8x7B, 8x22B
         "8x7b", "8x22b",  # Expert count patterns
@@ -380,32 +379,27 @@ async def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) ->
 
     # Method 2: Query Ollama API for family field (fallback)
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                f"{ollama_url}/api/show",
-                json={"name": model_name}
-            )
+        response = requests.post(
+            f"{ollama_url}/api/show",
+            json={"name": model_name},
+            timeout=5.0
+        )
 
-            if response.status_code == 200:
-                data = response.json()
+        if response.status_code == 200:
+            data = response.json()
+            family = data.get("details", {}).get("family", "")
+            moe_families = ["moe", "mixtral", "qwen3moe", "deepseek-moe"]
+            is_moe = any(indicator in family.lower() for indicator in moe_families)
 
-                # Check "family" field in details
-                family = data.get("details", {}).get("family", "")
-
-                # MoE indicators in family field
-                moe_families = ["moe", "mixtral", "qwen3moe", "deepseek-moe"]
-
-                is_moe = any(indicator in family.lower() for indicator in moe_families)
-
-                if is_moe:
-                    logger.debug(f"✅ MoE detected (API family): {model_name} (family: {family})")
-                else:
-                    logger.debug(f"📊 Dense model: {model_name} (family: {family})")
-
-                return is_moe
+            if is_moe:
+                logger.debug(f"✅ MoE detected (API family): {model_name} (family: {family})")
             else:
-                logger.debug(f"Could not query model info for {model_name}: {response.status_code}")
-                return False
+                logger.debug(f"📊 Dense model: {model_name} (family: {family})")
+
+            return is_moe
+        else:
+            logger.debug(f"Could not query model info for {model_name}: {response.status_code}")
+            return False
 
     except Exception as e:
         logger.debug(f"MoE API detection failed for {model_name}: {e}")
@@ -569,7 +563,7 @@ async def calculate_vram_based_context(
     if vram_context_ratio is None:
         # Only detect MoE for Ollama (vLLM/TabbyAPI use manual override)
         if backend_type == "ollama":
-            is_moe = await is_moe_model(model_name)
+            is_moe = is_moe_model(model_name)
             architecture = "moe" if is_moe else "dense"
             default_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe else VRAM_CONTEXT_RATIO_DENSE
 

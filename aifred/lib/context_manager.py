@@ -25,8 +25,10 @@ from .config import (
     HISTORY_SUMMARY_MAX_RATIO,
     HISTORY_SUMMARY_TEMPERATURE,
     XTTS_VRAM_MB,
-    VRAM_CONTEXT_RATIO_DENSE
+    VRAM_CONTEXT_RATIO_DENSE,
+    VRAM_CONTEXT_RATIO_MOE
 )
+from .gpu_utils import is_moe_model
 
 # Global tokenizer cache (model_name -> tokenizer)
 _tokenizer_cache = {}
@@ -578,7 +580,8 @@ async def calculate_dynamic_num_ctx(
         and not getattr(state, 'xtts_force_cpu', False)
     )
     if xtts_on_gpu:
-        xtts_token_reserve = int(XTTS_VRAM_MB / VRAM_CONTEXT_RATIO_DENSE)
+        vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_name) else VRAM_CONTEXT_RATIO_DENSE
+        xtts_token_reserve = int(XTTS_VRAM_MB / vram_ratio)
         max_practical_ctx = max(2048, max_practical_ctx - xtts_token_reserve)
         vram_debug_msgs.append(f"🔊 XTTS reserviert: ~{format_number(XTTS_VRAM_MB)} MB ({format_number(xtts_token_reserve)} tok)")
 

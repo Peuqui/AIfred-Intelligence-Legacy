@@ -164,6 +164,34 @@ def normalize_text_for_tts(text: str) -> str:
     text = emoji_pattern.sub('', text)
 
     # ============================================================
+    # Phase 1.5: Handle special Unicode characters BEFORE whitelist
+    # This is "Defense in Depth" - catches anything AIfred might miss
+    # ============================================================
+
+    # Box-drawing characters (═ ─ │ etc.) - decorative lines that cause "quirzel"
+    # These are often used for ASCII art borders around headings
+    text = re.sub(r'[─━═┄┅┈┉╌╍┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋]+', ' ', text)  # Horizontal lines
+    text = re.sub(r'[│┃║┆┇┊┋╎╏]+', '', text)  # Vertical lines (remove entirely)
+
+    # En-dash, Em-dash, Figure-dash, Horizontal bar → comma (creates pause)
+    # "Text – mehr Text" → "Text, mehr Text" (natural speech pause)
+    text = text.replace('–', ',')  # EN DASH (U+2013)
+    text = text.replace('—', ',')  # EM DASH (U+2014)
+    text = text.replace('‒', ',')  # FIGURE DASH (U+2012)
+    text = text.replace('―', ',')  # HORIZONTAL BAR (U+2015)
+
+    # Markdown formatting (in case client didn't filter it)
+    text = re.sub(r'\*\*', '', text)  # Bold **text**
+    text = re.sub(r'\*', '', text)    # Italic *text*
+    text = re.sub(r'`[^`]*`', '', text)  # Inline code `code`
+    text = re.sub(r'`', '', text)     # Stray backticks
+    text = re.sub(r'#+\s*', '', text)  # Markdown headers ###
+
+    # Zero-width characters (invisible but cause issues)
+    text = re.sub(r'[\u200b\u200c\u200d\u2060\ufeff]', '', text)
+    text = text.replace('\u00a0', ' ')  # Non-breaking space → normal space
+
+    # ============================================================
     # Phase 2: Remove characters that cause "quirzel" sounds
     # ============================================================
 
@@ -1128,6 +1156,10 @@ def _auto_restart_server():
     Docker's restart policy will bring the container back up with a fresh
     Python process, fully releasing CUDA context memory (~198MB).
     This allows the GPU to enter P8 power state.
+
+    NOTE: Since we run under Gunicorn, sys.exit(0) only kills the worker process.
+    Gunicorn would just spawn a new worker. We need to signal the Gunicorn master
+    (our parent process) to terminate the entire container.
     """
     global _active_requests
 
@@ -1146,15 +1178,17 @@ def _auto_restart_server():
         return
 
     logger.info(f"⏰ Auto-restart after {KEEP_ALIVE_MINUTES} min inactivity - freeing VRAM completely...")
-    logger.info("🔄 Server exiting, Docker will restart container...")
+    logger.info("🔄 Signaling Gunicorn master to shutdown container...")
 
     # Give logs time to flush
     import time
     time.sleep(0.5)
 
-    # Exit gracefully - Docker will restart us
-    import sys
-    sys.exit(0)
+    # Signal Gunicorn master (parent process) to terminate
+    # This properly shuts down the entire container instead of just the worker
+    import os
+    import signal
+    os.kill(os.getppid(), signal.SIGTERM)
 
 
 def _reset_restart_timer():

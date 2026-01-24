@@ -1217,7 +1217,7 @@ class OllamaBackend(LLMBackend):
                 yield "__RESULT__:0:error"
                 return
 
-            is_moe = await is_moe_model(model, self.base_url)
+            is_moe = is_moe_model(model, self.base_url)
             ratio = VRAM_CONTEXT_RATIO_MOE if is_moe else VRAM_CONTEXT_RATIO_DENSE
 
             # Calculate realistic upper bound based on available RAM
@@ -1311,7 +1311,7 @@ class OllamaBackend(LLMBackend):
                 return
 
             # Calculate RAM-based upper bound to avoid swapping
-            is_moe = await is_moe_model(model, self.base_url)
+            is_moe = is_moe_model(model, self.base_url)
             ratio = VRAM_CONTEXT_RATIO_MOE if is_moe else VRAM_CONTEXT_RATIO_DENSE
 
             # After model loads, remaining RAM is used for context
@@ -1503,7 +1503,7 @@ class OllamaBackend(LLMBackend):
             # Use RAM offload to get more context, calibrate via binary search
 
             # Calculate RAM-based upper bound using shared function
-            is_moe = await is_moe_model(model, self.base_url)
+            is_moe = is_moe_model(model, self.base_url)
             ratio = VRAM_CONTEXT_RATIO_MOE if is_moe else VRAM_CONTEXT_RATIO_DENSE
 
             hybrid_upper = calculate_context_from_memory(

@@ -342,3 +342,50 @@ def stop_xtts_container() -> tuple[bool, str]:
         return True, "XTTS container stopped"
     except Exception as e:
         return False, f"docker compose down error: {e}"
+
+
+def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
+    """
+    Ensure XTTS container is running and model is loaded.
+
+    Starts container if needed and waits for model to load.
+    This is a synchronous, blocking function - no async.
+
+    Args:
+        timeout: Max seconds to wait for model to load (default: 60)
+
+    Returns:
+        tuple[bool, str]: (success, message with device info or error)
+    """
+    import time
+    import requests
+    from .config import XTTS_SERVICE_URL
+
+    # Step 1: Check if already running and model loaded
+    try:
+        r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=2)
+        if r.ok and r.json().get("model_loaded"):
+            device = r.json().get("device", "unknown")
+            return True, f"XTTS already ready ({device})"
+    except Exception:
+        pass  # Container not running or not responding
+
+    # Step 2: Start container
+    success, msg = start_xtts_container()
+    if not success:
+        return False, msg
+
+    # Step 3: Wait for model to load
+    log_message("XTTS: Waiting for model to load...")
+    for i in range(timeout):
+        try:
+            r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=2)
+            if r.ok and r.json().get("model_loaded"):
+                device = r.json().get("device", "unknown")
+                log_message(f"XTTS: Model loaded on {device}")
+                return True, f"XTTS ready ({device})"
+        except Exception:
+            pass
+        time.sleep(1)
+
+    return False, f"XTTS: Timeout after {timeout}s waiting for model"

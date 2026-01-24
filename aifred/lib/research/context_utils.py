@@ -16,11 +16,13 @@ from ..config import (
     MAX_RAG_CONTEXT_TOKENS,
     MAIN_LLM_FALLBACK_CONTEXT,
     XTTS_VRAM_MB,
-    VRAM_CONTEXT_RATIO_DENSE
+    VRAM_CONTEXT_RATIO_DENSE,
+    VRAM_CONTEXT_RATIO_MOE
 )
 from ..formatting import format_number
 from ..logging_utils import log_message
 from ..model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+from ..gpu_utils import is_moe_model
 
 if TYPE_CHECKING:
     from ...state import AIState
@@ -109,8 +111,9 @@ def get_agent_num_ctx(
             device_mode = "CPU" if xtts_force_cpu else "GPU"
 
             if not xtts_force_cpu:
-                # GPU mode: Apply VRAM reservation
-                xtts_token_reserve = int(XTTS_VRAM_MB / VRAM_CONTEXT_RATIO_DENSE)
+                # GPU mode: Apply VRAM reservation (MoE vs Dense ratio)
+                vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_id) else VRAM_CONTEXT_RATIO_DENSE
+                xtts_token_reserve = int(XTTS_VRAM_MB / vram_ratio)
                 original_ctx = num_ctx
                 num_ctx = max(2048, num_ctx - xtts_token_reserve)
                 source = f"{source} (XTTS: -{format_number(xtts_token_reserve)} tok)"

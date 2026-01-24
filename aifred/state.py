@@ -1320,26 +1320,14 @@ class AIState(rx.State):
 
             # XTTS: Start container before Ollama loads models (reserves VRAM)
             if self.enable_tts and "XTTS" in self.tts_engine and not self.xtts_force_cpu:
-                from .lib.process_utils import start_xtts_container
-                from .lib.config import XTTS_SERVICE_URL
-                import requests
-                import time
+                from .lib.process_utils import ensure_xtts_ready
 
                 self.add_debug("🔊 XTTS: Starte Container...")
-                success, msg = start_xtts_container()
+                success, msg = ensure_xtts_ready(timeout=60)
                 if success:
-                    self.add_debug("⏳ XTTS: Warte auf Modell...")
-                    for _ in range(60):
-                        try:
-                            r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=2)
-                            if r.ok and r.json().get("model_loaded"):
-                                self.add_debug(f"✅ XTTS bereit ({r.json().get('device')})")
-                                break
-                        except Exception:
-                            pass
-                        time.sleep(1)
+                    self.add_debug(f"✅ {msg}")
                 else:
-                    self.add_debug(f"⚠️ XTTS: {msg}")
+                    self.add_debug(f"⚠️ {msg}")
 
             # Load models using centralized discovery module
             from .lib.model_discovery import discover_models
@@ -3209,6 +3197,72 @@ class AIState(rx.State):
         else:
             yield
 
+        # ============================================================
+        # ADD USER MESSAGE TO CHAT IMMEDIATELY (before any backend operations)
+        # ============================================================
+        # This ensures the user sees their message right away, even during XTTS startup
+        # Prepare display message (may include image markers for Vision)
+        display_user_msg = user_msg
+        if has_pending_images:
+            # Generate clickable image thumbnails as HTML
+            image_html_parts = []
+            for img in self.pending_images:
+                url = img.get('url', '')
+                if url:
+                    image_html_parts.append(
+                        f'<a href="{url}" target="_blank" rel="noopener noreferrer">'
+                        f'<img src="{url}" style="width:50px;height:50px;object-fit:cover;'
+                        f'border-radius:4px;cursor:pointer;margin-right:4px;"></a>'
+                    )
+            image_html = "".join(image_html_parts)
+
+            if not user_msg or user_msg.strip() == "":
+                # Image-only upload
+                if len(self.pending_images) == 1:
+                    display_user_msg = f"{image_html}\n\n📷 {self.pending_images[0].get('name', 'Image')}"
+                else:
+                    img_names = ", ".join([img.get("name", "unknown") for img in self.pending_images])
+                    display_user_msg = f"{image_html}\n\n📷 {len(self.pending_images)} images: {img_names}"
+            else:
+                # Text + images
+                display_user_msg = f"{image_html}\n\n{user_msg}" if image_html else user_msg
+
+        # Add to chat_history so user sees their message IMMEDIATELY
+        from datetime import datetime
+        self.chat_history.append({
+            "role": "user",
+            "content": display_user_msg,
+            "agent": "",
+            "mode": "",
+            "round_num": 0,
+            "metadata": {
+                "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []
+            },
+            "timestamp": datetime.now().isoformat(),
+            "used_sources": [],
+            "failed_sources": [],
+            "has_audio": False,
+            "audio_urls_json": "[]",
+        })
+        # Sync to llm_history (for LLM context - use ORIGINAL user_msg, not display variant)
+        self.llm_history.append({"role": "user", "content": user_msg})
+
+        yield  # Update UI - user sees their message NOW, before XTTS/LLM operations
+
+        # XTTS: Ensure container is running BEFORE Ollama loads models (reserves VRAM)
+        # This runs on every message, not just at startup - handles container restart scenarios
+        if self.enable_tts and "XTTS" in self.tts_engine and not self.xtts_force_cpu:
+            from .lib.process_utils import ensure_xtts_ready
+
+            self.add_debug("🔊 XTTS: Prüfe Container...")
+            yield  # Show debug message
+            success, msg = ensure_xtts_ready(timeout=60)
+            if success:
+                self.add_debug(f"✅ {msg}")
+            else:
+                self.add_debug(f"⚠️ {msg}")
+            yield  # Update UI
+
         # Create LLM client once - used for ALL LLM operations
         from .lib.llm_client import LLMClient
         llm_client = LLMClient(
@@ -3304,61 +3358,8 @@ class AIState(rx.State):
                     self.add_debug(event["message"])
                     yield
 
-        # Prepare display message (may include image markers for Vision)
-        # This must be done BEFORE adding to chat_history so user sees images immediately
-        display_user_msg = user_msg
-        if has_pending_images:
-            # Generate clickable image thumbnails as HTML (opens full image in new tab on click)
-            # Style: 50x50px thumbnails, rounded corners, inline display
-            image_html_parts = []
-            for img in self.pending_images:
-                url = img.get('url', '')
-                if url:
-                    # Clickable thumbnail: click opens full image in new tab
-                    image_html_parts.append(
-                        f'<a href="{url}" target="_blank" rel="noopener noreferrer">'
-                        f'<img src="{url}" style="width:50px;height:50px;object-fit:cover;'
-                        f'border-radius:4px;cursor:pointer;margin-right:4px;"></a>'
-                    )
-            image_html = "".join(image_html_parts)
-
-            if not user_msg or user_msg.strip() == "":
-                # Image-only upload
-                if len(self.pending_images) == 1:
-                    display_user_msg = f"{image_html}\n\n📷 {self.pending_images[0].get('name', 'Image')}"
-                else:
-                    img_names = ", ".join([img.get("name", "unknown") for img in self.pending_images])
-                    display_user_msg = f"{image_html}\n\n📷 {len(self.pending_images)} images: {img_names}"
-            else:
-                # Text + images
-                display_user_msg = f"{image_html}\n\n{user_msg}" if image_html else user_msg
-
-        # Add user message to chat history IMMEDIATELY (before any pipeline processing)
-        # This ensures the user sees their message right away, even during STT transcription
-        # Use display_user_msg (includes image markers if present) instead of plain user_msg
-        from datetime import datetime
-        self.chat_history.append({
-            "role": "user",
-            "content": display_user_msg,
-            "agent": "",
-            "mode": "",
-            "round_num": 0,
-            "metadata": {
-                # Store both name and URL for frontend image display
-                "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []
-            },
-            "timestamp": datetime.now().isoformat(),
-            "used_sources": [],
-            "failed_sources": [],
-            "has_audio": False,
-            "audio_urls_json": "[]",
-        })
-        # Sync to llm_history (for LLM context - use ORIGINAL user_msg, not display variant)
-        self.llm_history.append({"role": "user", "content": user_msg})
-
-        yield  # Update UI sofort (Eingabefeld leeren + Spinner zeigen + User-Nachricht anzeigen)
-
-        # Debug message wird von agent_core.py geloggt, nicht hier!
+        # NOTE: User message was already added to chat_history at the start of send_message()
+        # (before XTTS check) so user sees their message immediately
 
         try:
             # ============================================================
