@@ -1476,6 +1476,7 @@ TAVILY_API_KEY=dein_tavily_api_key
 
 # Ollama Konfiguration
 OLLAMA_BASE_URL=http://localhost:11434
+# WICHTIG: Setze OLLAMA_NUM_PARALLEL=1 in der Ollama Service-Konfiguration (siehe Performance-Abschnitt unten)
 
 # Backend-URL für statische Dateien (HTML-Preview, Bilder)
 # Mit NGINX: Leer lassen oder weglassen - NGINX leitet /_upload/ ans Backend
@@ -1722,6 +1723,45 @@ source venv/bin/activate && ruff check aifred/
 # Type-Checking mit mypy
 source venv/bin/activate && mypy aifred/ --ignore-missing-imports
 ```
+
+## ⚡ Performance-Optimierung
+
+### Ollama: OLLAMA_NUM_PARALLEL=1 (Kritisch für Single-User)
+
+**Problem:** Ollamas Standard `OLLAMA_NUM_PARALLEL=2` **verdoppelt den KV-Cache** für einen ungenutzten zweiten Parallel-Slot. Das verschwendet ~50% des GPU-VRAM.
+
+**Auswirkung:**
+- Mit PARALLEL=2: 30B Modell passt ~111K Context (mit CPU-Offload)
+- Mit PARALLEL=1: 30B Modell passt ~222K Context (reines GPU, kein Offload)
+
+**Lösung:** Setze `OLLAMA_NUM_PARALLEL=1` in der Ollama systemd-Konfiguration:
+
+```bash
+# Override-Verzeichnis erstellen
+sudo mkdir -p /etc/systemd/system/ollama.service.d/
+
+# Override-Datei erstellen
+sudo tee /etc/systemd/system/ollama.service.d/override.conf << 'EOF'
+[Service]
+Environment="OLLAMA_NUM_PARALLEL=1"
+EOF
+
+# Änderungen anwenden
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+```
+
+**Wann PARALLEL=1 verwenden:**
+- Single-User Setups (Home Server, persönliche Workstation)
+- Maximales Context-Fenster für Research/RAG-Tasks benötigt
+
+**Wann PARALLEL=2+ beibehalten:**
+- Multi-User Server mit gleichzeitigen Anfragen
+- Load-Balancing Szenarien
+
+Nach dieser Änderung **Modelle neu kalibrieren** in der UI, um den freigewordenen VRAM zu nutzen.
+
+---
 
 ## 🔨 Troubleshooting
 
