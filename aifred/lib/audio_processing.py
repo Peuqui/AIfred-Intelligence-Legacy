@@ -994,10 +994,13 @@ def clean_text_for_tts(text):
     """
     # Remove <think> tags and content (raw thinking from LLM)
     # Note: llm_history should be clean, but this handles edge cases
-    clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    # Use IGNORECASE to catch <Think>, <THINK>, etc.
+    clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE).strip()
+    # Also remove partial/unclosed think tags (streaming edge case)
+    clean_text = re.sub(r'</?think>', '', clean_text, flags=re.IGNORECASE)
 
     # Remove <details>/<summary> blocks (collapsible UI elements) - entire blocks
-    clean_text = re.sub(r'<details>.*?</details>', '', clean_text, flags=re.DOTALL).strip()
+    clean_text = re.sub(r'<details>.*?</details>', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
 
     # Remove ALL HTML/XML tags but keep content between them
     # Catches <br>, <span>, <div>, <p>, <b>, <i>, <u>, <strong>, <em>, etc.
@@ -1005,14 +1008,42 @@ def clean_text_for_tts(text):
     clean_text = re.sub(r'<[^>]+/?>', '', clean_text)
 
     # Remove code blocks (``` ... ```) - code sounds terrible when read aloud
-    clean_text = re.sub(r'```[^`]*```', '', clean_text, flags=re.DOTALL).strip()
+    # Use .*? (non-greedy) to match content including backticks inside code
+    clean_text = re.sub(r'```.*?```', '', clean_text, flags=re.DOTALL).strip()
 
-    # Remove markdown tables (lines starting with |)
+    # Replace markdown tables with spoken hint
     # Tables are unreadable as speech: "pipe Name pipe Age pipe newline pipe dash dash..."
-    clean_text = re.sub(r'^\|.*\|$', '', clean_text, flags=re.MULTILINE).strip()
-    # Also catch table separator lines like |---|---|
-    clean_text = re.sub(r'^\|[-:|\s]+\|$', '', clean_text, flags=re.MULTILINE).strip()
-    # Clean up multiple empty lines left by table removal
+    # Instead of just removing, add a spoken cue so listener knows a table was shown
+    #
+    # Handle BOTH:
+    # 1. Multi-line tables (full block in non-streaming mode)
+    # 2. Single table lines (streaming mode sends line by line)
+    #
+    # Single line detection: starts with | and ends with | (ignoring whitespace)
+    # Examples: "| Name | Age |", "|---|---|", "| Max | 25 |"
+    single_table_line = re.compile(r'^\s*\|.*\|\s*$', flags=re.MULTILINE)
+
+    # Check if this text IS a table line (streaming: single sentence might be just "| Name | Age |")
+    if single_table_line.match(clean_text.strip()):
+        # Entire input is a table line - replace with hint or skip
+        # Use a simple flag to avoid repeating the hint for every table row
+        # Since we can't track state across calls, just return empty to skip table rows
+        # The first row will still be spoken if it wasn't caught, but subsequent are filtered
+        return ""
+
+    # Multi-line: replace table blocks with hint (non-streaming full response)
+    table_block_pattern = re.compile(r'(\|[^\n]+\|\n?)+', flags=re.MULTILINE)
+    if table_block_pattern.search(clean_text):
+        # Replace first table with hint, remove others
+        replaced_first = [False]
+        def replace_table(m):
+            if not replaced_first[0]:
+                replaced_first[0] = True
+                return '\nHier wird eine Tabelle angezeigt.\n'
+            return '\n'
+        clean_text = table_block_pattern.sub(replace_table, clean_text)
+
+    # Clean up multiple empty lines left by table replacement
     clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
 
     # Remove LaTeX formulas - both inline ($...$) and block ($$...$$)

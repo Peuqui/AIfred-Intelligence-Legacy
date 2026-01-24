@@ -813,6 +813,20 @@ class AIState(rx.State):
             except Exception as e:
                 log_message(f"⚠️ GPU detection failed: {e}")
 
+            # Unload all Ollama models to ensure clean VRAM slate
+            # (Ollama may have models loaded from previous sessions)
+            try:
+                from .backends.ollama import OllamaBackend
+                ollama = OllamaBackend()
+                success, unloaded = await ollama.unload_all_models(wait_for_stability=False)
+                if unloaded:
+                    log_message(f"🧹 Startup: Unloaded {len(unloaded)} model(s) from VRAM: {', '.join(unloaded)}")
+                else:
+                    log_message("🧹 Startup: No models to unload (VRAM clean)")
+                await ollama.client.aclose()
+            except Exception as e:
+                log_message(f"ℹ️ Ollama not available for startup cleanup: {e}")
+
             _global_backend_initialized = True
             print("✅ Global initialization complete")
 
