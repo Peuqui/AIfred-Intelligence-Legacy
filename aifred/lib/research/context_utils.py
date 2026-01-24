@@ -14,7 +14,9 @@ from ..config import (
     TOKENS_PER_HISTORY_TURN,
     CHARS_PER_TOKEN,
     MAX_RAG_CONTEXT_TOKENS,
-    MAIN_LLM_FALLBACK_CONTEXT
+    MAIN_LLM_FALLBACK_CONTEXT,
+    XTTS_VRAM_MB,
+    VRAM_CONTEXT_RATIO_DENSE
 )
 from ..formatting import format_number
 from ..logging_utils import log_message
@@ -36,6 +38,9 @@ def get_agent_num_ctx(
     This is the SINGLE SOURCE OF TRUTH for num_ctx determination.
     All code that needs to determine num_ctx for an agent should use this function.
 
+    IMPORTANT: This function applies XTTS VRAM reservation when TTS is enabled on GPU.
+    The returned num_ctx is already reduced by ~14K tokens when XTTS uses GPU VRAM.
+
     Args:
         agent: Agent identifier - "aifred", "sokrates", or "salomo"
         state: AIState instance containing per-agent settings
@@ -46,6 +51,7 @@ def get_agent_num_ctx(
         Tuple of (num_ctx, source) where source is one of:
         - "manual" - User explicitly set a manual value
         - "VRAM cache" - Value from VRAM calibration cache
+        - "VRAM cache (XTTS: -X tok)" - With XTTS reservation applied
         - "fallback" - No calibration available, using fallback
 
     Examples:
@@ -66,7 +72,7 @@ def get_agent_num_ctx(
     value_attr = f"num_ctx_manual_{agent}"
 
     if getattr(state, enabled_attr, False):
-        # Manual mode: use user-configured value
+        # Manual mode: use user-configured value (no XTTS adjustment for manual)
         manual_value = getattr(state, value_attr, fallback)
         return (manual_value if manual_value else fallback, "manual")
 
@@ -75,10 +81,48 @@ def get_agent_num_ctx(
     cached_ctx = get_ollama_calibration(model_id, rope_factor)
 
     if cached_ctx:
-        return (cached_ctx, "VRAM cache")
+        num_ctx = cached_ctx
+        source = "VRAM cache"
+    else:
+        # No calibration available - use fallback
+        num_ctx = fallback
+        source = "fallback"
 
-    # No calibration available - use fallback
-    return (fallback, "fallback")
+    # TTS Debug Output - show active TTS configuration
+    enable_tts = getattr(state, 'enable_tts', False)
+    tts_engine = getattr(state, 'tts_engine', '')
+    tts_streaming = getattr(state, 'tts_streaming', False)
+    tts_autoplay = getattr(state, 'tts_autoplay', False)
+
+    if enable_tts:
+        # Build TTS status string
+        tts_mode_parts = []
+        if tts_streaming:
+            tts_mode_parts.append("Streaming")
+        if tts_autoplay:
+            tts_mode_parts.append("Auto-Play")
+        tts_mode = ", ".join(tts_mode_parts) if tts_mode_parts else "Manual"
+
+        if 'xtts' in tts_engine.lower():
+            # XTTS: Check GPU/CPU mode and apply VRAM reservation
+            xtts_force_cpu = getattr(state, 'xtts_force_cpu', False)
+            device_mode = "CPU" if xtts_force_cpu else "GPU"
+
+            if not xtts_force_cpu:
+                # GPU mode: Apply VRAM reservation
+                xtts_token_reserve = int(XTTS_VRAM_MB / VRAM_CONTEXT_RATIO_DENSE)
+                original_ctx = num_ctx
+                num_ctx = max(2048, num_ctx - xtts_token_reserve)
+                source = f"{source} (XTTS: -{format_number(xtts_token_reserve)} tok)"
+                log_message(f"🔊 TTS: XTTS ({device_mode}), {tts_mode} | VRAM: {format_number(original_ctx)} → {format_number(num_ctx)} tok (-{format_number(xtts_token_reserve)})")
+            else:
+                # CPU mode: No VRAM reservation needed
+                log_message(f"🔊 TTS: XTTS ({device_mode}), {tts_mode} | No VRAM reservation (CPU mode)")
+        else:
+            # Other TTS engines (Edge TTS, Google TTS, etc.) - no VRAM impact
+            log_message(f"🔊 TTS: {tts_engine}, {tts_mode} | No VRAM impact (cloud/CPU)")
+
+    return (num_ctx, source)
 
 
 async def calculate_vram_aware_rag_budget(

@@ -21,7 +21,6 @@ from .formatting import format_metadata, format_number, format_thinking_process
 from .message_builder import build_messages_from_llm_history
 from .i18n import t
 from .context_manager import (
-    calculate_dynamic_num_ctx,
     estimate_tokens,
     strip_thinking_blocks,
     summarize_history_if_needed,
@@ -583,13 +582,10 @@ async def run_sokrates_direct_response(
         sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
 
-        # Calculate context limit
-        sokrates_num_ctx, sokrates_vram_msgs = await calculate_dynamic_num_ctx(
-            llm_client, sokrates_model, [], None,
-            enable_vram_limit=True
-        )
-        for msg in sokrates_vram_msgs:
-            state.add_debug(f"   {msg}")
+        # Calculate context limit (uses SINGLE SOURCE OF TRUTH with XTTS reservation)
+        from .research.context_utils import get_agent_num_ctx
+        sokrates_num_ctx, ctx_source = get_agent_num_ctx("sokrates", state, sokrates_model)
+        state.add_debug(f"   🎯 num_ctx: {sokrates_num_ctx:,} ({ctx_source})")
 
         # Load system prompt from file (no hardcoded prompts!)
         # detected_lang comes from LLM-based intent detection (passed from state.py)
@@ -772,13 +768,10 @@ async def run_salomo_direct_response(
         salomo_display = state.salomo_model if state.salomo_model else state.aifred_model
         state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
-        # Calculate context limit
-        salomo_num_ctx, salomo_vram_msgs = await calculate_dynamic_num_ctx(
-            llm_client, salomo_model, [], None,
-            enable_vram_limit=True
-        )
-        for msg in salomo_vram_msgs:
-            state.add_debug(f"   {msg}")
+        # Calculate context limit (uses SINGLE SOURCE OF TRUTH with XTTS reservation)
+        from .research.context_utils import get_agent_num_ctx
+        salomo_num_ctx, ctx_source = get_agent_num_ctx("salomo", state, salomo_model)
+        state.add_debug(f"   🎯 num_ctx: {salomo_num_ctx:,} ({ctx_source})")
 
         # Load system prompt from file (no hardcoded prompts!)
         # detected_lang comes from LLM-based intent detection (passed from state.py)
