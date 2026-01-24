@@ -44,6 +44,13 @@ services:
       - XTTS_TOP_P=0.75
       # Max characters per chunk (default: 250)
       - XTTS_MAX_CHUNK_CHARS=250
+      # ============================================================
+      # Auto-Shutdown (like Ollama's KEEP_ALIVE)
+      # ============================================================
+      # After X minutes of inactivity, container exits to free VRAM
+      # Docker restart policy will bring it back on next request
+      # Set to 0 to disable auto-shutdown
+      - XTTS_KEEP_ALIVE=2
     volumes:
       # Cache models persistently
       - xtts_models:/root/.local/share/tts

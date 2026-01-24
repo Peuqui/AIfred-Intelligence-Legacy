@@ -6732,6 +6732,9 @@ class AIState(rx.State):
             log_message(f"🔊 TTS Chunk: Extracted {len(sentences)} sentence(s), remaining buffer: {len(remaining)} chars")
             for i, s in enumerate(sentences):
                 log_message(f"🔊 TTS Chunk: Sentence {i+1}: {repr(s)}")
+                # Also show in UI debug panel for easier debugging
+                preview = s[:80] + "..." if len(s) > 80 else s
+                self.add_debug(f"🔊 Stream: {repr(preview)}")
 
         # Send each complete sentence to TTS IMMEDIATELY via create_task
         agent = getattr(self, '_tts_streaming_agent', 'aifred')
@@ -8693,6 +8696,11 @@ class AIState(rx.State):
             import re
             content_without_label = re.sub(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', '', llm_content, flags=re.IGNORECASE)
             clean_text = clean_text_for_tts(content_without_label)
+
+            # DEBUG: Show what text is being sent to XTTS
+            if clean_text:
+                preview = clean_text[:200] + "..." if len(clean_text) > 200 else clean_text
+                self.add_debug(f"📝 TTS Text: {repr(preview)}")
 
             if not clean_text or len(clean_text.strip()) < 5:
                 self.add_debug("🔇 TTS: Text too short after cleanup")

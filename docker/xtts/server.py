@@ -1571,6 +1571,14 @@ if EAGER_LOAD:
     get_synthesizer()
     logger.info("✅ Model loaded and ready")
 
+# Start auto-shutdown timer at container startup
+# This ensures the container shuts down even if no TTS requests are made
+if KEEP_ALIVE_MINUTES > 0:
+    logger.info(f"⏰ Auto-shutdown timer started: {KEEP_ALIVE_MINUTES} min")
+    _reset_restart_timer()
+else:
+    logger.info("⏰ Auto-shutdown disabled (XTTS_KEEP_ALIVE=0)")
+
 
 if __name__ == "__main__":
     # Development server

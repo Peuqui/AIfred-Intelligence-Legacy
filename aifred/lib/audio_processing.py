@@ -37,6 +37,20 @@ SESSION_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 # Current agent for filename prefixing (set by state before TTS calls)
 _current_tts_agent: str = "aifred"
 
+# Streaming content hint tracking - ensures hints are only spoken once per block
+# Reset when regular text is detected, so next occurrence gets announced again
+_table_hint_announced: bool = False
+_formula_hint_announced: bool = False
+_code_hint_announced: bool = False
+
+
+def reset_content_hint_flags() -> None:
+    """Reset all content hint flags (for new streaming session or after regular text)."""
+    global _table_hint_announced, _formula_hint_announced, _code_hint_announced
+    _table_hint_announced = False
+    _formula_hint_announced = False
+    _code_hint_announced = False
+
 
 def set_tts_agent(agent_name: str) -> None:
     """Set current agent name for TTS filename prefixing."""
@@ -1090,9 +1104,16 @@ def clean_text_for_tts(text):
     # Also catches self-closing tags like <br/>, <hr/>
     clean_text = re.sub(r'<[^>]+/?>', '', clean_text)
 
-    # Remove code blocks (``` ... ```) - code sounds terrible when read aloud
+    # Replace code blocks (``` ... ```) with spoken hint - code sounds terrible when read aloud
     # Use .*? (non-greedy) to match content including backticks inside code
-    clean_text = re.sub(r'```.*?```', '', clean_text, flags=re.DOTALL).strip()
+    # Use GLOBAL flag to persist across multiple calls (streaming chunks)
+    def replace_code_block(m):
+        global _code_hint_announced
+        if not _code_hint_announced:
+            _code_hint_announced = True
+            return '\nHier steht Code.\n'
+        return '\n'
+    clean_text = re.sub(r'```.*?```', replace_code_block, clean_text, flags=re.DOTALL).strip()
 
     # Replace markdown tables with spoken hint
     # Tables are unreadable as speech: "pipe Name pipe Age pipe newline pipe dash dash..."
@@ -1108,35 +1129,67 @@ def clean_text_for_tts(text):
 
     stripped = clean_text.strip()
 
-    # Check 1: Complete table line (starts AND ends with |)
-    if re.match(r'^\s*\|.*\|\s*$', stripped):
-        return ""
+    # Detect if this is multi-line content (Re-Synth mode) vs single-line (streaming mode)
+    # Multi-line content should use table block replacement, not early returns
+    is_multiline = '\n' in stripped
 
-    # Check 2: Partial table row (starts with | but doesn't end with |)
-    # This catches streaming fragments like "| Marmelade (z." before the row is complete
-    if stripped.startswith('|'):
-        return ""
+    # Checks 1-4 are for STREAMING mode only (single-line sentences)
+    # In Re-Synth mode (multi-line), we skip these and use table_block_pattern below
+    global _table_hint_announced, _formula_hint_announced, _code_hint_announced
 
-    # Check 3: Text that contains table cell separators (multiple |)
-    # This catches mid-row content that doesn't start with | but is clearly table data
-    # Example: "Marmelade (z. B. Himbeere) | 1 Esslöffel"
-    pipe_count = stripped.count('|')
-    if pipe_count >= 2:
-        # Multiple pipes = likely table content
-        return ""
+    if not is_multiline:
+        # Check for table content (4 patterns)
+        is_table = (
+            re.match(r'^\s*\|.*\|\s*$', stripped) or  # Complete table line
+            stripped.startswith('|') or  # Partial table row
+            stripped.count('|') >= 2 or  # Multiple pipes
+            re.match(r'^\s*\|[-:\s|]+\|\s*$', stripped)  # Separator row
+        )
 
-    # Check 4: Table separator rows (|---|---|)
-    if re.match(r'^\s*\|[-:\s|]+\|\s*$', stripped):
-        return ""
+        if is_table:
+            if not _table_hint_announced:
+                _table_hint_announced = True
+                return "Hier wird eine Tabelle angezeigt."
+            return ""
 
-    # Multi-line: replace table blocks with hint (non-streaming full response)
+        # Check for inline formula ($...$)
+        if re.search(r'\$[^$]+\$', stripped):
+            if not _formula_hint_announced:
+                _formula_hint_announced = True
+                return "Hier steht eine Formel."
+            return ""
+
+        # Check for inline code (`...`)
+        if re.search(r'`[^`]+`', stripped):
+            if not _code_hint_announced:
+                _code_hint_announced = True
+                return "Hier steht Code."
+            return ""
+
+        # Regular text detected - reset all flags for next block
+        # Only reset if there's actual readable content (words), not just:
+        # - Empty strings (from filtered decorative lines ═══)
+        # - Pure punctuation or formatting remnants
+        # - Our own hint texts (they pass through clean_text_for_tts twice!)
+        # This prevents false resets between table rows
+        CONTENT_HINT_TEXTS = {
+            "Hier wird eine Tabelle angezeigt.",
+            "Hier steht eine Formel.",
+            "Hier steht Code.",
+        }
+        if (stripped and
+            stripped not in CONTENT_HINT_TEXTS and
+            re.search(r'[a-zA-ZäöüÄÖÜß]{2,}', stripped)):
+            reset_content_hint_flags()
+
+    # Multi-line: replace table blocks with hint (Re-Synth / non-streaming full response)
+    # Use GLOBAL flag to persist across multiple calls (streaming chunks)
     table_block_pattern = re.compile(r'(\|[^\n]+\|\n?)+', flags=re.MULTILINE)
     if table_block_pattern.search(clean_text):
-        # Replace first table with hint, remove others
-        replaced_first = [False]
         def replace_table(m):
-            if not replaced_first[0]:
-                replaced_first[0] = True
+            global _table_hint_announced
+            if not _table_hint_announced:
+                _table_hint_announced = True
                 return '\nHier wird eine Tabelle angezeigt.\n'
             return '\n'
         clean_text = table_block_pattern.sub(replace_table, clean_text)
@@ -1144,10 +1197,17 @@ def clean_text_for_tts(text):
     # Clean up multiple empty lines left by table replacement
     clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
 
-    # Remove LaTeX formulas - both inline ($...$) and block ($$...$$)
+    # Replace LaTeX formulas with spoken hint - both inline ($...$) and block ($$...$$)
     # Formulas like "$E = mc^2$" sound like "dollar E equals m c caret 2 dollar"
-    clean_text = re.sub(r'\$\$[^$]+\$\$', '', clean_text, flags=re.DOTALL).strip()  # Block formulas
-    clean_text = re.sub(r'\$[^$]+\$', '', clean_text).strip()  # Inline formulas
+    # Use GLOBAL flag to persist across multiple calls (streaming chunks)
+    def replace_formula(m):
+        global _formula_hint_announced
+        if not _formula_hint_announced:
+            _formula_hint_announced = True
+            return ' Hier steht eine Formel. '
+        return ' '
+    clean_text = re.sub(r'\$\$[^$]+\$\$', replace_formula, clean_text, flags=re.DOTALL)  # Block formulas
+    clean_text = re.sub(r'\$[^$]+\$', replace_formula, clean_text)  # Inline formulas
 
     # Remove markdown links [text](url) → keep "text", remove URL
     clean_text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', clean_text)
@@ -1213,7 +1273,15 @@ def clean_text_for_tts(text):
     # Remove markdown formatting and special characters
     clean_text = re.sub(r'\*\*', '', clean_text)  # Bold **text**
     clean_text = re.sub(r'\*', '', clean_text)    # Italic *text* or bullet points
-    clean_text = re.sub(r'`[^`]+`', '', clean_text)  # Inline code `variable` - remove entirely
+    # Replace inline code with hint (if no code block hint was given already)
+    # Uses same GLOBAL flag as code blocks to avoid duplicate hints
+    def replace_inline_code(m):
+        global _code_hint_announced
+        if not _code_hint_announced:
+            _code_hint_announced = True
+            return ' Hier steht Code. '
+        return ''
+    clean_text = re.sub(r'`[^`]+`', replace_inline_code, clean_text)
     clean_text = re.sub(r'`', '', clean_text)     # Stray backticks
     clean_text = re.sub(r'#+\s', '', clean_text)  # Markdown Headers ### Text
 
