@@ -886,6 +886,7 @@ WEB_UI_HTML = """
 
                 audio.src = url;
                 audio.style.display = 'block';
+                audio.playbackRate = 1.25;  // Default 1.25x speed
                 audio.play();
 
                 status.className = 'status success';
