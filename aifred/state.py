@@ -6732,9 +6732,6 @@ class AIState(rx.State):
             log_message(f"🔊 TTS Chunk: Extracted {len(sentences)} sentence(s), remaining buffer: {len(remaining)} chars")
             for i, s in enumerate(sentences):
                 log_message(f"🔊 TTS Chunk: Sentence {i+1}: {repr(s)}")
-                # Also show in UI debug panel for easier debugging
-                preview = s[:80] + "..." if len(s) > 80 else s
-                self.add_debug(f"🔊 Stream: {repr(preview)}")
 
         # Send each complete sentence to TTS IMMEDIATELY via create_task
         agent = getattr(self, '_tts_streaming_agent', 'aifred')
