@@ -341,10 +341,11 @@ def normalize_text_for_tts(text: str, language: str = "de") -> str:
     # Phase 3: Ensure proper punctuation for natural pauses
     # ============================================================
 
-    # Replace colons with periods for better pauses in speech
+    # Replace colons with commas for natural pauses in speech
+    # Comma creates a brief pause without sentence break (unlike period)
     # Preserves time formats (19:20) and URLs (https://)
     # Regex: Replace : only if NOT between digits and NOT before //
-    text = re.sub(r'(?<!\d):(?!\d|//)', '.', text)
+    text = re.sub(r'(?<!\d):(?!\d|//)', ',', text)
 
     # Process lines - add punctuation where missing
     lines = text.split('\n')
