@@ -479,6 +479,63 @@ Diese Daten wurden automatisch aus dem Bild extrahiert."""
     )
 
 
+def get_query_generation_prompt(
+    user_text: str,
+    has_images: bool = False,
+    vision_json: Optional[dict] = None,
+    lang: Optional[str] = None
+) -> str:
+    """
+    Load query generation prompt (ONLY queries, NO web decision).
+
+    Used in explicit web search modes (quick/deep) where the user has
+    already decided that web search is needed. This prompt ONLY generates
+    3 optimized search queries without deciding if search is necessary.
+
+    Output format is JSON:
+    - {"queries": ["q1", "q2", "q3"]}
+
+    Args:
+        user_text: User query text
+        has_images: Whether the message includes image(s)
+        vision_json: Structured data extracted from images by Vision-LLM
+        lang: Language override
+
+    Returns:
+        Formatted query generation prompt
+    """
+    # Build image context string
+    if has_images:
+        if lang == "en":
+            image_context = "\n\n⚠️ USER ATTACHED IMAGE(S) - This is an image analysis task!"
+        else:  # German (default)
+            image_context = "\n\n⚠️ BENUTZER HAT BILD(ER) ANGEHÄNGT - Dies ist eine Bildanalyse-Aufgabe!"
+    else:
+        image_context = ""
+
+    # Build Vision JSON context string
+    if vision_json:
+        import json
+        vision_json_context = f"""
+
+STRUKTURIERTE DATEN AUS BILD:
+```json
+{json.dumps(vision_json, ensure_ascii=False, indent=2)}
+```
+
+Diese Daten wurden automatisch aus dem Bild extrahiert."""
+    else:
+        vision_json_context = ""
+
+    return load_prompt(
+        'automatik/query_generation',
+        lang=lang,
+        user_text=user_text,
+        image_context=image_context,
+        vision_json_context=vision_json_context
+    )
+
+
 def get_followup_intent_prompt(original_query: str, followup_query: str, lang: Optional[str] = None) -> str:
     """Load followup intent detection prompt"""
     return load_prompt(

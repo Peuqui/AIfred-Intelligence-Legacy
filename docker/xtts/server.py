@@ -104,9 +104,9 @@ logger.info(f"XTTS Inference Parameters: temperature={XTTS_TEMPERATURE}, "
             f"top_k={XTTS_TOP_K}, top_p={XTTS_TOP_P}")
 
 
-def normalize_text_for_tts(text: str) -> str:
+def normalize_text_for_tts(text: str, language: str = "de") -> str:
     """
-    Minimal XTTS-specific text normalization.
+    Minimal XTTS-specific text normalization (language-aware).
 
     This function handles ONLY what's necessary for clean XTTS output:
     - Convert laughter emojis to "hahaha" (sounds natural)
@@ -192,14 +192,149 @@ def normalize_text_for_tts(text: str) -> str:
     text = text.replace('\u00a0', ' ')  # Non-breaking space → normal space
 
     # ============================================================
+    # Phase 1.6: Convert symbols to speakable text (language-aware)
+    # ============================================================
+
+    # Temperature units (universal, but spoken differently)
+    if language == "de":
+        text = re.sub(r'°C\b', ' Grad Celsius', text)
+        text = re.sub(r'°F\b', ' Grad Fahrenheit', text)
+    else:  # English and others
+        text = re.sub(r'°C\b', ' degrees Celsius', text)
+        text = re.sub(r'°F\b', ' degrees Fahrenheit', text)
+
+    # Minus before numbers: -5 → "minus 5" (works for DE and EN)
+    text = re.sub(r'(?<![a-zA-Z0-9])[-−](\d)', r'minus \1', text)
+
+    # Paragraph symbol (German legal notation)
+    if language == "de":
+        text = re.sub(r'§\s*(\d)', r'Paragraph \1', text)
+        text = text.replace('§', 'Paragraph ')
+    else:
+        text = re.sub(r'§\s*(\d)', r'section \1', text)
+        text = text.replace('§', 'section ')
+
+    # Currencies - MUST come BEFORE decimal separator conversion!
+    # Natural speech: "19 dollars 99" not "19.99 dollars"
+    if language == "de":
+        # Euro: 13,50€ → "13 Euro 50" (with decimal), 13€ → "13 Euro" (without)
+        text = re.sub(r'(\d+),(\d+)\s*€', r'\1 Euro \2', text)
+        text = re.sub(r'(\d+)\s*€', r'\1 Euro', text)
+        text = text.replace('€', ' Euro ')
+        # Dollar: $25 or 25$
+        text = re.sub(r'\$\s*(\d+),(\d+)', r'\1 Dollar \2', text)
+        text = re.sub(r'\$\s*(\d+)', r'\1 Dollar', text)
+        text = re.sub(r'(\d+),(\d+)\s*\$', r'\1 Dollar \2', text)
+        text = re.sub(r'(\d+)\s*\$', r'\1 Dollar', text)
+        text = text.replace('$', ' Dollar ')
+        # Pfund
+        text = re.sub(r'£\s*(\d+),(\d+)', r'\1 Pfund \2', text)
+        text = re.sub(r'£\s*(\d+)', r'\1 Pfund', text)
+        text = re.sub(r'(\d+),(\d+)\s*£', r'\1 Pfund \2', text)
+        text = re.sub(r'(\d+)\s*£', r'\1 Pfund', text)
+        text = text.replace('£', ' Pfund ')
+    else:  # English
+        # Euro: €19.99 → "19 euros 99"
+        text = re.sub(r'€\s*(\d+)\.(\d+)', r'\1 euros \2', text)
+        text = re.sub(r'€\s*(\d+)', r'\1 euros', text)
+        text = re.sub(r'(\d+)\.(\d+)\s*€', r'\1 euros \2', text)
+        text = re.sub(r'(\d+)\s*€', r'\1 euros', text)
+        text = text.replace('€', ' euros ')
+        # Dollar: $19.99 → "19 dollars 99"
+        text = re.sub(r'\$\s*(\d+)\.(\d+)', r'\1 dollars \2', text)
+        text = re.sub(r'\$\s*(\d+)', r'\1 dollars', text)
+        text = re.sub(r'(\d+)\.(\d+)\s*\$', r'\1 dollars \2', text)
+        text = re.sub(r'(\d+)\s*\$', r'\1 dollars', text)
+        text = text.replace('$', ' dollars ')
+        # Pound: £19.99 → "19 pounds 99"
+        text = re.sub(r'£\s*(\d+)\.(\d+)', r'\1 pounds \2', text)
+        text = re.sub(r'£\s*(\d+)', r'\1 pounds', text)
+        text = re.sub(r'(\d+)\.(\d+)\s*£', r'\1 pounds \2', text)
+        text = re.sub(r'(\d+)\s*£', r'\1 pounds', text)
+        text = text.replace('£', ' pounds ')
+
+    # Decimal separator - AFTER currencies (so "13,50€" → "13 Euro 50", not "13 Komma 50 Euro")
+    if language == "de":
+        # German: comma is decimal → 3,14 → "3 Komma 1 4" (digits read separately)
+        def split_decimal_de(match):
+            whole = match.group(1)
+            decimal = ' '.join(match.group(2))  # "14" → "1 4"
+            return f"{whole} Komma {decimal}"
+        text = re.sub(r'(\d+),(\d+)', split_decimal_de, text)
+    # English: period is decimal, XTTS handles "point" natively (one four, not fourteen)
+
+    # SI units with superscripts (language-specific)
+    # Use Unicode escapes: ² = \u00b2, ³ = \u00b3, µ = \u00b5
+    # Order matters: longer prefixes first (km before m, etc.)
+    if language == "de":
+        # Area (Quadrat-)
+        text = re.sub(r'(\d+)\s*km[\u00b2²]', r'\1 Quadratkilometer', text)
+        text = re.sub(r'(\d+)\s*cm[\u00b2²]', r'\1 Quadratzentimeter', text)
+        text = re.sub(r'(\d+)\s*mm[\u00b2²]', r'\1 Quadratmillimeter', text)
+        text = re.sub(r'(\d+)\s*dm[\u00b2²]', r'\1 Quadratdezimeter', text)
+        text = re.sub(r'(\d+)\s*m[\u00b2²]', r'\1 Quadratmeter', text)
+        # Volume (Kubik-)
+        text = re.sub(r'(\d+)\s*km[\u00b3³]', r'\1 Kubikkilometer', text)
+        text = re.sub(r'(\d+)\s*cm[\u00b3³]', r'\1 Kubikzentimeter', text)
+        text = re.sub(r'(\d+)\s*mm[\u00b3³]', r'\1 Kubikmillimeter', text)
+        text = re.sub(r'(\d+)\s*dm[\u00b3³]', r'\1 Kubikdezimeter', text)
+        text = re.sub(r'(\d+)\s*m[\u00b3³]', r'\1 Kubikmeter', text)
+        # Micro units (µ = \u00b5 or μ = \u03bc)
+        text = re.sub(r'(\d+)\s*[\u00b5\u03bc]m\b', r'\1 Mikrometer', text)
+        text = re.sub(r'(\d+)\s*[\u00b5\u03bc]l\b', r'\1 Mikroliter', text)
+        text = re.sub(r'(\d+)\s*[\u00b5\u03bc]g\b', r'\1 Mikrogramm', text)
+        # Milli/Nano units
+        text = re.sub(r'(\d+)\s*nm\b', r'\1 Nanometer', text)
+        text = re.sub(r'(\d+)\s*ml\b', r'\1 Milliliter', text)
+        text = re.sub(r'(\d+)\s*mg\b', r'\1 Milligramm', text)
+        text = re.sub(r'(\d+)\s*dl\b', r'\1 Deziliter', text)
+        # Generic superscripts (must be last)
+        text = re.sub(r'(\d+)\s*[\u00b2²]', r'\1 hoch zwei', text)
+        text = re.sub(r'(\d+)\s*[\u00b3³]', r'\1 hoch drei', text)
+    else:  # English
+        # Area (square)
+        text = re.sub(r'(\d+)\s*km[\u00b2²]', r'\1 square kilometers', text)
+        text = re.sub(r'(\d+)\s*cm[\u00b2²]', r'\1 square centimeters', text)
+        text = re.sub(r'(\d+)\s*mm[\u00b2²]', r'\1 square millimeters', text)
+        text = re.sub(r'(\d+)\s*dm[\u00b2²]', r'\1 square decimeters', text)
+        text = re.sub(r'(\d+)\s*m[\u00b2²]', r'\1 square meters', text)
+        # Volume (cubic)
+        text = re.sub(r'(\d+)\s*km[\u00b3³]', r'\1 cubic kilometers', text)
+        text = re.sub(r'(\d+)\s*cm[\u00b3³]', r'\1 cubic centimeters', text)
+        text = re.sub(r'(\d+)\s*mm[\u00b3³]', r'\1 cubic millimeters', text)
+        text = re.sub(r'(\d+)\s*dm[\u00b3³]', r'\1 cubic decimeters', text)
+        text = re.sub(r'(\d+)\s*m[\u00b3³]', r'\1 cubic meters', text)
+        # Micro units
+        text = re.sub(r'(\d+)\s*[\u00b5\u03bc]m\b', r'\1 micrometers', text)
+        text = re.sub(r'(\d+)\s*[\u00b5\u03bc]l\b', r'\1 microliters', text)
+        text = re.sub(r'(\d+)\s*[\u00b5\u03bc]g\b', r'\1 micrograms', text)
+        # Milli/Nano units
+        text = re.sub(r'(\d+)\s*nm\b', r'\1 nanometers', text)
+        text = re.sub(r'(\d+)\s*ml\b', r'\1 milliliters', text)
+        text = re.sub(r'(\d+)\s*mg\b', r'\1 milligrams', text)
+        text = re.sub(r'(\d+)\s*dl\b', r'\1 deciliters', text)
+        # Generic superscripts (must be last)
+        text = re.sub(r'(\d+)\s*[\u00b2²]', r'\1 squared', text)
+        text = re.sub(r'(\d+)\s*[\u00b3³]', r'\1 cubed', text)
+
+    # ============================================================
     # Phase 2: Remove characters that cause "quirzel" sounds
     # ============================================================
 
-    # Keep basic punctuation and letters (including German/European chars)
+    # Keep basic punctuation and letters (including German/European/Nordic chars)
     # Allow: letters, numbers, basic punctuation, spaces
-    text = re.sub(r'[^\w\s.,!?;:\-\'\"()\[\]äöüÄÖÜßàáâãèéêëìíîïòóôõùúûýÿñçÀÁÂÃÈÉÊËÌÍÎÏÒÓÔÕÙÚÛÝŸÑÇ\n]', ' ', text)
+    # Symbols XTTS handles natively: ° % &
+    # All other symbols are converted to text in Phase 1.6
+    text = re.sub(r'[^\w\s.,!?;:\-\'\"()\[\]äöüÄÖÜßàáâãèéêëìíîïòóôõùúûýÿñçÀÁÂÃÈÉÊËÌÍÎÏÒÓÔÕÙÚÛÝŸÑÇåæøÅÆØ°−/%&\n]', ' ', text)
 
     # Clean up multiple spaces
+    text = re.sub(r'  +', ' ', text)
+
+    # Fix ordinal number issue: "9." is read as "neunte" (ninth)
+    # Add space between digit and period: "9." → "9 ."
+    text = re.sub(r'(\d)\.', r'\1 .', text)
+
+    # Final cleanup: remove any multiple spaces that may have accumulated
     text = re.sub(r'  +', ' ', text)
 
     # ============================================================
@@ -230,7 +365,12 @@ def normalize_text_for_tts(text: str) -> str:
         # Add period if line ends without sentence-ending punctuation
         # This prevents XTTS hallucinations
         if not re.search(r'[.!?]["\'\)\]»"]*$', line):
-            line = line + '.'
+            # If line ends with digit, add space before period to prevent ordinal reading
+            # "9." would be read as "neunte" (ninth), "9 ." is read as "neun"
+            if line and line[-1].isdigit():
+                line = line + ' .'
+            else:
+                line = line + '.'
             logger.debug(f"Added '.' to line: '{line}'")
 
         normalized_lines.append(line)
@@ -1267,7 +1407,7 @@ def tts():
 
     # Normalize text to prevent hallucinations (ensure proper punctuation)
     original_text = text
-    text = normalize_text_for_tts(text)
+    text = normalize_text_for_tts(text, language)
     if text != original_text:
         logger.info(f"Text normalized for TTS (added punctuation)")
 

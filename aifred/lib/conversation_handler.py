@@ -688,6 +688,169 @@ async def detect_research_decision(
         raise
 
 
+async def generate_search_queries(
+    user_text: str,
+    automatik_llm_client,
+    automatik_model: str,
+    has_images: bool = False,
+    vision_json_context: Optional[Dict] = None,
+    detected_language: str = "de",
+    llm_history: Optional[List[Dict[str, str]]] = None
+) -> Dict:
+    """
+    Generate search queries WITHOUT deciding if web search is needed.
+
+    Used in explicit web search modes (quick/deep) where the user has
+    already decided that web search is needed. This function ONLY generates
+    3 optimized search queries.
+
+    Args:
+        user_text: User query text
+        automatik_llm_client: LLM client for Automatik-Model
+        automatik_model: Automatik-LLM model name (e.g., "qwen3:4b")
+        has_images: Whether the message includes image(s)
+        vision_json_context: Structured data extracted from images
+        detected_language: Language from Intent Detection ("de" or "en")
+        llm_history: Optional chat history for context
+
+    Returns:
+        Dict with keys:
+        - "queries": List[str] (3 optimized queries)
+        - "generation_time": float (LLM call duration in seconds)
+        - "raw_response": str (for debugging)
+    """
+    from .config import AUTOMATIK_LLM_NUM_CTX
+    from ..backends.base import LLMMessage
+    from .prompt_loader import get_query_generation_prompt
+
+    # Get the query-only prompt
+    prompt = get_query_generation_prompt(
+        user_text=user_text,
+        has_images=has_images,
+        vision_json=vision_json_context,
+        lang=detected_language
+    )
+
+    # DEBUG: Show complete prompt
+    log_message("=" * 60)
+    log_message("📋 QUERY GENERATION PROMPT:")
+    log_message("-" * 60)
+    log_message(prompt)
+    log_message("-" * 60)
+    log_message(f"Prompt length: {len(prompt)} chars, ~{len(prompt.split())} words")
+    log_message("=" * 60)
+
+    # Build messages with optional history context
+    messages: List[LLMMessage] = []
+
+    if llm_history and len(llm_history) > 0:
+        max_history_tokens = (AUTOMATIK_LLM_NUM_CTX * 2) // 3
+        history_tokens = 0
+        selected_history: List[Dict[str, str]] = []
+
+        for entry in reversed(llm_history):
+            entry_tokens = estimate_tokens([entry])
+            if history_tokens + entry_tokens > max_history_tokens:
+                break
+            selected_history.insert(0, entry)
+            history_tokens += entry_tokens
+
+        for entry in selected_history:
+            role = entry.get("role", "user")
+            content = entry.get("content", "")
+            if content.startswith("[AIFRED]:"):
+                content = content[9:].strip()
+            messages.append(LLMMessage(role=role, content=content))
+
+        if selected_history:
+            log_message(f"📜 History context: {len(selected_history)} entries, ~{int(history_tokens)} tokens")
+
+    messages.append(LLMMessage(role="user", content=prompt))
+
+    options = {
+        "temperature": 0.3,  # Slightly higher for query diversity
+        "num_ctx": AUTOMATIK_LLM_NUM_CTX,
+        "enable_thinking": False,
+        "format": "json"
+    }
+
+    generation_timer = Timer()
+
+    log_raw_messages("AUTOMATIK-LLM (generate_search_queries)", messages, estimate_tokens)
+
+    try:
+        response = await automatik_llm_client.chat(
+            model=automatik_model,
+            messages=messages,
+            options=options
+        )
+        raw_response = response.text.strip()
+        generation_time = generation_timer.elapsed()
+
+        log_message("=" * 60)
+        log_message("📝 RAW QUERY GENERATION RESPONSE:")
+        log_message("-" * 60)
+        log_message(raw_response)
+        log_message("-" * 60)
+        log_message(f"Response length: {len(raw_response)} chars, time: {generation_time:.2f}s")
+        log_message("=" * 60)
+
+        # Parse JSON response with repair for common LLM errors
+        def repair_json(s: str) -> str:
+            s = re.sub(r'\]\](?=\s*$)', ']}', s)
+            s = re.sub(r'\]\](?=\s*})', ']}', s)
+            if s.count('{') > s.count('}'):
+                s = s + '}'
+            return s
+
+        try:
+            result = json.loads(raw_response)
+        except json.JSONDecodeError as e1:
+            log_message(f"⚠️ JSON parse error: {e1}")
+            repaired = repair_json(raw_response)
+            log_message(f"🔧 Attempting JSON repair: {repaired}")
+            try:
+                result = json.loads(repaired)
+                log_message("✅ JSON repair successful")
+            except json.JSONDecodeError:
+                json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
+                if json_match:
+                    try:
+                        extracted = repair_json(json_match.group())
+                        result = json.loads(extracted)
+                        log_message("✅ JSON extraction + repair successful")
+                    except json.JSONDecodeError as e3:
+                        error_msg = f"JSON parse failed: {e3}\nRaw: {raw_response}"
+                        log_message(f"❌ {error_msg}")
+                        raise ValueError(error_msg)
+                else:
+                    error_msg = f"No JSON found in response: {raw_response}"
+                    log_message(f"❌ {error_msg}")
+                    raise ValueError(error_msg)
+
+        queries = result.get("queries", [])
+
+        # Validate: must have at least 1 query - NO FALLBACK, raise error
+        if not queries:
+            error_msg = "LLM returned no queries (parsing error?)"
+            log_message(f"❌ {error_msg}")
+            raise ValueError(error_msg)
+
+        log_message(f"✅ Query Generation: {len(queries)} queries")
+
+        return {
+            "queries": queries,
+            "generation_time": generation_time,
+            "raw_response": raw_response
+        }
+
+    except Exception as e:
+        generation_time = generation_timer.elapsed()
+        log_message(f"❌ Query generation failed ({generation_time:.2f}s): {e}")
+        # NO FALLBACK - re-raise to make error visible
+        raise
+
+
 async def chat_with_vision_pipeline(
     user_text: str,
     images: List[Dict[str, str]],
@@ -1036,10 +1199,17 @@ async def chat_interactive_mode(
     user_name: Optional[str] = None,
     detected_intent: Optional[str] = None,
     detected_language: str = "de",
-    cloud_provider_label: Optional[str] = None
+    cloud_provider_label: Optional[str] = None,
+    research_mode: str = "automatik"  # "automatik", "quick", "deep", "none"
 ) -> AsyncIterator[Dict]:
     """
-    Automatik mode: AI decides whether web research is needed
+    Unified chat handler for all research modes (Single Source of Truth).
+
+    Handles all 4 modes:
+    - "automatik": AI decides if web research is needed (full path)
+    - "quick": Forced web search with 3 results (skip decision)
+    - "deep": Forced web search with 7 results (skip decision)
+    - "none": Own knowledge only (skip decision AND web search)
 
     Note: For Ollama, per-model RoPE 2x toggle is read automatically from VRAM cache.
 
@@ -1047,7 +1217,7 @@ async def chat_interactive_mode(
         user_text: User question
         stt_time: STT time (0.0 for text input)
         model_choice: Main LLM for final response
-        automatik_model: Automatik-LLM for decision
+        automatik_model: Automatik-LLM for decision/query generation
         history: Chat history (for UI display, tuple format)
         llm_history: LLM history (for LLM context, dict format with role/content)
         session_id: Session ID for research cache (optional)
@@ -1061,6 +1231,7 @@ async def chat_interactive_mode(
         vision_json_context: Structured data extracted from images by Vision-LLM (optional)
         user_name: User's name for personalized prompts (optional)
         detected_language: Language from LLM-based Intent Detection ("de" or "en")
+        research_mode: Research mode - "automatik", "quick", "deep", or "none"
 
     Yields:
         Dict with: {"type": "debug"|"content"|"metrics"|"separator"|"result", ...}
@@ -1117,8 +1288,100 @@ async def chat_interactive_mode(
         llm_options['_vram_warning'] = vram_warning
 
     try:
-        log_message("🤖 Automatik mode: AI checking if research needed...")
         yield {"type": "debug", "message": "📨 User request received"}
+
+        # ============================================================
+        # RESEARCH MODE ROUTING (Single Source of Truth)
+        # ============================================================
+        # - "none": Direct to own knowledge (skip everything)
+        # - "quick"/"deep": Generate queries → Web search (skip decision)
+        # - "automatik": Full path (cache, RAG, decision, then route)
+
+        if research_mode == "none":
+            # ========== OWN KNOWLEDGE MODE ==========
+            log_message("🧠 Own Knowledge mode: Direct LLM response (no web)")
+            yield {"type": "debug", "message": "🧠 Own Knowledge mode"}
+
+            from .own_knowledge_handler import handle_own_knowledge
+            enable_thinking = llm_options.get('enable_thinking', False) if llm_options else False
+
+            async for item in handle_own_knowledge(
+                user_text=user_text,
+                model_choice=model_choice,
+                history=history,
+                llm_history=llm_history,
+                detected_intent=detected_intent,
+                detected_language=detected_language,
+                temperature_mode=temperature_mode,
+                temperature=temperature,
+                backend_type=backend_type,
+                backend_url=backend_url,
+                enable_thinking=enable_thinking,
+                state=state,
+                use_direct_prompt=False,
+                multimodal_content=multimodal_user_content,
+                cloud_provider_label=cloud_provider_label,
+            ):
+                if item["type"] in ["debug", "content", "progress"]:
+                    yield item
+                elif item["type"] == "result":
+                    yield {"type": "debug", "message": CONSOLE_SEPARATOR}
+                    yield item
+            return
+
+        elif research_mode in ["quick", "deep"]:
+            # ========== EXPLICIT WEB SEARCH MODE ==========
+            log_message(f"🔍 Explicit Web mode: {research_mode} (forced search)")
+            yield {"type": "debug", "message": f"🔍 Web mode: {research_mode}"}
+            yield {"type": "debug", "message": "🔍 Generating search queries..."}
+
+            # Generate queries (NO decision - web is forced)
+            has_images = (pending_images is not None and len(pending_images) > 0) or (vision_json_context is not None)
+
+            query_result = await generate_search_queries(
+                user_text=user_text,
+                automatik_llm_client=automatik_llm_client,
+                automatik_model=automatik_model,
+                has_images=has_images,
+                vision_json_context=vision_json_context,
+                detected_language=detected_language,
+                llm_history=llm_history[:-1] if len(llm_history) > 1 else None
+            )
+
+            pre_generated_queries = query_result["queries"]
+            query_gen_time = query_result["generation_time"]
+
+            yield {"type": "debug", "message": f"✅ {len(pre_generated_queries)} queries ({format_number(query_gen_time, 1)}s)"}
+            for i, q in enumerate(pre_generated_queries, 1):
+                yield {"type": "debug", "message": f"   {i}. {q}"}
+
+            # Execute web research
+            async for item in perform_agent_research(
+                user_text=user_text,
+                stt_time=stt_time,
+                mode=research_mode,  # "quick" or "deep"
+                model_choice=model_choice,
+                automatik_model=automatik_model,
+                history=history,
+                llm_history=llm_history,
+                session_id=session_id,
+                temperature_mode=temperature_mode,
+                temperature=temperature,
+                llm_options=llm_options,
+                backend_type=backend_type,
+                backend_url=backend_url,
+                state=state,
+                vision_json_context=vision_json_context,
+                user_name=user_name,
+                detected_intent=detected_intent,
+                detected_language=detected_language,
+                pre_generated_queries=pre_generated_queries
+            ):
+                yield item
+            return
+
+        # ========== AUTOMATIK MODE (full path) ==========
+        log_message("🤖 Automatik mode: AI checking if research needed...")
 
         # ============================================================
         # CODE-OVERRIDE: Explicit research request (Trigger words + URLs)

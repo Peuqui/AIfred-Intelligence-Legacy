@@ -42,14 +42,16 @@ _current_tts_agent: str = "aifred"
 _table_hint_announced: bool = False
 _formula_hint_announced: bool = False
 _code_hint_announced: bool = False
+_inside_details_block: bool = False  # Track if we're inside a <details> block (streaming)
 
 
 def reset_content_hint_flags() -> None:
     """Reset all content hint flags (for new streaming session or after regular text)."""
-    global _table_hint_announced, _formula_hint_announced, _code_hint_announced
+    global _table_hint_announced, _formula_hint_announced, _code_hint_announced, _inside_details_block
     _table_hint_announced = False
     _formula_hint_announced = False
     _code_hint_announced = False
+    _inside_details_block = False
 
 
 def set_tts_agent(agent_name: str) -> None:
@@ -1080,6 +1082,19 @@ def clean_text_for_tts(text):
     Returns:
         str: Cleaned text suitable for TTS
     """
+    global _inside_details_block
+
+    # Handle <details> blocks in STREAMING mode (tags come line by line)
+    # Web results and other collapsible content should NOT be read aloud
+    if '<details' in text.lower():
+        _inside_details_block = True
+        return ""  # Don't read the opening tag line
+
+    if _inside_details_block:
+        if '</details>' in text.lower():
+            _inside_details_block = False
+        return ""  # Skip ALL content inside details block
+
     # Remove <think> tags and content (raw thinking from LLM)
     # Note: llm_history should be clean, but this handles edge cases
     # Use IGNORECASE to catch <Think>, <THINK>, etc.
@@ -1087,7 +1102,7 @@ def clean_text_for_tts(text):
     # Also remove partial/unclosed think tags (streaming edge case)
     clean_text = re.sub(r'</?think>', '', clean_text, flags=re.IGNORECASE)
 
-    # Remove <details>/<summary> blocks (collapsible UI elements) - entire blocks
+    # Remove <details>/<summary> blocks (collapsible UI elements) - entire blocks (non-streaming)
     clean_text = re.sub(r'<details>.*?</details>', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
 
     # Remove ALL HTML/XML tags but keep content between them
@@ -1301,8 +1316,9 @@ def clean_text_for_tts(text):
 
     # Remove other special characters that cause "quirzel" sounds in TTS
     # Keep basic punctuation and letters (including German/French/Spanish chars)
+    # Also keep: ° (degree), − (minus sign U+2212), / (for "km/h" etc.), % (percent)
     # This catches arrows (→←↑↓), math symbols (±×÷), etc.
-    clean_text = re.sub(r'[^\w\s.,!?;:\-\'\"()\[\]äöüÄÖÜßàáâãèéêëìíîïòóôõùúûýÿñçÀÁÂÃÈÉÊËÌÍÎÏÒÓÔÕÙÚÛÝŸÑÇ\n]', ' ', clean_text)
+    clean_text = re.sub(r'[^\w\s.,!?;:\-\'\"()\[\]äöüÄÖÜßàáâãèéêëìíîïòóôõùúûýÿñçÀÁÂÃÈÉÊËÌÍÎÏÒÓÔÕÙÚÛÝŸÑÇ°−/%\n]', ' ', clean_text)
 
     # Clean up multiple spaces
     clean_text = re.sub(r'  +', ' ', clean_text)

@@ -14,7 +14,6 @@ from .lib import (
     initialize_debug_log,
     log_message,
     console_separator,
-    perform_agent_research,
     set_language
 )
 from .lib.logging_utils import CONSOLE_SEPARATOR
@@ -3368,7 +3367,6 @@ class AIState(rx.State):
 
             # Track if Sokrates should be skipped (AIfred direct addressing)
             skip_sokrates_analysis = False
-            use_aifred_direct_prompt = False
 
             if addressed_to == "sokrates":
                 # User directly addresses Sokrates → Sokrates responds directly
@@ -3385,12 +3383,10 @@ class AIState(rx.State):
                 return
 
             elif addressed_to == "aifred":
-                # User directly addresses AIfred → Skip Sokrates analysis, use special prompt
+                # User directly addresses AIfred → Skip Sokrates analysis
                 self.add_debug("🎩 Direct addressing: AIfred")
                 yield  # Update UI immediately to show debug message
                 skip_sokrates_analysis = True
-                use_aifred_direct_prompt = True
-                # Continue with normal flow, but with AIfred's direct response persona
 
             elif addressed_to == "salomo":
                 # User directly addresses Salomo → Salomo responds directly
@@ -3516,7 +3512,7 @@ class AIState(rx.State):
                         has_user_text_for_automatik = item.get("has_user_text", False)
 
                         # Finalize Vision response (with or without JSON)
-                        from .lib.formatting import format_thinking_process, format_number
+                        from .lib.formatting import format_thinking_process
 
                         vision_time = final_vision_metrics.get("inference_time", 0) if final_vision_metrics else 0
                         tokens_generated = final_vision_metrics.get("tokens_generated", 0) if final_vision_metrics else 0
@@ -3696,569 +3692,124 @@ class AIState(rx.State):
                 return  # Exit send_message - vision pipeline complete
 
             # ============================================================
-            # PHASE 1: Research/Automatik Mode - REAL STREAMING
+            # UNIFIED CHAT HANDLER (Single Source of Truth)
+            # All modes (automatik, quick, deep, none) use chat_interactive_mode()
             # ============================================================
+
+            # Ensure KoboldCPP is running before any LLM call
+            if self.backend_type == "koboldcpp":
+                async for _ in self._ensure_koboldcpp_running():
+                    yield
+
+            from .lib.conversation_handler import chat_interactive_mode
+            from .lib.prompt_loader import get_reasoning_enabled
+
+            llm_options = {'enable_thinking': get_reasoning_enabled("aifred")}
             result_data = None
+            ai_text = ""
 
-            if self.research_mode == "automatik":
-                # Automatik mode: AI decides if research is needed
-                # Debug message is already logged in conversation_handler.py
-
-                # CRITICAL: Ensure KoboldCPP is running before LLM call
-                if self.backend_type == "koboldcpp":
-                    async for _ in self._ensure_koboldcpp_running():
-                        yield  # Forward yields from _ensure_koboldcpp_running() to UI
-
-                # Import chat_interactive_mode
-                from .lib.conversation_handler import chat_interactive_mode
-
-                # User message was already added to chat_history at the start of send_message()
-
-                # Build LLM options - use per-agent reasoning toggle for enable_thinking
-                from .lib.prompt_loader import get_reasoning_enabled
-                llm_options = {
-                    'enable_thinking': get_reasoning_enabled("aifred")
-                }
-
-                # REAL STREAMING: Call async generator directly
-                async for item in chat_interactive_mode(
-                    user_text=user_msg,
-                    stt_time=0.0,
-                    model_choice=self.aifred_model_id,
-                    automatik_model=self.automatik_model_id,
-                    history=self.chat_history,  # User message already included
-                    llm_history=self.llm_history,  # Parallel LLM history for context
-                    session_id=self.session_id,
-                    temperature_mode=self.temperature_mode,
-                    temperature=self.temperature,
-                    llm_options=llm_options,
-                    backend_type=self.backend_type,
-                    backend_url=self.backend_url,
-                    state=self,  # Pass state for per-agent num_ctx lookup
-                    pending_images=self.pending_images if len(self.pending_images) > 0 else None,
-                    user_name=self.user_name,  # For personalized prompts
-                    detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
-                    detected_language=detected_language,  # From Intent Detection
-                    cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None
-                ):
-                    # Route messages based on type
-                    if item["type"] == "debug":
-                        self.debug_messages.append(format_debug_message(item["message"]))
-                        if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
-                            self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
-                        yield  # IMPORTANT: Update UI immediately for each debug message
-                    elif item["type"] == "content":
-                        # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
-                        # History is updated only at the end via "result" to avoid O(n) regex parsing on each token
-                        self.stream_text_to_ui(item["text"])
-                        yield
-                    elif item["type"] == "result":
-                        result_data = item["data"]
-                        # Unified Dict format - extract data
-                        ai_text = result_data["response_clean"]
-                        updated_history = result_data["history"]
-
-                        # Embed sources in last message (top-level for Reflex UI access)
-                        failed_sources = result_data.get("failed_sources", [])
-                        used_sources = result_data.get("used_sources", [])
-
-                        if updated_history:
-                            import json as json_module
-                            last_msg = updated_history[-1]
-                            if last_msg.get("role") == "assistant":
-                                if "metadata" not in last_msg:
-                                    last_msg["metadata"] = {}
-
-                                # Embed failed_sources (pending + from result)
-                                all_failed = []
-                                if failed_sources or self._pending_failed_sources:
-                                    all_failed = (self._pending_failed_sources or []) + (failed_sources or [])
-                                    if all_failed:
-                                        failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(all_failed)}-->\n"
-                                        last_msg["content"] = failed_markup + last_msg.get("content", "")
-                                        last_msg["metadata"]["failed_sources"] = all_failed
-
-                                # Embed used_sources (successfully scraped)
-                                if used_sources:
-                                    used_markup = f"<!--USED_SOURCES:{json_module.dumps(used_sources)}-->\n"
-                                    last_msg["content"] = used_markup + last_msg.get("content", "")
-                                    last_msg["metadata"]["used_sources"] = used_sources
-
-                                # Top-level fields for Reflex UI access (can't use nested msg["metadata"]["x"])
-                                last_msg["used_sources"] = used_sources if used_sources else []
-                                last_msg["failed_sources"] = all_failed if all_failed else []
-
-                        # Update State variables for UI access
-                        self.used_sources = used_sources if used_sources else []
-                        self.failed_sources = all_failed if all_failed else []
-                        self._pending_failed_sources = []
-                        self._pending_used_sources = []
-
-                        # Combine and sort all sources by rank_index for UI display
-                        combined = []
-                        for src in (used_sources or []):
-                            combined.append({
-                                "url": src.get("url", ""),
-                                "word_count": src.get("word_count", 0),
-                                "rank_index": src.get("rank_index", 999),
-                                "success": True
-                            })
-                        for src in (all_failed or []):
-                            combined.append({
-                                "url": src.get("url", ""),
-                                "error": src.get("error", "Unknown"),
-                                "rank_index": src.get("rank_index", 999),
-                                "success": False
-                            })
-                        self.all_sources = sorted(combined, key=lambda x: x.get("rank_index", 999))
-
-                        # Update chat history from result
-                        self.chat_history = updated_history
-
-                        # Clear streaming box and yield IMMEDIATELY so bubble appears
-                        self.current_ai_response = ""
-                        self.current_user_message = ""
-                        yield
-
-                        # Finalize streaming TTS: wait for all tasks to complete
-                        # (TTS tasks run in parallel via create_task, finalize waits for them)
-                        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
-                            audio_urls = await self._finalize_streaming_tts()
-
-                            # Add audio URLs to the last assistant message in chat_history
-                            if audio_urls and self.chat_history:
-                                # Find last assistant message and add audio_urls to metadata
-                                for i in range(len(self.chat_history) - 1, -1, -1):
-                                    if self.chat_history[i].get("role") == "assistant":
-                                        if "metadata" not in self.chat_history[i]:
-                                            self.chat_history[i]["metadata"] = {}
-                                        self.chat_history[i]["metadata"]["audio_urls"] = audio_urls
-                                        self.chat_history[i]["has_audio"] = True
-                                        self.chat_history[i]["audio_urls_json"] = json.dumps(audio_urls)
-                                        log_message(f"🔊 TTS: Added {len(audio_urls)} audio URLs to message metadata")
-                                        break
-                                # Force Reflex to recognize the change by reassigning the list
-                                self.chat_history = list(self.chat_history)
-                                yield  # Update UI with audio button
-
-                        # Multi-Agent analysis (if enabled)
-                        async for _ in self._maybe_run_multi_agent(
-                            user_msg, ai_text, detected_language, skip_sokrates_analysis
-                        ):
-                            yield
-
-                        # Stop spinner, switch UI to history display
-                        self.is_generating = False
-                        yield  # Force immediate UI update
-                        # NOTE: Loop continues for cache metadata generation (important!)
-                    elif item["type"] == "progress":
-                        # Update processing progress (Automatik mode)
-                        if item.get("clear", False):
-                            self.clear_progress()
-                        else:
-                            self.set_progress(
-                                phase=item.get("phase", ""),
-                                current=item.get("current", 0),
-                                total=item.get("total", 0),
-                                failed=item.get("failed", 0)
-                            )
-                    elif item["type"] == "history_update":
-                        # Update chat history (e.g. from summarization)
-                        updated_history = item["data"]
-                        self.chat_history = updated_history
-                        self.add_debug(f"📊 History updated: {len(updated_history)} messages")
-                    elif item["type"] == "thinking_warning":
-                        # Show thinking mode warning (model doesn't support reasoning)
-                        self.thinking_mode_warning = item["model"]
-                    elif item["type"] == "failed_sources":
-                        # Store failed sources for UI display AND persistent history
-                        self.failed_sources = item["data"]
-                        self._pending_failed_sources = item["data"]  # Will be embedded in message
-                        from .lib.i18n import t
-                        self.add_debug(f"⚠️ {t('sources_unavailable', count=len(item['data']))}")
-                    elif item["type"] == "error":
-                        # Handle error (e.g., context overflow, backend error)
-                        error_msg = item.get("message", "Unknown error")
-                        self.add_debug(f"❌ Error: {error_msg}")
-                        # Reset UI state
-                        self.is_generating = False
-                        self.clear_progress()
-                        self.current_user_message = ""
-                        self.current_ai_response = ""
-
-                    yield  # Update UI after each item
-
-                # Separator is already sent by conversation_handler
-                # console_separator()  # Writes to log file
-                # self.add_debug("────────────────────")  # Shows in debug console
-                # yield
-
-            elif self.research_mode in ["quick", "deep"]:
-                # Direct research mode (quick/deep)
-                self.add_debug(f"🔍 Research Mode: {self.research_mode}")
-
-                # CRITICAL: Ensure KoboldCPP is running before LLM call
-                if self.backend_type == "koboldcpp":
-                    async for _ in self._ensure_koboldcpp_running():
-                        yield  # Forward yields from _ensure_koboldcpp_running() to UI
-
-                # User message was already added to chat_history at the start of send_message()
-
-                # Build LLM options - use per-agent reasoning toggle for enable_thinking
-                from .lib.prompt_loader import get_reasoning_enabled
-                llm_options = {
-                    'enable_thinking': get_reasoning_enabled("aifred")
-                }
-
-                # Generate search queries via research_decision
-                # This ensures pre_generated_queries is always provided to perform_agent_research
-                from .lib.conversation_handler import detect_research_decision
-                from .lib.formatting import format_number
-
-                self.add_debug("🔍 Generating search queries...")
-                yield
-
-                research_result = await detect_research_decision(
-                    user_text=user_msg,
-                    automatik_llm_client=llm_client,
-                    automatik_model=self.automatik_model_id,
-                    has_images=bool(self.pending_images),
-                    vision_json_context=None,  # No vision context in direct research mode
-                    detected_language=detected_language,
-                    llm_history=self.llm_history[:-1] if len(self.llm_history) > 1 else None
-                )
-                pre_generated_queries = research_result.get("queries", [])
-                query_gen_time = research_result.get("decision_time", 0)
-                web_needed = research_result.get("web", True)
-
-                if pre_generated_queries:
-                    self.add_debug(f"✅ {len(pre_generated_queries)} queries generated ({format_number(query_gen_time, 1)}s)")
-                    for i, q in enumerate(pre_generated_queries, 1):
-                        self.add_debug(f"   {i}. {q}")
-                    yield
-                elif not web_needed:
-                    # LLM decided: No web research needed → use own knowledge
-                    self.add_debug(f"🤖 LLM decision: No web research needed ({format_number(query_gen_time, 1)}s)")
-                    self.add_debug("🧠 Switching to own knowledge mode...")
+            # Single unified call - research_mode determines the path internally
+            async for item in chat_interactive_mode(
+                user_text=user_msg,
+                stt_time=0.0,
+                model_choice=self.aifred_model_id,
+                automatik_model=self.automatik_model_id,
+                history=self.chat_history,
+                llm_history=self.llm_history,
+                session_id=self.session_id,
+                temperature_mode=self.temperature_mode,
+                temperature=self.temperature,
+                llm_options=llm_options,
+                backend_type=self.backend_type,
+                backend_url=self.backend_url,
+                state=self,
+                pending_images=self.pending_images if len(self.pending_images) > 0 else None,
+                user_name=self.user_name,
+                detected_intent=detected_intent,
+                detected_language=detected_language,
+                cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None,
+                research_mode=self.research_mode  # "automatik", "quick", "deep", or "none"
+            ):
+                # Route messages based on type
+                if item["type"] == "debug":
+                    self.debug_messages.append(format_debug_message(item["message"]))
+                    if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
+                        self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
                     yield
 
-                    # Use centralized handle_own_knowledge() function
-                    from .lib.own_knowledge_handler import handle_own_knowledge
-                    from .lib.prompt_loader import get_reasoning_enabled
-
-                    # Prepare multimodal content if images present
-                    multimodal_content = None
-                    if len(self.pending_images) > 0:
-                        from .lib.vision_utils import load_image_as_base64
-                        from pathlib import Path
-                        multimodal_content = [{"type": "text", "text": user_msg}]
-                        for img in self.pending_images:
-                            base64_data = load_image_as_base64(Path(img['path']))
-                            multimodal_content.append({
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"}
-                            })
-
-                    # Track result data for post-processing
-                    own_knowledge_result = None
-                    full_response = ""
-
-                    async for item in handle_own_knowledge(
-                        user_text=user_msg,
-                        model_choice=self.aifred_model_id,
-                        history=self.chat_history,
-                        llm_history=self.llm_history[:-1],
-                        detected_intent=detected_intent,
-                        detected_language=detected_language,
-                        temperature_mode=self.temperature_mode,
-                        temperature=self.temperature,
-                        backend_type=self.backend_type,
-                        backend_url=self.backend_url,
-                        enable_thinking=get_reasoning_enabled("aifred"),
-                        state=self,
-                        use_direct_prompt=use_aifred_direct_prompt,
-                        multimodal_content=multimodal_content,
-                        cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None,
-                        num_ctx_manual_enabled=getattr(self, 'num_ctx_manual_aifred_enabled', False),
-                        num_ctx_manual_value=self.num_ctx_manual_aifred if getattr(self, 'num_ctx_manual_aifred_enabled', False) else None,
-                    ):
-                        if item["type"] == "debug":
-                            self.add_debug(item["message"])
-                            yield
-                        elif item["type"] == "content":
-                            self.stream_text_to_ui(item["text"])
-                            full_response += item["text"]
-                            yield
-                        elif item["type"] == "progress":
-                            if item.get("clear"):
-                                self.clear_progress()
-                            yield
-                        elif item["type"] == "result":
-                            own_knowledge_result = item["data"]
-
-                    # Process result - unified Dict format
-                    if own_knowledge_result:
-                        # Update both histories from result
-                        self.chat_history = own_knowledge_result["history"]
-                        if "llm_history" in own_knowledge_result:
-                            self.llm_history = own_knowledge_result["llm_history"]
-                        ai_text = own_knowledge_result["response_clean"]
-
-                        # Clear streaming buffer IMMEDIATELY after history update
-                        # (prevents double bubble: streaming + history showing same content)
-                        self.current_ai_response = ""
-                        yield
-
-                        # Multi-Agent analysis
-                        async for _ in self._maybe_run_multi_agent(
-                            user_msg, ai_text, detected_language, skip_sokrates_analysis
-                        ):
-                            yield
-
-                    # Clear and finish - skip the research code below
-                    self.current_ai_response = ""
-                    self.current_user_message = ""
-                    self.is_generating = False
+                elif item["type"] == "content":
+                    self.stream_text_to_ui(item["text"])
                     yield
 
-                    if self.multi_agent_mode == "standard":
-                        console_separator()
-                        self.add_debug("────────────────────")
-                        yield
+                elif item["type"] == "result":
+                    result_data = item["data"]
+                    ai_text = result_data["response_clean"]
+                    updated_history = result_data["history"]
 
-                    # CRITICAL: Save session before early return (finally block may not execute for async generators)
-                    self._save_current_session()
+                    # Extract sources
+                    failed_sources = result_data.get("failed_sources", [])
+                    used_sources = result_data.get("used_sources", [])
 
-                    # Skip research - we're done
-                    return
+                    # Embed sources in last message for persistence
+                    if updated_history:
+                        import json as json_module
+                        last_msg = updated_history[-1]
+                        if last_msg.get("role") == "assistant":
+                            if "metadata" not in last_msg:
+                                last_msg["metadata"] = {}
 
-                else:
-                    # web=True but no queries = LLM parsing error
-                    error_msg = "research_decision returned web=true but no queries (LLM parsing error?)"
-                    self.add_debug(f"❌ {error_msg}")
-                    yield
-                    raise ValueError(error_msg)
+                            all_failed = []
+                            if failed_sources or self._pending_failed_sources:
+                                all_failed = (self._pending_failed_sources or []) + (failed_sources or [])
+                                if all_failed:
+                                    failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(all_failed)}-->\n"
+                                    last_msg["content"] = failed_markup + last_msg.get("content", "")
+                                    last_msg["metadata"]["failed_sources"] = all_failed
 
-                # REAL STREAMING: Call async generator directly (only if web research needed)
-                # Extract pure model names (remove size suffix like "(9.3 GB)")
-                async for item in perform_agent_research(
-                    user_text=user_msg,
-                    stt_time=0.0,  # Kein STT in Reflex (noch)
-                    mode=self.research_mode,
-                    model_choice=self.aifred_model_id,  # Pure ID
-                    automatik_model=self.automatik_model_id,  # Pure ID
-                    history=self.chat_history,  # User message already included
-                    llm_history=self.llm_history,  # LLM context (required!)
-                    session_id=self.session_id,
-                    temperature_mode=self.temperature_mode,
-                    temperature=self.temperature,
-                    llm_options=llm_options,
-                    backend_type=self.backend_type,
-                    backend_url=self.backend_url,
-                    state=self,  # For per-agent num_ctx lookup
-                    user_name=self.user_name,  # For personalized prompts
-                    detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
-                    detected_language=detected_language,  # Pass LLM-detected language (avoids regex detection)
-                    pre_generated_queries=pre_generated_queries  # Skip Query-Opt LLM call
-                ):
-                    # Route messages based on type
-                    if item["type"] == "debug":
-                        self.debug_messages.append(format_debug_message(item["message"]))
-                        if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
-                            self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
-                        yield  # Update UI immediately for each debug message
-                    elif item["type"] == "content":
-                        self.stream_text_to_ui(item["text"])
-                        yield
-                    elif item["type"] == "result":
-                        result_data = item["data"]
-                        # Unified Dict format - extract data
-                        ai_text = result_data["response_clean"]
-                        updated_history = result_data["history"]
+                            if used_sources:
+                                used_markup = f"<!--USED_SOURCES:{json_module.dumps(used_sources)}-->\n"
+                                last_msg["content"] = used_markup + last_msg.get("content", "")
+                                last_msg["metadata"]["used_sources"] = used_sources
 
-                        # Embed sources in last message (top-level for Reflex UI access)
-                        failed_sources = result_data.get("failed_sources", [])
-                        used_sources = result_data.get("used_sources", [])
+                            last_msg["used_sources"] = used_sources or []
+                            last_msg["failed_sources"] = all_failed or []
 
-                        if updated_history:
-                            import json as json_module
-                            last_msg = updated_history[-1]
-                            if last_msg.get("role") == "assistant":
-                                if "metadata" not in last_msg:
-                                    last_msg["metadata"] = {}
+                    # Update State for UI
+                    self.used_sources = used_sources or []
+                    self.failed_sources = all_failed if 'all_failed' in dir() else []
+                    self._pending_failed_sources = []
+                    self._pending_used_sources = []
 
-                                # Embed failed_sources (pending + from result)
-                                all_failed = []
-                                if failed_sources or self._pending_failed_sources:
-                                    all_failed = (self._pending_failed_sources or []) + (failed_sources or [])
-                                    if all_failed:
-                                        failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(all_failed)}-->\n"
-                                        last_msg["content"] = failed_markup + last_msg.get("content", "")
-                                        last_msg["metadata"]["failed_sources"] = all_failed
-
-                                # Embed used_sources (successfully scraped)
-                                if used_sources:
-                                    used_markup = f"<!--USED_SOURCES:{json_module.dumps(used_sources)}-->\n"
-                                    last_msg["content"] = used_markup + last_msg.get("content", "")
-                                    last_msg["metadata"]["used_sources"] = used_sources
-
-                                # Top-level fields for Reflex UI access (can't use nested msg["metadata"]["x"])
-                                last_msg["used_sources"] = used_sources if used_sources else []
-                                last_msg["failed_sources"] = all_failed if all_failed else []
-
-                        # Update State variables for UI access
-                        self.used_sources = used_sources if used_sources else []
-                        self.failed_sources = all_failed if all_failed else []
-                        self._pending_failed_sources = []
-                        self._pending_used_sources = []
-
-                        # Combine and sort all sources by rank_index for UI display
-                        combined = []
-                        for src in (used_sources or []):
-                            combined.append({
-                                "url": src.get("url", ""),
-                                "word_count": src.get("word_count", 0),
-                                "rank_index": src.get("rank_index", 999),
-                                "success": True
-                            })
-                        for src in (all_failed or []):
-                            combined.append({
-                                "url": src.get("url", ""),
-                                "error": src.get("error", "Unknown"),
-                                "rank_index": src.get("rank_index", 999),
-                                "success": False
-                            })
-                        self.all_sources = sorted(combined, key=lambda x: x.get("rank_index", 999))
-
-                        # Update chat history from result
-                        self.chat_history = updated_history
-                        yield
-
-                        # Multi-Agent analysis (if enabled)
-                        async for _ in self._maybe_run_multi_agent(
-                            user_msg, ai_text, detected_language, skip_sokrates_analysis
-                        ):
-                            yield
-
-                        # Clear streaming box
-                        self.current_ai_response = ""
-                        self.current_user_message = ""
-                        self.is_generating = False
-                        yield
-                    elif item["type"] == "progress":
-                        # Update processing progress
-                        if item.get("clear", False):
-                            self.clear_progress()
-                        else:
-                            self.set_progress(
-                                phase=item.get("phase", ""),
-                                current=item.get("current", 0),
-                                total=item.get("total", 0),
-                                failed=item.get("failed", 0)
-                            )
-                    elif item["type"] == "history_update":
-                        # Update chat history (e.g. from summarization)
-                        updated_history = item["data"]
-                        self.chat_history = updated_history
-                        self.add_debug(f"📊 History updated: {len(updated_history)} messages")
-                    elif item["type"] == "thinking_warning":
-                        # Show thinking mode warning (model doesn't support reasoning)
-                        self.thinking_mode_warning = item["model"]
-                    elif item["type"] == "failed_sources":
-                        # Store failed sources for UI display AND persistent history
-                        self.failed_sources = item["data"]
-                        self._pending_failed_sources = item["data"]  # Will be embedded in message
-                        from .lib.i18n import t
-                        self.add_debug(f"⚠️ {t('sources_unavailable', count=len(item['data']))}")
-                    elif item["type"] == "error":
-                        # Handle error (e.g., context overflow, backend error)
-                        error_msg = item.get("message", "Unknown error")
-                        self.add_debug(f"❌ Error: {error_msg}")
-                        # Reset UI state
-                        self.is_generating = False
-                        self.clear_progress()
-                        self.current_user_message = ""
-                        self.current_ai_response = ""
-
-                    yield  # Update UI after each item
-
-            elif self.research_mode == "none":
-                # No research mode: Direct LLM inference without web search
-                # Uses centralized handle_own_knowledge() function
-
-                from .lib.own_knowledge_handler import handle_own_knowledge
-                from .lib.prompt_loader import get_reasoning_enabled
-
-                # Prepare multimodal content if images present
-                multimodal_content = None
-                if len(self.pending_images) > 0:
-                    from .lib.vision_utils import load_image_as_base64
-                    from pathlib import Path
-                    multimodal_content = [{"type": "text", "text": user_msg}]
-                    for img in self.pending_images:
-                        base64_data = load_image_as_base64(Path(img['path']))
-                        multimodal_content.append({
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"}
+                    # Combine sources for UI display
+                    combined = []
+                    for src in (used_sources or []):
+                        combined.append({
+                            "url": src.get("url", ""),
+                            "word_count": src.get("word_count", 0),
+                            "rank_index": src.get("rank_index", 999),
+                            "success": True
                         })
+                    for src in (all_failed if 'all_failed' in dir() else []):
+                        combined.append({
+                            "url": src.get("url", ""),
+                            "error": src.get("error", "Unknown"),
+                            "rank_index": src.get("rank_index", 999),
+                            "success": False
+                        })
+                    self.all_sources = sorted(combined, key=lambda x: x.get("rank_index", 999))
 
-                # Track result data for post-processing
-                result_data = None
-                full_response = ""
-
-                async for item in handle_own_knowledge(
-                    user_text=user_msg,
-                    model_choice=self.aifred_model_id,
-                    history=self.chat_history,
-                    llm_history=self.llm_history[:-1],  # Exclude current user message
-                    detected_intent=detected_intent,
-                    detected_language=detected_language,
-                    temperature_mode=self.temperature_mode,
-                    temperature=self.temperature,
-                    backend_type=self.backend_type,
-                    backend_url=self.backend_url,
-                    enable_thinking=get_reasoning_enabled("aifred"),
-                    state=self,
-                    use_direct_prompt=use_aifred_direct_prompt,
-                    multimodal_content=multimodal_content,
-                    cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None,
-                    num_ctx_manual_enabled=getattr(self, 'num_ctx_manual_aifred_enabled', False),
-                    num_ctx_manual_value=self.num_ctx_manual_aifred if getattr(self, 'num_ctx_manual_aifred_enabled', False) else None,
-                ):
-                    # Route messages to UI
-                    if item["type"] == "debug":
-                        self.add_debug(item["message"])
-                        yield
-                    elif item["type"] == "content":
-                        self.stream_text_to_ui(item["text"])
-                        full_response += item["text"]
-                        yield
-                    elif item["type"] == "progress":
-                        if item.get("clear"):
-                            self.clear_progress()
-                        yield
-                    elif item["type"] == "result":
-                        result_data = item["data"]
-
-                # Process result - unified Dict format
-                if result_data:
-                    # Update both histories from result
-                    self.chat_history = result_data["history"]
+                    # Update history
+                    self.chat_history = updated_history
                     if "llm_history" in result_data:
                         self.llm_history = result_data["llm_history"]
-                    ai_text = result_data["response_clean"]
 
-                    # Clear streaming buffer IMMEDIATELY after history update - yield first
-                    # (prevents double bubble: streaming + history showing same content)
                     self.current_ai_response = ""
+                    self.current_user_message = ""
                     yield
 
-                    # Finalize streaming TTS and store audio URLs in message metadata
-                    # (TTS tasks run in parallel via create_task, finalize waits for them)
+                    # Finalize streaming TTS
                     if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:
                         audio_urls = await self._finalize_streaming_tts()
-
-                        # Add audio URLs to the last assistant message
                         if audio_urls and self.chat_history:
                             for i in range(len(self.chat_history) - 1, -1, -1):
                                 if self.chat_history[i].get("role") == "assistant":
@@ -4267,33 +3818,56 @@ class AIState(rx.State):
                                     self.chat_history[i]["metadata"]["audio_urls"] = audio_urls
                                     self.chat_history[i]["has_audio"] = True
                                     self.chat_history[i]["audio_urls_json"] = json.dumps(audio_urls)
-                                    log_message(f"🔊 TTS: Added {len(audio_urls)} audio URLs to message metadata (none-mode)")
+                                    log_message(f"🔊 TTS: Added {len(audio_urls)} audio URLs to message metadata")
                                     break
-                            # Force Reflex to recognize the change by reassigning the list
                             self.chat_history = list(self.chat_history)
-                            yield  # Update UI with audio button
+                            yield
 
-                    # Multi-Agent analysis (if enabled)
+                    # Multi-Agent analysis
                     async for _ in self._maybe_run_multi_agent(
                         user_msg, ai_text, detected_language, skip_sokrates_analysis
                     ):
                         yield
 
-                # Clear response windows
-                self.current_ai_response = ""
-                self.current_user_message = ""
-                self.is_generating = False
-                yield
-
-                # Separator for Standard mode
-                if self.multi_agent_mode == "standard":
-                    console_separator()
-                    self.add_debug("────────────────────")
+                    self.is_generating = False
                     yield
 
-            # Clear response display
+                elif item["type"] == "progress":
+                    if item.get("clear", False):
+                        self.clear_progress()
+                    else:
+                        self.set_progress(
+                            phase=item.get("phase", ""),
+                            current=item.get("current", 0),
+                            total=item.get("total", 0),
+                            failed=item.get("failed", 0)
+                        )
+
+                elif item["type"] == "history_update":
+                    self.chat_history = item["data"]
+                    self.add_debug(f"📊 History updated: {len(item['data'])} messages")
+
+                elif item["type"] == "thinking_warning":
+                    self.thinking_mode_warning = item["model"]
+
+                elif item["type"] == "failed_sources":
+                    self.failed_sources = item["data"]
+                    self._pending_failed_sources = item["data"]
+                    from .lib.i18n import t
+                    self.add_debug(f"⚠️ {t('sources_unavailable', count=len(item['data']))}")
+
+                elif item["type"] == "error":
+                    self.add_debug(f"❌ Error: {item.get('message', 'Unknown error')}")
+                    self.is_generating = False
+                    self.clear_progress()
+                    self.current_user_message = ""
+                    self.current_ai_response = ""
+
+                yield
+
+            # Final cleanup
             self.current_ai_response = ""
-            yield  # Final update to clear AI response window
+            yield
 
             # Debug line removed - User didn't want to see this
             # self.add_debug(f"✅ Response complete ({len(full_response)} chars)")
