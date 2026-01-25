@@ -50,7 +50,7 @@ services:
       # After X minutes of inactivity, container exits to free VRAM
       # Docker restart policy will bring it back on next request
       # Set to 0 to disable auto-shutdown
-      - XTTS_KEEP_ALIVE=2
+      - XTTS_KEEP_ALIVE=5
     volumes:
       # Cache models persistently
       - xtts_models:/root/.local/share/tts
