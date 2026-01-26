@@ -1845,6 +1845,11 @@ async def chat_interactive_mode(
             else:
                 yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s)"}
 
+            # Show history token count right after LLM done
+            from .context_manager import estimate_tokens_from_llm_history
+            history_tokens = estimate_tokens_from_llm_history(llm_history)
+            yield {"type": "debug", "message": f"   └─ History: {format_number(history_tokens)} tokens"}
+
             # VRAM Monitoring: Log and save measurement
             if vram_measurement is not None:
                 from aifred.lib.model_vram_cache import add_vram_measurement

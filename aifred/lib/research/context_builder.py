@@ -304,6 +304,12 @@ async def build_and_generate_response(
     # Log completion
     yield log_llm_completion(inference_time, metrics)
 
+    # Show history token count right after LLM done
+    from ..context_manager import estimate_tokens_from_llm_history
+    from ..formatting import format_number
+    history_tokens = estimate_tokens_from_llm_history(llm_history)
+    yield {"type": "debug", "message": f"   └─ History: {format_number(history_tokens)} tokens"}
+
     # Determine volatility: Automatik-LLM has priority, fallback to LLM tag or DAILY
     final_volatility = "DAILY"  # Default fallback
 
