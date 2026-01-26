@@ -6246,6 +6246,7 @@ class AIState(rx.State):
             # Show debug message for chunk combination
             if len(completed_urls) > 1:
                 self.add_debug(f"🔗 TTS: Combining {len(completed_urls)} audio chunks...")
+                self.add_debug(CONSOLE_SEPARATOR)
             from .lib.audio_processing import save_audio_to_session
             combined_url = save_audio_to_session(completed_urls, self.session_id)
             if combined_url:
