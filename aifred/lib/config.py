@@ -810,6 +810,7 @@ CACHE_DISTANCE_HIGH = 0.5      # < 0.5 = HIGH confidence Cache-Hit (direct answe
 # Time-To-Live values for different volatility categories
 # Main LLM determines volatility via <volatility> tag in response
 TTL_HOURS = {
+    'NOCACHE': 0,       # NEVER cache (weather, live scores, stock prices)
     'DAILY': 24,        # News, current events, "latest developments"
     'WEEKLY': 168,      # Political updates (7 days)
     'MONTHLY': 720,     # Semi-current topics (30 days)

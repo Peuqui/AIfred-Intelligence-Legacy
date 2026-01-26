@@ -477,6 +477,16 @@ class VectorCache:
         """
         failed_sources = failed_sources or []
 
+        # NOCACHE: Skip storage for volatile data (weather, live scores, etc.)
+        volatility = (metadata or {}).get('volatility', 'PERMANENT')
+        if volatility == 'NOCACHE':
+            log_message(f"🚫 Vector Cache: Skipping storage (volatility=NOCACHE) for '{query[:50]}...'")
+            return {
+                'success': True,
+                'skipped': True,
+                'reason': 'NOCACHE volatility'
+            }
+
         # Duplicate check: Query if very similar entry exists
         # Use query_newest to check for semantic duplicates (from config)
         existing = await self.query_newest(query, n_results=5)

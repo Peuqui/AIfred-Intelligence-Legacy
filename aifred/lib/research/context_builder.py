@@ -54,7 +54,8 @@ async def build_and_generate_response(
     state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
     user_name: Optional[str] = None,
     detected_intent: Optional[str] = None,
-    detected_language: Optional[str] = None
+    detected_language: Optional[str] = None,
+    volatility: Optional[str] = None  # From Automatik-LLM (NOCACHE/DAILY/etc.)
 ) -> AsyncIterator[Dict]:
     """
     Build context and generate LLM response
@@ -303,22 +304,29 @@ async def build_and_generate_response(
     # Log completion
     yield log_llm_completion(inference_time, metrics)
 
-    # Extract volatility tag from LLM response
-    volatility = "DAILY"  # Default fallback (safer than PERMANENT to avoid cache bloat)
-    volatility_match = re.search(r'<volatility>(.*?)</volatility>', ai_text, re.IGNORECASE | re.DOTALL)
+    # Determine volatility: Automatik-LLM has priority, fallback to LLM tag or DAILY
+    final_volatility = "DAILY"  # Default fallback
 
-    if volatility_match:
-        extracted = volatility_match.group(1).strip().upper()
-        if extracted in TTL_HOURS:
-            volatility = extracted
-            log_message(f"✅ AIfred-LLM Volatility: {volatility}")
-            yield {"type": "debug", "message": f"✅ Volatility: {volatility}"}
-        else:
-            log_message(f"⚠️ Unknown volatility '{extracted}', fallback to DAILY")
-            yield {"type": "debug", "message": "⚠️ Unknown volatility, fallback to DAILY"}
+    if volatility and volatility in TTL_HOURS:
+        # Automatik-LLM provided volatility - use it (most reliable)
+        final_volatility = volatility
+        log_message(f"✅ Volatility (Automatik): {final_volatility}")
+        # Debug message already shown in Decision line (conversation_handler.py)
     else:
-        log_message("⚠️ No volatility tag found, fallback to DAILY")
-        yield {"type": "debug", "message": "⚠️ No volatility tag, fallback to DAILY"}
+        # Fallback: Try to extract from LLM response tag
+        volatility_match = re.search(r'<volatility>(.*?)</volatility>', ai_text, re.IGNORECASE | re.DOTALL)
+        if volatility_match:
+            extracted = volatility_match.group(1).strip().upper()
+            if extracted in TTL_HOURS:
+                final_volatility = extracted
+                log_message(f"✅ Volatility (LLM-Tag): {final_volatility}")
+            else:
+                log_message(f"⚠️ Unknown volatility '{extracted}', fallback to DAILY")
+        else:
+            log_message("⚠️ No volatility from Automatik or LLM, fallback to DAILY")
+
+    # Use final_volatility from here on
+    volatility = final_volatility
 
     # Remove volatility tag from answer before displaying to user
     ai_text = re.sub(r'<volatility>.*?</volatility>', '', ai_text, flags=re.IGNORECASE | re.DOTALL).strip()
@@ -429,12 +437,16 @@ async def build_and_generate_response(
         )
 
         if result.get('success'):
-            if result.get('duplicate'):
+            if result.get('skipped'):
+                # NOCACHE volatility - intentionally not saved (already shown in Decision line)
+                log_message(f"🚫 Vector Cache: Skipped (volatility={volatility})")
+                yield {"type": "debug", "message": "🚫 Not cached (volatile)"}
+            elif result.get('duplicate'):
                 log_message("⚠️ Vector Cache: Duplicate detected, skipped")
                 yield {"type": "debug", "message": "⚠️ Cache duplicate - not saved"}
             else:
                 ttl_hours = TTL_HOURS.get(volatility)
-                if ttl_hours:
+                if ttl_hours is not None and ttl_hours > 0:
                     ttl_formatted = format_ttl_hours(ttl_hours)
                     log_message(f"💾 Vector Cache: Saved with {volatility} TTL ({ttl_formatted}, {result.get('total_entries')} entries)")
                     yield {"type": "debug", "message": f"💾 Saved to Cache (TTL: {ttl_formatted})"}

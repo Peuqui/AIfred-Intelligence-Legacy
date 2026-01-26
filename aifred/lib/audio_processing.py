@@ -1084,26 +1084,40 @@ def clean_text_for_tts(text):
     """
     global _inside_details_block
 
-    # Handle <details> blocks in STREAMING mode (tags come line by line)
-    # Web results and other collapsible content should NOT be read aloud
-    if '<details' in text.lower():
-        _inside_details_block = True
-        return ""  # Don't read the opening tag line
+    # Detect multi-line content (Re-Synth/regeneration mode) vs single-line (streaming mode)
+    # Multi-line content should skip streaming state logic and use regex-based removal
+    is_multiline = '\n' in text or len(text) > 500
 
-    if _inside_details_block:
-        if '</details>' in text.lower():
-            _inside_details_block = False
-        return ""  # Skip ALL content inside details block
+    # Handle <details> blocks in STREAMING mode ONLY (tags come line by line)
+    # In non-streaming mode, the regex below handles it properly
+    if not is_multiline:
+        if '<details' in text.lower():
+            _inside_details_block = True
+            return ""  # Don't read the opening tag line
+
+        if _inside_details_block:
+            if '</details>' in text.lower():
+                _inside_details_block = False
+            return ""  # Skip ALL content inside details block
+    else:
+        # Reset ALL streaming state when processing full content (regeneration)
+        # This prevents stale state from previous streaming sessions affecting regeneration
+        reset_content_hint_flags()
+
+    # Remove HTML comments (<!--USED_SOURCES:...-->, <!--FAILED_SOURCES:...-->, etc.)
+    # These contain JSON metadata that should never be read aloud
+    clean_text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL).strip()
 
     # Remove <think> tags and content (raw thinking from LLM)
     # Note: llm_history should be clean, but this handles edge cases
     # Use IGNORECASE to catch <Think>, <THINK>, etc.
-    clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE).strip()
+    clean_text = re.sub(r'<think>.*?</think>', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
     # Also remove partial/unclosed think tags (streaming edge case)
     clean_text = re.sub(r'</?think>', '', clean_text, flags=re.IGNORECASE)
 
     # Remove <details>/<summary> blocks (collapsible UI elements) - entire blocks (non-streaming)
-    clean_text = re.sub(r'<details>.*?</details>', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
+    # Note: Must match <details> with attributes like style="..."
+    clean_text = re.sub(r'<details[^>]*>.*?</details>', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
 
     # Remove ALL HTML/XML tags but keep content between them
     # Catches <br>, <span>, <div>, <p>, <b>, <i>, <u>, <strong>, <em>, etc.

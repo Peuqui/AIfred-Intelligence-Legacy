@@ -666,17 +666,19 @@ async def detect_research_decision(
         # Normalize result
         web_needed = result.get("web", False)
         queries = result.get("queries", [])
+        volatility = result.get("volatility", "DAILY")  # Fallback to DAILY if not specified
 
         # Validate queries if web research is needed
         if web_needed and not queries:
             log_message("⚠️ web=true but no queries, setting web=false")
             web_needed = False
 
-        log_message(f"✅ Research Decision: web={web_needed}, {len(queries)} queries")
+        log_message(f"✅ Research Decision: web={web_needed}, {len(queries)} queries, volatility={volatility}")
 
         return {
             "web": web_needed,
             "queries": queries,
+            "volatility": volatility,
             "decision_time": decision_time,
             "raw_response": raw_response
         }
@@ -1965,14 +1967,18 @@ async def chat_interactive_mode(
             decision_time = research_result["decision_time"]
             web_research_needed = research_result["web"]
             pre_generated_queries = research_result["queries"]
+            research_volatility = research_result.get("volatility", "DAILY")
 
-            # User-friendly display
+            # User-friendly display (include cache decision for web research)
             decision_label = "Web Research YES" if web_research_needed else "Web Research NO"
-            yield {"type": "debug", "message": f"🤖 Decision: {decision_label} ({format_number(decision_time, 1)}s)"}
+            if web_research_needed:
+                cache_label = "NOCACHE" if research_volatility == "NOCACHE" else research_volatility
+                yield {"type": "debug", "message": f"🤖 Decision: {decision_label} | Cache: {cache_label} ({format_number(decision_time, 1)}s)"}
+            else:
+                yield {"type": "debug", "message": f"🤖 Decision: {decision_label} ({format_number(decision_time, 1)}s)"}
 
             if web_research_needed and pre_generated_queries:
                 yield {"type": "debug", "message": f"🔎 {len(pre_generated_queries)} queries pre-generated"}
-                # Query list with API assignments shown in query_processor.py
 
             log_message(f"🤖 AI decision: {decision_label} ({format_number(decision_time, 1)}s)")
 
@@ -2002,7 +2008,8 @@ async def chat_interactive_mode(
                     vision_json_context=vision_json_context,
                     user_name=user_name,
                     detected_intent=detected_intent,
-                    pre_generated_queries=pre_generated_queries  # NEW: Skip Query-Opt if provided
+                    pre_generated_queries=pre_generated_queries,  # Skip Query-Opt if provided
+                    volatility=research_volatility  # From Automatik-LLM decision
                 ):
                     yield item
                 return

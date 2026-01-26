@@ -54,7 +54,14 @@ Wenn KEINE Web-Recherche noetig:
 {{"web": false}}
 
 Wenn Web-Recherche noetig:
-{{"web": true, "queries": ["query1 keywords hier", "query2 keywords hier", "query3 keywords hier"]}}
+{{"web": true, "queries": ["query1", "query2", "query3"], "volatility": "LEVEL"}}
+
+**VOLATILITY-LEVEL** (PFLICHT bei web=true!):
+- "NOCACHE" → Wetter, Temperatur, Boersenkurse, Live-Spielstaende
+- "DAILY" → Aktuelle Nachrichten, Events von heute
+- "WEEKLY" → Politik-Updates, Neuigkeiten dieser Woche
+- "MONTHLY" → Trends, Entwicklungen
+- "PERMANENT" → Zeitlose Fakten, Geschichte, Wissenschaft
 
 **VERBOTEN:**
 - Keine Erklaerungen oder Begruendungen

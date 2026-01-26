@@ -36,7 +36,8 @@ async def perform_agent_research(
     user_name: Optional[str] = None,
     detected_intent: Optional[str] = None,
     detected_language: Optional[str] = None,
-    pre_generated_queries: Optional[List[str]] = None
+    pre_generated_queries: Optional[List[str]] = None,
+    volatility: Optional[str] = None  # From Automatik-LLM (NOCACHE/DAILY/etc.)
 ) -> AsyncIterator[Dict]:
     """
     Agent research with query optimization and parallel web scraping
@@ -277,7 +278,8 @@ async def perform_agent_research(
         state=state,  # Pass state for per-agent num_ctx lookup
         user_name=user_name,
         detected_intent=detected_intent,
-        detected_language=detected_language
+        detected_language=detected_language,
+        volatility=volatility  # From Automatik-LLM decision
     ):
         yield item
 

@@ -54,7 +54,14 @@ If NO web research needed:
 {{"web": false}}
 
 If web research needed:
-{{"web": true, "queries": ["query1 keywords here", "query2 keywords here", "query3 keywords here"]}}
+{{"web": true, "queries": ["query1", "query2", "query3"], "volatility": "LEVEL"}}
+
+**VOLATILITY LEVEL** (MANDATORY for web=true!):
+- "NOCACHE" → Weather, temperature, stock prices, live scores
+- "DAILY" → Current news, events from today
+- "WEEKLY" → Political updates, news from this week
+- "MONTHLY" → Trends, developments
+- "PERMANENT" → Timeless facts, history, science
 
 **FORBIDDEN:**
 - No explanations or reasoning
