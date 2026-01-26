@@ -242,9 +242,11 @@ async def handle_cache_hit(
 
     total_time = agent_timer.elapsed()
 
-    # Console: LLM finished (Cache-specific with total time)
+    # Console: LLM finished (Cache-specific with total time and history tokens)
     tokens_generated = metrics.get("tokens_generated", 0)
-    yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(llm_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s, Cache-Total: {format_number(total_time, 1)}s)"}
+    from ..context_manager import estimate_tokens_from_llm_history
+    history_tokens = estimate_tokens_from_llm_history(llm_history)
+    yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(llm_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s, Cache-Total: {format_number(total_time, 1)}s) | History: {format_number(history_tokens)} tok"}
 
     # Format <think> tags as collapsible (if present)
     final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time, tokens_per_sec=tokens_per_sec)

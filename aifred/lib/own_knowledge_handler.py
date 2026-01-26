@@ -226,13 +226,16 @@ async def handle_own_knowledge(
 
         inference_time = timer.elapsed()
 
-        # Console: LLM finished
+        # Console: LLM finished (with history token count)
         tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0
+        from .context_manager import estimate_tokens_from_llm_history
+        history_tokens = estimate_tokens_from_llm_history(llm_history)
+        history_suffix = f" | History: {format_number(history_tokens)} tok"
         if backend_type == "cloud_api" and tokens_prompt > 0:
             total_tokens = tokens_prompt + tokens_generated
-            yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} out / {format_number(total_tokens)} total, {format_number(tokens_per_sec, 1)} tok/s)"}
+            yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} out / {format_number(total_tokens)} total, {format_number(tokens_per_sec, 1)} tok/s){history_suffix}"}
         else:
-            yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tokens, {format_number(tokens_per_sec, 1)} tok/s)"}
+            yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s){history_suffix}"}
 
         # Format thinking tags
         thinking_html = format_thinking_process(
