@@ -251,6 +251,9 @@ async def _stream_sokrates_to_history(
             token_count += 1
 
             state.stream_text_to_ui(chunk["text"])
+            # Process chunk for streaming TTS
+            if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
+                state._process_streaming_tts_chunk(chunk["text"])
             yield
 
         elif chunk["type"] == "done":
@@ -342,6 +345,9 @@ async def _stream_alfred_refinement(
             token_count += 1
 
             state.stream_text_to_ui(chunk["text"])
+            # Process chunk for streaming TTS
+            if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
+                state._process_streaming_tts_chunk(chunk["text"])
             yield
 
         elif chunk["type"] == "done":
@@ -428,6 +434,9 @@ async def _stream_salomo_to_history(
             token_count += 1
 
             state.stream_text_to_ui(chunk["text"])
+            # Process chunk for streaming TTS
+            if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
+                state._process_streaming_tts_chunk(chunk["text"])
             yield
 
         elif chunk["type"] == "done":
@@ -655,6 +664,8 @@ async def run_sokrates_direct_response(
 
                 # REAL-TIME streaming to UI + TTS chunk processing
                 state.stream_text_to_ui(content)
+                if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
+                    state._process_streaming_tts_chunk(content)
                 yield
 
             elif chunk_type == "thinking":
@@ -841,6 +852,8 @@ async def run_salomo_direct_response(
 
                 # REAL-TIME streaming to UI + TTS chunk processing
                 state.stream_text_to_ui(content)
+                if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
+                    state._process_streaming_tts_chunk(content)
                 yield
 
             elif chunk_type == "thinking":

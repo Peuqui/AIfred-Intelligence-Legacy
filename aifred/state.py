@@ -1289,6 +1289,17 @@ class AIState(rx.State):
                 else:
                     self.add_debug("⚠️ KoboldCPP manager exists but server not running")
 
+            # XTTS: Ensure container is running (also on page reload!)
+            if self.enable_tts and "XTTS" in self.tts_engine:
+                from .lib.process_utils import ensure_xtts_ready
+                success, msg = ensure_xtts_ready(timeout=60)
+                if success:
+                    self.add_debug(f"✅ {msg}")
+                    # Refresh voices from service
+                    self._refresh_xtts_voices()
+                else:
+                    self.add_debug(f"⚠️ {msg}")
+
             self.backend_healthy = True
             self.model_count = len(self.available_models)
             self.backend_info = f"{self.model_count} models"
@@ -1318,13 +1329,16 @@ class AIState(rx.State):
             self.add_debug(f"⚡ Backend: {self.backend_type} (skip health check)")
 
             # XTTS: Start container before Ollama loads models (reserves VRAM)
-            if self.enable_tts and "XTTS" in self.tts_engine and not self.xtts_force_cpu:
+            # Note: Start regardless of CPU/GPU mode - container handles device selection
+            if self.enable_tts and "XTTS" in self.tts_engine:
                 from .lib.process_utils import ensure_xtts_ready
 
                 self.add_debug("🔊 XTTS: Starte Container...")
                 success, msg = ensure_xtts_ready(timeout=60)
                 if success:
                     self.add_debug(f"✅ {msg}")
+                    # Refresh voices from service
+                    self._refresh_xtts_voices()
                 else:
                     self.add_debug(f"⚠️ {msg}")
 
