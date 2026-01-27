@@ -27,11 +27,33 @@ This folder contains example conversations demonstrating AIfred's capabilities.
 - Running on **Qwen3:30B locally** (not GPT-4)
 
 **Interactive Debate / Interaktive Debatte:**
-- 🇩🇪 **[Vollständige Debatte (DE)](https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Hund_oder_Katze_DE.html)**
-- 🇬🇧 **[Full Debate (EN)](https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Dog_or_Cat_EN.html)** 
+- 🇩🇪 **[Vollständige Debatte MIT Persönlichkeiten (DE)](https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Hund_oder_Katze_DE.html)**
+- 🇬🇧 **[Full Debate WITH Personalities (EN)](https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Dog_or_Cat_EN.html)**
+
 **Analysis / Analyse:**
-- 🇩🇪 **[Analyse (DE)](https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Hund_oder_Katze_MultiAgent_Debatte_DE.html)**
-- 🇬🇧 **[Analysis (EN)](https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Dog_or_Cat_MultiAgent_Debate_EN.html)**
+- 🇩🇪 **[Analyse inkl. A/B-Vergleich (DE)](https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Hund_oder_Katze_MultiAgent_Debatte_DE.html)**
+- 🇬🇧 **[Analysis incl. A/B Comparison (EN)](https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Dog_or_Cat_MultiAgent_Debate_EN.html)**
+
+---
+
+### NEW: A/B Comparison - With vs. Without Personality Prompts
+
+**Experimental evidence for the value of personality prompts:** The same question was asked twice – once with personality prompts enabled, once without. The results show significant differences in argument depth, voice distinction, and dialectical sharpness.
+
+*Experimenteller Nachweis für den Wert der Persönlichkeits-Prompts: Dieselbe Frage wurde zweimal gestellt – einmal mit aktivierten Persönlichkeits-Prompts, einmal ohne. Die Ergebnisse zeigen signifikante Unterschiede in Argumentationstiefe, Stimm-Distinktion und dialektischer Schärfe.*
+
+| Aspect / Aspekt | WITH Personalities | WITHOUT Personalities |
+|-----------------|-------------------|----------------------|
+| **Crux identification** | Sokrates finds "What does 'better' mean?" | Topic switch to "responsibility" |
+| **Voice distinction** | Clear Butler/Philosopher/Judge voices | Similar academic tone |
+| **Argumentation** | Direct attack on premise | Constructive additions |
+| **Final result** | "A house with both has heart and mind" | "Between convenience and responsibility" |
+
+**Comparison Debates / Vergleichs-Debatten:**
+- 🇩🇪 **[Debatte OHNE Persönlichkeiten (DE)](https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Hund_oder_Katze_OHNE_Persoenlichkeiten_DE.html)**
+- 🇬🇧 **[Debate WITHOUT Personalities (EN)](https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Dog_or_Cat_WITHOUT_Personalities_EN.html)**
+
+**Detailed analysis in the main showcase / Detaillierte Analyse im Haupt-Showcase** (see links above)
 
 ---
 
