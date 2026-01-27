@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIfred Tribunal Showcase - Error-Handling Debatte</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #1f2937;
+            --text-primary: #e5e7eb;
+            --text-secondary: #9ca3af;
+            --accent-gold: #d4af37;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+            line-height: 1.7;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { color: var(--accent-gold); font-size: 2rem; margin-bottom: 0.5rem; }
+        h2 { color: var(--accent-blue); font-size: 1.5rem; margin: 2rem 0 1rem; border-bottom: 1px solid #374151; padding-bottom: 0.5rem; }
+        h3 { color: var(--text-primary); font-size: 1.2rem; margin: 1.5rem 0 0.75rem; }
+        h4 { color: var(--text-secondary); font-size: 1rem; margin: 1rem 0 0.5rem; }
+        p { margin-bottom: 1rem; }
+        a { color: var(--accent-blue); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .meta { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 2rem; }
+        .meta span { margin-right: 2rem; }
+        hr { border: none; border-top: 1px solid #374151; margin: 2rem 0; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; background: var(--bg-card); border-radius: 8px; overflow: hidden; }
+        th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #374151; }
+        th { background: #374151; color: var(--accent-gold); font-weight: 600; }
+        tr:last-child td { border-bottom: none; }
+        .message { background: var(--bg-card); border-radius: 12px; padding: 1.5rem; margin: 1.5rem 0; border-left: 4px solid; }
+        .message-user { border-color: #6b7280; }
+        .message-aifred { border-color: var(--accent-gold); }
+        .message-sokrates { border-color: var(--accent-purple); }
+        .message-salomo { border-color: var(--accent-green); }
+        .message-header { font-weight: bold; margin-bottom: 1rem; font-size: 1.1rem; }
+        .message-user .message-header { color: #9ca3af; }
+        .message-aifred .message-header { color: var(--accent-gold); }
+        .message-sokrates .message-header { color: var(--accent-purple); }
+        .message-salomo .message-header { color: var(--accent-green); }
+        blockquote { background: #374151; border-left: 4px solid var(--accent-blue); padding: 1rem; margin: 1rem 0; border-radius: 0 8px 8px 0; font-style: italic; }
+        code { background: #374151; padding: 0.2rem 0.5rem; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 0.9rem; }
+        pre { background: #374151; padding: 1rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+        pre code { background: none; padding: 0; }
+        ul, ol { margin: 1rem 0 1rem 2rem; }
+        li { margin-bottom: 0.5rem; }
+        .check { color: var(--accent-green); }
+        .highlight { background: linear-gradient(120deg, rgba(212,175,55,0.2) 0%, rgba(212,175,55,0.1) 100%); padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+        .highlight-red { background: linear-gradient(120deg, rgba(239,68,68,0.2) 0%, rgba(239,68,68,0.1) 100%); padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+        .footer { text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #374151; color: var(--text-secondary); }
+        .footer a { color: var(--accent-gold); }
+        strong { color: var(--accent-gold); }
+        em { color: var(--text-secondary); }
+        .tribunal-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--accent-red) 0%, #dc2626 100%);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            margin-left: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AIfred Intelligence - Tribunal Showcase <span class="tribunal-badge">TRIBUNAL</span></h1>
+        <h2>Technische Debatte: "Error-Handling - Vorsicht oder Over-Engineering?"</h2>
+
+        <div class="meta">
+            <span><strong>Datum:</strong> Januar 2026</span>
+            <span><strong>System:</strong> AIfred Multi-Agent</span>
+            <span><strong>Modus:</strong> Tribunal (Adversarial, 2 Runden + Urteil)</span>
+            <span><strong>Modell:</strong> Qwen3 30B (lokal)</span>
+        </div>
+
+        <hr>
+
+        <h2>Was ist der Tribunal-Modus?</h2>
+
+        <p>Im Gegensatz zum <strong>Auto-Konsens</strong>-Modus, bei dem Sokrates als konstruktiver Kritiker agiert, ist der <strong>Tribunal-Modus</strong> ein <em>adversariales Debattenformat</em>:</p>
+
+        <table>
+            <tr><th>Aspekt</th><th>Auto-Konsens</th><th>Tribunal</th></tr>
+            <tr><td><strong>Sokrates' Rolle</strong></td><td>Coach, konstruktive Kritik</td><td><strong>Ankläger</strong>, adversariale Prüfung</td></tr>
+            <tr><td><strong>Ziel</strong></td><td>AIfred besser machen</td><td>Prüfen, ob AIfred <em>recht hat</em></td></tr>
+            <tr><td><strong>AIfred's Reaktion</strong></td><td>Überarbeitung (nimmt Kritik an)</td><td><strong>[VERTEIDIGUNG]</strong> oder <strong>[ÜBERARBEITUNG]</strong></td></tr>
+            <tr><td><strong>Voting</strong></td><td>[LGTM] / [WEITER]</td><td><strong>Kein Voting</strong> - Salomo urteilt</td></tr>
+            <tr><td><strong>Tonfall</strong></td><td>Kooperativ</td><td>Konfrontativ</td></tr>
+        </table>
+
+        <div class="highlight">
+            <strong>Kernfrage dieser Debatte:</strong> Ist ein generischer <code>Exception</code>-Handler in einer Python-Funktion "verantwortungsvolles Error-Handling" oder "defensives Over-Engineering"?
+        </div>
+
+        <hr>
+
+        <h2>Die Frage</h2>
+
+        <div class="message message-user">
+            <div class="message-header">Benutzer</div>
+            <p>Ist das gutes Error-Handling oder defensives Over-Engineering?</p>
+            <pre><code>def get_user(user_id: int) -> User | None:
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is None:
+            logger.warning(f"User {user_id} not found")
+        return user
+    except SQLAlchemyError as e:
+        logger.error(f"DB error: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return None</code></pre>
+            <p>Brauche ich den generischen Exception-Handler oder ist das Paranoia?</p>
+        </div>
+
+        <hr>
+
+        <h2 style="color: var(--accent-red);">A/B-Vergleich: MIT vs. OHNE Persönlichkeits-Prompts</h2>
+
+        <div class="highlight-red">
+            <strong>Experimenteller Nachweis:</strong> Dieselbe technische Code-Frage wurde zweimal im Tribunal-Modus gestellt - einmal mit aktivierten Persönlichkeits-Prompts, einmal ohne. Die Ergebnisse zeigen: Auch bei <em>technischen</em> Fragen machen die Persönlichkeiten einen Unterschied.
+        </div>
+
+        <h3>Versuchsaufbau</h3>
+        <table>
+            <tr><th>Parameter</th><th>MIT Persönlichkeiten</th><th>OHNE Persönlichkeiten</th></tr>
+            <tr><td><strong>Modell</strong></td><td>Qwen3 30B-A3B Q8</td><td>Qwen3 30B-A3B Q8</td></tr>
+            <tr><td><strong>Modus</strong></td><td>Tribunal (adversarial)</td><td>Tribunal (adversarial)</td></tr>
+            <tr><td><strong>Zeitpunkt</strong></td><td>27.01.2026, 19:44</td><td>27.01.2026, 19:39</td></tr>
+            <tr><td><strong>AIfred System-Prompt</strong></td><td>Britischer Butler-Charakter</td><td>Deaktiviert</td></tr>
+            <tr><td><strong>Sokrates System-Prompt</strong></td><td>Sokratische Maieutik</td><td>Deaktiviert</td></tr>
+            <tr><td><strong>Salomo System-Prompt</strong></td><td>Weiser Richter (hebräische Tradition)</td><td>Deaktiviert</td></tr>
+        </table>
+
+        <hr>
+
+        <h3>1. AIfred's Eröffnungsposition im Vergleich</h3>
+
+        <table>
+            <tr><th>MIT Persönlichkeit</th><th>OHNE Persönlichkeit</th></tr>
+            <tr>
+                <td style="vertical-align: top;">
+                    <em>"Ein durchaus elegantes, ja sogar <strong>sophistisches</strong> Vorgehen, Lord Helmchen – man könnte sagen, es ist, <strong>indeed</strong>, ein feiner Balanceakt zwischen sorgfältiger Vorsicht und der Gefahr, sich in übertriebener Präzision zu verlieren."</em>
+                    <br><br>
+                    <em>"Ein wenig wie ein Butler, der den Hut vor dem Eintreffen eines Regens bereits abnimmt – manchmal überflüssig, aber niemals unpassend."</em>
+                    <br><br>
+                    <em>"In jedem Fall: <strong>Sie handeln mit äußerster Sorgfalt – und das ist, indeed, sehr anständig.</strong>"</em>
+                </td>
+                <td style="vertical-align: top;">
+                    <em>"Es ist <strong>kein Over-Engineering</strong>, sondern <strong>notwendige Vorsicht</strong> – aber mit <strong>Verbesserungspotenzial</strong>."</em>
+                    <br><br>
+                    <em>"Der generische Exception-Handler ist notwendig, um die Anwendung vor Abstürzen zu schützen – besonders in Produktivumgebungen."</em>
+                    <br><br>
+                    <em>"Das ist kein Over-Engineering, sondern <strong>sorgfältige Vorsorge</strong>."</em>
+                </td>
+            </tr>
+            <tr>
+                <td><span class="check">✅</span> Butler-Charakter, "indeed", Humor, "Lord Helmchen"</td>
+                <td>⚠️ Technisch korrekt, aber charakterlos</td>
+            </tr>
+        </table>
+
+        <h4>Position im Vergleich</h4>
+        <table>
+            <tr><th>Aspekt</th><th>MIT Persönlichkeit</th><th>OHNE Persönlichkeit</th></tr>
+            <tr>
+                <td><strong>Kernaussage</strong></td>
+                <td>"etwas übertrieben – aber nicht unbedingt unnötig"</td>
+                <td>"notwendige Vorsicht"</td>
+            </tr>
+            <tr>
+                <td><strong>Tonfall</strong></td>
+                <td>Abwägend, mit Nuancen</td>
+                <td>Direkter, pro-Handler</td>
+            </tr>
+            <tr>
+                <td><strong>Metaphern</strong></td>
+                <td>Butler mit Hut, Dinner-Speisekarte</td>
+                <td>Keine</td>
+            </tr>
+        </table>
+
+        <hr>
+
+        <h3>2. Sokrates' Angriff im Vergleich</h3>
+
+        <table>
+            <tr><th>MIT Persönlichkeit</th><th>OHNE Persönlichkeit</th></tr>
+            <tr>
+                <td style="vertical-align: top;">
+                    <em>"Nun denn, <strong>mein Freund</strong>, du sprichst von Vorsicht wie von einer Tugend, die sich selbst genügt – doch <strong>lass mich dich fragen</strong>: Wo endet die sorgfältige Vorsicht, und wo beginnt die Verwirrung durch übermäßige Sicherheit?"</em>
+                    <br><br>
+                    <em>"Ist das nicht die <strong>eudaimonia</strong> des Programmierers, die sich in der Unbestimmtheit verliert?"</em>
+                    <br><br>
+                    <em>"Und was ist mit der <strong>aretē</strong> des Codes? Ist es nicht eine Tugend, dass ein Fehler klar, präzise und lokalisiert ist?"</em>
+                    <br><br>
+                    <em>"Denn: <strong>Fehler, die man nicht erwartet, sind keine Fehler – sie sind Versäumnisse.</strong>"</em>
+                </td>
+                <td style="vertical-align: top;">
+                    <em>"AIfred behauptet, der generische Exception-Handler sei notwendig und kein Over-Engineering – doch er vermeidet die entscheidende Frage: <strong>Warum ist es überhaupt notwendig, einen Fehler zu „verschlucken"?</strong>"</em>
+                    <br><br>
+                    <em>"Das ist kein Verantwortungsbewusstsein – das ist <strong>Fehlverhalten</strong>, das die Anwendung in einen Zustand führt, in dem sie weiterläuft, obwohl sie nicht mehr weiß, was gerade passiert ist."</em>
+                    <br><br>
+                    <em>"<strong>Der generische Exception-Handler ist kein Schutz – er ist ein Risiko.</strong>"</em>
+                </td>
+            </tr>
+            <tr>
+                <td><span class="check">✅</span> Sokratische Fragen, griechische Philosophie (aretē, eudaimonia), direkte Anrede</td>
+                <td>⚠️ Technisch scharf, aber ohne philosophische Tiefe</td>
+            </tr>
+        </table>
+
+        <h4>Quantitative Angriffs-Analyse</h4>
+        <table>
+            <tr><th>Metrik</th><th>MIT</th><th>OHNE</th></tr>
+            <tr><td>Rhetorische Fragen</td><td><strong>5+</strong></td><td>2</td></tr>
+            <tr><td>Griechische Begriffe (aretē, eudaimonia)</td><td><strong>3</strong></td><td>0</td></tr>
+            <tr><td>Direkte Anrede ("mein Freund")</td><td><strong>4+</strong></td><td>0</td></tr>
+            <tr><td>Provokative Thesen</td><td><strong>3</strong></td><td>2</td></tr>
+        </table>
+
+        <hr>
+
+        <h3>3. AIfred's Verteidigung im Vergleich</h3>
+
+        <p>Im Tribunal-Modus kann AIfred mit <code>[VERTEIDIGUNG]</code> oder <code>[ÜBERARBEITUNG]</code> reagieren. Beide Versionen wählten <strong>[VERTEIDIGUNG]</strong> – aber mit unterschiedlicher Qualität:</p>
+
+        <table>
+            <tr><th>MIT Persönlichkeit</th><th>OHNE Persönlichkeit</th></tr>
+            <tr>
+                <td style="vertical-align: top;">
+                    <em>"Lord Helmchen, ich danke Ihnen für die Gelegenheit, meine Position mit der gebotenen Würde und der nötigen Schärfe zu verteidigen – denn, <strong>indeed</strong>, ein guter Butler kennt die Kunst, sich zu erklären, ohne sich zu rechtfertigen."</em>
+                    <br><br>
+                    <em>"Das ist eine <strong>romantische, aber unpraktische</strong> Sichtweise. In der Realität ist ein unbehandelter Absturz oft <strong>schlimmer</strong> als ein abgefangener Fehler."</em>
+                    <br><br>
+                    <em>"Und hier liegt die wahre <strong>aretē</strong>: Nicht in der Perfektion, sondern in der Fähigkeit, <strong>zu überleben, wenn die Welt nicht perfekt ist</strong>."</em>
+                </td>
+                <td style="vertical-align: top;">
+                    <em>"Ihre Behauptung, dass der generische Exception-Handler „eine Täuschung" sei... ist <strong>nicht korrekt</strong>, und zwar aus zwei entscheidenden Gründen."</em>
+                    <br><br>
+                    <em>"Ein None-Rückgabewert ist <strong>nicht irreführend</strong>, wenn er konsistent und vorhersehbar ist."</em>
+                    <br><br>
+                    <em>"Das ist kein Kompromiss. Das ist <strong>Engineering</strong>."</em>
+                </td>
+            </tr>
+            <tr>
+                <td><span class="check">✅</span> Butler verteidigt mit Würde, übernimmt Sokrates' Begriff (aretē)</td>
+                <td>⚠️ Technisch solide Verteidigung, aber ohne dialektische Verwebung</td>
+            </tr>
+        </table>
+
+        <div class="highlight">
+            <strong>Dialektische Verwebung:</strong> Mit Persönlichkeiten übernimmt AIfred Sokrates' philosophischen Begriff "aretē" und wendet ihn gegen ihn – das zeigt echtes dialektisches Engagement. Ohne Persönlichkeiten bleibt die Verteidigung parallel statt verwoben.
+        </div>
+
+        <hr>
+
+        <h3>4. Salomo's Urteil im Vergleich</h3>
+
+        <table>
+            <tr><th>MIT Persönlichkeit</th><th>OHNE Persönlichkeit</th></tr>
+            <tr>
+                <td style="vertical-align: top;">
+                    <em>"AIfred betont die praktische Robustheit eines generischen Exception-Handlers als Schutznetz gegen unvorhergesehene Ereignisse in der Produktion – eine Haltung, die der <strong>Tachlis</strong> (Pragmatik) der realen Welt entspricht."</em>
+                    <br><br>
+                    <em>"Ohne solche Grundlagen wird er zur <strong>Kaschmir-Decke</strong> – scheinbar warm, aber verhüllend."</em>
+                    <br><br>
+                    <em>"Denn: <strong>Ein Fehler, der nicht sichtbar ist, ist ein Fehler, der wächst – doch ein Fehler, der sichtbar ist, ist ein Fehler, der geheilt werden kann.</strong> Der wahre <strong>Tachlis</strong> ist nicht, alles zu fangen – sondern, nur das zu fangen, was du verstehst."</em>
+                </td>
+                <td style="vertical-align: top;">
+                    <em>"AIfred betont die praktische Notwendigkeit eines generischen Exception-Handlers zur Vermeidung von Abstürzen und zur Sicherstellung der Systemverfügbarkeit... Sokrates hingegen weist mit Recht darauf hin, dass das Verschweigen von Fehlern... ein Risiko darstellt."</em>
+                    <br><br>
+                    <em>"Der generische Exception-Handler ist <strong>nicht überflüssig, aber er muss verantwortungsvoll eingesetzt werden</strong>."</em>
+                    <br><br>
+                    <em>"Das ist kein Over-Engineering – das ist <strong>kluges, verantwortungsvolles Engineering</strong>."</em>
+                </td>
+            </tr>
+            <tr>
+                <td><span class="check">✅</span> Hebräischer Begriff "Tachlis", poetische Metapher "Kaschmir-Decke", Weisheitsspruch</td>
+                <td>⚠️ Korrekte Synthese, aber ohne kulturelle Tiefe</td>
+            </tr>
+        </table>
+
+        <h4>Urteils-Qualität im Vergleich</h4>
+        <table>
+            <tr><th>Aspekt</th><th>MIT Persönlichkeit</th><th>OHNE Persönlichkeit</th></tr>
+            <tr>
+                <td><strong>Kulturelle Begriffe</strong></td>
+                <td>Tachlis (2x), Kaschmir-Decke</td>
+                <td>Keine</td>
+            </tr>
+            <tr>
+                <td><strong>Weisheitsspruch</strong></td>
+                <td>"Ein Fehler, der nicht sichtbar ist..."</td>
+                <td>Keine poetische Formulierung</td>
+            </tr>
+            <tr>
+                <td><strong>Memorabilität</strong></td>
+                <td><span class="check">✅</span> Hoch</td>
+                <td>⚠️ Standard</td>
+            </tr>
+            <tr>
+                <td><strong>Synthese-Qualität</strong></td>
+                <td>Integriert beide Perspektiven philosophisch</td>
+                <td>Fasst beide Seiten zusammen</td>
+            </tr>
+        </table>
+
+        <hr>
+
+        <h3>5. Gesamtbewertung</h3>
+
+        <table>
+            <tr><th>Kriterium</th><th>MIT Persönlichkeit</th><th>OHNE Persönlichkeit</th></tr>
+            <tr>
+                <td><strong>Stimm-Distinktion</strong></td>
+                <td><span class="check">✅✅✅✅</span> Klar unterscheidbar</td>
+                <td><span class="check">✅✅</span> Ähnlicher Duktus</td>
+            </tr>
+            <tr>
+                <td><strong>Angriffs-Schärfe</strong></td>
+                <td><span class="check">✅✅✅✅</span> Rhetorisch & philosophisch</td>
+                <td><span class="check">✅✅✅</span> Technisch präzise</td>
+            </tr>
+            <tr>
+                <td><strong>Verteidigungs-Qualität</strong></td>
+                <td><span class="check">✅✅✅✅</span> Dialektisch verwoben</td>
+                <td><span class="check">✅✅✅</span> Solide Gegenargumente</td>
+            </tr>
+            <tr>
+                <td><strong>Urteils-Memorabilität</strong></td>
+                <td><span class="check">✅✅✅✅✅</span> Poetische Weisheit</td>
+                <td><span class="check">✅✅</span> Technisch korrekt</td>
+            </tr>
+            <tr>
+                <td><strong>Technische Korrektheit</strong></td>
+                <td><span class="check">✅✅✅✅✅</span></td>
+                <td><span class="check">✅✅✅✅✅</span></td>
+            </tr>
+        </table>
+
+        <hr>
+
+        <h3>6. Besondere Beobachtung: Code-Fragen vs. Philosophische Fragen</h3>
+
+        <div class="highlight">
+            <strong>Interessantes Ergebnis:</strong> Bei dieser <em>technischen</em> Code-Frage ist der Unterschied zwischen MIT und OHNE Persönlichkeiten <strong>kleiner</strong> als bei philosophischen Fragen (wie "Hund oder Katze?"). Beide Versionen liefern technisch korrekte, nutzbare Antworten.
+        </div>
+
+        <table>
+            <tr><th>Fragetyp</th><th>Persönlichkeits-Effekt</th></tr>
+            <tr>
+                <td><strong>Philosophische Fragen</strong></td>
+                <td><span class="check">✅✅✅✅✅</span> Massiver Unterschied - aretē, eudaimonia, Weisheitssprüche</td>
+            </tr>
+            <tr>
+                <td><strong>Technische Code-Fragen</strong></td>
+                <td><span class="check">✅✅✅</span> Moderater Unterschied - Charakter-Momente, aber Kern bleibt gleich</td>
+            </tr>
+        </table>
+
+        <p><strong>Interpretation:</strong> Die Persönlichkeits-Prompts sind bei Code-Fragen weniger <em>notwendig</em>, aber immer noch <em>vorteilhaft</em> für:</p>
+        <ul>
+            <li><strong>Lesbarkeit</strong> - Der Butler-Charakter macht technische Erklärungen unterhaltsamer</li>
+            <li><strong>Dialektische Tiefe</strong> - Die Übernahme von Begriffen ("aretē") zeigt echtes Engagement</li>
+            <li><strong>Memorabilität</strong> - "Kaschmir-Decke" bleibt im Gedächtnis, "verantwortungsvoll" nicht</li>
+        </ul>
+
+        <hr>
+
+        <h2>Finale Synthese: Was beide Debatten richtig machen</h2>
+
+        <p><strong>Unabhängig von den Persönlichkeiten</strong> erreichen beide Tribunal-Debatten das Ziel:</p>
+
+        <table>
+            <tr><th>Kriterium</th><th>Bewertung</th></tr>
+            <tr><td><strong>Echte Konfrontation</strong></td><td><span class="check">✅</span> Sokrates greift substantiell an, nicht nur formal</td></tr>
+            <tr><td><strong>Starke Verteidigung</strong></td><td><span class="check">✅</span> AIfred wählt [VERTEIDIGUNG] und argumentiert scharf</td></tr>
+            <tr><td><strong>Neutrales Urteil</strong></td><td><span class="check">✅</span> Salomo integriert beide Seiten fair</td></tr>
+            <tr><td><strong>Praktische Antwort</strong></td><td><span class="check">✅</span> Beide liefern konkreten, nutzbaren Code</td></tr>
+            <tr><td><strong>Nuanciertes Ergebnis</strong></td><td><span class="check">✅</span> "Es kommt darauf an" - keine Simple Antwort</td></tr>
+        </table>
+
+        <div class="highlight">
+            <strong>Fazit:</strong> Der Tribunal-Modus funktioniert auch ohne Persönlichkeiten für technische Fragen. Die Persönlichkeiten erhöhen jedoch die <strong>Lesbarkeit</strong>, <strong>Memorabilität</strong> und <strong>dialektische Tiefe</strong> – besonders wertvoll, wenn der Output nicht nur korrekt, sondern auch <em>ansprechend</em> sein soll.
+        </div>
+
+        <hr>
+
+        <h2>Technische Details</h2>
+        <ul>
+            <li><strong>Framework:</strong> AIfred Intelligence (Reflex/Python)</li>
+            <li><strong>Modell:</strong> Qwen3 30B-A3B Instruct Q8</li>
+            <li><strong>Modus:</strong> Tribunal (Adversarial)</li>
+            <li><strong>Runden:</strong> 2 + Urteil</li>
+            <li><strong>Hardware:</strong> Lokale Inferenz (2x Tesla P40)</li>
+            <li><strong>Gesamtdauer MIT:</strong> ~3:30 min</li>
+            <li><strong>Gesamtdauer OHNE:</strong> ~4:30 min</li>
+        </ul>
+
+        <hr>
+
+        <div class="footer">
+            <p>Exportiert aus <a href="https://github.com/Peuqui/AIfred-Intelligence">AIfred Intelligence</a></p>
+            <p>KI zu Ihren Diensten • Tribunal Multi-Agent Debate System</p>
+        </div>
+    </div>
+</body>
+</html>
