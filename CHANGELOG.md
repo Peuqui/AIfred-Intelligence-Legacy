@@ -5,6 +5,45 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.6] - 2026-01-27 ⚖️ Tribunal Mode: Adversarial Debate System
+
+### Added
+
+- **Tribunal-specific Prompts** - Separate prompts for true adversarial debate:
+  - `prompts/de/sokrates/tribunal.txt` - Sokrates as prosecutor, not coach
+  - `prompts/de/aifred/defense.txt` - AIfred can choose [VERTEIDIGUNG] or [ÜBERARBEITUNG]
+  - `prompts/en/sokrates/tribunal.txt` - English version
+  - `prompts/en/aifred/defense.txt` - English version
+
+- **Anti-Repetition Rule** for Tribunal mode:
+  - Sokrates must bring NEW arguments in Round 2+
+  - No recycling of previous critiques
+  - Forces deeper exploration of counterarguments
+
+- **New Loader Functions** ([prompt_loader.py](aifred/lib/prompt_loader.py)):
+  - `get_sokrates_tribunal_prompt()` - Adversarial prosecutor prompt
+  - `get_aifred_defense_prompt()` - Defense/Revision choice prompt
+
+### Changed
+
+- **Tribunal vs Auto-Consensus now truly different**:
+  - Auto-Consensus: Sokrates as coach, AIfred must acknowledge critique
+  - Tribunal: Sokrates as opponent, AIfred can defend or revise
+  - Salomo judges at the end (no [LGTM] voting in Tribunal)
+
+- **Tribunal Workflow** ([multi_agent.py](aifred/lib/multi_agent.py)):
+  - Uses `sokrates/tribunal` instead of `sokrates/critic`
+  - Uses `aifred/defense` instead of `aifred/refinement`
+  - AIfred chooses `[VERTEIDIGUNG]` (defend) or `[ÜBERARBEITUNG]` (revise)
+
+### Impact
+
+- **More balanced debates**: AIfred no longer structurally loses every Tribunal
+- **Higher quality discourse**: Anti-repetition forces new perspectives each round
+- **Clearer role separation**: Coach mode vs. Adversary mode now distinct
+
+---
+
 ## [2.27.5] - 2026-01-24 🚀 XTTS Eager Loading & Startup-Kontrolle
 
 ### Added

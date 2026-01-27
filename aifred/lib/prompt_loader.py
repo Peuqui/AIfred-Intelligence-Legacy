@@ -762,6 +762,58 @@ def get_aifred_refinement_prompt(
 get_sokrates_refinement_prompt = get_aifred_refinement_prompt
 
 
+# ============================================================
+# Tribunal Mode Prompts (Adversarial Debate)
+# ============================================================
+
+def get_sokrates_tribunal_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
+    """
+    Load Sokrates Tribunal prompt for adversarial debate mode.
+
+    In Tribunal mode, Sokrates acts as prosecutor/opponent rather than coach.
+    He attacks AIfred's position directly, and Salomo judges at the end.
+
+    Args:
+        round_num: Current debate round (1, 2, 3, ...)
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Sokrates tribunal system prompt with round number
+    """
+    return load_prompt('sokrates/tribunal', lang=lang, round_num=round_num)
+
+
+def get_aifred_defense_prompt(
+    critique: str,
+    user_interjection: str = "",
+    lang: Optional[str] = None,
+    round_num: int = 2
+) -> str:
+    """
+    Load AIfred Defense prompt for Tribunal mode.
+
+    In Tribunal mode, AIfred can choose to DEFEND his position or REVISE.
+    This differs from refinement.txt where AIfred must always acknowledge
+    Sokrates' critique.
+
+    Args:
+        critique: Sokrates' critique text
+        user_interjection: Optional user interjection during debate
+        lang: Language code (de/en), defaults to current language
+        round_num: Current debate round (default 2, since defense starts at R2)
+
+    Returns:
+        Formatted defense prompt with critique and round number
+    """
+    return load_prompt(
+        'aifred/defense',
+        lang=lang,
+        critique=critique,
+        user_interjection=user_interjection,
+        round_num=round_num
+    )
+
+
 def get_sokrates_direct_prompt(lang: Optional[str] = None) -> str:
     """
     Load Sokrates Direct Response prompt with 4-layer merging.

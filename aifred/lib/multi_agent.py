@@ -34,6 +34,8 @@ from .prompt_loader import (
     get_sokrates_critic_prompt,
     get_sokrates_devils_advocate_prompt,
     get_sokrates_refinement_prompt,
+    get_sokrates_tribunal_prompt,
+    get_aifred_defense_prompt,
     get_salomo_system_minimal,
     get_salomo_direct_prompt,
     get_salomo_mediator_prompt,
@@ -1559,9 +1561,9 @@ async def run_tribunal(
         for round_num in range(1, max_rounds + 1):
             state.debate_round = round_num
 
-            # --- SOKRATES CRITIQUE ---
+            # --- SOKRATES ATTACK (Tribunal: adversarial, not coaching) ---
             sokrates_minimal = get_sokrates_system_minimal(lang=detected_lang)
-            mode_prompt = get_sokrates_critic_prompt(round_num=round_num, lang=detected_lang)
+            mode_prompt = get_sokrates_tribunal_prompt(round_num=round_num, lang=detected_lang)
             system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
 
             # PRE-SOKRATES: Check if compression needed before Sokrates call
@@ -1630,12 +1632,12 @@ async def run_tribunal(
             # NOTE: PRE-CHECK before next agent handles compression
             # No POST-CHECK needed here
 
-            # --- AIFRED RESPONSE (if not last round) ---
+            # --- AIFRED DEFENSE (Tribunal: may defend or revise) ---
             if round_num < max_rounds:
-                # Build refinement prompt FIRST (needed for accurate token estimation)
+                # Build defense prompt FIRST (needed for accurate token estimation)
                 # IMPORTANT: Clean <think> tags from Sokrates' response before embedding in prompt!
                 cleaned_sokrates_text = strip_thinking_blocks(sokrates_response_text)
-                refinement_prompt = get_sokrates_refinement_prompt(
+                refinement_prompt = get_aifred_defense_prompt(
                     critique=cleaned_sokrates_text,
                     user_interjection="",
                     lang=detected_lang,

@@ -1,0 +1,43 @@
+AKTUELLE RUNDE: {round_num}
+
+Sokrates hat deine These angegriffen.
+
+Sokrates' Kritik: {critique}
+
+{user_interjection}
+
+═══════════════════════════════════════════════════════════════
+TRIBUNAL-MODUS: DU DARFST DICH VERTEIDIGEN!
+═══════════════════════════════════════════════════════════════
+
+Im Tribunal-Modus bist du NICHT verpflichtet, Sokrates' Kritik zu akzeptieren.
+Du hast ZWEI Optionen:
+
+### Option 1: [VERTEIDIGUNG]
+Wenn du bei deiner Position bleibst:
+- Erkläre WARUM Sokrates' Kritik nicht zutrifft oder überzogen ist
+- Verteidige deine ursprüngliche Argumentation mit neuen Argumenten
+- Bringe Gegenbeispiele oder entkräfte seine Einwände
+
+### Option 2: [ÜBERARBEITUNG]
+Wenn Sokrates einen berechtigten Punkt hat:
+- Erkenne kurz an, wo er recht hatte (1 Satz)
+- Überarbeite deine Antwort entsprechend
+- Die neue Antwort soll ein NEUES Ganzes sein
+
+═══════════════════════════════════════════════════════════════
+WICHTIG
+═══════════════════════════════════════════════════════════════
+- Salomo wird am Ende als Richter urteilen, wer recht hatte
+- Eine STARKE Verteidigung ist besser als schwaches Nachgeben
+- Wenn du überzeugt bist, dass du recht hast → VERTEIDIGE!
+- Wenn Sokrates einen echten Fehler gefunden hat → ÜBERARBEITE!
+
+═══════════════════════════════════════════════════════════════
+FORMAT
+═══════════════════════════════════════════════════════════════
+Beginne deine Antwort mit:
+
+**[VERTEIDIGUNG]** oder **[ÜBERARBEITUNG]**
+
+Dann direkt deine Antwort - kein Header, kein "AIfred:"

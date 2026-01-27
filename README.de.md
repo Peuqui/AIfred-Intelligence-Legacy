@@ -187,8 +187,8 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
 | **Auto-Konsens** R{N} | Sokrates | `sokrates/critic` | Auto-Konsens: Kritik R{N} | 🏛️ Sokrates [Auto-Konsens: Kritik R2] |
 | **Auto-Konsens** R{N} | AIfred | `aifred/system_minimal` | Auto-Konsens: Überarbeitung R{N} | 🎩 AIfred [Auto-Konsens: Überarbeitung R2] |
 | **Auto-Konsens** R{N} | Salomo | `salomo/mediator` | Auto-Konsens: Synthese R{N} | 👑 Salomo [Auto-Konsens: Synthese R2] |
-| **Tribunal** R{N} | Sokrates | `sokrates/critic` | Tribunal: Kritik R{N} | 🏛️ Sokrates [Tribunal: Kritik R1] |
-| **Tribunal** R{N} | AIfred | `aifred/system_minimal` | Tribunal: Überarbeitung R{N} | 🎩 AIfred [Tribunal: Überarbeitung R1] |
+| **Tribunal** R{N} | Sokrates | `sokrates/tribunal` | Tribunal: Angriff R{N} | 🏛️ Sokrates [Tribunal: Angriff R1] |
+| **Tribunal** R{N} | AIfred | `aifred/defense` | Tribunal: Verteidigung R{N} | 🎩 AIfred [Tribunal: Verteidigung R1] |
 | **Tribunal** Final | Salomo | `salomo/judge` | Tribunal: Urteil R{N} | 👑 Salomo [Tribunal: Urteil R3] |
 
 **Hinweis:** Alle Prompts sind in `prompts/de/` (Deutsch) und `prompts/en/` (Englisch)
