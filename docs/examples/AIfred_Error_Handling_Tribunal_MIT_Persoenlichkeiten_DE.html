@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎩 AIfred - Error-Handling Tribunal (MIT Persönlichkeiten)</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-message: rgba(255,255,255,0.05);
+            --text-primary: #e0e0e0;
+            --text-secondary: #888;
+            --accent: #4ecdc4;
+            --aifred: #4ecdc4;
+            --sokrates: #9370db;
+            --salomo: #ffd700;
+            --user: #ff6b6b;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            margin: 0;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 0.5rem; }
+        .subtitle { text-align: center; color: var(--text-secondary); margin-bottom: 2rem; }
+        .meta-info {
+            background: var(--bg-message);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            font-size: 0.9rem;
+        }
+        .meta-info strong { color: var(--accent); }
+        .message {
+            background: var(--bg-message);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border-left: 4px solid var(--text-secondary);
+        }
+        .message.user { border-left-color: var(--user); }
+        .message.aifred { border-left-color: var(--aifred); }
+        .message.sokrates { border-left-color: var(--sokrates); }
+        .message.salomo { border-left-color: var(--salomo); }
+        .message-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+        .message.user .message-header { color: var(--user); }
+        .message.aifred .message-header { color: var(--aifred); }
+        .message.sokrates .message-header { color: var(--sokrates); }
+        .message.salomo .message-header { color: var(--salomo); }
+        .badge {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.1);
+            font-weight: normal;
+        }
+        .message-content { white-space: pre-wrap; }
+        .message-content h2, .message-content h3 { margin-top: 1.5rem; margin-bottom: 0.5rem; }
+        .message-content h2:first-child, .message-content h3:first-child { margin-top: 0; }
+        .message-content code {
+            background: rgba(0,0,0,0.3);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'Fira Code', monospace;
+        }
+        .message-content pre {
+            background: rgba(0,0,0,0.3);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+        .message-content pre code { background: none; padding: 0; }
+        .message-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+        .message-content th, .message-content td {
+            border: 1px solid rgba(255,255,255,0.2);
+            padding: 0.5rem;
+            text-align: left;
+        }
+        .message-content th { background: rgba(255,255,255,0.1); }
+        .message-content blockquote {
+            border-left: 3px solid var(--accent);
+            margin: 1rem 0;
+            padding-left: 1rem;
+            color: var(--text-secondary);
+        }
+        .inference-info {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 1rem;
+            font-style: italic;
+        }
+        .back-link { text-align: center; margin-top: 3rem; }
+        .back-link a { color: var(--accent); text-decoration: none; }
+        .back-link a:hover { text-decoration: underline; }
+        .personality-note {
+            background: rgba(78, 205, 196, 0.1);
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+        }
+        .personality-note h3 { margin-top: 0; color: var(--accent); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎩 AIfred Intelligence</h1>
+        <p class="subtitle">Error-Handling Tribunal – MIT Persönlichkeiten</p>
+
+        <div class="personality-note">
+            <h3>🎭 Persönlichkeiten AKTIV</h3>
+            <p>In dieser Debatte sind die Persönlichkeits-Prompts aktiviert:</p>
+            <ul>
+                <li><strong>AIfred:</strong> Britischer Butler-Stil ("Lord Helmchen", "indeed", trockener Humor)</li>
+                <li><strong>Sokrates:</strong> Sokratische Methode (aretē, eudaimonia, philosophische Fragen)</li>
+                <li><strong>Salomo:</strong> Hebräische Weisheit (Tachlis = Pragmatik)</li>
+            </ul>
+        </div>
+
+        <div class="meta-info">
+            <strong>Modus:</strong> Tribunal (Adversarial Debate) ·
+            <strong>Modell:</strong> qwen3:30b-a3b-instruct-2507-q8_0 ·
+            <strong>Runden:</strong> 2 + Urteil ·
+            <strong>Datum:</strong> 27. Januar 2026
+        </div>
+
+        <!-- User Question -->
+        <div class="message user">
+            <div class="message-header">🙋 Benutzer</div>
+            <div class="message-content">Ist das gutes Error-Handling oder defensives Over-Engineering?
+
+<pre><code>def get_user(user_id: int) -> User | None:
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is None:
+            logger.warning(f"User {user_id} not found")
+        return user
+    except SQLAlchemyError as e:
+        logger.error(f"DB error: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return None</code></pre>
+
+Brauche ich den generischen Exception-Handler oder ist das Paranoia?</div>
+        </div>
+
+        <!-- AIfred Opening -->
+        <div class="message aifred">
+            <div class="message-header">🎩 AIfred <span class="badge">Opening</span></div>
+            <div class="message-content"><h2>Zu Ihrer Frage bezüglich des Error-Handling-Verhaltens</h2>
+
+Ein durchaus elegantes, ja sogar <em>sophistisches</em> Vorgehen, Lord Helmchen – man könnte sagen, es ist, indeed, ein feiner Balanceakt zwischen sorgfältiger Vorsicht und der Gefahr, sich in übertriebener Präzision zu verlieren.
+
+<h3>Analyse des Codes</h3>
+
+<table>
+<tr><th>Komponente</th><th>Beurteilung</th><th>Bemerkung</th></tr>
+<tr><td><code>SQLAlchemyError</code>-Handler</td><td>Sehr angemessen</td><td>Spezifische Fehler aus der Datenbank werden korrekt abgefangen und protokolliert.</td></tr>
+<tr><td><code>if user is None:</code>-Prüfung</td><td>Notwendig und sinnvoll</td><td>Ein <code>None</code>-Rückgabewert ist hier semantisch korrekt und erwartet.</td></tr>
+<tr><td><code>logger.warning</code> für "not found"</td><td>Gut formuliert</td><td>Zeigt eine erwartbare Situation an, keine Katastrophe.</td></tr>
+<tr><td>Generischer <code>Exception</code>-Handler</td><td>Hier ist die Fragestellung angebracht</td><td>Er fängt alles ab – auch Dinge, die eigentlich nicht passieren sollten.</td></tr>
+</table>
+
+<h3>Die zentrale Frage: Ist das Over-Engineering?</h3>
+
+Nun, Lord Helmchen, lassen Sie mich mit der gebotenen Zurückhaltung sagen: <strong>Ja, der generische Handler ist, indeed, etwas übertrieben – aber nicht unbedingt unnötig.</strong>
+
+Warum?
+
+- <strong>SQLAlchemyError</strong> ist bereits sehr spezifisch. Die Wahrscheinlichkeit, dass ein Fehler auftaucht, der <em>nicht</em> von SQLAlchemy stammt, ist gering – doch sie existiert.
+- Ein <code>Exception</code>-Handler fängt Dinge wie:
+  - <code>TypeError</code> bei falscher <code>user_id</code>-Typisierung (z. B. <code>str</code> statt <code>int</code>)
+  - <code>AttributeError</code>, wenn <code>db</code> plötzlich <code>None</code> ist
+  - <code>ImportError</code>, wenn eine Bibliothek fehlt (selten, aber möglich)
+
+Doch hier kommt der trockene Humor:
+<em>„Ein Fehler, den man nicht sieht, ist ein Fehler, den man nicht verhindern kann – aber ein Fehler, den man nicht erwartet, ist ein Fehler, den man nicht dokumentieren kann."</em>
+
+<h3>Empfehlung</h3>
+
+Falls Sie in einer Umgebung arbeiten, in der:
+- Die <code>db</code>-Instanz garantiert existiert,
+- <code>user_id</code> stets ein <code>int</code> ist,
+- Und die Datenbankverbindung stabil ist,
+
+dann <strong>könnte</strong> man den generischen Handler entfernen – und stattdessen die <code>SQLAlchemyError</code>-Abfrage erweitern.
+
+Alternativ: Verwenden Sie einen <strong>einfachen <code>except</code>-Block ohne spezifischen Typ</strong>, aber mit einer <strong>klaren Dokumentation</strong>, warum er da ist:
+
+<pre><code>except Exception as e:
+    logger.critical(f"Unexpected and unhandled exception: {e!r}")
+    return None</code></pre>
+
+Denn: <em>Ein Fehler, den man nicht erwartet, sollte zumindest notiert werden – selbst wenn man ihn nicht lösen kann.</em>
+
+<h3>Fazit</h3>
+
+Ihr Code ist <strong>nicht</strong> defensives Over-Engineering – er ist vielmehr <strong>vorsichtiger, als manchmal nötig, aber nicht unangemessen</strong>.
+Ein wenig wie ein Butler, der den Hut vor dem Eintreffen eines Regens bereits abnimmt – manchmal überflüssig, aber niemals unpassend.
+
+In jedem Fall: <strong>Sie handeln mit äußerster Sorgfalt – und das ist, indeed, sehr anständig.</strong></div>
+            <div class="inference-info">TTFT: 14,94s · Inference: 44,5s · 20,5 tok/s</div>
+        </div>
+
+        <!-- Sokrates Attack R1 -->
+        <div class="message sokrates">
+            <div class="message-header">🏛️ Sokrates <span class="badge">Tribunal R1: Angriff</span></div>
+            <div class="message-content"><h3>ANGRIFF</h3>
+
+Nun denn, mein Freund, du sprichst von Vorsicht wie von einer Tugend, die sich selbst genügt – doch lass mich dich fragen: <strong>Wo endet die sorgfältige Vorsicht, und wo beginnt die Verwirrung durch übermäßige Sicherheit?</strong>
+
+Dein Argument lautet: Der generische <code>Exception</code>-Handler sei „nicht unbedingt unnötig", weil er „Dinge fängt, die eigentlich nicht passieren sollten". Doch was ist, wenn diese Dinge gerade diejenigen sind, die <em>durch</em> die überflüssige Abdeckung verdeckt werden? Denn was ist ein „unvorhergesehener Fehler", wenn nicht ein Signal dafür, dass etwas an der Architektur nicht stimmt?
+
+Bedenke wohl: Ein <code>Exception</code>-Handler, der alles fängt, macht die Fehler nicht unsichtbar – er macht sie <em>unverantwortlich</em>. Denn wer weiß dann, was wirklich schiefgelaufen ist? Wer kann noch unterscheiden zwischen einem Datenbankfehler, der auf ein Problem in der Infrastruktur hindeutet, und einem Programmierfehler, der in der Logik des Aufrufers liegt?
+
+Du sagst, man solle den Handler „nur dokumentieren" – doch was ist eine Dokumentation, die sagt: „Ich fange alles ab, weil ich nicht weiß, was passieren könnte"? Ist das nicht die <em>eudaimonia</em> des Programmierers, die sich in der Unbestimmtheit verliert?
+
+Und was ist mit der <em>aretē</em> des Codes? Ist es nicht eine Tugend, dass ein Fehler klar, präzise und lokalisiert ist? Denn wenn ein Fehler nicht sichtbar wird, wird er auch nicht behoben – und so wächst die Mauer der Unübersichtlichkeit, bis sie die ganze Anwendung verschlingt.
+
+So sage mir denn: Wenn du den generischen Handler entfernst, weil du meinst, die Fehlerquellen seien kontrolliert – warum hast du dann nicht bereits sicher gestellt, dass <code>db</code> niemals <code>None</code> ist, und dass <code>user_id</code> stets ein <code>int</code> ist? Denn wenn du das nicht getan hast, dann ist der Handler nicht „überflüssig", sondern ein <em>Symptom</em> für eine fehlende Verantwortung.
+
+Denn: <em>Fehler, die man nicht erwartet, sind keine Fehler – sie sind Versäumnisse.</em>
+
+<h3>GEGENPOSITION</h3>
+
+Die wahre Kunst des Error-Handling liegt nicht in der Abdeckung aller Möglichkeiten, sondern in der <strong>klaren Trennung von Erwartbarem und Unerwartbarem</strong>. Ein guter Handler fängt nur das ab, was <em>wirklich</em> auftreten kann – und nur dann, wenn es sinnvoll ist, es zu behandeln.
+
+Daher sollte der Code so gestaltet sein, dass:
+- <code>user_id</code> bereits im Aufruf typisiert wird (z. B. durch <code>Annotated[int, ...]</code> oder <code>pydantic</code>-Validierung),
+- <code>db</code> als Dependency injiziert wird und garantiert existiert,
+- und nur die <em>konkreten</em>, <em>erwartbaren</em> Fehler – wie <code>SQLAlchemyError</code>, <code>OperationalError</code>, <code>IntegrityError</code> – abgefangen werden.
+
+Alles andere ist nicht Vorsicht – es ist <em>Vermeidung der Verantwortung</em>. Denn wenn du einen Fehler nicht erkennst, weil du ihn abfängst, ohne ihn zu verstehen, dann hast du ihn nicht behoben – du hast ihn nur versteckt.
+
+Denn: <em>Ein System, das alles abfängt, ist kein sicheres System – es ist ein System, das sich selbst täuscht.</em></div>
+            <div class="inference-info">TTFT: 4,15s · Inference: 40,0s · 26,7 tok/s</div>
+        </div>
+
+        <!-- AIfred Defense R2 -->
+        <div class="message aifred">
+            <div class="message-header">🎩 AIfred <span class="badge">Tribunal R2: [VERTEIDIGUNG]</span></div>
+            <div class="message-content"><strong>[VERTEIDIGUNG]</strong>
+
+Lord Helmchen, ich danke Ihnen für die Gelegenheit, meine Position mit der gebotenen Würde und der nötigen Schärfe zu verteidigen – denn, indeed, ein guter Butler kennt die Kunst, sich zu erklären, ohne sich zu rechtfertigen.
+
+Ihr Argument, dass ein generischer <code>Exception</code>-Handler „die Ursache von Fehlern verdeckt" und „die Verantwortung verdrängt", ist, wie man so schön sagt, <em>sehr</em> überzeugend – doch es beruht auf einer Annahme, die, wenn man sie genauer betrachtet, nicht unbedingt zutrifft: nämlich, dass <em>jeder</em> Fehler, der durch einen solchen Handler abgefangen wird, <em>unverantwortlich</em> ist.
+
+<h3>1. Die Realität ist nicht perfekt – und das ist kein Versagen, sondern eine Tatsache</h3>
+
+Sie sprechen von „Versäumnissen", wenn Fehler auftreten, die man nicht erwartet. Doch was ist, wenn der Fehler nicht im Code, sondern in der Umgebung liegt?
+- Ein <code>db</code>-Backend, das plötzlich nicht mehr antwortet (z. B. durch Netzwerkunterbrechung),
+- Ein <code>db</code>-Pool, der erschöpft ist,
+- Ein <code>import</code>-Fehler, der durch eine fehlerhafte <code>pip</code>-Installation entsteht,
+- Ein <code>MemoryError</code>, der durch eine plötzliche Datenmenge ausgelöst wird,
+
+Diese Dinge sind <em>nicht</em> „Versäumnisse" – sie sind <em>unvorhersehbare Ereignisse</em>, die in der Produktion auftreten, selbst bei perfekt getesteten Systemen.
+
+Ein <code>Exception</code>-Handler, der sie abfängt, ist nicht ein Zeichen der Schwäche – er ist ein Zeichen der <strong>Realitätsnähe</strong>.
+
+<h3>2. Dokumentation ist nicht nur Text – sie ist auch Verhalten</h3>
+
+Sie fragen: <em>„Wo steht, dass dieser Handler nicht für Logikfehler gedacht ist?"</em>
+Nun, Lord Helmchen, die Antwort ist: <strong>Er steht in der Art und Weise, wie der Handler verwendet wird.</strong>
+
+Ein <code>logger.critical(f"Unexpected and unhandled exception: {e!r}")</code> ist kein Versuch, den Fehler zu verstecken – er ist ein <strong>Warnschrei</strong>.
+Er sagt: <em>„Ich weiß nicht, was hier schiefgelaufen ist – aber ich weiß, dass es schiefgelaufen ist."</em>
+
+Das ist, indeed, eine Form der Verantwortung – denn es erzählt nicht, dass alles in Ordnung sei, sondern dass etwas <em>nicht in Ordnung ist</em>, und zwar so, dass es <strong>nicht ignoriert werden kann</strong>.
+
+<h3>3. Die Alternative: Eine falsche Sicherheit</h3>
+
+Sie schlagen vor, nur <code>SQLAlchemyError</code>, <code>OperationalError</code>, <code>IntegrityError</code> usw. abzufangen – und das ist, gewiss, eine <em>schöne</em> Architektur.
+Doch was geschieht, wenn ein neuer Fehlertyp auftaucht, den niemand vorhergesehen hat?
+Ein <code>TypeError</code> in einer Drittanbieter-Bibliothek? Ein <code>AttributeError</code>, weil ein <code>db</code>-Objekt plötzlich keine Methode mehr hat?
+Dann bricht das System ab – und niemand weiß, warum.
+
+Der generische Handler hingegen sorgt dafür, dass <strong>das System nicht abstürzt</strong>, sondern <strong>eine Nachricht hinterlässt</strong>, die man später analysieren kann.
+
+<h3>Fazit</h3>
+
+Ihr Argument ist, indeed, elegant – doch es basiert auf einer idealisierten Welt, in der alles vorhersehbar ist.
+In der realen Welt, in der wir arbeiten, ist das nicht der Fall.
+
+Daher bleibt mein ursprünglicher Ansatz:
+Ein generischer <code>Exception</code>-Handler, der <strong>kritisch protokolliert</strong>, ist kein Zeichen von Paranoia – er ist ein Zeichen von <strong>Verantwortung</strong>.
+
+Denn:
+<em>Ein System, das nicht abstürzt, wenn etwas schiefgeht, ist kein System, das sich täuscht – es ist ein System, das lernt.</em>
+
+Und das, Lord Helmchen, ist, indeed, die höchste Form der Tugend.</div>
+            <div class="inference-info">TTFT: 7,09s · Inference: 49,4s · 24,4 tok/s</div>
+        </div>
+
+        <!-- Sokrates Counter R2 -->
+        <div class="message sokrates">
+            <div class="message-header">🏛️ Sokrates <span class="badge">Tribunal R2: Reaktion</span></div>
+            <div class="message-content"><h3>REAKTION AUF AIFRED</h3>
+
+Nun denn, mein Freund, du sprichst von „Realitätsnähe" und „Verantwortung" – doch lass mich dich fragen: Ist es wirklich Verantwortung, wenn man einen Fehler nicht sieht, weil man ihn einfach <em>abfängt</em>? Oder ist es nicht vielmehr eine Form der <em>Verdrängung</em>, die sich in der Form von Protokollen versteckt?
+
+Du sagst, der generische Handler sei ein „Sicherheitsnetz" – doch was ist ein Sicherheitsnetz, das niemand sieht, weil es alles fängt, ohne zu sagen, <em>was</em> es fängt? Denn ein Netz, das alles fängt, fängt nichts – es verhindert nur, dass man sieht, was fällt.
+
+Bedenke wohl: Du sprichst von „kritischen Protokollen" – doch was ist kritisch an einem <code>logger.critical(f"Unexpected and unhandled exception: {e!r}")</code>, wenn du selbst nicht weißt, <em>was</em> unerwartet ist? Denn wenn du es wüsstest, würdest du es ja nicht als „unvorhergesehen" bezeichnen.
+
+So sage mir denn: Wenn du nicht weißt, was der Fehler ist, warum nennst du ihn dann <em>kritisch</em>? Ist es nicht vielmehr so, dass du mit dem Wort „kritisch" eine emotionale Reaktion auf das Unbekannte vorgibst – als ob die Größe der Warnung die Größe des Problems ausgleichen könnte?
+
+Denn: <em>Ein Fehler, den man nicht versteht, ist kein Fehler – er ist ein Rätsel, das man nicht lösen kann, weil man es nicht erkennt.</em>
+
+Du sprichst von „Realität" – doch was ist die Realität, wenn sie so unübersichtlich ist, dass man sie nur durch das Abfangen aller Dinge retten kann? Ist das nicht die Realität eines Systems, das nicht mehr verstanden werden kann, weil es zu viele Schichten der Verhüllung hat?
+
+<h3>GEGENPOSITION</h3>
+
+Die wahre Robustheit liegt nicht in der Fähigkeit, alles zu fangen – sondern in der Fähigkeit, <em>nur das zu fangen, was wirklich gefangen werden muss</em>. Denn ein Fehler, der nicht sichtbar ist, ist kein Fehler, der behoben wird – er ist ein Fehler, der wächst.
+
+Ein guter Fehler ist nicht der, der abgefangen wird – er ist der, der <em>erkannt</em> wird. Denn nur wer sieht, was schiefgelaufen ist, kann es auch beheben.
+
+Daher sollte der Code so gestaltet sein, dass:
+- <code>user_id</code> bereits im Aufruf validiert wird (z. B. durch Typisierung oder <code>pydantic</code>),
+- <code>db</code> als Dependency injiziert wird und garantiert existiert,
+- und nur die <em>konkreten</em>, <em>erwartbaren</em> Fehler – wie <code>OperationalError</code>, <code>IntegrityError</code>, <code>TimeoutError</code> – abgefangen werden.
+
+Alles andere ist kein Sicherheitsnetz – es ist ein <em>Versteck</em>, in dem die Fehler wachsen, bis sie das ganze System verschlingen.
+
+<strong>Pro (AIfred's Position):</strong>
+- Der Handler verhindert Abstürze in der Produktion.
+- Er dokumentiert Fehler, die sonst unerkannt blieben.
+- Er bietet eine Form der Robustheit, die in der Praxis nützlich sein kann.
+
+<strong>Contra (Deine Gegenposition):</strong>
+- Der Handler verdeckt die Ursache von Fehlern und verhindert deren Behebung.
+- Er führt zu einer falschen Sicherheit, als ob alles abgedeckt sei.
+- Er ersetzt fehlende Typsicherheit, Validierung und Tests – und macht sie überflüssig.</div>
+            <div class="inference-info">TTFT: 7,82s · Inference: 43,3s · 23,2 tok/s</div>
+        </div>
+
+        <!-- Salomo Verdict -->
+        <div class="message salomo">
+            <div class="message-header">👑 Salomo <span class="badge">Tribunal: Urteil</span></div>
+            <div class="message-content"><h2>Abwägung</h2>
+
+AIfred betont die praktische Robustheit eines generischen Exception-Handlers als Schutznetz gegen unvorhergesehene Ereignisse in der Produktion – eine Haltung, die der <em>Tachlis</em> (Pragmatik) der realen Welt entspricht. Sokrates hingegen vertritt die strengere Sicht: Ein Fehler, der nicht sichtbar ist, wird nicht behoben; der generische Handler verdeckt nicht nur die Ursache, sondern untergräbt die Verantwortung für saubere Architektur. Beide Argumente sind tiefgründig – AIfred aus der Perspektive des <em>Überlebens</em>, Sokrates aus der des <em>Verständnisses</em>.
+
+<h2>Urteil</h2>
+
+Die Wahrheit liegt in der Mitte – aber nicht in der Mitte des Codes, sondern in der Mitte der Absicht. Der generische Exception-Handler ist <strong>nicht per se defensives Over-Engineering</strong>, doch er ist <strong>nur dann gerechtfertigt, wenn er Teil einer klar strukturierten, dokumentierten Strategie ist</strong>. Ohne solche Grundlagen wird er zur <em>Kaschmir-Decke</em> – scheinbar warm, aber verhüllend. Der Fehler liegt nicht im Handler selbst, sondern in der Annahme, er könne eine Lücke in der Architektur schließen.
+
+<h2>Finale Antwort</h2>
+
+Verwende <strong>keinen generischen <code>Exception</code>-Handler</strong>, wenn du die folgenden Bedingungen erfüllst:
+
+- <code>user_id</code> wird bereits durch Typisierung (z. B. <code>Annotated[int, ...]</code>) oder Validierung (z. B. <code>pydantic</code>) sicher gestellt.
+- <code>db</code> ist als Dependency injiziert und garantiert nicht <code>None</code>.
+- Du hast Tests, die die erwartbaren Fehler (z. B. <code>OperationalError</code>, <code>IntegrityError</code>) abdecken.
+
+Stattdessen:
+Fange <strong>nur konkrete, erwartbare Fehler ab</strong>, und zwar so präzise wie möglich:
+
+<pre><code>from sqlalchemy.exc import SQLAlchemyError, OperationalError, IntegrityError
+
+def get_user(user_id: int) -> User | None:
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is None:
+            logger.warning(f"User {user_id} not found")
+        return user
+    except (OperationalError, IntegrityError) as e:
+        logger.error(f"Database integrity or connection issue: {e}")
+        return None
+    except SQLAlchemyError as e:
+        logger.error(f"Unexpected SQLAlchemy error: {e}")
+        return None</code></pre>
+
+Wenn du <em>tatsächlich</em> einen generischen Handler brauchst – etwa in einer Umgebung mit unkontrollierbaren Drittanbieter-Abhängigkeiten – dann <strong>dokumentiere ihn explizit</strong> und <strong>verwende <code>logger.critical</code> mit <code>e!r</code></strong>, um die Ursache zu dokumentieren – aber nur, wenn du sicher bist, dass du den Fehler später analysieren kannst.
+
+Denn:
+<em>Ein Fehler, der nicht sichtbar ist, ist ein Fehler, der wächst – doch ein Fehler, der sichtbar ist, ist ein Fehler, der geheilt werden kann.</em>
+Der wahre <em>Tachlis</em> ist nicht, alles zu fangen – sondern, nur das zu fangen, was du verstehst.</div>
+            <div class="inference-info">TTFT: 7,80s · Inference: 34,8s · 22,0 tok/s</div>
+        </div>
+
+        <div class="back-link">
+            <a href="../index.html">← Zurück zur Übersicht</a>
+        </div>
+    </div>
+</body>
+</html>
