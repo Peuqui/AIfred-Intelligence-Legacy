@@ -546,20 +546,43 @@ def get_followup_intent_prompt(original_query: str, followup_query: str, lang: O
     )
 
 
-def _merge_prompt_layers(agent: str, task_prompt: str, lang: Optional[str] = None) -> str:
+def load_multi_agent_roles(lang: Optional[str] = None) -> str:
     """
-    Merge prompt layers in correct order: Identity + Reasoning + Task + Personality.
+    Load shared multi-agent roles description.
 
-    This is the core 4-layer prompt system:
+    This explains the three-agent system (AIfred, Sokrates, Salomo) and
+    history labels. Used in all multi-agent modes (not in direct modes).
+
+    Args:
+        lang: Language code (de/en), defaults to current language
+
+    Returns:
+        Multi-agent roles prompt text
+    """
+    return load_prompt('shared/multi_agent_roles', lang=lang)
+
+
+def _merge_prompt_layers(
+    agent: str,
+    task_prompt: str,
+    lang: Optional[str] = None,
+    multi_agent: bool = False
+) -> str:
+    """
+    Merge prompt layers in correct order: Identity + Reasoning + [MultiAgent] + Task + Personality.
+
+    This is the core prompt layer system:
     1. Identity (WHO am I) - always loaded
     2. Reasoning (HOW do I think) - toggleable via settings
-    3. Task prompt (WHAT should I do) - situational
-    4. Personality (HOW do I speak) - toggleable via settings, LAST for priority
+    3. Multi-Agent Roles (WHO are the others) - only in multi-agent modes
+    4. Task prompt (WHAT should I do) - situational
+    5. Personality (HOW do I speak) - toggleable via settings, LAST for priority
 
     Args:
         agent: Agent name ("aifred", "sokrates", "salomo")
         task_prompt: The task-specific prompt (already loaded with timestamp)
         lang: Language code (de/en), defaults to current language
+        multi_agent: If True, include shared/multi_agent_roles.txt (for debate modes)
 
     Returns:
         Merged prompt string with all applicable layers
@@ -576,10 +599,16 @@ def _merge_prompt_layers(agent: str, task_prompt: str, lang: Optional[str] = Non
     if reasoning:
         parts.append(reasoning)
 
-    # Layer 3: Task prompt (always)
+    # Layer 3: Multi-Agent Roles (only in multi-agent modes)
+    if multi_agent:
+        roles = load_multi_agent_roles(lang)
+        if roles:
+            parts.append(roles)
+
+    # Layer 4: Task prompt (always)
     parts.append(task_prompt)
 
-    # Layer 4: Personality (if enabled) - LAST so LLM prioritizes it!
+    # Layer 5: Personality (if enabled) - LAST so LLM prioritizes it!
     # LLMs tend to follow instructions at the end more strongly.
     personality = load_personality(agent, lang)
     if personality:
@@ -588,20 +617,21 @@ def _merge_prompt_layers(agent: str, task_prompt: str, lang: Optional[str] = Non
     return "\n\n".join(parts)
 
 
-def get_aifred_system_minimal(lang: Optional[str] = None) -> str:
+def get_aifred_system_minimal(lang: Optional[str] = None, multi_agent: bool = False) -> str:
     """
-    Load AIfred minimal system prompt with 4-layer merging.
+    Load AIfred minimal system prompt with layer merging.
 
-    Layers: Identity + Personality (if enabled) + Task prompt
+    Layers: Identity + Reasoning + [MultiAgent] + Task + Personality
 
     Args:
         lang: Language code (de/en), defaults to current language
+        multi_agent: If True, include multi-agent roles explanation (for debate modes)
 
     Returns:
         AIfred system prompt (identity + optional style + task instructions)
     """
     task_prompt = load_prompt('aifred/system_minimal', lang=lang)
-    return _merge_prompt_layers("aifred", task_prompt, lang)
+    return _merge_prompt_layers("aifred", task_prompt, lang, multi_agent=multi_agent)
 
 
 def get_system_rag_prompt(context: str, user_text: str = "", lang: Optional[str] = None) -> str:
@@ -688,20 +718,21 @@ def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) 
 # Sokrates Multi-Agent Prompts
 # ============================================================
 
-def get_sokrates_system_minimal(lang: Optional[str] = None) -> str:
+def get_sokrates_system_minimal(lang: Optional[str] = None, multi_agent: bool = False) -> str:
     """
-    Load Sokrates minimal system prompt with 4-layer merging.
+    Load Sokrates minimal system prompt with layer merging.
 
-    Layers: Identity + Personality (if enabled) + Task prompt
+    Layers: Identity + Reasoning + [MultiAgent] + Task + Personality
 
     Args:
         lang: Language code (de/en), defaults to current language
+        multi_agent: If True, include multi-agent roles explanation (for debate modes)
 
     Returns:
         Sokrates system prompt (identity + optional style + task instructions)
     """
     task_prompt = load_prompt('sokrates/system_minimal', lang=lang)
-    return _merge_prompt_layers("sokrates", task_prompt, lang)
+    return _merge_prompt_layers("sokrates", task_prompt, lang, multi_agent=multi_agent)
 
 
 def get_sokrates_critic_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
@@ -866,20 +897,21 @@ def get_salomo_direct_prompt(lang: Optional[str] = None) -> str:
     return _merge_prompt_layers("salomo", task_prompt, lang)
 
 
-def get_salomo_system_minimal(lang: Optional[str] = None) -> str:
+def get_salomo_system_minimal(lang: Optional[str] = None, multi_agent: bool = False) -> str:
     """
-    Load Salomo minimal system prompt with 4-layer merging.
+    Load Salomo minimal system prompt with layer merging.
 
-    Layers: Identity + Personality (if enabled) + Task prompt
+    Layers: Identity + Reasoning + [MultiAgent] + Task + Personality
 
     Args:
         lang: Language code (de/en), defaults to current language
+        multi_agent: If True, include multi-agent roles explanation (for debate modes)
 
     Returns:
         Salomo system prompt (identity + optional style + task instructions)
     """
     task_prompt = load_prompt('salomo/system_minimal', lang=lang)
-    return _merge_prompt_layers("salomo", task_prompt, lang)
+    return _merge_prompt_layers("salomo", task_prompt, lang, multi_agent=multi_agent)
 
 
 def get_salomo_mediator_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
@@ -940,22 +972,22 @@ def init_system_prompt_cache() -> dict[str, dict[str, int]]:
 
     for lang in ["de", "en"]:
         try:
-            # AIfred system prompt (with personality for worst-case token count)
-            aifred_prompt = get_aifred_system_minimal(lang=lang)
+            # AIfred system prompt (with multi_agent=True for worst-case token count)
+            aifred_prompt = get_aifred_system_minimal(lang=lang, multi_agent=True)
             if "aifred" not in _system_prompt_token_cache:
                 _system_prompt_token_cache["aifred"] = {}
             _system_prompt_token_cache["aifred"][lang] = _estimate_tokens(aifred_prompt)
 
-            # Sokrates system prompt (minimal + personality + critic as worst case)
-            sokrates_minimal = get_sokrates_system_minimal(lang=lang)
+            # Sokrates system prompt (minimal + multi_agent + critic as worst case)
+            sokrates_minimal = get_sokrates_system_minimal(lang=lang, multi_agent=True)
             sokrates_critic = load_prompt('sokrates/critic', lang=lang, round_num=1)
             sokrates_combined = f"{sokrates_minimal}\n\n{sokrates_critic}"
             if "sokrates" not in _system_prompt_token_cache:
                 _system_prompt_token_cache["sokrates"] = {}
             _system_prompt_token_cache["sokrates"][lang] = _estimate_tokens(sokrates_combined)
 
-            # Salomo system prompt (minimal + personality + mediator as worst case)
-            salomo_minimal = get_salomo_system_minimal(lang=lang)
+            # Salomo system prompt (minimal + multi_agent + mediator as worst case)
+            salomo_minimal = get_salomo_system_minimal(lang=lang, multi_agent=True)
             salomo_mediator = load_prompt('salomo/mediator', lang=lang, round_num=1)
             salomo_combined = f"{salomo_minimal}\n\n{salomo_mediator}"
             if "salomo" not in _system_prompt_token_cache:

@@ -275,9 +275,8 @@ async def handle_own_knowledge(
             },
             "timestamp": datetime.datetime.now().isoformat()
         })
-        # llm_history: Add user message first (was passed without current message)
-        llm_history.append({"role": "user", "content": user_text})
         # llm_history: Add assistant response (strip thinking blocks)
+        # Note: User message is already in llm_history (added by state.py before calling this handler)
         if response_clean:
             llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
 
