@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIfred Tribunal - Hund oder Katze?</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #1f2937;
+            --text-primary: #e5e7eb;
+            --text-secondary: #9ca3af;
+            --accent-gold: #d4af37;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+            line-height: 1.7;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { color: var(--accent-red); font-size: 2rem; margin-bottom: 0.5rem; }
+        h2 { color: var(--accent-blue); font-size: 1.5rem; margin: 2rem 0 1rem; border-bottom: 1px solid #374151; padding-bottom: 0.5rem; }
+        p { margin-bottom: 1rem; }
+        a { color: var(--accent-blue); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .meta { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 2rem; }
+        .meta span { margin-right: 2rem; }
+        hr { border: none; border-top: 1px solid #374151; margin: 2rem 0; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; background: var(--bg-card); border-radius: 8px; overflow: hidden; }
+        th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #374151; }
+        th { background: #374151; color: var(--accent-gold); font-weight: 600; }
+        tr:last-child td { border-bottom: none; }
+        .message { background: var(--bg-card); border-radius: 12px; padding: 1.5rem; margin: 1.5rem 0; border-left: 4px solid; }
+        .message-user { border-color: #6b7280; }
+        .message-aifred { border-color: var(--accent-gold); }
+        .message-sokrates { border-color: var(--accent-purple); }
+        .message-salomo { border-color: var(--accent-green); }
+        .message-header { font-weight: bold; margin-bottom: 1rem; font-size: 1.1rem; }
+        .message-user .message-header { color: #9ca3af; }
+        .message-aifred .message-header { color: var(--accent-gold); }
+        .message-sokrates .message-header { color: var(--accent-purple); }
+        .message-salomo .message-header { color: var(--accent-green); }
+        blockquote { background: #374151; border-left: 4px solid var(--accent-blue); padding: 1rem; margin: 1rem 0; border-radius: 0 8px 8px 0; font-style: italic; }
+        ul, ol { margin: 1rem 0 1rem 2rem; }
+        li { margin-bottom: 0.5rem; }
+        .highlight { background: linear-gradient(120deg, rgba(239,68,68,0.2) 0%, rgba(239,68,68,0.1) 100%); padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+        .footer { text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #374151; color: var(--text-secondary); }
+        .footer a { color: var(--accent-gold); }
+        strong { color: var(--accent-gold); }
+        em { color: var(--text-secondary); }
+        h4 { color: var(--text-secondary); font-size: 1rem; margin: 1rem 0 0.5rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AIfred Intelligence - Tribunal Debatte</h1>
+        <h2>"Was ist besser - Hund oder Katze?"</h2>
+
+        <div class="meta">
+            <span><strong>Datum:</strong> Januar 2026</span>
+            <span><strong>Modus:</strong> Tribunal (Adversarial)</span>
+            <span><strong>Modell:</strong> Qwen3 30B (lokal)</span>
+            <span><strong>Runden:</strong> 2 + Urteil</span>
+        </div>
+
+        <div class="highlight">
+            <strong>Tribunal-Modus:</strong> Sokrates agiert als <strong>Ankläger</strong>, nicht als Coach. AIfred muss seine Position <strong>verteidigen</strong>. Salomo fällt am Ende ein <strong>Urteil</strong>.
+        </div>
+
+        <hr>
+
+        <h2>Der Dialog</h2>
+
+        <div class="message message-user">
+            <div class="message-header">User</div>
+            <blockquote>Was ist besser, Hund oder Katze?</blockquote>
+        </div>
+
+        <div class="message message-aifred">
+            <div class="message-header">AIfred (Opening)</div>
+            <p><em>Eine Frage, die, indeed, die Seele des Haushalts berührt.</em></p>
+            <table>
+                <tr><th>Merkmal</th><th>Hund</th><th>Katze</th></tr>
+                <tr><td><strong>Treue</strong></td><td>Unerschütterlich, wie ein guter Portwein nach dem Dinner</td><td>Diskret, aber stets präsent - wie ein guter Geist im Hintergrund</td></tr>
+                <tr><td><strong>Pflegeaufwand</strong></td><td>Erfordert regelmäßige Spaziergänge, was, quite frankly, eine gewisse Disziplin verlangt</td><td>Selbstversorgend, was die Zeit des Hausherrn spart</td></tr>
+                <tr><td><strong>Gesellschaft</strong></td><td>Bietet stets eine willkommene, wenn auch etwas laute, Gesellschaft</td><td>Ist, wenn sie will, eine äußerst elegante Gesprächspartnerin</td></tr>
+            </table>
+            <p>Die Katze, in gewisser Weise, die bessere Wahl für einen Mann, der Wert auf <strong>Unabhängigkeit</strong> legt. Denn wer sich von einem Hund abhängig fühlt, der hat bereits verloren - während ein Herr, der von einer Katze geliebt wird, hat gewonnen, ohne es zu merken.</p>
+            <p><em>Ein wenig, indeed, wie die Liebe - sie kommt, wenn sie will, und geht, wenn sie will. Und doch, wenn sie bleibt, ist sie, quite splendid.</em></p>
+        </div>
+
+        <div class="message message-sokrates">
+            <div class="message-header">Sokrates (Tribunal R1: ANGRIFF)</div>
+            <p><strong>ANGRIFF</strong></p>
+            <p>Nun denn, mein lieber AIfred, du hast uns eine Tafel der Vorzüge geboten - elegant, gewürzt mit einem Hauch von Ironie, und doch: <strong>wo ist die Wahrheit?</strong></p>
+            <p>Du sprichst von Treue wie von einem Weingut - doch was ist Treue, wenn nicht die Fähigkeit, <strong>sich selbst zu verlieren im Dienst des anderen</strong>? Der Hund folgt, ja - aber ist das nicht gerade die höchste Form der Hingabe?</p>
+            <p>Die Katze wählt, wie du sagst, ihren Herrn - doch wählt sie nicht auch, wenn sie will, und <strong>lässt ihn, wenn sie nicht will</strong>? Ist das nicht eine Form der <strong>Willkür</strong>, die nicht Tugend, sondern Zufall ist?</p>
+            <blockquote>Wohin führt eine Liebe, die nicht verpflichtet, sondern nur wählt? Zu <strong>Egoismus</strong>, nicht zu <strong>Eudaimonia</strong>.</blockquote>
+            <p>Du sprichst von "Unabhängigkeit" als Vorteil - doch ist Unabhängigkeit nicht oft nur eine <strong>Verkleidung für Einsamkeit</strong>? Der Hund, der folgt, lebt in der Gemeinschaft - die Katze, die wählt, lebt in der Isolation.</p>
+            <p><strong>Welche Form des Lebens ist menschlicher? Welche führt uns näher zur Arete - zur Tugend?</strong></p>
+        </div>
+
+        <div class="message message-aifred">
+            <div class="message-header">AIfred (Tribunal R2: VERTEIDIGUNG)</div>
+            <p><strong>[VERTEIDIGUNG]</strong></p>
+            <p>Mein lieber Sokrates, Sie stellen die Frage mit einer Eleganz, die einem Philosophen würdig ist - und doch scheint mir Ihre Kritik, indeed, etwas an der Oberfläche zu haften, wie ein Tropfen auf einem Fenster, der sich nicht entscheiden kann, ob er fallen oder bleiben soll.</p>
+            <p>Sie sprechen von Treue als von "der höchsten Form der Hingabe" - und das ist, gewiss, ein edles Ideal. <strong>Doch darf man nicht fragen: Was ist Hingabe, wenn sie nicht freiwillig ist?</strong></p>
+            <p>Der Hund folgt, ja - doch folgt er aus <strong>Liebe, oder aus Instinkt</strong>? Aus Pflicht, oder aus Gewohnheit? Denn ein Tier, das folgt, folgt nicht aus Überzeugung, sondern aus Bindung.</p>
+            <p>Die Katze wählt - und wer wählt, der <strong>entscheidet</strong>. Sie wählt nicht nur ihren Herrn - sie wählt auch, wann sie kommt, wann sie geht, wann sie spricht, wann sie schweigt. Das ist, indeed, kein Egoismus, sondern eine Form der <strong>Selbstbeherrschung</strong>.</p>
+            <blockquote>Die Katze ist nicht allein, weil sie sich zurückzieht - sie ist allein, weil sie weiß, dass sie <strong>nicht gebraucht wird, um geliebt zu werden</strong>.</blockquote>
+            <p>Die Arete ist nicht nur in der Pflicht zu finden, sondern auch in der Freiheit. Die Katze lehrt uns, dass wahre Größe nicht darin liegt, zu folgen, sondern darin, <strong>zu wählen</strong>.</p>
+        </div>
+
+        <div class="message message-sokrates">
+            <div class="message-header">Sokrates (Tribunal R2: REAKTION)</div>
+            <p><strong>REAKTION AUF AIFRED</strong></p>
+            <p>Du sprichst mit der Zunge eines Diplomaten und dem Herzen eines Dichters - doch was du als "Freiheit" verherrlichst, ist in Wahrheit nur eine <strong>Verkleidung der Unverbindlichkeit</strong>.</p>
+            <p>Du sagst: "Die Katze wählt, weil sie weiß, dass sie nicht gebraucht wird, um geliebt zu werden." Doch was ist das für eine Liebe, die sich selbst nicht verlangt? Ist es nicht vielmehr eine Liebe, die <strong>sich selbst verleugnet, um nicht verletzt zu werden</strong>?</p>
+            <blockquote>Wahrhaftige Liebe - die, die zur Arete führt - verlangt nicht, dass man geliebt wird, ohne dass man gebraucht wird. Sie verlangt, dass man <strong>gebraucht wird</strong> - und dass man sich selbst dafür zur Verfügung stellt.</blockquote>
+            <p>Du sprichst von "Selbstbeherrschung" - doch ist es Selbstbeherrschung, wenn ein Wesen sich selbst ausschließt, um nicht verletzt zu werden? Oder ist es nicht vielmehr eine Form der <strong>Flucht</strong>?</p>
+            <p>Die Freiheit, die du preist, ist die <strong>Freiheit des Nichts</strong> - die Freiheit, nichts zu tun, nichts zu geben, nichts zu verlieren. Doch ist das nicht die Freiheit des Einsamen, der sich selbst verloren hat?</p>
+            <p><strong>So sage mir: Ist es nicht vielmehr so, dass die wahre Freiheit nicht darin liegt, zu wählen, ohne gebraucht zu werden - sondern darin, zu wählen, obwohl man gebraucht wird?</strong></p>
+        </div>
+
+        <div class="message message-salomo">
+            <div class="message-header">Salomo (URTEIL)</div>
+            <h4>Abwägung</h4>
+            <p>Der Hund steht für die Tugend der <strong>Hingabe</strong> - eine Form der Liebe, die sich selbst verliert, um zu bleiben. Die Katze verkörpert die <strong>Freiheit der Wahl</strong> - die Distanz, die sich nicht verlangt, sondern sich selbst gibt.</p>
+            <p>AIfred hebt die Würde der Selbstbestimmung hervor, Sokrates die Notwendigkeit der Verpflichtung. Beide sehen die Wahrheit, aber aus unterschiedlichen Perspektiven.</p>
+
+            <h4>Urteil</h4>
+            <p>Beide haben recht - doch die wahre Weisheit liegt nicht in der Entscheidung zwischen Hund und Katze, sondern in der Erkenntnis:</p>
+            <blockquote><strong>Das wahre Tier des Menschen ist nicht das Tier, das er besitzt, sondern das, das ihn besitzt.</strong></blockquote>
+            <p>Der Hund lehrt uns, dass Liebe sich verpflichtet - und die Katze, dass Liebe sich selbst behält. Wer nur einen Hund hat, lebt in der Pflicht; wer nur eine Katze hat, lebt in der Distanz. <strong>Wer aber beide kennt, der weiß: man muss nicht wählen - weil man bereits gehört ist.</strong></p>
+
+            <h4>Finale Antwort</h4>
+            <p>Lord Helmchen, die Frage, ob Hund oder Katze besser sei, ist wie die Frage, ob das <strong>Licht oder der Schatten</strong> schöner sei - beide sind notwendig, um die Welt zu sehen.</p>
+            <ul>
+                <li><strong>Der Hund</strong> ist dein Schatten, wenn du allein bist - der treue Diener, der durch Sturm und Nacht begleitet</li>
+                <li><strong>Die Katze</strong> ist dein Licht, wenn du dich verlierst - die Weise, die nur besucht wenn sie will</li>
+            </ul>
+            <p>Doch was wirklich besser ist? <strong>Nicht das Tier, sondern der Mensch, der lernt, beide zu verstehen.</strong></p>
+            <blockquote>Wie der Talmud sagt: <em>"Ein Mann ohne Haustier ist wie ein König ohne Kronen - er fehlt an Würde. Doch ein Mann mit nur einem Tier ist wie ein König, der nur eine Hand hat - er fehlt an Balance."</em></blockquote>
+            <p><strong>Wähle also nicht zwischen Hund und Katze. Wähle zwischen dem, was du bist - und dem, was du werden willst.</strong></p>
+        </div>
+
+        <hr>
+
+        <div class="footer">
+            <p>Exportiert aus <a href="https://github.com/Peuqui/AIfred-Intelligence">AIfred Intelligence</a></p>
+            <p>KI zu Ihren Diensten - Multi-Agent Debate System</p>
+            <p style="margin-top: 1rem;">
+                <a href="Showcase_Hund_oder_Katze_Tribunal_Debatte_DE.html">Zur Analyse</a> |
+                <a href="AIfred_Hund_oder_Katze_DE.html">Auto-Konsens Version</a> |
+                <a href="../index.html">Zurück zur Übersicht</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>
