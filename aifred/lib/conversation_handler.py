@@ -1391,8 +1391,9 @@ async def chat_interactive_mode(
         # These keywords/URLs trigger IMMEDIATE new research without AI decision!
 
         # URL Detection (skip Decision-Making for URL requests)
-        from .research.query_processor import detect_urls_in_text
+        from .research.query_processor import detect_urls_in_text, detect_search_intent
         detected_urls = detect_urls_in_text(user_text, max_urls=7)
+        has_search_intent = detect_search_intent(user_text)
 
         explicit_keywords = [
             'recherchiere', 'recherchier',  # German: "recherchiere!", "recherchier mal"
@@ -1491,34 +1492,42 @@ async def chat_interactive_mode(
             # Proceed with fresh web research (no exact match or error)
             yield {"type": "debug", "message": "🌐 Starting fresh web research..."}
 
-            # Generate queries via research_decision (even for explicit requests)
-            # This ensures pre_generated_queries is always provided to perform_agent_research
-            yield {"type": "debug", "message": "🔍 Generating search queries..."}
-
-            # Check if images are present (for research_decision context)
-            has_images = (pending_images is not None and len(pending_images) > 0) or (vision_json_context is not None)
-
-            research_result = await detect_research_decision(
-                user_text=user_text,
-                automatik_llm_client=automatik_llm_client,
-                automatik_model=automatik_model,
-                has_images=has_images,
-                vision_json_context=vision_json_context,
-                detected_language=detected_language,
-                llm_history=llm_history[:-1] if len(llm_history) > 1 else None
-            )
-            pre_generated_queries = research_result.get("queries", [])
-            query_gen_time = research_result.get("decision_time", 0)
-
-            if pre_generated_queries:
-                yield {"type": "debug", "message": f"✅ {len(pre_generated_queries)} queries generated ({format_number(query_gen_time, 1)}s)"}
-                # Query list is shown in query_processor.py with API assignments
+            # OPTIMIZATION: Skip query generation for direct URLs without search intent
+            # query_processor.py will handle these in Direct-Scraping mode
+            if detected_urls and not has_search_intent:
+                # Direct URL mode - no queries needed
+                log_message("⚡ Direct URL detected (no search intent) → Skipping query generation")
+                yield {"type": "debug", "message": "⚡ Direct-Scraping mode → Skip query generation"}
+                pre_generated_queries = []  # Empty list signals Direct-Scraping mode
             else:
-                # No queries = LLM parsing error. Log and raise for debugging.
-                error_msg = "research_decision returned no queries (LLM parsing error?)"
-                log_message(f"❌ {error_msg}")
-                yield {"type": "debug", "message": f"❌ {error_msg}"}
-                raise ValueError(error_msg)
+                # Generate queries via research_decision (for normal/hybrid mode)
+                # This ensures pre_generated_queries is always provided to perform_agent_research
+                yield {"type": "debug", "message": "🔍 Generating search queries..."}
+
+                # Check if images are present (for research_decision context)
+                has_images = (pending_images is not None and len(pending_images) > 0) or (vision_json_context is not None)
+
+                research_result = await detect_research_decision(
+                    user_text=user_text,
+                    automatik_llm_client=automatik_llm_client,
+                    automatik_model=automatik_model,
+                    has_images=has_images,
+                    vision_json_context=vision_json_context,
+                    detected_language=detected_language,
+                    llm_history=llm_history[:-1] if len(llm_history) > 1 else None
+                )
+                pre_generated_queries = research_result.get("queries", [])
+                query_gen_time = research_result.get("decision_time", 0)
+
+                if pre_generated_queries:
+                    yield {"type": "debug", "message": f"✅ {len(pre_generated_queries)} queries generated ({format_number(query_gen_time, 1)}s)"}
+                    # Query list is shown in query_processor.py with API assignments
+                else:
+                    # No queries = LLM parsing error. Log and raise for debugging.
+                    error_msg = "research_decision returned no queries (LLM parsing error?)"
+                    log_message(f"❌ {error_msg}")
+                    yield {"type": "debug", "message": f"❌ {error_msg}"}
+                    raise ValueError(error_msg)
 
             async for item in perform_agent_research(
                 user_text=user_text,

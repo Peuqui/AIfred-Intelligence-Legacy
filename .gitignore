@@ -93,3 +93,6 @@ data/
 
 # Test Directory (local test files)
 Test/
+
+# Internal drafts (marketing, notes, etc.)
+docs/drafts/
