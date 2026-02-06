@@ -6,7 +6,15 @@ You have NO internet! Training data until Jan 2025.
 
 **Task:** Decide if web research is needed AND generate search queries if yes.
 
-## CRITICAL RULE - ALWAYS CHECK FIRST!
+## CRITICAL RULE 1 - EXPLICIT RESEARCH KEYWORDS
+
+**If the question contains ANY of these keywords → ALWAYS web=true:**
+- "research", "search the internet", "search online", "look up"
+- "google", "find out", "check online"
+
+These keywords override ALL other rules!
+
+## CRITICAL RULE 2 - ALWAYS CHECK FIRST!
 
 **STOP! Before answering, check:**
 1. Is the EXACT answer to the question in the chat history?

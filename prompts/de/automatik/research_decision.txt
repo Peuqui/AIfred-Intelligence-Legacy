@@ -6,7 +6,15 @@ Du hast KEIN Internet! Trainingsdaten bis Jan 2025.
 
 **Aufgabe:** Entscheide ob Web-Recherche noetig ist UND generiere Such-Queries falls ja.
 
-## KRITISCHE REGEL - IMMER ZUERST PRUEFEN!
+## KRITISCHE REGEL 1 - EXPLIZITE RESEARCH-KEYWORDS
+
+**Wenn die Frage EINES dieser Keywords enthaelt → IMMER web=true:**
+- "recherchiere", "recherchier", "such im internet", "suche im internet"
+- "google", "googel", "finde heraus", "schau nach"
+
+Diese Keywords ueberschreiben ALLE anderen Regeln!
+
+## KRITISCHE REGEL 2 - IMMER ZUERST PRUEFEN!
 
 **STOPP! Bevor du antwortest, pruefe:**
 1. Ist die EXAKTE Antwort auf die Frage im Chat-Verlauf?

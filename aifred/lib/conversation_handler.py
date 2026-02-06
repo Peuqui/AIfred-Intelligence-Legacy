@@ -1500,14 +1500,14 @@ async def chat_interactive_mode(
                 yield {"type": "debug", "message": "⚡ Direct-Scraping mode → Skip query generation"}
                 pre_generated_queries = []  # Empty list signals Direct-Scraping mode
             else:
-                # Generate queries via research_decision (for normal/hybrid mode)
-                # This ensures pre_generated_queries is always provided to perform_agent_research
+                # CODE-OVERRIDE: Use generate_search_queries (same path as quick/deep mode)
+                # Bypasses unreliable LLM decision - we already KNOW we want to research
                 yield {"type": "debug", "message": "🔍 Generating search queries..."}
 
-                # Check if images are present (for research_decision context)
+                # Check if images are present (for query generation context)
                 has_images = (pending_images is not None and len(pending_images) > 0) or (vision_json_context is not None)
 
-                research_result = await detect_research_decision(
+                query_result = await generate_search_queries(
                     user_text=user_text,
                     automatik_llm_client=automatik_llm_client,
                     automatik_model=automatik_model,
@@ -1516,15 +1516,15 @@ async def chat_interactive_mode(
                     detected_language=detected_language,
                     llm_history=llm_history[:-1] if len(llm_history) > 1 else None
                 )
-                pre_generated_queries = research_result.get("queries", [])
-                query_gen_time = research_result.get("decision_time", 0)
+                pre_generated_queries = query_result.get("queries", [])
+                query_gen_time = query_result.get("generation_time", 0)
 
                 if pre_generated_queries:
                     yield {"type": "debug", "message": f"✅ {len(pre_generated_queries)} queries generated ({format_number(query_gen_time, 1)}s)"}
                     # Query list is shown in query_processor.py with API assignments
                 else:
-                    # No queries = LLM parsing error. Log and raise for debugging.
-                    error_msg = "research_decision returned no queries (LLM parsing error?)"
+                    # Should never happen unless LLM completely fails to parse
+                    error_msg = "Query generation failed (LLM parsing error?)"
                     log_message(f"❌ {error_msg}")
                     yield {"type": "debug", "message": f"❌ {error_msg}"}
                     raise ValueError(error_msg)
