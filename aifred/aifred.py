@@ -3478,8 +3478,8 @@ def settings_accordion() -> rx.Component:
                                     AIState.tts_engine.contains("XTTS"),
                                     rx.hstack(
                                         rx.switch(
-                                            checked=AIState.xtts_force_cpu,
-                                            on_change=AIState.set_xtts_force_cpu,
+                                            checked=AIState.xtts_force_cpu == False,  # noqa: E712
+                                            on_change=AIState.toggle_xtts_gpu,
                                             size="1",
                                         ),
                                         rx.text(

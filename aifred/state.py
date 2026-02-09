@@ -7934,6 +7934,10 @@ class AIState(rx.State):
         self.add_debug(f"🔊 TTS Voice: {voice}")
         self._save_settings()
 
+    def toggle_xtts_gpu(self, use_gpu: bool):
+        """Toggle XTTS GPU mode (UI wrapper - inverts for set_xtts_force_cpu)."""
+        self.set_xtts_force_cpu(not use_gpu)
+
     def set_xtts_force_cpu(self, force_cpu: bool):
         """Set XTTS CPU mode and restart container.
 
