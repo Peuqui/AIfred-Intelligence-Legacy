@@ -890,6 +890,11 @@ async def tts_stream(session_id: str):
         _tts_sse_queues[session_id] = queue
         log_message(f"🔊 TTS SSE: Stream opened for session {session_id[:8]}...")
 
+        # Flush HTTP headers immediately by yielding an SSE comment.
+        # Without this, the proxy buffers until the first data (up to 15s keepalive),
+        # keeping EventSource stuck in CONNECTING state.
+        yield ": connected\n\n"
+
         # IMPORTANT: Send any already-generated audio URLs immediately
         # This handles the race condition where TTS generation starts before SSE connects
         if session_id in _tts_queue_storage:

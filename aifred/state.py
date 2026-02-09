@@ -2365,6 +2365,8 @@ class AIState(rx.State):
         self.tts_voice = settings.get("voice", self.tts_voice)
         self.tts_engine = settings.get("tts_engine", self.tts_engine)
         self.xtts_force_cpu = settings.get("xtts_force_cpu", self.xtts_force_cpu)
+        self.tts_autoplay = settings.get("tts_autoplay", self.tts_autoplay)
+        self.tts_streaming_enabled = settings.get("tts_streaming_enabled", self.tts_streaming_enabled)
 
         # UI language
         new_ui_lang = settings.get("ui_language", self.ui_language)
@@ -6227,7 +6229,7 @@ class AIState(rx.State):
             return []
 
         # Process any remaining buffer content
-        if self._tts_sentence_buffer and len(self._tts_sentence_buffer.strip()) >= 10:
+        if self._tts_sentence_buffer and self._tts_sentence_buffer.strip():
             agent = getattr(self, '_tts_streaming_agent', 'aifred')
             request_id = f"tts_{uuid.uuid4().hex[:8]}"
             self._pending_tts_requests = self._pending_tts_requests + [request_id]
@@ -6334,9 +6336,8 @@ class AIState(rx.State):
         # Send each complete sentence to TTS IMMEDIATELY via create_task
         agent = getattr(self, '_tts_streaming_agent', 'aifred')
         for sentence in sentences:
-            # Skip very short sentences
-            if len(sentence.strip()) < 10:
-                log_message(f"🔊 TTS Chunk: Skipping short sentence ({len(sentence)} chars)")
+            # Skip empty/whitespace-only content
+            if not sentence.strip():
                 continue
 
             log_message(f"🔊 TTS Chunk: Starting TTS task for (agent={agent}): {repr(sentence)}")
@@ -6375,8 +6376,8 @@ class AIState(rx.State):
             # Light cleanup - remove markdown, emojis, but keep the text mostly intact
             clean_text = clean_text_for_tts(sentence)
 
-            if not clean_text or len(clean_text.strip()) < 5:
-                # Remove request from pending for skipped sentences
+            if not clean_text or not clean_text.strip():
+                # Remove request from pending for empty sentences
                 self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
                 return
 
