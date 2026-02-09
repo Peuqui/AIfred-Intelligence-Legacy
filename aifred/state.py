@@ -341,6 +341,11 @@ class AIState(rx.State):
     xtts_voices_cache: List[str] = []
     # XTTS CPU Mode - Force CPU inference (slower but saves GPU VRAM for LLM)
     xtts_force_cpu: bool = False
+
+    @rx.var
+    def xtts_gpu_enabled(self) -> bool:
+        """Computed: True when GPU mode, False when CPU mode."""
+        return not self.xtts_force_cpu
     whisper_model_key: str = "small"  # Whisper model key (tiny/base/small/medium/large)
     # whisper_device removed - now configured in config.py (WHISPER_DEVICE)
     show_transcription: bool = False  # Show transcribed text for editing before sending
@@ -2359,6 +2364,7 @@ class AIState(rx.State):
         self.enable_tts = settings.get("enable_tts", self.enable_tts)
         self.tts_voice = settings.get("voice", self.tts_voice)
         self.tts_engine = settings.get("tts_engine", self.tts_engine)
+        self.xtts_force_cpu = settings.get("xtts_force_cpu", self.xtts_force_cpu)
 
         # UI language
         new_ui_lang = settings.get("ui_language", self.ui_language)
@@ -7936,13 +7942,20 @@ class AIState(rx.State):
 
     def toggle_xtts_gpu(self, use_gpu: bool):
         """Toggle XTTS GPU mode with immediate UI feedback."""
+        import os
         from .lib.process_utils import set_xtts_cpu_mode
+        from .lib.settings import SETTINGS_FILE
 
         force_cpu = not use_gpu
         self.xtts_force_cpu = force_cpu
         mode_str = "GPU (auto)" if use_gpu else "CPU (forced)"
         self.add_debug(f"🔊 XTTS: Wechsle zu {mode_str}...")
         self._save_settings()
+        # Update mtime tracker so periodic poll doesn't re-trigger "Settings reloaded"
+        try:
+            self._last_settings_mtime = os.path.getmtime(SETTINGS_FILE)
+        except OSError:
+            pass
         yield
 
         success, message = set_xtts_cpu_mode(force_cpu)

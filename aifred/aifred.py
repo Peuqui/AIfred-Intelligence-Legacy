@@ -3476,26 +3476,30 @@ def settings_accordion() -> rx.Component:
                                 # XTTS CPU Mode Toggle (only for XTTS v2)
                                 rx.cond(
                                     AIState.tts_engine.contains("XTTS"),
-                                    rx.hstack(
-                                        rx.tooltip(
-                                            rx.switch(
-                                                checked=AIState.xtts_force_cpu == False,  # noqa: E712
-                                                on_change=AIState.toggle_xtts_gpu,
-                                                size="1",
-                                            ),
-                                            content="Container-Neustart dauert einige Sekunden",
+                                    rx.tooltip(
+                                      rx.hstack(
+                                        rx.switch(
+                                            checked=AIState.xtts_gpu_enabled,
+                                            on_change=AIState.toggle_xtts_gpu,
+                                            size="1",
                                         ),
                                         rx.text(
                                             rx.cond(
                                                 AIState.xtts_force_cpu,
-                                                "CPU (langsamer)",
-                                                "GPU (schneller)",
+                                                rx.cond(AIState.ui_language == "de", "CPU (langsamer)", "CPU (slower)"),
+                                                rx.cond(AIState.ui_language == "de", "GPU (schneller)", "GPU (faster)"),
                                             ),
                                             font_size="10px",
                                             color="#d4a14a",
                                         ),
                                         spacing="1",
                                         align="center",
+                                      ),
+                                      content=rx.cond(
+                                          AIState.ui_language == "de",
+                                          "Container-Neustart dauert einige Sekunden",
+                                          "Container restart takes a few seconds",
+                                      ),
                                     ),
                                 ),
                                 spacing="2",

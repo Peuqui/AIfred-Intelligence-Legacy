@@ -77,7 +77,7 @@ html, body, #root, .radix-themes {
 .rt-SwitchRoot[data-state="unchecked"],
 .rt-SwitchRoot[data-state="unchecked"] > span,
 .rt-SwitchRoot[data-state="unchecked"]::before {
-    background-color: #2d1f00 !important;  /* UNCHECKED: Dunkles Orange */
+    background-color: #30363d !important;  /* UNCHECKED: Grau (deutlich unterscheidbar) */
     border-radius: 9999px !important;      /* Volle Rundung */
 }
 
