@@ -5,6 +5,28 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.7] - 2026-02-09 🔊 XTTS Voice Cloning & UI Polish
+
+### Added
+
+- **Salomo Voice Clone** - Custom XTTS voice from audiobook reference audio
+- **Custom Voices in Fallback** - ★ AIfred, ★ Salomo, ★ Sokrates in XTTS_VOICES_FALLBACK
+- **GPU Toggle Tooltip** - Hover-Hinweis "Container-Neustart dauert einige Sekunden"
+
+### Changed
+
+- **GPU Toggle invertiert** - ON = GPU (schneller), OFF = CPU (langsamer)
+- **GPU Toggle sofort reaktiv** - yield-basiertes UI-Feedback, Toggle flippt sofort
+- **Klarere Debug-Meldungen** - "XTTS Container neu gestartet (Modell lädt...)" statt irreführendem "switched to mode"
+
+### Fixed
+
+- **CODE-OVERRIDE Research-Pfad** - Nutzt jetzt `generate_search_queries` statt `detect_research_decision`, verhindert falsche `web=false` bei expliziten Keywords
+- **Research Decision Prompt** - Neue "Kritische Regel 1" für explizite Research-Keywords (recherchiere, google, etc.)
+- **Salomo Voice Echo** - Embeddings neu generiert, behebt Silben-Wiederholung bei Streaming TTS
+
+---
+
 ## [2.27.6] - 2026-01-27 ⚖️ Tribunal Mode: Adversarial Debate System
 
 ### Added

@@ -7935,8 +7935,21 @@ class AIState(rx.State):
         self._save_settings()
 
     def toggle_xtts_gpu(self, use_gpu: bool):
-        """Toggle XTTS GPU mode (UI wrapper - inverts for set_xtts_force_cpu)."""
-        self.set_xtts_force_cpu(not use_gpu)
+        """Toggle XTTS GPU mode with immediate UI feedback."""
+        from .lib.process_utils import set_xtts_cpu_mode
+
+        force_cpu = not use_gpu
+        self.xtts_force_cpu = force_cpu
+        mode_str = "GPU (auto)" if use_gpu else "CPU (forced)"
+        self.add_debug(f"🔊 XTTS: Wechsle zu {mode_str}...")
+        self._save_settings()
+        yield
+
+        success, message = set_xtts_cpu_mode(force_cpu)
+        if success:
+            self.add_debug(f"✅ {message}")
+        else:
+            self.add_debug(f"❌ {message}")
 
     def set_xtts_force_cpu(self, force_cpu: bool):
         """Set XTTS CPU mode and restart container.

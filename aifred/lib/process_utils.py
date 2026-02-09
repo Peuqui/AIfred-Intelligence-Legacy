@@ -278,7 +278,7 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
     )
 
     if success:
-        return True, f"XTTS switched to {mode_str} mode"
+        return True, f"XTTS Container neu gestartet im {mode_str}-Modus (Modell lädt...)"
     return False, message
 
 
