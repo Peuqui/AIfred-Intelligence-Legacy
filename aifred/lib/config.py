@@ -359,7 +359,11 @@ def get_xtts_voices() -> dict:
     return {}
 
 # Fallback voices when service is unavailable (for UI initialization)
+# Custom cloned voices first (★ prefix), then built-in voices
 XTTS_VOICES_FALLBACK = {
+    "★ AIfred": "AIfred",
+    "★ Salomo": "Salomo",
+    "★ Sokrates": "Sokrates",
     "Claribel Dervla": "Claribel Dervla",
     "Daisy Studious": "Daisy Studious",
     "Gracie Wise": "Gracie Wise",
