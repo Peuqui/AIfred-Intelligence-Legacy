@@ -360,6 +360,7 @@ class AIState(rx.State):
     # Streaming TTS - send sentences to TTS as they are generated
     tts_streaming_enabled: bool = True  # Enable streaming TTS (vs waiting for full response)
     _tts_sentence_buffer: str = ""  # Accumulates tokens until sentence boundary detected
+    _tts_short_carry: str = ""  # Short sentences (< 3 words) waiting to merge with next
     _tts_in_think_block: bool = False  # True when inside <think>...</think> block
     _tts_streaming_active: bool = False  # True during active streaming session
     _tts_streaming_agent: str = "aifred"  # Current agent for voice selection (aifred/sokrates/salomo)
@@ -6209,6 +6210,7 @@ class AIState(rx.State):
         log_message(f"🔊 TTS Init: Starting streaming TTS for agent={agent}")
         log_message(f"🔊 TTS Init: enable_tts={self.enable_tts}, tts_streaming_enabled={self.tts_streaming_enabled}, engine={self.tts_engine}")
         self._tts_sentence_buffer = ""
+        self._tts_short_carry = ""  # Short sentences waiting to be merged with next
         self._tts_in_think_block = False
         self._tts_streaming_active = True
         self._tts_streaming_agent = agent  # Store current agent for voice settings
@@ -6228,16 +6230,24 @@ class AIState(rx.State):
             log_message("🔊 TTS Finalize: Not active, skipping")
             return []
 
-        # Process any remaining buffer content
+        # Merge carried-over short sentence with remaining buffer
+        final_text = ""
+        if self._tts_short_carry:
+            final_text = self._tts_short_carry
+            self._tts_short_carry = ""
         if self._tts_sentence_buffer and self._tts_sentence_buffer.strip():
+            final_text = (final_text + " " + self._tts_sentence_buffer).strip() if final_text else self._tts_sentence_buffer
+        self._tts_sentence_buffer = ""
+
+        # Send remaining text to TTS (even if short - finalize sends everything)
+        if final_text and final_text.strip():
             agent = getattr(self, '_tts_streaming_agent', 'aifred')
             request_id = f"tts_{uuid.uuid4().hex[:8]}"
             self._pending_tts_requests = self._pending_tts_requests + [request_id]
-            log_message(f"🔊 TTS Finalize: Adding remaining buffer ({len(self._tts_sentence_buffer)} chars)")
+            log_message(f"🔊 TTS Finalize: Adding remaining text ({len(final_text)} chars): {repr(final_text[:50])}")
             asyncio.create_task(self._tts_generate_sentence_async(
-                self._tts_sentence_buffer, agent, request_id, self.session_id
+                final_text, agent, request_id, self.session_id
             ))
-            self._tts_sentence_buffer = ""
 
         # Wait for all pending TTS tasks to complete
         log_message(f"🔊 TTS Finalize: Waiting for {len(self._pending_tts_requests)} pending tasks...")
@@ -6333,11 +6343,26 @@ class AIState(rx.State):
             for i, s in enumerate(sentences):
                 log_message(f"🔊 TTS Chunk: Sentence {i+1}: {repr(s)}")
 
+        # Prepend any carried-over short sentence to the first extracted sentence
+        if self._tts_short_carry and sentences:
+            sentences[0] = self._tts_short_carry + " " + sentences[0]
+            self._tts_short_carry = ""
+
+        # XTTS hallucinates on very short text (< 3 words).
+        # Carry short sentences over to be merged with the next batch.
+        min_tts_words = 3
+
         # Send each complete sentence to TTS IMMEDIATELY via create_task
         agent = getattr(self, '_tts_streaming_agent', 'aifred')
         for sentence in sentences:
             # Skip empty/whitespace-only content
             if not sentence.strip():
+                continue
+
+            # Carry over short sentences to avoid XTTS hallucination
+            if len(sentence.split()) < min_tts_words:
+                self._tts_short_carry = sentence
+                log_message(f"🔊 TTS Chunk: Carrying short sentence ({len(sentence.split())} words): {repr(sentence)}")
                 continue
 
             log_message(f"🔊 TTS Chunk: Starting TTS task for (agent={agent}): {repr(sentence)}")

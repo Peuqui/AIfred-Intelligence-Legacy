@@ -1006,7 +1006,8 @@ def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Cla
     from .config import XTTS_SERVICE_URL
 
     # Save to data/tts_audio/ (served via /_upload/)
-    filename = _generate_tts_filename("wav")
+    # XTTS returns OGG/Opus format (not WAV)
+    filename = _generate_tts_filename("ogg")
     output_file = str(TTS_AUDIO_DIR / filename)
 
     try:
