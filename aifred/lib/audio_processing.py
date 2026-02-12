@@ -194,8 +194,10 @@ def save_audio_to_session(wav_urls: list[str], session_id: str) -> str | None:
     session_audio_dir = SESSION_AUDIO_DIR / session_id
     session_audio_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate output filename
-    output_filename = _generate_tts_filename("wav")
+    # Detect format from input files (preserve OGG if all inputs are OGG)
+    first_url = wav_urls[0] if wav_urls else ""
+    ext = "ogg" if first_url.endswith(".ogg") else "wav"
+    output_filename = _generate_tts_filename(ext)
 
     if len(wav_urls) == 1:
         # Single file: copy to session directory

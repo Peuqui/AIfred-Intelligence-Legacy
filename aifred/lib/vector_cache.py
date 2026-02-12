@@ -131,14 +131,29 @@ class VectorCache:
             )
 
             # Get or create collection with Ollama embeddings
-            self.collection = self.client.get_or_create_collection(
-                name="research_cache",
-                metadata={
-                    "description": "AIfred web research results with semantic search",
-                    "embedding_model": OLLAMA_EMBEDDING_MODEL
-                },
-                embedding_function=self.embedding_function
-            )
+            # ChromaDB 1.4+ stores embedding function config persistently.
+            # If the collection was created with a different function, recreate it.
+            try:
+                self.collection = self.client.get_or_create_collection(
+                    name="research_cache",
+                    metadata={
+                        "description": "AIfred web research results with semantic search",
+                        "embedding_model": OLLAMA_EMBEDDING_MODEL
+                    },
+                    embedding_function=self.embedding_function
+                )
+            except ValueError:
+                # Embedding function conflict - recreate collection
+                log_message("♻️ Embedding function changed, recreating collection...")
+                self.client.delete_collection("research_cache")
+                self.collection = self.client.create_collection(
+                    name="research_cache",
+                    metadata={
+                        "description": "AIfred web research results with semantic search",
+                        "embedding_model": OLLAMA_EMBEDDING_MODEL
+                    },
+                    embedding_function=self.embedding_function
+                )
 
             count = self.collection.count()
             log_message(f"✅ Vector Cache connected (Ollama/{OLLAMA_EMBEDDING_MODEL}): {count} entries")
