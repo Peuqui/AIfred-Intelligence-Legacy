@@ -50,6 +50,9 @@ logs
 *.tmp
 *.bak
 
+# Test output files
+test_output/
+
 # Backups
 *.backup
 *.backup-*
@@ -96,3 +99,7 @@ Test/
 
 # Internal drafts (marketing, notes, etc.)
 docs/drafts/
+
+# F5-TTS (experimental, buggy - not production ready)
+docker/f5-tts/
+scripts/tts_compare.py

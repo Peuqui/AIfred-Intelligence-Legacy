@@ -1,0 +1,52 @@
+services:
+  moss-tts-realtime:
+    build: .
+    image: moss-tts-realtime:latest
+    container_name: aifred-moss-tts-realtime
+    ports:
+      - "5056:5056"
+    volumes:
+      # Voice reference audio files
+      - ./voices:/app/voices:ro
+      # HuggingFace cache (persistent model storage)
+      - moss_realtime_cache:/root/.cache/huggingface
+    environment:
+      # Model selection
+      - MOSS_REALTIME_MODEL=OpenMOSS-Team/MOSS-TTS-Realtime
+      - MOSS_CODEC=OpenMOSS-Team/MOSS-Audio-Tokenizer
+
+      # Device selection (12GB threshold for Realtime model)
+      - MOSS_VRAM_THRESHOLD=12.0
+      - MOSS_FORCE_CPU=0
+
+      # GPU pinning (for multi-GPU systems like Mini with 2x P40)
+      # Uncomment to pin to second GPU (GPU 1)
+      # - CUDA_VISIBLE_DEVICES=1
+
+      # Inference parameters (MOSS-TTS-Realtime recommended)
+      - MOSS_TEMPERATURE=0.8
+      - MOSS_TOP_P=0.6
+      - MOSS_TOP_K=30
+      - MOSS_REPETITION_PENALTY=1.1
+      - MOSS_REPETITION_WINDOW=50
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s = socket.socket(); s.connect(('localhost', 5056)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  moss_realtime_cache:
+    driver: local
