@@ -8740,6 +8740,12 @@ class AIState(rx.State):
             voice_dict = PIPER_VOICES
         elif engine_key == "espeak":
             voice_dict = ESPEAK_VOICES
+        elif engine_key == "xtts":
+            # XTTS voices are loaded dynamically - use cached list
+            voice_dict = {voice: voice for voice in self.xtts_voices_cache} if self.xtts_voices_cache else {}
+        elif engine_key == "moss":
+            # MOSS voices are loaded dynamically - use available_tts_voices
+            voice_dict = {voice: voice for voice in self.available_tts_voices}
         else:
             voice_dict = EDGE_TTS_VOICES
 
