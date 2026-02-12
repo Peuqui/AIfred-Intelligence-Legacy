@@ -346,6 +346,12 @@ class AIState(rx.State):
     moss_tts_device: str = ""
 
     @rx.var
+    def tts_engines(self) -> List[str]:
+        """Available TTS engines for dropdown selection."""
+        from .lib.config import TTS_ENGINES
+        return TTS_ENGINES
+
+    @rx.var
     def xtts_gpu_enabled(self) -> bool:
         """Computed: True when GPU mode, False when CPU mode."""
         return not self.xtts_force_cpu
@@ -705,19 +711,19 @@ class AIState(rx.State):
                 return self.xtts_voices_cache
             # Fallback when service unavailable
             from .lib.config import XTTS_VOICES_FALLBACK
-            return list(XTTS_VOICES_FALLBACK.keys())
-        elif "MOSS" in self.tts_engine:
+            return sorted(list(XTTS_VOICES_FALLBACK.keys()))
+        elif "MOSS" in self.tts_engine:  # MOSS-TTS (batch)
             from .lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
             voices = get_moss_voices()
             if voices:
-                return list(voices.keys())
-            return list(MOSS_TTS_VOICES_FALLBACK.keys())
+                return sorted(list(voices.keys()))
+            return sorted(list(MOSS_TTS_VOICES_FALLBACK.keys()))
         elif "Piper" in self.tts_engine:
-            return list(PIPER_VOICES.keys())
+            return sorted(list(PIPER_VOICES.keys()))
         elif "eSpeak" in self.tts_engine:
-            return list(ESPEAK_VOICES.keys())
+            return sorted(list(ESPEAK_VOICES.keys()))
         else:
-            return list(EDGE_TTS_VOICES.keys())
+            return sorted(list(EDGE_TTS_VOICES.keys()))
 
     @rx.var(deps=["tts_audio_queue"], auto_deps=False)
     def tts_queue_json(self) -> str:
@@ -746,7 +752,7 @@ class AIState(rx.State):
         from .lib.config import get_xtts_voices, TTS_AGENT_VOICE_DEFAULTS
         voices = get_xtts_voices()
         if voices:
-            self.xtts_voices_cache = list(voices.keys())
+            self.xtts_voices_cache = sorted(list(voices.keys()))
             self.add_debug(f"🎤 XTTS: {len(voices)} voices loaded")
 
             # Validate agent voices - reset if not in available list
@@ -1316,7 +1322,7 @@ class AIState(rx.State):
                     self._refresh_xtts_voices()
                 else:
                     self.add_debug(f"⚠️ {msg}")
-            elif self.enable_tts and "MOSS" in self.tts_engine:
+            elif self.enable_tts and "MOSS" in self.tts_engine:  # MOSS-TTS (batch)
                 from .lib.process_utils import ensure_moss_ready
                 success, msg, device = ensure_moss_ready(timeout=120)
                 self.moss_tts_device = device if success else ""
@@ -1364,7 +1370,7 @@ class AIState(rx.State):
                     self._refresh_xtts_voices()
                 else:
                     self.add_debug(f"⚠️ {msg}")
-            elif self.enable_tts and "MOSS" in self.tts_engine:
+            elif self.enable_tts and "MOSS" in self.tts_engine:  # MOSS-TTS (batch)
                 from .lib.process_utils import ensure_moss_ready
 
                 self.add_debug("🔊 MOSS-TTS: Starte Container...")
@@ -3321,7 +3327,7 @@ class AIState(rx.State):
             else:
                 self.add_debug(f"⚠️ {msg}")
             yield  # Update UI
-        elif self.enable_tts and "MOSS" in self.tts_engine:
+        elif self.enable_tts and "MOSS" in self.tts_engine:  # MOSS-TTS (batch)
             from .lib.process_utils import ensure_moss_ready
 
             self.add_debug("🔊 MOSS-TTS: Prüfe Container...")
@@ -7975,7 +7981,7 @@ class AIState(rx.State):
                     self.add_debug("✅ XTTS Container gestoppt")
                 else:
                     self.add_debug(f"❌ {message}")
-        elif "MOSS" in self.tts_engine:
+        elif "MOSS" in self.tts_engine:  # MOSS-TTS (batch)
             from .lib.process_utils import ensure_moss_ready, stop_moss_container
 
             if self.enable_tts:
@@ -8029,7 +8035,7 @@ class AIState(rx.State):
                 stop_xtts_container()
                 self.add_debug("🔊 XTTS Container gestoppt (Engine-Wechsel)")
                 yield
-            elif "MOSS" in old_engine:
+            elif "MOSS" in old_engine:  # MOSS-TTS (batch)
                 from .lib.process_utils import stop_moss_container
                 stop_moss_container()
                 self.moss_tts_device = ""
@@ -8045,7 +8051,7 @@ class AIState(rx.State):
             else:
                 self.add_debug(f"⚠️ {msg}")
             self._refresh_xtts_voices()
-        elif "MOSS" in engine and self.enable_tts:
+        elif "MOSS" in engine and self.enable_tts:  # MOSS-TTS (batch)
             self.add_debug("🔊 MOSS-TTS: Lade Modell...")
             yield
             from .lib.process_utils import ensure_moss_ready

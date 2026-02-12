@@ -37,6 +37,7 @@ import importlib.util
 import json
 import logging
 import os
+import threading
 import uuid
 from pathlib import Path
 from typing import Dict, Optional
@@ -44,6 +45,7 @@ from typing import Dict, Optional
 import torch
 import torchaudio
 import websockets
+from flask import Flask, request, jsonify, send_file
 from transformers import AutoModel, AutoTokenizer
 
 # Configure logging
@@ -286,6 +288,9 @@ class StreamingSession:
             output = torch.tensor(generated_tokens).to(_device)
             decode_result = _codec.decode(output.permute(1, 0), chunk_duration=8)
             wav = decode_result["audio"][0].cpu().detach()
+            # Ensure 2D (channels, samples) or 1D (samples) - squeeze batch dim if present
+            if wav.ndim == 3:
+                wav = wav.squeeze(0)
             audio_frames.append(wav)
 
         # Reset buffer for next turn
@@ -377,25 +382,164 @@ async def handle_stream(websocket):
 
 
 # ============================================================
+# HTTP API (Flask) for AIfred Integration
+# ============================================================
+
+app = Flask(__name__)
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    """Health check endpoint."""
+    return jsonify({
+        "status": "ok",
+        "device": str(_device) if _device else "not loaded",
+        "model_loaded": _model is not None,
+    })
+
+
+@app.route("/status", methods=["GET"])
+def status():
+    """Detailed status endpoint with GPU/VRAM info."""
+    vram_info = check_system_vram()
+
+    status_data = {
+        "status": "ready" if _model is not None else "loading",
+        "device": str(_device) if _device else "not loaded",
+        "model": MODEL_NAME,
+        "codec": CODEC_NAME,
+        "sample_rate": CODEC_SAMPLE_RATE,
+        "active_sessions": len(_sessions),
+    }
+
+    if vram_info.get("available") and vram_info.get("gpus"):
+        gpu = vram_info["gpus"][0]
+        status_data["gpu"] = {
+            "name": gpu["name"],
+            "free_mb": gpu["free_mb"],
+            "total_mb": gpu["total_mb"],
+        }
+
+    return jsonify(status_data)
+
+
+@app.route("/voices", methods=["GET"])
+def get_voices():
+    """List available voices."""
+    voices = []
+    if VOICES_DIR.exists():
+        for wav_file in VOICES_DIR.glob("*.wav"):
+            voices.append(wav_file.stem)
+    return jsonify({"voices": voices})
+
+
+@app.route("/tts", methods=["POST"])
+def tts_endpoint():
+    """
+    TTS generation endpoint (HTTP, non-streaming).
+
+    Expects JSON:
+    {
+        "text": "Text to synthesize",
+        "speaker": "AIfred",  // optional, voice name (without .wav)
+        "language": "de"      // optional, language code
+    }
+
+    Returns: OGG/Opus audio file
+    """
+    data = request.get_json()
+
+    if not data or "text" not in data:
+        return jsonify({"error": "Missing 'text' field"}), 400
+
+    text = data["text"]
+    speaker = data.get("speaker", None)
+
+    try:
+        # Generate audio using the session mechanism
+        session_id = str(uuid.uuid4())
+        session = StreamingSession(session_id, reference_audio=speaker)
+
+        # Push complete text
+        session.push_text(text)
+
+        # Generate
+        audio_frames = session.generate_turn()
+
+        # Cleanup
+        cleanup_session(session_id)
+
+        if not audio_frames:
+            return jsonify({"error": "No audio generated"}), 500
+
+        # Concatenate frames
+        import numpy as np
+        full_audio = torch.cat(audio_frames, dim=-1)
+
+        # Ensure 2D tensor for torchaudio.save (channels x samples)
+        if full_audio.ndim == 1:
+            full_audio = full_audio.unsqueeze(0)  # Add channel dimension
+
+        # Save to temporary WAV file
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
+            wav_path = tmp_wav.name
+
+        torchaudio.save(wav_path, full_audio, CODEC_SAMPLE_RATE)
+
+        # Convert to OGG/Opus (like XTTS)
+        ogg_path = wav_path.replace(".wav", ".ogg")
+        import subprocess
+        subprocess.run([
+            "ffmpeg", "-i", wav_path, "-c:a", "libopus", "-b:a", "48k",
+            "-y", ogg_path
+        ], capture_output=True, check=True)
+
+        # Clean up WAV
+        os.unlink(wav_path)
+
+        # Send OGG file
+        return send_file(ogg_path, mimetype="audio/ogg", as_attachment=True,
+                        download_name="output.ogg")
+
+    except Exception as e:
+        logger.error(f"TTS generation error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+def run_flask():
+    """Run Flask app in a separate thread."""
+    app.run(host="0.0.0.0", port=5056, debug=False, use_reloader=False)
+
+
+# ============================================================
 # Main Server
 # ============================================================
 
 async def main():
-    """Start WebSocket server."""
+    """Start both HTTP and WebSocket servers."""
     # Pre-load models at startup
     logger.info("Pre-loading models...")
     get_models()
     logger.info("Models loaded and ready")
 
+    # Start Flask HTTP server in background thread
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info("HTTP API server running on http://0.0.0.0:5056")
+
     # Start WebSocket server
     server = await websockets.serve(
         handle_stream,
         "0.0.0.0",
-        5056,
+        5057,
         max_size=10 * 1024 * 1024,  # 10MB max message size
     )
 
-    logger.info("MOSS-TTS-Realtime WebSocket server running on ws://0.0.0.0:5056/stream")
+    logger.info("WebSocket server running on ws://0.0.0.0:5057")
+    logger.info("MOSS-TTS-Realtime ready!")
 
     await server.wait_closed()
 

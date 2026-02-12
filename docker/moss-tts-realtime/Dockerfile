@@ -16,7 +16,8 @@ RUN pip install --no-cache-dir \
     torch>=2.0.0 \
     torchaudio>=2.0.0 \
     transformers>=5.0.0 \
-    websockets>=12.0
+    websockets>=12.0 \
+    flask>=3.0.0
 
 # Install MOSS-TTS package with PyTorch CUDA support
 RUN cd /opt/moss-tts && pip install --no-cache-dir \
@@ -32,8 +33,8 @@ ENV PYTHONPATH="/opt/moss-tts:${PYTHONPATH}"
 COPY server.py .
 COPY voices/ /app/voices/
 
-# Expose WebSocket port (5056 to not conflict with MOSS-TTS on 5055)
-EXPOSE 5056
+# Expose ports: 5056 for HTTP API, 5057 for WebSocket
+EXPOSE 5056 5057
 
 # Run server
 CMD ["python", "server.py"]

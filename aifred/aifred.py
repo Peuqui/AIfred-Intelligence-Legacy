@@ -3463,11 +3463,11 @@ def settings_accordion() -> rx.Component:
                                     native_select_tts(
                                         AIState.tts_engine,
                                         AIState.set_tts_engine,
-                                        ["XTTS v2 (Local, voice cloning)", "MOSS-TTS (Local, voice cloning)", "Piper TTS (Local, Offline)", "eSpeak (Robot, Offline)", "Edge TTS (Cloud, Fallback)"],
+                                        AIState.tts_engines,
                                     ),
                                     # Desktop: Radix UI select
                                     rx.select(
-                                        ["XTTS v2 (Local, voice cloning)", "MOSS-TTS (Local, voice cloning)", "Piper TTS (Local, Offline)", "eSpeak (Robot, Offline)", "Edge TTS (Cloud, Fallback)"],
+                                        AIState.tts_engines,
                                         value=AIState.tts_engine,
                                         on_change=AIState.set_tts_engine,
                                         size="2",

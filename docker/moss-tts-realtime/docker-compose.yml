@@ -4,7 +4,8 @@ services:
     image: moss-tts-realtime:latest
     container_name: aifred-moss-tts-realtime
     ports:
-      - "5056:5056"
+      - "5056:5056"  # HTTP API
+      - "5057:5057"  # WebSocket
     volumes:
       # Voice reference audio files
       - ./voices:/app/voices:ro

@@ -1462,7 +1462,7 @@ def transcribe_audio(audio_path, whisper_model, language="de"):
 
 async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: float = 1.0, agent: str = "aifred"):
     """
-    Generate TTS audio from text (Edge, XTTS, Piper or eSpeak).
+    Generate TTS audio from text (XTTS, MOSS-TTS, Piper, eSpeak, or Edge).
 
     Args:
         text: Text for TTS (already cleaned)

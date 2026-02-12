@@ -314,6 +314,7 @@ RESEARCH_MODES = [
 # ============================================================
 TTS_ENGINES = [
     "XTTS v2 (Local, voice cloning)",
+    "MOSS-TTS (Batch, after bubble)",
     "Piper TTS (Local, Offline)",
     "eSpeak (Robot, Offline)",
     "Edge TTS (Cloud, Fallback)",
@@ -333,6 +334,7 @@ XTTS_SERVICE_URL = "http://localhost:5051"
 # Start with: cd docker/moss-tts && docker-compose up -d
 MOSS_TTS_SERVICE_URL = "http://localhost:5055"
 
+# ============================================================
 # XTTS voices are loaded dynamically from the service
 # Custom voices are auto-generated from WAV files in docker/xtts/voices/
 # Built-in voices (58 speakers) are always available

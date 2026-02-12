@@ -34,7 +34,7 @@ except ImportError:
 
 
 # Configuration
-WS_URL = "ws://localhost:5056/stream"
+WS_URL = "ws://localhost:5057"  # WebSocket on port 5057, HTTP API on 5056
 SAMPLE_RATE = 24000
 OUTPUT_DIR = Path("test_output")
 
