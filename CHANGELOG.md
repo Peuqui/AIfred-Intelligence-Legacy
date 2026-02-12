@@ -5,6 +5,33 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.2] - 2026-02-12 🗑️ MOSS-TTS-Realtime Removal
+
+### Removed
+
+- **MOSS-TTS-Realtime** - Vollständige Entfernung aus AIfred-Code aufgrund unzureichender Performance
+  - Probleme: 24GB VRAM-Verbrauch (gesamte RTX 3090 Ti), schlechte Latenz, übersprungene/vertauschte Sätze
+  - Qualität war schlechter als XTTS und MOSS-TTS (Batch)
+  - Nicht echtzeitfähig trotz "Realtime" im Namen
+  - Docker-Container und Code bleiben als Museum-Code in `docker/moss-tts-realtime/` erhalten
+- Alle MOSS-TTS-Realtime Container-Management-Funktionen aus `process_utils.py`
+- Engine-Routing-Logik für Realtime-Variante aus `audio_processing.py` und `state.py`
+
+### Changed
+
+- **Dynamische TTS-Engine-Liste** - Kein Hardcoding mehr in `aifred.py`
+  - Neue `@rx.var tts_engines()` Property in `state.py` nutzt `config.TTS_ENGINES`
+  - Erleichtert zukünftige TTS-Engine-Ergänzungen
+- **Alphabetische Voice-Sortierung** - Alle TTS-Engine Voice-Listen werden alphabetisch sortiert
+  - Betrifft XTTS, MOSS-TTS, Piper, eSpeak und Edge TTS
+  - Verbessert Übersichtlichkeit in Voice-Dropdowns
+
+### Note
+
+- **MOSS-TTS (Batch)** bleibt voll funktionsfähig für hochqualitative Offline-Audiogenerierung
+
+---
+
 ## [2.28.1] - 2026-02-12 🔧 ChromaDB Healthcheck & MOSS-TTS P40 Fix
 
 ### Fixed
