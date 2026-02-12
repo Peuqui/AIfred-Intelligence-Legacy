@@ -5,6 +5,44 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.0] - 2026-02-12 🔊 MOSS-TTS Voice Cloning & Bug Fixes
+
+### Added
+
+- **MOSS-TTS Voice Cloning** - State-of-the-Art Zero-Shot Voice Cloning (1.7B, 20 Sprachen, BF16)
+  - Docker-Container (`docker/moss-tts/`) mit Flask/Gunicorn API (Port 5055)
+  - Zero-Shot: Referenz-Audio reicht, keine Transkription noetig
+  - Hervorragende Sprachqualitaet (EN SIM 73.42%, ZH SIM 78.82%)
+  - Smart Device Selection (GPU/CPU basierend auf VRAM)
+  - Auto-Shutdown nach Inaktivitaet (KEEP_ALIVE)
+  - Web-UI zum Testen auf Port 5055
+- **MOSS-TTS Container-Management** - Automatischer Start/Stop wie XTTS
+- **MOSS-TTS VRAM-Reservation** - ~11.5 GB VRAM-Reservation im Context-Manager
+  - Neues Device-Tracking (`moss_tts_device` State-Variable)
+  - `context_utils.py` und `context_manager.py` beruecksichtigen MOSS-TTS GPU-Nutzung
+
+### Fixed
+
+- **Login-Dialog**: Blockiert jetzt UI bis zur Authentifizierung (Default `login_dialog_open=True`)
+  - Behebt Race Condition bei `rx.call_script()` Callback nach Server-Restart
+- **TTS Engine-Wechsel UX**: `yield` fuer sofortiges UI-Feedback, No-Op Guard gegen doppelten `on_change`
+- **TTS Voice Logging**: Nur noch bei tatsaechlicher Aenderung (kein "Katja -> Katja" mehr)
+- **SSE TTS Streaming**: Race Condition bei Reconnect gefixt (Identity-Check im `finally`-Block)
+- **MOSS-TTS VRAM Bug**: `context_utils.py` behandelte MOSS-TTS faelschlicherweise als "No VRAM impact"
+
+### Changed
+
+- **`ensure_moss_ready()`** gibt jetzt 3-Tuple `(success, msg, device)` zurueck
+- **TTS Engine Dropdown** aktualisiert sich sofort beim Wechsel (vor Container-Operationen)
+
+### Known Limitations
+
+- **MOSS-TTS nicht fuer Streaming geeignet**: ~18-22s pro Satz (vs. ~1-2s bei XTTS)
+- **Hoher VRAM-Verbrauch**: ~11.5 GB in BF16 (bestaetigt durch MOSS-Entwickler: 14-15 GB erwartet)
+- Empfohlen fuer hochqualitative Offline-Audiogenerierung
+
+---
+
 ## [2.27.7] - 2026-02-09 🔊 XTTS Voice Cloning & UI Polish
 
 ### Added

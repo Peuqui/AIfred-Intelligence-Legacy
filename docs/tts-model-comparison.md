@@ -41,13 +41,15 @@ Satz an Modell → erste Audio-Frames sofort → abspielen WAEHREND Rest generie
 - **Vorteil:** Niedrige Latenz, Satzanfang hoerbar bevor Satzende fertig
 - **Nachteil:** Modell muss Intonation "raten" bevor Satzende bekannt
 
-### 3. Echtes Text-Streaming (VibeVoice Realtime)
+### 3. Echtes Text-Streaming (VibeVoice Realtime, MOSS-TTS-Realtime)
 ```
 LLM streamt Wort fuer Wort → direkt an TTS → Audio kommt sofort
 ```
 - Latenz = niedrigste (~80-300ms First-Packet)
 - **Vorteil:** Keine Satzerkennung noetig, direktes LLM→TTS Piping
 - **Nachteil:** Modell hat am wenigsten Kontext fuer Intonation
+- **MOSS-TTS-Realtime** nutzt `push_text(delta)` API fuer inkrementelle Chunks
+  mit KV-Cache Reuse ueber mehrere Turns (32K Kontext, ~40 Min.)
 
 **Fazit:** Chunk-basiert ist nicht schlechter - nur langsamer. Die Qualitaet kann
 sogar besser sein, weil das Modell den vollen Satzkontext hat. Fuer AIfred ist die
@@ -60,7 +62,7 @@ Latenz akzeptabel, da der LLM ohnehin satzweise streamt.
 | Modell | Parameter | Sprachen | DE | Voice Cloning | Expressiv | Streaming | Speed (RTFX) | Sample Rate | VRAM | Architektur | Lizenz |
 |--------|-----------|----------|-----|---------------|-----------|-----------|-------------|-------------|------|-------------|--------|
 | **XTTS v2** (aktuell) | ~1.5B | 17+ | Ja | Ja (6-15s Audio) | Mittel | Nein (Chunk-basiert) | ~0.5-1x | 24 kHz | ~2-4 GB | Autoregressive + DVAE | CPML |
-| **F5-TTS** | ~335M | Multilingual | Ja (Fine-Tune existiert) | Ja (Zero-Shot) | Sehr hoch | Nein (Flow-basiert) | RTF 0.15 (~7x) | 24 kHz | ~2-4 GB | Flow Matching | CC-BY-NC 4.0 |
+| **F5-TTS** | ~335M | EN+CN (DE via Fine-Tune) | Ja (3 Fine-Tunes) | Ja (Zero-Shot, 10-15s) | Sehr hoch | Nein (Flow-basiert) | RTF 0.15 (~7x) | 24 kHz | ~2 GB | Flow Matching DiT | CC-BY-NC 4.0 (Weights) / MIT (Code) |
 | **Qwen3-TTS** | 1.7B | 10 (CN,EN,DE,FR,JA,KO,RU,PT,ES,IT) | Ja (nativ) | Ja (3s Audio) | Hoch | Ja (via Fork) | ~1.8x | 24 kHz | ~4-6 GB | LLM-basiert | Apache 2.0 |
 | **Higgs-Audio V2** | 3B | 50+ | Ja | Ja (3-10s Audio) | Sehr hoch (beste) | Unklar | ~1.8x | 24 kHz | ~8-12 GB | Llama-3.2-3B + DualFFN | Apache 2.0 |
 | **EchoTTS** | Unklar | Unklar | Unklar | Ja (beste Aehnlichkeit) | Niedrig (monoton) | Nein | ~10x | 44.1 kHz | Unklar | Diffusion | Unklar |
@@ -73,9 +75,12 @@ Latenz akzeptabel, da der LLM ohnehin satzweise streamt.
 | **Dia (Nari Labs)** | 1.6B | Nur EN | Nein | Ja (wenige Sek.) | Sehr hoch | Unklar | Unklar | Unklar | ~6-8 GB | Unklar | Apache 2.0 |
 | **CosyVoice-3** | Unklar | Multilingual | Unklar | Ja | Mittel | Unklar | Unklar | Unklar | Unklar | Unklar | Unklar |
 | **IndexTTS 2** | Unklar | Unklar | Unklar | Ja | Unklar | Unklar | Unklar | Unklar | Unklar | Unklar | Unklar |
-| **MOSS-TTS Local** | 1.7B | 20+ (CN,EN,DE,FR,ES,JA,KO,...) | Ja (nativ) | Ja (Zero-Shot) | Hoch | Nein (Chunk-basiert) | Unklar | 22.05 kHz | ~6-8 GB | Global Latent + Local Transformer | Apache 2.0 |
-| **MOSS-TTS** | 8B | 20+ | Ja (nativ) | Ja (Zero-Shot) | Hoch | Nein | Unklar | 16 kHz | ~16 GB | MossTTSDelay | Apache 2.0 |
-| **MOSS-TTS Realtime** | 2B | 20+ | Ja | Ja | Hoch | Ja (Low-Latency) | Unklar | Unklar | ~4-6 GB | MossTTSRealtime | Apache 2.0 |
+| **MOSS-TTS Local** | 1.7B | 20+ (CN,EN,DE,FR,ES,JA,KO,...) | Ja (nativ) | Ja (Zero-Shot) | Hoch | Nein (Chunk-basiert) | Unklar | 22.05 kHz | ~11.5 GB (BF16) | Global Latent + Local Transformer (MossTTSLocal) | Apache 2.0 |
+| **MOSS-TTS Delay** | 8B | 20+ | Ja (nativ) | Ja (Zero-Shot) | Hoch | Nein | Unklar | 22.05 kHz | ~16 GB (BF16) | Delay Pattern (MossTTSDelay) | Apache 2.0 |
+| **MOSS-TTS-Realtime** | 1.7B | 10+ (CN,EN,DE,FR,JA,KO,...) | Ja | Ja (Zero-Shot) | Hoch | Ja (Text-Streaming, `push_text`) | Unklar | 24 kHz | ~11.5 GB (BF16) + Codec | MossTTSRealtime + MOSS-Audio-Tokenizer | Apache 2.0 |
+| **MOSS-TTSD** | 8B | Multilingual | Ja | Ja (1-5 Sprecher) | Sehr hoch | Nein | Unklar | 22.05 kHz | ~16 GB (BF16) | MossTTSDelay (Dialog) | Apache 2.0 |
+| **MOSS-VoiceGenerator** | 8B | CN + EN | Nein | Nein (Stimme aus Textbeschreibung!) | Sehr hoch | Nein | Unklar | 22.05 kHz | ~16 GB (BF16) | MossTTSDelay | Apache 2.0 |
+| **MOSS-SoundEffect** | ? | Multilingual | - | - (Soundeffekte) | - | Nein | Unklar | 22.05 kHz | ? | MossTTSDelay | Apache 2.0 |
 | **Chatterbox** | Unklar | EN | Nein | Ja | Hoch | Ja (Sub-200ms) | Unklar | Unklar | Unklar | Unklar | Unklar |
 
 ## Community-Bewertungen (Audiobook Use-Case)
@@ -113,7 +118,7 @@ und klingt bei Cross-Lingual deutlich natuerlicher.
 | VibeVoice | "Insufficient stability" |
 | CosyVoice-3 | Audio nicht sauber, Klicks, Rauschen, Artefakte |
 | IndexTTS 2 | Audio nicht sauber, Klicks, Rauschen, Artefakte |
-| MOSS-TTS (alte Version) | Audio nicht sauber, Klicks und Rauschartefakte (Bewertung vor MOSS-TTS Family Release 10.02.2026) |
+| MOSS-TTS (alte Version) | Audio nicht sauber, Klicks und Rauschartefakte (Bewertung vor MOSS-TTS Family Release 10.02.2026). **Update:** Neue MOSS-TTS Family (Local 1.7B, Delay 8B, Realtime 1.7B) ist deutlich besser - State-of-the-Art Benchmarks, in AIfred integriert. |
 | Chatterbox | Viele Artefakte |
 
 **Anmerkung:** Diese Bewertungen stammen aus dem Audiobook-Use-Case (Langform).
@@ -122,13 +127,21 @@ Fuer AIfred (kurze Saetze, konversationell) koennen die Ergebnisse abweichen.
 ## Top-Kandidaten fuer AIfred
 
 ### 1. F5-TTS
-- **Pro:** Hoechste Qualitaet laut Community, DE Fine-Tune existiert, schnell (RTF 0.15),
-  sehr expressiv, relativ klein (~335M), Voice Cloning
+- **Pro:** Hoechste Qualitaet laut Community, 3 deutsche Fine-Tunes verfuegbar, schnell
+  (RTF 0.15 auf L20, mit TensorRT ~25x Echtzeit), sehr expressiv, relativ klein (~335M,
+  ~1.35 GB auf Disk), nur ~2 GB VRAM, Zero-Shot Voice Cloning (10-15s Referenz),
+  `pip install f5-tts` (einfache Installation), P40-kompatibel (FP32)
 - **Contra:** Kein natives Streaming (Flow-basiert, generiert ganzen Satz auf einmal),
-  CC-BY-NC Lizenz (nicht-kommerziell)
-- **Links:** [GitHub](https://github.com/SWivid/F5-TTS) |
-  [DE Fine-Tune](https://huggingface.co/aihpi/F5-TTS-German) |
-  [DE Voice Clone](https://huggingface.co/tabularisai/f5-tts-german-voice-clone)
+  CC-BY-NC Lizenz fuer Weights (Code ist MIT), Base-Modell nur EN+CN (DE braucht Fine-Tune),
+  ~5% Artefakte an Chunk-Grenzen, Reference Audio Leakage moeglich,
+  Cross-Lingual Voice Cloning = Akzent der Referenz bleibt (wie MOSS-TTS),
+  braucht ref_text Transkription (sonst Whisper ASR +2 GB VRAM)
+- **Deutsche Fine-Tunes:**
+  - [aihpi/F5-TTS-German](https://huggingface.co/aihpi/F5-TTS-German) (HPI, BMBF-gefuerdert, 8x H100 Training)
+  - [hvoss-techfak/F5-TTS-German](https://huggingface.co/hvoss-techfak/F5-TTS-German) (offiziell im F5-TTS Repo gelistet)
+  - [tabularisai/f5-tts-german-voice-clone](https://huggingface.co/tabularisai/f5-tts-german-voice-clone) (WIP, Cloning-optimiert)
+- **Links:** [GitHub](https://github.com/SWivid/F5-TTS) | [PyPI](https://pypi.org/project/f5-tts/)
+- **Docker-Container:** `docker/f5-tts/` (Port 5052)
 
 ### 2. Qwen3-TTS
 - **Pro:** Deutsch nativ unterstuetzt, Streaming via Fork, guter Allrounder,
@@ -151,18 +164,44 @@ Fuer AIfred (kurze Saetze, konversationell) koennen die Ergebnisse abweichen.
   bis zu 1 Stunde Audio in einem Run, Apache 2.0
 - **Contra:** Brandneu (10.02.2026), braucht Python 3.12 + PyTorch 2.9 + Transformers 5.0
   (bleeding edge Dependencies), Community-Bewertung der Vorgaengerversion war negativ
-  (Artefakte), ~6-8 GB VRAM, Cross-Lingual Voice Cloning schwach (behaelt Akzent der
-  Referenzsprache), nicht merklich schneller als XTTS v2
+  (Artefakte), ~11.5 GB VRAM (gemessen auf RTX 3090 Ti, BF16), Cross-Lingual Voice
+  Cloning schwach (behaelt Akzent der Referenzsprache), ~18-22s pro Satz (nicht
+  streaming-geeignet)
 - **Links:** [GitHub](https://github.com/OpenMOSS/MOSS-TTS) |
   [HuggingFace Local](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer) |
   [HuggingFace 8B](https://huggingface.co/OpenMOSS-Team/MOSS-TTS) |
   [HuggingFace Realtime](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Realtime)
+- **Docker-Container:** `docker/moss-tts/` (Port 5055)
 - **Benchmarks (Seed-TTS-eval):**
   | Modell | EN WER | EN SIM | ZH CER | ZH SIM |
   |--------|--------|--------|--------|--------|
   | MOSS-TTS Local 1.7B | 1.85 | 73.42 | 1.2 | 78.82 |
-  | Qwen3-TTS 1.7B | 1.33 | 71.45 | 1.33 | 76.72 |
+  | MOSS-TTS Delay 8B | 1.79 | 71.46 | 1.32 | 77.05 |
+  | Qwen3-TTS 1.7B | 1.50 | 71.45 | 1.33 | 76.72 |
   | CosyVoice3 1.5B | 2.22 | 72.0 | 1.12 | 78.1 |
+  | F5-TTS 0.3B | 2.00 | 67.0 | 1.53 | 76.0 |
+  | VoxCPM 0.5B | 1.85 | 72.9 | 0.93 | 77.2 |
+
+### 5. MOSS-TTS-Realtime (1.7B)
+- **Pro:** Echtes Text-Streaming via `push_text(delta)` - LLM-Chunks direkt als Audio,
+  Multi-Turn KV-Cache Reuse (Stimmkonsistenz ueber Turns), 32K Kontext (~40 Min.),
+  10+ Sprachen inkl. Deutsch, 1.7B Parameter, Apache 2.0,
+  trainiert auf 2.5M+ Stunden Single-Speaker + 1M+ Stunden Multi-Speaker Daten
+- **Contra:** Separate Architektur (MossTTSRealtime, nicht kompatibel mit MossTTSLocal),
+  braucht zusaetzlichen MOSS-Audio-Tokenizer Codec (~24 kHz Output),
+  SIM-Score etwas niedriger als Local (68.9% vs 73.42% EN),
+  brandneu, noch nicht getestet
+- **MOSS-TTS Familie (komplett):**
+  | Modell | Params | Fokus | Fuer AIfred? |
+  |--------|--------|-------|-------------|
+  | MossTTSLocal | 1.7B | Beste Benchmarks, Forschung | Ja (aktuell integriert) |
+  | MossTTSDelay | 8B | Produktion, Langform-Stabilitaet | Nein (zu viel VRAM) |
+  | MossTTSRealtime | 1.7B | Streaming, Voice Agents | Ja (naechster Kandidat!) |
+  | MOSS-TTSD | 8B | Multi-Speaker Dialog (1-5 Sprecher) | Nein (zu viel VRAM) |
+  | MOSS-VoiceGenerator | 8B | Stimmen aus Textbeschreibung | Nein (zu viel VRAM) |
+  | MOSS-SoundEffect | ? | Soundeffekte aus Text | Nein (nicht TTS) |
+- **Links:** [HuggingFace](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Realtime) |
+  [Audio-Tokenizer](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer)
 
 ## Voice Cloning Kompatibilitaet
 
@@ -181,11 +220,12 @@ ist ein Wechsel problemlos.
 
 ## Empfohlene Evaluierungsreihenfolge
 
-1. **MOSS-TTS Local** testen (beste Benchmarks, brandneu, Docker-Container bereit)
-2. **F5-TTS** mit deutschem Fine-Tune testen (kleinstes Modell, schnellstes)
-3. **Qwen3-TTS** testen (nativer DE-Support, Streaming)
-4. **Higgs-Audio V2** testen (wenn mehr Expressivitaet gewuenscht)
-5. Falls keines ueberzeugt: XTTS v2 mit Carry-Mechanismus weiter optimieren
+1. ~~**MOSS-TTS Local** testen~~ ✅ Integriert! (Docker-Container, VRAM-Reservation, gute Qualitaet)
+2. **MOSS-TTS-Realtime** testen (Streaming via `push_text`, gleiche VRAM-Klasse wie Local)
+3. **F5-TTS** mit deutschem Fine-Tune testen (kleinstes Modell, schnellstes)
+4. **Qwen3-TTS** testen (nativer DE-Support, Streaming via Fork)
+5. **Higgs-Audio V2** testen (wenn mehr Expressivitaet gewuenscht)
+6. Falls keines ueberzeugt: XTTS v2 mit Carry-Mechanismus weiter optimieren
 
 ## Tipps aus der Community
 

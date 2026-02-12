@@ -830,9 +830,17 @@ def tts_queue_push(session_id: str, audio_url: str, playback_rate: str = "1.0x")
                 "version": storage["version"],
                 "playback_rate": playback_rate
             })
-            log_message("🔊 TTS SSE: Queued for stream")
+            log_message(f"🔊 TTS SSE: Queued for stream (session {session_id[:8]}...)")
         except asyncio.QueueFull:
             log_message("⚠️ TTS SSE: Queue full, skipping")
+    else:
+        # Diagnostic: Show why SSE push failed
+        active_sessions = list(_tts_sse_queues.keys())
+        if active_sessions:
+            active_short = [s[:8] for s in active_sessions]
+            log_message(f"⚠️ TTS SSE: No queue for session {session_id[:8]}... (active SSE sessions: {active_short})")
+        else:
+            log_message(f"⚠️ TTS SSE: No queue for session {session_id[:8]}... (no SSE connections at all)")
 
 
 def tts_queue_clear(session_id: str) -> None:
@@ -887,6 +895,9 @@ async def tts_stream(session_id: str):
     async def event_generator():
         # Create queue for this session
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        old_queue = _tts_sse_queues.get(session_id)
+        if old_queue is not None:
+            log_message(f"🔊 TTS SSE: Replacing existing queue for session {session_id[:8]}... (reconnect)")
         _tts_sse_queues[session_id] = queue
         log_message(f"🔊 TTS SSE: Stream opened for session {session_id[:8]}...")
 
@@ -932,10 +943,16 @@ async def tts_stream(session_id: str):
                     break
 
         finally:
-            # Cleanup queue when connection closes
-            if session_id in _tts_sse_queues:
+            # Only delete OUR queue - a reconnection may have already replaced it.
+            # Without this identity check, a reconnecting SSE client would:
+            # 1. New generator creates queue2, overwrites _tts_sse_queues[id]
+            # 2. Old generator's finally deletes _tts_sse_queues[id] (queue2!)
+            # 3. tts_queue_push() can never find the queue again
+            if _tts_sse_queues.get(session_id) is queue:
                 del _tts_sse_queues[session_id]
-            log_message(f"🔊 TTS SSE: Stream closed for session {session_id[:8]}...")
+                log_message(f"🔊 TTS SSE: Stream closed for session {session_id[:8]}... (queue cleaned up)")
+            else:
+                log_message(f"🔊 TTS SSE: Stream closed for session {session_id[:8]}... (queue already replaced by reconnect)")
 
     return StreamingResponse(
         event_generator(),

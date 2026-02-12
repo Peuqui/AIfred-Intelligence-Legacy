@@ -25,7 +25,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Automatische Web-Recherche**: KI entscheidet selbst, wann Recherche nötig ist
 - **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung
 - **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße mit RoPE-Skalierung (1.0x, 1.5x, 2.0x), Hybrid-Modus für übergroße Modelle (CPU-Offload)
-- **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **Multi-Agent TTS Queue** (sequentielle Wiedergabe der Agenten-Antworten)
+- **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **Multi-Agent TTS Queue** (sequentielle Wiedergabe der Agenten-Antworten)
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
 - **Session-Persistenz**: Mobile Chat-History überlebt Browser-Hintergrund/Neustart (Cookie-basiert)
@@ -1034,7 +1034,29 @@ Erster Start dauert ~2-3 Minuten (Modell-Download ~1.5GB). Danach ist XTTS als T
 
 Siehe [docker/xtts/README.md](docker/xtts/README.md) für vollständige Dokumentation.
 
-8. **Starten**:
+8. **MOSS-TTS Voice Cloning starten** (Optional, Docker):
+
+MOSS-TTS (MossTTSLocal 1.7B) bietet State-of-the-Art Zero-Shot Voice Cloning in 20 Sprachen mit hervorragender Sprachqualität.
+
+```bash
+cd docker/moss-tts
+docker compose up -d
+```
+
+Erster Start dauert ~5-10 Minuten (Modell-Download ~3-5 GB). Danach ist MOSS-TTS als TTS-Engine in den UI-Einstellungen verfügbar.
+
+**Features:**
+- Zero-Shot Voice Cloning (Referenz-Audio, keine Transkription nötig)
+- 20 Sprachen inkl. Deutsch und Englisch
+- Hervorragende Sprachqualität (EN SIM 73.42%, ZH SIM 78.82% - beste Open-Source)
+
+**Einschränkungen:**
+- **Hoher VRAM-Verbrauch**: ~11,5 GB in BF16 (vs. 2 GB bei XTTS)
+- **Nicht für Streaming geeignet**: ~18-22s pro Satz (vs. ~1-2s bei XTTS)
+- **VRAM-Management**: Bei GPU-Mode werden ~11,5 GB VRAM reserviert und vom LLM-Kontextfenster abgezogen
+- Empfohlen für hochqualitative Offline-Audiogenerierung, nicht für Echtzeit-Streaming
+
+9. **Starten**:
 ```bash
 reflex run
 ```

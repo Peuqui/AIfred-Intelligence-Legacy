@@ -16,6 +16,7 @@ from ..config import (
     MAX_RAG_CONTEXT_TOKENS,
     MAIN_LLM_FALLBACK_CONTEXT,
     XTTS_VRAM_MB,
+    MOSS_TTS_VRAM_MB,
     VRAM_CONTEXT_RATIO_DENSE,
     VRAM_CONTEXT_RATIO_MOE
 )
@@ -121,6 +122,20 @@ def get_agent_num_ctx(
             else:
                 # CPU mode: No VRAM reservation needed
                 log_message(f"🔊 TTS: XTTS ({device_mode}), {tts_mode} | No VRAM reservation (CPU mode)")
+        elif 'moss' in tts_engine.lower():
+            # MOSS-TTS: Check if running on GPU (device tracked by state)
+            moss_device = getattr(state, 'moss_tts_device', '')
+
+            if moss_device == "cuda":
+                # GPU mode: Apply VRAM reservation (~11.5 GB)
+                vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_id) else VRAM_CONTEXT_RATIO_DENSE
+                moss_token_reserve = int(MOSS_TTS_VRAM_MB / vram_ratio)
+                original_ctx = num_ctx
+                num_ctx = max(2048, num_ctx - moss_token_reserve)
+                source = f"{source} (MOSS: -{format_number(moss_token_reserve)} tok)"
+                log_message(f"🔊 TTS: MOSS-TTS (GPU), {tts_mode} | VRAM: {format_number(original_ctx)} → {format_number(num_ctx)} tok (-{format_number(moss_token_reserve)})")
+            else:
+                log_message(f"🔊 TTS: MOSS-TTS ({moss_device or 'not loaded'}), {tts_mode} | No VRAM reservation")
         else:
             # Other TTS engines (Edge TTS, Google TTS, etc.) - no VRAM impact
             log_message(f"🔊 TTS: {tts_engine}, {tts_mode} | No VRAM impact (cloud/CPU)")

@@ -326,6 +326,13 @@ TTS_ENGINES = [
 # Start with: cd docker/xtts && docker-compose up -d
 XTTS_SERVICE_URL = "http://localhost:5051"
 
+# ============================================================
+# MOSS-TTS CONFIGURATION (Docker Service)
+# ============================================================
+# MOSS-TTS Local Transformer (1.7B) - zero-shot voice cloning, 20 languages
+# Start with: cd docker/moss-tts && docker-compose up -d
+MOSS_TTS_SERVICE_URL = "http://localhost:5055"
+
 # XTTS voices are loaded dynamically from the service
 # Custom voices are auto-generated from WAV files in docker/xtts/voices/
 # Built-in voices (58 speakers) are always available
@@ -357,6 +364,34 @@ def get_xtts_voices() -> dict:
     except Exception as e:
         print(f"⚠️ Failed to fetch XTTS voices: {e}")
     return {}
+
+def get_moss_voices() -> dict:
+    """
+    Fetch available MOSS-TTS voices from the Docker service.
+
+    Returns:
+        dict: Voice name -> voice ID mapping
+              Returns empty dict if service is unavailable
+    """
+    import requests
+
+    try:
+        response = requests.get(f"{MOSS_TTS_SERVICE_URL}/voices", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            voices = {}
+            for name in data.get("voices", []):
+                voices[name] = name
+            return voices
+    except Exception as e:
+        print(f"⚠️ Failed to fetch MOSS-TTS voices: {e}")
+    return {}
+
+MOSS_TTS_VOICES_FALLBACK = {
+    "AIfred": "AIfred",
+    "Salomo": "Salomo",
+    "Sokrates": "Sokrates",
+}
 
 # Fallback voices when service is unavailable (for UI initialization)
 # Custom cloned voices first (★ prefix), then built-in voices
@@ -492,6 +527,11 @@ TTS_AGENT_VOICE_DEFAULTS = {
         "sokrates": {"voice": "★ Sokrates", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "salomo": {"voice": "Baldur Sanjin", "speed": "1.25x", "pitch": "1.0", "enabled": True},
     },
+    "moss": {
+        "aifred": {"voice": "AIfred", "speed": "1.25x", "pitch": "1.0", "enabled": True},
+        "sokrates": {"voice": "Sokrates", "speed": "1.25x", "pitch": "1.0", "enabled": True},
+        "salomo": {"voice": "Salomo", "speed": "1.25x", "pitch": "1.0", "enabled": True},
+    },
     "piper": {
         "aifred": {"voice": "Deutsch (Thorsten)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "sokrates": {"voice": "Deutsch (Karlsson)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
@@ -507,6 +547,18 @@ TTS_AGENT_VOICE_DEFAULTS = {
         "sokrates": {"voice": "Deutsch (Conrad)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "salomo": {"voice": "Deutsch (Florian)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
     },
+}
+
+# Per-engine TTS toggle defaults (autoplay, streaming)
+# MOSS-TTS: streaming=False because ~20s per sentence (not suitable for real-time)
+# XTTS/Edge: streaming=True (fast enough for sentence-by-sentence)
+# Piper/eSpeak: streaming=False (local, instant, full response preferred)
+TTS_TOGGLE_DEFAULTS: dict[str, dict[str, bool]] = {
+    "xtts": {"autoplay": True, "streaming": True},
+    "moss": {"autoplay": True, "streaming": False},
+    "edge": {"autoplay": True, "streaming": True},
+    "piper": {"autoplay": True, "streaming": False},
+    "espeak": {"autoplay": True, "streaming": False},
 }
 
 # ============================================================
@@ -693,12 +745,17 @@ VRAM_SAFETY_MARGIN = 512  # MB
 # This is subtracted from available context when TTS is enabled with XTTS engine.
 XTTS_VRAM_MB = 2100  # MB (~2044 measured + 56 buffer)
 
-# XTTS Docker-Compose path (for container restart when switching CPU/GPU mode)
+# MOSS-TTS VRAM reservation (MB)
+# MOSS-TTS (1.7B, 32 RVQ channels) uses ~11.5 GB VRAM in BF16 on RTX 3090 Ti.
+# Measured: 12.07 GB free → 0.6 GB free after model load = ~11.47 GB used.
+# Confirmed by MOSS developers: 14-15 GB expected (includes KV cache during generation).
+MOSS_TTS_VRAM_MB = 11500  # MB (~11,470 measured + 30 buffer)
+
+# Docker-Compose paths (for container start/stop)
 import os as _os
-XTTS_DOCKER_COMPOSE_PATH = _os.path.join(
-    _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
-    "docker", "xtts", "docker-compose.yml"
-)
+_PROJECT_ROOT = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+XTTS_DOCKER_COMPOSE_PATH = _os.path.join(_PROJECT_ROOT, "docker", "xtts", "docker-compose.yml")
+MOSS_TTS_DOCKER_COMPOSE_PATH = _os.path.join(_PROJECT_ROOT, "docker", "moss-tts", "docker-compose.yml")
 
 # Empirical ratio: MB of VRAM per context token
 # Based on KV cache measurements and research:

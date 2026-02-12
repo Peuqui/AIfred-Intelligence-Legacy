@@ -198,7 +198,7 @@ class AIState(rx.State):
 
     # Authentication State
     logged_in_user: str = ""  # Currently logged in username (empty = not logged in)
-    login_dialog_open: bool = False  # Show login dialog?
+    login_dialog_open: bool = True  # Blocks UI until authenticated (closed by auto-login or manual login)
     login_mode: str = "login"  # "login" or "register"
     login_username: str = ""  # Input field for username
     login_password: str = ""  # Input field for password
@@ -341,6 +341,9 @@ class AIState(rx.State):
     xtts_voices_cache: List[str] = []
     # XTTS CPU Mode - Force CPU inference (slower but saves GPU VRAM for LLM)
     xtts_force_cpu: bool = False
+    # MOSS-TTS device ("cuda", "cpu", or "" if not running)
+    # Used by context_manager/context_utils for VRAM reservation
+    moss_tts_device: str = ""
 
     @rx.var
     def xtts_gpu_enabled(self) -> bool:
@@ -703,6 +706,12 @@ class AIState(rx.State):
             # Fallback when service unavailable
             from .lib.config import XTTS_VOICES_FALLBACK
             return list(XTTS_VOICES_FALLBACK.keys())
+        elif "MOSS" in self.tts_engine:
+            from .lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
+            voices = get_moss_voices()
+            if voices:
+                return list(voices.keys())
+            return list(MOSS_TTS_VOICES_FALLBACK.keys())
         elif "Piper" in self.tts_engine:
             return list(PIPER_VOICES.keys())
         elif "eSpeak" in self.tts_engine:
@@ -958,6 +967,9 @@ class AIState(rx.State):
 
                 # Load per-agent TTS voice settings for current engine
                 self._restore_agent_voices_for_engine(engine_key)
+
+                # Load per-engine TTS toggles (overrides global autoplay/streaming)
+                self._restore_tts_toggles_for_engine(engine_key)
 
                 # Refresh XTTS voices from Docker service if XTTS engine is selected
                 if "XTTS" in self.tts_engine:
@@ -1295,14 +1307,21 @@ class AIState(rx.State):
                 else:
                     self.add_debug("⚠️ KoboldCPP manager exists but server not running")
 
-            # XTTS: Ensure container is running (also on page reload!)
+            # TTS: Ensure Docker container is running (also on page reload!)
             if self.enable_tts and "XTTS" in self.tts_engine:
                 from .lib.process_utils import ensure_xtts_ready
                 success, msg = ensure_xtts_ready(timeout=60)
                 if success:
                     self.add_debug(f"✅ {msg}")
-                    # Refresh voices from service
                     self._refresh_xtts_voices()
+                else:
+                    self.add_debug(f"⚠️ {msg}")
+            elif self.enable_tts and "MOSS" in self.tts_engine:
+                from .lib.process_utils import ensure_moss_ready
+                success, msg, device = ensure_moss_ready(timeout=120)
+                self.moss_tts_device = device if success else ""
+                if success:
+                    self.add_debug(f"✅ {msg}")
                 else:
                     self.add_debug(f"⚠️ {msg}")
 
@@ -1334,8 +1353,7 @@ class AIState(rx.State):
             self.backend_info = f"{self.backend_type} initializing..."
             self.add_debug(f"⚡ Backend: {self.backend_type} (skip health check)")
 
-            # XTTS: Start container before Ollama loads models (reserves VRAM)
-            # Note: Start regardless of CPU/GPU mode - container handles device selection
+            # TTS: Start Docker container before Ollama loads models (reserves VRAM)
             if self.enable_tts and "XTTS" in self.tts_engine:
                 from .lib.process_utils import ensure_xtts_ready
 
@@ -1343,8 +1361,17 @@ class AIState(rx.State):
                 success, msg = ensure_xtts_ready(timeout=60)
                 if success:
                     self.add_debug(f"✅ {msg}")
-                    # Refresh voices from service
                     self._refresh_xtts_voices()
+                else:
+                    self.add_debug(f"⚠️ {msg}")
+            elif self.enable_tts and "MOSS" in self.tts_engine:
+                from .lib.process_utils import ensure_moss_ready
+
+                self.add_debug("🔊 MOSS-TTS: Starte Container...")
+                success, msg, device = ensure_moss_ready(timeout=120)
+                self.moss_tts_device = device if success else ""
+                if success:
+                    self.add_debug(f"✅ {msg}")
                 else:
                     self.add_debug(f"⚠️ {msg}")
 
@@ -1682,6 +1709,8 @@ class AIState(rx.State):
             "tts_voices_per_language": existing.get("tts_voices_per_language", {}),
             # Per-engine agent voice settings
             "tts_agent_voices_per_engine": existing.get("tts_agent_voices_per_engine", {}),
+            # Per-engine TTS toggles (autoplay, streaming)
+            "tts_toggles_per_engine": existing.get("tts_toggles_per_engine", {}),
             # UI Settings
             "auto_scroll": self.auto_refresh_enabled,
         }
@@ -1699,6 +1728,14 @@ class AIState(rx.State):
         if "tts_agent_voices_per_engine" not in settings:
             settings["tts_agent_voices_per_engine"] = {}
         settings["tts_agent_voices_per_engine"][engine_key] = copy.deepcopy(self.tts_agent_voices)
+
+        # Update tts_toggles_per_engine with current TTS toggles
+        if "tts_toggles_per_engine" not in settings:
+            settings["tts_toggles_per_engine"] = {}
+        settings["tts_toggles_per_engine"][engine_key] = {
+            "autoplay": self.tts_autoplay,
+            "streaming": self.tts_streaming_enabled,
+        }
         save_settings(settings)
 
         # Update mtime tracker to prevent immediate reload by check_for_updates()
@@ -3271,7 +3308,7 @@ class AIState(rx.State):
 
         yield  # Update UI - user sees their message NOW, before XTTS/LLM operations
 
-        # XTTS: Ensure container is running BEFORE Ollama loads models (reserves VRAM)
+        # TTS: Ensure Docker container is running BEFORE Ollama loads models (reserves VRAM)
         # This runs on every message, not just at startup - handles container restart scenarios
         if self.enable_tts and "XTTS" in self.tts_engine and not self.xtts_force_cpu:
             from .lib.process_utils import ensure_xtts_ready
@@ -3284,6 +3321,18 @@ class AIState(rx.State):
             else:
                 self.add_debug(f"⚠️ {msg}")
             yield  # Update UI
+        elif self.enable_tts and "MOSS" in self.tts_engine:
+            from .lib.process_utils import ensure_moss_ready
+
+            self.add_debug("🔊 MOSS-TTS: Prüfe Container...")
+            yield
+            success, msg, device = ensure_moss_ready(timeout=120)
+            self.moss_tts_device = device if success else ""
+            if success:
+                self.add_debug(f"✅ {msg}")
+            else:
+                self.add_debug(f"⚠️ {msg}")
+            yield
 
         # Create LLM client once - used for ALL LLM operations
         from .lib.llm_client import LLMClient
@@ -5126,6 +5175,7 @@ class AIState(rx.State):
         if username and account_exists(username):
             # Valid username in cookie - auto login
             self.logged_in_user = username.lower()
+            self.login_dialog_open = False
             self.refresh_session_list()
 
             # Load most recent session if available
@@ -5152,8 +5202,7 @@ class AIState(rx.State):
             """
             return rx.call_script(combined_script)
         else:
-            # No valid username - show login dialog
-            self.login_dialog_open = True
+            # No valid username - dialog stays open (default is True)
             self.add_debug("🔐 Login required")
 
     def _load_session_by_id(self, session_id: str):
@@ -7909,24 +7958,38 @@ class AIState(rx.State):
         self.enable_tts = not self.enable_tts
         self.add_debug(f"🔊 TTS: {'enabled' if self.enable_tts else 'disabled'}")
 
-        # Handle XTTS container start/stop
+        # Handle Docker TTS container start/stop
         if "XTTS" in self.tts_engine:
             from .lib.process_utils import set_xtts_cpu_mode, stop_xtts_container
 
             if self.enable_tts:
-                # Start container with current CPU/GPU setting
                 success, message = set_xtts_cpu_mode(self.xtts_force_cpu)
                 if success:
                     self.add_debug("✅ XTTS Container gestartet")
-                    # Load voices from now-running service
                     self._refresh_xtts_voices()
                 else:
                     self.add_debug(f"❌ {message}")
             else:
-                # Stop container to free VRAM
                 success, message = stop_xtts_container()
                 if success:
                     self.add_debug("✅ XTTS Container gestoppt")
+                else:
+                    self.add_debug(f"❌ {message}")
+        elif "MOSS" in self.tts_engine:
+            from .lib.process_utils import ensure_moss_ready, stop_moss_container
+
+            if self.enable_tts:
+                success, message, device = ensure_moss_ready(timeout=120)
+                self.moss_tts_device = device if success else ""
+                if success:
+                    self.add_debug(f"✅ {message}")
+                else:
+                    self.add_debug(f"❌ {message}")
+            else:
+                success, message = stop_moss_container()
+                self.moss_tts_device = ""
+                if success:
+                    self.add_debug("✅ MOSS-TTS Container gestoppt")
                 else:
                     self.add_debug(f"❌ {message}")
 
@@ -7937,25 +8000,68 @@ class AIState(rx.State):
 
         Saves current agent voices before switching and restores agent voices
         for the new engine from saved preferences.
+
+        When switching between Docker-based engines (XTTS, MOSS-TTS):
+        - Stops the OLD engine's container (frees VRAM)
+        - Starts the NEW engine's container with correct GPU/CPU mode
+
+        Uses yield for immediate UI feedback before slow container operations.
         """
-        # Save current agent voices for old engine BEFORE switching
+        # No-op guard: dropdown may re-fire on_change after state update
+        if engine == self.tts_engine:
+            return
+
+        # Save current settings for old engine BEFORE switching
         old_engine_key = self._get_engine_key()
         self._save_agent_voices_for_engine(old_engine_key)
+        self._save_tts_toggles_for_engine(old_engine_key)
+        old_engine = self.tts_engine
 
-        # Switch engine
+        # Update UI immediately: dropdown + debug console
         self.tts_engine = engine
         self.add_debug(f"🔊 TTS Engine: {engine}")
+        yield
 
-        # Refresh XTTS voices from Docker service if XTTS engine selected
-        if "XTTS" in engine:
+        # Stop OLD Docker TTS container to free VRAM
+        if self.enable_tts:
+            if "XTTS" in old_engine:
+                from .lib.process_utils import stop_xtts_container
+                stop_xtts_container()
+                self.add_debug("🔊 XTTS Container gestoppt (Engine-Wechsel)")
+                yield
+            elif "MOSS" in old_engine:
+                from .lib.process_utils import stop_moss_container
+                stop_moss_container()
+                self.moss_tts_device = ""
+                self.add_debug("🔊 MOSS-TTS Container gestoppt (Engine-Wechsel)")
+                yield
+
+        # Start NEW Docker TTS container with correct settings
+        if "XTTS" in engine and self.enable_tts:
+            from .lib.process_utils import set_xtts_cpu_mode
+            success, msg = set_xtts_cpu_mode(self.xtts_force_cpu)
+            if success:
+                self.add_debug(f"✅ {msg}")
+            else:
+                self.add_debug(f"⚠️ {msg}")
             self._refresh_xtts_voices()
+        elif "MOSS" in engine and self.enable_tts:
+            self.add_debug("🔊 MOSS-TTS: Lade Modell...")
+            yield
+            from .lib.process_utils import ensure_moss_ready
+            success, msg, device = ensure_moss_ready(timeout=120)
+            self.moss_tts_device = device if success else ""
+            if success:
+                self.add_debug(f"✅ {msg}")
+            else:
+                self.add_debug(f"⚠️ {msg}")
 
-        # Restore agent voices for new engine
+        # Restore per-engine settings for new engine
         new_engine_key = self._get_engine_key()
         self._restore_agent_voices_for_engine(new_engine_key)
+        self._restore_tts_toggles_for_engine(new_engine_key)
 
-        # Restore user's saved voice preference for this engine (calls _switch_tts_voice_for_language)
-        # This will either restore the saved voice or fallback to defaults
+        # Restore user's saved voice preference for this engine
         self._switch_tts_voice_for_language(self.ui_language)
 
         self._save_settings()
@@ -8520,9 +8626,11 @@ class AIState(rx.State):
             self.add_debug(f"❌ Invalid language: {lang}. Use 'de' or 'en'")
 
     def _get_engine_key(self) -> str:
-        """Get engine key for config lookup (xtts, piper, espeak, edge)"""
+        """Get engine key for config lookup (xtts, moss, piper, espeak, edge)"""
         if "XTTS" in self.tts_engine:
             return "xtts"
+        elif "MOSS" in self.tts_engine:
+            return "moss"
         elif "Piper" in self.tts_engine:
             return "piper"
         elif "eSpeak" in self.tts_engine:
@@ -8574,6 +8682,41 @@ class AIState(rx.State):
                     self.tts_agent_voices[agent].update(settings_dict)
             self.add_debug(f"🔊 Using default agent voices for {engine_key}")
 
+    def _save_tts_toggles_for_engine(self, engine_key: str):
+        """Save current TTS toggles (autoplay, streaming) for the specified engine."""
+        from .lib.settings import load_settings, save_settings
+
+        settings = load_settings() or {}
+        if "tts_toggles_per_engine" not in settings:
+            settings["tts_toggles_per_engine"] = {}
+
+        settings["tts_toggles_per_engine"][engine_key] = {
+            "autoplay": self.tts_autoplay,
+            "streaming": self.tts_streaming_enabled,
+        }
+        save_settings(settings)
+
+    def _restore_tts_toggles_for_engine(self, engine_key: str):
+        """Restore TTS toggles from settings for the specified engine.
+
+        Falls back to engine-specific defaults if no saved preferences exist.
+        """
+        from .lib.settings import load_settings
+        from .lib.config import TTS_TOGGLE_DEFAULTS
+
+        settings = load_settings() or {}
+        saved_toggles = settings.get("tts_toggles_per_engine", {}).get(engine_key)
+
+        if saved_toggles:
+            self.tts_autoplay = saved_toggles.get("autoplay", True)
+            self.tts_streaming_enabled = saved_toggles.get("streaming", True)
+            self.add_debug(f"🔊 Restored TTS toggles for {engine_key}: autoplay={self.tts_autoplay}, streaming={self.tts_streaming_enabled}")
+        else:
+            defaults = TTS_TOGGLE_DEFAULTS.get(engine_key, {"autoplay": True, "streaming": True})
+            self.tts_autoplay = defaults["autoplay"]
+            self.tts_streaming_enabled = defaults["streaming"]
+            self.add_debug(f"🔊 Default TTS toggles for {engine_key}: autoplay={self.tts_autoplay}, streaming={self.tts_streaming_enabled}")
+
     def _switch_tts_voice_for_language(self, lang: str):
         """Switch TTS voice to appropriate language voice for current engine.
 
@@ -8602,7 +8745,8 @@ class AIState(rx.State):
         if user_voice and user_voice in voice_dict:
             old_voice = self.tts_voice
             self.tts_voice = user_voice
-            self.add_debug(f"🔊 TTS Voice restored (user pref): {old_voice} → {user_voice}")
+            if old_voice != user_voice:
+                self.add_debug(f"🔊 TTS Voice: {old_voice} → {user_voice}")
             return
 
         # Priority 2: Use default voice from config
@@ -8611,8 +8755,9 @@ class AIState(rx.State):
         if default_voice and default_voice in voice_dict:
             old_voice = self.tts_voice
             self.tts_voice = default_voice
-            self.add_debug(f"🔊 TTS Voice auto-switched: {old_voice} → {default_voice}")
-            self._save_settings()
+            if old_voice != default_voice:
+                self.add_debug(f"🔊 TTS Voice: {old_voice} → {default_voice}")
+                self._save_settings()
         else:
             self.add_debug(f"⚠️ No default {lang} voice found for {engine_key}")
 

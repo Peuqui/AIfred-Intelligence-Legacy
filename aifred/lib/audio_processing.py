@@ -1053,6 +1053,53 @@ def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Cla
         return None
 
 
+def generate_speech_moss(text: str, speed: float = 1.0, voice_choice: str = "AIfred", language: str = "de") -> str | None:
+    """
+    MOSS-TTS Local - Zero-shot voice cloning TTS via Docker service.
+
+    MOSS-TTS Local Transformer (1.7B) supports 20 languages and zero-shot
+    voice cloning from reference audio. Same API as XTTS v2.
+    """
+    import requests
+    from .config import MOSS_TTS_SERVICE_URL
+
+    filename = _generate_tts_filename("ogg")
+    output_file = str(TTS_AUDIO_DIR / filename)
+
+    try:
+        log_message(f"🎤 MOSS-TTS: speaker={voice_choice}, language={language}, text_length={len(text)}")
+
+        response = requests.post(
+            f"{MOSS_TTS_SERVICE_URL}/tts",
+            json={"text": text, "speaker": voice_choice, "language": language},
+            timeout=None
+        )
+
+        if response.status_code == 200:
+            with open(output_file, "wb") as f:
+                f.write(response.content)
+
+            file_size = os.path.getsize(output_file)
+            log_message(f"✅ MOSS-TTS: Audio saved → {output_file} ({file_size} bytes)")
+
+            if file_size < 100:
+                log_message(f"⚠️ MOSS-TTS: File suspiciously small ({file_size} bytes)")
+                return None
+
+            return f"/_upload/tts_audio/{filename}"
+        else:
+            error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
+            log_message(f"❌ MOSS-TTS Error: {error_msg}")
+            return None
+
+    except requests.exceptions.ConnectionError:
+        log_message("❌ MOSS-TTS: Service not running. Start with: cd docker/moss-tts && docker-compose up -d")
+        return None
+    except Exception as e:
+        log_message(f"❌ MOSS-TTS Exception: {e}")
+        return None
+
+
 def clean_text_for_tts(text):
     """
     Prepare text for TTS output: Remove elements that sound bad when read aloud.
@@ -1443,6 +1490,11 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
             # Run in thread pool to avoid blocking event loop during HTTP call
             audio_url = await loop.run_in_executor(
                 None, generate_speech_xtts, text, 1.0, voice_choice, "de"
+            )
+        elif "MOSS" in tts_engine:
+            # MOSS-TTS Local (Docker) - zero-shot voice cloning, 20 languages
+            audio_url = await loop.run_in_executor(
+                None, generate_speech_moss, text, 1.0, voice_choice, "de"
             )
         elif "Piper" in tts_engine:
             # Piper TTS (local) - synchronous subprocess call

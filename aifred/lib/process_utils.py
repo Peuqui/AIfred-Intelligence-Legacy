@@ -389,3 +389,91 @@ def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
         time.sleep(1)
 
     return False, f"XTTS: Timeout after {timeout}s waiting for model"
+
+
+def start_moss_container() -> tuple[bool, str]:
+    """Start the MOSS-TTS Docker container."""
+    from .config import MOSS_TTS_DOCKER_COMPOSE_PATH
+    from pathlib import Path
+
+    compose_path = Path(MOSS_TTS_DOCKER_COMPOSE_PATH)
+    if not compose_path.exists():
+        return False, f"docker-compose.yml not found: {MOSS_TTS_DOCKER_COMPOSE_PATH}"
+
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(MOSS_TTS_DOCKER_COMPOSE_PATH), "up", "-d"],
+            capture_output=True, text=True, cwd=str(compose_path.parent)
+        )
+        if result.returncode != 0:
+            return False, f"docker compose up failed: {result.stderr}"
+        log_message("MOSS-TTS container started")
+        return True, "MOSS-TTS container started"
+    except Exception as e:
+        return False, f"docker compose up error: {e}"
+
+
+def stop_moss_container() -> tuple[bool, str]:
+    """Stop the MOSS-TTS Docker container to free VRAM."""
+    from .config import MOSS_TTS_DOCKER_COMPOSE_PATH
+    from pathlib import Path
+
+    compose_path = Path(MOSS_TTS_DOCKER_COMPOSE_PATH)
+    if not compose_path.exists():
+        return False, f"docker-compose.yml not found: {MOSS_TTS_DOCKER_COMPOSE_PATH}"
+
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(MOSS_TTS_DOCKER_COMPOSE_PATH), "down"],
+            capture_output=True, text=True, cwd=str(compose_path.parent)
+        )
+        if result.returncode != 0:
+            return False, f"docker compose down failed: {result.stderr}"
+        log_message("MOSS-TTS container stopped")
+        return True, "MOSS-TTS container stopped"
+    except Exception as e:
+        return False, f"docker compose down error: {e}"
+
+
+def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:
+    """
+    Ensure MOSS-TTS container is running and model is loaded.
+
+    Starts container if needed and waits for model to load.
+    Longer default timeout than XTTS because MOSS model is larger.
+
+    Returns:
+        Tuple of (success, message, device) where device is "cuda", "cpu", or "".
+    """
+    import time
+    import requests
+    from .config import MOSS_TTS_SERVICE_URL
+
+    # Step 1: Check if already running and model loaded
+    try:
+        r = requests.get(f"{MOSS_TTS_SERVICE_URL}/health", timeout=2)
+        if r.ok and r.json().get("model_loaded"):
+            device = r.json().get("device", "unknown")
+            return True, f"MOSS-TTS already ready ({device})", device
+    except Exception:
+        pass
+
+    # Step 2: Start container
+    success, msg = start_moss_container()
+    if not success:
+        return False, msg, ""
+
+    # Step 3: Wait for model to load (MOSS is larger, needs more time)
+    log_message("MOSS-TTS: Waiting for model to load...")
+    for i in range(timeout):
+        try:
+            r = requests.get(f"{MOSS_TTS_SERVICE_URL}/health", timeout=2)
+            if r.ok and r.json().get("model_loaded"):
+                device = r.json().get("device", "unknown")
+                log_message(f"MOSS-TTS: Model loaded on {device}")
+                return True, f"MOSS-TTS ready ({device})", device
+        except Exception:
+            pass
+        time.sleep(1)
+
+    return False, f"MOSS-TTS: Timeout after {timeout}s waiting for model", ""

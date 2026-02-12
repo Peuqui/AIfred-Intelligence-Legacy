@@ -25,7 +25,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
 - **Automatic Context Calibration**: VRAM-aware context sizing with RoPE scaling (1.0x, 1.5x, 2.0x), hybrid mode for oversized models (CPU offload)
-- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **Multi-Agent TTS Queue** (sequential playback of agent responses)
+- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **Multi-Agent TTS Queue** (sequential playback of agent responses)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **User Authentication**: Username + password login with whitelist-based registration, admin CLI for user management
@@ -1169,7 +1169,29 @@ First start takes ~2-3 minutes (model download ~1.5GB). After that, XTTS is avai
 
 See [docker/xtts/README.md](docker/xtts/README.md) for full documentation.
 
-8. **Start application**:
+8. **Start MOSS-TTS Voice Cloning** (Optional, Docker):
+
+MOSS-TTS (MossTTSLocal 1.7B) provides state-of-the-art zero-shot voice cloning across 20 languages with excellent speech quality.
+
+```bash
+cd docker/moss-tts
+docker compose up -d
+```
+
+First start takes ~5-10 minutes (model download ~3-5 GB). After that, MOSS-TTS is available as TTS engine in the UI settings.
+
+**Features:**
+- Zero-shot voice cloning (reference audio, no transcription needed)
+- 20 languages including German and English
+- Excellent speech quality (EN SIM 73.42%, ZH SIM 78.82% - best open-source)
+
+**Limitations:**
+- **High VRAM usage**: ~11.5 GB in BF16 (vs. 2 GB for XTTS)
+- **Not suitable for streaming**: ~18-22s per sentence (vs. ~1-2s for XTTS)
+- **VRAM Management**: In GPU mode, ~11.5 GB VRAM is reserved and deducted from LLM context window
+- Recommended for high-quality offline audio generation, not for real-time streaming
+
+9. **Start application**:
 ```bash
 reflex run
 ```

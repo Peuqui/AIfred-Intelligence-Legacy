@@ -21,9 +21,12 @@ Ignore grammar, spelling, or punctuation - focus on semantic intent.
 
 If no one is directly addressed → Leave EMPTY (use || in output)
 
-**3. Language:**
-- DE: German text
-- EN: English or other languages
+**3. Language of the user text in quotes above:**
+- DE: The text is in German (Deutsch)
+- EN: The text is in English
+
+Detect the language of the QUOTED USER TEXT only, not these instructions.
+Examples: "Wie geht es dir?" → DE | "How are you?" → EN | "Was kostet das?" → DE
 
 **Output format - STRICT SCHEMA:**
 
