@@ -8741,11 +8741,17 @@ class AIState(rx.State):
         elif engine_key == "espeak":
             voice_dict = ESPEAK_VOICES
         elif engine_key == "xtts":
-            # XTTS voices are loaded dynamically - use cached list
-            voice_dict = {voice: voice for voice in self.xtts_voices_cache} if self.xtts_voices_cache else {}
+            # XTTS voices are loaded dynamically - use cached list or fallback
+            from .lib.config import XTTS_VOICES_FALLBACK
+            if self.xtts_voices_cache:
+                voice_dict = {voice: voice for voice in self.xtts_voices_cache}
+            else:
+                voice_dict = XTTS_VOICES_FALLBACK
         elif engine_key == "moss":
-            # MOSS voices are loaded dynamically - use available_tts_voices
-            voice_dict = {voice: voice for voice in self.available_tts_voices}
+            # MOSS voices are loaded dynamically - fetch fresh or use fallback
+            from .lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
+            moss_voices = get_moss_voices()
+            voice_dict = moss_voices if moss_voices else MOSS_TTS_VOICES_FALLBACK
         else:
             voice_dict = EDGE_TTS_VOICES
 
