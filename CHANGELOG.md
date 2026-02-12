@@ -5,6 +5,24 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.1] - 2026-02-12 🔧 ChromaDB Healthcheck & MOSS-TTS P40 Fix
+
+### Fixed
+
+- **ChromaDB Healthcheck kaputt** - Container war seit Start als `unhealthy` markiert (FailingStreak: 7.698!)
+  - `curl` existiert nicht im ChromaDB Docker-Image
+  - Healthcheck nutzte deprecated `/api/v1/heartbeat`
+  - Fix: Bash TCP-Check (`/dev/tcp/localhost/8000`) statt curl
+- **MOSS-TTS transformers 5.x Kompatibilitaet** - `DynamicCache` erwartet `num_hidden_layers` auf Decoder-Config
+  - `MossTTSDelayConfig` hat nur `local_num_layers` (4), nicht die Language-Model Layers (28)
+  - Patch liest `num_hidden_layers` aus Qwen3 Sub-Config
+
+### Changed
+
+- **docker-compose.yml** - Veraltetes `version: '3.8'` entfernt (Docker Compose V2 braucht das nicht mehr)
+
+---
+
 ## [2.28.0] - 2026-02-12 🔊 MOSS-TTS Voice Cloning & Bug Fixes
 
 ### Added

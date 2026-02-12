@@ -175,6 +175,25 @@ def resolve_dtype():
         return torch.float16
 
 
+def _patch_num_hidden_layers(config):
+    """Patch MossTTSDelayConfig for transformers 5.x DynamicCache compatibility.
+
+    transformers 5.x DynamicCache requires num_hidden_layers on decoder configs,
+    but MossTTSDelayConfig only exposes local_num_layers. The DynamicCache needs the
+    layer count from the language model (Qwen3, 28 layers), not the local transformer (4).
+    """
+    if hasattr(config, 'num_hidden_layers'):
+        return
+
+    # Use num_hidden_layers from language sub-config (Qwen3)
+    for name in list(vars(config)):
+        sub = getattr(config, name, None)
+        if sub is not None and hasattr(sub, 'num_hidden_layers'):
+            config.num_hidden_layers = sub.num_hidden_layers
+            logger.info(f"Patched {type(config).__name__}: num_hidden_layers={sub.num_hidden_layers} (from {name})")
+            return
+
+
 def load_model():
     """Load MOSS-TTS model and processor."""
     global _processor, _model, _generation_config, _device, _sample_rate
@@ -206,6 +225,10 @@ def load_model():
         torch_dtype=dtype,
     ).to(_device)
     _model.eval()
+
+    # Patch: transformers 5.x DynamicCache expects num_hidden_layers on config,
+    # but MossTTSDelayConfig only has local_num_layers
+    _patch_num_hidden_layers(_model.config)
 
     # Sample rate from model config
     _sample_rate = _processor.model_config.sampling_rate
