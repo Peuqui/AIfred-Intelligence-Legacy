@@ -1981,6 +1981,10 @@ Pull requests are welcome! For major changes, please open an issue first.
 
 ---
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Peuqui/AIfred-Intelligence&type=Date)](https://star-history.com/#Peuqui/AIfred-Intelligence&Date)
+
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file
