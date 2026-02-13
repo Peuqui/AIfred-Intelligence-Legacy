@@ -29,6 +29,10 @@ jobs:
           REFERRERS=$(gh api "repos/$REPO/traffic/popular/referrers" 2>/dev/null || echo '[]')
           PATHS=$(gh api "repos/$REPO/traffic/popular/paths" 2>/dev/null || echo '[]')
 
+          # Stars und Forks abrufen
+          STARS=$(gh api "repos/$REPO" --jq '.stargazers_count' 2>/dev/null || echo '0')
+          FORKS=$(gh api "repos/$REPO" --jq '.forks_count' 2>/dev/null || echo '0')
+
           # Tages-Snapshot als JSONL (eine Zeile pro Tag, einfach appendbar)
           SNAPSHOT=$(jq -n \
             --arg date "$DATE" \
@@ -36,7 +40,9 @@ jobs:
             --argjson clones "$CLONES" \
             --argjson referrers "$REFERRERS" \
             --argjson paths "$PATHS" \
-            '{date: $date, views: $views, clones: $clones, referrers: $referrers, paths: $paths}')
+            --argjson stars "$STARS" \
+            --argjson forks "$FORKS" \
+            '{date: $date, views: $views, clones: $clones, referrers: $referrers, paths: $paths, stars: $stars, forks: $forks}')
 
           # Duplikat-Check (nicht doppelt speichern wenn am selben Tag nochmal läuft)
           if grep -q "\"date\":\"$DATE\"" .github/traffic/traffic.jsonl 2>/dev/null; then
