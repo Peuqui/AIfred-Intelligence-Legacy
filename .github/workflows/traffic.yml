@@ -24,14 +24,14 @@ jobs:
           mkdir -p .github/traffic
 
           # Traffic-Daten abrufen
-          VIEWS=$(gh api "repos/$REPO/traffic/views" 2>/dev/null || echo '{"count":0,"uniques":0,"views":[]}')
-          CLONES=$(gh api "repos/$REPO/traffic/clones" 2>/dev/null || echo '{"count":0,"uniques":0,"clones":[]}')
-          REFERRERS=$(gh api "repos/$REPO/traffic/popular/referrers" 2>/dev/null || echo '[]')
-          PATHS=$(gh api "repos/$REPO/traffic/popular/paths" 2>/dev/null || echo '[]')
+          VIEWS=$(gh api "repos/$REPO/traffic/views" 2>/dev/null) || VIEWS='{"count":0,"uniques":0,"views":[]}'
+          CLONES=$(gh api "repos/$REPO/traffic/clones" 2>/dev/null) || CLONES='{"count":0,"uniques":0,"clones":[]}'
+          REFERRERS=$(gh api "repos/$REPO/traffic/popular/referrers" 2>/dev/null) || REFERRERS='[]'
+          PATHS=$(gh api "repos/$REPO/traffic/popular/paths" 2>/dev/null) || PATHS='[]'
 
           # Stars und Forks abrufen
-          STARS=$(gh api "repos/$REPO" --jq '.stargazers_count' 2>/dev/null || echo '0')
-          FORKS=$(gh api "repos/$REPO" --jq '.forks_count' 2>/dev/null || echo '0')
+          STARS=$(gh api "repos/$REPO" --jq '.stargazers_count' 2>/dev/null) || STARS='0'
+          FORKS=$(gh api "repos/$REPO" --jq '.forks_count' 2>/dev/null) || FORKS='0'
 
           # Tages-Snapshot als JSONL (eine Zeile pro Tag, einfach appendbar)
           SNAPSHOT=$(jq -n \
