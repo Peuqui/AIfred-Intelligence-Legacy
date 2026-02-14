@@ -960,8 +960,8 @@ VISION_MAX_IMAGE_DIMENSION = 3840  # 4K UHD - beste OCR-Qualität bei akzeptable
 # and used in both Python (Reflex components) and CSS (media queries)
 
 # Chat History Box
-UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP = "80vh"    # Desktop: 80% of viewport height (dynamic scrolling)
-UI_CHAT_HISTORY_MAX_HEIGHT_MOBILE = "70vh"     # Mobile: 70% viewport, leaves 30% "grip space"
+UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP = "60vh"    # Desktop: 60% of viewport height (dynamic scrolling)
+UI_CHAT_HISTORY_MAX_HEIGHT_MOBILE = "60vh"     # Mobile: 60% viewport, leaves 40% "grip space"
 
 # Thinking Process Collapsible (<details> tag)
 UI_THINKING_MAX_HEIGHT_DESKTOP = "450px"       # Desktop: ~15-20 lines of text
