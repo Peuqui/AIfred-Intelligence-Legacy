@@ -168,6 +168,27 @@ curl -s "http://localhost:8002/api/chat/inject" \
 
 ---
 
+## ⚠️ Reflex Patch: frontend_path Route-Matching Bug
+
+**Reflex v0.8.24 hat einen Bug** im Route-Matching bei `frontend_path`:
+
+- **Datei:** `venv/lib/python3.12/site-packages/reflex/route.py`, Zeile 217
+- **Bug:** `path.removeprefix(config.frontend_path)` matcht nicht, weil der Browser-Pfad
+  mit `/` beginnt (`/aifred/`) aber `frontend_path` kein `/` hat (`aifred`)
+- **Fix:** `path.removeprefix("/" + config.frontend_path)`
+- **Auswirkung ohne Fix:** `on_load` feuert nie → App bleibt bei "wird initialisiert..." hängen
+
+**Bei Reflex-Update:** Prüfen ob der Bug upstream gefixt wurde. Falls nicht, Patch erneut anwenden:
+```python
+# route.py, Funktion get_route(), ca. Zeile 217
+# VORHER (Bug):
+path = path.removeprefix(config.frontend_path)
+# NACHHER (Fix):
+path = path.removeprefix("/" + config.frontend_path)
+```
+
+---
+
 ## AIfred Systemdienst
 
 AIfred läuft als User-Systemdienst (NICHT als root!):
