@@ -1,8 +1,0 @@
-torch>=2.0.0
-torchaudio>=2.0.0
-transformers>=5.0.0
-websockets>=12.0
-flask>=3.0.0
-
-# MOSS-TTS-Realtime inference code (will be installed from git)
-# Installed in Dockerfile via: pip install git+https://github.com/OpenMOSS/MOSS-TTS.git#subdirectory=MOSS-TTS-Realtime

@@ -5,6 +5,30 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.3] - 2026-02-14 🎤 Voice Sorting & Cleanup
+
+### Fixed
+
+- **Custom Voice Sortierung** - ★-Stimmen (AIfred, Sokrates, Salomo) erscheinen jetzt ganz oben im TTS-Dropdown
+  - Vorher: Alphabetisch sortiert → ★-Voices am Ende (Unicode-Sortierung)
+  - Nachher: ★ Custom Voices zuerst, dann Built-in Voices alphabetisch
+  - Neue Hilfsfunktion `sort_voices_custom_first()` in `config.py`
+
+### Removed
+
+- **F5-TTS Docker Container** - Entfernt wegen schlechter Qualität (Gestammel, unverständlich)
+- **MOSS-TTS-Realtime Docker-Dateien** - Museum-Code endgültig gelöscht (war bereits aus AIfred entfernt)
+
+### Tested (nicht integriert)
+
+- **Qwen3-TTS** evaluiert als Streaming-TTS-Kandidat
+  - Funktioniert mit Voice Cloning (bfloat16), 24kHz, ~7s pro Satz
+  - float16 produziert Müll (zu kleiner Exponent-Bereich)
+  - Tesla P40 (Compute 6.1): Kein bfloat16 → float32 nötig (~10 GB VRAM)
+  - Offizielles `qwen-tts` Package unterstützt kein Streaming
+  - Streaming nur über vLLM-Omni möglich → Evaluierung wenn RTX 8000 verfügbar
+  - Container nicht beibehalten (kein Mehrwert gegenüber MOSS-TTS ohne Streaming)
+
 ## [2.28.2] - 2026-02-12 🗑️ MOSS-TTS-Realtime Removal
 
 ### Removed

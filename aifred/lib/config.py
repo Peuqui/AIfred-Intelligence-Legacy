@@ -395,6 +395,13 @@ MOSS_TTS_VOICES_FALLBACK = {
     "Sokrates": "Sokrates",
 }
 
+def sort_voices_custom_first(voices: list[str]) -> list[str]:
+    """Sort voices: ★ custom voices first, then built-in alphabetically."""
+    custom = sorted(v for v in voices if v.startswith("★"))
+    builtin = sorted(v for v in voices if not v.startswith("★"))
+    return custom + builtin
+
+
 # Fallback voices when service is unavailable (for UI initialization)
 # Custom cloned voices first (★ prefix), then built-in voices
 XTTS_VOICES_FALLBACK = {
@@ -513,8 +520,8 @@ TTS_DEFAULT_VOICES = {
         "en": "Englisch mbrola UK (M)",  # User preference: en1
     },
     "xtts": {
-        "de": "AIfred",  # Custom voice
-        "en": "AIfred",  # Custom voice (multilingual)
+        "de": "★ AIfred",  # Custom voice
+        "en": "★ AIfred",  # Custom voice (multilingual)
     },
 }
 

@@ -708,10 +708,10 @@ class AIState(rx.State):
         if "XTTS" in self.tts_engine:
             # Use cached voices (refreshed when engine changes to XTTS)
             if self.xtts_voices_cache:
-                return self.xtts_voices_cache
+                return self.xtts_voices_cache  # Already sorted by _refresh_xtts_voices
             # Fallback when service unavailable
-            from .lib.config import XTTS_VOICES_FALLBACK
-            return sorted(list(XTTS_VOICES_FALLBACK.keys()))
+            from .lib.config import XTTS_VOICES_FALLBACK, sort_voices_custom_first
+            return sort_voices_custom_first(list(XTTS_VOICES_FALLBACK.keys()))
         elif "MOSS" in self.tts_engine:  # MOSS-TTS (batch)
             from .lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
             voices = get_moss_voices()
@@ -752,7 +752,8 @@ class AIState(rx.State):
         from .lib.config import get_xtts_voices, TTS_AGENT_VOICE_DEFAULTS
         voices = get_xtts_voices()
         if voices:
-            self.xtts_voices_cache = sorted(list(voices.keys()))
+            from .lib.config import sort_voices_custom_first
+            self.xtts_voices_cache = sort_voices_custom_first(list(voices.keys()))
             self.add_debug(f"🎤 XTTS: {len(voices)} voices loaded")
 
             # Validate agent voices - reset if not in available list
