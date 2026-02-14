@@ -60,8 +60,8 @@ config = rx.Config(
     frontend_host="0.0.0.0",  # Frontend on all interfaces
     # Use 0.0.0.0 - browser JS will replace with actual hostname
     api_url="http://0.0.0.0:8002",
-    # Frontend unter /aifred/ servieren (Reflex native Sub-Path Support)
-    frontend_path="aifred",
+    # Frontend Sub-Path: nur wenn ENV gesetzt (MiniPC mit Nginx: "aifred", Dev: leer)
+    frontend_path=os.getenv("AIFRED_FRONTEND_PATH", ""),
     env=rx.Env.PROD if is_prod else rx.Env.DEV,
     # Disable sitemap plugin (not needed)
     disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
