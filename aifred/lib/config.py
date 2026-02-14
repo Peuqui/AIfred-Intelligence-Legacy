@@ -523,6 +523,10 @@ TTS_DEFAULT_VOICES = {
         "de": "★ AIfred",  # Custom voice
         "en": "★ AIfred",  # Custom voice (multilingual)
     },
+    "moss": {
+        "de": "AIfred",  # Custom voice
+        "en": "AIfred",  # Custom voice (multilingual)
+    },
 }
 
 # ============================================================
