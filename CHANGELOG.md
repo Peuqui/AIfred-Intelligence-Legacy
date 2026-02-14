@@ -5,6 +5,14 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.4] - 2026-02-14 🧹 Centralize ★ Prefix Stripping
+
+### Changed
+
+- **TTS Voice Name Cleanup zentralisiert** - ★-Prefix wird jetzt einmal in `generate_tts()` entfernt statt in jeder Engine einzeln
+  - Entfernt: Duplizierter Strip-Code in `generate_speech_xtts()` und `generate_speech_moss()`
+  - Neue Engines müssen sich nicht mehr um UI-Prefixe kümmern
+
 ## [2.28.3] - 2026-02-14 🎤 Voice Sorting & Cleanup
 
 ### Fixed

@@ -1013,18 +1013,13 @@ def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Cla
     output_file = str(TTS_AUDIO_DIR / filename)
 
     try:
-        # Remove "★ " prefix if present (UI marker for custom voices)
-        speaker = voice_choice
-        if speaker.startswith("★ "):
-            speaker = speaker[2:]
-
-        log_message(f"🎤 XTTS v2: speaker={speaker}, language={language}, text_length={len(text)}")
+        log_message(f"🎤 XTTS v2: speaker={voice_choice}, language={language}, text_length={len(text)}")
 
         # Call XTTS Docker service
         # No timeout - XTTS runs async and may take long on CPU (10+ min for long texts)
         response = requests.post(
             f"{XTTS_SERVICE_URL}/tts",
-            json={"text": text, "speaker": speaker, "language": language},
+            json={"text": text, "speaker": voice_choice, "language": language},
             timeout=None
         )
 
@@ -1069,16 +1064,11 @@ def generate_speech_moss(text: str, speed: float = 1.0, voice_choice: str = "AIf
     output_file = str(TTS_AUDIO_DIR / filename)
 
     try:
-        # Remove "★ " prefix if present (UI marker for custom voices in XTTS)
-        speaker = voice_choice
-        if speaker.startswith("★ "):
-            speaker = speaker[2:]
-
-        log_message(f"🎤 MOSS-TTS: speaker={speaker}, language={language}, text_length={len(text)}")
+        log_message(f"🎤 MOSS-TTS: speaker={voice_choice}, language={language}, text_length={len(text)}")
 
         response = requests.post(
             f"{MOSS_TTS_SERVICE_URL}/tts",
-            json={"text": text, "speaker": speaker, "language": language},
+            json={"text": text, "speaker": voice_choice, "language": language},
             timeout=None
         )
 
@@ -1485,6 +1475,10 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
     # Set agent for filename generation BEFORE any TTS call
     # This ensures correct filename even with parallel create_task calls
     set_tts_agent(agent)
+
+    # Strip "★ " UI prefix centrally - engines receive clean voice names
+    if voice_choice.startswith("★ "):
+        voice_choice = voice_choice[2:]
 
     try:
         audio_url = None
