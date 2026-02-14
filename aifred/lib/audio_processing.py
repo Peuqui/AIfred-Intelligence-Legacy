@@ -1069,11 +1069,16 @@ def generate_speech_moss(text: str, speed: float = 1.0, voice_choice: str = "AIf
     output_file = str(TTS_AUDIO_DIR / filename)
 
     try:
-        log_message(f"🎤 MOSS-TTS: speaker={voice_choice}, language={language}, text_length={len(text)}")
+        # Remove "★ " prefix if present (UI marker for custom voices in XTTS)
+        speaker = voice_choice
+        if speaker.startswith("★ "):
+            speaker = speaker[2:]
+
+        log_message(f"🎤 MOSS-TTS: speaker={speaker}, language={language}, text_length={len(text)}")
 
         response = requests.post(
             f"{MOSS_TTS_SERVICE_URL}/tts",
-            json={"text": text, "speaker": voice_choice, "language": language},
+            json={"text": text, "speaker": speaker, "language": language},
             timeout=None
         )
 
