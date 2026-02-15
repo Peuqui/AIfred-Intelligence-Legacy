@@ -784,6 +784,15 @@ tr:hover {
         max-height: var(--thinking-max-height-mobile) !important;
     }
 
+    /* Chat bubbles: Prevent text from bleeding out on the right side.
+       Targets the inner content box of each message bubble. */
+    #chat-history-box .rt-Box .rt-Box {
+        padding-right: 6px !important;
+        overflow-wrap: break-word !important;
+        word-break: break-word !important;
+        min-width: 0 !important;
+    }
+
     /* Debug console: Keep default behavior on mobile (no override needed) */
 }
 
