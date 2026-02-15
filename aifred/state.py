@@ -6431,6 +6431,8 @@ class AIState(rx.State):
             if session_url:
                 log_message(f"🔊 DashScope RT Finalize: Saved to session → {session_url}")
 
+        self.add_debug(f"🎤 TTS: Streaming done ({rt_tts._push_count} chunks)")
+
         # Cleanup WebSocket
         rt_tts.close()
 

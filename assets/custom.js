@@ -635,31 +635,31 @@ window.initBubbleAudioButtons = initBubbleAudioButtons;
 window.initBubbleRegenerateButtons = initBubbleRegenerateButtons;
 
 // ============================================================
-// TTS AUDIO QUEUE - Gapless playback via Web Audio API
+// TTS AUDIO QUEUE - Double-buffered gapless playback with pitch preservation
 // ============================================================
 
 // Queue state
 let ttsQueue = [];  // Array of audio URLs to play
 let ttsQueuePlaying = false;  // Is queue currently playing?
-let ttsQueueCurrentIndex = 0;  // Current playback position (updated when chunk finishes)
+let ttsQueueCurrentIndex = 0;  // Current playback position
 let ttsQueueVersion = 0;  // Track version to detect updates from backend
 
-// Web Audio API state for gapless playback
-let ttsAudioCtx = null;           // AudioContext - created once, reused
-let ttsScheduledEnd = 0;          // AudioContext timestamp when last scheduled buffer ends
-let ttsActiveNodes = [];          // Active AudioBufferSourceNodes (for stopping)
-let ttsQueueScheduledIndex = 0;   // How many queue items have been scheduled so far
-let ttsScheduleChain = Promise.resolve();  // Serializes async fetch+decode+schedule
+// Double-buffer state: two Audio elements swap roles (play / preload)
+let ttsPlayers = [null, null];      // Two Audio elements for seamless handoff
+let ttsCurrentPlayerIdx = 0;        // Which player is currently active (0 or 1)
+let ttsPreloadedIndex = -1;         // Queue index that's preloaded in the next player
 
 /**
- * Get or create the Web Audio context for gapless playback.
+ * Get or create the two Audio elements for double-buffered playback.
  */
-function getTtsAudioContext() {
-    if (!ttsAudioCtx || ttsAudioCtx.state === 'closed') {
-        ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        ttsScheduledEnd = ttsAudioCtx.currentTime;
+function getTtsPlayers() {
+    for (let i = 0; i < 2; i++) {
+        if (!ttsPlayers[i]) {
+            ttsPlayers[i] = new Audio();
+            ttsPlayers[i].preservesPitch = true;
+        }
     }
-    return ttsAudioCtx;
+    return ttsPlayers;
 }
 
 /**
@@ -679,116 +679,126 @@ function updateTtsQueue(queue, version) {
 
     if (queueShrunk || versionReset) {
         console.log(`🔊 TTS Queue: Reset detected, stopping playback`);
-        stopGaplessPlayback();
+        stopDoubleBufferPlayback();
         ttsQueue = [];
     }
 
     ttsQueueVersion = version;
+    const prevLength = ttsQueue.length;
     ttsQueue = [...queue];
 
-    // Schedule any new (unscheduled) chunks for gapless playback
-    scheduleNewChunks();
-}
-
-/**
- * Schedule all unscheduled chunks for gapless Web Audio playback.
- * Uses promise chaining to ensure chunks are fetched/decoded/scheduled in order.
- */
-function scheduleNewChunks() {
+    // Auto-start playback if new items arrived and not already playing
     const queueElement = document.getElementById('tts-queue-data');
     const autoplayEnabled = queueElement?.dataset?.autoplay === 'true';
 
-    if (!autoplayEnabled) {
-        console.log('🔊 TTS Queue: AutoPlay OFF, not scheduling');
-        return;
-    }
-    if (document.hidden) {
-        console.log('🔇 TTS Queue: Tab hidden, not scheduling');
-        return;
-    }
-
-    while (ttsQueueScheduledIndex < ttsQueue.length) {
-        const audioUrl = ttsQueue[ttsQueueScheduledIndex];
-        const chunkIndex = ttsQueueScheduledIndex;
-        ttsQueueScheduledIndex++;
-
-        // Chain promises: each chunk waits for the previous to be scheduled
-        // so ttsScheduledEnd is always up-to-date
-        ttsScheduleChain = ttsScheduleChain
-            .then(() => scheduleGaplessChunk(audioUrl, chunkIndex))
-            .catch(err => {
-                console.warn(`⚠️ TTS Gapless: Chunk ${chunkIndex + 1} failed:`, err.message);
-            });
+    if (queue.length > prevLength && !ttsQueuePlaying && autoplayEnabled && !document.hidden) {
+        console.log(`🔊 TTS Queue: New items, starting playback`);
+        playNextChunk();
+    } else if (queue.length > prevLength && ttsQueuePlaying) {
+        // Already playing - preload next chunk if not done yet
+        preloadNextChunk();
     }
 }
 
 /**
- * Fetch, decode, and schedule a single audio chunk on the Web Audio timeline.
- * Chunks are placed back-to-back with zero gap for seamless playback.
+ * Play the current chunk and preload the next one in the background player.
+ * Uses two Audio elements that swap roles for near-gapless handoff.
  */
-async function scheduleGaplessChunk(audioUrl, chunkIndex) {
-    const ctx = getTtsAudioContext();
-
-    // Resume if suspended (browser autoplay policy requires user gesture)
-    if (ctx.state === 'suspended') {
-        await ctx.resume();
+function playNextChunk() {
+    if (ttsQueueCurrentIndex >= ttsQueue.length) {
+        ttsQueuePlaying = false;
+        console.log('🔊 TTS Queue: Playback complete');
+        return;
     }
 
-    // Read playback rate from data attribute
-    const player = document.getElementById('tts-audio-player');
-    if (player?.dataset?.playbackRate) {
-        const rate = parseFloat(player.dataset.playbackRate.replace('x', ''));
+    const players = getTtsPlayers();
+    const audioUrl = ttsQueue[ttsQueueCurrentIndex];
+    const chunkIndex = ttsQueueCurrentIndex;
+
+    // Check if this chunk is already preloaded in the current player
+    const current = players[ttsCurrentPlayerIdx];
+    if (ttsPreloadedIndex !== chunkIndex) {
+        // Not preloaded - load now
+        current.src = audioUrl;
+        current.load();
+    }
+
+    // Apply playback rate with pitch preservation
+    const rateElement = document.getElementById('tts-audio-player');
+    if (rateElement?.dataset?.playbackRate) {
+        const rate = parseFloat(rateElement.dataset.playbackRate.replace('x', ''));
         if (!isNaN(rate) && rate > 0) {
             ttsPlaybackRate = rate;
         }
     }
+    current.playbackRate = ttsPlaybackRate;
+    current.preservesPitch = true;
 
-    const response = await fetch(audioUrl);
-    const arrayBuffer = await response.arrayBuffer();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.playbackRate.value = ttsPlaybackRate;
-    source.connect(ctx.destination);
-
-    // Schedule precisely after the previous chunk ends (zero gap)
-    const startTime = Math.max(ctx.currentTime, ttsScheduledEnd);
-    source.start(startTime);
-    const duration = audioBuffer.duration / ttsPlaybackRate;
-    ttsScheduledEnd = startTime + duration;
-
-    ttsActiveNodes.push(source);
     ttsQueuePlaying = true;
 
-    console.log(`🔊 TTS Gapless: Chunk ${chunkIndex + 1} (${audioBuffer.duration.toFixed(1)}s @${ttsPlaybackRate}x) scheduled at t=${startTime.toFixed(2)}`);
-
-    source.onended = () => {
-        const idx = ttsActiveNodes.indexOf(source);
-        if (idx >= 0) ttsActiveNodes.splice(idx, 1);
-        ttsQueueCurrentIndex = Math.max(ttsQueueCurrentIndex, chunkIndex + 1);
-        if (ttsActiveNodes.length === 0 && ttsQueueScheduledIndex >= ttsQueue.length) {
-            ttsQueuePlaying = false;
-            console.log('🔊 TTS Gapless: All chunks played');
-        }
+    // When this chunk ends, immediately start the preloaded next chunk
+    current.onended = () => {
+        console.log(`🔊 TTS Queue: Chunk ${chunkIndex + 1} finished`);
+        ttsQueueCurrentIndex++;
+        // Swap to the other player (which should have the next chunk preloaded)
+        ttsCurrentPlayerIdx = 1 - ttsCurrentPlayerIdx;
+        playNextChunk();
     };
+
+    current.play()
+        .then(() => {
+            current.playbackRate = ttsPlaybackRate;
+            console.log(`🔊 TTS Queue: Playing chunk ${chunkIndex + 1}/${ttsQueue.length} at ${ttsPlaybackRate}x`);
+        })
+        .catch(err => {
+            if (err.message && err.message.includes('interrupted')) {
+                console.warn('⚠️ TTS Queue: Play interrupted, retrying');
+                setTimeout(() => playNextChunk(), 100);
+            } else {
+                console.warn('⚠️ TTS Queue: Autoplay blocked:', err.message);
+                ttsQueuePlaying = false;
+            }
+        });
+
+    // Preload the NEXT chunk in the OTHER player
+    preloadNextChunk();
 }
 
 /**
- * Stop all gapless playback and reset scheduling state.
+ * Preload the next unplayed chunk in the inactive player for instant handoff.
  */
-function stopGaplessPlayback() {
-    ttsActiveNodes.forEach(node => {
-        try { node.stop(); } catch(e) {}
+function preloadNextChunk() {
+    const nextIndex = ttsQueueCurrentIndex + 1;
+    if (nextIndex >= ttsQueue.length) return;
+    if (ttsPreloadedIndex === nextIndex) return;  // Already preloaded
+
+    const players = getTtsPlayers();
+    const nextPlayer = players[1 - ttsCurrentPlayerIdx];
+    const nextUrl = ttsQueue[nextIndex];
+
+    nextPlayer.src = nextUrl;
+    nextPlayer.playbackRate = ttsPlaybackRate;
+    nextPlayer.preservesPitch = true;
+    nextPlayer.load();
+    ttsPreloadedIndex = nextIndex;
+
+    console.log(`🔊 TTS Queue: Preloaded chunk ${nextIndex + 1} in background`);
+}
+
+/**
+ * Stop playback and reset double-buffer state.
+ */
+function stopDoubleBufferPlayback() {
+    const players = getTtsPlayers();
+    players.forEach(p => {
+        p.pause();
+        p.onended = null;
+        p.src = '';
     });
-    ttsActiveNodes = [];
     ttsQueueCurrentIndex = 0;
-    ttsQueueScheduledIndex = 0;
+    ttsCurrentPlayerIdx = 0;
+    ttsPreloadedIndex = -1;
     ttsQueuePlaying = false;
-    ttsScheduleChain = Promise.resolve();
-    if (ttsAudioCtx) {
-        ttsScheduledEnd = ttsAudioCtx.currentTime;
-    }
 }
 
 /**
@@ -796,7 +806,7 @@ function stopGaplessPlayback() {
  */
 function clearTtsQueue() {
     console.log('🔊 TTS Queue: Clearing');
-    stopGaplessPlayback();
+    stopDoubleBufferPlayback();
     ttsQueue = [];
     ttsQueueVersion = 0;
 
@@ -809,14 +819,17 @@ function clearTtsQueue() {
 }
 
 /**
- * Skip current chunk - stop it and let the next scheduled one play.
+ * Skip current chunk and play the next one.
  */
 function skipTtsQueueItem() {
     console.log('🔊 TTS Queue: Skipping current chunk');
-    // Stop the oldest active node (currently playing)
-    if (ttsActiveNodes.length > 0) {
-        try { ttsActiveNodes[0].stop(); } catch(e) {}
-    }
+    const players = getTtsPlayers();
+    const current = players[ttsCurrentPlayerIdx];
+    current.pause();
+    current.onended = null;
+    ttsQueueCurrentIndex++;
+    ttsCurrentPlayerIdx = 1 - ttsCurrentPlayerIdx;
+    playNextChunk();
 }
 
 // Make queue functions available globally
