@@ -5,6 +5,35 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.29.0] - 2026-02-15 🎤 DashScope Qwen3-TTS Cloud Streaming & Gapless Audio
+
+### Added
+
+- **DashScope Qwen3-TTS als neue TTS-Engine** - Cloud-basiertes Realtime-Streaming via WebSocket
+  - 0 GB VRAM - läuft vollständig in der Cloud (DashScope API)
+  - WebSocket Realtime-Streaming: Audio wird **während** der LLM-Inferenz generiert und abgespielt
+  - Voice Cloning: Geklonte Stimmen für AIfred, Sokrates und Salomo (★-Voices im Dropdown)
+  - 22+ Built-in Voices (Cherry, Serena, Ethan, Chelsie, etc.) plus 3 geklonte Stimmen
+  - Satzgrenzen-aligniertes Batching: Audio-Chunks werden an natürlichen Sprechpausen geschnitten
+  - Konfigurierbarer Volume-Gain (`DASHSCOPE_TTS_GAIN`) für Lautstärke-Anpassung
+  - Neue Klasse `DashScopeRealtimeTTS` in `audio_processing.py` mit WebSocket-Lifecycle-Management
+  - Separates Voice-Enrollment für Batch- und Realtime-Modelle
+
+- **Nahtlose Audio-Wiedergabe via Web Audio API** - Gapless Playback für alle TTS-Engines
+  - Ersetzt HTML5 `<audio>` Sequential-Playback durch Web Audio API `AudioBufferSourceNode`
+  - Chunks werden Sample-genau aneinandergereiht (zero-gap scheduling via `AudioContext.currentTime`)
+  - Promise-Chain serialisiert Fetch → Decode → Schedule für korrekte Reihenfolge
+  - Entfernt künstliche 300ms Satzpause (war für XTTS/MOSS, im Audio selbst bereits enthalten)
+  - Profitiert alle Engines: DashScope (kritisch bei 3s-Schnitten), XTTS, MOSS-TTS, Edge TTS
+
+### Changed
+
+- **TTS-Queue Architektur** - SSE bleibt persistent ab Browser-Session-Start
+  - WebSocket-Connect läuft im Background-Thread (blockiert nicht den Reflex Event-Loop)
+  - `_finishing`-Flag: Nach LLM-Ende pusht Callback alle 3s-Batches sofort statt auf Satzgrenzen zu warten
+  - Module-Level Storage für WebSocket-Instanzen (vermeidet Reflex State Serialization Error mit SSLSocket)
+  - Debug-Output in UI-Console für TTS-Aktivität (Init, Finalize)
+
 ## [2.28.4] - 2026-02-14 🧹 Centralize ★ Prefix Stripping
 
 ### Changed

@@ -25,6 +25,7 @@ numpy>=1.24.0           # Required by chromadb embeddings
 
 # Audio Processing (STT/TTS)
 edge-tts==7.2.1         # Text-to-Speech (7.2.3 has NoAudioReceived bug)
+dashscope>=1.24.6       # DashScope Qwen3-TTS Cloud API
 openai-whisper>=20231117 # Speech-to-Text
 
 # Configuration & Environment

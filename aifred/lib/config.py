@@ -315,6 +315,7 @@ RESEARCH_MODES = [
 TTS_ENGINES = [
     "XTTS v2 (Local, voice cloning)",
     "MOSS-TTS (Batch, after bubble)",
+    "DashScope Qwen3-TTS (Cloud, streaming)",
     "Piper TTS (Local, Offline)",
     "eSpeak (Robot, Offline)",
     "Edge TTS (Cloud, Fallback)",
@@ -393,6 +394,97 @@ MOSS_TTS_VOICES_FALLBACK = {
     "AIfred": "AIfred",
     "Salomo": "Salomo",
     "Sokrates": "Sokrates",
+}
+
+# ============================================================
+# DASHSCOPE QWEN3-TTS CONFIGURATION (Cloud API)
+# ============================================================
+# Cloud-based TTS via DashScope (Alibaba Cloud) - 0 GPU VRAM, 40+ voices
+# Requires DASHSCOPE_API_KEY environment variable
+DASHSCOPE_TTS_MODEL = "qwen3-tts-flash"
+DASHSCOPE_TTS_VC_MODEL = "qwen3-tts-vc-2026-01-22"  # Voice cloning model (batch, must match enrollment target_model)
+DASHSCOPE_TTS_VC_REALTIME_MODEL = "qwen3-tts-vc-realtime-2026-01-15"  # Voice cloning model (WebSocket realtime)
+DASHSCOPE_TTS_BASE_URL = "https://dashscope-intl.aliyuncs.com/api/v1"
+DASHSCOPE_WS_URL = "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime"
+DASHSCOPE_TTS_GAIN = 3.0  # Volume boost for DashScope TTS (1.0 = unchanged, 2.0 = double, etc.)
+
+# Language mapping: ISO code -> DashScope language_type
+DASHSCOPE_LANGUAGE_MAP: dict[str, str] = {
+    "de": "German",
+    "en": "English",
+    "fr": "French",
+    "es": "Spanish",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "zh": "Chinese",
+}
+
+# Available DashScope voices (batch mode - sentence-based TTS / Re-Synth)
+# Custom cloned voices (★ prefix) use VC model, built-in voices use flash model
+DASHSCOPE_VOICES: dict[str, str] = {
+    # Custom cloned voices (enrolled via DashScope Voice Enrollment API)
+    "★ AIfred": "qwen-tts-vc-aifred-voice-20260215200351981-1e03",
+    "★ Sokrates": "qwen-tts-vc-sokrates-voice-20260215200356508-96af",
+    "★ Salomo": "qwen-tts-vc-salomo-voice-20260215200400827-48f6",
+    # Built-in voices (multilingual, all support German)
+    "Cherry": "Cherry",
+    "Serena": "Serena",
+    "Ethan": "Ethan",
+    "Chelsie": "Chelsie",
+    "Momo": "Momo",
+    "Vivian": "Vivian",
+    "Moon": "Moon",
+    "Maia": "Maia",
+    "Kai": "Kai",
+    "Bella": "Bella",
+    "Jennifer": "Jennifer",
+    "Ryan": "Ryan",
+    "Aiden": "Aiden",
+    "Mia": "Mia",
+    "Vincent": "Vincent",
+    "Neil": "Neil",
+    "Elias": "Elias",
+    "Arthur": "Arthur",
+    "Stella": "Stella",
+    "Emilien": "Emilien",
+    "Andre": "Andre",
+    "Lenn": "Lenn",
+}
+
+# Realtime WebSocket voice IDs (for streaming during LLM generation)
+# Cloned voices need separate enrollment for the realtime model
+# Built-in voices use same name as batch model
+DASHSCOPE_VOICES_REALTIME: dict[str, str] = {
+    # Custom cloned voices (enrolled for realtime model)
+    "★ AIfred": "qwen-tts-vc-aifred_rt-voice-20260215200414292-7bcd",
+    "★ Sokrates": "qwen-tts-vc-sokrates_rt-voice-20260215200418894-da62",
+    "★ Salomo": "qwen-tts-vc-salomo_rt-voice-20260215200423193-f528",
+    # Built-in voices use same ID for realtime
+    "Cherry": "Cherry",
+    "Serena": "Serena",
+    "Ethan": "Ethan",
+    "Chelsie": "Chelsie",
+    "Momo": "Momo",
+    "Vivian": "Vivian",
+    "Moon": "Moon",
+    "Maia": "Maia",
+    "Kai": "Kai",
+    "Bella": "Bella",
+    "Jennifer": "Jennifer",
+    "Ryan": "Ryan",
+    "Aiden": "Aiden",
+    "Mia": "Mia",
+    "Vincent": "Vincent",
+    "Neil": "Neil",
+    "Elias": "Elias",
+    "Arthur": "Arthur",
+    "Stella": "Stella",
+    "Emilien": "Emilien",
+    "Andre": "Andre",
+    "Lenn": "Lenn",
 }
 
 def sort_voices_custom_first(voices: list[str]) -> list[str]:
@@ -527,6 +619,10 @@ TTS_DEFAULT_VOICES = {
         "de": "AIfred",  # Custom voice
         "en": "AIfred",  # Custom voice (multilingual)
     },
+    "dashscope": {
+        "de": "★ AIfred",
+        "en": "★ AIfred",
+    },
 }
 
 # ============================================================
@@ -560,6 +656,11 @@ TTS_AGENT_VOICE_DEFAULTS = {
         "sokrates": {"voice": "Deutsch (Conrad)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
         "salomo": {"voice": "Deutsch (Florian)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
     },
+    "dashscope": {
+        "aifred": {"voice": "★ AIfred", "speed": "1.25x", "pitch": "1.0", "enabled": True},
+        "sokrates": {"voice": "★ Sokrates", "speed": "1.25x", "pitch": "1.0", "enabled": True},
+        "salomo": {"voice": "★ Salomo", "speed": "1.25x", "pitch": "1.0", "enabled": True},
+    },
 }
 
 # Per-engine TTS toggle defaults (autoplay, streaming)
@@ -572,6 +673,7 @@ TTS_TOGGLE_DEFAULTS: dict[str, dict[str, bool]] = {
     "edge": {"autoplay": True, "streaming": True},
     "piper": {"autoplay": True, "streaming": False},
     "espeak": {"autoplay": True, "streaming": False},
+    "dashscope": {"autoplay": True, "streaming": True},
 }
 
 # ============================================================

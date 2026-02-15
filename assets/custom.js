@@ -635,178 +635,172 @@ window.initBubbleAudioButtons = initBubbleAudioButtons;
 window.initBubbleRegenerateButtons = initBubbleRegenerateButtons;
 
 // ============================================================
-// TTS AUDIO QUEUE - Sequential playback of multiple audio files
+// TTS AUDIO QUEUE - Gapless playback via Web Audio API
 // ============================================================
 
 // Queue state
 let ttsQueue = [];  // Array of audio URLs to play
 let ttsQueuePlaying = false;  // Is queue currently playing?
-let ttsQueueCurrentIndex = 0;  // Current position in queue
+let ttsQueueCurrentIndex = 0;  // Current playback position (updated when chunk finishes)
 let ttsQueueVersion = 0;  // Track version to detect updates from backend
-let ttsQueuePlaybackScheduled = false;  // Prevents multiple playback starts from rapid updates
+
+// Web Audio API state for gapless playback
+let ttsAudioCtx = null;           // AudioContext - created once, reused
+let ttsScheduledEnd = 0;          // AudioContext timestamp when last scheduled buffer ends
+let ttsActiveNodes = [];          // Active AudioBufferSourceNodes (for stopping)
+let ttsQueueScheduledIndex = 0;   // How many queue items have been scheduled so far
+let ttsScheduleChain = Promise.resolve();  // Serializes async fetch+decode+schedule
 
 /**
- * Update the TTS queue from backend state
- * Called when tts_audio_queue or tts_queue_version changes in Python
- * @param {string[]} queue - Array of audio URLs
- * @param {number} version - Queue version number
+ * Get or create the Web Audio context for gapless playback.
+ */
+function getTtsAudioContext() {
+    if (!ttsAudioCtx || ttsAudioCtx.state === 'closed') {
+        ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        ttsScheduledEnd = ttsAudioCtx.currentTime;
+    }
+    return ttsAudioCtx;
+}
+
+/**
+ * Update the TTS queue from backend state.
+ * Called when SSE pushes a new audio URL or when tts_audio_queue changes.
  */
 function updateTtsQueue(queue, version) {
-    // Check if this is a new version
     if (version <= ttsQueueVersion && queue.length === ttsQueue.length) {
         return;
     }
 
-    console.log(`🔊 TTS Queue: Update received - version ${ttsQueueVersion} → ${version}, items ${ttsQueue.length} → ${queue.length}`);
+    console.log(`🔊 TTS Queue: Update v${ttsQueueVersion}→${version}, items ${ttsQueue.length}→${queue.length}`);
 
-    // Detect queue reset - this happens when:
-    // 1. Queue becomes shorter or empty (user clears chat)
-    // 2. Version goes DOWN (new inference started, server reset version to 1)
+    // Detect queue reset (new inference or chat clear)
     const versionReset = version < ttsQueueVersion && ttsQueueVersion > 0;
     const queueShrunk = queue.length < ttsQueue.length || queue.length === 0;
 
     if (queueShrunk || versionReset) {
-        console.log(`🔊 TTS Queue: Queue was reset (versionReset=${versionReset}, queueShrunk=${queueShrunk}), resetting index and state`);
-        ttsQueueCurrentIndex = 0;
-        ttsQueuePlaying = false;
-        ttsQueuePlaybackScheduled = false;  // Also reset the scheduling flag
-        ttsQueue = [];  // Clear local queue so new items are treated as fresh
-        // Stop current playback if any
-        const player = document.getElementById('tts-audio-player');
-        if (player) {
-            player.pause();
-            player.onended = null;
-        }
+        console.log(`🔊 TTS Queue: Reset detected, stopping playback`);
+        stopGaplessPlayback();
+        ttsQueue = [];
     }
 
     ttsQueueVersion = version;
+    ttsQueue = [...queue];
 
-    // Find new items (items not yet in our local queue)
-    // Only calculate new items if queue grew (not if it was reset)
-    const newItems = queue.length > ttsQueue.length ? queue.slice(ttsQueue.length) : queue;
-    ttsQueue = [...queue];  // Sync local queue with backend
+    // Schedule any new (unscheduled) chunks for gapless playback
+    scheduleNewChunks();
+}
 
-    // If we have new items and not currently playing, start playback
-    // But ONLY if AutoPlay is enabled (check data-autoplay attribute)
-    // AND the tab is visible (prevent multiple devices from playing simultaneously)
+/**
+ * Schedule all unscheduled chunks for gapless Web Audio playback.
+ * Uses promise chaining to ensure chunks are fetched/decoded/scheduled in order.
+ */
+function scheduleNewChunks() {
     const queueElement = document.getElementById('tts-queue-data');
     const autoplayEnabled = queueElement?.dataset?.autoplay === 'true';
 
-    if (newItems.length > 0 && !ttsQueuePlaying && !ttsQueuePlaybackScheduled && autoplayEnabled && !document.hidden) {
-        // Set flag IMMEDIATELY to prevent race conditions from rapid updates
-        ttsQueuePlaybackScheduled = true;
-        console.log(`🔊 TTS Queue: Starting playback of ${newItems.length} new items (with 50ms delay for DOM sync)`);
-        setTimeout(() => {
-            ttsQueuePlaybackScheduled = false;  // Clear flag when actually starting
-            playNextInQueue();
-        }, 50);
-    } else if (newItems.length > 0 && ttsQueuePlaybackScheduled) {
-        console.log(`🔊 TTS Queue: ${newItems.length} new items added, playback already scheduled`);
-    } else if (newItems.length > 0 && !autoplayEnabled) {
-        console.log('🔊 TTS Queue: New items received but AutoPlay is OFF - not playing');
-    } else if (newItems.length > 0 && document.hidden) {
-        console.log('🔇 TTS Queue: New items received but tab is hidden - not playing (multi-device support)');
+    if (!autoplayEnabled) {
+        console.log('🔊 TTS Queue: AutoPlay OFF, not scheduling');
+        return;
     }
-}
-
-/**
- * Play the next item in the queue
- */
-function playNextInQueue() {
-    if (ttsQueueCurrentIndex >= ttsQueue.length) {
-        ttsQueuePlaying = false;
-        console.log('🔊 TTS Queue: Playback complete (no more items)');
+    if (document.hidden) {
+        console.log('🔇 TTS Queue: Tab hidden, not scheduling');
         return;
     }
 
-    ttsQueuePlaying = true;
-    const audioUrl = ttsQueue[ttsQueueCurrentIndex];
-    console.log(`🔊 TTS Queue: Playing item ${ttsQueueCurrentIndex + 1}/${ttsQueue.length}: ${audioUrl}`);
+    while (ttsQueueScheduledIndex < ttsQueue.length) {
+        const audioUrl = ttsQueue[ttsQueueScheduledIndex];
+        const chunkIndex = ttsQueueScheduledIndex;
+        ttsQueueScheduledIndex++;
 
-    const player = document.getElementById('tts-audio-player');
-    if (player) {
-        // Read playback rate from data attribute (set by Python backend)
-        const dataRate = player.dataset.playbackRate;
-        if (dataRate) {
-            const rate = parseFloat(dataRate.replace('x', ''));
-            if (!isNaN(rate) && rate > 0) {
-                ttsPlaybackRate = rate;
-                console.log(`🔊 TTS Queue: Using playback rate ${rate}x from data attribute`);
-            }
-        }
-
-        // Set source first
-        player.src = audioUrl;
-
-        // Set playback rate AFTER setting src but BEFORE load
-        // Also set it again on canplay event (browsers sometimes reset it)
-        player.playbackRate = ttsPlaybackRate;
-
-        // Handler to ensure playbackRate is applied after audio is ready
-        const applyPlaybackRate = () => {
-            if (player.playbackRate !== ttsPlaybackRate) {
-                console.log(`🔊 TTS Queue: Re-applying playback rate ${ttsPlaybackRate}x on canplay`);
-                player.playbackRate = ttsPlaybackRate;
-            }
-        };
-        player.oncanplay = applyPlaybackRate;
-        player.onloadeddata = applyPlaybackRate;
-
-        player.load();
-
-        // Apply rate again after load (belt and suspenders)
-        player.playbackRate = ttsPlaybackRate;
-
-        // Remove old ended handler and add new one
-        // Add a small pause between sentences for natural speech rhythm
-        player.onended = () => {
-            console.log('🔊 TTS Queue: Item finished, adding sentence pause before next');
-            ttsQueueCurrentIndex++;
-            // 300ms pause between sentences for natural rhythm
-            setTimeout(() => {
-                playNextInQueue();
-            }, 300);
-        };
-
-        player.play()
-            .then(() => {
-                // Apply rate one more time after play starts
-                player.playbackRate = ttsPlaybackRate;
-                console.log(`✅ TTS Queue: Playback started at ${player.playbackRate}x`);
-            })
+        // Chain promises: each chunk waits for the previous to be scheduled
+        // so ttsScheduledEnd is always up-to-date
+        ttsScheduleChain = ttsScheduleChain
+            .then(() => scheduleGaplessChunk(audioUrl, chunkIndex))
             .catch(err => {
-                // Check if this is an interrupt error (race condition, now fixed)
-                // vs a real autoplay policy block
-                if (err.message && err.message.includes('interrupted')) {
-                    console.warn('⚠️ TTS Queue: Play interrupted (race condition), retrying current item');
-                    // Retry the SAME item after a short delay (don't skip)
-                    setTimeout(() => {
-                        playNextInQueue();
-                    }, 100);
-                } else {
-                    console.warn('⚠️ TTS Queue: Autoplay blocked by browser policy:', err.message);
-                    // Real autoplay block - stop trying, user needs to interact first
-                    ttsQueuePlaying = false;
-                    console.log('🔊 TTS Queue: Paused - click anywhere on page to enable audio, then try again');
-                }
+                console.warn(`⚠️ TTS Gapless: Chunk ${chunkIndex + 1} failed:`, err.message);
             });
-    } else {
-        console.warn('⚠️ TTS Queue: Player not found');
-        ttsQueuePlaying = false;
     }
 }
 
 /**
- * Clear the TTS queue and stop playback
+ * Fetch, decode, and schedule a single audio chunk on the Web Audio timeline.
+ * Chunks are placed back-to-back with zero gap for seamless playback.
+ */
+async function scheduleGaplessChunk(audioUrl, chunkIndex) {
+    const ctx = getTtsAudioContext();
+
+    // Resume if suspended (browser autoplay policy requires user gesture)
+    if (ctx.state === 'suspended') {
+        await ctx.resume();
+    }
+
+    // Read playback rate from data attribute
+    const player = document.getElementById('tts-audio-player');
+    if (player?.dataset?.playbackRate) {
+        const rate = parseFloat(player.dataset.playbackRate.replace('x', ''));
+        if (!isNaN(rate) && rate > 0) {
+            ttsPlaybackRate = rate;
+        }
+    }
+
+    const response = await fetch(audioUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.playbackRate.value = ttsPlaybackRate;
+    source.connect(ctx.destination);
+
+    // Schedule precisely after the previous chunk ends (zero gap)
+    const startTime = Math.max(ctx.currentTime, ttsScheduledEnd);
+    source.start(startTime);
+    const duration = audioBuffer.duration / ttsPlaybackRate;
+    ttsScheduledEnd = startTime + duration;
+
+    ttsActiveNodes.push(source);
+    ttsQueuePlaying = true;
+
+    console.log(`🔊 TTS Gapless: Chunk ${chunkIndex + 1} (${audioBuffer.duration.toFixed(1)}s @${ttsPlaybackRate}x) scheduled at t=${startTime.toFixed(2)}`);
+
+    source.onended = () => {
+        const idx = ttsActiveNodes.indexOf(source);
+        if (idx >= 0) ttsActiveNodes.splice(idx, 1);
+        ttsQueueCurrentIndex = Math.max(ttsQueueCurrentIndex, chunkIndex + 1);
+        if (ttsActiveNodes.length === 0 && ttsQueueScheduledIndex >= ttsQueue.length) {
+            ttsQueuePlaying = false;
+            console.log('🔊 TTS Gapless: All chunks played');
+        }
+    };
+}
+
+/**
+ * Stop all gapless playback and reset scheduling state.
+ */
+function stopGaplessPlayback() {
+    ttsActiveNodes.forEach(node => {
+        try { node.stop(); } catch(e) {}
+    });
+    ttsActiveNodes = [];
+    ttsQueueCurrentIndex = 0;
+    ttsQueueScheduledIndex = 0;
+    ttsQueuePlaying = false;
+    ttsScheduleChain = Promise.resolve();
+    if (ttsAudioCtx) {
+        ttsScheduledEnd = ttsAudioCtx.currentTime;
+    }
+}
+
+/**
+ * Clear the TTS queue and stop playback.
  */
 function clearTtsQueue() {
     console.log('🔊 TTS Queue: Clearing');
+    stopGaplessPlayback();
     ttsQueue = [];
-    ttsQueueCurrentIndex = 0;
-    ttsQueuePlaying = false;
-    ttsQueuePlaybackScheduled = false;
+    ttsQueueVersion = 0;
 
-    // Stop current playback
+    // Also stop HTML5 audio player (used by bubble audio)
     const player = document.getElementById('tts-audio-player');
     if (player) {
         player.pause();
@@ -815,16 +809,14 @@ function clearTtsQueue() {
 }
 
 /**
- * Skip to next item in queue
+ * Skip current chunk - stop it and let the next scheduled one play.
  */
 function skipTtsQueueItem() {
-    console.log('🔊 TTS Queue: Skipping current item');
-    const player = document.getElementById('tts-audio-player');
-    if (player) {
-        player.pause();
+    console.log('🔊 TTS Queue: Skipping current chunk');
+    // Stop the oldest active node (currently playing)
+    if (ttsActiveNodes.length > 0) {
+        try { ttsActiveNodes[0].stop(); } catch(e) {}
     }
-    ttsQueueCurrentIndex++;
-    playNextInQueue();
 }
 
 // Make queue functions available globally
@@ -908,30 +900,19 @@ function startTtsStream(sessionIdParam) {
             const data = JSON.parse(event.data);
             console.log(`🔊 TTS SSE: Received audio URL, version ${data.version}`);
 
-            // Add to queue and play immediately
             if (data.audio_url) {
-                // Check for version reset BEFORE building queue
-                // Version reset means new inference started - clear old queue first
-                const versionReset = data.version < ttsQueueVersion && ttsQueueVersion > 0;
-                if (versionReset) {
-                    console.log(`🔊 TTS SSE: Version reset detected (${ttsQueueVersion} → ${data.version}), clearing local queue`);
-                    ttsQueue = [];
-                    ttsQueueVersion = 0;
-                    ttsQueueCurrentIndex = 0;
-                    ttsQueuePlaying = false;
-                }
-
-                // Build queue incrementally (now with potentially cleared queue)
-                const newQueue = [...ttsQueue, data.audio_url];
-                updateTtsQueue(newQueue, data.version);
-
-                // Update playback rate from SSE data
+                // Update playback rate from SSE data (before scheduling)
                 if (data.playback_rate) {
                     const rate = parseFloat(data.playback_rate.replace('x', ''));
                     if (!isNaN(rate) && rate > 0) {
                         ttsPlaybackRate = rate;
                     }
                 }
+
+                // Build queue incrementally and schedule for gapless playback
+                // Version reset detection happens inside updateTtsQueue()
+                const newQueue = [...ttsQueue, data.audio_url];
+                updateTtsQueue(newQueue, data.version);
             }
         } catch (e) {
             console.warn('🔊 TTS SSE: Failed to parse event data:', e);

@@ -112,6 +112,10 @@ from .lib.audio_processing import (  # noqa: E402
     get_whisper_model
 )
 
+# Module-level storage for DashScope WebSocket TTS instances (keyed by session_id).
+# Cannot be stored in Reflex state because WebSocket/SSLSocket objects are not serializable.
+_dashscope_rt_instances: dict[str, object] = {}
+
 
 class AIState(rx.State):
     """Main application state"""
@@ -718,6 +722,9 @@ class AIState(rx.State):
             if voices:
                 return sorted(list(voices.keys()))
             return sorted(list(MOSS_TTS_VOICES_FALLBACK.keys()))
+        elif "DashScope" in self.tts_engine:
+            from .lib.config import DASHSCOPE_VOICES, sort_voices_custom_first
+            return sort_voices_custom_first(list(DASHSCOPE_VOICES.keys()))
         elif "Piper" in self.tts_engine:
             return sorted(list(PIPER_VOICES.keys()))
         elif "eSpeak" in self.tts_engine:
@@ -6256,28 +6263,71 @@ class AIState(rx.State):
         """Initialize streaming TTS state for a new response.
 
         Call this at the start of send_message() when streaming TTS is enabled.
+        For DashScope: Opens a WebSocket connection for realtime token-feeding.
+        For other engines: Initializes sentence buffer for parallel sentence TTS.
 
         Args:
             agent: Agent name for per-agent voice settings
-
-        Returns:
-            Background event to start TTS broker (if not already running), or None
         """
         log_message(f"🔊 TTS Init: Starting streaming TTS for agent={agent}")
         log_message(f"🔊 TTS Init: enable_tts={self.enable_tts}, tts_streaming_enabled={self.tts_streaming_enabled}, engine={self.tts_engine}")
         self._tts_sentence_buffer = ""
-        self._tts_short_carry = ""  # Short sentences waiting to be merged with next
+        self._tts_short_carry = ""
         self._tts_in_think_block = False
         self._tts_streaming_active = True
-        self._tts_streaming_agent = agent  # Store current agent for voice settings
+        self._tts_streaming_agent = agent
+
+        # DashScope: Open WebSocket for realtime token-feeding
+        if "DashScope" in self.tts_engine:
+            self._init_dashscope_realtime(agent)
+        else:
+            _dashscope_rt_instances.pop(self.session_id, None)
+
         log_message("🔊 TTS Init: State initialized, ready for chunks")
-        # NOTE: No broker needed - frontend polls API directly via startTtsPolling()
+
+    def _init_dashscope_realtime(self, agent: str) -> None:
+        """Open DashScope WebSocket connection for realtime TTS streaming."""
+        from .lib.audio_processing import DashScopeRealtimeTTS
+
+        # Resolve voice for this agent
+        voice_choice = self.tts_voice
+        speed_value = 1.0
+        tts_agent_voices = dict(self.tts_agent_voices)
+        if agent in tts_agent_voices:
+            agent_settings = tts_agent_voices[agent]
+            if agent_settings.get("voice"):
+                voice_choice = agent_settings["voice"]
+            agent_speed = agent_settings.get("speed", "")
+            if agent_speed:
+                try:
+                    speed_value = float(agent_speed.replace("x", ""))
+                except ValueError:
+                    pass
+
+        # Strip ★ prefix (same as generate_tts() does centrally)
+        if voice_choice.startswith("★ "):
+            voice_choice = voice_choice[2:]
+
+        log_message(f"🔊 DashScope RT Init: Opening WebSocket for voice={voice_choice}, agent={agent}")
+        self.add_debug(f"🎤 TTS: DashScope Realtime WebSocket → {voice_choice}")
+        rt_tts = DashScopeRealtimeTTS(
+            voice_choice=voice_choice,
+            session_id=self.session_id,
+            agent=agent,
+            speed=speed_value,
+        )
+        _dashscope_rt_instances[self.session_id] = rt_tts
+        # Connect in background thread - doesn't block event loop
+        # This allows the yield to happen immediately so the browser can set up SSE
+        # TTFT is ~3s, so WebSocket connect (~0.6s) will be done before first token
+        import threading
+        threading.Thread(target=rt_tts.connect, daemon=True).start()
+
     async def _finalize_streaming_tts(self) -> list[str]:
         """Wait for TTS tasks to complete and return combined audio URL.
 
-        With create_task(), TTS generation runs truly in parallel. This function
-        waits for all pending tasks to complete (or timeout), then collects
-        all generated audio URLs.
+        DashScope Realtime: Calls finish() on WebSocket, waits for final audio.
+        Other engines: Waits for parallel create_task() TTS tasks to complete.
 
         Returns:
             List with single combined audio URL, or empty list if no audio
@@ -6285,6 +6335,12 @@ class AIState(rx.State):
         if not self._tts_streaming_active:
             log_message("🔊 TTS Finalize: Not active, skipping")
             return []
+
+        # DashScope Realtime: Finish WebSocket and get combined WAV
+        if self.session_id in _dashscope_rt_instances:
+            return await self._finalize_dashscope_realtime()
+
+        # --- Other engines: Sentence-based parallel TTS ---
 
         # Merge carried-over short sentence with remaining buffer
         final_text = ""
@@ -6326,12 +6382,8 @@ class AIState(rx.State):
         log_message(f"🔊 TTS Finalize: {len(completed_urls)} audio chunks collected")
 
         # Save audio to session directory (permanent storage)
-        # - Single chunk: copies to session dir
-        # - Multiple chunks: concatenates to session dir
-        # Original chunks stay in tts_audio/ for browser autoplay, 24h cleanup handles them
         combined_url: str | None = None
         if completed_urls:
-            # Show debug message for chunk combination
             if len(completed_urls) > 1:
                 self.add_debug(f"🔗 TTS: Combining {len(completed_urls)} audio chunks...")
                 self.add_debug(CONSOLE_SEPARATOR)
@@ -6340,24 +6392,66 @@ class AIState(rx.State):
             if combined_url:
                 log_message(f"🔊 TTS Finalize: Saved to session → {combined_url}")
 
-        # Reset streaming state and handshake tracking
+        # Reset streaming state
         self._tts_sentence_buffer = ""
         self._tts_in_think_block = False
         self._tts_streaming_active = False
         self._pending_tts_requests = []
         self._completed_tts_urls = {}
-        self._pending_audio_urls = []  # Legacy field - keep in sync
+        self._pending_audio_urls = []
         log_message("🔊 TTS Finalize: State reset complete")
 
-        # Return as list for backward compatibility
         return [combined_url] if combined_url else []
 
+    async def _finalize_dashscope_realtime(self) -> list[str]:
+        """Finalize DashScope WebSocket streaming and return combined WAV URL.
+
+        Audio batches (sentence-aligned) are pushed to the browser during synthesis
+        via _flush_push_buffer(). This method waits for the final audio, saves the
+        combined WAV to the session for re-play, and cleans up.
+        """
+        from .lib.audio_processing import save_audio_to_session
+
+        rt_tts = _dashscope_rt_instances.pop(self.session_id, None)
+        if not rt_tts:
+            log_message("🔊 DashScope RT Finalize: No active WebSocket for this session")
+            return []
+
+        log_message("🔊 DashScope RT Finalize: Finishing WebSocket stream...")
+        self.add_debug("🎤 TTS: Waiting for remaining audio...")
+
+        # finish() flushes remaining text, signals end, waits for remaining audio, saves WAV
+        # Audio batches (sentence-aligned) are already pushed to browser during synthesis
+        combined_url = await rt_tts.finish()
+
+        # Save combined WAV to session directory (permanent storage for re-play)
+        session_url: str | None = None
+        if combined_url:
+            session_url = save_audio_to_session([combined_url], self.session_id)
+            if session_url:
+                log_message(f"🔊 DashScope RT Finalize: Saved to session → {session_url}")
+
+        # Cleanup WebSocket
+        rt_tts.close()
+
+        # Reset streaming state
+        self._tts_sentence_buffer = ""
+        self._tts_in_think_block = False
+        self._tts_streaming_active = False
+        self._pending_tts_requests = []
+        self._completed_tts_urls = {}
+        self._pending_audio_urls = []
+        log_message("🔊 DashScope RT Finalize: State reset complete")
+
+        return [session_url] if session_url else []
+
     def _process_streaming_tts_chunk(self, chunk: str) -> None:
-        """Process a streaming chunk for sentence-based TTS.
+        """Process a streaming chunk for TTS.
 
         This is called for each content chunk during LLM streaming.
-        When a complete sentence is detected, TTS generation starts IMMEDIATELY
-        via asyncio.create_task() - runs truly in parallel with streaming.
+
+        DashScope: Feeds tokens directly into WebSocket (natural ordering).
+        Other engines: Extracts sentences and generates TTS in parallel via create_task().
 
         Args:
             chunk: Text chunk from LLM streaming
@@ -6367,10 +6461,10 @@ class AIState(rx.State):
 
         from .lib.audio_processing import (
             extract_complete_sentences,
-            strip_think_content_streaming
+            strip_think_content_streaming,
         )
 
-        # Add chunk to buffer
+        # Add chunk to buffer (used for think-block detection in all modes)
         self._tts_sentence_buffer += chunk
         log_message(f"🔊 TTS Chunk: +{len(chunk)} chars, buffer now {len(self._tts_sentence_buffer)} chars")
 
@@ -6381,13 +6475,20 @@ class AIState(rx.State):
         if "</think>" in self._tts_sentence_buffer.lower():
             self._tts_in_think_block = False
             log_message("🔊 TTS Chunk: Exited </think> block")
-            # Strip think content from buffer
             self._tts_sentence_buffer = strip_think_content_streaming(self._tts_sentence_buffer)
             log_message(f"🔊 TTS Chunk: After strip, buffer now {len(self._tts_sentence_buffer)} chars")
 
-        # Don't extract sentences while inside think block
+        # Don't process content while inside think block
         if self._tts_in_think_block:
             log_message("🔊 TTS Chunk: Inside think block, waiting...")
+            return
+
+        # DashScope Realtime: Feed raw tokens into WebSocket buffer
+        # Cleaning happens inside DashScopeRealtimeTTS on the accumulated buffer
+        # (clean_text_for_tts needs complete text, not individual tokens)
+        rt_tts = _dashscope_rt_instances.get(self.session_id)
+        if rt_tts is not None:
+            rt_tts.append_text(chunk)
             return
 
         # Try to extract complete sentences
@@ -8633,11 +8734,13 @@ class AIState(rx.State):
             self.add_debug(f"❌ Invalid language: {lang}. Use 'de' or 'en'")
 
     def _get_engine_key(self) -> str:
-        """Get engine key for config lookup (xtts, moss, piper, espeak, edge)"""
+        """Get engine key for config lookup (xtts, moss, dashscope, piper, espeak, edge)"""
         if "XTTS" in self.tts_engine:
             return "xtts"
         elif "MOSS" in self.tts_engine:
             return "moss"
+        elif "DashScope" in self.tts_engine:
+            return "dashscope"
         elif "Piper" in self.tts_engine:
             return "piper"
         elif "eSpeak" in self.tts_engine:
@@ -8753,6 +8856,9 @@ class AIState(rx.State):
             from .lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
             moss_voices = get_moss_voices()
             voice_dict = moss_voices if moss_voices else MOSS_TTS_VOICES_FALLBACK
+        elif engine_key == "dashscope":
+            from .lib.config import DASHSCOPE_VOICES
+            voice_dict = DASHSCOPE_VOICES
         else:
             voice_dict = EDGE_TTS_VOICES
 

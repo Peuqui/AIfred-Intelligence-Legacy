@@ -1097,6 +1097,379 @@ def generate_speech_moss(text: str, speed: float = 1.0, voice_choice: str = "AIf
         return None
 
 
+def generate_speech_dashscope(text: str, speed: float = 1.0, voice_choice: str = "Cherry", language: str = "de") -> str | None:
+    """
+    DashScope Qwen3-TTS - Cloud-based streaming TTS via DashScope API.
+
+    Uses streaming mode to collect PCM chunks and save as WAV file.
+    Requires DASHSCOPE_API_KEY environment variable.
+
+    Args:
+        text: Text to synthesize
+        speed: Speed multiplier (currently unused, DashScope has no direct speed param)
+        voice_choice: Voice name from DASHSCOPE_VOICES config
+        language: Language code (de, en, etc.)
+
+    Returns:
+        str: Path to generated audio file (relative URL), or None on error
+    """
+    import base64
+    import wave
+    from .config import (
+        DASHSCOPE_TTS_MODEL, DASHSCOPE_TTS_VC_MODEL,
+        DASHSCOPE_TTS_BASE_URL, DASHSCOPE_LANGUAGE_MAP, DASHSCOPE_VOICES,
+        DASHSCOPE_TTS_GAIN,
+    )
+
+    filename = _generate_tts_filename("wav")
+    output_file = str(TTS_AUDIO_DIR / filename)
+
+    try:
+        import dashscope
+
+        api_key = os.environ.get("DASHSCOPE_API_KEY")
+        if not api_key:
+            log_message("❌ DashScope TTS: DASHSCOPE_API_KEY not set")
+            return None
+
+        dashscope.base_http_api_url = DASHSCOPE_TTS_BASE_URL
+        language_type = DASHSCOPE_LANGUAGE_MAP.get(language, "Auto")
+
+        # Resolve voice: display name -> voice ID from config
+        # ★ prefix is stripped centrally in generate_tts(), so try both variants
+        voice_id = DASHSCOPE_VOICES.get(voice_choice) or DASHSCOPE_VOICES.get(f"★ {voice_choice}", voice_choice)
+
+        # Use VC model for cloned voices, flash model for built-in
+        is_cloned = voice_id.startswith("qwen-tts-vc-")
+        model = DASHSCOPE_TTS_VC_MODEL if is_cloned else DASHSCOPE_TTS_MODEL
+
+        log_message(f"🎤 DashScope TTS: voice={voice_choice}, id={voice_id}, model={model}, lang={language_type}, text_length={len(text)}")
+
+        # Use streaming mode - collect PCM chunks (24kHz, 16-bit mono)
+        response = dashscope.MultiModalConversation.call(
+            model=model,
+            api_key=api_key,
+            text=text,
+            voice=voice_id,
+            language_type=language_type,
+            stream=True,
+        )
+
+        pcm_chunks: list[bytes] = []
+        for chunk in response:
+            if chunk.output and chunk.output.audio and chunk.output.audio.data:
+                pcm_bytes = base64.b64decode(chunk.output.audio.data)
+                pcm_chunks.append(pcm_bytes)
+
+        if not pcm_chunks:
+            log_message("❌ DashScope TTS: No audio chunks received")
+            return None
+
+        # Write PCM chunks as WAV file (24kHz, 16-bit mono) with gain
+        pcm_data = b"".join(pcm_chunks)
+        if DASHSCOPE_TTS_GAIN != 1.0:
+            import struct
+            samples = struct.unpack(f"<{len(pcm_data) // 2}h", pcm_data)
+            gained = [max(-32768, min(32767, int(s * DASHSCOPE_TTS_GAIN))) for s in samples]
+            pcm_data = struct.pack(f"<{len(gained)}h", *gained)
+        with wave.open(output_file, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)  # 16-bit
+            wf.setframerate(24000)
+            wf.writeframes(pcm_data)
+
+        file_size = os.path.getsize(output_file)
+        duration = len(pcm_data) / (24000 * 2)
+        log_message(f"✅ DashScope TTS: Audio saved → {output_file} ({file_size:,} bytes, {duration:.1f}s)")
+
+        if file_size < 100:
+            log_message(f"⚠️ DashScope TTS: File suspiciously small ({file_size} bytes)")
+            return None
+
+        return f"/_upload/tts_audio/{filename}"
+
+    except ImportError:
+        log_message("❌ DashScope TTS: dashscope SDK not installed. Run: pip install dashscope>=1.24.6")
+        return None
+    except Exception as e:
+        log_message(f"❌ DashScope TTS Exception: {type(e).__name__}: {e}")
+        return None
+
+
+class DashScopeRealtimeTTS:
+    """WebSocket-based realtime TTS streaming for DashScope Qwen3-TTS.
+
+    Maintains a single WebSocket connection per LLM response.
+    LLM tokens are fed via append_text(), audio PCM chunks arrive via callback
+    in natural order and are pushed to SSE for immediate browser playback.
+
+    Usage:
+        tts = DashScopeRealtimeTTS(voice_choice="★ AIfred", session_id="abc123")
+        tts.connect()                    # Opens WebSocket
+        tts.append_text("Hallo, ")       # Feed LLM tokens as they arrive
+        tts.append_text("wie geht es?")
+        wav_url = tts.finish()           # Signals end, waits for audio, saves WAV
+    """
+
+    def __init__(self, voice_choice: str, session_id: str, agent: str = "aifred",
+                 speed: float = 1.0, language: str = "de"):
+        from .config import (
+            DASHSCOPE_TTS_VC_REALTIME_MODEL, DASHSCOPE_WS_URL,
+            DASHSCOPE_VOICES_REALTIME, DASHSCOPE_LANGUAGE_MAP,
+            DASHSCOPE_TTS_GAIN,
+        )
+        self._gain = DASHSCOPE_TTS_GAIN
+
+        self._session_id = session_id
+        self._agent = agent
+        self._speed = speed
+
+        # Resolve voice: display name -> realtime voice ID
+        # ★ prefix is stripped centrally in state.py, so try both variants
+        voice_id = (DASHSCOPE_VOICES_REALTIME.get(voice_choice)
+                     or DASHSCOPE_VOICES_REALTIME.get(f"★ {voice_choice}", voice_choice))
+
+        # Determine model: cloned voices use VC realtime model, built-in use flash
+        is_cloned = voice_id.startswith("qwen-tts-vc-")
+        self._model = DASHSCOPE_TTS_VC_REALTIME_MODEL if is_cloned else "qwen3-tts-flash-realtime"
+        self._voice_id = voice_id
+        self._ws_url = DASHSCOPE_WS_URL
+        self._language_type = DASHSCOPE_LANGUAGE_MAP.get(language, "Auto")
+
+        # State
+        import threading
+        self._tts: object | None = None
+        self._chunks: list[bytes] = []
+        self._done_event: threading.Event = threading.Event()
+        self._first_chunk_time: float | None = None
+        self._start_time: float = 0
+        self._connected = False
+        self._text_buffer: str = ""
+        self._chunk_count = 0
+        # Streaming push: accumulate PCM, push as WAV at sentence boundaries
+        self._push_buffer: bytes = b""
+        self._push_min_bytes = 24000 * 2 * 3  # Min 3s of PCM before pushing
+        self._sentence_flush_requested = False  # Set at sentence boundaries in append_text()
+        self._finishing = False  # Set when finish() is called - push every 3s without waiting for sentence boundary
+        self._push_count = 0
+
+        log_message(f"🎤 DashScope RT: Init voice={voice_choice}, id={voice_id}, model={self._model}")
+
+    def connect(self) -> None:
+        """Open WebSocket connection and configure session."""
+        import base64
+
+        api_key = os.environ.get("DASHSCOPE_API_KEY")
+        if not api_key:
+            log_message("❌ DashScope RT: DASHSCOPE_API_KEY not set")
+            return
+
+        from dashscope.audio.qwen_tts_realtime import (
+            QwenTtsRealtime,
+            QwenTtsRealtimeCallback,
+            AudioFormat,
+        )
+
+        self._start_time = time.time()
+        chunks = self._chunks
+        parent = self
+
+        class _Callback(QwenTtsRealtimeCallback):
+            def on_event(self, response: dict) -> None:
+                event_type = response.get("type", "")
+                if event_type == "response.audio.delta":
+                    if parent._first_chunk_time is None:
+                        parent._first_chunk_time = time.time() - parent._start_time
+                        log_message(f"🎤 DashScope RT: First audio chunk after {parent._first_chunk_time:.2f}s")
+                    audio_b64 = response.get("delta", "")
+                    if audio_b64:
+                        pcm_bytes = base64.b64decode(audio_b64)
+                        chunks.append(pcm_bytes)
+                        parent._chunk_count += 1
+                        # Accumulate for batch push
+                        parent._push_buffer += pcm_bytes
+                        # Push when enough audio AND either:
+                        # - a sentence boundary was signaled (during LLM streaming)
+                        # - finish() was called (LLM done, no more sentence boundaries coming)
+                        should_push = (parent._sentence_flush_requested or parent._finishing)
+                        if should_push and len(parent._push_buffer) >= parent._push_min_bytes:
+                            parent._flush_push_buffer()
+                            parent._sentence_flush_requested = False
+                elif event_type == "response.done":
+                    # Push any remaining audio
+                    parent._flush_push_buffer()
+                    log_message(f"🎤 DashScope RT: Response done ({parent._chunk_count} chunks, {parent._push_count} pushes)")
+                    parent._done_event.set()
+                elif event_type == "session.created":
+                    log_message("🎤 DashScope RT: Session created")
+
+        self._tts = QwenTtsRealtime(
+            model=self._model,
+            callback=_Callback(),
+            url=self._ws_url,
+        )
+
+        self._tts.connect()
+        self._tts.update_session(
+            voice=self._voice_id,
+            response_format=AudioFormat.PCM_24000HZ_MONO_16BIT,
+            mode="server_commit",
+        )
+        self._connected = True
+        log_message("🎤 DashScope RT: WebSocket connected, session configured")
+
+    def append_text(self, text: str) -> None:
+        """Feed text chunk from LLM streaming into the TTS WebSocket.
+
+        Buffers raw LLM tokens and sends cleaned text when a sentence boundary
+        is detected. Cleaning happens on the accumulated buffer (not per-token)
+        because clean_text_for_tts() needs complete text patterns.
+        """
+        if not self._connected or not self._tts:
+            return
+
+        self._text_buffer += text
+
+        # Send when we hit a sentence boundary (., !, ?, ;, :, newline)
+        # This gives the TTS enough context for natural prosody
+        if re.search(r'[.!?;:\n]', self._text_buffer):
+            clean = clean_text_for_tts(self._text_buffer)
+            if clean and clean.strip():
+                log_message(f"🎤 DashScope RT: Sending {len(clean)} chars to WebSocket")
+                self._tts.append_text(clean)
+            self._text_buffer = ""
+            # Signal sentence boundary for audio push alignment
+            self._sentence_flush_requested = True
+
+    def flush_text(self) -> None:
+        """Send any remaining buffered text to the WebSocket."""
+        if not self._connected or not self._tts:
+            return
+        if self._text_buffer:
+            clean = clean_text_for_tts(self._text_buffer)
+            if clean and clean.strip():
+                log_message(f"🎤 DashScope RT: Flushing {len(clean)} remaining chars")
+                self._tts.append_text(clean)
+            self._text_buffer = ""
+
+    async def finish(self) -> str | None:
+        """Signal end of text, wait for all audio, save WAV file.
+
+        Returns:
+            URL path to saved WAV file, or None on error.
+        """
+        if not self._connected or not self._tts:
+            log_message("🎤 DashScope RT: Not connected, nothing to finish")
+            return None
+
+        # Flush remaining text
+        self.flush_text()
+
+        # After LLM is done, push audio every 3s regardless of sentence boundaries
+        # (no more append_text() calls will come to set _sentence_flush_requested)
+        self._finishing = True
+
+        # Signal that all text has been sent
+        self._tts.finish()
+        log_message("🎤 DashScope RT: Finish signal sent, waiting for audio completion...")
+
+        # Wait for response.done callback
+        if self._done_event:
+            try:
+                await asyncio.wait_for(
+                    self._wait_for_done(),
+                    timeout=60
+                )
+            except asyncio.TimeoutError:
+                log_message("🎤 DashScope RT: Timeout waiting for response.done (60s)")
+
+        elapsed = time.time() - self._start_time
+        total_bytes = sum(len(c) for c in self._chunks)
+        duration = total_bytes / (24000 * 2) if total_bytes > 0 else 0
+
+        log_message(f"🎤 DashScope RT: Done - {self._chunk_count} chunks, {duration:.1f}s audio, {elapsed:.1f}s total")
+
+        if not self._chunks:
+            log_message("🎤 DashScope RT: No audio chunks received")
+            return None
+
+        # Save collected PCM as WAV (with gain applied)
+        import wave
+        set_tts_agent(self._agent)
+        filename = _generate_tts_filename("wav")
+        output_file = str(TTS_AUDIO_DIR / filename)
+
+        pcm_data = self._apply_gain(b"".join(self._chunks))
+        with wave.open(output_file, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(24000)
+            wf.writeframes(pcm_data)
+
+        file_size = os.path.getsize(output_file)
+        log_message(f"🎤 DashScope RT: Saved WAV → {output_file} ({file_size:,} bytes, {duration:.1f}s)")
+
+        self._connected = False
+        return f"/_upload/tts_audio/{filename}"
+
+    async def _wait_for_done(self) -> None:
+        """Async wrapper to wait for the threading-based done event."""
+        while self._done_event and not self._done_event.is_set():
+            await asyncio.sleep(0.1)
+
+    def signal_sentence_boundary(self) -> None:
+        """Signal that a sentence boundary was detected in the text.
+
+        Called from state.py when a sentence-ending character (., !, ?) is
+        sent to the WebSocket. The next time enough audio has accumulated,
+        it will be pushed to the browser - aligning audio chunk boundaries
+        with natural sentence pauses.
+        """
+        self._sentence_flush_requested = True
+
+    def _flush_push_buffer(self) -> None:
+        """Save accumulated PCM as WAV and push to browser queue."""
+        if not self._push_buffer:
+            return
+
+        import wave
+        from .api import tts_queue_push
+
+        set_tts_agent(self._agent)
+        filename = _generate_tts_filename("wav")
+        chunk_path = str(TTS_AUDIO_DIR / filename)
+
+        pcm_data = self._apply_gain(self._push_buffer)
+        self._push_buffer = b""
+        self._push_count += 1
+
+        with wave.open(chunk_path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(24000)
+            wf.writeframes(pcm_data)
+
+        duration = len(pcm_data) / (24000 * 2)
+        chunk_url = f"/_upload/tts_audio/{filename}"
+        playback_rate = f"{self._speed}x"
+        tts_queue_push(self._session_id, chunk_url, playback_rate)
+        log_message(f"🎤 DashScope RT: Pushed batch #{self._push_count} ({duration:.1f}s) to browser")
+
+    def _apply_gain(self, pcm_data: bytes) -> bytes:
+        """Apply volume gain to 16-bit PCM data."""
+        if self._gain == 1.0:
+            return pcm_data
+        import struct
+        samples = struct.unpack(f"<{len(pcm_data) // 2}h", pcm_data)
+        gained = [max(-32768, min(32767, int(s * self._gain))) for s in samples]
+        return struct.pack(f"<{len(gained)}h", *gained)
+
+    def close(self) -> None:
+        """Close the WebSocket connection."""
+        self._connected = False
+        self._tts = None
+
+
 def clean_text_for_tts(text):
     """
     Prepare text for TTS output: Remove elements that sound bad when read aloud.
@@ -1496,6 +1869,11 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
             # MOSS-TTS Local (Docker) - zero-shot voice cloning, 20 languages
             audio_url = await loop.run_in_executor(
                 None, generate_speech_moss, text, 1.0, voice_choice, "de"
+            )
+        elif "DashScope" in tts_engine:
+            # DashScope Qwen3-TTS (Cloud) - streaming TTS, 0 GPU VRAM
+            audio_url = await loop.run_in_executor(
+                None, generate_speech_dashscope, text, 1.0, voice_choice, "de"
             )
         elif "Piper" in tts_engine:
             # Piper TTS (local) - synchronous subprocess call
