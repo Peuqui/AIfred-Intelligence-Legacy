@@ -3386,24 +3386,9 @@ def settings_accordion() -> rx.Component:
 
                 # TTS (Text-to-Speech) Section
                 rx.vstack(
-                    # TTS Toggle + Autoplay Toggle + Streaming Toggle (grouped)
+                    # Row 1: Label + AutoPlay + Streaming toggles
                     rx.hstack(
-                        # TTS Enable Toggle Group
-                        rx.hstack(
-                            rx.text(t("tts_heading"), font_weight="bold", font_size="12px"),
-                            rx.switch(
-                                checked=AIState.enable_tts,
-                                on_change=AIState.toggle_tts,
-                                size="1",
-                            ),
-                            rx.text(
-                                rx.cond(AIState.enable_tts, "ON", "OFF"),
-                                font_size="11px",
-                                color=rx.cond(AIState.enable_tts, "#d4a14a", "#666"),
-                            ),
-                            spacing="1",
-                            align="center",
-                        ),
+                        rx.text(t("tts_heading"), font_weight="bold", font_size="12px"),
                         # Spacer
                         rx.box(flex="1"),
                         # Autoplay Toggle Group (only show when TTS enabled)
@@ -3427,7 +3412,6 @@ def settings_accordion() -> rx.Component:
                             rx.box(),
                         ),
                         # Streaming TTS Toggle Group
-                        # Visibility controlled by opacity - hidden when TTS OFF or AutoPlay OFF
                         rx.hstack(
                             rx.text("Streaming", font_size="11px", color="#d4a14a"),
                             rx.switch(
@@ -3443,9 +3427,59 @@ def settings_accordion() -> rx.Component:
                             ),
                             spacing="1",
                             align="center",
-                            # Hidden but takes space when TTS OFF or AutoPlay OFF
                             opacity=rx.cond(AIState.enable_tts & AIState.tts_autoplay, "1", "0"),
                             pointer_events=rx.cond(AIState.enable_tts & AIState.tts_autoplay, "auto", "none"),
+                        ),
+                        spacing="2",
+                        align="center",
+                        width="100%",
+                    ),
+                    # Row 2: Engine/Off dropdown + XTTS GPU toggle
+                    rx.hstack(
+                        rx.cond(
+                            AIState.is_mobile,
+                            native_select_tts(
+                                AIState.tts_engine_or_off,
+                                AIState.set_tts_engine_or_off,
+                                AIState.tts_engines,
+                            ),
+                            rx.select(
+                                AIState.tts_engines,
+                                value=AIState.tts_engine_or_off,
+                                on_change=AIState.set_tts_engine_or_off,
+                                size="2",
+                                width="100%",
+                            ),
+                        ),
+                        # XTTS CPU Mode Toggle (only when XTTS active)
+                        rx.cond(
+                            AIState.enable_tts & AIState.tts_engine.contains("XTTS"),
+                            rx.tooltip(
+                              rx.hstack(
+                                rx.switch(
+                                    checked=AIState.xtts_gpu_enabled,
+                                    on_change=AIState.toggle_xtts_gpu,
+                                    size="1",
+                                ),
+                                rx.text(
+                                    rx.cond(
+                                        AIState.xtts_force_cpu,
+                                        rx.cond(AIState.ui_language == "de", "CPU (langsamer)", "CPU (slower)"),
+                                        rx.cond(AIState.ui_language == "de", "GPU (schneller)", "GPU (faster)"),
+                                    ),
+                                    font_size="10px",
+                                    color="#d4a14a",
+                                ),
+                                spacing="1",
+                                align="center",
+                              ),
+                              content=rx.cond(
+                                  AIState.ui_language == "de",
+                                  "Container-Neustart dauert einige Sekunden",
+                                  "Container restart takes a few seconds",
+                              ),
+                            ),
+                            rx.fragment(),
                         ),
                         spacing="2",
                         align="center",
@@ -3454,58 +3488,6 @@ def settings_accordion() -> rx.Component:
                     rx.cond(
                         AIState.enable_tts,
                         rx.vstack(
-                            # TTS Engine Selection
-                            rx.hstack(
-                                rx.text(t("tts_engine_label"), font_size="11px", font_weight="500"),
-                                rx.cond(
-                                    AIState.is_mobile,
-                                    # Mobile: Native select
-                                    native_select_tts(
-                                        AIState.tts_engine,
-                                        AIState.set_tts_engine,
-                                        AIState.tts_engines,
-                                    ),
-                                    # Desktop: Radix UI select
-                                    rx.select(
-                                        AIState.tts_engines,
-                                        value=AIState.tts_engine,
-                                        on_change=AIState.set_tts_engine,
-                                        size="2",
-                                    ),
-                                ),
-                                # XTTS CPU Mode Toggle (only for XTTS v2)
-                                rx.cond(
-                                    AIState.tts_engine.contains("XTTS"),
-                                    rx.tooltip(
-                                      rx.hstack(
-                                        rx.switch(
-                                            checked=AIState.xtts_gpu_enabled,
-                                            on_change=AIState.toggle_xtts_gpu,
-                                            size="1",
-                                        ),
-                                        rx.text(
-                                            rx.cond(
-                                                AIState.xtts_force_cpu,
-                                                rx.cond(AIState.ui_language == "de", "CPU (langsamer)", "CPU (slower)"),
-                                                rx.cond(AIState.ui_language == "de", "GPU (schneller)", "GPU (faster)"),
-                                            ),
-                                            font_size="10px",
-                                            color="#d4a14a",
-                                        ),
-                                        spacing="1",
-                                        align="center",
-                                      ),
-                                      content=rx.cond(
-                                          AIState.ui_language == "de",
-                                          "Container-Neustart dauert einige Sekunden",
-                                          "Container restart takes a few seconds",
-                                      ),
-                                    ),
-                                ),
-                                spacing="2",
-                                align="center",
-                                width="100%",
-                            ),
                             # Per-Agent Voice Settings (generic for all TTS engines)
                             rx.vstack(
                                 rx.divider(margin_top="8px", margin_bottom="8px"),

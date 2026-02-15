@@ -5,6 +5,26 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.0] - 2026-02-15 🔊 TTS Dropdown & Documentation
+
+### Changed
+
+- **TTS UI: Single dropdown replaces toggle + engine dropdown** - "Aus" as first option disables TTS, selecting an engine enables it
+  - Combined `set_tts_engine_or_off()` handler merges toggle + engine switch logic
+  - `tts_engine_or_off` computed var drives dropdown value
+  - Two-row layout: Label + AutoPlay + Streaming on top, engine dropdown below
+  - XTTS GPU toggle appears next to dropdown when XTTS active
+  - Per-engine voice/toggle settings saved on disable, restored on enable
+- **Debug console messages: all German → English** - Consistent English debug output for TTS container lifecycle, streaming mode, etc.
+
+### Added
+
+- **README TTS Engine documentation** (EN + DE) - Comparison table of all 6 TTS engines with streaming behavior, quality, latency, resources, and rationale for each engine choice
+
+### Fixed
+
+- **README: "Web Audio API" → "double-buffered HTML5 audio"** - Corrected feature description after playback architecture change
+
 ## [2.29.0] - 2026-02-15 🎤 DashScope Qwen3-TTS Cloud Streaming & Gapless Audio
 
 ### Added
@@ -19,10 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Neue Klasse `DashScopeRealtimeTTS` in `audio_processing.py` mit WebSocket-Lifecycle-Management
   - Separates Voice-Enrollment für Batch- und Realtime-Modelle
 
-- **Nahtlose Audio-Wiedergabe via Web Audio API** - Gapless Playback für alle TTS-Engines
-  - Ersetzt HTML5 `<audio>` Sequential-Playback durch Web Audio API `AudioBufferSourceNode`
-  - Chunks werden Sample-genau aneinandergereiht (zero-gap scheduling via `AudioContext.currentTime`)
-  - Promise-Chain serialisiert Fetch → Decode → Schedule für korrekte Reihenfolge
+- **Nahtlose Audio-Wiedergabe** - Double-buffered HTML5 Gapless Playback für alle TTS-Engines
+  - Zwei `<audio>`-Elemente wechseln sich ab: während eines spielt, wird das nächste vorgeladen
+  - `preservesPitch: true` für Geschwindigkeitsanpassung ohne Chipmunk-Effekt
   - Entfernt künstliche 300ms Satzpause (war für XTTS/MOSS, im Audio selbst bereits enthalten)
   - Profitiert alle Engines: DashScope (kritisch bei 3s-Schnitten), XTTS, MOSS-TTS, Edge TTS
 

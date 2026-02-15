@@ -313,6 +313,7 @@ RESEARCH_MODES = [
 # TTS ENGINES
 # ============================================================
 TTS_ENGINES = [
+    "Aus",
     "XTTS v2 (Local, voice cloning)",
     "MOSS-TTS (Batch, after bubble)",
     "DashScope Qwen3-TTS (Cloud, streaming)",

@@ -25,7 +25,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Automatische Web-Recherche**: KI entscheidet selbst, wann Recherche nötig ist
 - **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung
 - **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße mit RoPE-Skalierung (1.0x, 1.5x, 2.0x), Hybrid-Modus für übergroße Modelle (CPU-Offload)
-- **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud-Streaming mit Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **nahtlose Echtzeit-Audioausgabe** (Web Audio API, lückenlose Wiedergabe während der LLM-Inferenz)
+- **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud-Streaming mit Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **nahtlose Echtzeit-Audioausgabe** (Double-Buffered HTML5 Audio, lückenlose Wiedergabe während der LLM-Inferenz)
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
 - **Session-Persistenz**: Mobile Chat-History überlebt Browser-Hintergrund/Neustart (Cookie-basiert)
@@ -222,6 +222,35 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
 - **Paralleles Scraping**: ThreadPoolExecutor scrapt 3-7 URLs gleichzeitig, erste erfolgreiche Ergebnisse werden verwendet
 - **Nicht-verfügbare Quellen**: Zeigt nicht scrapbare URLs mit Fehlergrund an (Cloudflare, 404, Timeout) - im Vector Cache gespeichert für Cache-Hits
 - **PDF-Unterstützung**: Direkte Extraktion aus PDF-Dokumenten (AWMF-Leitlinien, PubMed PDFs) via PyMuPDF mit Browser-User-Agent
+
+### 🔊 Sprachschnittstelle (TTS-Engines)
+
+AIfred unterstützt 6 TTS-Engines mit unterschiedlichen Trade-offs zwischen Qualität, Latenz und Ressourcenverbrauch. Jede Engine wurde nach intensivem Ausprobieren für einen bestimmten Anwendungsfall gewählt.
+
+| Engine | Typ | Streaming | Qualität | Latenz | Ressourcen |
+|--------|-----|-----------|----------|--------|------------|
+| **XTTS v2** | Lokal (Docker) | Satzweise | Hoch (Voice Cloning) | ~1-2s/Satz | ~2 GB VRAM |
+| **MOSS-TTS 1.7B** | Lokal (Docker) | Keins (Batch nach Bubble) | Exzellent (bestes Open-Source) | ~18-22s/Satz | ~11,5 GB VRAM |
+| **DashScope Qwen3-TTS** | Cloud (WebSocket) | Echtzeit wortweise | Hoch (Voice Cloning) | ~200ms erster Chunk | Nur API-Key |
+| **Piper TTS** | Lokal | Satzweise | Mittel | <100ms | Nur CPU |
+| **eSpeak** | Lokal | Satzweise | Niedrig (robotisch) | <50ms | Nur CPU |
+| **Edge TTS** | Cloud | Satzweise | Gut | ~200ms | Nur Internet |
+
+**Warum mehrere Engines?**
+
+Die Suche nach der perfekten TTS-Erfahrung führte durch mehrere Iterationen:
+
+- **Edge TTS** war die erste Engine -- kostenlos, schnell, ordentliche Qualität, aber begrenzte Stimmen und kein Voice Cloning.
+- **XTTS v2** brachte hochwertiges Voice Cloning mit mehrsprachiger Unterstützung. Satzweises Streaming funktioniert gut: Während das LLM den nächsten Satz generiert, synthetisiert XTTS den aktuellen. Benötigt allerdings einen Docker-Container und ~2 GB VRAM.
+- **MOSS-TTS 1.7B** liefert die beste Sprachqualität aller Open-Source-Modelle (SIM 73-79%), aber zu einem Preis: ~18-22 Sekunden pro Satz macht es ungeeignet für Streaming. Audio wird als Batch nach der vollständigen Antwort generiert -- akzeptabel für kurze Antworten, aber frustrierend bei längeren.
+- **DashScope Qwen3-TTS** wurde eingeführt, um die Streaming-Lücke zu schließen. Es nutzt Alibaba Clouds WebSocket-API für echtes Echtzeit-Streaming: Audio-Chunks kommen während der LLM-Inferenz an und ermöglichen lückenlose Wiedergabe mit Voice-Cloning-Qualität. Der erste Audio-Chunk spielt innerhalb von ~200ms nach den ersten LLM-Tokens ab. Dafür wurde ein eigener Double-Buffered HTML5-Audio-Player mit tonhöhenerhaltender Geschwindigkeitsregelung gebaut.
+- **Piper TTS** und **eSpeak** dienen als leichtgewichtige Offline-Alternativen, die ohne Docker, GPU oder Internetverbindung funktionieren.
+
+**Wiedergabe-Architektur:**
+- Double-Buffered HTML5 `<audio>`-Elemente mit nahtlosem Wechsel (während eines spielt, wird das nächste vorgeladen)
+- `preservesPitch: true` für Geschwindigkeitsanpassungen ohne Chipmunk-Effekt
+- Agentenspezifische Stimme/Tonhöhe/Geschwindigkeit (AIfred, Sokrates, Salomo können jeweils eigene Stimmen haben)
+- SSE-basiertes Audio-Streaming vom Backend zum Browser (persistente Verbindung, 15s Keepalive)
 
 ### ⚠️ Modell-Empfehlungen
 - **Automatik-LLM** (Intent-Erkennung, Query-Optimierung, Adressaten-Erkennung): Mittlere Instruct-Modelle empfohlen

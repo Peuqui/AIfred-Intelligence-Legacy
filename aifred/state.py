@@ -750,6 +750,11 @@ class AIState(rx.State):
         """
         return self.enable_tts
 
+    @rx.var(deps=["enable_tts", "tts_engine"], auto_deps=False)
+    def tts_engine_or_off(self) -> str:
+        """Dropdown value: engine name when TTS enabled, 'Aus' when disabled."""
+        return self.tts_engine if self.enable_tts else "Aus"
+
     def _refresh_xtts_voices(self):
         """Refresh XTTS voices from Docker service.
 
@@ -1371,7 +1376,7 @@ class AIState(rx.State):
             if self.enable_tts and "XTTS" in self.tts_engine:
                 from .lib.process_utils import ensure_xtts_ready
 
-                self.add_debug("🔊 XTTS: Starte Container...")
+                self.add_debug("🔊 XTTS: Starting container...")
                 success, msg = ensure_xtts_ready(timeout=60)
                 if success:
                     self.add_debug(f"✅ {msg}")
@@ -1381,7 +1386,7 @@ class AIState(rx.State):
             elif self.enable_tts and "MOSS" in self.tts_engine:  # MOSS-TTS (batch)
                 from .lib.process_utils import ensure_moss_ready
 
-                self.add_debug("🔊 MOSS-TTS: Starte Container...")
+                self.add_debug("🔊 MOSS-TTS: Starting container...")
                 success, msg, device = ensure_moss_ready(timeout=120)
                 self.moss_tts_device = device if success else ""
                 if success:
@@ -3327,7 +3332,7 @@ class AIState(rx.State):
         if self.enable_tts and "XTTS" in self.tts_engine and not self.xtts_force_cpu:
             from .lib.process_utils import ensure_xtts_ready
 
-            self.add_debug("🔊 XTTS: Prüfe Container...")
+            self.add_debug("🔊 XTTS: Checking container...")
             yield  # Show debug message
             success, msg = ensure_xtts_ready(timeout=60)
             if success:
@@ -3338,7 +3343,7 @@ class AIState(rx.State):
         elif self.enable_tts and "MOSS" in self.tts_engine:  # MOSS-TTS (batch)
             from .lib.process_utils import ensure_moss_ready
 
-            self.add_debug("🔊 MOSS-TTS: Prüfe Container...")
+            self.add_debug("🔊 MOSS-TTS: Checking container...")
             yield
             success, msg, device = ensure_moss_ready(timeout=120)
             self.moss_tts_device = device if success else ""
@@ -8075,14 +8080,14 @@ class AIState(rx.State):
             if self.enable_tts:
                 success, message = set_xtts_cpu_mode(self.xtts_force_cpu)
                 if success:
-                    self.add_debug("✅ XTTS Container gestartet")
+                    self.add_debug("✅ XTTS container started")
                     self._refresh_xtts_voices()
                 else:
                     self.add_debug(f"❌ {message}")
             else:
                 success, message = stop_xtts_container()
                 if success:
-                    self.add_debug("✅ XTTS Container gestoppt")
+                    self.add_debug("✅ XTTS container stopped")
                 else:
                     self.add_debug(f"❌ {message}")
         elif "MOSS" in self.tts_engine:  # MOSS-TTS (batch)
@@ -8099,7 +8104,7 @@ class AIState(rx.State):
                 success, message = stop_moss_container()
                 self.moss_tts_device = ""
                 if success:
-                    self.add_debug("✅ MOSS-TTS Container gestoppt")
+                    self.add_debug("✅ MOSS-TTS container stopped")
                 else:
                     self.add_debug(f"❌ {message}")
 
@@ -8137,13 +8142,13 @@ class AIState(rx.State):
             if "XTTS" in old_engine:
                 from .lib.process_utils import stop_xtts_container
                 stop_xtts_container()
-                self.add_debug("🔊 XTTS Container gestoppt (Engine-Wechsel)")
+                self.add_debug("🔊 XTTS container stopped (engine switch)")
                 yield
             elif "MOSS" in old_engine:  # MOSS-TTS (batch)
                 from .lib.process_utils import stop_moss_container
                 stop_moss_container()
                 self.moss_tts_device = ""
-                self.add_debug("🔊 MOSS-TTS Container gestoppt (Engine-Wechsel)")
+                self.add_debug("🔊 MOSS-TTS container stopped (engine switch)")
                 yield
 
         # Start NEW Docker TTS container with correct settings
@@ -8156,9 +8161,116 @@ class AIState(rx.State):
                 self.add_debug(f"⚠️ {msg}")
             self._refresh_xtts_voices()
         elif "MOSS" in engine and self.enable_tts:  # MOSS-TTS (batch)
-            self.add_debug("🔊 MOSS-TTS: Lade Modell...")
+            self.add_debug("🔊 MOSS-TTS: Loading model...")
             yield
             from .lib.process_utils import ensure_moss_ready
+            success, msg, device = ensure_moss_ready(timeout=120)
+            self.moss_tts_device = device if success else ""
+            if success:
+                self.add_debug(f"✅ {msg}")
+            else:
+                self.add_debug(f"⚠️ {msg}")
+
+        # Restore per-engine settings for new engine
+        new_engine_key = self._get_engine_key()
+        self._restore_agent_voices_for_engine(new_engine_key)
+        self._restore_tts_toggles_for_engine(new_engine_key)
+
+        # Restore user's saved voice preference for this engine
+        self._switch_tts_voice_for_language(self.ui_language)
+
+        self._save_settings()
+
+    def set_tts_engine_or_off(self, selection: str):
+        """Combined TTS on/off + engine selection from single dropdown.
+
+        "Aus" disables TTS, any engine name enables TTS with that engine.
+        Replaces separate toggle_tts() + set_tts_engine() for UI binding.
+        """
+        if selection == "Aus":
+            if not self.enable_tts:
+                return
+
+            # Save per-engine settings before disabling
+            old_engine_key = self._get_engine_key()
+            self._save_agent_voices_for_engine(old_engine_key)
+            self._save_tts_toggles_for_engine(old_engine_key)
+
+            self.enable_tts = False
+            self.add_debug("🔊 TTS: disabled")
+
+            # Stop running Docker containers
+            if "XTTS" in self.tts_engine:
+                from .lib.process_utils import stop_xtts_container
+
+                success, message = stop_xtts_container()
+                if success:
+                    self.add_debug("✅ XTTS container stopped")
+                else:
+                    self.add_debug(f"❌ {message}")
+            elif "MOSS" in self.tts_engine:
+                from .lib.process_utils import stop_moss_container
+
+                success, message = stop_moss_container()
+                self.moss_tts_device = ""
+                if success:
+                    self.add_debug("✅ MOSS-TTS container stopped")
+                else:
+                    self.add_debug(f"❌ {message}")
+
+            self._save_settings()
+            return
+
+        # Engine selected — no-op if already active with same engine
+        if self.enable_tts and selection == self.tts_engine:
+            return
+
+        was_enabled = self.enable_tts
+        old_engine = self.tts_engine
+
+        # Save current per-engine settings BEFORE switching
+        if was_enabled:
+            old_engine_key = self._get_engine_key()
+            self._save_agent_voices_for_engine(old_engine_key)
+            self._save_tts_toggles_for_engine(old_engine_key)
+
+        # Enable TTS + set engine, update UI immediately
+        self.enable_tts = True
+        self.tts_engine = selection
+        self.add_debug(f"🔊 TTS Engine: {selection}")
+        yield
+
+        # Stop OLD Docker TTS container to free VRAM
+        if was_enabled:
+            if "XTTS" in old_engine:
+                from .lib.process_utils import stop_xtts_container
+
+                stop_xtts_container()
+                self.add_debug("🔊 XTTS container stopped (engine switch)")
+                yield
+            elif "MOSS" in old_engine:
+                from .lib.process_utils import stop_moss_container
+
+                stop_moss_container()
+                self.moss_tts_device = ""
+                self.add_debug("🔊 MOSS-TTS container stopped (engine switch)")
+                yield
+
+        # Start NEW Docker TTS container
+        if "XTTS" in selection:
+            from .lib.process_utils import set_xtts_cpu_mode
+
+            success, msg = set_xtts_cpu_mode(self.xtts_force_cpu)
+            if success:
+                self.add_debug(f"✅ {msg}")
+            else:
+                self.add_debug(f"⚠️ {msg}")
+            self._refresh_xtts_voices()
+        elif "MOSS" in selection:
+            self.add_debug("🔊 MOSS-TTS: Loading model...")
+            yield
+            from .lib.process_utils import ensure_moss_ready
+
             success, msg, device = ensure_moss_ready(timeout=120)
             self.moss_tts_device = device if success else ""
             if success:
@@ -8267,7 +8379,7 @@ class AIState(rx.State):
     def toggle_tts_streaming(self):
         """Toggle streaming TTS (sentence-by-sentence vs complete response)"""
         self.tts_streaming_enabled = not self.tts_streaming_enabled
-        mode = "Streaming (Echtzeit)" if self.tts_streaming_enabled else "Standard (nach Antwort)"
+        mode = "Streaming (realtime)" if self.tts_streaming_enabled else "Standard (after response)"
         self.add_debug(f"🔊 TTS Mode: {mode}")
         self._save_settings()
 

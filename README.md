@@ -25,7 +25,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
 - **Automatic Context Calibration**: VRAM-aware context sizing with RoPE scaling (1.0x, 1.5x, 2.0x), hybrid mode for oversized models (CPU offload)
-- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (Web Audio API, seamless playback during LLM inference)
+- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (double-buffered HTML5 audio, seamless playback during LLM inference)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **User Authentication**: Username + password login with whitelist-based registration, admin CLI for user management
@@ -246,6 +246,35 @@ Each message is displayed individually with its emoji and mode label:
 - **Parallel Scraping**: ThreadPoolExecutor scrapes 3-7 URLs simultaneously, first successful results are used
 - **Failed Sources Display**: Shows unavailable URLs with error reasons (Cloudflare, 404, Timeout) - persisted in Vector Cache for cache hits
 - **PDF Support**: Direct extraction from PDF documents (AWMF guidelines, PubMed PDFs) via PyMuPDF with browser-like User-Agent
+
+### 🔊 Voice Interface (TTS Engines)
+
+AIfred supports 6 TTS engines with different trade-offs between quality, latency, and resource usage. Each engine was chosen for a specific use case after extensive experimentation.
+
+| Engine | Type | Streaming | Quality | Latency | Resources |
+|--------|------|-----------|---------|---------|-----------|
+| **XTTS v2** | Local Docker | Sentence-level | High (voice cloning) | ~1-2s/sentence | ~2 GB VRAM |
+| **MOSS-TTS 1.7B** | Local Docker | None (batch after bubble) | Excellent (best open-source) | ~18-22s/sentence | ~11.5 GB VRAM |
+| **DashScope Qwen3-TTS** | Cloud WebSocket | Real-time word-level | High (voice cloning) | ~200ms first chunk | API key only |
+| **Piper TTS** | Local | Sentence-level | Medium | <100ms | CPU only |
+| **eSpeak** | Local | Sentence-level | Low (robotic) | <50ms | CPU only |
+| **Edge TTS** | Cloud | Sentence-level | Good | ~200ms | Internet only |
+
+**Why multiple engines?**
+
+The search for the perfect TTS experience led through several iterations:
+
+- **Edge TTS** was the first engine -- free, fast, decent quality, but limited voices and no voice cloning.
+- **XTTS v2** added high-quality voice cloning with multilingual support. Sentence-level streaming works well: while the LLM generates the next sentence, XTTS synthesizes the current one. However, it requires a Docker container and ~2 GB VRAM.
+- **MOSS-TTS 1.7B** delivers the best speech quality of all open-source models (SIM 73-79%), but at a cost: ~18-22 seconds per sentence makes it unsuitable for streaming. Audio is generated as a batch after the complete response, which is acceptable for short answers but frustrating for longer ones.
+- **DashScope Qwen3-TTS** was added to solve the streaming gap. It uses Alibaba Cloud's WebSocket API for true real-time streaming: audio chunks arrive during LLM inference, enabling gapless playback with voice cloning quality. The first audio chunk plays within ~200ms of the first LLM tokens arriving. This required building a custom double-buffered HTML5 audio player with pitch-preserving speed control.
+- **Piper TTS** and **eSpeak** serve as lightweight offline alternatives that work without Docker, GPU, or internet connection.
+
+**Playback Architecture:**
+- Double-buffered HTML5 `<audio>` elements with seamless handoff (while one plays, the next preloads)
+- `preservesPitch: true` for speed adjustments without chipmunk effect
+- Per-agent voice/pitch/speed settings (AIfred, Sokrates, Salomo can each have distinct voices)
+- SSE-based audio streaming from backend to browser (persistent connection, 15s keepalive)
 
 ### ☁️ Cloud API Support
 
