@@ -282,12 +282,14 @@ function updateVisiblePlayer(audioUrl) {
  * Stop TTS playback - stops both visible player and any hidden fallback audio
  */
 function stopTts() {
-    // Stop visible player
+    // Stop double-buffered queue playback (the actual audio path for streaming)
+    clearTtsQueue();
+
+    // Stop visible player (used by bubble audio replay)
     const player = document.getElementById('tts-audio-player');
     if (player) {
         player.pause();
         player.currentTime = 0;
-        console.log('⏹️ TTS: Stopped visible player');
     }
 
     // Stop hidden fallback audio (if any)
@@ -295,8 +297,9 @@ function stopTts() {
         currentTtsAudio.pause();
         currentTtsAudio.src = '';
         currentTtsAudio = null;
-        console.log('⏹️ TTS: Stopped hidden fallback audio');
     }
+
+    console.log('⏹️ TTS: Stopped all playback');
 }
 
 // Legacy function for compatibility (DOM observer based)
@@ -644,22 +647,20 @@ let ttsQueuePlaying = false;  // Is queue currently playing?
 let ttsQueueCurrentIndex = 0;  // Current playback position
 let ttsQueueVersion = 0;  // Track version to detect updates from backend
 
-// Double-buffer state: two Audio elements swap roles (play / preload)
-let ttsPlayers = [null, null];      // Two Audio elements for seamless handoff
-let ttsCurrentPlayerIdx = 0;        // Which player is currently active (0 or 1)
-let ttsPreloadedIndex = -1;         // Queue index that's preloaded in the next player
+// Preloader: hidden Audio element to pre-fetch next chunk into browser cache
+let ttsPreloader = null;
+let ttsPreloadedIndex = -1;         // Queue index that's preloaded in browser cache
 
 /**
- * Get or create the two Audio elements for double-buffered playback.
+ * Get or create the hidden preloader Audio element (cache-only, never plays audibly).
  */
-function getTtsPlayers() {
-    for (let i = 0; i < 2; i++) {
-        if (!ttsPlayers[i]) {
-            ttsPlayers[i] = new Audio();
-            ttsPlayers[i].preservesPitch = true;
-        }
+function getTtsPreloader() {
+    if (!ttsPreloader) {
+        ttsPreloader = new Audio();
+        ttsPreloader.preload = 'auto';
+        ttsPreloader.volume = 0;
     }
-    return ttsPlayers;
+    return ttsPreloader;
 }
 
 /**
@@ -679,7 +680,7 @@ function updateTtsQueue(queue, version) {
 
     if (queueShrunk || versionReset) {
         console.log(`🔊 TTS Queue: Reset detected, stopping playback`);
-        stopDoubleBufferPlayback();
+        stopPlayback();
         ttsQueue = [];
     }
 
@@ -701,8 +702,8 @@ function updateTtsQueue(queue, version) {
 }
 
 /**
- * Play the current chunk and preload the next one in the background player.
- * Uses two Audio elements that swap roles for near-gapless handoff.
+ * Play the current chunk through the visible <audio> element.
+ * Preloads the next chunk in a hidden Audio object (browser cache).
  */
 function playNextChunk() {
     if (ttsQueueCurrentIndex >= ttsQueue.length) {
@@ -711,43 +712,41 @@ function playNextChunk() {
         return;
     }
 
-    const players = getTtsPlayers();
+    const player = document.getElementById('tts-audio-player');
+    if (!player) {
+        console.warn('🔊 TTS Queue: No audio player element found');
+        ttsQueuePlaying = false;
+        return;
+    }
+
     const audioUrl = ttsQueue[ttsQueueCurrentIndex];
     const chunkIndex = ttsQueueCurrentIndex;
 
-    // Check if this chunk is already preloaded in the current player
-    const current = players[ttsCurrentPlayerIdx];
-    if (ttsPreloadedIndex !== chunkIndex) {
-        // Not preloaded - load now
-        current.src = audioUrl;
-        current.load();
-    }
+    // Set source on the visible player
+    player.src = audioUrl;
 
     // Apply playback rate with pitch preservation
-    const rateElement = document.getElementById('tts-audio-player');
-    if (rateElement?.dataset?.playbackRate) {
-        const rate = parseFloat(rateElement.dataset.playbackRate.replace('x', ''));
+    if (player.dataset?.playbackRate) {
+        const rate = parseFloat(player.dataset.playbackRate.replace('x', ''));
         if (!isNaN(rate) && rate > 0) {
             ttsPlaybackRate = rate;
         }
     }
-    current.playbackRate = ttsPlaybackRate;
-    current.preservesPitch = true;
+    player.playbackRate = ttsPlaybackRate;
+    player.preservesPitch = true;
 
     ttsQueuePlaying = true;
 
-    // When this chunk ends, immediately start the preloaded next chunk
-    current.onended = () => {
+    // When this chunk ends, advance to the next (already in browser cache)
+    player.onended = () => {
         console.log(`🔊 TTS Queue: Chunk ${chunkIndex + 1} finished`);
         ttsQueueCurrentIndex++;
-        // Swap to the other player (which should have the next chunk preloaded)
-        ttsCurrentPlayerIdx = 1 - ttsCurrentPlayerIdx;
         playNextChunk();
     };
 
-    current.play()
+    player.play()
         .then(() => {
-            current.playbackRate = ttsPlaybackRate;
+            player.playbackRate = ttsPlaybackRate;
             console.log(`🔊 TTS Queue: Playing chunk ${chunkIndex + 1}/${ttsQueue.length} at ${ttsPlaybackRate}x`);
         })
         .catch(err => {
@@ -760,43 +759,41 @@ function playNextChunk() {
             }
         });
 
-    // Preload the NEXT chunk in the OTHER player
+    // Preload the next chunk into browser cache
     preloadNextChunk();
 }
 
 /**
- * Preload the next unplayed chunk in the inactive player for instant handoff.
+ * Preload the next chunk into browser cache using a hidden Audio element.
+ * When playNextChunk() sets src to this URL, the browser serves it from cache.
  */
 function preloadNextChunk() {
     const nextIndex = ttsQueueCurrentIndex + 1;
     if (nextIndex >= ttsQueue.length) return;
     if (ttsPreloadedIndex === nextIndex) return;  // Already preloaded
 
-    const players = getTtsPlayers();
-    const nextPlayer = players[1 - ttsCurrentPlayerIdx];
-    const nextUrl = ttsQueue[nextIndex];
-
-    nextPlayer.src = nextUrl;
-    nextPlayer.playbackRate = ttsPlaybackRate;
-    nextPlayer.preservesPitch = true;
-    nextPlayer.load();
+    const preloader = getTtsPreloader();
+    preloader.src = ttsQueue[nextIndex];
+    preloader.load();
     ttsPreloadedIndex = nextIndex;
 
-    console.log(`🔊 TTS Queue: Preloaded chunk ${nextIndex + 1} in background`);
+    console.log(`🔊 TTS Queue: Preloading chunk ${nextIndex + 1} into cache`);
 }
 
 /**
- * Stop playback and reset double-buffer state.
+ * Stop playback and reset state.
  */
-function stopDoubleBufferPlayback() {
-    const players = getTtsPlayers();
-    players.forEach(p => {
-        p.pause();
-        p.onended = null;
-        p.src = '';
-    });
+function stopPlayback() {
+    const player = document.getElementById('tts-audio-player');
+    if (player) {
+        player.pause();
+        player.onended = null;
+    }
+    if (ttsPreloader) {
+        ttsPreloader.pause();
+        ttsPreloader.src = '';
+    }
     ttsQueueCurrentIndex = 0;
-    ttsCurrentPlayerIdx = 0;
     ttsPreloadedIndex = -1;
     ttsQueuePlaying = false;
 }
@@ -806,16 +803,9 @@ function stopDoubleBufferPlayback() {
  */
 function clearTtsQueue() {
     console.log('🔊 TTS Queue: Clearing');
-    stopDoubleBufferPlayback();
+    stopPlayback();
     ttsQueue = [];
     ttsQueueVersion = 0;
-
-    // Also stop HTML5 audio player (used by bubble audio)
-    const player = document.getElementById('tts-audio-player');
-    if (player) {
-        player.pause();
-        player.onended = null;
-    }
 }
 
 /**
@@ -823,12 +813,12 @@ function clearTtsQueue() {
  */
 function skipTtsQueueItem() {
     console.log('🔊 TTS Queue: Skipping current chunk');
-    const players = getTtsPlayers();
-    const current = players[ttsCurrentPlayerIdx];
-    current.pause();
-    current.onended = null;
+    const player = document.getElementById('tts-audio-player');
+    if (player) {
+        player.pause();
+        player.onended = null;
+    }
     ttsQueueCurrentIndex++;
-    ttsCurrentPlayerIdx = 1 - ttsCurrentPlayerIdx;
     playNextChunk();
 }
 
