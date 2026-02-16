@@ -7512,11 +7512,18 @@ class AIState(rx.State):
             )
 
             # Step 1: Stop llama-swap to free VRAM
+            # Auto-detect: system service or user service
+            _is_system = subprocess.run(
+                ["systemctl", "cat", "llama-swap.service"],
+                capture_output=True, timeout=5
+            ).returncode == 0
+            _systemctl_cmd = ["systemctl"] if _is_system else ["systemctl", "--user"]
+
             self.add_debug("🛑 Stopping llama-swap service...")
             yield
             try:
                 subprocess.run(
-                    ["systemctl", "--user", "stop", "llama-swap"],
+                    [*_systemctl_cmd, "stop", "llama-swap"],
                     check=True, timeout=15
                 )
                 llama_swap_stopped = True
@@ -7568,7 +7575,7 @@ class AIState(rx.State):
             self.add_debug("🔄 Restarting llama-swap service...")
             try:
                 subprocess.run(
-                    ["systemctl", "--user", "start", "llama-swap"],
+                    [*_systemctl_cmd, "start", "llama-swap"],
                     check=True, timeout=15
                 )
                 llama_swap_stopped = False
@@ -7595,7 +7602,7 @@ class AIState(rx.State):
             if llama_swap_stopped:
                 try:
                     subprocess.run(
-                        ["systemctl", "--user", "start", "llama-swap"],
+                        [*_systemctl_cmd, "start", "llama-swap"],
                         timeout=15
                     )
                 except Exception:
