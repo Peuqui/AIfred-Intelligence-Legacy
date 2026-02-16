@@ -231,7 +231,7 @@ LLAMASWAP_CONFIG_PATH = Path(os.environ.get(
     "LLAMASWAP_CONFIG", str(Path.home() / "llama-swap-config.yaml")
 ))
 LLAMACPP_HEALTH_TIMEOUT = 30      # Seconds until llama-server ready
-LLAMACPP_CALIBRATION_PORT = 9999  # Temp port for calibration
+LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "9999"))
 
 BACKEND_URLS = {
     "ollama": DEFAULT_OLLAMA_URL,
