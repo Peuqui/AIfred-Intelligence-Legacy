@@ -513,7 +513,8 @@ async def detect_research_decision(
     has_images: bool = False,
     vision_json_context: Optional[Dict] = None,
     detected_language: str = "de",
-    llm_history: Optional[List[Dict[str, str]]] = None
+    llm_history: Optional[List[Dict[str, str]]] = None,
+    automatik_num_ctx: Optional[int] = None
 ) -> Dict:
     """
     Combined Decision-Making + Query-Optimization in one LLM call.
@@ -541,6 +542,9 @@ async def detect_research_decision(
     from .config import AUTOMATIK_LLM_NUM_CTX
     from ..backends.base import LLMMessage
 
+    # Effective context for history budget calculation
+    effective_ctx = automatik_num_ctx or AUTOMATIK_LLM_NUM_CTX
+
     # Get the combined prompt
     prompt = get_research_decision_prompt(
         user_text=user_text,
@@ -563,7 +567,7 @@ async def detect_research_decision(
     messages: List[LLMMessage] = []
 
     if llm_history and len(llm_history) > 0:
-        max_history_tokens = (AUTOMATIK_LLM_NUM_CTX * 2) // 3  # 2/3 for history
+        max_history_tokens = (effective_ctx * 2) // 3  # 2/3 for history
         history_tokens = 0
         selected_history: List[Dict[str, str]] = []
 
@@ -592,12 +596,13 @@ async def detect_research_decision(
     messages.append(LLMMessage(role="user", content=prompt))
 
     # LLM options: JSON format for reliable parsing
-    options = {
+    options: Dict = {
         "temperature": 0.2,  # Low for consistent decisions
-        "num_ctx": AUTOMATIK_LLM_NUM_CTX,  # Explicit context
         "enable_thinking": False,  # Fast decisions
         "format": "json"  # Request JSON output format (Ollama)
     }
+    if automatik_num_ctx is not None:
+        options["num_ctx"] = automatik_num_ctx
 
     decision_timer = Timer()
 
@@ -697,7 +702,8 @@ async def generate_search_queries(
     has_images: bool = False,
     vision_json_context: Optional[Dict] = None,
     detected_language: str = "de",
-    llm_history: Optional[List[Dict[str, str]]] = None
+    llm_history: Optional[List[Dict[str, str]]] = None,
+    automatik_num_ctx: Optional[int] = None
 ) -> Dict:
     """
     Generate search queries WITHOUT deciding if web search is needed.
@@ -745,8 +751,9 @@ async def generate_search_queries(
     # Build messages with optional history context
     messages: List[LLMMessage] = []
 
+    effective_ctx = automatik_num_ctx or AUTOMATIK_LLM_NUM_CTX
     if llm_history and len(llm_history) > 0:
-        max_history_tokens = (AUTOMATIK_LLM_NUM_CTX * 2) // 3
+        max_history_tokens = (effective_ctx * 2) // 3
         history_tokens = 0
         selected_history: List[Dict[str, str]] = []
 
@@ -769,12 +776,13 @@ async def generate_search_queries(
 
     messages.append(LLMMessage(role="user", content=prompt))
 
-    options = {
+    options: Dict = {
         "temperature": 0.3,  # Slightly higher for query diversity
-        "num_ctx": AUTOMATIK_LLM_NUM_CTX,
         "enable_thinking": False,
         "format": "json"
     }
+    if automatik_num_ctx is not None:
+        options["num_ctx"] = automatik_num_ctx
 
     generation_timer = Timer()
 
@@ -1202,7 +1210,8 @@ async def chat_interactive_mode(
     detected_intent: Optional[str] = None,
     detected_language: str = "de",
     cloud_provider_label: Optional[str] = None,
-    research_mode: str = "automatik"  # "automatik", "quick", "deep", "none"
+    research_mode: str = "automatik",  # "automatik", "quick", "deep", "none"
+    automatik_num_ctx: Optional[int] = None
 ) -> AsyncIterator[Dict]:
     """
     Unified chat handler for all research modes (Single Source of Truth).
@@ -1347,7 +1356,8 @@ async def chat_interactive_mode(
                 has_images=has_images,
                 vision_json_context=vision_json_context,
                 detected_language=detected_language,
-                llm_history=llm_history[:-1] if len(llm_history) > 1 else None
+                llm_history=llm_history[:-1] if len(llm_history) > 1 else None,
+                automatik_num_ctx=automatik_num_ctx
             )
 
             pre_generated_queries = query_result["queries"]
@@ -1377,7 +1387,8 @@ async def chat_interactive_mode(
                 user_name=user_name,
                 detected_intent=detected_intent,
                 detected_language=detected_language,
-                pre_generated_queries=pre_generated_queries
+                pre_generated_queries=pre_generated_queries,
+                automatik_num_ctx=automatik_num_ctx
             ):
                 yield item
             return
@@ -1514,7 +1525,8 @@ async def chat_interactive_mode(
                     has_images=has_images,
                     vision_json_context=vision_json_context,
                     detected_language=detected_language,
-                    llm_history=llm_history[:-1] if len(llm_history) > 1 else None
+                    llm_history=llm_history[:-1] if len(llm_history) > 1 else None,
+                    automatik_num_ctx=automatik_num_ctx
                 )
                 pre_generated_queries = query_result.get("queries", [])
                 query_gen_time = query_result.get("generation_time", 0)
@@ -1543,12 +1555,13 @@ async def chat_interactive_mode(
                 llm_options=llm_options,
                 backend_type=backend_type,
                 backend_url=backend_url,
-                state=state,  # Pass state for per-agent num_ctx lookup
-                vision_json_context=vision_json_context,  # CRITICAL: Pass Vision JSON to Research flow
-                user_name=user_name,  # For personalized prompts
-                detected_intent=detected_intent,  # Pass pre-detected intent (avoids duplicate LLM call)
-                detected_language=detected_language,  # CRITICAL: Pass language for correct response language
-                pre_generated_queries=pre_generated_queries  # Skip Query-Opt LLM call
+                state=state,
+                vision_json_context=vision_json_context,
+                user_name=user_name,
+                detected_intent=detected_intent,
+                detected_language=detected_language,
+                pre_generated_queries=pre_generated_queries,
+                automatik_num_ctx=automatik_num_ctx
             ):
                 yield item
             return  # Generator ends after forwarding all items
@@ -1650,7 +1663,8 @@ async def chat_interactive_mode(
                 cache=cache,
                 automatik_llm_client=automatik_llm_client,
                 automatik_model=automatik_model,
-                max_candidates=5
+                max_candidates=5,
+                automatik_num_ctx=automatik_num_ctx
             )
 
             if rag_result:
@@ -1761,12 +1775,12 @@ async def chat_interactive_mode(
             from .research.context_utils import get_agent_num_ctx
             if state:
                 final_num_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice)
-                yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} ({ctx_source})"}
+                yield {"type": "debug", "message": f"🎯 Context: {format_number(final_num_ctx)} ({ctx_source})"}
             else:
                 # Fallback if no state available (shouldn't happen)
                 rope_factor = get_rope_factor_for_model(model_choice)
                 final_num_ctx = get_ollama_calibration(model_choice, rope_factor) or 4096
-                yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} (fallback)"}
+                yield {"type": "debug", "message": f"🎯 Context: {format_number(final_num_ctx)} (fallback)"}
 
             # Get model max context for compact display
             model_limit, _ = await llm_client.get_model_context_limit(model_choice)
@@ -1775,11 +1789,11 @@ async def chat_interactive_mode(
 
             # Show compact context info (like Automatik-LLM and Web-Research)
             yield {"type": "debug", "message": f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
-            log_message(f"📊 AIfred-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, num_ctx: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
+            log_message(f"📊 AIfred-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, Context: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
 
             # Console: LLM starts (with MoE/Dense architecture info)
             from aifred.lib.gpu_utils import is_moe_model
-            is_moe = is_moe_model(model_choice) if backend_type == "ollama" else False
+            is_moe = is_moe_model(model_choice) if backend_type in ("ollama", "llamacpp") else False
             arch_label = "MoE" if is_moe else "Dense"
             yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} ({arch_label})"}
 
@@ -1794,7 +1808,7 @@ async def chat_interactive_mode(
                 main_llm_options['enable_thinking'] = llm_options['enable_thinking']
 
             # Add supports_thinking from state (prevents 400 errors for calibrated models)
-            if state and backend_type == "ollama":
+            if state and backend_type in ("ollama", "llamacpp"):
                 main_llm_options['supports_thinking'] = state.aifred_supports_thinking
 
             # VRAM Monitoring: Measure before inference (baseline)
@@ -1863,7 +1877,7 @@ async def chat_interactive_mode(
                 from aifred.lib.gpu_utils import is_moe_model
 
                 # Determine architecture for cache
-                is_moe = is_moe_model(model_choice) if backend_type == "ollama" else False
+                is_moe = is_moe_model(model_choice) if backend_type in ("ollama", "llamacpp") else False
                 architecture = "moe" if is_moe else "dense"
 
                 # Save measurement to unified cache
@@ -1973,7 +1987,8 @@ async def chat_interactive_mode(
                 has_images=has_images,
                 vision_json_context=vision_json_context,
                 detected_language=detected_user_language,
-                llm_history=llm_history[:-1] if len(llm_history) > 1 else None
+                llm_history=llm_history[:-1] if len(llm_history) > 1 else None,
+                automatik_num_ctx=automatik_num_ctx
             )
 
             decision_time = research_result["decision_time"]
@@ -2016,12 +2031,13 @@ async def chat_interactive_mode(
                     llm_options=llm_options,
                     backend_type=backend_type,
                     backend_url=backend_url,
-                    state=state,  # Pass state for per-agent num_ctx lookup
+                    state=state,
                     vision_json_context=vision_json_context,
                     user_name=user_name,
                     detected_intent=detected_intent,
-                    pre_generated_queries=pre_generated_queries,  # Skip Query-Opt if provided
-                    volatility=research_volatility  # From Automatik-LLM decision
+                    pre_generated_queries=pre_generated_queries,
+                    volatility=research_volatility,
+                    automatik_num_ctx=automatik_num_ctx
                 ):
                     yield item
                 return

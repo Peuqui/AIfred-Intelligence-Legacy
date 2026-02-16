@@ -3,17 +3,14 @@ Cache Manager - Research Cache Management with Thread Safety
 
 Handles caching of research results including:
 - Thread-safe cache operations
-- Cache metadata generation
 - Session-based cache lookups
 """
 
 import time  # Keep for timestamp (time.time() for data, not duration)
 import threading
-from .timer import Timer
 from collections import OrderedDict
 from typing import Dict, List, Optional
 from .logging_utils import log_message
-from .config import AUTOMATIK_LLM_NUM_CTX
 
 
 # ============================================================
@@ -186,112 +183,3 @@ def delete_cached_research(session_id: Optional[str]) -> None:
         if session_id in _research_cache:
             del _research_cache[session_id]
             log_message(f"🗑️ Cache deleted for Session {session_id[:8]}...")
-
-
-async def generate_cache_metadata(
-    session_id: Optional[str],
-    metadata_model: str,
-    llm_client,
-    haupt_llm_context_limit: int
-):
-    """
-    Generates AI-based metadata for cached research data (synchronous after main LLM).
-
-    This function is called AFTER the main LLM response and yields messages
-    for the debug console.
-
-    Args:
-        session_id: Session ID for cache lookup
-        metadata_model: LLM model for metadata generation (e.g., automatik LLM)
-        llm_client: LLMClient instance for inference
-        haupt_llm_context_limit: Context limit for main LLM (for num_ctx calculation)
-
-    Yields:
-        Debug messages for UI
-    """
-    if not session_id:
-        return
-
-    try:
-        # Get cache data
-        cache_entry = get_cached_research(session_id)
-        if not cache_entry:
-            log_message("⚠️ Metadata generation: No cache found")
-            return
-
-        scraped_sources = cache_entry.get('scraped_sources', [])
-        if not scraped_sources:
-            log_message("⚠️ Metadata generation: No sources in cache")
-            return
-
-        # UI-Message: Start
-        yield {"type": "debug", "message": "📝 Starting cache metadata generation..."}
-        log_message("📝 Generating AI-based cache metadata...")
-        log_message("📝 Creating cache summary...")
-
-        # Build preview of sources (first 3 sources, 500 chars per source)
-        sources_preview = "\n\n".join([
-            f"Source {i+1}: {s.get('title', 'N/A')}\nURL: {s.get('url', 'N/A')}\nContent: {s.get('content', '')[:500]}..."
-            for i, s in enumerate(scraped_sources[:3])  # First 3 sources for context
-        ])
-
-        # Load prompt from external file (prompts/cache_metadata.txt)
-        from .prompt_loader import get_cache_metadata_prompt
-        metadata_prompt = get_cache_metadata_prompt(sources_preview=sources_preview)
-
-        # DEBUG: Show metadata generation prompt completely
-        log_message("=" * 60)
-        log_message("📋 METADATA GENERATION PROMPT:")
-        log_message("-" * 60)
-        log_message(metadata_prompt)
-        log_message("-" * 60)
-        log_message(f"Prompt length: {len(metadata_prompt)} chars, ~{len(metadata_prompt.split())} words")
-        log_message("=" * 60)
-
-        messages = [{'role': 'user', 'content': metadata_prompt}]
-
-        # Use config constant for Automatik-LLM context (4K)
-        metadata_num_ctx = min(AUTOMATIK_LLM_NUM_CTX, haupt_llm_context_limit)
-
-        log_message(f"Total Messages: {len(messages)}, Temperature: 0.1, num_ctx: {metadata_num_ctx} (AIfred-LLM-Limit: {haupt_llm_context_limit})")
-        log_message("=" * 60)
-
-        metadata_timer = Timer()
-
-        log_message(f"🔧 Using metadata model: {metadata_model}")
-
-        # Async LLM call
-        response = await llm_client.chat(
-            model=metadata_model,
-            messages=messages,
-            options={
-                'temperature': 0.1,
-                'num_ctx': metadata_num_ctx,
-                'enable_thinking': False  # Fast metadata generation, no reasoning needed
-            }
-        )
-
-        metadata_summary = response.text.strip()
-        metadata_time = metadata_timer.elapsed()
-
-        # LLM follows the instructions in the prompt (max 60 words)
-        # No hardcoded limit in code - the LLM controls the length itself
-
-        # Update cache with metadata
-        with _research_cache_lock:
-            if session_id in _research_cache:
-                _research_cache[session_id]['metadata_summary'] = metadata_summary
-
-        tokens_per_second = response.tokens_per_second
-
-        # UI-Message: Completion with tokens/sec
-        yield {"type": "debug", "message": f"✅ Cache metadata done ({metadata_time:.1f}s, {tokens_per_second:.1f} t/s)"}
-
-        # Log-File Messages (detailed)
-        log_message(f"✅ Cache metadata generated ({metadata_time:.1f}s, {tokens_per_second:.1f} t/s): {metadata_summary}")
-        log_message(f"✅ Summary created: {metadata_summary[:80]}{'...' if len(metadata_summary) > 80 else ''}")
-
-    except Exception as e:
-        log_message(f"⚠️ Error in metadata generation: {e}")
-        log_message("⚠️ Metadata generation failed")
-        yield {"type": "debug", "message": "⚠️ Cache metadata generation failed"}

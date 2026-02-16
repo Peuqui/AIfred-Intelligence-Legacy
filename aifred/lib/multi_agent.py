@@ -587,7 +587,7 @@ async def run_sokrates_direct_response(
         # Calculate context limit (uses SINGLE SOURCE OF TRUTH with XTTS reservation)
         from .research.context_utils import get_agent_num_ctx
         sokrates_num_ctx, ctx_source = get_agent_num_ctx("sokrates", state, sokrates_model)
-        state.add_debug(f"   🎯 num_ctx: {sokrates_num_ctx:,} ({ctx_source})")
+        state.add_debug(f"   🎯 Context: {sokrates_num_ctx:,} ({ctx_source})")
 
         # Load system prompt from file (no hardcoded prompts!)
         # detected_lang comes from LLM-based intent detection (passed from state.py)
@@ -613,7 +613,7 @@ async def run_sokrates_direct_response(
             sokrates_direct_temp = min(1.0, state.temperature + state.sokrates_temperature_offset)
 
         # Debug: Show context and temperature
-        state.add_debug(f"📊 Context limit: {format_number(sokrates_num_ctx/1000, 3)}k")
+        state.add_debug(f"📊 Context: {format_number(sokrates_num_ctx/1000, 3)}k")
         state.add_debug(f"🌡️ Temperature: {format_number(sokrates_direct_temp, 1)}")
 
         # LLM options - use per-agent reasoning toggle for enable_thinking
@@ -621,7 +621,7 @@ async def run_sokrates_direct_response(
         sokrates_options = LLMOptions(
             temperature=sokrates_direct_temp,
             enable_thinking=get_reasoning_enabled("sokrates"),
-            supports_thinking=state.sokrates_supports_thinking if state.backend_type == "ollama" else None,
+            supports_thinking=state.sokrates_supports_thinking if state.backend_type in ("ollama", "llamacpp") else None,
             num_ctx=sokrates_num_ctx
         )
 
@@ -773,7 +773,7 @@ async def run_salomo_direct_response(
         # Calculate context limit (uses SINGLE SOURCE OF TRUTH with XTTS reservation)
         from .research.context_utils import get_agent_num_ctx
         salomo_num_ctx, ctx_source = get_agent_num_ctx("salomo", state, salomo_model)
-        state.add_debug(f"   🎯 num_ctx: {salomo_num_ctx:,} ({ctx_source})")
+        state.add_debug(f"   🎯 Context: {salomo_num_ctx:,} ({ctx_source})")
 
         # Load system prompt from file (no hardcoded prompts!)
         # detected_lang comes from LLM-based intent detection (passed from state.py)
@@ -799,7 +799,7 @@ async def run_salomo_direct_response(
             salomo_direct_temp = min(1.0, state.temperature + state.salomo_temperature_offset)
 
         # Debug: Show context and temperature
-        state.add_debug(f"📊 Context limit: {format_number(salomo_num_ctx/1000, 3)}k")
+        state.add_debug(f"📊 Context: {format_number(salomo_num_ctx/1000, 3)}k")
         state.add_debug(f"🌡️ Temperature: {format_number(salomo_direct_temp, 1)}")
 
         # LLM options - use per-agent reasoning toggle for enable_thinking
@@ -807,7 +807,7 @@ async def run_salomo_direct_response(
         salomo_options = LLMOptions(
             temperature=salomo_direct_temp,
             enable_thinking=get_reasoning_enabled("salomo"),
-            supports_thinking=state.salomo_supports_thinking if state.backend_type == "ollama" else None,
+            supports_thinking=state.salomo_supports_thinking if state.backend_type in ("ollama", "llamacpp") else None,
             num_ctx=salomo_num_ctx
         )
 
@@ -1035,13 +1035,13 @@ async def run_sokrates_analysis(
         sokrates_options = LLMOptions(
             temperature=sokrates_temp,
             enable_thinking=get_reasoning_enabled("sokrates"),
-            supports_thinking=state.sokrates_supports_thinking if state.backend_type == "ollama" else None,
+            supports_thinking=state.sokrates_supports_thinking if state.backend_type in ("ollama", "llamacpp") else None,
             num_ctx=sokrates_num_ctx
         )
         alfred_options = LLMOptions(
             temperature=alfred_temp,
             enable_thinking=get_reasoning_enabled("aifred"),
-            supports_thinking=state.aifred_supports_thinking if state.backend_type == "ollama" else None,
+            supports_thinking=state.aifred_supports_thinking if state.backend_type in ("ollama", "llamacpp") else None,
             num_ctx=main_llm_ctx
         )
 
@@ -1185,7 +1185,7 @@ async def run_sokrates_analysis(
                 salomo_options = LLMOptions(
                     temperature=salomo_temp,
                     enable_thinking=get_reasoning_enabled("salomo"),
-                    supports_thinking=state.salomo_supports_thinking if state.backend_type == "ollama" else None,
+                    supports_thinking=state.salomo_supports_thinking if state.backend_type in ("ollama", "llamacpp") else None,
                     num_ctx=salomo_num_ctx
                 )
 
@@ -1512,19 +1512,19 @@ async def run_tribunal(
         sokrates_options = LLMOptions(
             temperature=sokrates_temp,
             enable_thinking=get_reasoning_enabled("sokrates"),
-            supports_thinking=state.sokrates_supports_thinking if state.backend_type == "ollama" else None,
+            supports_thinking=state.sokrates_supports_thinking if state.backend_type in ("ollama", "llamacpp") else None,
             num_ctx=sokrates_num_ctx
         )
         alfred_options = LLMOptions(
             temperature=alfred_temp,
             enable_thinking=get_reasoning_enabled("aifred"),
-            supports_thinking=state.aifred_supports_thinking if state.backend_type == "ollama" else None,
+            supports_thinking=state.aifred_supports_thinking if state.backend_type in ("ollama", "llamacpp") else None,
             num_ctx=main_llm_ctx
         )
         salomo_options = LLMOptions(
             temperature=salomo_temp,
             enable_thinking=get_reasoning_enabled("salomo"),
-            supports_thinking=state.salomo_supports_thinking if state.backend_type == "ollama" else None,
+            supports_thinking=state.salomo_supports_thinking if state.backend_type in ("ollama", "llamacpp") else None,
             num_ctx=salomo_num_ctx
         )
 

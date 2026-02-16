@@ -11,7 +11,6 @@ import string
 from typing import Dict, Optional
 from .logging_utils import log_message
 from .prompt_loader import load_prompt
-from .config import AUTOMATIK_LLM_NUM_CTX
 
 
 async def build_rag_context(
@@ -20,7 +19,8 @@ async def build_rag_context(
     automatik_llm_client,
     automatik_model: str,
     max_candidates: int = 5,
-    detected_language: str = "de"
+    detected_language: str = "de",
+    automatik_num_ctx: Optional[int] = None
 ) -> Optional[Dict]:
     """
     Build RAG context from cache entries using LLM-based relevance filtering.
@@ -103,14 +103,17 @@ async def build_rag_context(
 
         # Ask Automatik-LLM: Is this relevant?
         try:
+            rag_options: dict = {
+                'temperature': 0.1,  # Deterministic
+                'enable_thinking': False  # Fast decisions, no reasoning needed
+            }
+            if automatik_num_ctx is not None:
+                rag_options['num_ctx'] = automatik_num_ctx
+
             response = await automatik_llm_client.chat(
                 model=automatik_model,
                 messages=[{'role': 'user', 'content': relevance_prompt}],
-                options={
-                    'temperature': 0.1,  # Deterministic
-                    'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Use config constant (4K)
-                    'enable_thinking': False  # Fast decisions, no reasoning needed
-                }
+                options=rag_options
             )
 
             # LLMResponse object has .text attribute, not dict

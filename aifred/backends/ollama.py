@@ -697,7 +697,7 @@ class OllamaBackend(LLMBackend):
             from ..lib.logging_utils import log_message
 
             timer = Timer()
-            log_message(f"⏱️ preload_model: START for {model} (num_ctx={num_ctx})")
+            log_message(f"⏱️ preload_model: START for {model} (Context={num_ctx})")
 
             # Hybrid model unloading is handled in _handle_hybrid_model_unload()
             # which is called from chat() and chat_stream()
@@ -714,7 +714,7 @@ class OllamaBackend(LLMBackend):
             # with the correct KV-Cache and distributes across multiple GPUs if needed
             if num_ctx is not None:
                 options["num_ctx"] = num_ctx
-                logger.info(f"🎯 Preload with num_ctx={num_ctx:,} for multi-GPU distribution")
+                logger.info(f"🎯 Preload with Context={num_ctx:,} for multi-GPU distribution")
 
             payload = {
                 "model": model,

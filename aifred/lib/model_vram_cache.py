@@ -40,7 +40,6 @@ Structure:
 
 import json
 import logging
-from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
@@ -51,8 +50,6 @@ logger = logging.getLogger(__name__)
 # Cache file location (centralized data directory)
 CACHE_DIR = DATA_DIR
 CACHE_FILE = CACHE_DIR / "model_vram_cache.json"
-# Legacy location for migration
-OLD_VLLM_CACHE = Path.home() / ".config" / "aifred" / "vllm_context_cache.json"
 
 
 def ensure_cache_dir() -> None:
@@ -60,47 +57,9 @@ def ensure_cache_dir() -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _migrate_old_vllm_cache() -> Dict[str, Any]:
-    """
-    Migrate old vllm_context_cache.json to new unified format
-
-    Returns:
-        Migrated cache dict (empty if no old cache exists)
-    """
-    if not OLD_VLLM_CACHE.exists():
-        return {}
-
-    try:
-        with open(OLD_VLLM_CACHE, 'r', encoding='utf-8') as f:
-            old_cache = json.load(f)
-
-        logger.info(f"Migrating {len(old_cache)} models from old vLLM cache")
-
-        # Convert old format to new format
-        migrated = {}
-        for model_id, model_data in old_cache.items():
-            migrated[model_id] = {
-                "backend": "vllm",  # Old cache was vLLM-only
-                "architecture": "unknown",  # Will be detected on next use
-                "native_context": model_data.get("native_context", 0),
-                "gpu_model": model_data.get("gpu_model", "Unknown"),
-                "vllm_calibrations": model_data.get("calibrations", [])
-                # No vram_ratio yet - will be populated on first inference
-            }
-
-        logger.info(f"✅ Migration complete: {len(migrated)} models")
-        return migrated
-
-    except Exception as e:
-        logger.error(f"Failed to migrate old vLLM cache: {e}")
-        return {}
-
-
 def load_cache() -> Dict[str, Any]:
     """
     Load unified model VRAM cache from JSON file
-
-    Automatically migrates old vllm_context_cache.json if present.
 
     Returns:
         Dict with model_name → cache_data mappings
@@ -108,7 +67,6 @@ def load_cache() -> Dict[str, Any]:
     """
     ensure_cache_dir()
 
-    # Try to load new unified cache
     if CACHE_FILE.exists():
         try:
             with open(CACHE_FILE, encoding='utf-8') as f:
@@ -119,14 +77,7 @@ def load_cache() -> Dict[str, Any]:
             logger.error(f"Failed to load cache file {CACHE_FILE}: {e}")
             return {}
 
-    # No unified cache - try to migrate old vLLM cache
-    migrated = _migrate_old_vllm_cache()
-    if migrated:
-        # Save migrated cache
-        save_cache(migrated)
-        logger.info("Migrated old vLLM cache to unified format")
-
-    return migrated
+    return {}
 
 
 def save_cache(cache: Dict[str, Any]) -> bool:
@@ -619,6 +570,19 @@ def set_thinking_support_for_model(model_name: str, supports_thinking: bool) -> 
     return save_cache(cache)
 
 
+def get_thinking_support_for_model(model_name: str) -> Optional[bool]:
+    """
+    Get thinking/reasoning capability for a model.
+
+    Returns:
+        True/False if tested, None if unknown
+    """
+    cache = load_cache()
+    if model_name not in cache:
+        return None
+    return cache[model_name].get("supports_thinking")
+
+
 # ============================================================================
 # vLLM CALIBRATION FUNCTIONS (vLLM-specific)
 # ============================================================================
@@ -957,6 +921,121 @@ def interpolate_koboldcpp_context(
         return int(lower_cal["max_context"])
 
     return None
+
+
+# ============================================================
+# llama.cpp Calibration (via llama-swap)
+# ============================================================
+
+def add_llamacpp_calibration(
+    model_id: str,
+    max_context: int,
+    native_context: int,
+    gguf_path: str,
+    quantization: str,
+    gpu_model: str,
+    model_size_gb: float
+) -> bool:
+    """
+    Add a calibration point for a llama.cpp model (via llama-swap).
+
+    Stores the experimentally measured maximum context that fits in GPU VRAM,
+    determined via binary search by starting llama-server with different -c values.
+
+    Args:
+        model_id: llama-swap model name (e.g., "Qwen3-4B-Instruct-2507-Q4_K_M")
+        max_context: Maximum context tokens that fit in VRAM
+        native_context: Model's architectural context limit (from GGUF metadata)
+        gguf_path: Path to GGUF file
+        quantization: Quantization level (e.g., "Q4_K_M")
+        gpu_model: GPU model name (e.g., "NVIDIA GeForce RTX 3090 Ti")
+        model_size_gb: GGUF file size in GB
+
+    Returns:
+        True if successfully added, False otherwise
+    """
+    cache = load_cache()
+
+    if model_id not in cache:
+        cache[model_id] = {
+            "backend": "llamacpp",
+            "native_context": native_context,
+            "quantization": quantization,
+            "model_size_gb": model_size_gb,
+            "gpu_model": gpu_model,
+            "gguf_path": gguf_path,
+            "llamacpp_calibrations": []
+        }
+
+    if "llamacpp_calibrations" not in cache[model_id]:
+        cache[model_id]["llamacpp_calibrations"] = []
+
+    cache[model_id]["native_context"] = native_context
+    cache[model_id]["quantization"] = quantization
+    cache[model_id]["model_size_gb"] = model_size_gb
+    cache[model_id]["gpu_model"] = gpu_model
+    cache[model_id]["gguf_path"] = gguf_path
+
+    calibration = {
+        "max_context": max_context,
+        "measured_at": datetime.now().isoformat()
+    }
+
+    cache[model_id]["llamacpp_calibrations"].append(calibration)
+
+    # Keep last 5 calibrations
+    if len(cache[model_id]["llamacpp_calibrations"]) > 5:
+        cache[model_id]["llamacpp_calibrations"] = \
+            cache[model_id]["llamacpp_calibrations"][-5:]
+
+    logger.info(
+        f"Added llama.cpp calibration for {model_id}: "
+        f"{max_context:,} tokens (native: {native_context:,})"
+    )
+
+    return save_cache(cache)
+
+
+def get_llamacpp_calibration(model_id: str) -> Optional[int]:
+    """
+    Get the latest calibrated max_context for a llama.cpp model.
+
+    Args:
+        model_id: llama-swap model name
+
+    Returns:
+        Calibrated max_context in tokens, or None if not calibrated
+    """
+    cache = load_cache()
+
+    if model_id not in cache:
+        return None
+
+    calibrations = cache[model_id].get("llamacpp_calibrations", [])
+    if not calibrations:
+        return None
+
+    # Return most recent calibration
+    return int(calibrations[-1]["max_context"])
+
+
+def get_llamacpp_calibrations(model_id: str) -> List[Dict[str, Any]]:
+    """
+    Get all llama.cpp calibration points for a model.
+
+    Args:
+        model_id: llama-swap model name
+
+    Returns:
+        List of calibration dicts, newest first
+    """
+    cache = load_cache()
+
+    if model_id not in cache:
+        return []
+
+    calibrations = cache[model_id].get("llamacpp_calibrations", [])
+    return list(reversed(calibrations))
 
 
 def delete_cached_model(model_id: str) -> bool:

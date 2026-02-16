@@ -1011,8 +1011,8 @@ def llm_parameters_accordion() -> rx.Component:
                     rx.text(
                         rx.cond(
                             AIState.ui_language == "de",
-                            "📦 Context Window (num_ctx)",
-                            "📦 Context Window (num_ctx)"
+                            "📦 Context Window",
+                            "📦 Context Window"
                         ),
                         font_weight="bold",
                         font_size="12px"
@@ -2653,15 +2653,10 @@ def settings_accordion() -> rx.Component:
                         rx.select.root(
                             rx.select.trigger(),
                             rx.select.content(
-                                # Universal Compatibility Header
-                                rx.select.item(
-                                    "─── Universelle Kompatibilität (GGUF) ───",
-                                    value="header_universal",
-                                    disabled=True,
-                                    font_weight="bold",
-                                    color="blue",
+                                rx.cond(
+                                    AIState.available_backends.contains("llamacpp"),
+                                    rx.select.item("llama.cpp", value="llamacpp"),
                                 ),
-                                # P40-compatible backends
                                 rx.cond(
                                     AIState.available_backends.contains("ollama"),
                                     rx.select.item("Ollama", value="ollama"),
@@ -2670,47 +2665,15 @@ def settings_accordion() -> rx.Component:
                                     AIState.available_backends.contains("koboldcpp"),
                                     rx.select.item("KoboldCPP", value="koboldcpp"),
                                 ),
-                                # Separator
-                                rx.select.item(
-                                    "─────────────────────────────────",
-                                    value="separator",
-                                    disabled=True,
-                                    color="gray",
-                                ),
-                                # Modern GPUs Header
-                                rx.select.item(
-                                    "─── Moderne GPUs (FP16) ───",
-                                    value="header_modern",
-                                    disabled=True,
-                                    font_weight="bold",
-                                    color="blue",
-                                ),
-                                # Modern backends
-                                rx.cond(
-                                    AIState.available_backends.contains("tabbyapi"),
-                                    rx.select.item("TabbyAPI", value="tabbyapi"),
-                                ),
                                 rx.cond(
                                     AIState.available_backends.contains("vllm"),
                                     rx.select.item("vLLM", value="vllm"),
                                 ),
-                                # Separator before Cloud APIs
-                                rx.select.item(
-                                    "─────────────────────────────────",
-                                    value="separator2",
-                                    disabled=True,
-                                    color="gray",
+                                rx.cond(
+                                    AIState.available_backends.contains("tabbyapi"),
+                                    rx.select.item("TabbyAPI", value="tabbyapi"),
                                 ),
-                                # Cloud APIs Header
-                                rx.select.item(
-                                    "─── Cloud APIs ───",
-                                    value="header_cloud",
-                                    disabled=True,
-                                    font_weight="bold",
-                                    color="purple",
-                                ),
-                                # Cloud API Backend (always available)
-                                rx.select.item("☁️ Cloud APIs", value="cloud_api"),
+                                rx.select.item("Cloud APIs", value="cloud_api"),
                             ),
                             value=AIState.backend_type,
                             on_change=AIState.switch_backend,
@@ -2831,9 +2794,9 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
-                # Context Calibration Row (only for Ollama, between Backend and Model selection)
+                # Context Calibration Row (Ollama + llama.cpp)
                 rx.cond(
-                    AIState.backend_id == "ollama",
+                    (AIState.backend_id == "ollama") | (AIState.backend_id == "llamacpp"),
                     rx.hstack(
                         rx.button(
                             rx.cond(

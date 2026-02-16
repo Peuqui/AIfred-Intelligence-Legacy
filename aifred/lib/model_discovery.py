@@ -121,6 +121,68 @@ def discover_ollama_models(backend_url: str, timeout: float = 5.0) -> Dict[str, 
         return {}
 
 
+def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[str, str]:
+    """
+    Discover models from llama-swap via OpenAI-compatible /v1/models endpoint.
+
+    Enriches display labels with GGUF file sizes from llama-swap YAML config.
+
+    Args:
+        backend_url: llama-swap URL with /v1 suffix (e.g., "http://localhost:8080/v1")
+        timeout: Request timeout in seconds (higher because llama-swap may cold-start)
+
+    Returns:
+        Dict mapping model_id to display label (with size, e.g., "Model-Name (8.4 GB)")
+    """
+    endpoint = f'{backend_url}/models'
+
+    try:
+        response = httpx.get(endpoint, timeout=timeout)
+        if response.status_code != 200:
+            log_message(f"⚠️ llama-swap API returned {response.status_code}")
+            return {}
+
+        data = response.json()
+        model_ids = [m['id'] for m in data.get("data", [])]
+
+        # Enrich with GGUF file sizes from llama-swap config
+        gguf_sizes = _get_llamacpp_model_sizes()
+
+        result = {}
+        for mid in model_ids:
+            size_gb = gguf_sizes.get(mid)
+            if size_gb:
+                result[mid] = f"{mid} ({size_gb:.1f} GB)"
+            else:
+                result[mid] = mid
+
+        log_message(f"📂 Found {len(result)} llama.cpp models (via llama-swap)")
+        return result
+
+    except httpx.RequestError as e:
+        log_message(f"⚠️ llama-swap not reachable: {e}")
+        return {}
+
+
+def _get_llamacpp_model_sizes() -> Dict[str, float]:
+    """Get GGUF file sizes for llama-swap models (for display labels)."""
+    from pathlib import Path
+
+    try:
+        from .llamacpp_calibration import parse_llamaswap_config
+        from .config import LLAMASWAP_CONFIG_PATH
+
+        config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+        sizes = {}
+        for model_id, info in config.items():
+            gguf_path = Path(info["gguf_path"])
+            if gguf_path.exists():
+                sizes[model_id] = gguf_path.stat().st_size / (1024 ** 3)
+        return sizes
+    except Exception:
+        return {}
+
+
 def discover_models(
     backend_type: str,
     backend_url: Optional[str] = None,
@@ -130,8 +192,8 @@ def discover_models(
     Unified model discovery for any backend type.
 
     Args:
-        backend_type: "ollama", "vllm", "tabbyapi", or "koboldcpp"
-        backend_url: Required for Ollama backend
+        backend_type: "ollama", "vllm", "tabbyapi", "koboldcpp", or "llamacpp"
+        backend_url: Required for Ollama and llamacpp backends
         is_compatible_fn: Required for vLLM/TabbyAPI backends
 
     Returns:
@@ -149,6 +211,11 @@ def discover_models(
         if not backend_url:
             raise ValueError("backend_url required for Ollama")
         return discover_ollama_models(backend_url)
+
+    elif backend_type == "llamacpp":
+        if not backend_url:
+            raise ValueError("backend_url required for llamacpp")
+        return discover_llamacpp_models(backend_url)
 
     else:
         log_message(f"⚠️ Unknown backend type: {backend_type}")

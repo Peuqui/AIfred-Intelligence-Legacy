@@ -144,24 +144,24 @@ async def handle_own_knowledge(
         # Calculate num_ctx
         if num_ctx_manual_enabled and num_ctx_manual_value:
             final_num_ctx = num_ctx_manual_value
-            yield {"type": "debug", "message": f"🔧 num_ctx: {final_num_ctx:,} (manual)"}
+            yield {"type": "debug", "message": f"🔧 Context: {final_num_ctx:,} (manual)"}
         elif state:
             # Use centralized function with state
             final_num_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice)
-            yield {"type": "debug", "message": f"🎯 num_ctx: {format_number(final_num_ctx)} ({ctx_source})"}
+            yield {"type": "debug", "message": f"🎯 Context: {format_number(final_num_ctx)} ({ctx_source})"}
         else:
             # Calculate from VRAM cache
             rope_factor = get_rope_factor_for_model(model_choice)
             final_num_ctx = get_ollama_calibration(model_choice, rope_factor)
             if final_num_ctx:
-                yield {"type": "debug", "message": f"🎯 num_ctx: {final_num_ctx:,} (from VRAM cache)"}
+                yield {"type": "debug", "message": f"🎯 Context: {final_num_ctx:,} (from VRAM cache)"}
             else:
                 # Dynamic calculation
                 final_num_ctx, _ = await calculate_dynamic_num_ctx(
                     llm_client, model_choice, [], None,
                     enable_vram_limit=True
                 )
-                yield {"type": "debug", "message": f"🎯 num_ctx: {final_num_ctx:,} (calculated)"}
+                yield {"type": "debug", "message": f"🎯 Context: {final_num_ctx:,} (calculated)"}
 
         # Count input tokens
         input_tokens = estimate_tokens(messages, model_name=model_choice)
@@ -174,7 +174,7 @@ async def handle_own_knowledge(
 
         # Build LLM options (with supports_thinking from state)
         supports_thinking_value = None
-        if state and backend_type == "ollama":
+        if state and backend_type in ("ollama", "llamacpp"):
             supports_thinking_value = state.aifred_supports_thinking
 
         llm_options = LLMOptions(
@@ -186,7 +186,7 @@ async def handle_own_knowledge(
 
         # Console: LLM starts (with MoE/Dense architecture info)
         from .gpu_utils import is_moe_model
-        is_moe = is_moe_model(model_choice) if backend_type == "ollama" else False
+        is_moe = is_moe_model(model_choice) if backend_type in ("ollama", "llamacpp") else False
         arch_label = "MoE" if is_moe else "Dense"
         yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} ({arch_label})"}
 

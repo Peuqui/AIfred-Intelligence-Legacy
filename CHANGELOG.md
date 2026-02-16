@@ -5,6 +5,57 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.0] - 2026-02-16 🦙 llama.cpp Calibration & Automatik Context Optimization
+
+### Added
+
+- **llama.cpp VRAM Calibration** - Binary Search calibration for llama.cpp models via direct llama-server testing
+  - Stops llama-swap service, starts llama-server with test context on temp port (9999)
+  - Binary Search with 512-token precision until max VRAM-fitting context found
+  - Results cached in `data/model_vram_cache.json` (unified cache for all backends)
+  - Updates llama-swap YAML config with calibrated `-c` value
+  - Restarts llama-swap service after calibration
+  - New module: `aifred/lib/llamacpp_calibration.py`
+- **GGUF Metadata Reader** - Read native context and quantization from GGUF files without loading models
+  - Parses GGUF header for `context_length` and quantization level
+  - New module: `aifred/lib/gguf_utils.py`
+- **LLM-based URL Ranking** - Rank search result URLs by relevance before scraping (Phase 2.5)
+  - Automatik-LLM ranks URLs using title/snippet metadata
+  - Scrapes most relevant URLs first (top 3 quick / top 7 deep)
+  - New module: `aifred/lib/research/url_ranker.py`
+- **llama.cpp Backend** - Full backend integration via llama-swap proxy
+  - Model discovery from llama-swap YAML config
+  - Vision model detection (Qwen3-VL support)
+  - Calibrated context display in debug console
+  - New config: `LLAMASWAP_CONFIG_PATH`, `LLAMACPP_HEALTH_TIMEOUT`, `LLAMACPP_CALIBRATION_PORT`
+
+### Changed
+
+- **Automatik-LLM Context Optimization** - Avoid unnecessary Ollama model reloads when Automatik = AIfred (same model)
+  - When same model: `num_ctx` omitted from options (Ollama keeps model loaded, no 5-15s reload)
+  - When different model: `num_ctx` set to `AUTOMATIK_LLM_NUM_CTX` (12288, was 4096)
+  - Threaded `automatik_num_ctx` parameter through all 6 Automatik call sites:
+    `detect_research_decision()`, `generate_search_queries()`, `build_rag_context()`,
+    `perform_agent_research()` → `handle_cache_hit()`, `rank_urls_by_relevance()`
+  - Warning shown when effective context < `AUTOMATIK_LLM_NUM_CTX`
+- **Backend-aware calibration display** - Debug console shows calibrated context for all backends
+  - `format_model_with_ctx()` now checks `get_llamacpp_calibration()` for llama.cpp backend
+  - Automatik model now also shows calibrated context (was missing `format_model_with_ctx()`)
+  - `context_limits` calculation loops updated for llama.cpp
+- **AUTOMATIK_LLM_NUM_CTX increased** from 4096 to 12288 (12K) for better Automatik task reliability
+- **Backend dropdown order** - llama.cpp moved to first position (recommended for performance)
+- **Data directory consolidation** - All runtime data now in `data/` (settings, sessions, caches, logs)
+  - Settings path updated: `data/settings.json` (was `~/.config/aifred/settings.json`)
+  - Documentation updated to reflect correct paths
+
+### Removed
+
+- **Legacy vLLM cache migration** - Removed `_migrate_old_vllm_cache()` and `OLD_VLLM_CACHE` from `model_vram_cache.py`
+  - Migration from `~/.config/aifred/vllm_context_cache.json` no longer needed
+- **Unused `generate_cache_metadata()` function** - Removed from `cache_manager.py` (was never called)
+- **Backend dropdown decorations** - Removed `BACKEND_DROPDOWN_ITEMS` and `BACKEND_NON_SELECTABLE` (unused)
+- **`~/.config/aifred/` directory** - Legacy data directory deleted (all data lives in `data/`)
+
 ## [2.30.0] - 2026-02-16 🔊 TTS Dropdown & Documentation
 
 ### Changed

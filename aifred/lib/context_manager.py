@@ -850,17 +850,20 @@ async def summarize_history_if_needed(
     # Get num_ctx from VRAM cache (calibrated value for compression model)
     # IMPORTANT: Always use VRAM cache value, NOT manual settings!
     # Manual num_ctx is for testing agents, not for compression.
-    from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
-    rope_factor = get_rope_factor_for_model(model_name)
-    compression_num_ctx = get_ollama_calibration(model_name, rope_factor)
+    from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model, get_llamacpp_calibration
+    # Try llama.cpp calibration first, then Ollama
+    compression_num_ctx = get_llamacpp_calibration(model_name)
+    if not compression_num_ctx:
+        rope_factor = get_rope_factor_for_model(model_name)
+        compression_num_ctx = get_ollama_calibration(model_name, rope_factor)
     if not compression_num_ctx:
         # Fallback: use context_limit (min of all agents) if not calibrated
         compression_num_ctx = context_limit
         log_message(f"⚠️ Compression model {model_name} not calibrated, using context_limit={context_limit}")
 
     log_message(f"🗜️ [START {start_timestamp}] Compressing {len(messages_to_compress)} messages with {model_name}...")
-    log_message(f"   └─ Compression LLM: {model_name} (num_ctx={format_number(compression_num_ctx)}, from VRAM cache)")
-    yield {"type": "debug", "message": f"🗜️ Compression LLM: {model_name} (num_ctx={format_number(compression_num_ctx)})"}
+    log_message(f"   └─ Compression LLM: {model_name} (Context={format_number(compression_num_ctx)}, from VRAM cache)")
+    yield {"type": "debug", "message": f"🗜️ Compression LLM: {model_name} (Context: {format_number(compression_num_ctx)})"}
     summary_timer = Timer()
 
     summary_text = ""
@@ -1033,19 +1036,22 @@ async def summarize_history_if_needed(
 async def prepare_automatik_llm(
     backend,
     model_name: str,
-    backend_type: str = "ollama"
+    backend_type: str = "ollama",
+    num_ctx: int | None = None
 ):
     """
-    Preload Automatik-LLM with small context window.
+    Preload Automatik-LLM to hide cold-start latency.
 
-    CRITICAL: Models like Qwen3:4B have 262K default context!
-    Without explicit num_ctx, Ollama allocates HUGE KV-Cache across all GPUs.
-    This function preloads with only 4K context to minimize VRAM usage.
+    For Ollama: Also sets num_ctx to avoid huge default KV-Cache allocation.
+    IMPORTANT: If Automatik = Haupt-LLM, caller should pass the calibrated
+    num_ctx to avoid a costly model reload when the main response starts.
 
     Args:
         backend: LLM Backend instance
         model_name: Model name (pure ID)
         backend_type: "ollama", "vllm", etc.
+        num_ctx: Context size for Ollama preload. None = use AUTOMATIK_LLM_NUM_CTX (4K).
+                 Caller should pass calibrated context if Automatik = Haupt-LLM.
 
     Yields:
         dict: {"type": "debug", "message": "..."} for UI console
@@ -1054,20 +1060,31 @@ async def prepare_automatik_llm(
     from .formatting import format_number
     from .config import AUTOMATIK_LLM_NUM_CTX
 
+    preload_ctx = num_ctx or AUTOMATIK_LLM_NUM_CTX
+
     try:
-        # Only Ollama needs preloading - other backends have models at startup
-        if backend_type != "ollama":
+        # Only Ollama and llama.cpp benefit from preloading:
+        # - Ollama: Set num_ctx to avoid 262K default allocation
+        # - llama.cpp: Trigger llama-swap cold-start before user's first question
+        # - vLLM/TabbyAPI/KoboldCPP: Models stay loaded, no preload needed
+        if backend_type not in ("ollama", "llamacpp"):
             yield {"type": "result", "data": (True, 0.0)}
             return
 
-        formatted_ctx = format_number(AUTOMATIK_LLM_NUM_CTX)
-        yield {"type": "debug", "message": f"🤖 Automatik-LLM ({model_name}) is being preloaded (num_ctx={formatted_ctx})..."}
-        log_message(f"🔄 prepare_automatik_llm: Preloading {model_name} with num_ctx={AUTOMATIK_LLM_NUM_CTX}")
+        if backend_type == "ollama":
+            formatted_ctx = format_number(preload_ctx)
+            yield {"type": "debug", "message": f"🤖 Automatik-LLM ({model_name}) is being preloaded (Context: {formatted_ctx})..."}
+            log_message(f"🔄 prepare_automatik_llm: Preloading {model_name} with Context={preload_ctx}")
+        else:
+            yield {"type": "debug", "message": f"🤖 Automatik-LLM ({model_name}) is being preloaded..."}
+            log_message(f"🔄 prepare_automatik_llm: Preloading {model_name} (llama-swap cold-start)")
 
         import asyncio
         await asyncio.sleep(0)  # Flush UI update
 
-        success, load_time = await backend.preload_model(model_name, num_ctx=AUTOMATIK_LLM_NUM_CTX)
+        # Ollama: pass num_ctx to control KV-cache allocation
+        # llama.cpp: num_ctx ignored (fixed in llama-swap YAML)
+        success, load_time = await backend.preload_model(model_name, num_ctx=preload_ctx)
 
         if success:
             yield {"type": "debug", "message": f"✅ Automatik-LLM preloaded ({load_time:.1f}s)"}

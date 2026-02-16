@@ -223,6 +223,7 @@ class AIState(rx.State):
     available_backends_dict: Dict[str, str] = {
         "ollama": "Ollama",
         "koboldcpp": "KoboldCPP",
+        "llamacpp": "llama.cpp",
         "tabbyapi": "TabbyAPI",
         "vllm": "vLLM",
         "cloud_api": "Cloud APIs",
@@ -445,8 +446,8 @@ class AIState(rx.State):
     gpu_warnings: List[str] = []
     gpu_count: int = 1
     gpu_vram_gb: int = 0
-    available_backends: List[str] = ["ollama", "koboldcpp", "tabbyapi", "vllm", "cloud_api"]  # Filtered by GPU compatibility (P40-compatible first) + cloud_api (always available)
-    available_backends_list: List[str] = ["Ollama", "KoboldCPP", "TabbyAPI", "vLLM", "Cloud APIs"]  # NEW: Display names (synced with available_backends)
+    available_backends: List[str] = ["ollama", "koboldcpp", "llamacpp", "tabbyapi", "vllm", "cloud_api"]  # Filtered by GPU compatibility + cloud_api (always available)
+    available_backends_list: List[str] = ["Ollama", "KoboldCPP", "llama.cpp", "TabbyAPI", "vLLM", "Cloud APIs"]  # Display names (synced with available_backends)
 
     @rx.var
     def gpu_display_text(self) -> str:
@@ -506,12 +507,7 @@ class AIState(rx.State):
         Uses centralized config for consistency.
         """
         # Merge dropdown items with backend labels
-        labels = {**config.BACKEND_DROPDOWN_ITEMS, **config.BACKEND_LABELS}
-        return labels.get(backend_id, backend_id)
-
-    def is_backend_item_selectable(self, backend_id: str) -> bool:
-        """Check if backend item is selectable (not header/separator)"""
-        return backend_id not in config.BACKEND_NON_SELECTABLE
+        return config.BACKEND_LABELS.get(backend_id, backend_id)
 
     @rx.var
     def is_koboldcpp_auto_restarting(self) -> bool:
@@ -1080,6 +1076,20 @@ class AIState(rx.State):
                             self.salomo_is_hybrid = params["is_hybrid"]
                             self.salomo_supports_thinking = params["supports_thinking"]
 
+                    elif self.backend_id == "llamacpp":
+                        from .lib.model_vram_cache import get_llamacpp_calibration, get_thinking_support_for_model
+
+                        for agent, model_id in [
+                            ("aifred", self.aifred_model_id),
+                            ("sokrates", self.sokrates_model_id),
+                            ("salomo", self.salomo_model_id),
+                        ]:
+                            if model_id:
+                                setattr(self, f"{agent}_rope_factor", 1.0)
+                                setattr(self, f"{agent}_max_context", get_llamacpp_calibration(model_id) or 0)
+                                setattr(self, f"{agent}_is_hybrid", False)
+                                setattr(self, f"{agent}_supports_thinking", get_thinking_support_for_model(model_id))
+
                     # Sync deprecated variables (will be populated later after models load)
                     self.aifred_model = selected_raw
                     self.automatik_model = automatik_raw
@@ -1452,6 +1462,22 @@ class AIState(rx.State):
                         self.add_debug("   huggingface-cli download bartowski/Qwen3-30B-Instruct-2507-GGUF \\")
                         self.add_debug("       Qwen3-30B-Instruct-2507-Q4_K_M.gguf --local-dir ~/models/")
 
+                elif self.backend_type == "llamacpp":
+                    # llama.cpp via llama-swap: Query /v1/models
+                    unsorted_dict = discover_models(
+                        self.backend_type,
+                        backend_url=self.backend_url
+                    )
+                    if unsorted_dict:
+                        self.available_models_dict = sort_models_grouped(unsorted_dict)
+                        self.available_models = list(self.available_models_dict.values())
+                        self.add_debug(f"📂 Found {len(self.available_models)} llama.cpp models")
+                    else:
+                        self.available_models_dict = {}
+                        self.available_models = []
+                        self.add_debug(f"⚠️ llama-swap not reachable at {self.backend_url}")
+                        self.add_debug("💡 Start llama-swap: ./llama-swap --config config.yaml")
+
                 elif self.backend_type == "cloud_api":
                     # Cloud APIs: Fetch models dynamically from API
                     provider_config = CLOUD_API_PROVIDERS.get(self.cloud_api_provider)
@@ -1555,7 +1581,7 @@ class AIState(rx.State):
 
                 # For backends without model switching (vLLM, KoboldCPP, TabbyAPI), show only Main model
                 # Import VRAM cache for calibrated context limits
-                from .lib.model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model
+                from .lib.model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model, get_llamacpp_calibration
                 from .lib.formatting import format_number
 
                 def format_model_with_ctx(model_display: str, model_id: str) -> str:
@@ -1564,7 +1590,11 @@ class AIState(rx.State):
                     """
                     if not model_id:
                         return model_display
-                    ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
+                    # Backend-aware calibration lookup
+                    if self.backend_type == "llamacpp":
+                        ctx = get_llamacpp_calibration(model_id)
+                    else:
+                        ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                     if ctx:
                         if model_display.endswith(")"):
                             return model_display[:-1] + f", {format_number(ctx)} ctx)"
@@ -1582,7 +1612,7 @@ class AIState(rx.State):
                     # Compact format for Mobile: Multi-line with indentation
                     self.add_debug(f"✅ {len(self.available_models)} models available")
                     self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")
-                    self.add_debug(f"   Automatic: {self.automatik_model}")
+                    self.add_debug(f"   Automatic: {format_model_with_ctx(self.automatik_model, self.automatik_model_id)}")
                     # Show Sokrates and Salomo models if multi-agent mode is active
                     if self.multi_agent_mode != "standard":
                         if self.sokrates_model_id:
@@ -1594,7 +1624,10 @@ class AIState(rx.State):
                 context_limits = []
                 for model_id in [self.aifred_model_id, self.sokrates_model_id, self.salomo_model_id]:
                     if model_id:
-                        ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
+                        if self.backend_type == "llamacpp":
+                            ctx = get_llamacpp_calibration(model_id)
+                        else:
+                            ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                         if ctx:
                             context_limits.append(ctx)
                 self._min_agent_context_limit = min(context_limits) if context_limits else 0
@@ -1638,18 +1671,24 @@ class AIState(rx.State):
             if self.backend_type == "koboldcpp":
                 await self._start_koboldcpp_server()
 
-            # Preload Automatik-LLM with SMALL context (Ollama only)
-            # CRITICAL: Models like Qwen3:4B have 262K default context!
-            # Without preloading with explicit num_ctx, Ollama allocates HUGE KV-Cache.
-            # Main-LLM is loaded on-demand with proper context calculation.
-            if self.backend_type == "ollama" and self.automatik_model_id:
+            # Preload Automatik-LLM to hide cold-start latency
+            # - Ollama: Also sets num_ctx to avoid huge default KV-Cache
+            # - llama.cpp: Triggers llama-swap cold-start
+            if self.backend_type in ("ollama", "llamacpp") and self.automatik_model_id:
                 from .lib.context_manager import prepare_automatik_llm
                 from aifred.backends import BackendFactory
                 auto_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
+
+                # If Automatik = Haupt-LLM: use calibrated context to avoid reload penalty
+                preload_ctx = None  # Default: small 4K context
+                if self.automatik_model_id == self.aifred_model_id and self.aifred_max_context:
+                    preload_ctx = self.aifred_max_context
+
                 async for item in prepare_automatik_llm(
                     backend=auto_backend,
                     model_name=self.automatik_model_id,
-                    backend_type=self.backend_type
+                    backend_type=self.backend_type,
+                    num_ctx=preload_ctx
                 ):
                     if item.get("type") == "debug":
                         self.add_debug(item["message"])
@@ -1783,23 +1822,35 @@ class AIState(rx.State):
             pass
 
     def _show_model_calibration_info(self, model_id: str):
-        """Show calibration info for Ollama models in debug console.
+        """Show calibration info in debug console.
 
-        Displays calibrated context values (Native and/or RoPE 2x) or a warning
+        Displays calibrated context values or a warning
         if the model hasn't been calibrated yet.
         """
-        if self.backend_id != "ollama" or not model_id:
+        if not model_id:
+            return
+
+        from .lib.formatting import format_number
+
+        if self.backend_type == "llamacpp":
+            from .lib.model_vram_cache import get_llamacpp_calibration
+            calibrated = get_llamacpp_calibration(model_id)
+            if calibrated:
+                self.add_debug(f"   🎯 Calibrated: {format_number(calibrated)} tokens")
+            else:
+                self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")
+            return
+
+        if self.backend_type != "ollama":
             return
 
         from .lib.model_vram_cache import get_ollama_calibrated_max_context
-        from .lib.formatting import format_number
 
         native_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=1.0)
         rope_1_5x_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=1.5)
         rope_2x_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=2.0)
 
         if native_ctx is not None or rope_1_5x_ctx is not None or rope_2x_ctx is not None:
-            # Show calibrated values
             parts = []
             if native_ctx is not None:
                 parts.append(f"Native: {format_number(native_ctx)}")
@@ -1809,7 +1860,6 @@ class AIState(rx.State):
                 parts.append(f"RoPE 2x: {format_number(rope_2x_ctx)}")
             self.add_debug(f"   🎯 Calibrated: {', '.join(parts)}")
         else:
-            # Not calibrated - show warning
             self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")
 
     # ============================================================
@@ -3387,6 +3437,30 @@ class AIState(rx.State):
         )
 
         # ============================================================
+        # AUTOMATIK NUM_CTX CALCULATION (once, used for all Automatik calls)
+        # ============================================================
+        # When Automatik = AIfred (same model): don't set num_ctx → no model reload
+        # When different models: use AUTOMATIK_LLM_NUM_CTX from config.py
+        from .lib.config import AUTOMATIK_LLM_NUM_CTX
+        from .lib.formatting import format_number
+        if self.automatik_model_id == self.aifred_model_id:
+            # Same model: use None (= don't send num_ctx, keep current context)
+            auto_num_ctx: int | None = None
+            log_message(f"🔧 Automatik = AIfred ({self.automatik_model_id}) → No num_ctx override (avoid reload)")
+
+            # Warning if AIfred context is below recommended Automatik threshold
+            effective_ctx = self.aifred_max_context or 0
+            if effective_ctx > 0 and effective_ctx < AUTOMATIK_LLM_NUM_CTX:
+                self.add_debug(
+                    f"⚠️ Automatik Context ({format_number(effective_ctx)}) < recommended ({format_number(AUTOMATIK_LLM_NUM_CTX)}) - Automatik tasks may be less reliable"
+                )
+                log_message(f"⚠️ Automatik Context warning: {effective_ctx} < {AUTOMATIK_LLM_NUM_CTX}")
+        else:
+            # Different model: use config constant
+            auto_num_ctx = AUTOMATIK_LLM_NUM_CTX
+            log_message(f"🔧 Automatik ≠ AIfred → Context: {auto_num_ctx}")
+
+        # ============================================================
         # INTENT + ADDRESSEE + LANGUAGE DETECTION (first LLM call)
         # ============================================================
         # Must run BEFORE compression check to get detected_language
@@ -3405,7 +3479,8 @@ class AIState(rx.State):
             detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(
                 user_msg,
                 self.automatik_model_id,
-                llm_client
+                llm_client,
+                automatik_num_ctx=auto_num_ctx
             )
             # Log Intent Detection result to UI debug console (always visible)
             addressee_display = addressed_to.capitalize() if addressed_to else "–"
@@ -3707,25 +3782,26 @@ class AIState(rx.State):
                     # Call chat_interactive_mode with Vision JSON context
                     # (EXACT same pattern as normal flow in line 2012-2027)
                     async for item in chat_interactive_mode(
-                        user_text=original_user_text,  # Actual user question
-                        stt_time=0.0,  # No STT for Vision follow-up
+                        user_text=original_user_text,
+                        stt_time=0.0,
                         model_choice=self.aifred_model_id,
                         automatik_model=self.automatik_model_id,
-                        history=self.chat_history,  # User message already included
-                        llm_history=self.llm_history,  # Parallel LLM history for context
+                        history=self.chat_history,
+                        llm_history=self.llm_history,
                         session_id=self.session_id,
                         temperature_mode=self.temperature_mode,
                         temperature=self.temperature,
                         llm_options=llm_options,
                         backend_type=self.backend_type,
                         backend_url=self.backend_url,
-                        state=self,  # Pass state for per-agent num_ctx lookup
-                        pending_images=None,  # Images already processed
-                        vision_json_context=extracted_vision_json,  # Pass Vision JSON!
-                        user_name=self.user_name,  # For personalized prompts
-                        detected_intent=detected_intent,  # From Intent Detection (avoids duplicate LLM call)
-                        detected_language=detected_language,  # From Intent Detection
-                        cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None
+                        state=self,
+                        pending_images=None,
+                        vision_json_context=extracted_vision_json,
+                        user_name=self.user_name,
+                        detected_intent=detected_intent,
+                        detected_language=detected_language,
+                        cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None,
+                        automatik_num_ctx=auto_num_ctx
                     ):
                         # Handle Main-LLM items using NORMAL FLOW logic
                         # (EXACT same pattern as normal flow in line 2029-2068)
@@ -3845,7 +3921,8 @@ class AIState(rx.State):
                 detected_intent=detected_intent,
                 detected_language=detected_language,
                 cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None,
-                research_mode=self.research_mode  # "automatik", "quick", "deep", or "none"
+                research_mode=self.research_mode,
+                automatik_num_ctx=auto_num_ctx
             ):
                 # Route messages based on type
                 if item["type"] == "debug":
@@ -5512,12 +5589,21 @@ class AIState(rx.State):
                 "temperature": 0.3,  # Low temperature for consistent titles
                 "num_predict": 50,   # Short response
                 "enable_thinking": False,  # Disable thinking for faster response
+                # NOTE: No num_ctx here! If title_model = Haupt-LLM, a different
+                # num_ctx would trigger a full model reload in Ollama (5-15s penalty).
+                # The model is already loaded with its calibrated context - reuse it.
             }
 
-            response = await llm_client.chat(
-                model=title_model,
-                messages=messages,
-                options=options
+            # Timeout: Title generation runs AFTER is_generating=False.
+            # Long blocking here prevents the UI from receiving subsequent yields.
+            import asyncio
+            response = await asyncio.wait_for(
+                llm_client.chat(
+                    model=title_model,
+                    messages=messages,
+                    options=options
+                ),
+                timeout=15.0
             )
 
             # Extract and clean title - strip thinking blocks first!
@@ -5539,6 +5625,9 @@ class AIState(rx.State):
                 self.add_debug("────────────────────")
                 yield  # Update UI to show generated title
 
+        except asyncio.TimeoutError:
+            log_message("⚠️ Title generation timed out (>15s) - skipping")
+            self.add_debug("⚠️ Session title: Timeout (>15s)")
         except Exception as e:
             log_message(f"⚠️ Title generation failed: {e}")
             # Non-critical - don't raise, just log
@@ -5554,6 +5643,8 @@ class AIState(rx.State):
             return config.DEFAULT_TABBY_URL
         elif self.backend_type == "koboldcpp":
             return config.DEFAULT_KOBOLD_URL
+        elif self.backend_type == "llamacpp":
+            return config.DEFAULT_LLAMACPP_URL
         elif self.backend_type == "cloud_api":
             # Cloud API URL is determined by provider in BackendFactory
             return None
@@ -7022,7 +7113,7 @@ class AIState(rx.State):
 
         # Save to VRAM cache (per-model setting)
         if self.aifred_model_id:
-            from .lib.model_vram_cache import set_rope_factor_for_model, get_ollama_calibrated_max_context, get_rope_factor_for_model
+            from .lib.model_vram_cache import set_rope_factor_for_model, get_ollama_calibrated_max_context, get_rope_factor_for_model, get_llamacpp_calibration
             from .lib.formatting import format_number
             set_rope_factor_for_model(self.aifred_model_id, factor)
 
@@ -7030,7 +7121,11 @@ class AIState(rx.State):
             def format_model_with_ctx(model_display: str, model_id: str) -> str:
                 if not model_id:
                     return model_display
-                ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
+                # Backend-aware calibration lookup
+                if self.backend_type == "llamacpp":
+                    ctx = get_llamacpp_calibration(model_id)
+                else:
+                    ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                 if ctx:
                     if model_display.endswith(")"):
                         return model_display[:-1] + f", {format_number(ctx)} ctx)"
@@ -7052,7 +7147,10 @@ class AIState(rx.State):
             context_limits = []
             for model_id in [self.aifred_model_id, self.sokrates_model_id, self.salomo_model_id]:
                 if model_id:
-                    ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
+                    if self.backend_type == "llamacpp":
+                        ctx = get_llamacpp_calibration(model_id)
+                    else:
+                        ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                     if ctx:
                         context_limits.append(ctx)
             self._min_agent_context_limit = min(context_limits) if context_limits else 0
@@ -7190,15 +7288,14 @@ class AIState(rx.State):
 
     async def calibrate_context(self):
         """
-        Calibrate maximum context window for current Ollama model.
+        Calibrate maximum context window for current model.
 
-        Uses binary search with /api/ps to find the largest context
-        that fits entirely in VRAM without CPU offloading.
-
-        If rope_factor=2.0, calibrates up to 2x native context (RoPE scaling).
+        Supported backends:
+        - Ollama: Binary search via /api/ps (size == size_vram check)
+        - llama.cpp: Binary search via direct llama-server start/health check
         """
-        if self.backend_id != "ollama":
-            self.add_debug("⚠️ Calibration only available for Ollama")
+        if self.backend_type not in ("ollama", "llamacpp"):
+            self.add_debug("⚠️ Calibration only for Ollama and llama.cpp")
             return
 
         if not self.aifred_model_id:
@@ -7212,6 +7309,12 @@ class AIState(rx.State):
         self.is_calibrating = True
         self.add_debug(f"🔧 Starting calibration for {self.aifred_model_id}...")
         yield
+
+        # Dispatch to backend-specific calibration
+        if self.backend_type == "llamacpp":
+            async for _ in self._calibrate_llamacpp():
+                yield
+            return
 
         try:
             from .backends import BackendFactory
@@ -7335,35 +7438,10 @@ class AIState(rx.State):
                 self.add_debug(f"   {label}: {format_number(ctx)} tok{suffix}")
             self.add_debug("   → Values will be used automatically based on RoPE setting")
 
-            # Test thinking capability if calibration was successful
+            # Test thinking capability if calibration was successful (shared helper)
             if calibration_results.get(1.0, 0) > 0:
-                self.add_debug("─" * 20)
-                self.add_debug("🧠 Testing reasoning capability...")
-                yield
-
-                try:
-                    supports_thinking = await backend.test_thinking_capability(self.aifred_model_id)
-
-                    from .lib.model_vram_cache import set_thinking_support_for_model
-                    set_thinking_support_for_model(self.aifred_model_id, supports_thinking)
-
-                    # Update state variables for ALL agents using this model
-                    # (needed when user calibrates a model that multiple agents share)
-                    if self.aifred_model_id == self.aifred_model_id:
-                        self.aifred_supports_thinking = supports_thinking
-                    if self.sokrates_model_id == self.aifred_model_id:
-                        self.sokrates_supports_thinking = supports_thinking
-                    if self.salomo_model_id == self.aifred_model_id:
-                        self.salomo_supports_thinking = supports_thinking
-
-                    if supports_thinking:
-                        self.add_debug("✅ Reasoning mode: Supported (<think> tags)")
-                    else:
-                        self.add_debug("⚠️ Reasoning mode: Not supported")
-
-                except Exception as e:
-                    self.add_debug(f"⚠️ Thinking test failed: {e}")
-                    # Continue anyway - not critical
+                async for _ in self._test_and_save_thinking(backend, self.aifred_model_id):
+                    yield
 
             self.add_debug(CONSOLE_SEPARATOR)
 
@@ -7371,6 +7449,157 @@ class AIState(rx.State):
             self.add_debug(f"❌ Calibration failed: {e}")
 
         finally:
+            self.is_calibrating = False
+            yield
+
+    async def _test_and_save_thinking(self, backend: Any, model_id: str) -> None:
+        """
+        Test thinking capability and save result to cache + state.
+
+        Shared between Ollama and llama.cpp calibration flows.
+        """
+        self.add_debug("─" * 20)
+        self.add_debug("🧠 Testing reasoning capability...")
+        yield
+
+        try:
+            supports_thinking = await backend.test_thinking_capability(model_id)
+
+            from .lib.model_vram_cache import set_thinking_support_for_model
+            set_thinking_support_for_model(model_id, supports_thinking)
+
+            # Update state for ALL agents using this model
+            if self.aifred_model_id == model_id:
+                self.aifred_supports_thinking = supports_thinking
+            if self.sokrates_model_id == model_id:
+                self.sokrates_supports_thinking = supports_thinking
+            if self.salomo_model_id == model_id:
+                self.salomo_supports_thinking = supports_thinking
+
+            if supports_thinking:
+                self.add_debug("✅ Reasoning mode: Supported (<think> tags)")
+            else:
+                self.add_debug("⚠️ Reasoning mode: Not supported")
+
+        except Exception as e:
+            self.add_debug(f"⚠️ Thinking test failed: {e}")
+
+    async def _calibrate_llamacpp(self):
+        """
+        llama.cpp calibration via direct llama-server binary search.
+
+        Workflow (matches Ollama pattern):
+        1. Stop llama-swap service (free VRAM)
+        2. Binary search via llama-server (native_context as upper bound)
+        3. Update llama-swap YAML with calibrated -c value
+        4. Restart llama-swap service
+        5. Test thinking capability
+        6. Save results to cache
+        """
+        import subprocess
+        from .lib.formatting import format_number
+        from .lib.llamacpp_calibration import update_llamaswap_context
+        from .lib.config import LLAMASWAP_CONFIG_PATH
+
+        llama_swap_stopped = False
+
+        try:
+            from .backends import BackendFactory
+
+            backend = BackendFactory.create(
+                self.backend_type,
+                base_url=self.backend_url
+            )
+
+            # Step 1: Stop llama-swap to free VRAM
+            self.add_debug("🛑 Stopping llama-swap service...")
+            yield
+            try:
+                subprocess.run(
+                    ["systemctl", "--user", "stop", "llama-swap"],
+                    check=True, timeout=15
+                )
+                llama_swap_stopped = True
+                self.add_debug("   llama-swap stopped")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                self.add_debug(f"⚠️ Could not stop llama-swap: {e}")
+                self.add_debug("   Continuing anyway (VRAM may be limited)")
+            yield
+
+            # Step 2: Run binary search
+            calibrated_ctx = None
+            async for progress_msg in backend.calibrate_max_context_generator(
+                self.aifred_model_id
+            ):
+                if progress_msg.startswith("__RESULT__:"):
+                    parts = progress_msg.split(":")
+                    calibrated_ctx = int(parts[1])
+                else:
+                    self.add_debug(f"📊 {progress_msg}")
+                    yield
+
+            # Step 3: Process result
+            if not calibrated_ctx or calibrated_ctx == 0:
+                self.add_debug(CONSOLE_SEPARATOR)
+                self.add_debug("❌ Calibration failed")
+                yield
+                return
+
+            self.add_debug(CONSOLE_SEPARATOR)
+            self.add_debug(f"✅ Calibrated: {format_number(calibrated_ctx)} tokens")
+
+            # Step 4: Update llama-swap YAML
+            self.add_debug("📝 Updating llama-swap config...")
+            updated = update_llamaswap_context(
+                LLAMASWAP_CONFIG_PATH,
+                self.aifred_model_id,
+                calibrated_ctx
+            )
+            if updated:
+                self.add_debug(
+                    f"   -c {format_number(calibrated_ctx)} written to "
+                    f"{LLAMASWAP_CONFIG_PATH.name}"
+                )
+            else:
+                self.add_debug("⚠️ Could not update llama-swap config")
+            yield
+
+            # Step 5: Restart llama-swap (needed for thinking test)
+            self.add_debug("🔄 Restarting llama-swap service...")
+            try:
+                subprocess.run(
+                    ["systemctl", "--user", "start", "llama-swap"],
+                    check=True, timeout=15
+                )
+                llama_swap_stopped = False
+                self.add_debug("   llama-swap started")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                self.add_debug("⚠️ Could not restart llama-swap")
+            yield
+
+            # Wait for llama-swap to be ready
+            import asyncio
+            await asyncio.sleep(2.0)
+
+            # Step 6: Test thinking (shared with Ollama)
+            async for _ in self._test_and_save_thinking(backend, self.aifred_model_id):
+                yield
+
+            self.add_debug(CONSOLE_SEPARATOR)
+
+        except Exception as e:
+            self.add_debug(f"❌ Calibration failed: {e}")
+
+        finally:
+            # Always restart llama-swap if we stopped it
+            if llama_swap_stopped:
+                try:
+                    subprocess.run(
+                        ["systemctl", "--user", "start", "llama-swap"],
+                        timeout=15
+                    )
+                except Exception:
+                    pass
             self.is_calibrating = False
             yield
 
@@ -7467,6 +7696,12 @@ class AIState(rx.State):
             self.aifred_max_context = params["max_context"]
             self.aifred_is_hybrid = params["is_hybrid"]
             self.aifred_supports_thinking = params["supports_thinking"]
+        elif self.backend_type == "llamacpp":
+            from .lib.model_vram_cache import get_llamacpp_calibration, get_thinking_support_for_model
+            self.aifred_rope_factor = 1.0
+            self.aifred_max_context = get_llamacpp_calibration(self.aifred_model_id) or 0
+            self.aifred_is_hybrid = False
+            self.aifred_supports_thinking = get_thinking_support_for_model(self.aifred_model_id)
 
         # Show calibration info for Ollama models
         self._show_model_calibration_info(self.aifred_model_id)
@@ -7784,10 +8019,10 @@ class AIState(rx.State):
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             self.num_ctx_manual_aifred = num_value
-            self.add_debug(f"🔧 Manual num_ctx (AIfred): {format_number(num_value)}")
+            self.add_debug(f"🔧 Manual Context (AIfred): {format_number(num_value)}")
             # IMPORTANT: Not saved in settings.json!
         except (ValueError, TypeError):
-            self.add_debug(f"❌ Invalid num_ctx value: {value}")
+            self.add_debug(f"❌ Invalid Context value: {value}")
 
     def set_num_ctx_manual_sokrates(self, value: str):
         """Set manual num_ctx value for Sokrates (only used when mode=manual)"""
@@ -7803,9 +8038,9 @@ class AIState(rx.State):
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             self.num_ctx_manual_sokrates = num_value
-            self.add_debug(f"🔧 Manual num_ctx (Sokrates): {format_number(num_value)}")
+            self.add_debug(f"🔧 Manual Context (Sokrates): {format_number(num_value)}")
         except (ValueError, TypeError):
-            self.add_debug(f"❌ Invalid num_ctx value: {value}")
+            self.add_debug(f"❌ Invalid Context value: {value}")
 
     def set_num_ctx_manual_salomo(self, value: str):
         """Set manual num_ctx value for Salomo (only used when mode=manual)"""
@@ -7821,9 +8056,9 @@ class AIState(rx.State):
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             self.num_ctx_manual_salomo = num_value
-            self.add_debug(f"🔧 Manual num_ctx (Salomo): {format_number(num_value)}")
+            self.add_debug(f"🔧 Manual Context (Salomo): {format_number(num_value)}")
         except (ValueError, TypeError):
-            self.add_debug(f"❌ Invalid num_ctx value: {value}")
+            self.add_debug(f"❌ Invalid Context value: {value}")
 
     def toggle_num_ctx_manual_aifred(self, enabled: bool):
         """Toggle manual context for AIfred"""
@@ -7861,10 +8096,10 @@ class AIState(rx.State):
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             self.vision_num_ctx = num_value
-            self.add_debug(f"👁️ Manual num_ctx (Vision): {format_number(num_value)}")
+            self.add_debug(f"👁️ Manual Context (Vision): {format_number(num_value)}")
             self._save_settings()
         except (ValueError, TypeError):
-            self.add_debug(f"❌ Invalid Vision num_ctx value: {value}")
+            self.add_debug(f"❌ Invalid Vision Context value: {value}")
 
     def set_research_mode(self, mode: str):
         """Set research mode"""
@@ -7953,11 +8188,16 @@ class AIState(rx.State):
             self.sokrates_max_context = params["max_context"]
             self.sokrates_is_hybrid = params["is_hybrid"]
             self.sokrates_supports_thinking = params["supports_thinking"]
+        elif self.backend_type == "llamacpp" and self.sokrates_model_id:
+            from .lib.model_vram_cache import get_llamacpp_calibration, get_thinking_support_for_model
+            self.sokrates_rope_factor = 1.0
+            self.sokrates_max_context = get_llamacpp_calibration(self.sokrates_model_id) or 0
+            self.sokrates_is_hybrid = False
+            self.sokrates_supports_thinking = get_thinking_support_for_model(self.sokrates_model_id)
 
         self._save_settings()
         if model:
             self.add_debug(f"🧠 Sokrates-LLM: {model}")
-            # Show calibration info for Ollama models
             self._show_model_calibration_info(self.sokrates_model_id)
         else:
             self.add_debug("🧠 Sokrates-LLM: (same as Main-LLM)")
@@ -7976,11 +8216,16 @@ class AIState(rx.State):
             self.salomo_max_context = params["max_context"]
             self.salomo_is_hybrid = params["is_hybrid"]
             self.salomo_supports_thinking = params["supports_thinking"]
+        elif self.backend_type == "llamacpp" and self.salomo_model_id:
+            from .lib.model_vram_cache import get_llamacpp_calibration, get_thinking_support_for_model
+            self.salomo_rope_factor = 1.0
+            self.salomo_max_context = get_llamacpp_calibration(self.salomo_model_id) or 0
+            self.salomo_is_hybrid = False
+            self.salomo_supports_thinking = get_thinking_support_for_model(self.salomo_model_id)
 
         self._save_settings()
         if model:
             self.add_debug(f"👑 Salomo-LLM: {model}")
-            # Show calibration info for Ollama models
             self._show_model_calibration_info(self.salomo_model_id)
         else:
             self.add_debug("👑 Salomo-LLM: (same as Main-LLM)")
@@ -8067,6 +8312,8 @@ class AIState(rx.State):
         if self.backend_id == "ollama":
             from .lib.model_vram_cache import get_rope_factor_for_model
             self.aifred_rope_factor = get_rope_factor_for_model(model_id)
+        elif self.backend_type == "llamacpp":
+            self.aifred_rope_factor = 1.0
 
         # Sync deprecated display variable
         display_label = self.available_models_dict.get(model_id, model_id)
@@ -8084,6 +8331,8 @@ class AIState(rx.State):
         if self.backend_id == "ollama":
             from .lib.model_vram_cache import get_rope_factor_for_model
             self.automatik_rope_factor = get_rope_factor_for_model(model_id)
+        elif self.backend_type == "llamacpp":
+            self.automatik_rope_factor = 1.0
 
         # Sync deprecated display variable
         display_label = self.available_models_dict.get(model_id, model_id)
@@ -8101,6 +8350,8 @@ class AIState(rx.State):
         if self.backend_id == "ollama":
             from .lib.model_vram_cache import get_rope_factor_for_model
             self.vision_rope_factor = get_rope_factor_for_model(model_id)
+        elif self.backend_type == "llamacpp":
+            self.vision_rope_factor = 1.0
 
         # Sync deprecated display variable
         display_label = self.available_models_dict.get(model_id, model_id)

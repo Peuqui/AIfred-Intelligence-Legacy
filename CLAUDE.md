@@ -40,7 +40,7 @@
 - **ChromaDB Vector Cache** - Semantischer Cache für Web-Research (Docker)
 - **RAG-System** - Retrieval-Augmented Generation mit Relevanz-Check
 - **History Compression** - Automatische Kompression (siehe unten)
-- **Multi-Backend Support** - Ollama, vLLM, TabbyAPI, KoboldCPP
+- **Multi-Backend Support** - llama.cpp (via llama-swap), Ollama, vLLM, TabbyAPI, KoboldCPP
 - **Thinking Mode** - Chain-of-Thought für Qwen3 Modelle
 
 ---
@@ -59,7 +59,7 @@
 
 ### Architektur
 - Python/Reflex Anwendung (nicht Gradio!)
-- Backends: Ollama, vLLM, TabbyAPI, KoboldCPP
+- Backends: llama.cpp (via llama-swap), Ollama, vLLM, TabbyAPI, KoboldCPP
 - Multi-Agent System:
   - AIfred (Hauptagent)
   - Sokrates (Kritiker)
@@ -158,8 +158,8 @@ curl -s "http://localhost:8002/api/chat/inject" \
 ```
 
 **Aktive Session-ID finden:**
-- Debug-Log: `tail /home/mp/Projekte/AIfred-Intelligence/logs/aifred_debug.log` → "Session loaded: XXXXX..."
-- Session-Dateien: `ls ~/.config/aifred/sessions/` → neueste `.json` Datei (ohne `.pending`/`.update`)
+- Debug-Log: `tail data/logs/aifred_debug.log` → "Session loaded: XXXXX..."
+- Session-Dateien: `ls data/sessions/` → neueste `.json` Datei (ohne `.pending`/`.update`)
 
 **Wichtig:**
 - Port ist `8002` (Backend-API), NICHT `3000` (Frontend)

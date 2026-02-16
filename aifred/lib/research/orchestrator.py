@@ -37,7 +37,8 @@ async def perform_agent_research(
     detected_intent: Optional[str] = None,
     detected_language: Optional[str] = None,
     pre_generated_queries: Optional[List[str]] = None,
-    volatility: Optional[str] = None  # From Automatik-LLM (NOCACHE/DAILY/etc.)
+    volatility: Optional[str] = None,  # From Automatik-LLM (NOCACHE/DAILY/etc.)
+    automatik_num_ctx: Optional[int] = None
 ) -> AsyncIterator[Dict]:
     """
     Agent research with query optimization and parallel web scraping
@@ -102,8 +103,9 @@ async def perform_agent_research(
         temperature_mode=temperature_mode,
         temperature=temperature,
         agent_timer=agent_timer,
-        state=state,  # Pass state for per-agent num_ctx lookup
-        user_name=user_name
+        state=state,
+        user_name=user_name,
+        automatik_num_ctx=automatik_num_ctx
     ):
         if item["type"] == "result":
             cache_handled = True
@@ -161,7 +163,8 @@ async def perform_agent_research(
             automatik_llm_client=automatik_llm_client,
             automatik_model=automatik_model,
             top_n=top_n,
-            llm_options=llm_options
+            llm_options=llm_options,
+            automatik_num_ctx=automatik_num_ctx
         )
 
         # Debug console output: Show ranking result

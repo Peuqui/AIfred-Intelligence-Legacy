@@ -17,14 +17,14 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 ## ✨ Features
 
 ### 🎯 Kern-Features
-- **Multi-Backend-Unterstützung**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), KoboldCPP (GGUF mit erweitertem Kontext)
+- **Multi-Backend-Unterstützung**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), KoboldCPP (GGUF), TabbyAPI (EXL2), **Cloud APIs** (Qwen, DeepSeek, Claude)
 - **Vision/OCR-Unterstützung**: Bildanalyse mit multimodalen LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
 - **Bild-Zuschnitt-Tool**: Interaktiver Crop vor OCR/Analyse (8-Punkt-Handles, 4K Auto-Resize)
 - **3-Modell-Architektur**: Spezialisiertes Vision-LLM für OCR, Haupt-LLM für Interpretation
 - **Denkmodus**: Chain-of-Thought-Reasoning für komplexe Aufgaben (Qwen3, NemoTron, QwQ - Ollama + vLLM)
 - **Automatische Web-Recherche**: KI entscheidet selbst, wann Recherche nötig ist
 - **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung
-- **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße mit RoPE-Skalierung (1.0x, 1.5x, 2.0x), Hybrid-Modus für übergroße Modelle (CPU-Offload)
+- **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße pro Backend - Ollama (Binary Search + RoPE-Skalierung 1.0x/1.5x/2.0x, Hybrid CPU-Offload), llama.cpp (Binary Search via direkten llama-server), KoboldCPP (Binary Search mit RoPE)
 - **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud-Streaming mit Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **nahtlose Echtzeit-Audioausgabe** (Double-Buffered HTML5 Audio, lückenlose Wiedergabe während der LLM-Inferenz)
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
@@ -364,7 +364,7 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
 2. FOR EACH candidate:
    ├─ LLM Relevance Check (Automatik-LLM)
    │  └─ Prompt: rag_relevance_check
-   │  └─ Options: temp=0.1, num_ctx=2048
+   │  └─ Options: temp=0.1, num_ctx=AUTOMATIK_LLM_NUM_CTX
    └─ Keep if relevant
 
 3. Build formatted context from relevant entries
@@ -391,7 +391,7 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
    ├─ Messages: KEINE History (fokussierte, unvoreingenommene Entscheidung)
    ├─ Options:
    │  ├─ temperature: 0.2 (konsistente Entscheidungen)
-   │  ├─ num_ctx: 4096 (AUTOMATIK_LLM_NUM_CTX)
+   │  ├─ num_ctx: 12288 (AUTOMATIK_LLM_NUM_CTX) - nur wenn Automatik ≠ AIfred-Modell
    │  ├─ num_predict: 256
    │  └─ enable_thinking: False (schnell)
    └─ Response: {"web": true, "queries": ["EN query", "DE query 1", "DE query 2"]}
@@ -895,8 +895,10 @@ curl http://localhost:8002/api/sessions
 ### Voraussetzungen
 - Python 3.10+
 - **LLM Backend** (wähle eins):
-  - **Ollama** (einfach, GGUF-Modelle) - empfohlen für Start
-  - **vLLM** (schnell, AWQ-Modelle) - beste Performance (requires Compute Capability 7.5+)
+  - **llama.cpp** via llama-swap (GGUF-Modelle) - beste Performance, volle GPU-Kontrolle ([Setup-Anleitung](docs/llamacpp-setup.md))
+  - **Ollama** (einfach, GGUF-Modelle) - empfohlen für Einsteiger
+  - **vLLM** (schnell, AWQ-Modelle) - beste Performance für AWQ (erfordert Compute Capability 7.5+)
+  - **KoboldCPP** (GGUF-Modelle) - dynamisches RoPE-Scaling
   - **TabbyAPI** (ExLlamaV2/V3, EXL2-Modelle) - experimentell
 - 8GB+ RAM (12GB+ empfohlen für größere Modelle)
 - Docker (für ChromaDB Vector Cache)
@@ -1100,7 +1102,8 @@ Die App läuft dann unter: http://localhost:3002
 
 AIfred unterstützt verschiedene LLM-Backends, die in der UI dynamisch gewechselt werden können:
 
-- **Ollama**: GGUF-Modelle (Q4/Q8), einfachste Installation
+- **llama.cpp** (via llama-swap): GGUF-Modelle, beste Roh-Performance (~1,8x schneller als Ollama), volle GPU-Kontrolle, Multi-GPU-Unterstützung. Verwendet eine 3-stufige Architektur: **llama-swap** (Go-Proxy, Modell-Management) → **llama-server** (Inferenz) → **llama.cpp** (Library). Automatische VRAM-Kalibrierung via Binary Search (stoppt llama-swap, testet llama-server direkt, aktualisiert Config). Siehe [Setup-Anleitung](docs/llamacpp-setup.md).
+- **Ollama**: GGUF-Modelle (Q4/Q8), einfachste Installation, automatisches Modell-Management
 - **vLLM**: AWQ-Modelle (4-bit), beste Performance mit AWQ Marlin Kernel
 - **KoboldCPP**: GGUF-Modelle mit dynamischem RoPE-Scaling und VRAM-Optimierung
 - **TabbyAPI**: EXL2-Modelle (ExLlamaV2/V3) - experimentell, nur Basis-Unterstützung
@@ -1109,14 +1112,14 @@ AIfred unterstützt verschiedene LLM-Backends, die in der UI dynamisch gewechsel
 
 AIfred erkennt automatisch beim Start deine GPU und warnt vor inkompatiblen Backend-Konfigurationen:
 
-- **Tesla P40 / GTX 10 Series** (Pascal): Nutze Ollama (GGUF) - vLLM/AWQ wird nicht unterstützt
-- **RTX 20+ Series** (Turing/Ampere/Ada): vLLM (AWQ) empfohlen für beste Performance
+- **Tesla P40 / GTX 10 Series** (Pascal): Nutze llama.cpp oder Ollama (GGUF) - vLLM/AWQ wird nicht unterstützt
+- **RTX 20+ Series** (Turing/Ampere/Ada): llama.cpp (GGUF) oder vLLM (AWQ) empfohlen für beste Performance
 
 Detaillierte Informationen: [GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md)
 
 ### Settings-Persistenz
 
-Settings werden in `~/.config/aifred/settings.json` gespeichert:
+Settings werden in `data/settings.json` gespeichert:
 
 **Per-Backend Modell-Speicherung:**
 - Jedes Backend merkt sich seine zuletzt verwendeten Modelle
@@ -1178,18 +1181,23 @@ AIfred-Intelligence/
 ├── aifred/
 │   ├── backends/          # LLM Backend Adapters
 │   │   ├── base.py           # Abstract Base Class
+│   │   ├── llamacpp.py       # llama.cpp Backend (GGUF via llama-swap)
 │   │   ├── ollama.py         # Ollama Backend (GGUF)
 │   │   ├── vllm.py           # vLLM Backend (AWQ)
-│   │   ├── tabbyapi.py       # TabbyAPI Backend (EXL2)
-│   │   └── koboldcpp.py      # KoboldCPP Backend (GGUF)
+│   │   ├── koboldcpp.py      # KoboldCPP Backend (GGUF)
+│   │   └── tabbyapi.py       # TabbyAPI Backend (EXL2)
 │   ├── lib/               # Core Libraries
 │   │   ├── multi_agent.py       # Multi-Agent System (AIfred, Sokrates, Salomo)
 │   │   ├── context_manager.py   # History-Kompression
 │   │   ├── conversation_handler.py # Automatik-Modus, RAG-Kontext
 │   │   ├── config.py            # Default Settings
 │   │   ├── vector_cache.py      # ChromaDB Vector Cache
+│   │   ├── model_vram_cache.py  # Unified VRAM Cache (alle Backends)
+│   │   ├── llamacpp_calibration.py # llama.cpp Binary Search Kalibrierung
+│   │   ├── gguf_utils.py        # GGUF-Metadaten-Reader (nativer Kontext, Quant)
 │   │   ├── research/            # Web-Research Module
 │   │   │   ├── orchestrator.py      # Research Orchestrierung
+│   │   │   ├── url_ranker.py        # LLM-basiertes URL-Ranking
 │   │   │   └── query_processor.py   # Query Processing
 │   │   └── tools/               # Tool-Implementierungen
 │   │       ├── search_tools.py      # Parallele Websuche
@@ -1202,6 +1210,11 @@ AIfred-Intelligence/
 │   ├── infrastructure/          # Service-Setup Anleitungen
 │   ├── architecture/            # Architektur-Docs
 │   └── GPU_COMPATIBILITY.md     # GPU-Kompatibilitätsmatrix
+├── data/                  # Laufzeitdaten (Settings, Sessions, Caches)
+│   ├── settings.json            # Benutzereinstellungen
+│   ├── model_vram_cache.json    # VRAM-Kalibrierungsdaten (alle Backends)
+│   ├── sessions/                # Chat-Sessions
+│   └── logs/                    # Debug-Logs
 ├── docker/                # Docker-Konfigurationen
 │   └── aifred_vector_cache/     # ChromaDB Docker Setup
 └── CHANGELOG.md           # Projekt-Changelog
@@ -1661,7 +1674,7 @@ AIfred ist als **Single-User-System** konzipiert, unterstützt aber 2-3 gleichze
 - ⚠️ **GPU-Info und VRAM-Cache**
 - ⚠️ **vLLM-Prozess-Manager**
 
-**Settings-Datei (`~/.config/aifred/settings.json`):**
+**Settings-Datei (`data/settings.json`):**
 - ⚠️ Alle Einstellungen sind global (Temperature, Multi-Agent-Modus, RoPE-Faktoren, etc.)
 - ⚠️ Wenn User A eine Einstellung ändert → sieht User B die Änderung sofort
 - ⚠️ Keine nutzer-spezifischen Einstellungs-Profile

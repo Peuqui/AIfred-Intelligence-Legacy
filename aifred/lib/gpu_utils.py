@@ -561,8 +561,8 @@ async def calculate_vram_based_context(
 
     # PRIORITY 2: Auto-detect VRAM context ratio if not provided
     if vram_context_ratio is None:
-        # Only detect MoE for Ollama (vLLM/TabbyAPI use manual override)
-        if backend_type == "ollama":
+        # Detect MoE for Ollama and llama.cpp (vLLM/TabbyAPI use manual override)
+        if backend_type in ("ollama", "llamacpp"):
             is_moe = is_moe_model(model_name)
             architecture = "moe" if is_moe else "dense"
             default_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe else VRAM_CONTEXT_RATIO_DENSE

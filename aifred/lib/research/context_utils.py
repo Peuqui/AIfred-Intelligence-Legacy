@@ -22,7 +22,7 @@ from ..config import (
 )
 from ..formatting import format_number
 from ..logging_utils import log_message
-from ..model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+from ..model_vram_cache import get_ollama_calibration, get_rope_factor_for_model, get_llamacpp_calibration
 from ..gpu_utils import is_moe_model
 
 if TYPE_CHECKING:
@@ -79,9 +79,21 @@ def get_agent_num_ctx(
         manual_value = getattr(state, value_attr, fallback)
         return (manual_value if manual_value else fallback, "manual")
 
-    # Auto mode: try VRAM calibration cache
-    rope_factor = get_rope_factor_for_model(model_id)
-    cached_ctx = get_ollama_calibration(model_id, rope_factor)
+    # Auto mode: try VRAM calibration cache (backend-aware)
+    backend_type = getattr(state, 'backend_type', 'ollama')
+
+    if backend_type == "llamacpp":
+        cached_ctx = get_llamacpp_calibration(model_id)
+        if not cached_ctx:
+            # Fallback: parse llama-swap YAML for -c value
+            from ..llamacpp_calibration import parse_llamaswap_config
+            from ..config import LLAMASWAP_CONFIG_PATH
+            config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+            if model_id in config and config[model_id]["current_context"] > 0:
+                cached_ctx = config[model_id]["current_context"]
+    else:
+        rope_factor = get_rope_factor_for_model(model_id)
+        cached_ctx = get_ollama_calibration(model_id, rope_factor)
 
     if cached_ctx:
         num_ctx = cached_ctx

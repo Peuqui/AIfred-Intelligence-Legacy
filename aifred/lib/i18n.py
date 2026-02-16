@@ -65,7 +65,7 @@ class TranslationManager:
             "temperature": "🌡️ Temperature",
             "current": "Aktuell:",
             "temperature_info": "0.0 = deterministisch, 0.2 = fakten, 0.8 = ausgewogen, 1.5+ = kreativ",
-            "context_window": "📦 Context Window (num_ctx)",
+            "context_window": "📦 Context Window",
             "context_window_info": "Auto-berechnet basierend auf Message-Größe",
             
             # Progress Banner
@@ -292,7 +292,7 @@ class TranslationManager:
             "temperature": "🌡️ Temperature",
             "current": "Current:",
             "temperature_info": "0.0 = deterministic, 0.2 = factual, 0.8 = balanced, 1.5+ = creative",
-            "context_window": "📦 Context Window (num_ctx)",
+            "context_window": "📦 Context Window",
             "context_window_info": "Auto-calculated based on message size",
             
             # Progress Banner

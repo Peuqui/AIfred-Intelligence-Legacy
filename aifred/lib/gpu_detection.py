@@ -91,6 +91,12 @@ class GPUDetector:
             "requires_fast_fp16": False,
             "description": "llama.cpp-based (GGUF), universal compatibility"
         },
+        "llamacpp": {
+            "min_compute_capability": 3.5,
+            "requires_tensor_cores": False,
+            "requires_fast_fp16": False,
+            "description": "llama.cpp + llama-swap (GGUF), universal compatibility"
+        },
         "vllm": {
             "min_compute_capability": 7.0,
             "requires_tensor_cores": False,

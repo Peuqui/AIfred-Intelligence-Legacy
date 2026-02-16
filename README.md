@@ -17,14 +17,14 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 ## ✨ Features
 
 ### 🎯 Core Features
-- **Multi-Backend Support**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), KoboldCPP (GGUF), **Cloud APIs** (Qwen, DeepSeek, Claude)
+- **Multi-Backend Support**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), KoboldCPP (GGUF), TabbyAPI (EXL2), **Cloud APIs** (Qwen, DeepSeek, Claude)
 - **Vision/OCR Support**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
 - **Image Crop Tool**: Interactive crop before OCR/analysis (8-point handles, 4K auto-resize)
 - **3-Model Architecture**: Specialized Vision-LLM for OCR, Main-LLM for interpretation
 - **Thinking Mode**: Chain-of-Thought reasoning for complex tasks (Qwen3, NemoTron, QwQ - Ollama + vLLM)
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
-- **Automatic Context Calibration**: VRAM-aware context sizing with RoPE scaling (1.0x, 1.5x, 2.0x), hybrid mode for oversized models (CPU offload)
+- **Automatic Context Calibration**: VRAM-aware context sizing per backend - Ollama (Binary Search + RoPE scaling 1.0x/1.5x/2.0x, hybrid CPU offload), llama.cpp (Binary Search via direct llama-server), KoboldCPP (Binary Search with RoPE)
 - **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (double-buffered HTML5 audio, seamless playback during LLM inference)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
@@ -411,7 +411,7 @@ When an agent is directly addressed, that agent is activated immediately, regard
 2. FOR EACH candidate:
    ├─ LLM Relevance Check (Automatik-LLM)
    │  └─ Prompt: rag_relevance_check
-   │  └─ Options: temp=0.1, num_ctx=2048
+   │  └─ Options: temp=0.1, num_ctx=AUTOMATIK_LLM_NUM_CTX
    └─ Keep if relevant
 
 3. Build formatted context from relevant entries
@@ -438,7 +438,7 @@ When an agent is directly addressed, that agent is activated immediately, regard
    ├─ Messages: ❌ NO history (focused, unbiased decision)
    ├─ Options:
    │  ├─ temperature: 0.2 (consistent decisions)
-   │  ├─ num_ctx: 4096 (AUTOMATIK_LLM_NUM_CTX)
+   │  ├─ num_ctx: 12288 (AUTOMATIK_LLM_NUM_CTX) - only if Automatik ≠ AIfred model
    │  ├─ num_predict: 256
    │  └─ enable_thinking: False (fast)
    └─ Response: {"web": true, "queries": ["EN query", "DE query 1", "DE query 2"]}
@@ -1008,8 +1008,10 @@ curl http://localhost:8002/api/sessions
 ### Prerequisites
 - Python 3.10+
 - **LLM Backend** (choose one):
+  - **llama.cpp** via llama-swap (GGUF models) - best performance, full GPU control ([setup guide](docs/llamacpp-setup.md))
   - **Ollama** (easy, GGUF models) - recommended for getting started
-  - **vLLM** (fast, AWQ models) - best performance (requires Compute Capability 7.5+)
+  - **vLLM** (fast, AWQ models) - best performance for AWQ (requires Compute Capability 7.5+)
+  - **KoboldCPP** (GGUF models) - dynamic RoPE scaling
   - **TabbyAPI** (ExLlamaV2/V3, EXL2 models) - experimental
 - 8GB+ RAM (12GB+ recommended for larger models)
 - Docker (for ChromaDB Vector Cache)
@@ -1235,7 +1237,8 @@ The app will run at: http://localhost:3002
 
 AIfred supports different LLM backends that can be switched dynamically in the UI:
 
-- **Ollama**: GGUF models (Q4/Q8), easiest installation
+- **llama.cpp** (via llama-swap): GGUF models, best raw performance (~1.8x faster than Ollama), full GPU control, multi-GPU support. Uses a 3-tier architecture: **llama-swap** (Go proxy, model management) → **llama-server** (inference) → **llama.cpp** (library). Automatic VRAM calibration via Binary Search (stops llama-swap, tests llama-server directly, updates config). See [setup guide](docs/llamacpp-setup.md).
+- **Ollama**: GGUF models (Q4/Q8), easiest installation, automatic model management
 - **vLLM**: AWQ models (4-bit), best performance with AWQ Marlin kernel
 - **KoboldCPP**: GGUF models with dynamic RoPE scaling and VRAM optimization
 - **TabbyAPI**: EXL2 models (ExLlamaV2/V3) - experimental, basic support only
@@ -1244,14 +1247,14 @@ AIfred supports different LLM backends that can be switched dynamically in the U
 
 AIfred automatically detects your GPU at startup and warns about incompatible backend configurations:
 
-- **Tesla P40 / GTX 10 Series** (Pascal): Use Ollama (GGUF) - vLLM/AWQ not supported
-- **RTX 20+ Series** (Turing/Ampere/Ada): vLLM (AWQ) recommended for best performance
+- **Tesla P40 / GTX 10 Series** (Pascal): Use llama.cpp or Ollama (GGUF) - vLLM/AWQ not supported
+- **RTX 20+ Series** (Turing/Ampere/Ada): llama.cpp (GGUF) or vLLM (AWQ) recommended for best performance
 
 Detailed information: [GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md)
 
 ### Settings Persistence
 
-Settings are saved in `~/.config/aifred/settings.json`:
+Settings are saved in `data/settings.json`:
 
 **Per-Backend Model Storage:**
 - Each backend remembers its last used models
@@ -1313,18 +1316,23 @@ AIfred-Intelligence/
 ├── aifred/
 │   ├── backends/          # LLM Backend Adapters
 │   │   ├── base.py           # Abstract Base Class
+│   │   ├── llamacpp.py       # llama.cpp Backend (GGUF via llama-swap)
 │   │   ├── ollama.py         # Ollama Backend (GGUF)
 │   │   ├── vllm.py           # vLLM Backend (AWQ)
-│   │   ├── tabbyapi.py       # TabbyAPI Backend (EXL2)
-│   │   └── koboldcpp.py      # KoboldCPP Backend (GGUF)
+│   │   ├── koboldcpp.py      # KoboldCPP Backend (GGUF)
+│   │   └── tabbyapi.py       # TabbyAPI Backend (EXL2)
 │   ├── lib/               # Core Libraries
 │   │   ├── multi_agent.py       # Multi-Agent System (AIfred, Sokrates, Salomo)
 │   │   ├── context_manager.py   # History compression
 │   │   ├── conversation_handler.py # Automatik mode, RAG context
 │   │   ├── config.py            # Default settings
 │   │   ├── vector_cache.py      # ChromaDB Vector Cache
+│   │   ├── model_vram_cache.py  # Unified VRAM cache (all backends)
+│   │   ├── llamacpp_calibration.py # llama.cpp Binary Search calibration
+│   │   ├── gguf_utils.py        # GGUF metadata reader (native context, quant)
 │   │   ├── research/            # Web research modules
 │   │   │   ├── orchestrator.py      # Research orchestration
+│   │   │   ├── url_ranker.py        # LLM-based URL ranking
 │   │   │   └── query_processor.py   # Query processing
 │   │   └── tools/               # Tool implementations
 │   │       ├── search_tools.py      # Parallel web search
@@ -1337,6 +1345,11 @@ AIfred-Intelligence/
 │   ├── infrastructure/          # Service setup guides
 │   ├── architecture/            # Architecture docs
 │   └── GPU_COMPATIBILITY.md     # GPU compatibility matrix
+├── data/                  # Runtime data (settings, sessions, caches)
+│   ├── settings.json            # User settings
+│   ├── model_vram_cache.json    # VRAM calibration data (all backends)
+│   ├── sessions/                # Chat sessions
+│   └── logs/                    # Debug logs
 ├── docker/                # Docker configurations
 │   └── aifred_vector_cache/     # ChromaDB Docker setup
 └── CHANGELOG.md           # Project Changelog
@@ -1817,7 +1830,7 @@ AIfred is designed as a **single-user system** but supports 2-3 concurrent users
 - ⚠️ **GPU info and VRAM cache**
 - ⚠️ **vLLM process manager**
 
-**Settings File (`~/.config/aifred/settings.json`):**
+**Settings File (`data/settings.json`):**
 - ⚠️ All settings are global (temperature, Multi-Agent mode, RoPE factors, etc.)
 - ⚠️ If User A changes a setting → User B sees the change immediately
 - ⚠️ No per-user settings profiles

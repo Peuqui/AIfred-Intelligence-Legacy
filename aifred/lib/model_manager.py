@@ -37,11 +37,19 @@ def sort_models_grouped(models_dict: Dict[str, str]) -> Dict[str, str]:
     """
 
     def get_model_family(model_id: str) -> str:
-        """Extract model family for grouping (e.g., 'qwen3:8b' -> 'qwen3', 'qwen3-vl:8b' -> 'qwen3-vl')"""
-        # Remove size suffix like :8b, :30b, :0.6b, :1.7b etc.
-        base = re.sub(r':\d+\.?\d*b.*$', '', model_id.lower())
-        # Remove the part after colon entirely if still present (e.g., :latest, :mini)
+        """Extract model family for grouping.
+
+        Handles both Ollama format (qwen3:8b) and llama.cpp format (Qwen3-14B-Q4_K_M).
+        Keeps -vl, -coder as they define different model families.
+        """
+        base = model_id.lower()
+        # Ollama: Remove size suffix like :8b, :30b, :0.6b etc.
+        base = re.sub(r':\d+\.?\d*b.*$', '', base)
         base = re.sub(r':.*$', '', base)
+        # llama.cpp: Remove size like -14b, -4b, -30b and everything after
+        base = re.sub(r'-\d+\.?\d*b[-_].*$', '', base)
+        # Remove quantization suffixes like -q4_k_m, -q8_0 etc.
+        base = re.sub(r'[-_]q\d+.*$', '', base)
         # Remove version suffixes like -instruct, -chat, -latest, -thinking, -a3b, -2507 etc.
         # BUT keep -vl, -coder as they define different model families!
         base = re.sub(r'[-_](instruct|chat|latest|thinking|a3b|\d{4}).*$', '', base)

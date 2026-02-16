@@ -184,11 +184,11 @@ async def build_and_generate_response(
             if llm_options is None:
                 llm_options = {}
             llm_options['num_ctx'] = final_num_ctx
-            log_message(f"🔧 Manual num_ctx: {format_number(final_num_ctx)} (per-agent setting)")
-            yield {"type": "debug", "message": f"🔧 Manual num_ctx: {format_number(final_num_ctx)} (per-agent setting)"}
+            log_message(f"🔧 Manual Context: {format_number(final_num_ctx)} (per-agent setting)")
+            yield {"type": "debug", "message": f"🔧 Context: {format_number(final_num_ctx)} (manual)"}
         else:
-            log_message(f"🎯 Auto num_ctx: {format_number(final_num_ctx)} ({ctx_source})")
-            yield {"type": "debug", "message": f"🎯 Auto num_ctx: {format_number(final_num_ctx)} ({ctx_source})"}
+            log_message(f"🎯 Context: {format_number(final_num_ctx)} ({ctx_source})")
+            yield {"type": "debug", "message": f"🎯 Context: {format_number(final_num_ctx)} ({ctx_source})"}
     else:
         # Fallback if no state available
         enable_vram_limit = True
@@ -203,8 +203,8 @@ async def build_and_generate_response(
     model_limit, _ = await llm_client.get_model_context_limit(model_choice)
 
     # Show compact context info (like Automatik-LLM)
-    log_message(f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok [INFERENCE num_ctx={final_num_ctx}]")
-    yield {"type": "debug", "message": f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok [num_ctx={final_num_ctx}]"}
+    log_message(f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok [Context={final_num_ctx}]")
+    yield {"type": "debug", "message": f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok"}
 
     # VRAM Warning: Check if VRAM change detected AND content doesn't fit
     vram_warning = llm_options.get('_vram_warning') if llm_options else None

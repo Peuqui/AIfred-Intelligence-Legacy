@@ -12,7 +12,7 @@ from typing import Dict, List, Tuple, Optional
 from ..prompt_loader import load_prompt
 from ..logging_utils import log_message
 from ..formatting import format_number
-from ..config import DEBUG_LOG_RAW_MESSAGES, AUTOMATIK_LLM_NUM_CTX
+from ..config import DEBUG_LOG_RAW_MESSAGES
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,8 @@ async def rank_urls_by_relevance(
     automatik_llm_client,
     automatik_model: str,
     top_n: int = 7,
-    llm_options: Optional[Dict] = None
+    llm_options: Optional[Dict] = None,
+    automatik_num_ctx: Optional[int] = None
 ) -> Tuple[List[str], List[int], str]:
     """
     Rank URLs by relevance using Automatik-LLM.
@@ -139,14 +140,17 @@ async def rank_urls_by_relevance(
     try:
         messages = [{"role": "user", "content": prompt}]
 
+        ranking_options: Dict = {
+            "temperature": 0.0,  # Deterministic ranking
+            "enable_thinking": False,  # Automatik-Task: Always disable thinking
+        }
+        if automatik_num_ctx is not None:
+            ranking_options["num_ctx"] = automatik_num_ctx
+
         response = await automatik_llm_client.chat(
             model=automatik_model,
             messages=messages,
-            options={
-                "temperature": 0.0,  # Deterministic ranking
-                "num_ctx": AUTOMATIK_LLM_NUM_CTX,  # From config.py (12K)
-                "enable_thinking": False,  # Automatik-Task: Always disable thinking
-            }
+            options=ranking_options
         )
 
         # Extract response text from LLMResponse dataclass

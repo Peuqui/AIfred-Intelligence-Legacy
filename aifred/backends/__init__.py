@@ -10,6 +10,7 @@ from .ollama import OllamaBackend
 from .vllm import vLLMBackend
 from .tabbyapi import TabbyAPIBackend
 from .koboldcpp import KoboldCPPBackend
+from .llamacpp import LlamaCppBackend
 from .cloud_api import CloudAPIBackend, get_cloud_api_key, is_cloud_api_configured
 from ..lib.config import BACKEND_URLS, CLOUD_API_PROVIDERS
 
@@ -29,6 +30,7 @@ class BackendFactory:
         "vllm": vLLMBackend,
         "tabbyapi": TabbyAPIBackend,  # ExLlamaV2 (V3 noch experimentell)
         "koboldcpp": KoboldCPPBackend,  # llama.cpp-based (GGUF support)
+        "llamacpp": LlamaCppBackend,   # llama.cpp via llama-swap (GGUF, direct)
         "cloud_api": CloudAPIBackend,  # Cloud APIs (Claude, Qwen, Kimi)
     }
 
@@ -97,7 +99,7 @@ class BackendFactory:
             base_url = BACKEND_URLS.get(backend_type, "http://localhost:8000")
 
         # Create instance
-        if backend_type in ["vllm", "tabbyapi", "koboldcpp"]:
+        if backend_type in ["vllm", "tabbyapi", "koboldcpp", "llamacpp"]:
             # OpenAI-compatible backends need api_key (even if dummy)
             api_key = api_key or "dummy"
             return backend_class(base_url=base_url, api_key=api_key)
@@ -121,6 +123,7 @@ __all__ = [
     "vLLMBackend",
     "TabbyAPIBackend",
     "KoboldCPPBackend",
+    "LlamaCppBackend",
     "CloudAPIBackend",
     "get_cloud_api_key",
     "is_cloud_api_configured",

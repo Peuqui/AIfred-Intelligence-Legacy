@@ -224,12 +224,21 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_VLLM_URL = "http://localhost:8001/v1"
 DEFAULT_TABBYAPI_URL = "http://localhost:5000/v1"
 DEFAULT_KOBOLDCPP_URL = "http://localhost:5001/v1"
+DEFAULT_LLAMACPP_URL = os.environ.get("LLAMACPP_URL", "http://localhost:8080/v1")
+
+# llama-swap / llama-server calibration
+LLAMASWAP_CONFIG_PATH = Path(os.environ.get(
+    "LLAMASWAP_CONFIG", str(Path.home() / "llama-swap-config.yaml")
+))
+LLAMACPP_HEALTH_TIMEOUT = 30      # Seconds until llama-server ready
+LLAMACPP_CALIBRATION_PORT = 9999  # Temp port for calibration
 
 BACKEND_URLS = {
     "ollama": DEFAULT_OLLAMA_URL,
     "vllm": DEFAULT_VLLM_URL,      # Port 8001 for dev (8000 on production MiniPC)
     "tabbyapi": DEFAULT_TABBYAPI_URL,
     "koboldcpp": DEFAULT_KOBOLDCPP_URL,
+    "llamacpp": DEFAULT_LLAMACPP_URL,  # llama-swap proxy (see docs/llamacpp-setup.md)
     "cloud_api": "",  # Dynamic - set based on provider selection
 }
 
@@ -237,24 +246,14 @@ BACKEND_URLS = {
 BACKEND_LABELS = {
     "ollama": "Ollama",
     "koboldcpp": "KoboldCPP",
+    "llamacpp": "llama.cpp",
     "tabbyapi": "TabbyAPI",
     "vllm": "vLLM",
     "cloud_api": "Cloud APIs",
 }
 
-# Backend dropdown special items (headers, separators)
-BACKEND_DROPDOWN_ITEMS = {
-    "header_universal": "─── Universal Compatibility (GGUF) ───",
-    "separator": "─────────────────────────────────",
-    "header_modern": "─── Modern GPUs (FP16) ───",
-    "header_cloud": "─── Cloud APIs ───",
-}
-
-# Non-selectable backend items (headers and separators)
-BACKEND_NON_SELECTABLE = ["header_universal", "separator", "header_modern", "header_cloud"]
-
 # Default backend ordering (for dropdowns)
-BACKEND_ORDER = ["ollama", "koboldcpp", "llamacpp", "tabbyapi", "vllm", "cloud_api"]
+BACKEND_ORDER = ["llamacpp", "ollama", "koboldcpp", "vllm", "tabbyapi", "cloud_api"]
 
 # ============================================================
 # AVAILABLE VOICES (Engine-specific)

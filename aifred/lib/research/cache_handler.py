@@ -35,7 +35,8 @@ async def handle_cache_hit(
     agent_timer: Timer,
     state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
     user_name: Optional[str] = None,
-    detected_language: str = "de"
+    detected_language: str = "de",
+    automatik_num_ctx: Optional[int] = None
 ) -> AsyncIterator[Dict]:
     """
     Handles cache hit - uses cached research data to answer follow-up question
@@ -155,9 +156,9 @@ async def handle_cache_hit(
             if llm_options is None:
                 llm_options = {}
             llm_options['num_ctx'] = final_num_ctx
-            log_message(f"🔧 Manual num_ctx: {format_number(final_num_ctx)} (per-agent setting)")
+            log_message(f"🔧 Manual Context: {format_number(final_num_ctx)} (per-agent setting)")
         else:
-            log_message(f"🎯 Auto num_ctx: {format_number(final_num_ctx)} ({ctx_source})")
+            log_message(f"🎯 Context: {format_number(final_num_ctx)} ({ctx_source})")
     else:
         # Fallback if no state available
         enable_vram_limit = True
@@ -172,10 +173,10 @@ async def handle_cache_hit(
     yield {"type": "debug", "message": f"📊 Input Context: ~{format_number(input_tokens)} tok"}
     if llm_options and llm_options.get('num_ctx'):
         log_message(f"🎯 Cache-Hit Context Window: {format_number(final_num_ctx)} tok (manual)")
-        yield {"type": "debug", "message": f"🪟 num_ctx (Limit): {format_number(final_num_ctx)} tok (manual)"}
+        yield {"type": "debug", "message": f"🪟 Context Limit: {format_number(final_num_ctx)} tok (manual)"}
     else:
         log_message(f"🎯 Cache-Hit Context Window: {format_number(final_num_ctx)} tok (dynamic, ~{format_number(input_tokens)} tok needed)")
-        yield {"type": "debug", "message": f"🪟 num_ctx (Limit): {format_number(final_num_ctx)} tok"}
+        yield {"type": "debug", "message": f"🪟 Context Limit: {format_number(final_num_ctx)} tok"}
 
     # Temperature decision: Manual override or Auto (intent detection)
     if temperature_mode == 'manual':
@@ -189,7 +190,8 @@ async def handle_cache_hit(
             followup_query=user_text,
             automatik_model=automatik_model,
             llm_client=automatik_llm_client,
-            llm_options=llm_options
+            llm_options=llm_options,
+            automatik_num_ctx=automatik_num_ctx
         )
         final_temperature = get_temperature_for_intent(followup_intent)
         temp_label = get_temperature_label(followup_intent)

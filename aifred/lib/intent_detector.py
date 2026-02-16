@@ -16,7 +16,6 @@ Also detects dialog addressing (who is being spoken to):
 from typing import Optional, Dict, Tuple
 from .logging_utils import log_message
 from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prompt
-from .config import AUTOMATIK_LLM_NUM_CTX
 
 
 def parse_intent_addressee_language(
@@ -133,7 +132,8 @@ async def detect_query_intent_and_addressee(
     user_query: str,
     automatik_model: str,
     llm_client,
-    llm_options: Optional[Dict] = None
+    llm_options: Optional[Dict] = None,
+    automatik_num_ctx: Optional[int] = None
 ) -> Tuple[str, Optional[str], str, str]:
     """
     Detect intent, addressee, and language of user query.
@@ -147,6 +147,9 @@ async def detect_query_intent_and_addressee(
         automatik_model: LLM for intent detection
         llm_client: LLMClient instance
         llm_options: Optional Dict with enable_thinking toggle
+        automatik_num_ctx: Context size for Automatik call.
+            None = don't set (model keeps current context, avoids reload).
+            int = explicit value (e.g. AUTOMATIK_LLM_NUM_CTX for different models).
 
     Returns:
         Tuple[str, Optional[str], str, str]: (intent, addressee, detected_language, raw_response)
@@ -161,11 +164,12 @@ async def detect_query_intent_and_addressee(
     try:
         log_message(f"🎯 Intent+Addressee+Language detection for query: {user_query[:60]}...")
 
-        intent_options = {
+        intent_options: Dict = {
             'temperature': 0.2,  # Low for consistent detection
-            'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit context (prevents huge default!)
             'enable_thinking': False  # Fast detection without reasoning
         }
+        if automatik_num_ctx is not None:
+            intent_options['num_ctx'] = automatik_num_ctx
 
         log_message("🧠 Intent enable_thinking: False (Automatik-Task)")
 
@@ -214,6 +218,7 @@ async def detect_cache_followup_intent(
     automatik_model: str,
     llm_client,
     llm_options: Optional[Dict] = None,
+    automatik_num_ctx: Optional[int] = None,
     detected_language: str = "de"
 ) -> str:
     """
@@ -244,11 +249,12 @@ async def detect_cache_followup_intent(
         log_message(f"🎯 Cache-Followup Intent-Detection mit {automatik_model}: {followup_query[:60]}...")
 
         # Build options
-        followup_intent_options = {
+        followup_intent_options: Dict = {
             'temperature': 0.2,
-            'num_ctx': AUTOMATIK_LLM_NUM_CTX,  # Explicit context (prevents huge default!)
             'enable_thinking': False  # Default: Fast intent detection without reasoning
         }
+        if automatik_num_ctx is not None:
+            followup_intent_options['num_ctx'] = automatik_num_ctx
 
         # Automatik tasks: Thinking is ALWAYS off (independent of user toggle)
         log_message("🧠 Followup Intent enable_thinking: False (Automatik-Task)")
