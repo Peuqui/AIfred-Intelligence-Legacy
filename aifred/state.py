@@ -382,6 +382,10 @@ class AIState(rx.State):
     # TTS Task Tracking - ensures finalize waits for all TTS tasks to complete
     _pending_tts_requests: List[str] = []  # Request-IDs of TTS tasks in flight (via create_task)
     _completed_tts_urls: Dict[str, str] = {}  # {request_id: audio_url} - completed TTS results
+    # TTS Ordering - ensures sentences are pushed to queue in order (critical for cloud APIs)
+    _tts_next_seq: int = 0  # Next sequence number to assign to a sentence
+    _tts_push_seq: int = 0  # Next sequence number expected for queue push
+    _tts_order_buffer: Dict[int, tuple] = {}  # {seq: (audio_url, playback_rate, request_id)} - completed but not yet pushed
     # Session Persistence (Cookie-based session identification)
     session_id: str = ""  # Session ID from cookie (32 hex chars)
     session_restored: bool = False  # True if chat history was loaded from session
@@ -6281,12 +6285,23 @@ class AIState(rx.State):
         self._tts_in_think_block = False
         self._tts_streaming_active = True
         self._tts_streaming_agent = agent
+        self._tts_next_seq = 0
+        self._tts_push_seq = 0
+        self._tts_order_buffer = {}
 
-        # DashScope: Open WebSocket for realtime token-feeding
-        if "DashScope" in self.tts_engine:
-            self._init_dashscope_realtime(agent)
-        else:
-            _dashscope_rt_instances.pop(self.session_id, None)
+        # DashScope: Use sentence-level streaming (same as XTTS/Edge/Piper).
+        # Better intonation per sentence, no chunk gaps.
+        #
+        # To re-enable realtime WebSocket streaming (word-level chunks, ~3s batches):
+        # Uncomment the block below. This feeds tokens directly into the DashScope
+        # WebSocket for immediate audio output during LLM inference, but produces
+        # small audible gaps between chunks and slightly worse prosody.
+        #
+        # if "DashScope" in self.tts_engine:
+        #     self._init_dashscope_realtime(agent)
+        # else:
+        #     _dashscope_rt_instances.pop(self.session_id, None)
+        _dashscope_rt_instances.pop(self.session_id, None)
 
         log_message("🔊 TTS Init: State initialized, ready for chunks")
 
@@ -6359,11 +6374,13 @@ class AIState(rx.State):
         # Send remaining text to TTS (even if short - finalize sends everything)
         if final_text and final_text.strip():
             agent = getattr(self, '_tts_streaming_agent', 'aifred')
+            seq = self._tts_next_seq
+            self._tts_next_seq = seq + 1
             request_id = f"tts_{uuid.uuid4().hex[:8]}"
             self._pending_tts_requests = self._pending_tts_requests + [request_id]
-            log_message(f"🔊 TTS Finalize: Adding remaining text ({len(final_text)} chars): {repr(final_text[:50])}")
+            log_message(f"🔊 TTS Finalize: Adding remaining text seq={seq} ({len(final_text)} chars): {repr(final_text[:50])}")
             asyncio.create_task(self._tts_generate_sentence_async(
-                final_text, agent, request_id, self.session_id
+                final_text, agent, request_id, self.session_id, seq
             ))
 
         # Wait for all pending TTS tasks to complete
@@ -6529,7 +6546,10 @@ class AIState(rx.State):
                 log_message(f"🔊 TTS Chunk: Carrying short sentence ({len(sentence.split())} words): {repr(sentence)}")
                 continue
 
-            log_message(f"🔊 TTS Chunk: Starting TTS task for (agent={agent}): {repr(sentence)}")
+            # Assign sequence number for ordered queue push
+            seq = self._tts_next_seq
+            self._tts_next_seq = seq + 1
+            log_message(f"🔊 TTS Chunk: Starting TTS task seq={seq} (agent={agent}): {repr(sentence)}")
             # Track pending request
             request_id = f"tts_{uuid.uuid4().hex[:8]}"
             self._pending_tts_requests = self._pending_tts_requests + [request_id]
@@ -6537,9 +6557,9 @@ class AIState(rx.State):
             # Start TTS generation IMMEDIATELY in parallel - no waiting!
             # Pass session_id for API-based queue push (create_task can't use Reflex state)
             session_id = self.session_id
-            asyncio.create_task(self._tts_generate_sentence_async(sentence, agent, request_id, session_id))
+            asyncio.create_task(self._tts_generate_sentence_async(sentence, agent, request_id, session_id, seq))
 
-    async def _tts_generate_sentence_async(self, sentence: str, agent: str, request_id: str, session_id: str) -> None:
+    async def _tts_generate_sentence_async(self, sentence: str, agent: str, request_id: str, session_id: str, seq: int) -> None:
         """Generate TTS for a single sentence - runs in parallel via create_task.
 
         This is a plain async function called via asyncio.create_task() from
@@ -6550,14 +6570,18 @@ class AIState(rx.State):
         `async with self:` to push state. Instead, we push to a global API queue
         that the frontend polls via HTTP.
 
+        Sentences are generated in parallel but pushed to the queue in sequence
+        order (by seq number). If a later sentence finishes first, it waits in
+        _tts_order_buffer until all earlier sentences have been pushed.
+
         Args:
             sentence: Clean sentence text to synthesize
             agent: Agent name for per-agent voice settings and filename prefix
             request_id: Unique ID for tracking (removed from pending on completion)
             session_id: Session ID for API-based queue push
+            seq: Sequence number for ordered queue push
         """
         from .lib.audio_processing import clean_text_for_tts, generate_tts
-        from .lib.api import tts_queue_push
         from .lib.config import DATA_DIR
         import os
 
@@ -6566,8 +6590,10 @@ class AIState(rx.State):
             clean_text = clean_text_for_tts(sentence)
 
             if not clean_text or not clean_text.strip():
-                # Remove request from pending for empty sentences
+                # Empty sentence: mark as done and drain buffer
                 self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
+                self._tts_order_buffer = {**self._tts_order_buffer, seq: None}
+                self._drain_tts_order_buffer(session_id)
                 return
 
             # Read voice settings (snapshot for this task)
@@ -6597,7 +6623,7 @@ class AIState(rx.State):
                         pass
 
             # Generate TTS audio (this is the slow part - runs in parallel)
-            log_message(f"🔊 TTS Generate: Calling generate_tts() for agent={agent}: {repr(clean_text)}")
+            log_message(f"🔊 TTS Generate: Calling generate_tts() seq={seq} for agent={agent}: {repr(clean_text)}")
             log_message(f"🔊 TTS Generate: voice={voice_choice}, speed={speed_value}, pitch={pitch_value}, engine={tts_engine}")
 
             audio_url = await generate_tts(
@@ -6618,29 +6644,60 @@ class AIState(rx.State):
                     file_size = os.path.getsize(file_path)
                     log_message(f"🔊 TTS Generate: File exists, size={file_size} bytes")
 
-                    # Push to API queue (frontend polls this)
-                    # This works from create_task because it's a plain function, not Reflex state
                     playback_rate = f"{speed_value}x"
-                    tts_queue_push(session_id, audio_url, playback_rate)
-                    log_message(f"🔊 TTS Generate: ✅ Pushed {filename} to API queue ({len(clean_text)} chars → {file_size} bytes)")
 
-                    # Track completion locally (for finalize to know when all tasks done)
-                    self._completed_tts_urls = {**self._completed_tts_urls, request_id: audio_url}
-                    self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
+                    # Buffer result for ordered push
+                    self._tts_order_buffer = {**self._tts_order_buffer, seq: (audio_url, playback_rate, request_id)}
+                    self._drain_tts_order_buffer(session_id)
+
                     log_message(f"🔊 TTS Generate: pending_requests={len(self._pending_tts_requests)}")
                 else:
                     log_message(f"🔊 TTS Generate: ⚠️ File does not exist: {file_path}")
                     self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
+                    self._tts_order_buffer = {**self._tts_order_buffer, seq: None}
+                    self._drain_tts_order_buffer(session_id)
             else:
                 log_message("🔊 TTS Generate: ⚠️ No audio_url returned from generate_tts()")
                 self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
+                self._tts_order_buffer = {**self._tts_order_buffer, seq: None}
+                self._drain_tts_order_buffer(session_id)
 
         except Exception as e:
             log_message(f"❌ TTS Stream Error: {e}")
             import traceback
             log_message(f"❌ TTS Stream Traceback: {traceback.format_exc()}")
-            # Remove request from pending on error
+            # Remove request from pending on error and mark seq as done
             self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
+            self._tts_order_buffer = {**self._tts_order_buffer, seq: None}
+            self._drain_tts_order_buffer(session_id)
+
+    def _drain_tts_order_buffer(self, session_id: str) -> None:
+        """Push completed TTS results to the queue in sequence order.
+
+        Called after each sentence completes (success, error, or empty).
+        Drains all consecutive entries starting from _tts_push_seq.
+        Skips entries marked as None (empty/failed sentences).
+        """
+        from .lib.api import tts_queue_push
+
+        while self._tts_push_seq in self._tts_order_buffer:
+            entry = self._tts_order_buffer[self._tts_push_seq]
+
+            if entry is not None:
+                audio_url, playback_rate, request_id = entry
+                tts_queue_push(session_id, audio_url, playback_rate)
+                log_message(f"🔊 TTS Order: ✅ Pushed seq={self._tts_push_seq} to queue")
+                # Track completion
+                self._completed_tts_urls = {**self._completed_tts_urls, request_id: audio_url}
+                self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
+            else:
+                log_message(f"🔊 TTS Order: Skipping seq={self._tts_push_seq} (empty/failed)")
+
+            # Remove from buffer and advance
+            new_buffer = dict(self._tts_order_buffer)
+            del new_buffer[self._tts_push_seq]
+            self._tts_order_buffer = new_buffer
+            self._tts_push_seq = self._tts_push_seq + 1
 
     async def load_default_settings(self):
         """Load default settings from config.py and apply them to state"""

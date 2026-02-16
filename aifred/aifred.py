@@ -267,7 +267,7 @@ def image_upload_section() -> rx.Component:
             )
         ),
 
-        # Row 1: Buttons (Aufnahme, Camera, Upload, Audio, Clear) - linksbündig
+        # Row 1: Buttons (Aufnahme, Camera, Upload, Audio, Clear) - responsive
         rx.hstack(
             # Live Audio Recording Button (LEFTMOST - MediaRecorder)
             rx.button(
@@ -278,46 +278,52 @@ def image_upload_section() -> rx.Component:
                 variant="soft",
                 color_scheme="green",
                 padding_y="24px",
-                width="160px",  # Fixed width for both Aufnahme and Stop states
-                on_click=AIState.toggle_audio_recording,  # Trigger JavaScript via State handler
+                min_width=["auto", "auto", "160px"],  # Compact on mobile, fixed on desktop
+                on_click=AIState.toggle_audio_recording,
                 disabled=AIState.is_generating | AIState.is_uploading_image,
             ),
 
-            # Camera button (only visible if browser supports camera)
+            # Camera button (only visible if browser supports camera) - with drag & drop tooltip
             rx.cond(
                 AIState.camera_available,
                 rx.upload(
-                    rx.button(
-                        rx.icon("camera", size=20),
-                        rx.text(t("camera"), font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
-                        size="4",
-                        variant="soft",
-                        color_scheme="red",
-                        padding_y="24px",
-                        disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
-                        on_click=AIState.on_camera_click,
+                    rx.tooltip(
+                        rx.button(
+                            rx.icon("camera", size=20),
+                            rx.text(t("camera"), font_size="16px", display=["none", "none", "inline"]),
+                            size="4",
+                            variant="soft",
+                            color_scheme="red",
+                            padding_y="24px",
+                            disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                            on_click=AIState.on_camera_click,
+                        ),
+                        content=t("image_hint"),
                     ),
                     id="camera-upload",
-                    accept={"image/*": []},  # Accept images from camera
-                    max_files=1,  # Camera captures one photo at a time
-                    on_drop=AIState.handle_camera_upload,  # Camera handler shortens filenames
+                    accept={"image/*": []},
+                    max_files=1,
+                    on_drop=AIState.handle_camera_upload,
                     multiple=False,
                     border="none",
                     padding="0",
                 ),
             ),
 
-            # Upload button with drag & drop
+            # Upload button with drag & drop - with tooltip
             rx.upload(
-                rx.button(
-                    rx.icon("image", size=20),
-                    rx.text(t("upload_image"), font_size="16px"),
-                    size="4",
-                    variant="soft",
-                    color_scheme="red",
-                    padding_y="24px",
-                    disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
-                    on_click=AIState.on_file_picker_click,
+                rx.tooltip(
+                    rx.button(
+                        rx.icon("image", size=20),
+                        rx.text(t("upload_image"), font_size="16px", display=["none", "none", "inline"]),
+                        size="4",
+                        variant="soft",
+                        color_scheme="red",
+                        padding_y="24px",
+                        disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                        on_click=AIState.on_file_picker_click,
+                    ),
+                    content=t("image_hint"),
                 ),
                 id="image-upload",
                 accept={"image/*": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]},
@@ -328,11 +334,11 @@ def image_upload_section() -> rx.Component:
                 padding="0",
             ),
 
-            # Audio File Upload Button (rightmost - next to image upload)
+            # Audio File Upload Button
             rx.upload(
                 rx.button(
-                    rx.icon("file-audio", size=20),
-                    rx.text(t("audio"), font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
+                    rx.icon("disc-3", size=20),
+                    rx.text(t("audio"), font_size="16px", display=["none", "none", "inline"]),
                     size="4",
                     variant="soft",
                     color_scheme="blue",
@@ -350,7 +356,7 @@ def image_upload_section() -> rx.Component:
 
             # Hidden upload for MediaRecorder (JavaScript will populate this)
             rx.upload(
-                rx.box(display="none"),  # Hidden, only for JS interaction
+                rx.box(display="none"),
                 id="audio-recording-upload",
                 accept={"audio/*": [".webm"]},
                 max_files=1,
@@ -365,7 +371,7 @@ def image_upload_section() -> rx.Component:
                 AIState.pending_images.length() > 0,
                 rx.button(
                     rx.icon("trash-2", size=20),
-                    rx.text(t("clear_all"), font_size="16px"),
+                    rx.text(t("clear_all"), font_size="16px", display=["none", "none", "inline"]),
                     size="4",
                     variant="soft",
                     color_scheme="red",
@@ -374,31 +380,10 @@ def image_upload_section() -> rx.Component:
                 )
             ),
 
-            # Info-Icon mit Hover-Card für Drag & Drop Hint (nur Desktop)
-            rx.cond(
-                AIState.is_mobile,
-                rx.fragment(),
-                rx.hover_card.root(
-                    rx.hover_card.trigger(
-                        rx.icon("info", size=16, color=COLORS["text_secondary"], cursor="help"),
-                    ),
-                    rx.hover_card.content(
-                        rx.text(t("image_hint"), font_size="12px", color=COLORS["text_primary"]),
-                        side="top",
-                        style={
-                            "background": COLORS["card_bg"],
-                            "border": f"1px solid {COLORS['border']}",
-                            "border_radius": "8px",
-                            "padding": "8px 12px",
-                            "box_shadow": "0 4px 12px rgba(0,0,0,0.4)",
-                        },
-                    ),
-                ),
-            ),
-
             spacing="2",
             width="100%",
-            justify_content="flex-start",  # Buttons linksbündig
+            justify_content="flex-start",
+            flex_wrap="wrap",  # Wrap to next line on very narrow screens
         ),
 
         # Row 2: Transkription bearbeiten Toggle (direkt unter Aufnahme-Button)

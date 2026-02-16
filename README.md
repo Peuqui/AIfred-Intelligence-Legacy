@@ -255,7 +255,7 @@ AIfred supports 6 TTS engines with different trade-offs between quality, latency
 |--------|------|-----------|---------|---------|-----------|
 | **XTTS v2** | Local Docker | Sentence-level | High (voice cloning) | ~1-2s/sentence | ~2 GB VRAM |
 | **MOSS-TTS 1.7B** | Local Docker | None (batch after bubble) | Excellent (best open-source) | ~18-22s/sentence | ~11.5 GB VRAM |
-| **DashScope Qwen3-TTS** | Cloud WebSocket | Real-time word-level | High (voice cloning) | ~200ms first chunk | API key only |
+| **DashScope Qwen3-TTS** | Cloud API | Sentence-level | High (voice cloning) | ~1-2s/sentence | API key only |
 | **Piper TTS** | Local | Sentence-level | Medium | <100ms | CPU only |
 | **eSpeak** | Local | Sentence-level | Low (robotic) | <50ms | CPU only |
 | **Edge TTS** | Cloud | Sentence-level | Good | ~200ms | Internet only |
@@ -267,11 +267,11 @@ The search for the perfect TTS experience led through several iterations:
 - **Edge TTS** was the first engine -- free, fast, decent quality, but limited voices and no voice cloning.
 - **XTTS v2** added high-quality voice cloning with multilingual support. Sentence-level streaming works well: while the LLM generates the next sentence, XTTS synthesizes the current one. However, it requires a Docker container and ~2 GB VRAM.
 - **MOSS-TTS 1.7B** delivers the best speech quality of all open-source models (SIM 73-79%), but at a cost: ~18-22 seconds per sentence makes it unsuitable for streaming. Audio is generated as a batch after the complete response, which is acceptable for short answers but frustrating for longer ones.
-- **DashScope Qwen3-TTS** was added to solve the streaming gap. It uses Alibaba Cloud's WebSocket API for true real-time streaming: audio chunks arrive during LLM inference, enabling gapless playback with voice cloning quality. The first audio chunk plays within ~200ms of the first LLM tokens arriving. This required building a custom double-buffered HTML5 audio player with pitch-preserving speed control.
+- **DashScope Qwen3-TTS** adds cloud-based voice cloning via Alibaba Cloud's API. By default it uses sentence-level streaming (same as XTTS) for better intonation. A realtime WebSocket mode (word-level chunks, ~200ms first audio) is also implemented but disabled by default -- it trades slightly worse prosody for faster first-audio. To re-enable it, uncomment the WebSocket block in `state.py:_init_streaming_tts()` (see code comment there).
 - **Piper TTS** and **eSpeak** serve as lightweight offline alternatives that work without Docker, GPU, or internet connection.
 
 **Playback Architecture:**
-- Double-buffered HTML5 `<audio>` elements with seamless handoff (while one plays, the next preloads)
+- Visible HTML5 `<audio>` widget with blob-URL prefetching (next 2 chunks pre-fetched into memory)
 - `preservesPitch: true` for speed adjustments without chipmunk effect
 - Per-agent voice/pitch/speed settings (AIfred, Sokrates, Salomo can each have distinct voices)
 - SSE-based audio streaming from backend to browser (persistent connection, 15s keepalive)

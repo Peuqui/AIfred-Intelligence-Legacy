@@ -647,21 +647,9 @@ let ttsQueuePlaying = false;  // Is queue currently playing?
 let ttsQueueCurrentIndex = 0;  // Current playback position
 let ttsQueueVersion = 0;  // Track version to detect updates from backend
 
-// Preloader: hidden Audio element to pre-fetch next chunk into browser cache
-let ttsPreloader = null;
-let ttsPreloadedIndex = -1;         // Queue index that's preloaded in browser cache
-
-/**
- * Get or create the hidden preloader Audio element (cache-only, never plays audibly).
- */
-function getTtsPreloader() {
-    if (!ttsPreloader) {
-        ttsPreloader = new Audio();
-        ttsPreloader.preload = 'auto';
-        ttsPreloader.volume = 0;
-    }
-    return ttsPreloader;
-}
+// Blob prefetch: download upcoming chunks into memory for instant src switching
+let ttsBlobCache = {};  // originalURL → blobURL mapping
+let ttsPrefetchInFlight = new Set();  // URLs currently being fetched
 
 /**
  * Update the TTS queue from backend state.
@@ -696,19 +684,24 @@ function updateTtsQueue(queue, version) {
         console.log(`🔊 TTS Queue: New items, starting playback`);
         playNextChunk();
     } else if (queue.length > prevLength && ttsQueuePlaying) {
-        // Already playing - preload next chunk if not done yet
-        preloadNextChunk();
+        // Already playing - prefetch upcoming chunks
+        prefetchChunks();
     }
 }
 
 /**
  * Play the current chunk through the visible <audio> element.
- * Preloads the next chunk in a hidden Audio object (browser cache).
+ * Uses in-memory blob URL if available (instant load, no gap).
  */
 function playNextChunk() {
     if (ttsQueueCurrentIndex >= ttsQueue.length) {
         ttsQueuePlaying = false;
         console.log('🔊 TTS Queue: Playback complete');
+        // Clean up blob URLs
+        for (const blobUrl of Object.values(ttsBlobCache)) {
+            URL.revokeObjectURL(blobUrl);
+        }
+        ttsBlobCache = {};
         return;
     }
 
@@ -722,8 +715,8 @@ function playNextChunk() {
     const audioUrl = ttsQueue[ttsQueueCurrentIndex];
     const chunkIndex = ttsQueueCurrentIndex;
 
-    // Set source on the visible player
-    player.src = audioUrl;
+    // Use blob URL (in-memory, instant) if prefetched, otherwise original URL
+    player.src = ttsBlobCache[audioUrl] || audioUrl;
 
     // Apply playback rate with pitch preservation
     if (player.dataset?.playbackRate) {
@@ -737,8 +730,13 @@ function playNextChunk() {
 
     ttsQueuePlaying = true;
 
-    // When this chunk ends, advance to the next (already in browser cache)
+    // When this chunk ends, advance to the next
     player.onended = () => {
+        // Revoke old blob URL to free memory
+        if (ttsBlobCache[audioUrl]) {
+            URL.revokeObjectURL(ttsBlobCache[audioUrl]);
+            delete ttsBlobCache[audioUrl];
+        }
         console.log(`🔊 TTS Queue: Chunk ${chunkIndex + 1} finished`);
         ttsQueueCurrentIndex++;
         playNextChunk();
@@ -759,25 +757,33 @@ function playNextChunk() {
             }
         });
 
-    // Preload the next chunk into browser cache
-    preloadNextChunk();
+    // Prefetch upcoming chunks into memory
+    prefetchChunks();
 }
 
 /**
- * Preload the next chunk into browser cache using a hidden Audio element.
- * When playNextChunk() sets src to this URL, the browser serves it from cache.
+ * Prefetch upcoming chunks as blob URLs (in-memory, instant load).
+ * Downloads next 2 chunks and creates blob URLs for gap-free src switching.
  */
-function preloadNextChunk() {
-    const nextIndex = ttsQueueCurrentIndex + 1;
-    if (nextIndex >= ttsQueue.length) return;
-    if (ttsPreloadedIndex === nextIndex) return;  // Already preloaded
+function prefetchChunks() {
+    for (let i = 1; i <= 2; i++) {
+        const idx = ttsQueueCurrentIndex + i;
+        if (idx >= ttsQueue.length) continue;
+        const url = ttsQueue[idx];
+        if (ttsBlobCache[url] || ttsPrefetchInFlight.has(url)) continue;
 
-    const preloader = getTtsPreloader();
-    preloader.src = ttsQueue[nextIndex];
-    preloader.load();
-    ttsPreloadedIndex = nextIndex;
-
-    console.log(`🔊 TTS Queue: Preloading chunk ${nextIndex + 1} into cache`);
+        ttsPrefetchInFlight.add(url);
+        fetch(url)
+            .then(r => r.blob())
+            .then(blob => {
+                ttsBlobCache[url] = URL.createObjectURL(blob);
+                ttsPrefetchInFlight.delete(url);
+                console.log(`🔊 TTS Queue: Prefetched chunk ${idx + 1} into memory`);
+            })
+            .catch(() => {
+                ttsPrefetchInFlight.delete(url);
+            });
+    }
 }
 
 /**
@@ -789,12 +795,13 @@ function stopPlayback() {
         player.pause();
         player.onended = null;
     }
-    if (ttsPreloader) {
-        ttsPreloader.pause();
-        ttsPreloader.src = '';
+    // Clean up blob URLs
+    for (const blobUrl of Object.values(ttsBlobCache)) {
+        URL.revokeObjectURL(blobUrl);
     }
+    ttsBlobCache = {};
+    ttsPrefetchInFlight.clear();
     ttsQueueCurrentIndex = 0;
-    ttsPreloadedIndex = -1;
     ttsQueuePlaying = false;
 }
 

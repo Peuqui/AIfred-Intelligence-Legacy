@@ -16,14 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - XTTS GPU toggle appears next to dropdown when XTTS active
   - Per-engine voice/toggle settings saved on disable, restored on enable
 - **Debug console messages: all German → English** - Consistent English debug output for TTS container lifecycle, streaming mode, etc.
+- **DashScope Qwen3-TTS: realtime WebSocket → sentence-level streaming** - Better intonation per sentence, same architecture as XTTS/Edge/Piper. WebSocket code commented out (not deleted) with instructions to re-enable.
+- **Audio playback: double-buffered → visible widget with blob-URL prefetching** - Single visible `<audio>` widget replaces hidden double-buffer. Next 2 chunks pre-fetched as in-memory blob URLs for near-instant src switching.
+- **TTS sentence ordering** - Sentences generated in parallel but pushed to playback queue in sequence order. Prevents out-of-order playback when cloud APIs (DashScope) return faster for later sentences.
+- **Mobile-responsive media buttons** - Button texts hidden on mobile, flexible widths, flex-wrap for narrow screens. Drag & drop tooltip moved from separate info icon to Camera/Upload buttons. Audio button icon unified (single mic icon).
 
 ### Added
 
 - **README TTS Engine documentation** (EN + DE) - Comparison table of all 6 TTS engines with streaming behavior, quality, latency, resources, and rationale for each engine choice
-
-### Fixed
-
-- **README: "Web Audio API" → "double-buffered HTML5 audio"** - Corrected feature description after playback architecture change
 
 ## [2.29.0] - 2026-02-15 🎤 DashScope Qwen3-TTS Cloud Streaming & Gapless Audio
 
