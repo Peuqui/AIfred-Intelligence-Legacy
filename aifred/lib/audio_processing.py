@@ -1836,7 +1836,7 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
         text: Text for TTS (already cleaned)
         voice_choice: Voice display name (e.g. "Deutsch (Katja)" for Edge, "★ aifred" for XTTS custom)
         speed_choice: Speed multiplier (e.g. 1.25)
-        tts_engine: Engine name (e.g. "Edge TTS (Cloud, best quality)")
+        tts_engine: Engine key (e.g. "xtts", "moss", "dashscope", "piper", "espeak", "edge")
         pitch: Pitch factor (0.8 = 20% lower, 1.0 = unchanged, 1.2 = 20% higher)
         agent: Agent name for filename prefix (e.g. "sokrates", "aifred")
 
@@ -1857,7 +1857,7 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
         audio_url = None
         loop = asyncio.get_running_loop()
 
-        if "XTTS" in tts_engine:
+        if tts_engine == "xtts":
             # XTTS v2 (local via Docker) - voice cloning TTS
             # Supports custom voices (★ prefix) and built-in speakers
             # Speed is applied via ffmpeg post-processing (XTTS generates at fixed rate)
@@ -1865,17 +1865,17 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
             audio_url = await loop.run_in_executor(
                 None, generate_speech_xtts, text, 1.0, voice_choice, "de"
             )
-        elif "MOSS" in tts_engine:
+        elif tts_engine == "moss":
             # MOSS-TTS Local (Docker) - zero-shot voice cloning, 20 languages
             audio_url = await loop.run_in_executor(
                 None, generate_speech_moss, text, 1.0, voice_choice, "de"
             )
-        elif "DashScope" in tts_engine:
+        elif tts_engine == "dashscope":
             # DashScope Qwen3-TTS (Cloud) - streaming TTS, 0 GPU VRAM
             audio_url = await loop.run_in_executor(
                 None, generate_speech_dashscope, text, 1.0, voice_choice, "de"
             )
-        elif "Piper" in tts_engine:
+        elif tts_engine == "piper":
             # Piper TTS (local) - synchronous subprocess call
             # Use Piper-specific voice, fallback to first available if not found
             if voice_choice not in PIPER_VOICES:
@@ -1885,7 +1885,7 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
             audio_url = await loop.run_in_executor(
                 None, generate_speech_piper, text, speed_choice, voice_choice
             )
-        elif "eSpeak" in tts_engine:
+        elif tts_engine == "espeak":
             # eSpeak TTS (local, robotic) - synchronous subprocess call
             if voice_choice not in ESPEAK_VOICES:
                 voice_choice = list(ESPEAK_VOICES.keys())[0] if ESPEAK_VOICES else "Deutsch (Roboter)"

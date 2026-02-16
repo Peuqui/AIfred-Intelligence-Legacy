@@ -3438,7 +3438,7 @@ def settings_accordion() -> rx.Component:
                         ),
                         # XTTS CPU Mode Toggle (only when XTTS active)
                         rx.cond(
-                            AIState.enable_tts & AIState.tts_engine.contains("XTTS"),
+                            AIState.enable_tts & (AIState.tts_engine == "xtts"),
                             rx.tooltip(
                               rx.hstack(
                                 rx.switch(

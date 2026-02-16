@@ -97,7 +97,7 @@ DEFAULT_SETTINGS = {
     "voice": "Deutsch (Katja)",
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
-    "tts_engine": "Edge TTS (Cloud, best quality)",
+    "tts_engine": "edge",
     "whisper_model": "small (466MB, better quality, multilingual)",
     "research_mode": "automatik",  # Internal value: "automatik", "quick", "deep", "none"
     "show_transcription": False,
@@ -312,14 +312,14 @@ RESEARCH_MODES = [
 # ============================================================
 # TTS ENGINES
 # ============================================================
-TTS_ENGINES = [
-    "Aus",
-    "XTTS v2 (Local, voice cloning)",
-    "MOSS-TTS (Batch, after bubble)",
-    "DashScope Qwen3-TTS (Cloud, streaming)",
-    "Piper TTS (Local, Offline)",
-    "eSpeak (Robot, Offline)",
-    "Edge TTS (Cloud, Fallback)",
+TTS_ENGINE_KEYS = [
+    "off",
+    "xtts",
+    "moss",
+    "dashscope",
+    "piper",
+    "espeak",
+    "edge",
 ]
 
 # ============================================================

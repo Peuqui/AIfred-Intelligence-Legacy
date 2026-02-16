@@ -82,7 +82,7 @@ class SettingsResponse(BaseModel):
     # TTS/STT
     enable_tts: bool = False
     tts_voice: str = "Deutsch (Katja)"
-    tts_engine: str = "Edge TTS (Cloud, best quality)"
+    tts_engine: str = "edge"
     whisper_model_key: str = "small"
 
     # UI
@@ -277,7 +277,7 @@ async def get_settings():
         enable_tts=settings.get("enable_tts", False),
         # Handle different field names in settings.json
         tts_voice=settings.get("voice", settings.get("tts_voice", "Deutsch (Katja)")),
-        tts_engine=settings.get("tts_engine", "Edge TTS (Cloud, best quality)"),
+        tts_engine=settings.get("tts_engine", "edge"),
         whisper_model_key=settings.get("whisper_model", settings.get("whisper_model_key", "small")),
         ui_language=settings.get("ui_language", "de"),
         user_name=settings.get("user_name", "")

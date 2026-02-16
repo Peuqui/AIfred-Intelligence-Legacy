@@ -86,6 +86,14 @@ class TranslationManager:
             "tts_regenerate": "🔄 Neu generieren",
             "tts_regenerate_all": "🔄 Alles neu generieren",
             "tts_not_ported": "⚠️ TTS noch nicht portiert - Coming Soon!",
+            # TTS Engine dropdown labels
+            "tts_engine_off": "Aus",
+            "tts_engine_xtts": "XTTS v2 (Lokal, Voice Cloning)",
+            "tts_engine_moss": "MOSS-TTS (Batch, nach Bubble)",
+            "tts_engine_dashscope": "DashScope Qwen3-TTS (Cloud, Streaming)",
+            "tts_engine_piper": "Piper TTS (Lokal, Offline)",
+            "tts_engine_espeak": "eSpeak (Roboter, Offline)",
+            "tts_engine_edge": "Edge TTS (Cloud, Fallback)",
             
             # Chat History
             "chat_history": "💬 Chat Verlauf",
@@ -141,9 +149,6 @@ class TranslationManager:
             # TTS/STT Settings (Phase 3)
             "tts_heading": "🔊 Sprachausgabe (TTS):",
             "tts_engine_label": "Engine:",
-            "tts_engine_edge": "Edge TTS (Cloud)",
-            "tts_engine_piper": "Piper TTS (Offline)",
-            "tts_engine_espeak": "eSpeak (Roboter, Offline)",
             "tts_voice_label": "Stimme:",
             "tts_speed_label": "Tempo:",
             "tts_pitch_label": "Tonhöhe:",
@@ -308,7 +313,15 @@ class TranslationManager:
             "tts_regenerate": "🔄 Regenerate",
             "tts_regenerate_all": "🔄 Regenerate All",
             "tts_not_ported": "⚠️ TTS not yet ported - Coming Soon!",
-            
+            # TTS Engine dropdown labels
+            "tts_engine_off": "Off",
+            "tts_engine_xtts": "XTTS v2 (Local, voice cloning)",
+            "tts_engine_moss": "MOSS-TTS (Batch, after bubble)",
+            "tts_engine_dashscope": "DashScope Qwen3-TTS (Cloud, streaming)",
+            "tts_engine_piper": "Piper TTS (Local, Offline)",
+            "tts_engine_espeak": "eSpeak (Robot, Offline)",
+            "tts_engine_edge": "Edge TTS (Cloud, Fallback)",
+
             # Chat History
             "chat_history": "💬 Chat History",
             "messages_count": "messages",
@@ -363,9 +376,6 @@ class TranslationManager:
             # TTS/STT Settings (Phase 3)
             "tts_heading": "🔊 Text-to-Speech (TTS):",
             "tts_engine_label": "Engine:",
-            "tts_engine_edge": "Edge TTS (Cloud)",
-            "tts_engine_piper": "Piper TTS (Offline)",
-            "tts_engine_espeak": "eSpeak (Robot, Offline)",
             "tts_voice_label": "Voice:",
             "tts_speed_label": "Speed:",
             "tts_pitch_label": "Pitch:",
@@ -609,3 +619,30 @@ def t(key: str, lang: Optional[str] = None, count: Optional[int] = None, **kwarg
     if kwargs:
         return template.format(**kwargs)
     return template
+
+
+def tts_label_to_key(label: str) -> str:
+    """Map a translated TTS engine label back to its internal key.
+
+    Used by set_tts_engine_or_off() to convert dropdown selection to storage key.
+    """
+    from .config import TTS_ENGINE_KEYS
+    lang = get_language()
+    translations = TranslationManager._translations.get(lang, TranslationManager._translations["en"])
+    for key in TTS_ENGINE_KEYS:
+        if translations.get(f"tts_engine_{key}") == label:
+            return key
+    # Fallback: try English
+    en = TranslationManager._translations["en"]
+    for key in TTS_ENGINE_KEYS:
+        if en.get(f"tts_engine_{key}") == label:
+            return key
+    return label
+
+
+def tts_key_to_label(key: str) -> str:
+    """Map an internal TTS engine key to its translated display label.
+
+    Used by tts_engine_or_off computed var for dropdown display.
+    """
+    return t(f"tts_engine_{key}")
