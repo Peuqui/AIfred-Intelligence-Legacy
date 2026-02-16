@@ -349,12 +349,13 @@ class AIState(rx.State):
     # Used by context_manager/context_utils for VRAM reservation
     moss_tts_device: str = ""
 
-    @rx.var
+    @rx.var(deps=["ui_language"], auto_deps=False)
     def tts_engines(self) -> List[str]:
         """Available TTS engines for dropdown selection (translated labels)."""
         from .lib.config import TTS_ENGINE_KEYS
         from .lib.i18n import t
-        return [t(f"tts_engine_{key}") for key in TTS_ENGINE_KEYS]
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        return [t(f"tts_engine_{key}", lang=lang) for key in TTS_ENGINE_KEYS]
 
     @rx.var
     def xtts_gpu_enabled(self) -> bool:
@@ -755,11 +756,12 @@ class AIState(rx.State):
         """
         return self.enable_tts
 
-    @rx.var(deps=["enable_tts", "tts_engine"], auto_deps=False)
+    @rx.var(deps=["enable_tts", "tts_engine", "ui_language"], auto_deps=False)
     def tts_engine_or_off(self) -> str:
         """Dropdown value: translated engine label when TTS enabled, translated 'Off' when disabled."""
         from .lib.i18n import tts_key_to_label
-        return tts_key_to_label(self.tts_engine) if self.enable_tts else tts_key_to_label("off")
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        return tts_key_to_label(self.tts_engine, lang=lang) if self.enable_tts else tts_key_to_label("off", lang=lang)
 
     def _refresh_xtts_voices(self):
         """Refresh XTTS voices from Docker service.
@@ -8187,76 +8189,6 @@ class AIState(rx.State):
 
         self._save_settings()
 
-    def set_tts_engine(self, engine: str):
-        """Set TTS engine and restore saved voice for this engine.
-
-        Saves current agent voices before switching and restores agent voices
-        for the new engine from saved preferences.
-
-        When switching between Docker-based engines (XTTS, MOSS-TTS):
-        - Stops the OLD engine's container (frees VRAM)
-        - Starts the NEW engine's container with correct GPU/CPU mode
-
-        Uses yield for immediate UI feedback before slow container operations.
-        """
-        # No-op guard: dropdown may re-fire on_change after state update
-        if engine == self.tts_engine:
-            return
-
-        # Save current settings for old engine BEFORE switching
-        old_engine = self.tts_engine
-        self._save_agent_voices_for_engine(old_engine)
-        self._save_tts_toggles_for_engine(old_engine)
-
-        # Update UI immediately: dropdown + debug console
-        self.tts_engine = engine
-        self.add_debug(f"🔊 TTS Engine: {engine}")
-        yield
-
-        # Stop OLD Docker TTS container to free VRAM
-        if self.enable_tts:
-            if old_engine == "xtts":
-                from .lib.process_utils import stop_xtts_container
-                stop_xtts_container()
-                self.add_debug("🔊 XTTS container stopped (engine switch)")
-                yield
-            elif old_engine == "moss":  # MOSS-TTS (batch)
-                from .lib.process_utils import stop_moss_container
-                stop_moss_container()
-                self.moss_tts_device = ""
-                self.add_debug("🔊 MOSS-TTS container stopped (engine switch)")
-                yield
-
-        # Start NEW Docker TTS container with correct settings
-        if engine == "xtts" and self.enable_tts:
-            from .lib.process_utils import set_xtts_cpu_mode
-            success, msg = set_xtts_cpu_mode(self.xtts_force_cpu)
-            if success:
-                self.add_debug(f"✅ {msg}")
-            else:
-                self.add_debug(f"⚠️ {msg}")
-            self._refresh_xtts_voices()
-        elif engine == "moss" and self.enable_tts:  # MOSS-TTS (batch)
-            self.add_debug("🔊 MOSS-TTS: Loading model...")
-            yield
-            from .lib.process_utils import ensure_moss_ready
-            success, msg, device = ensure_moss_ready(timeout=120)
-            self.moss_tts_device = device if success else ""
-            if success:
-                self.add_debug(f"✅ {msg}")
-            else:
-                self.add_debug(f"⚠️ {msg}")
-
-        # Restore per-engine settings for new engine
-        new_engine_key = self.tts_engine
-        self._restore_agent_voices_for_engine(new_engine_key)
-        self._restore_tts_toggles_for_engine(new_engine_key)
-
-        # Restore user's saved voice preference for this engine
-        self._switch_tts_voice_for_language(self.ui_language)
-
-        self._save_settings()
-
     def set_tts_engine_or_off(self, selection: str):
         """Combined TTS on/off + engine selection from single dropdown.
 
@@ -8964,14 +8896,21 @@ class AIState(rx.State):
             for agent in self.tts_agent_voices:
                 if agent in saved_agent_voices:
                     self.tts_agent_voices[agent].update(saved_agent_voices[agent])
-            self.add_debug(f"🔊 Restored agent voices for {engine_key}")
+            source = "Restored"
         else:
             # Use engine-specific defaults
             defaults = TTS_AGENT_VOICE_DEFAULTS.get(engine_key, {})
             for agent, settings_dict in defaults.items():
                 if agent in self.tts_agent_voices:
                     self.tts_agent_voices[agent].update(settings_dict)
-            self.add_debug(f"🔊 Using default agent voices for {engine_key}")
+            source = "Default"
+
+        # Log actual agent voices
+        voice_list = ", ".join(
+            f"{a.capitalize()}={self.tts_agent_voices[a].get('voice', '?')}"
+            for a in self.tts_agent_voices
+        )
+        self.add_debug(f"🔊 {source} agent voices for {engine_key}: {voice_list}")
 
     def _save_tts_toggles_for_engine(self, engine_key: str):
         """Save current TTS toggles (autoplay, streaming) for the specified engine."""
@@ -9049,23 +8988,14 @@ class AIState(rx.State):
         user_voice = user_voices.get(engine_key, {}).get(lang)
 
         if user_voice and user_voice in voice_dict:
-            old_voice = self.tts_voice
             self.tts_voice = user_voice
-            if old_voice != user_voice:
-                self.add_debug(f"🔊 TTS Voice: {old_voice} → {user_voice}")
             return
 
         # Priority 2: Use default voice from config
         default_voice = TTS_DEFAULT_VOICES.get(engine_key, {}).get(lang)
 
         if default_voice and default_voice in voice_dict:
-            old_voice = self.tts_voice
             self.tts_voice = default_voice
-            if old_voice != default_voice:
-                self.add_debug(f"🔊 TTS Voice: {old_voice} → {default_voice}")
-                self._save_settings()
-        else:
-            self.add_debug(f"⚠️ No default {lang} voice found for {engine_key}")
 
     def get_text(self, key: str):
         """Get translated text based on current UI language"""

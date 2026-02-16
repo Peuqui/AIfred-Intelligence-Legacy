@@ -624,25 +624,19 @@ def t(key: str, lang: Optional[str] = None, count: Optional[int] = None, **kwarg
 def tts_label_to_key(label: str) -> str:
     """Map a translated TTS engine label back to its internal key.
 
-    Used by set_tts_engine_or_off() to convert dropdown selection to storage key.
+    Searches all languages since get_language() is unreliable in handler context.
     """
     from .config import TTS_ENGINE_KEYS
-    lang = get_language()
-    translations = TranslationManager._translations.get(lang, TranslationManager._translations["en"])
-    for key in TTS_ENGINE_KEYS:
-        if translations.get(f"tts_engine_{key}") == label:
-            return key
-    # Fallback: try English
-    en = TranslationManager._translations["en"]
-    for key in TTS_ENGINE_KEYS:
-        if en.get(f"tts_engine_{key}") == label:
-            return key
+    for lang_translations in TranslationManager._translations.values():
+        for key in TTS_ENGINE_KEYS:
+            if lang_translations.get(f"tts_engine_{key}") == label:
+                return key
     return label
 
 
-def tts_key_to_label(key: str) -> str:
+def tts_key_to_label(key: str, lang: Optional[str] = None) -> str:
     """Map an internal TTS engine key to its translated display label.
 
     Used by tts_engine_or_off computed var for dropdown display.
     """
-    return t(f"tts_engine_{key}")
+    return t(f"tts_engine_{key}", lang=lang)

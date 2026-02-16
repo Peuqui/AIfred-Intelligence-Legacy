@@ -5,21 +5,27 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.30.0] - 2026-02-15 🔊 TTS Dropdown & Documentation
+## [2.30.0] - 2026-02-16 🔊 TTS Dropdown & Documentation
 
 ### Changed
 
-- **TTS UI: Single dropdown replaces toggle + engine dropdown** - "Aus" as first option disables TTS, selecting an engine enables it
+- **TTS UI: Single dropdown replaces toggle + engine dropdown** - "Aus"/"Off" as first option disables TTS, selecting an engine enables it
   - Combined `set_tts_engine_or_off()` handler merges toggle + engine switch logic
   - `tts_engine_or_off` computed var drives dropdown value
   - Two-row layout: Label + AutoPlay + Streaming on top, engine dropdown below
   - XTTS GPU toggle appears next to dropdown when XTTS active
   - Per-engine voice/toggle settings saved on disable, restored on enable
+- **TTS i18n: Engine dropdown labels translated per UI language** - Engine names stored as keys ("xtts", "edge", etc.) with translated display labels in DE/EN. `tts_label_to_key()` searches all languages for reliable reverse mapping. Settings migration auto-converts old display-string format.
+- **TTS debug logging: show actual agent voices** - `_restore_agent_voices_for_engine()` now logs per-agent voice names (e.g., "Aifred=Deutsch (Katja), Sokrates=Deutsch (Conrad)"). Removed misleading fallback voice transition log from `_switch_tts_voice_for_language()`.
 - **Debug console messages: all German → English** - Consistent English debug output for TTS container lifecycle, streaming mode, etc.
 - **DashScope Qwen3-TTS: realtime WebSocket → sentence-level streaming** - Better intonation per sentence, same architecture as XTTS/Edge/Piper. WebSocket code commented out (not deleted) with instructions to re-enable.
 - **Audio playback: double-buffered → visible widget with blob-URL prefetching** - Single visible `<audio>` widget replaces hidden double-buffer. Next 2 chunks pre-fetched as in-memory blob URLs for near-instant src switching.
 - **TTS sentence ordering** - Sentences generated in parallel but pushed to playback queue in sequence order. Prevents out-of-order playback when cloud APIs (DashScope) return faster for later sentences.
 - **Mobile-responsive media buttons** - Button texts hidden on mobile, flexible widths, flex-wrap for narrow screens. Drag & drop tooltip moved from separate info icon to Camera/Upload buttons. Audio button icon unified (single mic icon).
+
+### Removed
+
+- **Dead TTS handlers** - `set_tts_engine()` removed (superseded by `set_tts_engine_or_off()`)
 
 ### Added
 
