@@ -17,7 +17,7 @@ from typing import AsyncIterator, Dict, List, Optional, Any
 
 from .llm_client import LLMClient
 from .timer import Timer
-from .formatting import format_number, format_thinking_process, format_metadata
+from .formatting import format_number, format_thinking_process, build_inference_metadata
 from .prompt_loader import get_aifred_direct_prompt, get_aifred_system_minimal
 from .context_manager import estimate_tokens, calculate_dynamic_num_ctx, strip_thinking_blocks
 from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
@@ -166,8 +166,9 @@ async def handle_own_knowledge(
         # Count input tokens
         input_tokens = estimate_tokens(messages, model_name=model_choice)
 
-        # Get model context limit for display
-        model_limit, _ = await llm_client.get_model_context_limit(model_choice)
+        # Get native context limit for display (local read, no API call!)
+        from .research.context_utils import get_model_native_context
+        model_limit = get_model_native_context(model_choice, backend_type)
 
         # Show context info
         yield {"type": "debug", "message": f"📊 AIfred: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})"}
@@ -202,6 +203,7 @@ async def handle_own_knowledge(
         first_token_received = False
         tokens_generated = 0
         tokens_prompt = 0
+        metrics: dict = {}
 
         async for chunk in llm_client.chat_stream(
             model=model_choice,
@@ -225,19 +227,10 @@ async def handle_own_knowledge(
                 tokens_prompt = metrics.get("tokens_prompt", 0)
 
         inference_time = timer.elapsed()
-
-        # Console: LLM finished (with history token count)
         tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0
-        from .context_manager import estimate_tokens_from_llm_history
-        history_tokens = estimate_tokens_from_llm_history(llm_history)
-        history_suffix = f" | History: {format_number(history_tokens)} tok"
-        if backend_type == "cloud_api" and tokens_prompt > 0:
-            total_tokens = tokens_prompt + tokens_generated
-            yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} out / {format_number(total_tokens)} total, {format_number(tokens_per_sec, 1)} tok/s){history_suffix}"}
-        else:
-            yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s){history_suffix}"}
 
-        # Format thinking tags
+        # Strip thinking blocks and format for display
+        response_clean = strip_thinking_blocks(full_response) if full_response else ""
         thinking_html = format_thinking_process(
             full_response,
             model_name=model_choice,
@@ -245,21 +238,32 @@ async def handle_own_knowledge(
             tokens_per_sec=tokens_per_sec
         )
 
-        # Strip thinking blocks for clean response
-        response_clean = strip_thinking_blocks(full_response) if full_response else ""
+        # Update llm_history BEFORE calculating history_tokens
+        # so "History: X tok" reflects the current conversation state (incl. AI response)
+        if response_clean:
+            llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
 
-        # Update histories
-        # Dict-based chat_history format
-        import datetime
+        # Centralized metadata (PP speed, debug log, chat bubble)
+        from .context_manager import estimate_tokens_from_llm_history
+        history_tokens = estimate_tokens_from_llm_history(llm_history)
         source_label = f"Own Knowledge ({model_choice})"
 
-        # Format metadata for display (TTFT + Inference + tok/s + Source)
-        ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
-        metadata_str = format_metadata(
-            f"{ttft_str}Inference: {format_number(inference_time, 1)}s    "
-            f"{format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}"
+        metadata_dict, metadata_display, debug_msg = build_inference_metadata(
+            ttft=ttft,
+            inference_time=inference_time,
+            tokens_generated=tokens_generated,
+            tokens_per_sec=tokens_per_sec,
+            source=source_label,
+            backend_metrics=metrics,
+            tokens_prompt=tokens_prompt,
+            history_tokens=history_tokens,
+            backend_type=backend_type,
         )
-        ai_with_source = f"{thinking_html}\n\n{metadata_str}"
+        yield {"type": "debug", "message": debug_msg}
+
+        # Update chat_history (UI display with thinking + metadata)
+        import datetime
+        ai_with_source = f"{thinking_html}\n\n{metadata_display}"
 
         history.append({
             "role": "assistant",
@@ -267,18 +271,9 @@ async def handle_own_knowledge(
             "agent": "aifred",
             "mode": "own_knowledge",
             "round_num": 0,
-            "metadata": {
-                "ttft": ttft,
-                "inference_time": inference_time,
-                "tokens_per_sec": tokens_per_sec,
-                "source": source_label
-            },
+            "metadata": metadata_dict,
             "timestamp": datetime.datetime.now().isoformat()
         })
-        # llm_history: Add assistant response (strip thinking blocks)
-        # Note: User message is already in llm_history (added by state.py before calling this handler)
-        if response_clean:
-            llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
 
         # Clear progress
         yield {"type": "progress", "clear": True}

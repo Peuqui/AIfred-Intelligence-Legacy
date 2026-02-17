@@ -244,8 +244,14 @@ async def handle_cache_hit(
 
     total_time = agent_timer.elapsed()
 
-    # Console: LLM finished (Cache-specific with total time and history tokens)
     tokens_generated = metrics.get("tokens_generated", 0)
+
+    # Strip thinking blocks and update llm_history BEFORE calculating history_tokens
+    final_answer_clean = strip_thinking_blocks(final_answer) if final_answer else ""
+    if final_answer_clean:
+        llm_history.append({"role": "assistant", "content": f"[AIFRED]: {final_answer_clean}"})
+
+    # History tokens now reflect the current conversation state (incl. AI response)
     from ..context_manager import estimate_tokens_from_llm_history
     history_tokens = estimate_tokens_from_llm_history(llm_history)
     yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(llm_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s, Cache-Total: {format_number(total_time, 1)}s) | History: {format_number(history_tokens)} tok"}
@@ -258,9 +264,7 @@ async def handle_cache_hit(
     timing_text = format_metadata(f"Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
     ai_text_with_timing = final_answer_formatted + "\n\n" + timing_text
 
-    # Add AI response to histories (parallel: chat_history + llm_history)
-    # User message was already added by state.py before calling this function
-    # Dict-based chat_history format
+    # Add AI response to chat_history (UI display)
     history.append({
         "role": "assistant",
         "content": ai_text_with_timing,
@@ -275,10 +279,6 @@ async def handle_cache_hit(
         },
         "timestamp": datetime.datetime.now().isoformat()
     })
-    # llm_history: final_answer is raw LLM output, strip thinking blocks
-    final_answer_clean = strip_thinking_blocks(final_answer) if final_answer else ""
-    if final_answer_clean:
-        llm_history.append({"role": "assistant", "content": f"[AIFRED]: {final_answer_clean}"})
 
     log_message(f"✅ Cache-based response done in {format_number(total_time, 1)}s")
 

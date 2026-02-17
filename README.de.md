@@ -21,7 +21,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Vision/OCR-Unterstützung**: Bildanalyse mit multimodalen LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
 - **Bild-Zuschnitt-Tool**: Interaktiver Crop vor OCR/Analyse (8-Punkt-Handles, 4K Auto-Resize)
 - **3-Modell-Architektur**: Spezialisiertes Vision-LLM für OCR, Haupt-LLM für Interpretation
-- **Denkmodus**: Chain-of-Thought-Reasoning für komplexe Aufgaben (Qwen3, NemoTron, QwQ - Ollama + vLLM)
+- **Denkmodus**: Chain-of-Thought-Reasoning für komplexe Aufgaben (Qwen3, NemoTron, QwQ - llama.cpp, Ollama, vLLM)
 - **Automatische Web-Recherche**: KI entscheidet selbst, wann Recherche nötig ist
 - **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung
 - **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße pro Backend - Ollama (Binary Search + RoPE-Skalierung 1.0x/1.5x/2.0x, Hybrid CPU-Offload), llama.cpp (Binary Search via direkten llama-server), KoboldCPP (Binary Search mit RoPE)
@@ -212,10 +212,10 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
 - **Debug-Konsole**: Umfangreiches Logging und Monitoring
 - **ChromaDB-Server-Modus**: Thread-sichere Vector-DB via Docker (0.0 Distance für exakte Matches)
 - **GPU-Erkennung**: Automatische Erkennung und Warnung bei inkompatiblen Backend-GPU-Kombinationen ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
-- **Ollama Context-Kalibrierung**: Binäre Suche für VRAM und Hybrid-Modus mit RAM-basierter Obergrenze
-  - **VRAM-Modus**: Binäre Suche für Modelle die komplett in GPU-Speicher passen (512 Token Präzision)
-  - **Hybrid-Modus**: Binäre Suche mit RAM-Obergrenze für CPU+GPU Offload (3 GB Reserve)
-  - **Auto-Hybrid**: Wenn VRAM-only < 16k Tokens ergibt → automatisch auf Hybrid umschalten
+- **Kontext-Kalibrierung**: Intelligente Kalibrierung pro Modell für Ollama und llama.cpp
+  - **Ollama**: Binäre Suche mit automatischer VRAM/Hybrid-Modus-Erkennung (512 Token Präzision, 3 GB RAM-Reserve)
+  - **llama.cpp**: Binäre Suche via direkten llama-server-Test (stoppt llama-swap, testet auf Temp-Port, aktualisiert YAML-Config)
+  - Ergebnisse in einheitlichem `data/model_vram_cache.json` gespeichert
 - **KoboldCPP Dynamic RoPE**: Intelligente VRAM-basierte Kontext-Optimierung mit automatischem RoPE-Scaling
 - **Multi-User-Queue**: KoboldCPP Request-Queuing für gleichzeitige Benutzer (bis zu 5 Clients)
 - **Parallele Web-Suche**: 2-3 optimierte Queries parallel auf APIs verteilt (Tavily, Brave, SearXNG), automatische URL-Deduplizierung, optionales self-hosted SearXNG
@@ -1102,8 +1102,8 @@ Die App läuft dann unter: http://localhost:3002
 
 AIfred unterstützt verschiedene LLM-Backends, die in der UI dynamisch gewechselt werden können:
 
-- **llama.cpp** (via llama-swap): GGUF-Modelle, beste Roh-Performance (~1,8x schneller als Ollama), volle GPU-Kontrolle, Multi-GPU-Unterstützung. Verwendet eine 3-stufige Architektur: **llama-swap** (Go-Proxy, Modell-Management) → **llama-server** (Inferenz) → **llama.cpp** (Library). Automatische VRAM-Kalibrierung via Binary Search (stoppt llama-swap, testet llama-server direkt, aktualisiert Config). Siehe [Setup-Anleitung](docs/llamacpp-setup.md).
-- **Ollama**: GGUF-Modelle (Q4/Q8), einfachste Installation, automatisches Modell-Management
+- **llama.cpp** (via llama-swap): GGUF-Modelle, beste Roh-Performance (+43% Generation, +30% Prompt-Processing vs Ollama), volle GPU-Kontrolle, Multi-GPU-Unterstützung. Verwendet eine 3-stufige Architektur: **llama-swap** (Go-Proxy, Modell-Management) → **llama-server** (Inferenz) → **llama.cpp** (Library). Automatische VRAM-Kalibrierung via Binary Search (stoppt llama-swap, testet llama-server direkt, aktualisiert Config). Siehe [Setup-Anleitung](docs/llamacpp-setup.md).
+- **Ollama**: GGUF-Modelle (Q4/Q8), einfachste Installation, automatisches Modell-Management, gute Performance nach v2.32.0-Optimierungen
 - **vLLM**: AWQ-Modelle (4-bit), beste Performance mit AWQ Marlin Kernel
 - **KoboldCPP**: GGUF-Modelle mit dynamischem RoPE-Scaling und VRAM-Optimierung
 - **TabbyAPI**: EXL2-Modelle (ExLlamaV2/V3) - experimentell, nur Basis-Unterstützung
@@ -1773,7 +1773,7 @@ AIfred ist für lokale Hardware mit begrenzten Ressourcen ausgelegt:
 
 ### Debug Logs
 ```bash
-tail -f logs/aifred_debug.log
+tail -f data/logs/aifred_debug.log
 ```
 
 ### Code-Qualitätsprüfung
@@ -1824,6 +1824,28 @@ sudo systemctl restart ollama
 - Load-Balancing Szenarien
 
 Nach dieser Änderung **Modelle neu kalibrieren** in der UI, um den freigewordenen VRAM zu nutzen.
+
+### llama.cpp vs Ollama Performance-Vergleich
+
+Benchmarks mit Qwen3-30B-A3B Q8_0 auf 2× Tesla P40 (48 GB VRAM gesamt):
+
+| Metrik | llama.cpp | Ollama | Vorteil |
+|--------|:---------:|:------:|:-------:|
+| TTFT (Time to First Token) | 1,1s | 1,5s | llama.cpp -27% |
+| Generierungsgeschwindigkeit | 39,3 tok/s | 27,4 tok/s | llama.cpp +43% |
+| Prompt-Verarbeitung | 1.116 tok/s | 862 tok/s | llama.cpp +30% |
+| Intent-Erkennung | 0,8s | 0,7s | ähnlich |
+
+**Wann llama.cpp wählen:**
+- Maximale Generierungsgeschwindigkeit und Durchsatz
+- Multi-GPU-Setups (volle Tensor-Split-Kontrolle)
+- Große Kontextfenster (direkte VRAM-Kalibrierung)
+- Produktiv-Deployments wo jedes tok/s zählt
+
+**Wann Ollama wählen:**
+- Schnelles Setup und Experimentieren
+- Automatisches Modell-Management (`ollama pull`)
+- Einfachere Konfiguration für Einsteiger
 
 ---
 

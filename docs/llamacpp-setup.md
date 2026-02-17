@@ -3,7 +3,7 @@
 Referenzdokument fuer die llama.cpp Integration in AIfred via llama-swap.
 Wird bei Hardware-Aenderungen oder neuen llama.cpp Releases aktualisiert.
 
-**Stand:** 2026-02-16
+**Stand:** 2026-02-17
 
 ---
 
@@ -29,21 +29,12 @@ Wird bei Hardware-Aenderungen oder neuen llama.cpp Releases aktualisiert.
 | CUDA Graphs | bis 35% schnellere Token-Gen | Ja | Ja | Ja |
 | MMVQ Kernel | Bessere quantisierte Inferenz | Ja | Ja | Ja |
 | MMQ (INT8 TC) | INT8 Tensor Core Kernels | Nein | Ja | Ja |
-| Flash Attention | ~15% Throughput-Steigerung | Nein (FP16 Penalty) | Ja | Ja |
+| Flash Attention | Weniger VRAM, schnellere PP | Ja (modellabhaengig!) | Ja | Ja |
 | GPU Token Sampling | Eliminiert CPU-GPU Transfers | Ja | Ja | Ja |
 | Model Loading | bis 65% schneller | Ja | Ja | Ja |
 | FP8 W8A16 | Weight-only FP8 | Nein | Ja (vLLM) | Ja (Marlin) |
 | NVFP4 | Neue Quantisierung | Nein | Nein | Nein |
 | vLLM kompatibel | CC >= 7.0 noetig | Nein | Ja | Ja |
-
-### Benchmark-Vergleich (Q4_K_M, Token Generation)
-
-| Modell | P40 (tok/s) | RTX 8000 (tok/s) | 3090 Ti (tok/s) |
-|---|---|---|---|
-| ~8B | ~41 | ~74 | ~98 |
-| ~14B | ~16 | ~43 | ~56 |
-| ~30B MoE | - | ~34 | - |
-| ~70B Q4 | Passt nicht (24GB) | ~10 (passt in 48GB) | Passt nicht (24GB) |
 
 ---
 
@@ -55,7 +46,7 @@ Wird bei Hardware-Aenderungen oder neuen llama.cpp Releases aktualisiert.
 |---|---|---|---|
 | `-ngl` | `-ngl 99` / `-ngl auto` | `auto` | Layer auf GPU offloaden |
 | `-c` | `-c 8192` | aus Modell | Context-Groesse (KV-Cache skaliert linear) |
-| `-fa` | `-fa` / `--no-fa` | `auto` | Flash Attention (global, nicht per GPU!) |
+| `-fa` | `-fa on` / `--flash-attn off` | `auto` | Flash Attention (global, nicht per GPU!) |
 | `-ctk` | `-ctk q8_0` | `f16` | KV-Cache Key Typ (q8_0, q4_0, f16, f32) |
 | `-ctv` | `-ctv q8_0` | `f16` | KV-Cache Value Typ |
 | `-b` | `-b 2048` | `2048` | Logische Batch-Size (Prompt Processing) |
@@ -67,7 +58,8 @@ Wird bei Hardware-Aenderungen oder neuen llama.cpp Releases aktualisiert.
 | `--no-mmap` | `--no-mmap` | mmap on | Modell komplett laden statt lazy |
 | `-t` | `-t 8` | auto | CPU-Threads (Generation) |
 | `-tb` | `-tb 16` | wie `-t` | CPU-Threads (Batch/Prompt) |
-| `-np` | `-np 1` | `1` | Parallel Slots (Multi-User) |
+| `-np` | `-np 1` | `auto` (=4!) | Parallel Slots (Multi-User) |
+| `-fit` | `-fit off` | `on` | Auto-Parameter an VRAM anpassen (P40: off!) |
 | `-dev` | `-dev CUDA0,CUDA1` | | Explizite GPU-Auswahl |
 | `-ot` | `-ot "regex=DEVICE"` | | Override Tensor (ik_llama.cpp) |
 
@@ -80,13 +72,152 @@ export GGML_CUDA_GRAPH_OPT=1           # 10-15% schnellere Token-Gen
 
 ### KV-Cache Quantisierung
 
-| Typ | VRAM-Ersparnis vs f16 | Qualitaets-Impact | Hinweis |
-|---|---|---|---|
-| `q8_0` | ~50% | Vernachlaessigbar | Empfohlen |
-| `q4_0` | ~75% | Spuerbar bei Keys | Nur `-ctv q4_0` nutzen |
-| `f16` | Baseline | Kein | Standard |
+| Typ | VRAM-Ersparnis vs f16 | Speed-Impact (PP) | Qualitaets-Impact | Hinweis |
+|---|---|---|---|---|
+| `q8_0` | ~50% | **+30-134% schneller** | Vernachlaessigbar | **Empfohlen** |
+| `q4_0` | ~72% | +20-30% schneller | Spuerbar bei Keys | Nur wenn VRAM extrem knapp |
+| `f16` | Baseline | Baseline | Kein | Standard |
 
-**Wichtig:** KV-Cache Quantisierung benoetigt Flash Attention (`-fa`).
+**Wichtig:**
+- KV-Cache Quantisierung benoetigt Flash Attention (`--flash-attn on`)
+- Q8_0 ist schneller als Q4_0 bei PP (weniger Dequantisierungs-Overhead)
+- Gen-Speed ist bei allen Varianten identisch (~46-63 tok/s je nach Modell)
+- KV-Quant ≠ Modell-Quant: KV-Quant spart Bandbreite (Attention), Modell-Quant spart Rechenzeit (Matmul)
+
+### P40-spezifische Hinweise
+
+| Parameter | Empfehlung | Grund |
+|---|---|---|
+| `-fit` | `off` | `-fit on` crasht auf Pascal mit CUDA OOM bei `cudaMemGetInfo` |
+| `-np` | `1` | Default `auto` setzt 4 Slots = 4x Compute Buffer VRAM |
+| `--flash-attn` | `on` | Weniger VRAM (Compute Buffer -86%), schnellere PP bei Qwen3 |
+| `-ctk`/`-ctv` | `q8_0` | KV-Cache halbieren, kaum Qualitaetsverlust |
+
+---
+
+## Benchmark: Tesla P40 (2x 24 GB, llama.cpp v8076)
+
+Datum: 2026-02-17. Hardware: 2x Tesla P40 (24 GB GDDR5X, PCIe x16).
+llama.cpp Version: 8076 (d61290111), kompiliert mit `GGML_CUDA=ON`.
+
+**Test-Prompt:** `"Write a short poem about the sun in exactly 4 lines."` (21 Tokens, max_tokens=100)
+**Basis-Parameter:** `-ngl 99 -np 1 -fit off -t 4 -b 2048 -ub 512`
+
+### Qwen3-4B-Instruct-2507 (Q4_K_M, Single GPU CUDA0)
+
+| Config | Context | Prompt (tok/s) | Gen (tok/s) | VRAM total (MiB) | KV Buffer (MiB) | Compute Buffer (MiB) |
+|---|---|---|---|---|---|---|
+| FA off, FP16 KV | 32K | 205,8 | 61,7 | 9.283 | 4.608 | 2.142 |
+| **FA on, FP16 KV** | 32K | **352,9** | 63,9 | 7.441 | 4.608 | 302 |
+| **FA on, Q8 KV** | 32K | **481,3** | 62,5 | **5.293** | **2.448** | 302 |
+| FA on, Q8 KV | 131K | 490,2 | 62,7 | 12.747 | 9.792 | 410 |
+| FA on, **Q4 KV** | 32K | 391,4 | 60,8 | 4.141 | **1.296** | 302 |
+
+**Ergebnis:** FA + Q8 KV auf P40 ist der klare Gewinner:
+- **PP: +134% schneller** als Baseline (481 vs 206 tok/s)
+- **Gen: unveraendert** (~62 tok/s)
+- **VRAM: -43%** (5.293 vs 9.283 MiB)
+- **Max Context: 131K** (nativ 128K) auf einer einzelnen P40 mit 4B Q4_K_M
+
+### Qwen3-30B-A3B-Instruct-2507 (Q8_0, Dual GPU, `-sm layer --tensor-split 1,1`)
+
+| Config | Context | Prompt (tok/s) | Gen (tok/s) | GPU0 VRAM (MiB) | GPU1 VRAM (MiB) | Frei gesamt (MiB) |
+|---|---|---|---|---|---|---|
+| FA off, FP16 KV | 32K | 95,8 | 46,8 | 19.913 | 18.837 | 7.064 |
+| FA on, FP16 KV | 32K | 91,7 | 47,4 | 17.953 | 16.929 | 10.932 |
+| **FA on, Q8 KV** | 32K | **124,6** | 45,8 | 17.215 | 16.251 | **12.348** |
+| FA on, Q8 KV | 65K | 114,6 | 46,5 | 18.353 | 17.161 | 10.300 |
+| FA on, Q8 KV | 98K | 117,7 | 46,4 | 19.491 | 18.071 | 8.252 |
+| FA on, Q8 KV | 131K | 122,4 | 47,2 | 20.631 | 18.983 | 6.200 |
+| FA on, Q8 KV | 200K | 108,0 | 46,3 | 21.777 | 20.103 | 3.934 |
+| FA on, Q8 KV | 220K | 115,1 | 46,9 | 22.353 | 20.581 | 2.880 |
+| FA on, **Q4 KV** | 32K | 123,2 | 46,1 | 16.815 | 15.883 | 13.116 |
+
+**Ergebnis:** FA + Q8 KV auch beim 30B optimal:
+- **PP: +30% schneller** (124,6 vs 95,8 tok/s bei 32K)
+- **Gen: stabil ~46-47 tok/s** unabhaengig vom Context-Window
+- **VRAM: -5.284 MiB frei** gegenueber Baseline
+- **Max Context: 220K** (nativ 262K) auf 2x P40 mit 30B Q8_0
+- 262K crasht: "failed to allocate compute buffers" (793 MiB fehlend)
+
+### Qwen3-Next-80B-A3B-Instruct (Q4_K_M, 48 Layer, 512 Experten/10 aktiv)
+
+Modell: 46,6 GB (Q4_K_M), ~0,97 GB/Layer. 2x P40 = 48 GB VRAM.
+Basis-Parameter: `-np 1 -fit off --flash-attn on -ctk q8_0 -ctv q8_0 -sm layer --tensor-split 1,1 -t 4 -b 512 -ub 256`
+
+#### Layer-Offloading (`-ngl`): Speed vs Context Trade-off
+
+| -ngl | CPU Layer (GB) | Context | Prompt (tok/s) | Gen (tok/s) | GPU0 frei (MiB) |
+|---|---|---|---|---|---|
+| 44 | 4 (~3,9 GB) | 4K | 75,7 | **24,1** | 452 |
+| 44 | 4 | 32K | 91,8 | **24,3** | 232 |
+| 44 | 4 | 57K | 81,5 | **22,9** | 42 |
+| 44 | 4 | 65K | CRASH | - | - |
+| 42 | 6 (~5,8 GB) | 4K | 65,2 | **21,9** | 1.344 |
+| 42 | 6 | 131K | 75,3 | **21,7** | 236 |
+| 42 | 6 | 144K | 75,3 | **21,5** | 92 |
+| 42 | 6 | 160K | CRASH | - | - |
+| **40** | **8 (~7,7 GB)** | **262K** | 63,7 | **20,5** | 380 |
+
+#### MoE-Offloading (`-cmoe`): Experten auf CPU, Attention auf GPU
+
+| Modus | Context | Prompt (tok/s) | Gen (tok/s) | GPU0 belegt (MiB) |
+|---|---|---|---|---|
+| `-ngl 99 -cmoe` | 4K | 3,2 | **6,8** | 1.539 |
+| `-ngl 99 -cmoe` | 262K | 3,4 | **6,4** | 3.143 |
+| `-ngl 99 -ncmoe 40` | 4K | 4,4 | **9,0** | 1.539/8.797 |
+
+**Ergebnis und Empfehlung:**
+
+- **`-ngl 40` ist der Sweet Spot:** Voller nativer Kontext (262K) bei nur 15% Gen-Speed-Verlust (20,5 vs 24,1 tok/s). ~7,7 GB auf CPU, passt locker in 30 GB RAM.
+- **`-ngl 44`**: Maximal schnell (24 tok/s), aber nur 57K Context — zu wenig fuer langes Reasoning.
+- **`-cmoe`**: 262K Context, aber **3,5x langsamer** (6,4 tok/s). Jedes Token muss 10 Experten ueber PCIe 3.0 laden. Nur sinnvoll wenn Speed egal ist.
+- **Gen-Speed ist kontextunabhaengig**: ~20-24 tok/s egal ob 4K oder 262K.
+- `-ngl 99` crasht (47 GB Modell passt nicht auf 48 GB VRAM)
+- MoE-Weights werden per mmap geladen → erscheinen als "Puffer/Cache" im RAM, nicht als "benutzt"
+- KV-Cache liegt primaer im VRAM (proportional zu GPU-Layern), nicht im CPU-RAM
+
+### Erkenntnisse
+
+1. **Flash Attention auf Pascal (P40) ist NICHT pauschal langsamer.** Bei Qwen3-Modellen ist PP bis zu 134% schneller. Das bekannte FA-Penalty betrifft hauptsaechlich GLM-4.7-FLASH (Issue #19020). Grund: Head-Dimension (siehe unten).
+
+2. **Compute Buffer ist der groesste VRAM-Fresser, nicht der KV-Cache.** FA reduziert den Compute Buffer um 86% (2.142 -> 302 MiB beim 4B).
+
+3. **Q8 KV-Quantisierung beschleunigt PP zusaetzlich** durch weniger Speicherbandbreite in der Attention-Berechnung.
+
+4. **Gen-Speed ist kontextunabhaengig.** Egal ob 32K oder 262K Context: ~46-47 tok/s beim 30B, ~62-63 tok/s beim 4B, ~20-24 tok/s beim 80B.
+
+5. **Pflicht-Parameter fuer P40:** `-fit off -np 1 --flash-attn on -ctk q8_0 -ctv q8_0`
+   - `-fit on` crasht mit CUDA OOM auf Pascal
+   - `-np auto` setzt 4 Slots = unnoetiger VRAM-Verbrauch
+   - FA + Q8 KV spart VRAM und ist schneller
+
+6. **Layer-Offloading vs MoE-Offloading fuer uebergrosse Modelle:**
+   - `-ngl <N>`: Ganze Layer auf CPU. Speed sinkt moderat (~1 tok/s pro 2 Layer).
+   - `-cmoe`: Nur MoE-Experten auf CPU. Speed bricht auf ~30% ein (PCIe-Bottleneck).
+   - **Empfehlung:** Layer-Offloading bevorzugen, es sei denn maximaler Kontext ist wichtiger als Speed.
+
+7. **`-ub` (Micro-Batch) reduziert Compute Buffer ohne Gen-Speed-Verlust.**
+   `-ub 256` statt `512` halbiert den Compute Buffer (196 vs 392 MiB beim 30B).
+   PP-Speed sinkt minimal (117 vs 120 tok/s). Gen-Speed identisch.
+
+### Warum FA auf P40 modellabhaengig ist (technisch)
+
+Quelle: `ggml/src/ggml-cuda/fattn.cu` und `fattn-tile.cuh` in llama.cpp.
+
+Die P40 (CC 6.1) hat **keine Tensor Cores** und **kein schnelles FP16** (`FAST_FP16_AVAILABLE` ist fuer CC 6.1 explizit ausgeschlossen in `common.cuh:230`). Daher:
+
+1. **Kernel-Auswahl:** P40 nutzt den generischen `tile`-Kernel im FP32-Modus. Turing+ GPUs nutzen MMA-Kernels (Tensor Cores).
+
+2. **Vec-Kernel (fuer Token-Generation):** Nur verfuegbar bei `dkq <= 256 && dkq % 64 == 0`. Qwen3 (dkq=128) qualifiziert sich, GLM (dkq=576) nicht.
+
+3. **FP32-Rechenaufwand skaliert mit Head-Dimension:**
+   - Qwen3 (dkq=128): 128 FP32-MADs pro Dot-Product, tile-Config: `nbatch_fa=64, occupancy=3`
+   - GLM (dkq=576): 576 FP32-MADs (4,5x mehr), tile-Config: `nbatch_fa=32, occupancy=2`
+
+4. **Standard-Attention (ohne FA) nutzt cuBLAS GEMM**, das fuer FP32 auf P40 hochoptimiert ist. Bei grossen Dimensionen (576) hat cuBLAS besseren Durchsatz als der fusionierte FA-Kernel.
+
+**Faustregel:** Modelle mit `attention.key_length <= 256` profitieren von FA auf P40. Modelle mit groesseren Head-Dimensionen (DeepSeek/MLA-Architektur) koennen langsamer werden.
 
 ---
 
@@ -105,26 +236,30 @@ export GGML_CUDA_GRAPH_OPT=1           # 10-15% schnellere Token-Gen
 - **KV-Cache Trennung**: KV-Cache ist architektonisch an seine Layer-GPU gebunden
 - **Flash Attention per GPU**: Globaler Schalter, nicht per GPU steuerbar
 
-### Flash Attention Dilemma
+### Flash Attention auf P40
 
-FA ist global. Die P40 verliert ~50% Prompt-Processing-Speed mit FA, die RTX 8000 gewinnt ~15%.
+Aeltere Annahme: FA ist auf Pascal pauschal langsamer. **Widerlegt durch Benchmarks (2026-02-17):**
+FA ist bei Qwen3-Modellen auf P40 **schneller** (PP: +134% bei 4B, +30% bei 30B).
+Das bekannte FA-Penalty betrifft hauptsaechlich GLM-4.7-FLASH (siehe Benchmark-Sektion).
 
-**Empfehlung:** FA einschalten und die meisten Layer auf die RTX 8000 legen (z.B. `-ts 0.3,1`).
-Dann betrifft der FA-Penalty nur die wenigen P40-Layer, und der Gesamtdurchsatz steigt.
-KV-Cache Quantisierung (`-ctk q8_0 -ctv q8_0`) wird dadurch auch moeglich.
+**Empfehlung:** FA immer einschalten (`--flash-attn on`).
+KV-Cache Quantisierung (`-ctk q8_0 -ctv q8_0`) spart zusaetzlich ~50% KV-VRAM.
 
 ### Tensor-Split Empfehlungen
 
 ```bash
+# 2x P40 (gleich stark): Gleich verteilen
+-sm layer --tensor-split 1,1
+
 # P40 (GPU0) + RTX 8000 (GPU1)
 # Standard: P40 ~28%, RTX 8000 ~72%
--ts 1,2.5
+-sm layer -ts 1,2.5
 
 # Aggressiv: P40 nur VRAM-Erweiterung ~9%
--ts 0.1,1
+-sm layer -ts 0.1,1
 
 # 2x RTX 8000 (gleich stark): Gleich verteilen
--ts 1,1
+-sm layer -ts 1,1
 ```
 
 ---
@@ -160,7 +295,7 @@ models:
     cmd: >
       llama-server -m /models/Qwen3-30B-A3B-Thinking-2507-Q4_K_M.gguf
       -ngl 99 -sm layer --tensor-split 1,2.5 --main-gpu 1
-      -c 16384 -fa -ctk q8_0 -ctv q8_0
+      -c 16384 --flash-attn on -ctk q8_0 -ctv q8_0
       -b 2048 -ub 512 --mlock
       --port ${PORT}
     ttl: 300  # 5min Inaktivitaet -> entladen
@@ -169,7 +304,7 @@ models:
     cmd: >
       llama-server -m /models/llama3-70b-Q4_K_M.gguf
       -ngl 99 -sm layer --tensor-split 1,2.5 --main-gpu 1
-      -c 8192 -fa -ctk q8_0 -ctv q8_0
+      -c 8192 --flash-attn on -ctk q8_0 -ctv q8_0
       --mlock --port ${PORT}
     ttl: 300
 
@@ -178,7 +313,7 @@ models:
     cmd: >
       llama-server -m /models/Qwen3-8B-Q4_K_M.gguf
       -ngl 99 -dev CUDA1
-      -c 32768 -fa -ctk q8_0 -ctv q8_0
+      -c 32768 --flash-attn on -ctk q8_0 -ctv q8_0
       --port ${PORT}
     # Kein TTL = optional permanent
 
@@ -206,7 +341,7 @@ models:
     cmd: >
       llama-server -m /models/Qwen3-235B-A22B-Q4_K_M.gguf
       -ngl 99 -sm layer --tensor-split 1,1,1,1
-      -c 16384 -fa -ctk q8_0 -ctv q8_0
+      -c 16384 --flash-attn on -ctk q8_0 -ctv q8_0
       --mlock --port ${PORT}
     ttl: 600
 
@@ -262,3 +397,7 @@ llama-swap ist OpenAI-kompatibel. In AIfred wird es als eigenes Backend registri
 - [LocalScore.ai Benchmarks](https://www.localscore.ai)
 - [llama.cpp Multi-GPU Discussion](https://github.com/ggml-org/llama.cpp/discussions/15013)
 - [eGPU LLM Performance Impact](https://egpu.io/forums/pro-applications/impact-of-egpu-connection-speed-on-local-llm-inference-in-multi-egpu-setups/)
+- [FA on Pascal: Issue #19020](https://github.com/ggml-org/llama.cpp/issues/19020) - FA ist modellabhaengig, bei Qwen3 schneller
+- [FA Pascal Implementation: PR #7188](https://github.com/ggerganov/llama.cpp/pull/7188) - FA ohne Tensor Cores
+- [Ollama KV-Quant](https://smcleod.net/2024/12/bringing-k/v-context-quantisation-to-ollama/) - Q8/Q4 KV in Ollama
+- [FA + P40 Gibberish Fix: Issue #7400](https://github.com/ggml-org/llama.cpp/issues/7400) - MoE+FA Bug, gefixt

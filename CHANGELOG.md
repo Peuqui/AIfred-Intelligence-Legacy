@@ -5,6 +5,48 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.32.0] - 2026-02-17 ⚡ Performance: Ollama Reload Fix & llama.cpp Thinking Control
+
+### Fixed
+
+- **Ollama num_ctx Mismatch** - Eliminated 2 unnecessary model reloads (~26s wasted) when Automatik = Main LLM
+  - Root cause: `num_ctx` was omitted for Automatik calls when same model as Main LLM
+  - Ollama uses MODEL DEFAULT (not currently loaded context) when `num_ctx` is omitted
+  - This caused Ollama to reload with default context, then reload AGAIN for main inference with calibrated context
+  - Fix: Always send `aifred_max_context` as `num_ctx` when Automatik model = Main LLM model
+  - Result: Ollama TTFT improved from 14.4s → 1.5s (9.6x faster), Intent from 15.3s → 0.7s (21x faster)
+- **Model parameters not reloaded during backend switch** - `supports_thinking`, `max_context`, `is_hybrid`, `rope_factor` now correctly loaded from VRAM cache when switching backends
+  - Previously, values from the old backend persisted (e.g., `supports_thinking=True` from llama.cpp carried over to Ollama)
+  - This caused unnecessary `think=True` → 400 error → retry cycles on backends that don't support native thinking for the model
+  - Fix: Added parameter loading block in `initialize_backend()` slow path for both Ollama and llama.cpp
+- **Debug yields now logged to file** - `log_message()` calls added to debug yield statements in `state.py` routing, ensuring debug output appears in both UI console and `aifred_debug.log`
+- **5s gap removed** - `get_model_context_limit()` API call replaced with local VRAM cache read, eliminating a blocking HTTP request during model info retrieval
+
+### Added
+
+- **llama.cpp Thinking Control** - Per-request `enable_thinking` support via `chat_template_kwargs` (llama-server PR #13196)
+  - Passes `{"enable_thinking": true/false}` to Jinja chat template via `extra_body`
+  - Works for both `chat()` and `chat_stream()` methods in `llamacpp.py`
+  - Enables/disables `<think>` block generation for Qwen3 models on llama.cpp backend
+
+### Changed
+
+- **Ollama Automatik num_ctx** - Corrected v2.31.0 behavior: now sends explicit `num_ctx` matching the preloaded context instead of omitting it
+- **llama.cpp context parity** - Qwen3-30B-A3B calibrated to 222,960 tokens (matching Ollama calibration for same hardware)
+
+### Performance Benchmarks
+
+Qwen3-30B-A3B Q8_0 on 2× Tesla P40 (48 GB VRAM):
+
+| Metric | Ollama (Before v2.32) | Ollama (After v2.32) | llama.cpp |
+|--------|:---------------------:|:--------------------:|:---------:|
+| Intent Detection | 15.3s | 0.7s | 0.8s |
+| TTFT (Time to First Token) | 14.4s | 1.5s | 1.1s |
+| Generation Speed | 12.3 tok/s | 27.4 tok/s | 39.3 tok/s |
+| Prompt Processing | 877 tok/s | 862 tok/s | 1,116 tok/s |
+
+llama.cpp advantage over Ollama (both optimized): **+43% generation speed**, **+30% prompt processing**, **-27% TTFT**
+
 ## [2.31.0] - 2026-02-16 🦙 llama.cpp Calibration & Automatik Context Optimization
 
 ### Added
@@ -31,9 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Automatik-LLM Context Optimization** - Avoid unnecessary Ollama model reloads when Automatik = AIfred (same model)
-  - When same model: `num_ctx` omitted from options (Ollama keeps model loaded, no 5-15s reload)
+- **Automatik-LLM Context Optimization** - Optimized context handling for Automatik calls
   - When different model: `num_ctx` set to `AUTOMATIK_LLM_NUM_CTX` (12288, was 4096)
+  - When same model: `num_ctx` omitted (intended to keep loaded context, but caused reloads - fixed in v2.32.0)
   - Threaded `automatik_num_ctx` parameter through all 6 Automatik call sites:
     `detect_research_decision()`, `generate_search_queries()`, `build_rag_context()`,
     `perform_agent_research()` → `handle_cache_hit()`, `rank_urls_by_relevance()`

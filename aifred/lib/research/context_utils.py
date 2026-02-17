@@ -22,11 +22,47 @@ from ..config import (
 )
 from ..formatting import format_number
 from ..logging_utils import log_message
-from ..model_vram_cache import get_ollama_calibration, get_rope_factor_for_model, get_llamacpp_calibration
+from ..model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
 from ..gpu_utils import is_moe_model
 
 if TYPE_CHECKING:
     from ...state import AIState
+
+
+def get_model_native_context(model_id: str, backend_type: str) -> int:
+    """
+    Get native (maximum) context length for a model WITHOUT API calls.
+
+    This replaces the expensive get_model_context_limit() API call that caused
+    a 5-second delay for llama.cpp (llama-swap had to start the server).
+
+    For llama.cpp: reads GGUF file metadata (local file I/O, ~1ms)
+    For Ollama:    reads from VRAM cache (in-memory, ~0ms)
+
+    Returns:
+        Native context length in tokens, or 0 if not determinable
+    """
+    if backend_type == "llamacpp":
+        # Read native context directly from GGUF metadata (no API call!)
+        from ..llamacpp_calibration import parse_llamaswap_config
+        from ..config import LLAMASWAP_CONFIG_PATH
+        from ..gguf_utils import get_gguf_native_context
+        from pathlib import Path
+
+        config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+        if model_id in config:
+            gguf_path = Path(config[model_id]["gguf_path"])
+            if gguf_path.exists():
+                native_ctx = get_gguf_native_context(gguf_path)
+                if native_ctx:
+                    return native_ctx
+        return 0
+
+    else:
+        # Ollama/vLLM: read from VRAM cache (native_context field)
+        from ..model_vram_cache import get_model_native_context_from_cache
+        cached = get_model_native_context_from_cache(model_id)
+        return cached or 0
 
 
 def get_agent_num_ctx(
@@ -83,25 +119,29 @@ def get_agent_num_ctx(
     backend_type = getattr(state, 'backend_type', 'ollama')
 
     if backend_type == "llamacpp":
-        cached_ctx = get_llamacpp_calibration(model_id)
-        if not cached_ctx:
-            # Fallback: parse llama-swap YAML for -c value
-            from ..llamacpp_calibration import parse_llamaswap_config
-            from ..config import LLAMASWAP_CONFIG_PATH
-            config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-            if model_id in config and config[model_id]["current_context"] > 0:
-                cached_ctx = config[model_id]["current_context"]
+        # llama.cpp: YAML -c value = ground truth (actual server config)
+        from ..llamacpp_calibration import parse_llamaswap_config
+        from ..config import LLAMASWAP_CONFIG_PATH
+        config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+
+        if model_id in config and config[model_id]["current_context"] > 0:
+            num_ctx = config[model_id]["current_context"]
+            source = "llama-swap YAML"
+        else:
+            log_message(f"⚠️ Model {model_id} not found in llama-swap YAML → fallback {fallback}")
+            num_ctx = fallback
+            source = "fallback"
     else:
+        # Ollama/vLLM/etc: VRAM calibration cache
         rope_factor = get_rope_factor_for_model(model_id)
         cached_ctx = get_ollama_calibration(model_id, rope_factor)
 
-    if cached_ctx:
-        num_ctx = cached_ctx
-        source = "VRAM cache"
-    else:
-        # No calibration available - use fallback
-        num_ctx = fallback
-        source = "fallback"
+        if cached_ctx:
+            num_ctx = cached_ctx
+            source = "VRAM cache"
+        else:
+            num_ctx = fallback
+            source = "fallback"
 
     # TTS Debug Output - show active TTS configuration
     enable_tts = getattr(state, 'enable_tts', False)

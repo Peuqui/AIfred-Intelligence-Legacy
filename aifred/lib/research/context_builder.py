@@ -301,7 +301,12 @@ async def build_and_generate_response(
             tokens_per_sec = metrics.get("tokens_per_second", 0)
             ttft = chunk.get("ttft")
 
-    # Log completion with history token count
+    # Strip thinking + update llm_history BEFORE history_tokens calculation
+    ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
+    if ai_text_clean:
+        llm_history.append({"role": "assistant", "content": f"[AIFRED]: {ai_text_clean}"})
+
+    # History tokens now reflect the current conversation state (incl. AI response)
     from ..context_manager import estimate_tokens_from_llm_history
     history_tokens = estimate_tokens_from_llm_history(llm_history)
     yield log_llm_completion(inference_time, metrics, history_tokens=history_tokens)
@@ -411,10 +416,7 @@ async def build_and_generate_response(
         },
         "timestamp": datetime.datetime.now().isoformat()
     })
-    # llm_history: ai_text is raw LLM output, strip thinking blocks
-    ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
-    if ai_text_clean:
-        llm_history.append({"role": "assistant", "content": f"[AIFRED]: {ai_text_clean}"})
+    # llm_history already updated above (before metadata calculation)
 
     log_message(f"✅ AI response generated ({len(ai_text)} chars, inference: {format_number(inference_time, 1)}s)")
 

@@ -198,6 +198,108 @@ def format_metadata(metadata_text: str) -> str:
     return f'*( {text} )*'
 
 
+def build_inference_metadata(
+    ttft: float | None,
+    inference_time: float,
+    tokens_generated: int,
+    tokens_per_sec: float,
+    source: str,
+    *,
+    backend_metrics: dict | None = None,
+    tokens_prompt: int = 0,
+    history_tokens: int = 0,
+    backend_type: str = "",
+    agent_label: str = "AIfred-LLM",
+    response_chars: int = 0,
+) -> tuple[dict, str, str]:
+    """
+    Central function for inference metadata (chat bubble, debug log, console).
+
+    Calculates PP speed, builds metadata dict + display string + debug message.
+    Calls log_message() internally for debug.log output.
+
+    Args:
+        ttft: Time To First Token (seconds), None if not measured
+        inference_time: Total inference time (seconds)
+        tokens_generated: Number of generated tokens
+        tokens_per_sec: Generation speed (tok/s)
+        source: Source label (e.g. "Own Knowledge (qwen3:4b)")
+        backend_metrics: Raw metrics from backend done chunk (has prompt_per_second for Ollama)
+        tokens_prompt: Number of prompt tokens (for PP fallback via TTFT)
+        history_tokens: LLM history token count (for debug output)
+        backend_type: Backend type ("ollama", "llamacpp", "cloud_api", etc.)
+        agent_label: Agent name for debug line (e.g. "AIfred-LLM", "Sokrates")
+        response_chars: Response text length in chars (for debug output)
+
+    Returns:
+        (metadata_dict, metadata_display, debug_msg):
+        - metadata_dict: For chat_history / add_agent_panel persistence
+        - metadata_display: format_metadata() string for chat bubble embedding
+        - debug_msg: Debug "done" line (also logged via log_message())
+    """
+    # --- PP speed: from backend (Ollama) or TTFT fallback ---
+    prompt_per_sec = 0.0
+    if backend_metrics:
+        prompt_per_sec = backend_metrics.get("prompt_per_second", 0) or 0
+    if not prompt_per_sec and ttft and ttft > 0 and tokens_prompt > 0:
+        prompt_per_sec = tokens_prompt / ttft
+
+    # --- Metadata dict (for persistence) ---
+    metadata_dict: dict = {
+        "ttft": ttft,
+        "prompt_per_sec": prompt_per_sec,
+        "inference_time": inference_time,
+        "tokens_per_sec": tokens_per_sec,
+        "source": source,
+        "backend_type": backend_type,
+    }
+
+    # --- Metadata display string (for chat bubble) ---
+    display_parts: list[str] = []
+    if ttft:
+        display_parts.append(f"TTFT: {format_number(ttft, 2)}s")
+    if prompt_per_sec:
+        display_parts.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
+    display_parts.append(f"Inference: {format_number(inference_time, 1)}s")
+    display_parts.append(f"{format_number(tokens_per_sec, 1)} tok/s")
+    # Source with backend label (e.g. "Own Knowledge (model) [llamacpp]")
+    source_display = f"{source} [{backend_type}]" if backend_type else source
+    display_parts.append(f"Source: {source_display}")
+    metadata_display = format_metadata("    ".join(display_parts))
+
+    # --- Debug "done" message ---
+    if backend_type == "cloud_api" and tokens_prompt > 0:
+        total = tokens_prompt + tokens_generated
+        debug_base = (
+            f"✅ {agent_label} done ({format_number(inference_time, 1)}s, "
+            f"{format_number(tokens_generated)} out / {format_number(total)} total, "
+            f"{format_number(tokens_per_sec, 1)} tok/s)"
+        )
+    else:
+        debug_base = (
+            f"✅ {agent_label} done ({format_number(inference_time, 1)}s, "
+            f"{format_number(tokens_generated)} tok, "
+            f"{format_number(tokens_per_sec, 1)} tok/s)"
+        )
+
+    suffixes: list[str] = []
+    if prompt_per_sec:
+        suffixes.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
+    if response_chars > 0:
+        suffixes.append(f"{format_number(response_chars)} chars")
+    if history_tokens > 0:
+        suffixes.append(f"History: {format_number(history_tokens)} tok")
+
+    # Debug message: base line + suffixes on second line (debug console has white-space: pre)
+    debug_msg = debug_base
+    if suffixes:
+        debug_msg += "\n   (" + " | ".join(suffixes) + ")"
+
+    log_message(debug_msg)
+
+    return metadata_dict, metadata_display, debug_msg
+
+
 def get_timestamp() -> str:
     """
     Returns current timestamp in HH:MM:SS format (like legacy version).

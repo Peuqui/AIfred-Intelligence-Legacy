@@ -47,7 +47,7 @@ def sort_models_grouped(models_dict: Dict[str, str]) -> Dict[str, str]:
         base = re.sub(r':\d+\.?\d*b.*$', '', base)
         base = re.sub(r':.*$', '', base)
         # llama.cpp: Remove size like -14b, -4b, -30b and everything after
-        base = re.sub(r'-\d+\.?\d*b[-_].*$', '', base)
+        base = re.sub(r'-\d+\.?\d*b([-_].*)?$', '', base)
         # Remove quantization suffixes like -q4_k_m, -q8_0 etc.
         base = re.sub(r'[-_]q\d+.*$', '', base)
         # Remove version suffixes like -instruct, -chat, -latest, -thinking, -a3b, -2507 etc.

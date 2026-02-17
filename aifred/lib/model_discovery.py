@@ -14,6 +14,7 @@ from typing import Dict, Optional
 import httpx
 
 from .logging_utils import log_message
+from .model_manager import sort_models_grouped
 
 
 def discover_huggingface_models(
@@ -125,14 +126,16 @@ def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[st
     """
     Discover models from llama-swap via OpenAI-compatible /v1/models endpoint.
 
-    Enriches display labels with GGUF file sizes from llama-swap YAML config.
+    Display format matches Ollama: model_id + file size.
+    llama-swap keys are already descriptive (e.g., "qwen3-30b-a3b-instruct-2507-q8_0").
 
     Args:
         backend_url: llama-swap URL with /v1 suffix (e.g., "http://localhost:8080/v1")
         timeout: Request timeout in seconds (higher because llama-swap may cold-start)
 
     Returns:
-        Dict mapping model_id to display label (with size, e.g., "Model-Name (8.4 GB)")
+        Dict mapping model_id to display label
+        e.g., {"qwen3-30b-a3b-instruct-2507-q8_0": "qwen3-30b-a3b-instruct-2507-q8_0 (30.3 GB)"}
     """
     endpoint = f'{backend_url}/models'
 
@@ -145,13 +148,13 @@ def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[st
         data = response.json()
         model_ids = [m['id'] for m in data.get("data", [])]
 
-        # Enrich with GGUF file sizes from llama-swap config
-        gguf_sizes = _get_llamacpp_model_sizes()
+        # Get file sizes from llama-swap config
+        model_sizes = _get_llamacpp_model_sizes()
 
         result = {}
         for mid in model_ids:
-            size_gb = gguf_sizes.get(mid)
-            if size_gb:
+            size_gb = model_sizes.get(mid)
+            if size_gb is not None:
                 result[mid] = f"{mid} ({size_gb:.1f} GB)"
             else:
                 result[mid] = mid
@@ -165,20 +168,18 @@ def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[st
 
 
 def _get_llamacpp_model_sizes() -> Dict[str, float]:
-    """Get GGUF file sizes for llama-swap models (for display labels)."""
-    from pathlib import Path
-
+    """Get GGUF file sizes for llama-swap models."""
     try:
         from .llamacpp_calibration import parse_llamaswap_config
         from .config import LLAMASWAP_CONFIG_PATH
 
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-        sizes = {}
+        result = {}
         for model_id, info in config.items():
             gguf_path = Path(info["gguf_path"])
             if gguf_path.exists():
-                sizes[model_id] = gguf_path.stat().st_size / (1024 ** 3)
-        return sizes
+                result[model_id] = gguf_path.stat().st_size / (1024 ** 3)
+        return result
     except Exception:
         return {}
 
@@ -197,26 +198,28 @@ def discover_models(
         is_compatible_fn: Required for vLLM/TabbyAPI backends
 
     Returns:
-        Dict mapping model_id to display label
+        Sorted dict mapping model_id to display label (by family, then size)
     """
     if backend_type in ["vllm", "tabbyapi"]:
         if not is_compatible_fn:
             raise ValueError("is_compatible_fn required for vLLM/TabbyAPI")
-        return discover_huggingface_models(backend_type, is_compatible_fn)
+        unsorted = discover_huggingface_models(backend_type, is_compatible_fn)
 
     elif backend_type == "koboldcpp":
-        return discover_gguf_models()
+        unsorted = discover_gguf_models()
 
     elif backend_type == "ollama":
         if not backend_url:
             raise ValueError("backend_url required for Ollama")
-        return discover_ollama_models(backend_url)
+        unsorted = discover_ollama_models(backend_url)
 
     elif backend_type == "llamacpp":
         if not backend_url:
             raise ValueError("backend_url required for llamacpp")
-        return discover_llamacpp_models(backend_url)
+        unsorted = discover_llamacpp_models(backend_url)
 
     else:
         log_message(f"⚠️ Unknown backend type: {backend_type}")
         return {}
+
+    return sort_models_grouped(unsorted)

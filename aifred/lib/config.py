@@ -164,10 +164,10 @@ BACKEND_DEFAULT_MODELS = {
         "vision_model": "",                                                # Vision: Not supported
     },
     "llamacpp": {
-        "aifred_model": "Qwen3-30B-A3B-Thinking-2507-Q4_K_M.gguf",        # AIfred Main-LLM: GGUF Q4_K_M, ~17.3GB (from ~/models/)
-        "automatik_model": "Qwen3-8B-Q4_K_M.gguf",                        # Automatik: GGUF Q4_K_M, ~4.7GB
-        "sokrates_model": "Qwen3-8B-Q4_K_M.gguf",                         # Sokrates: GGUF Q4_K_M, ~4.7GB
-        "salomo_model": "Qwen3-8B-Q4_K_M.gguf",                           # Salomo: GGUF Q4_K_M, ~4.7GB
+        "aifred_model": "qwen3-30b-a3b-instruct-2507-q8_0",               # AIfred Main-LLM: Q8_0, ~32GB (2x P40)
+        "automatik_model": "qwen3-4b-instruct-2507-q4_k_m",               # Automatik: Q4_K_M, ~2.6GB
+        "sokrates_model": "qwen3-8b-q4_k_m",                              # Sokrates: Q4_K_M, ~4.7GB
+        "salomo_model": "qwen3-8b-q4_k_m",                                # Salomo: Q4_K_M, ~4.7GB
         "vision_model": "",                                                # Vision: Auto-detect
     },
     "cloud_api": {
@@ -230,7 +230,7 @@ DEFAULT_LLAMACPP_URL = os.environ.get("LLAMACPP_URL", "http://localhost:8080/v1"
 LLAMASWAP_CONFIG_PATH = Path(os.environ.get(
     "LLAMASWAP_CONFIG", str(Path.home() / "llama-swap-config.yaml")
 ))
-LLAMACPP_HEALTH_TIMEOUT = 30      # Seconds until llama-server ready
+LLAMACPP_HEALTH_TIMEOUT = 120     # Seconds until llama-server ready (large models need 60-90s)
 LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "9999"))
 
 BACKEND_URLS = {

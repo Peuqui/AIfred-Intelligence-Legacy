@@ -113,56 +113,90 @@ def update_llamaswap_context(
     """
     Update the -c value in llama-swap YAML for a specific model.
 
-    Reads the YAML, replaces -c XXXX in the cmd string, writes back.
+    Uses regex on raw file content to preserve YAML formatting
+    (PyYAML's dump() destroys quoting style and line breaks).
     """
     if not config_path.exists():
         logger.error(f"llama-swap config not found: {config_path}")
         return False
 
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f)
-
-    if not config or "models" not in config:
-        return False
-
-    if model_id not in config["models"]:
+    # Check if model exists and if value already matches
+    config = parse_llamaswap_config(config_path)
+    model_info = config.get(model_id)
+    if not model_info:
         logger.error(f"Model {model_id} not found in llama-swap config")
         return False
 
-    cmd = config["models"][model_id].get("cmd", "")
+    if model_info["current_context"] == new_context:
+        logger.info(f"llama-swap config already up to date: {model_id} -c {new_context}")
+        return True
 
-    # Remove ALL -c XXXX occurrences, then append single clean value
-    cmd_without_c = re.sub(r'\s*-c\s+\d+', '', cmd)
-    new_cmd = f"{cmd_without_c} -c {new_context}"
+    content = config_path.read_text(encoding='utf-8')
+    new_content = _replace_context_in_model_block(content, model_id, new_context)
 
-    config["models"][model_id]["cmd"] = new_cmd
+    if new_content == content:
+        logger.error(f"Could not replace -c value for {model_id} in config")
+        return False
 
-    with open(config_path, 'w', encoding='utf-8') as f:
-        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
-
+    config_path.write_text(new_content, encoding='utf-8')
     logger.info(f"Updated llama-swap config: {model_id} → -c {new_context}")
     return True
 
 
+def _replace_context_in_model_block(content: str, model_id: str, new_context: int) -> str:
+    """Replace -c value in a specific model's cmd block, preserving formatting."""
+    lines = content.split('\n')
+    in_model_block = False
+    result_lines = []
+
+    for line in lines:
+        # Detect start of target model block (e.g., "  qwen3-30b-a3b:")
+        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
+            in_model_block = True
+        # Detect start of next model block (any other model key at same indent)
+        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
+            in_model_block = False
+
+        if in_model_block:
+            line = re.sub(r'-c\s+\d+', f'-c {new_context}', line)
+
+        result_lines.append(line)
+
+    return '\n'.join(result_lines)
+
+
 async def _start_llama_server(
-    llama_server_bin: Path,
-    gguf_path: Path,
+    full_cmd: str,
     context: int,
     port: int,
-    ngl: int = 99
 ) -> Optional[subprocess.Popen]:
-    """Start a llama-server process for calibration testing."""
-    cmd = [
-        str(llama_server_bin),
-        "--port", str(port),
-        "--model", str(gguf_path),
-        "-ngl", str(ngl),
-        "-c", str(context),
-    ]
+    """Start a llama-server process using original llama-swap cmd.
+
+    Replaces -c and --port/${PORT} in the original command,
+    preserving all GPU flags (tensor-split, flash-attn, mlock etc.).
+    Injects -np 1 and -fit off for stable calibration on Pascal GPUs.
+    """
+    import shlex
+
+    # Replace ${PORT} placeholder and --port value
+    cmd_str = full_cmd.replace("${PORT}", str(port))
+
+    # Replace -c value with test context
+    cmd_str = re.sub(r'(-c\s+)\d+', rf'\g<1>{context}', cmd_str)
+
+    # Inject calibration-safe flags if not already present
+    # -np 1: single slot (auto defaults to 4, wastes VRAM)
+    # -fit off: fitting routine crashes on Pascal with tight VRAM
+    if '-np ' not in cmd_str:
+        cmd_str = cmd_str.replace(' --port', ' -np 1 --port')
+    if '-fit ' not in cmd_str:
+        cmd_str = cmd_str.replace(' --port', ' -fit off --port')
+
+    args = shlex.split(cmd_str)
 
     try:
         process = subprocess.Popen(
-            cmd,
+            args,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -173,17 +207,16 @@ async def _start_llama_server(
         return None
 
 
-async def _wait_for_health(
+async def _wait_for_ready(
     port: int,
     timeout: float,
     process: subprocess.Popen
 ) -> bool:
-    """Wait for llama-server health endpoint to respond."""
+    """Wait for llama-server to be ready (health endpoint)."""
     url = f"http://localhost:{port}/health"
     start = asyncio.get_event_loop().time()
 
     while (asyncio.get_event_loop().time() - start) < timeout:
-        # Check if process crashed
         if process.poll() is not None:
             return False
 
@@ -200,6 +233,38 @@ async def _wait_for_health(
     return False
 
 
+async def _test_inference(
+    port: int,
+    process: subprocess.Popen,
+    timeout: float = 30.0,
+) -> bool:
+    """Test actual inference — health check alone is insufficient.
+
+    On tight VRAM, the server starts and passes health checks but crashes
+    on the first real request due to additional CUDA kernel allocations.
+    """
+    url = f"http://localhost:{port}/v1/chat/completions"
+    payload = {
+        "model": "test",
+        "messages": [{"role": "user", "content": "say ok"}],
+        "max_tokens": 2,
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=timeout)
+            if response.status_code == 200:
+                data = response.json()
+                # Verify we got actual content back
+                choices = data.get("choices", [])
+                if choices and choices[0].get("message", {}).get("content"):
+                    return True
+        return False
+    except Exception:
+        # Process may have crashed during inference
+        return False
+
+
 def _kill_process(process: subprocess.Popen) -> None:
     """Kill a llama-server process and wait for cleanup."""
     if process.poll() is None:
@@ -209,6 +274,34 @@ def _kill_process(process: subprocess.Popen) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=3)
+
+
+async def _calibration_test(
+    full_cmd: str,
+    context: int,
+    port: int,
+) -> bool:
+    """Full calibration test: start server → health check → real inference → cleanup.
+
+    Health check alone is insufficient: on tight VRAM, the server starts OK but
+    crashes on the first real inference request due to additional CUDA kernel
+    allocations. This function tests actual inference to confirm the context fits.
+    """
+    process = await _start_llama_server(full_cmd, context, port)
+    if not process:
+        return False
+
+    try:
+        # Phase 1: Wait for server to be ready
+        ready = await _wait_for_ready(port, LLAMACPP_HEALTH_TIMEOUT, process)
+        if not ready:
+            return False
+
+        # Phase 2: Test real inference (catches VRAM edge-case crashes)
+        return await _test_inference(port, process)
+    finally:
+        _kill_process(process)
+        await asyncio.sleep(1.5)  # Let VRAM settle before next test
 
 
 def _estimate_upper_bound(
@@ -228,8 +321,11 @@ def _estimate_upper_bound(
     if available_for_context_mb <= 0:
         return CALIBRATION_MIN_CONTEXT
 
-    # Conservative ratio: 0.15 MB/token for Q4 KV cache (FP16 KV)
-    mb_per_token = 0.15
+    # Conservative ratio based on P40 benchmarks (2026-02-17):
+    # Q8 KV + FA: ~0.08 MiB/token (4B: 0.075, 30B: 0.050)
+    # FP16 KV: ~0.14 MiB/token (4B: 0.141, 30B: 0.094)
+    # Use 0.08 as default (Q8 KV is now standard in llama-swap config)
+    mb_per_token = 0.08
     vram_estimated = int(available_for_context_mb / mb_per_token)
 
     # Cap at native context
@@ -261,9 +357,8 @@ def _save_calibration(
 async def calibrate_llamacpp_model(
     model_id: str,
     gguf_path: Path,
-    llama_server_bin: Path,
+    full_cmd: str,
     port: int = LLAMACPP_CALIBRATION_PORT,
-    ngl: int = 99
 ) -> AsyncIterator[str]:
     """
     Binary search calibration for a llama.cpp model.
@@ -322,48 +417,30 @@ async def calibrate_llamacpp_model(
     iteration = 0
     iteration += 1
     yield f"[{iteration}] Testing native max: {format_number(native_context)}..."
-    process = await _start_llama_server(
-        llama_server_bin, gguf_path, native_context, port, ngl
-    )
-    if process:
-        healthy = await _wait_for_health(port, LLAMACPP_HEALTH_TIMEOUT, process)
-        _kill_process(process)
-        await asyncio.sleep(1.0)
-
-        if healthy:
-            yield f"✓ Native context {format_number(native_context)} fits!"
-            result = native_context
-            _save_calibration(
-                model_id, result, native_context,
-                gguf_path, quantization, model_size_gb
-            )
-            yield f"__RESULT__:{result}"
-            return
-        else:
-            yield f"✗ {format_number(native_context)} too large"
+    fits = await _calibration_test(full_cmd, native_context, port)
+    if fits:
+        yield f"✓ Native context {format_number(native_context)} fits!"
+        result = native_context
+        _save_calibration(
+            model_id, result, native_context,
+            gguf_path, quantization, model_size_gb
+        )
+        yield f"__RESULT__:{result}"
+        return
+    else:
+        yield f"✗ {format_number(native_context)} too large"
 
     # Step 5: Try VRAM estimate as optimization (skip to good range)
     if vram_estimate < native_context and vram_estimate > low:
         iteration += 1
         yield f"[{iteration}] Testing VRAM estimate: {format_number(vram_estimate)}..."
-        process = await _start_llama_server(
-            llama_server_bin, gguf_path, vram_estimate, port, ngl
-        )
-        if process:
-            healthy = await _wait_for_health(port, LLAMACPP_HEALTH_TIMEOUT, process)
-            _kill_process(process)
-            await asyncio.sleep(1.0)
-
-            if healthy:
-                yield f"✓ {format_number(vram_estimate)} fits"
-                # VRAM estimate fits → search ABOVE it for true maximum
-                low = vram_estimate
-                result = vram_estimate
-            else:
-                yield f"✗ {format_number(vram_estimate)} too large"
-                high = vram_estimate
-                result = low
+        fits = await _calibration_test(full_cmd, vram_estimate, port)
+        if fits:
+            yield f"✓ {format_number(vram_estimate)} fits"
+            low = vram_estimate
+            result = vram_estimate
         else:
+            yield f"✗ {format_number(vram_estimate)} too large"
             high = vram_estimate
             result = low
     else:
@@ -381,17 +458,8 @@ async def calibrate_llamacpp_model(
 
         yield f"[{iteration}] Testing {format_number(mid)} (range: {format_number(low)}-{format_number(high)})..."
 
-        process = await _start_llama_server(llama_server_bin, gguf_path, mid, port, ngl)
-        if not process:
-            yield "✗ Failed to start llama-server"
-            high = mid
-            continue
-
-        healthy = await _wait_for_health(port, LLAMACPP_HEALTH_TIMEOUT, process)
-        _kill_process(process)
-        await asyncio.sleep(1.0)  # Let VRAM settle
-
-        if healthy:
+        fits = await _calibration_test(full_cmd, mid, port)
+        if fits:
             result = mid
             low = mid
             yield f"✓ {format_number(mid)} fits"

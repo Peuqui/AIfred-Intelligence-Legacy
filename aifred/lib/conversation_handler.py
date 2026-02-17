@@ -28,7 +28,7 @@ from .message_builder import (
     inject_rag_context,
     inject_vision_json_context
 )
-from .formatting import format_thinking_process, format_metadata, format_number, format_age
+from .formatting import format_thinking_process, format_number, format_age, build_inference_metadata
 # Cache system removed - will be replaced with Vector DB
 from .context_manager import estimate_tokens, strip_thinking_blocks
 from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
@@ -39,21 +39,6 @@ from .intent_detector import get_temperature_for_intent, get_temperature_label
 from .research import perform_agent_research
 import json
 import re
-
-
-def extract_model_name(model_display: str) -> str:
-    """
-    Extract pure model name from display format "model_name (X.X GB)".
-
-    Args:
-        model_display: Display name with size, e.g., "qwen3:4b (2.3 GB)"
-
-    Returns:
-        Pure model name, e.g., "qwen3:4b"
-    """
-    if " (" in model_display and model_display.endswith(")"):
-        return model_display.split(" (")[0]
-    return model_display
 
 
 async def _process_single_image_vision(
@@ -1261,10 +1246,6 @@ async def chat_interactive_mode(
     else:
         multimodal_user_content = None  # Text-only mode
 
-    # Extract pure model names from display format (e.g., "qwen3:4b (2.3 GB)" → "qwen3:4b")
-    model_choice = extract_model_name(model_choice)
-    automatik_model = extract_model_name(automatik_model)
-
     # Initialize LLM clients with correct backend
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
 
@@ -1782,8 +1763,9 @@ async def chat_interactive_mode(
                 final_num_ctx = get_ollama_calibration(model_choice, rope_factor) or 4096
                 yield {"type": "debug", "message": f"🎯 Context: {format_number(final_num_ctx)} (fallback)"}
 
-            # Get model max context for compact display
-            model_limit, _ = await llm_client.get_model_context_limit(model_choice)
+            # Get native context limit for display (local read, no API call!)
+            from .research.context_utils import get_model_native_context
+            model_limit = get_model_native_context(model_choice, backend_type)
 
             yield {"type": "debug", "message": "✅ System prompt created"}
 
@@ -1856,20 +1838,33 @@ async def chat_interactive_mode(
                     metrics = chunk["metrics"]
 
             inference_time = inference_timer.elapsed()
-
-            # Console: LLM finished (with history token count)
             tokens_generated = metrics.get("tokens_generated", 0)
             tokens_prompt = metrics.get("tokens_prompt", 0)
             tokens_per_sec = metrics.get("tokens_per_second", 0)
+
+            # Update llm_history BEFORE calculating history_tokens
+            # so "History: X tok" reflects the current conversation state (incl. AI response)
+            ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
+            if ai_text_clean:
+                llm_history.append({"role": "assistant", "content": f"[AIFRED]: {ai_text_clean}"})
+
+            # Centralized metadata (PP speed, debug log, chat bubble)
             from .context_manager import estimate_tokens_from_llm_history
             history_tokens = estimate_tokens_from_llm_history(llm_history)
-            history_suffix = f" | History: {format_number(history_tokens)} tok"
-            # Cloud APIs: Show output tokens + total (output for history, total for billing)
-            if backend_type == "cloud_api" and tokens_prompt > 0:
-                total_tokens = tokens_prompt + tokens_generated
-                yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} out / {format_number(total_tokens)} total, {format_number(tokens_per_sec, 1)} tok/s){history_suffix}"}
-            else:
-                yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(inference_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s){history_suffix}"}
+            source_label = f"Cache+LLM RAG ({model_choice})"
+
+            metadata_dict, metadata_display, debug_msg = build_inference_metadata(
+                ttft=ttft,
+                inference_time=inference_time,
+                tokens_generated=tokens_generated,
+                tokens_per_sec=tokens_per_sec,
+                source=source_label,
+                backend_metrics=metrics,
+                tokens_prompt=tokens_prompt,
+                history_tokens=history_tokens,
+                backend_type=backend_type,
+            )
+            yield {"type": "debug", "message": debug_msg}
 
             # VRAM Monitoring: Log and save measurement
             if vram_measurement is not None:
@@ -1906,35 +1901,23 @@ async def chat_interactive_mode(
             # Format <think> tags as collapsible for chat history (visible as collapsible!)
             thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time, tokens_per_sec=tokens_per_sec)
 
-            # AI response with timing + source (RAG) + model name
-            source_label = f"Cache+LLM RAG ({model_choice})"
-            ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
-            metadata_str = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
-            ai_with_source = f"{thinking_html}\n\n{metadata_str}"
+            # AI response with thinking collapsible + metadata
+            ai_with_source = f"{thinking_html}\n\n{metadata_display}"
 
             # Add AI response to histories (parallel: chat_history + llm_history)
             # User message was already added by state.py before calling this function
-            # Dict-based chat_history format
             history.append({
                 "role": "assistant",
                 "content": ai_with_source,
                 "agent": "aifred",
                 "mode": "rag",
                 "round_num": 0,
-                "metadata": {
-                    "ttft": ttft,
-                    "inference_time": inference_time,
-                    "tokens_per_sec": tokens_per_sec,
-                    "source": source_label
-                },
+                "metadata": metadata_dict,
                 "timestamp": datetime.datetime.now().isoformat(),
                 "has_audio": False,
                 "audio_urls_json": "[]"
             })
-            # llm_history: ai_text is raw LLM output, strip thinking blocks
-            ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
-            if ai_text_clean:
-                llm_history.append({"role": "assistant", "content": f"[AIFRED]: {ai_text_clean}"})
+            # llm_history already updated above (before metadata calculation)
 
             # Separator after LLM response block (end of unit)
             from .logging_utils import console_separator

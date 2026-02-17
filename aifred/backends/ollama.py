@@ -481,14 +481,17 @@ class OllamaBackend(LLMBackend):
                                     eval_count = data.get("eval_count", 0)
                                     eval_duration = data.get("eval_duration", 1)
                                     prompt_eval_count = data.get("prompt_eval_count", 0)
+                                    prompt_eval_duration = data.get("prompt_eval_duration", 0)
                                     tokens_per_second = (eval_count / (eval_duration / 1e9)) if eval_duration > 0 else 0
-                                    
+                                    prompt_per_second = (prompt_eval_count / (prompt_eval_duration / 1e9)) if prompt_eval_duration > 0 else 0
+
                                     yield {
                                         "type": "done",
                                         "metrics": {
                                             "tokens_prompt": prompt_eval_count,
                                             "tokens_generated": eval_count,
                                             "tokens_per_second": tokens_per_second,
+                                            "prompt_per_second": prompt_per_second,
                                             "inference_time": inference_time,
                                             "model": model
                                         }

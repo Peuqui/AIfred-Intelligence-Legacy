@@ -1038,6 +1038,23 @@ def get_llamacpp_calibrations(model_id: str) -> List[Dict[str, Any]]:
     return list(reversed(calibrations))
 
 
+def get_model_native_context_from_cache(model_id: str) -> Optional[int]:
+    """
+    Get native (architectural) context limit from VRAM cache.
+
+    This is the maximum context the model architecture supports,
+    stored during calibration. Works for all backends (Ollama, llama.cpp, vLLM).
+
+    Returns:
+        Native context in tokens, or None if not in cache
+    """
+    cache = load_cache()
+    if model_id not in cache:
+        return None
+    native = cache[model_id].get("native_context", 0)
+    return int(native) if native else None
+
+
 def delete_cached_model(model_id: str) -> bool:
     """Delete all cache data for a specific model"""
     cache = load_cache()

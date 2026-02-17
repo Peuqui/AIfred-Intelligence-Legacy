@@ -74,6 +74,11 @@ class LlamaCppBackend(LLMBackend):
             extra_body["repetition_penalty"] = options.repeat_penalty
         if options.top_k and options.top_k != 40:
             extra_body["top_k"] = options.top_k
+
+        # Thinking control: pass enable_thinking to Jinja chat template (PR #13196)
+        if options.enable_thinking is not None:
+            extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
+
         if extra_body:
             kwargs["extra_body"] = extra_body
 
@@ -145,6 +150,11 @@ class LlamaCppBackend(LLMBackend):
             extra_body["repetition_penalty"] = options.repeat_penalty
         if options.top_k and options.top_k != 40:
             extra_body["top_k"] = options.top_k
+
+        # Thinking control: pass enable_thinking to Jinja chat template (PR #13196)
+        if options.enable_thinking is not None:
+            extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
+
         if extra_body:
             kwargs["extra_body"] = extra_body
 
@@ -403,8 +413,7 @@ class LlamaCppBackend(LLMBackend):
         async for msg in calibrate_llamacpp_model(
             model_id=model,
             gguf_path=gguf_path,
-            llama_server_bin=Path(model_info["llama_server_bin"]),
-            ngl=model_info["ngl"],
+            full_cmd=model_info["full_cmd"],
         ):
             yield msg
 

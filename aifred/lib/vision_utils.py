@@ -126,22 +126,8 @@ async def is_vision_model(state, model_name: str) -> bool:
                         logger.info(f"✅ Vision model detected (GGUF): {model_name} (arch={arch}, tags={tags}, name={name})")
                         return True
 
-        # === LLAMACPP: Check GGUF metadata from llama-swap config, fallback to name ===
+        # === LLAMACPP: Name-based detection (llama-swap keys are descriptive) ===
         elif backend_type == "llamacpp":
-            from .llamacpp_calibration import parse_llamaswap_config
-            from .config import LLAMASWAP_CONFIG_PATH
-            from .gguf_utils_vision import is_vision_language_model
-
-            config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-            if model_name in config:
-                gguf_path = Path(config[model_name]["gguf_path"])
-                if gguf_path.exists():
-                    arch, tags, name = _get_gguf_vision_metadata(gguf_path)
-                    if is_vision_language_model(arch, tags=tags, name=name):
-                        logger.info(f"✅ Vision model detected (GGUF): {model_name} (arch={arch})")
-                        return True
-
-            # Fallback: name-based detection
             return _is_vision_model_by_name(model_name)
 
         # === vLLM/TabbyAPI: Check HuggingFace config.json ===

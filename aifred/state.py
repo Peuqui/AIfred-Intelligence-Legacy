@@ -17,8 +17,6 @@ from .lib import (
     set_language
 )
 from .lib.logging_utils import CONSOLE_SEPARATOR
-from .lib.formatting import format_debug_message
-from .lib.conversation_handler import extract_model_name
 from .lib.context_manager import strip_thinking_blocks
 from .lib import config
 from .lib.config import (
@@ -1033,7 +1031,6 @@ class AIState(rx.State):
                 self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)
 
                 # Load per-backend models (all 5 agents: AIfred, Automatik, Vision, Sokrates, Salomo)
-                from .lib.conversation_handler import extract_model_name
                 backend_models = saved_settings.get("backend_models", {})
                 if self.backend_id in backend_models:
                     backend_data = backend_models[self.backend_id]
@@ -1044,12 +1041,12 @@ class AIState(rx.State):
                     sokrates_raw = backend_data.get("sokrates_model", "")
                     salomo_raw = backend_data.get("salomo_model", "")
 
-                    # Extract pure IDs (handles both old "model (size)" and new "model" formats)
-                    self.aifred_model_id = extract_model_name(selected_raw)
-                    self.automatik_model_id = extract_model_name(automatik_raw)
-                    self.vision_model_id = extract_model_name(vision_raw)
-                    self.sokrates_model_id = extract_model_name(sokrates_raw)
-                    self.salomo_model_id = extract_model_name(salomo_raw)
+                    # Settings store pure model IDs (dict keys)
+                    self.aifred_model_id = selected_raw
+                    self.automatik_model_id = automatik_raw
+                    self.vision_model_id = vision_raw
+                    self.sokrates_model_id = sokrates_raw
+                    self.salomo_model_id = salomo_raw
 
                     # Load all model parameters from cache on startup (CRITICAL: prevents 400 errors!)
                     if self.backend_id == "ollama":
@@ -1426,20 +1423,19 @@ class AIState(rx.State):
             try:
                 # Discover models based on backend type
                 if self.backend_type in ["vllm", "tabbyapi"]:
-                    unsorted_dict = discover_models(
+                    self.available_models_dict = discover_models(
                         self.backend_type,
                         is_compatible_fn=is_backend_compatible
                     )
-                    self.available_models_dict = sort_models_grouped(unsorted_dict)
                     self.available_models = list(self.available_models_dict.values())
                     self.add_debug(f"📂 Found {len(self.available_models)} {self.backend_type}-compatible models")
 
                 elif self.backend_type == "koboldcpp":
                     self.add_debug("🔍 Searching for GGUF models on filesystem...")
-                    unsorted_dict = discover_models(self.backend_type)
+                    models_dict = discover_models(self.backend_type)
 
-                    if unsorted_dict:
-                        self.available_models_dict = sort_models_grouped(unsorted_dict)
+                    if models_dict:
+                        self.available_models_dict = models_dict
                         self.available_models = list(self.available_models_dict.values())
 
                         # Store full model info in global state for KoboldCPP
@@ -1464,19 +1460,41 @@ class AIState(rx.State):
 
                 elif self.backend_type == "llamacpp":
                     # llama.cpp via llama-swap: Query /v1/models
-                    unsorted_dict = discover_models(
+                    models_dict = discover_models(
                         self.backend_type,
                         backend_url=self.backend_url
                     )
-                    if unsorted_dict:
-                        self.available_models_dict = sort_models_grouped(unsorted_dict)
+                    if not models_dict:
+                        # Auto-start llama-swap service
+                        self.add_debug("⚠️ llama-swap not reachable, starting service...")
+                        try:
+                            import subprocess as _sp
+                            _is_system = _sp.run(
+                                ["systemctl", "cat", "llama-swap.service"],
+                                capture_output=True, timeout=5
+                            ).returncode == 0
+                            _cmd = ["systemctl"] if _is_system else ["systemctl", "--user"]
+                            _sp.run([*_cmd, "start", "llama-swap"], check=True, timeout=15)
+                            import asyncio
+                            await asyncio.sleep(2.0)
+                            models_dict = discover_models(
+                                self.backend_type,
+                                backend_url=self.backend_url
+                            )
+                            if models_dict:
+                                self.add_debug("✅ llama-swap auto-started")
+                        except Exception as e:
+                            self.add_debug(f"⚠️ Could not start llama-swap: {e}")
+
+                    if models_dict:
+                        self.available_models_dict = models_dict
                         self.available_models = list(self.available_models_dict.values())
                         self.add_debug(f"📂 Found {len(self.available_models)} llama.cpp models")
                     else:
                         self.available_models_dict = {}
                         self.available_models = []
                         self.add_debug(f"⚠️ llama-swap not reachable at {self.backend_url}")
-                        self.add_debug("💡 Start llama-swap: ./llama-swap --config config.yaml")
+                        self.add_debug("💡 Install llama-swap service or start manually")
 
                 elif self.backend_type == "cloud_api":
                     # Cloud APIs: Fetch models dynamically from API
@@ -1499,8 +1517,7 @@ class AIState(rx.State):
                                 await temp_backend.close()
 
                                 if models:
-                                    unsorted_dict = {m: m for m in models}
-                                    self.available_models_dict = sort_models_grouped(unsorted_dict)
+                                    self.available_models_dict = sort_models_grouped({m: m for m in models})
                                     self.available_models = list(self.available_models_dict.values())
                                     self.add_debug(f"☁️ {provider_config['name']}: {len(models)} models loaded")
                                 else:
@@ -1522,15 +1539,11 @@ class AIState(rx.State):
 
                 else:
                     # Ollama: Query server API
-                    unsorted_dict = discover_models(
+                    self.available_models_dict = discover_models(
                         self.backend_type,
                         backend_url=self.backend_url
                     )
-                    self.available_models_dict = sort_models_grouped(unsorted_dict)
                     self.available_models = list(self.available_models_dict.values())
-
-                # NEW: Sync deprecated display variables with IDs using dict lookup
-                # No more extract_model_name() needed - direct dict access!
 
                 # Check if saved model still exists in backend
                 self.add_debug(f"🔍 Checking: '{self.aifred_model_id}' available in {self.backend_type}?")
@@ -1658,6 +1671,36 @@ class AIState(rx.State):
             _global_backend_state["available_models"] = self.available_models
             _global_backend_state["available_models_dict"] = self.available_models_dict  # CRITICAL for vision dropdown!
             _global_backend_state["current_backend_label"] = self.current_backend_label
+
+            # === LOAD MODEL PARAMETERS FROM CACHE ===
+            # CRITICAL: Must run during backend switch too (not just initial on_load)!
+            # Without this, supports_thinking/max_context/is_hybrid retain values
+            # from the PREVIOUS backend, causing e.g. unnecessary think=True retries.
+            if self.backend_type == "ollama":
+                from .lib.model_vram_cache import get_model_parameters
+                for agent, model_id in [
+                    ("aifred", self.aifred_model_id),
+                    ("sokrates", self.sokrates_model_id),
+                    ("salomo", self.salomo_model_id),
+                ]:
+                    if model_id:
+                        params = get_model_parameters(model_id)
+                        setattr(self, f"{agent}_rope_factor", params["rope_factor"])
+                        setattr(self, f"{agent}_max_context", params["max_context"])
+                        setattr(self, f"{agent}_is_hybrid", params["is_hybrid"])
+                        setattr(self, f"{agent}_supports_thinking", params["supports_thinking"])
+            elif self.backend_type == "llamacpp":
+                from .lib.model_vram_cache import get_llamacpp_calibration, get_thinking_support_for_model
+                for agent, model_id in [
+                    ("aifred", self.aifred_model_id),
+                    ("sokrates", self.sokrates_model_id),
+                    ("salomo", self.salomo_model_id),
+                ]:
+                    if model_id:
+                        setattr(self, f"{agent}_rope_factor", 1.0)
+                        setattr(self, f"{agent}_max_context", get_llamacpp_calibration(model_id) or 0)
+                        setattr(self, f"{agent}_is_hybrid", False)
+                        setattr(self, f"{agent}_supports_thinking", get_thinking_support_for_model(model_id))
 
             # === DETECT VISION MODELS (metadata-based) ===
             self.add_debug("🔍 Detecting vision-capable models...")
@@ -1821,6 +1864,16 @@ class AIState(rx.State):
         except OSError:
             pass
 
+    def _resolve_model_id(self, display_label: str) -> str:
+        """Reverse lookup: find model_id (dict key) from display label."""
+        for model_id, label in self.available_models_dict.items():
+            if label == display_label:
+                return model_id
+        # Display label might already be a model_id (e.g., from settings)
+        if display_label in self.available_models_dict:
+            return display_label
+        return display_label
+
     def _show_model_calibration_info(self, model_id: str):
         """Show calibration info in debug console.
 
@@ -1959,17 +2012,25 @@ class AIState(rx.State):
         if "ttft" in metadata and metadata["ttft"]:
             parts.append(f"TTFT: {format_number(metadata['ttft'], 2)}s")
 
+        # PP speed (prompt processing)
+        prompt_per_sec = metadata.get("prompt_per_sec", 0)
+        if prompt_per_sec:
+            parts.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
+
         # Inference time
         if "inference_time" in metadata and metadata["inference_time"]:
             parts.append(f"Inference: {format_number(metadata['inference_time'], 1)}s")
 
-        # Tokens per second
+        # Tokens per second (generation)
         if "tokens_per_sec" in metadata and metadata["tokens_per_sec"]:
             parts.append(f"{format_number(metadata['tokens_per_sec'], 1)} tok/s")
 
-        # Source
+        # Source (with backend label if available)
         if "source" in metadata and metadata["source"]:
-            parts.append(f"Source: {metadata['source']}")
+            source = metadata["source"]
+            backend = metadata.get("backend_type", "")
+            source_display = f"{source} [{backend}]" if backend else source
+            parts.append(f"Source: {source_display}")
 
         if not parts:
             return ""
@@ -3245,6 +3306,21 @@ class AIState(rx.State):
             else:
                 self.add_debug("ℹ️ KoboldCPP server was not running")
 
+        elif old_backend == "llamacpp":
+            # Stop llama-swap service to free GPU VRAM
+            self.add_debug("🛑 Stopping llama-swap service...")
+            try:
+                import subprocess as _sp
+                _is_system = _sp.run(
+                    ["systemctl", "cat", "llama-swap.service"],
+                    capture_output=True, timeout=5
+                ).returncode == 0
+                _cmd = ["systemctl"] if _is_system else ["systemctl", "--user"]
+                _sp.run([*_cmd, "stop", "llama-swap"], check=True, timeout=15)
+                self.add_debug("✅ llama-swap service stopped")
+            except Exception as e:
+                self.add_debug(f"⚠️ Could not stop llama-swap: {e}")
+
     async def _maybe_run_multi_agent(
         self,
         user_msg: str,
@@ -3444,9 +3520,12 @@ class AIState(rx.State):
         from .lib.config import AUTOMATIK_LLM_NUM_CTX
         from .lib.formatting import format_number
         if self.automatik_model_id == self.aifred_model_id:
-            # Same model: use None (= don't send num_ctx, keep current context)
-            auto_num_ctx: int | None = None
-            log_message(f"🔧 Automatik = AIfred ({self.automatik_model_id}) → No num_ctx override (avoid reload)")
+            # Same model: MUST send same num_ctx as preload to prevent Ollama reload!
+            # Ollama uses MODEL DEFAULT (not currently loaded context) when num_ctx is omitted.
+            # Omitting num_ctx causes Ollama to reload with default → then main inference
+            # sends calibrated num_ctx → Ollama reloads AGAIN. Two unnecessary reloads!
+            auto_num_ctx: int | None = self.aifred_max_context if self.aifred_max_context else None
+            log_message(f"🔧 Automatik = AIfred ({self.automatik_model_id}) → num_ctx={auto_num_ctx} (match preload)")
 
             # Warning if AIfred context is below recommended Automatik threshold
             effective_ctx = self.aifred_max_context or 0
@@ -3804,11 +3883,8 @@ class AIState(rx.State):
                         automatik_num_ctx=auto_num_ctx
                     ):
                         # Handle Main-LLM items using NORMAL FLOW logic
-                        # (EXACT same pattern as normal flow in line 2029-2068)
                         if item["type"] == "debug":
-                            self.debug_messages.append(format_debug_message(item["message"]))
-                            if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
-                                self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
+                            self.add_debug(item["message"])
                             yield  # Update UI immediately for each debug message
 
                         elif item["type"] == "content":
@@ -3926,9 +4002,7 @@ class AIState(rx.State):
             ):
                 # Route messages based on type
                 if item["type"] == "debug":
-                    self.debug_messages.append(format_debug_message(item["message"]))
-                    if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
-                        self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
+                    self.add_debug(item["message"])
                     yield
 
                 elif item["type"] == "content":
@@ -7689,8 +7763,7 @@ class AIState(rx.State):
 
         old_model = self.aifred_model
         self.aifred_model = model
-        # CRITICAL: Sync aifred_model_id from display label
-        self.aifred_model_id = extract_model_name(model)
+        self.aifred_model_id = self._resolve_model_id(model)
         # Clear thinking mode warning when model changes
         self.thinking_mode_warning = ""
         self.add_debug(f"📝 AIfred-LLM: {model}")
@@ -7715,7 +7788,6 @@ class AIState(rx.State):
 
         # Check if switching to non-vision model with pending images
         if len(self.pending_images) > 0:
-            # Use ID directly - extract_model_name() not needed anymore
             if not await is_vision_model(self, self.aifred_model_id):
                 self.image_upload_warning = "⚠️ Selected model doesn't support images. Images will be ignored when sending."
             else:
@@ -8184,8 +8256,7 @@ class AIState(rx.State):
     def set_sokrates_model(self, model: str):
         """Set Sokrates LLM model for multi-agent debate"""
         self.sokrates_model = model
-        # Extract pure model ID (remove size suffix)
-        self.sokrates_model_id = extract_model_name(model)
+        self.sokrates_model_id = self._resolve_model_id(model)
 
         # Load all model parameters from cache (rope_factor, max_context, is_hybrid, supports_thinking)
         if self.backend_id == "ollama" and self.sokrates_model_id:
@@ -8212,8 +8283,7 @@ class AIState(rx.State):
     def set_salomo_model(self, model: str):
         """Set Salomo LLM model for multi-agent debate"""
         self.salomo_model = model
-        # Extract pure model ID (remove size suffix)
-        self.salomo_model_id = extract_model_name(model)
+        self.salomo_model_id = self._resolve_model_id(model)
 
         # Load all model parameters from cache (rope_factor, max_context, is_hybrid, supports_thinking)
         if self.backend_id == "ollama" and self.salomo_model_id:
@@ -8279,8 +8349,7 @@ class AIState(rx.State):
         """Set automatik model for decision and query optimization"""
         old_model = self.automatik_model
         self.automatik_model = model
-        # CRITICAL: Sync automatik_model_id from display label
-        self.automatik_model_id = extract_model_name(model)
+        self.automatik_model_id = self._resolve_model_id(model)
         self.add_debug(f"⚡ Automatic-LLM: {model}")
         # Show calibration info for Ollama models
         self._show_model_calibration_info(self.automatik_model_id)
@@ -8298,8 +8367,7 @@ class AIState(rx.State):
     async def set_vision_model(self, model: str):
         """Set vision model for OCR/image analysis"""
         self.vision_model = model
-        # CRITICAL: Sync vision_model_id from display label (fixes Vision-LLM using wrong model)
-        self.vision_model_id = extract_model_name(model)
+        self.vision_model_id = self._resolve_model_id(model)
         self.add_debug(f"👁️ Vision-LLM: {model}")
         # Show calibration info for Ollama models
         self._show_model_calibration_info(self.vision_model_id)

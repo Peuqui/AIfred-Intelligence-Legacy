@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 # Imports for the functions (same as original state.py methods)
 from .llm_client import LLMClient
 from .timer import Timer
-from .formatting import format_metadata, format_number, format_thinking_process
+from .formatting import format_number, format_thinking_process, build_inference_metadata
 from .message_builder import build_messages_from_llm_history
 from .i18n import t
 from .context_manager import (
@@ -264,22 +264,24 @@ async def _stream_sokrates_to_history(
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         audio_urls = await state._finalize_streaming_tts()
 
-    # Calculate final metrics
+    # Centralized metadata (PP speed, debug log, chat bubble)
     inference_time = timer.elapsed()
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
-    # Log completion metrics (include chars for complete info)
-    log_message(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
-    state.add_debug(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+    metadata_dict, metadata_display, debug_msg = build_inference_metadata(
+        ttft=ttft,
+        inference_time=inference_time,
+        tokens_generated=token_count,
+        tokens_per_sec=tokens_per_sec,
+        source=f"Sokrates ({model})",
+        backend_metrics=metrics,
+        tokens_prompt=metrics.get("tokens_prompt", 0),
+        agent_label="Sokrates",
+        response_chars=len(full_response),
+    )
+    state.add_debug(debug_msg)
     if audio_urls:
         log_message(f"🔊 Sokrates: {len(audio_urls)} audio URLs collected for message")
-
-    metadata = format_metadata(
-        f"TTFT: {format_number(ttft, 2)}s    "
-        f"Inference: {format_number(inference_time, 1)}s    "
-        f"{format_number(tokens_per_sec, 1)} tok/s    "
-        f"Source: Sokrates ({model})"
-    )
 
     # DUAL-HISTORY: Sync Sokrates response to llm_history
     # Agent responses are assistant messages with speaker label (NOT system!)
@@ -294,14 +296,9 @@ async def _stream_sokrates_to_history(
     # RETURN result as final yield (dict = result, None = UI update)
     yield {
         "text": full_response,
-        "metadata": metadata,
-        "metrics": {
-            "time": inference_time,
-            "tokens": token_count,
-            "tok_per_sec": tokens_per_sec,
-            "ttft": ttft
-        },
-        "audio_urls": audio_urls  # For message audio button
+        "metadata_display": metadata_display,
+        "metadata_dict": metadata_dict,
+        "audio_urls": audio_urls
     }
 
 
@@ -355,21 +352,24 @@ async def _stream_alfred_refinement(
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         audio_urls = await state._finalize_streaming_tts()
 
+    # Centralized metadata (PP speed, debug log, chat bubble)
     inference_time = timer.elapsed()
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
-    # Log completion metrics (include chars for complete info)
-    log_message(f"✅ AIfred Refinement done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
-    state.add_debug(f"✅ AIfred Refinement done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+    metadata_dict, metadata_display, debug_msg = build_inference_metadata(
+        ttft=ttft,
+        inference_time=inference_time,
+        tokens_generated=token_count,
+        tokens_per_sec=tokens_per_sec,
+        source=f"AIfred ({model})",
+        backend_metrics=metrics,
+        tokens_prompt=metrics.get("tokens_prompt", 0),
+        agent_label="AIfred Refinement",
+        response_chars=len(full_response),
+    )
+    state.add_debug(debug_msg)
     if audio_urls:
         log_message(f"🔊 AIfred Refinement: {len(audio_urls)} audio URLs collected for message")
-
-    metadata = format_metadata(
-        f"TTFT: {format_number(ttft, 2)}s    "
-        f"Inference: {format_number(inference_time, 1)}s    "
-        f"{format_number(tokens_per_sec, 1)} tok/s    "
-        f"Source: AIfred ({model})"
-    )
 
     # DUAL-HISTORY: Sync AIfred refinement to llm_history
     # Agent responses are assistant messages with speaker label (NOT system!)
@@ -380,9 +380,9 @@ async def _stream_alfred_refinement(
     # RETURN result as final yield (dict = result, None = UI update)
     yield {
         "text": full_response,
-        "metadata": metadata,
-        "metrics": {"time": inference_time, "tokens": token_count, "tok_per_sec": tokens_per_sec, "ttft": ttft},
-        "audio_urls": audio_urls  # For message audio button
+        "metadata_display": metadata_display,
+        "metadata_dict": metadata_dict,
+        "audio_urls": audio_urls
     }
 
     # Clear streaming state (cleanup)
@@ -441,34 +441,31 @@ async def _stream_salomo_to_history(
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         audio_urls = await state._finalize_streaming_tts()
 
-    # Calculate final metrics
+    # Centralized metadata (PP speed, debug log, chat bubble)
     inference_time = timer.elapsed()
     tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
-    # Log completion metrics (include chars for complete info)
-    log_message(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
-    state.add_debug(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+    metadata_dict, metadata_display, debug_msg = build_inference_metadata(
+        ttft=ttft,
+        inference_time=inference_time,
+        tokens_generated=token_count,
+        tokens_per_sec=tokens_per_sec,
+        source=f"Salomo ({model})",
+        backend_metrics=metrics,
+        tokens_prompt=metrics.get("tokens_prompt", 0),
+        agent_label="Salomo",
+        response_chars=len(full_response),
+    )
+    state.add_debug(debug_msg)
     if audio_urls:
         log_message(f"🔊 Salomo: {len(audio_urls)} audio URLs collected for message")
-
-    metadata = format_metadata(
-        f"TTFT: {format_number(ttft, 2)}s    "
-        f"Inference: {format_number(inference_time, 1)}s    "
-        f"{format_number(tokens_per_sec, 1)} tok/s    "
-        f"Source: Salomo ({model})"
-    )
 
     # RETURN result as final yield (dict = result, None = UI update)
     yield {
         "text": full_response,
-        "metadata": metadata,
-        "metrics": {
-            "time": inference_time,
-            "tokens": token_count,
-            "tok_per_sec": tokens_per_sec,
-            "ttft": ttft
-        },
-        "audio_urls": audio_urls  # For message audio button
+        "metadata_display": metadata_display,
+        "metadata_dict": metadata_dict,
+        "audio_urls": audio_urls
     }
 
     # DUAL-HISTORY: Sync Salomo response to llm_history
@@ -674,13 +671,22 @@ async def run_sokrates_direct_response(
         if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
             audio_urls = await state._finalize_streaming_tts()
 
-        # Calculate final metrics
+        # Centralized metadata (PP speed, debug log, chat bubble)
         inference_time = timer.elapsed()
         tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
-        # Log completion metrics (include chars for complete info)
-        log_message(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
-        state.add_debug(f"✅ Sokrates done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+        metadata_dict, metadata_display, debug_msg = build_inference_metadata(
+            ttft=sokrates_ttft,
+            inference_time=inference_time,
+            tokens_generated=token_count,
+            tokens_per_sec=tokens_per_sec,
+            source=f"Sokrates ({sokrates_model})",
+            backend_metrics=metrics,
+            tokens_prompt=metrics.get("tokens_prompt", 0),
+            agent_label="Sokrates",
+            response_chars=len(full_response),
+        )
+        state.add_debug(debug_msg)
         if audio_urls:
             log_message(f"🔊 Sokrates Direct: {len(audio_urls)} audio URLs collected for message")
 
@@ -692,17 +698,12 @@ async def run_sokrates_direct_response(
         )
 
         # Use centralized panel management (Dict-based chat_history - no index manipulation)
+        panel_meta = {**metadata_dict, "audio_urls": audio_urls}
         state.add_agent_panel(
             agent="sokrates",
             content=formatted_response,
             mode="direct",
-            metadata={
-                "ttft": sokrates_ttft,
-                "inference_time": inference_time,
-                "tokens_per_sec": tokens_per_sec,
-                "source": f"Sokrates ({sokrates_model})",
-                "audio_urls": audio_urls  # For message audio button
-            }
+            metadata=panel_meta
         )
 
         # Clear streaming state (cleanup)
@@ -860,13 +861,22 @@ async def run_salomo_direct_response(
         if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
             audio_urls = await state._finalize_streaming_tts()
 
-        # Calculate final metrics
+        # Centralized metadata (PP speed, debug log, chat bubble)
         inference_time = timer.elapsed()
         tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
-        # Log completion metrics (include chars for complete info)
-        log_message(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
-        state.add_debug(f"✅ Salomo done ({format_number(inference_time, 1)}s, {token_count} tok, {format_number(tokens_per_sec, 1)} tok/s, {len(full_response)} chars)")
+        metadata_dict, metadata_display, debug_msg = build_inference_metadata(
+            ttft=salomo_ttft,
+            inference_time=inference_time,
+            tokens_generated=token_count,
+            tokens_per_sec=tokens_per_sec,
+            source=f"Salomo ({salomo_model})",
+            backend_metrics=metrics,
+            tokens_prompt=metrics.get("tokens_prompt", 0),
+            agent_label="Salomo",
+            response_chars=len(full_response),
+        )
+        state.add_debug(debug_msg)
         if audio_urls:
             log_message(f"🔊 Salomo Direct: {len(audio_urls)} audio URLs collected for message")
 
@@ -878,17 +888,12 @@ async def run_salomo_direct_response(
         )
 
         # Use centralized panel management (Dict-based chat_history - no index manipulation)
+        panel_meta = {**metadata_dict, "audio_urls": audio_urls}
         state.add_agent_panel(
             agent="salomo",
             content=formatted_response,
             mode="direct",
-            metadata={
-                "ttft": salomo_ttft,
-                "inference_time": inference_time,
-                "tokens_per_sec": tokens_per_sec,
-                "source": f"Salomo ({salomo_model})",
-                "audio_urls": audio_urls  # For message audio button
-            }
+            metadata=panel_meta
         )
 
         # Clear streaming state (cleanup)
@@ -1119,33 +1124,28 @@ async def run_sokrates_analysis(
 
             # Extract Sokrates result from final yield
             sokrates_response_text = result["text"]
-            metadata = result["metadata"]
-            metrics = result["metrics"]
+            metadata_display = result["metadata_display"]
+            metadata_dict = result["metadata_dict"]
             audio_urls = result.get("audio_urls", [])
 
             # Format <think> tags as collapsible (if present)
             formatted_sokrates = format_thinking_process(
                 sokrates_response_text,
                 model_name=f"Sokrates ({sokrates_model})",
-                inference_time=metrics.get("time", 0)
+                inference_time=metadata_dict.get("inference_time", 0)
             )
 
             # Add Sokrates critique panel (centralized)
             # Note: _stream_sokrates_to_history already synced to llm_history (Line 259)
             # Mode: Use specific mode for devils_advocate, else generic critical_review
             sokrates_mode = "advocatus_diaboli" if state.multi_agent_mode == "devils_advocate" else "critical_review"
+            panel_meta = {**metadata_dict, "audio_urls": audio_urls}
             state.add_agent_panel(
                 agent="sokrates",
                 content=formatted_sokrates,
                 mode=sokrates_mode,
                 round_num=round_num,  # Always show round number for consistency
-                metadata={
-                    "ttft": metrics.get("ttft", 0),
-                    "inference_time": metrics.get("time", 0),
-                    "tokens_per_sec": metrics.get("tok_per_sec", 0),
-                    "source": f"Sokrates ({sokrates_model})",
-                    "audio_urls": audio_urls  # For message audio button
-                },
+                metadata=panel_meta,
                 sync_llm_history=False  # Already done by _stream_sokrates_to_history
             )
             state.sokrates_critique = sokrates_response_text  # Keep raw text for logic checks
@@ -1236,31 +1236,25 @@ async def run_sokrates_analysis(
 
                 # Extract Salomo result from final yield
                 salomo_response_text = salomo_result["text"]
-                salomo_metadata = salomo_result["metadata"]
-                salomo_metrics = salomo_result["metrics"]
+                salomo_metadata_dict = salomo_result["metadata_dict"]
                 salomo_audio_urls = salomo_result.get("audio_urls", [])
 
                 # Format <think> tags as collapsible
                 formatted_salomo = format_thinking_process(
                     salomo_response_text,
                     model_name=f"Salomo ({salomo_model})",
-                    inference_time=salomo_metrics.get("time", 0)
+                    inference_time=salomo_metadata_dict.get("inference_time", 0)
                 )
 
                 # Add Salomo synthesis panel (centralized)
                 # Note: _stream_salomo_to_history already synced to llm_history
+                salomo_panel_meta = {**salomo_metadata_dict, "audio_urls": salomo_audio_urls}
                 state.add_agent_panel(
                     agent="salomo",
                     content=formatted_salomo,
                     mode="synthesis",  # Uses salomo_synthesis_label via _get_mode_label
                     round_num=round_num,
-                    metadata={
-                        "ttft": salomo_metrics.get("ttft", 0),
-                        "inference_time": salomo_metrics.get("time", 0),
-                        "tokens_per_sec": salomo_metrics.get("tok_per_sec", 0),
-                        "source": f"Salomo ({salomo_model})",
-                        "audio_urls": salomo_audio_urls  # For message audio button
-                    },
+                    metadata=salomo_panel_meta,
                     sync_llm_history=False  # Already done by _stream_salomo_to_history
                 )
                 state.salomo_synthesis = salomo_response_text
@@ -1355,32 +1349,26 @@ async def run_sokrates_analysis(
 
                     # Extract refined answer from final yield
                     current_answer = alfred_result["text"]
-                    alfred_metadata = alfred_result["metadata"]
-                    alfred_metrics = alfred_result.get("metrics", {})
+                    alfred_metadata_dict = alfred_result.get("metadata_dict", {})
                     alfred_audio_urls = alfred_result.get("audio_urls", [])
 
                     # Format <think> tags as collapsible
                     formatted_alfred = format_thinking_process(
                         current_answer,
                         model_name=f"AIfred ({alfred_model})",
-                        inference_time=alfred_metrics.get("time", 0)
+                        inference_time=alfred_metadata_dict.get("inference_time", 0)
                     )
 
                     # Add Alfred refinement panel (centralized)
                     # Note: _stream_alfred_refinement already synced to llm_history
                     # IMPORTANT: AIfred Refinement happens AFTER Salomo R{n}, so it's part of R{n+1}
+                    alfred_panel_meta = {**alfred_metadata_dict, "audio_urls": alfred_audio_urls}
                     state.add_agent_panel(
                         agent="aifred",
                         content=formatted_alfred,
                         mode="refinement",
                         round_num=round_num + 1,
-                        metadata={
-                            "ttft": alfred_metrics.get("ttft", 0),
-                            "inference_time": alfred_metrics.get("time", 0),
-                            "tokens_per_sec": alfred_metrics.get("tok_per_sec", 0),
-                            "source": f"AIfred ({alfred_model})",
-                            "audio_urls": alfred_audio_urls  # For message audio button
-                        },
+                        metadata=alfred_panel_meta,
                         sync_llm_history=False  # Already done by _stream_alfred_refinement
                     )
                     yield
@@ -1586,28 +1574,23 @@ async def run_tribunal(
 
             # Extract Sokrates result from final yield
             sokrates_response_text = result["text"]
-            metrics = result["metrics"]
+            metadata_dict = result["metadata_dict"]
             audio_urls = result.get("audio_urls", [])
 
             formatted_sokrates = format_thinking_process(
                 sokrates_response_text,
                 model_name=f"Sokrates ({sokrates_model})",
-                inference_time=metrics.get("time", 0)
+                inference_time=metadata_dict.get("inference_time", 0)
             )
             # Add Sokrates tribunal panel (centralized)
             # Note: _stream_sokrates_to_history already synced to llm_history
+            panel_meta = {**metadata_dict, "audio_urls": audio_urls}
             state.add_agent_panel(
                 agent="sokrates",
                 content=formatted_sokrates,
                 mode="tribunal",
                 round_num=round_num,
-                metadata={
-                    "ttft": metrics.get("ttft", 0),
-                    "inference_time": metrics.get("time", 0),
-                    "tokens_per_sec": metrics.get("tok_per_sec", 0),
-                    "source": f"Sokrates ({sokrates_model})",
-                    "audio_urls": audio_urls  # For message audio button
-                },
+                metadata=panel_meta,
                 sync_llm_history=False  # Already done by _stream_sokrates_to_history
             )
             state.sokrates_critique = sokrates_response_text
@@ -1670,30 +1653,25 @@ async def run_tribunal(
 
                 # Extract Alfred result from final yield
                 current_answer = alfred_result["text"]
-                alfred_metrics = alfred_result.get("metrics", {})
+                alfred_metadata_dict = alfred_result.get("metadata_dict", {})
                 alfred_audio_urls = alfred_result.get("audio_urls", [])
 
                 formatted_alfred = format_thinking_process(
                     current_answer,
                     model_name=f"AIfred ({alfred_model})",
-                    inference_time=alfred_metrics.get("time", 0)
+                    inference_time=alfred_metadata_dict.get("inference_time", 0)
                 )
 
                 # Add Alfred tribunal panel (centralized)
                 # Note: _stream_alfred_refinement already synced to llm_history
                 # IMPORTANT: AIfred responds AFTER Sokrates R{n}, so it's part of R{n+1}
+                alfred_panel_meta = {**alfred_metadata_dict, "audio_urls": alfred_audio_urls}
                 state.add_agent_panel(
                     agent="aifred",
                     content=formatted_alfred,
                     mode="tribunal",
                     round_num=round_num + 1,
-                    metadata={
-                        "ttft": alfred_metrics.get("ttft", 0),
-                        "inference_time": alfred_metrics.get("time", 0),
-                        "tokens_per_sec": alfred_metrics.get("tok_per_sec", 0),
-                        "source": f"AIfred ({alfred_model})",
-                        "audio_urls": alfred_audio_urls  # For message audio button
-                    },
+                    metadata=alfred_panel_meta,
                     sync_llm_history=False  # Already done by _stream_alfred_refinement
                 )
                 yield
@@ -1748,33 +1726,28 @@ async def run_tribunal(
 
         # Extract Salomo result from final yield
         salomo_response_text = salomo_result["text"]
-        salomo_metrics = salomo_result["metrics"]
+        salomo_metadata_dict = salomo_result["metadata_dict"]
         salomo_audio_urls = salomo_result.get("audio_urls", [])
 
         state.add_debug(
             f"👑 Salomo Verdict: {len(salomo_response_text)} chars, "
-            f"{salomo_metrics['tok_per_sec']:.1f} tok/s"
+            f"{format_number(salomo_metadata_dict.get('tokens_per_sec', 0), 1)} tok/s"
         )
 
         formatted_salomo = format_thinking_process(
             salomo_response_text,
             model_name=f"Salomo ({salomo_model})",
-            inference_time=salomo_metrics.get("time", 0)
+            inference_time=salomo_metadata_dict.get("inference_time", 0)
         )
         # Add Salomo verdict panel (centralized)
         # Note: _stream_salomo_to_history already synced to llm_history
+        salomo_panel_meta = {**salomo_metadata_dict, "audio_urls": salomo_audio_urls}
         state.add_agent_panel(
             agent="salomo",
             content=formatted_salomo,
             mode="verdict",  # Uses salomo_verdict_label via _get_mode_label
             round_num=max_rounds,  # Verdict belongs to final debate round
-            metadata={
-                "ttft": salomo_metrics.get("ttft", 0),
-                "inference_time": salomo_metrics.get("time", 0),
-                "tokens_per_sec": salomo_metrics.get("tok_per_sec", 0),
-                "source": f"Salomo ({salomo_model})",
-                "audio_urls": salomo_audio_urls  # For message audio button
-            },
+            metadata=salomo_panel_meta,
             sync_llm_history=False  # Already done by _stream_salomo_to_history
         )
         state.salomo_synthesis = salomo_response_text
