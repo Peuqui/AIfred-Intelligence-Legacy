@@ -2861,9 +2861,10 @@ def settings_accordion() -> rx.Component:
                     align="center",
                 ),
 
-                # AIfred RoPE Scaling - Only visible for Ollama
+                # AIfred RoPE + Personality + Reasoning (Ollama: all in one row, others: toggles only)
                 rx.cond(
                     AIState.backend_id == "ollama",
+                    # Ollama: RoPE + Personality + Reasoning in one row
                     rx.hstack(
                         rx.text("  └─ RoPE:", font_size="10px", color="gray"),
                         rx.select.root(
@@ -2877,7 +2878,6 @@ def settings_accordion() -> rx.Component:
                             on_change=AIState.set_aifred_rope_factor,
                             size="1",
                         ),
-                        # 🎩 AIfred Personality Toggle
                         rx.tooltip(
                             rx.hstack(
                                 rx.text("🎩", font_size="14px"),
@@ -2893,7 +2893,41 @@ def settings_accordion() -> rx.Component:
                             ),
                             content=t("personality_aifred_tooltip"),
                         ),
-                        # 💭 AIfred Reasoning Toggle
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("💭", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_reasoning,
+                                    on_change=lambda _: AIState.toggle_aifred_reasoning(),
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="surface",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            content=t("reasoning_tooltip"),
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
+                    # Other backends: Personality + Reasoning only
+                    rx.hstack(
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("🎩", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_personality,
+                                    on_change=lambda _: AIState.toggle_aifred_personality(),
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="surface",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            content=t("personality_aifred_tooltip"),
+                        ),
                         rx.tooltip(
                             rx.hstack(
                                 rx.text("💭", font_size="14px"),
@@ -2952,56 +2986,93 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
-                # Sokrates RoPE Scaling - Only visible for Ollama and multi-agent mode != standard
+                # Sokrates RoPE + Personality + Reasoning (multi-agent only)
                 rx.cond(
-                    (AIState.backend_id == "ollama") & (AIState.multi_agent_mode != "standard") & AIState.backend_supports_dynamic_models,
-                    rx.hstack(
-                        rx.text("  └─ RoPE:", font_size="10px", color="gray"),
-                        rx.select.root(
-                            rx.select.trigger(placeholder=AIState.sokrates_rope_display),
-                            rx.select.content(
-                                rx.select.item("1.0x", value="1.0x"),
-                                rx.select.item("1.5x", value="1.5x"),
-                                rx.select.item("2.0x", value="2.0x"),
-                            ),
-                            value=AIState.sokrates_rope_display,
-                            on_change=AIState.set_sokrates_rope_factor,
-                            size="1",
-                        ),
-                        # 🏛️ Sokrates Personality Toggle
-                        rx.tooltip(
-                            rx.hstack(
-                                rx.text("🏛️", font_size="14px"),
-                                rx.checkbox(
-                                    checked=AIState.sokrates_personality,
-                                    on_change=lambda _: AIState.toggle_sokrates_personality(),
-                                    size="1",
-                                    color_scheme="orange",
-                                    variant="surface",
+                    (AIState.multi_agent_mode != "standard") & AIState.backend_supports_dynamic_models,
+                    rx.cond(
+                        AIState.backend_id == "ollama",
+                        # Ollama: RoPE + Personality + Reasoning in one row
+                        rx.hstack(
+                            rx.text("  └─ RoPE:", font_size="10px", color="gray"),
+                            rx.select.root(
+                                rx.select.trigger(placeholder=AIState.sokrates_rope_display),
+                                rx.select.content(
+                                    rx.select.item("1.0x", value="1.0x"),
+                                    rx.select.item("1.5x", value="1.5x"),
+                                    rx.select.item("2.0x", value="2.0x"),
                                 ),
-                                spacing="1",
-                                align="center",
+                                value=AIState.sokrates_rope_display,
+                                on_change=AIState.set_sokrates_rope_factor,
+                                size="1",
                             ),
-                            content=t("personality_sokrates_tooltip"),
-                        ),
-                        # 💭 Sokrates Reasoning Toggle
-                        rx.tooltip(
-                            rx.hstack(
-                                rx.text("💭", font_size="14px"),
-                                rx.checkbox(
-                                    checked=AIState.sokrates_reasoning,
-                                    on_change=lambda _: AIState.toggle_sokrates_reasoning(),
-                                    size="1",
-                                    color_scheme="orange",
-                                    variant="surface",
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("🏛️", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_personality,
+                                        on_change=lambda _: AIState.toggle_sokrates_personality(),
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
                                 ),
-                                spacing="1",
-                                align="center",
+                                content=t("personality_sokrates_tooltip"),
                             ),
-                            content=t("reasoning_tooltip"),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("💭", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_reasoning,
+                                        on_change=lambda _: AIState.toggle_sokrates_reasoning(),
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("reasoning_tooltip"),
+                            ),
+                            spacing="2",
+                            align="center",
                         ),
-                        spacing="2",
-                        align="center",
+                        # Other backends: Personality + Reasoning only
+                        rx.hstack(
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("🏛️", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_personality,
+                                        on_change=lambda _: AIState.toggle_sokrates_personality(),
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("personality_sokrates_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("💭", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_reasoning,
+                                        on_change=lambda _: AIState.toggle_sokrates_reasoning(),
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("reasoning_tooltip"),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
                     ),
                 ),
 
@@ -3043,56 +3114,93 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
-                # Salomo RoPE Scaling - Only visible for Ollama and auto_consensus/tribunal modes
+                # Salomo RoPE + Personality + Reasoning (consensus/tribunal only)
                 rx.cond(
-                    (AIState.backend_id == "ollama") & ((AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal")) & AIState.backend_supports_dynamic_models,
-                    rx.hstack(
-                        rx.text("  └─ RoPE:", font_size="10px", color="gray"),
-                        rx.select.root(
-                            rx.select.trigger(placeholder=AIState.salomo_rope_display),
-                            rx.select.content(
-                                rx.select.item("1.0x", value="1.0x"),
-                                rx.select.item("1.5x", value="1.5x"),
-                                rx.select.item("2.0x", value="2.0x"),
-                            ),
-                            value=AIState.salomo_rope_display,
-                            on_change=AIState.set_salomo_rope_factor,
-                            size="1",
-                        ),
-                        # 👑 Salomo Personality Toggle
-                        rx.tooltip(
-                            rx.hstack(
-                                rx.text("👑", font_size="14px"),
-                                rx.checkbox(
-                                    checked=AIState.salomo_personality,
-                                    on_change=lambda _: AIState.toggle_salomo_personality(),
-                                    size="1",
-                                    color_scheme="orange",
-                                    variant="surface",
+                    ((AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal")) & AIState.backend_supports_dynamic_models,
+                    rx.cond(
+                        AIState.backend_id == "ollama",
+                        # Ollama: RoPE + Personality + Reasoning in one row
+                        rx.hstack(
+                            rx.text("  └─ RoPE:", font_size="10px", color="gray"),
+                            rx.select.root(
+                                rx.select.trigger(placeholder=AIState.salomo_rope_display),
+                                rx.select.content(
+                                    rx.select.item("1.0x", value="1.0x"),
+                                    rx.select.item("1.5x", value="1.5x"),
+                                    rx.select.item("2.0x", value="2.0x"),
                                 ),
-                                spacing="1",
-                                align="center",
+                                value=AIState.salomo_rope_display,
+                                on_change=AIState.set_salomo_rope_factor,
+                                size="1",
                             ),
-                            content=t("personality_salomo_tooltip"),
-                        ),
-                        # 💭 Salomo Reasoning Toggle
-                        rx.tooltip(
-                            rx.hstack(
-                                rx.text("💭", font_size="14px"),
-                                rx.checkbox(
-                                    checked=AIState.salomo_reasoning,
-                                    on_change=lambda _: AIState.toggle_salomo_reasoning(),
-                                    size="1",
-                                    color_scheme="orange",
-                                    variant="surface",
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("👑", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_personality,
+                                        on_change=lambda _: AIState.toggle_salomo_personality(),
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
                                 ),
-                                spacing="1",
-                                align="center",
+                                content=t("personality_salomo_tooltip"),
                             ),
-                            content=t("reasoning_tooltip"),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("💭", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_reasoning,
+                                        on_change=lambda _: AIState.toggle_salomo_reasoning(),
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("reasoning_tooltip"),
+                            ),
+                            spacing="2",
+                            align="center",
                         ),
-                        spacing="2",
-                        align="center",
+                        # Other backends: Personality + Reasoning only
+                        rx.hstack(
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("👑", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_personality,
+                                        on_change=lambda _: AIState.toggle_salomo_personality(),
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("personality_salomo_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("💭", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_reasoning,
+                                        on_change=lambda _: AIState.toggle_salomo_reasoning(),
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("reasoning_tooltip"),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
                     ),
                 ),
 
