@@ -337,6 +337,37 @@ async def _test_inference(
         return False
 
 
+async def test_thinking_on_port(port: int) -> bool:
+    """Test reasoning capability directly against a running llama-server.
+
+    Used during calibration to avoid reloading the model through llama-swap.
+    Checks if the model produces reasoning_content (OpenAI-compatible thinking).
+    """
+    url = f"http://localhost:{port}/v1/chat/completions"
+    payload = {
+        "model": "test",
+        "messages": [{"role": "user", "content": "What is 2+3? Think step by step."}],
+        "max_tokens": 200,
+        "temperature": 0.6,
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=30.0)
+            if response.status_code != 200:
+                return False
+            data = response.json()
+            choices = data.get("choices", [])
+            if not choices:
+                return False
+            msg = choices[0].get("message", {})
+            content = msg.get("content", "")
+            reasoning = msg.get("reasoning_content", "")
+            return bool(reasoning) or "<think>" in content
+    except Exception:
+        return False
+
+
 def _kill_process(process: subprocess.Popen) -> None:
     """Kill a llama-server process and wait for cleanup."""
     if process.poll() is None:
@@ -701,7 +732,8 @@ async def calibrate_llamacpp_model(
         yield "__RESULT__:0:0:error"
         return
 
-    model_size_gb = gguf_path.stat().st_size / (1024 ** 3)
+    from .gguf_utils import get_gguf_total_size
+    model_size_gb = get_gguf_total_size(gguf_path) / (1024 ** 3)
     quantization = extract_quantization_from_filename(gguf_path.name)
 
     yield (
@@ -733,6 +765,26 @@ async def calibrate_llamacpp_model(
         f"VRAM estimate: {format_number(vram_estimate)}"
     )
 
+    # Helper: start server with final context, test thinking, yield result
+    async def _finish_calibration(ctx: int, ngl: int, mode: str):
+        """Start server once with final context, test thinking, emit result."""
+        _save_calibration(
+            model_id, ctx, native_context,
+            gguf_path, quantization, model_size_gb
+        )
+        # Start server with calibrated context for thinking test
+        process = await _start_llama_server(full_cmd, ctx, port, ngl=ngl if ngl != 99 else None)
+        thinks = False
+        if process:
+            ready = await _wait_for_ready(port, LLAMACPP_HEALTH_TIMEOUT, process)
+            if ready:
+                yield "Testing reasoning capability..."
+                thinks = await test_thinking_on_port(port)
+                yield f"{'✓' if thinks else '✗'} Reasoning: {'yes' if thinks else 'no'}"
+            _kill_process(process)
+            await asyncio.sleep(1.5)
+        yield f"__RESULT__:{ctx}:{ngl}:{mode}:{'thinks' if thinks else 'nothink'}"
+
     # === PHASE 1: GPU-only calibration (ngl=99) ===
     yield "Phase 1: GPU-only calibration (ngl=99)"
 
@@ -743,12 +795,8 @@ async def calibrate_llamacpp_model(
     fits = await _calibration_test(full_cmd, native_context, port)
     if fits:
         yield f"✓ Native context {format_number(native_context)} fits!"
-        result = native_context
-        _save_calibration(
-            model_id, result, native_context,
-            gguf_path, quantization, model_size_gb
-        )
-        yield f"__RESULT__:{result}:99:gpu"
+        async for msg in _finish_calibration(native_context, 99, "gpu"):
+            yield msg
         return
     else:
         yield f"✗ {format_number(native_context)} too large"
@@ -823,15 +871,11 @@ async def calibrate_llamacpp_model(
                 if hybrid_msg.startswith("__RESULT__:"):
                     return
 
-    # Step 7: Save GPU-only result
-    _save_calibration(
-        model_id, result, native_context,
-        gguf_path, quantization, model_size_gb
-    )
-
+    # Step 7: Final test with thinking check
     yield (
         f"Calibration complete: {format_number(result)} tokens "
         f"(native: {format_number(native_context)}, "
         f"{iteration} iterations)"
     )
-    yield f"__RESULT__:{result}:99:gpu"
+    async for msg in _finish_calibration(result, 99, "gpu"):
+        yield msg

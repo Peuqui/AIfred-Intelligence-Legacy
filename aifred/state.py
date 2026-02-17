@@ -7100,9 +7100,11 @@ class AIState(rx.State):
             yield
 
             # Step 2: Run calibration (Phase 1: GPU-only, Phase 2: Hybrid if needed)
+            # Result format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}
             calibrated_ctx = None
             calibrated_ngl = 99
             calibrated_mode = "gpu"
+            thinking_tested = False
             async for progress_msg in backend.calibrate_max_context_generator(
                 self.aifred_model_id
             ):
@@ -7111,6 +7113,9 @@ class AIState(rx.State):
                     calibrated_ctx = int(parts[1])
                     calibrated_ngl = int(parts[2]) if len(parts) > 2 else 99
                     calibrated_mode = parts[3] if len(parts) > 3 else "gpu"
+                    if len(parts) > 4:
+                        thinking_tested = True
+                        supports_thinking = parts[4] == "thinks"
                 else:
                     self.add_debug(f"📊 {progress_msg}")
                     yield
@@ -7153,7 +7158,7 @@ class AIState(rx.State):
                     self.add_debug("⚠️ Could not update -ngl in llama-swap config")
             yield
 
-            # Step 5: Restart llama-swap (needed for thinking test)
+            # Step 5: Restart llama-swap
             self.add_debug("🔄 Restarting llama-swap service...")
             try:
                 subprocess.run(
@@ -7166,13 +7171,21 @@ class AIState(rx.State):
                 self.add_debug("⚠️ Could not restart llama-swap")
             yield
 
-            # Wait for llama-swap to be ready
-            import asyncio
-            await asyncio.sleep(2.0)
-
-            # Step 6: Test thinking (shared with Ollama)
-            async for _ in self._test_and_save_thinking(backend, self.aifred_model_id):
-                yield
+            # Step 6: Save thinking result (already tested during calibration)
+            if thinking_tested:
+                from .lib.model_vram_cache import set_thinking_support_for_model
+                set_thinking_support_for_model(self.aifred_model_id, supports_thinking)
+                self.aifred_supports_thinking = supports_thinking
+                self.add_debug(
+                    f"🧠 Reasoning: {'yes' if supports_thinking else 'no'} "
+                    f"(tested during calibration)"
+                )
+            else:
+                # Fallback: test via llama-swap (hybrid mode or old format)
+                import asyncio
+                await asyncio.sleep(2.0)
+                async for _ in self._test_and_save_thinking(backend, self.aifred_model_id):
+                    yield
 
             self.add_debug(CONSOLE_SEPARATOR)
 

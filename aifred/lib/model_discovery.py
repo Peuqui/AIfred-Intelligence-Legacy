@@ -149,7 +149,8 @@ def _get_llamacpp_model_sizes() -> Dict[str, float]:
         for model_id, info in config.items():
             gguf_path = Path(info["gguf_path"])
             if gguf_path.exists():
-                result[model_id] = gguf_path.stat().st_size / (1024 ** 3)
+                from .gguf_utils import get_gguf_total_size
+                result[model_id] = get_gguf_total_size(gguf_path) / (1024 ** 3)
         return result
     except Exception:
         return {}

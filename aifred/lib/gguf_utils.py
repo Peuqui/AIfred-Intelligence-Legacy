@@ -35,6 +35,39 @@ class GGUFModelInfo:
         return f"GGUFModelInfo(name='{self.name}', size={self.size_gb:.1f}GB, quant={self.quantization})"
 
 
+def get_gguf_total_size(gguf_path: Path) -> int:
+    """
+    Get total file size for a GGUF model, including all split parts.
+
+    Split GGUFs follow the pattern: model-00001-of-00002.gguf, model-00002-of-00002.gguf
+    This function detects split files and sums all parts.
+
+    Args:
+        gguf_path: Path to GGUF file (first part for split GGUFs)
+
+    Returns:
+        Total size in bytes across all parts
+    """
+    import re
+
+    name = gguf_path.name
+    # Match split pattern: *-00001-of-NNNNN.gguf
+    match = re.match(r'^(.+)-(\d{5})-of-(\d{5})\.gguf$', name)
+    if not match:
+        return gguf_path.stat().st_size
+
+    prefix = match.group(1)
+    total_parts = int(match.group(3))
+    total_size = 0
+    for i in range(1, total_parts + 1):
+        part_path = gguf_path.parent / f"{prefix}-{i:05d}-of-{total_parts:05d}.gguf"
+        if part_path.exists():
+            total_size += part_path.stat().st_size
+        else:
+            logger.warning(f"Split GGUF part missing: {part_path}")
+    return total_size
+
+
 def is_gguf_file(file_path: Path) -> bool:
     """
     Check if file is GGUF format by reading magic bytes
