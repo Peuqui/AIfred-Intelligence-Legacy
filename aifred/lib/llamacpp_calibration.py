@@ -664,19 +664,13 @@ async def _calibrate_hybrid(
             ctx_high = ctx_mid
             yield f"✗ ctx={format_number(ctx_mid)} too large"
 
-    # Save result
-    _save_calibration(
-        model_id, best_ctx, native_context,
-        gguf_path, quantization, model_size_gb,
-        ngl=best_ngl, mode="hybrid"
-    )
-
     yield (
         f"Hybrid calibration complete: ngl={best_ngl}, "
         f"ctx={format_number(best_ctx)} tokens "
         f"({total_layers - best_ngl} layers on CPU, {iteration} iterations)"
     )
-    yield f"__RESULT__:{best_ctx}:{best_ngl}:hybrid"
+    # Signal result to caller (not __RESULT__ — caller handles _finish_calibration)
+    yield f"__HYBRID__:{best_ctx}:{best_ngl}"
 
 
 def _save_calibration(
@@ -770,7 +764,8 @@ async def calibrate_llamacpp_model(
         """Start server once with final context, test thinking, emit result."""
         _save_calibration(
             model_id, ctx, native_context,
-            gguf_path, quantization, model_size_gb
+            gguf_path, quantization, model_size_gb,
+            ngl=ngl, mode=mode
         )
         # Start server with calibrated context for thinking test
         process = await _start_llama_server(full_cmd, ctx, port, ngl=ngl if ngl != 99 else None)
@@ -780,7 +775,6 @@ async def calibrate_llamacpp_model(
             if ready:
                 yield "Testing reasoning capability..."
                 thinks = await test_thinking_on_port(port)
-                yield f"{'✓' if thinks else '✗'} Reasoning: {'yes' if thinks else 'no'}"
             _kill_process(process)
             await asyncio.sleep(1.5)
         yield f"__RESULT__:{ctx}:{ngl}:{mode}:{'thinks' if thinks else 'nothink'}"
@@ -856,6 +850,8 @@ async def calibrate_llamacpp_model(
                 max_wait_seconds=10.0
             )
 
+            hybrid_ctx = None
+            hybrid_ngl = None
             async for hybrid_msg in _calibrate_hybrid(
                 model_id=model_id,
                 gguf_path=gguf_path,
@@ -867,9 +863,17 @@ async def calibrate_llamacpp_model(
                 free_vram_mb=free_vram,
                 port=port,
             ):
-                yield hybrid_msg
-                if hybrid_msg.startswith("__RESULT__:"):
-                    return
+                if hybrid_msg.startswith("__HYBRID__:"):
+                    parts = hybrid_msg.split(":")
+                    hybrid_ctx = int(parts[1])
+                    hybrid_ngl = int(parts[2])
+                else:
+                    yield hybrid_msg
+
+            if hybrid_ctx and hybrid_ngl:
+                async for msg in _finish_calibration(hybrid_ctx, hybrid_ngl, "hybrid"):
+                    yield msg
+                return
 
     # Step 7: Final test with thinking check
     yield (

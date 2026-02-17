@@ -7,7 +7,7 @@ Prevents users from trying to use incompatible backends with their GPU.
 
 import subprocess
 from typing import Optional, List, Dict, Any, TypedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class GPUDict(TypedDict):
@@ -46,6 +46,8 @@ class GPUInfo:
     # Multi-GPU info
     gpu_count: int = 1
     total_vram_mb: int = 0
+    all_gpu_names: List[str] = field(default_factory=list)
+    all_gpu_vram_mb: List[int] = field(default_factory=list)
 
 
 class GPUDetector:
@@ -209,7 +211,9 @@ class GPUDetector:
                 unsupported_backends=unsupported,
                 warnings=warnings,
                 gpu_count=gpu_count,
-                total_vram_mb=total_vram_mb
+                total_vram_mb=total_vram_mb,
+                all_gpu_names=[g["name"] for g in gpu_list],
+                all_gpu_vram_mb=[g["vram_mb"] for g in gpu_list],
             )
 
             return self.gpu_info

@@ -2724,23 +2724,23 @@ def settings_accordion() -> rx.Component:
                                                     "vLLM & TabbyAPI require Compute 7.0+"
                                                 ),
                                                 font_size="10px",
-                                                color="#666",
+                                                color="#aaa",
                                             ),
                                             rx.text(
                                                 rx.cond(
                                                     AIState.ui_language == "de",
-                                                    "Verfügbar: Ollama",
-                                                    "Available: Ollama"
+                                                    "Verfügbar: " + AIState.gpu_compatible_text,
+                                                    "Available: " + AIState.gpu_compatible_text,
                                                 ),
                                                 font_size="10px",
-                                                color="#666",
+                                                color="#aaa",
                                                 margin_top="2px",
                                             ),
                                             rx.text(
                                                 rx.cond(
                                                     AIState.ui_language == "de",
-                                                    "💡 Ollama nutzt INT8/Q4 - optimal für ältere GPUs",
-                                                    "💡 Ollama uses INT8/Q4 - optimal for older GPUs"
+                                                    "💡 Ollama & llama.cpp nutzen GGUF (Q4-Q8) - optimal für ältere GPUs",
+                                                    "💡 Ollama & llama.cpp use GGUF (Q4-Q8) - optimal for older GPUs"
                                                 ),
                                                 font_size="10px",
                                                 color="#2a9d8f",

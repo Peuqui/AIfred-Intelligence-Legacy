@@ -433,6 +433,7 @@ class AIState(rx.State):
     gpu_warnings: List[str] = []
     gpu_count: int = 1
     gpu_vram_gb: int = 0
+    gpu_all_names: List[str] = []
     available_backends: List[str] = ["ollama", "llamacpp", "tabbyapi", "vllm", "cloud_api"]  # Filtered by GPU compatibility + cloud_api (always available)
     available_backends_list: List[str] = ["Ollama", "llama.cpp", "TabbyAPI", "vLLM", "Cloud APIs"]  # Display names (synced with available_backends)
 
@@ -441,15 +442,32 @@ class AIState(rx.State):
         """
         Format GPU info for UI display.
         - Single GPU: "Tesla P40 (Compute 6.1, 24 GB)"
-        - Multi-GPU: "2x Tesla P40 (Compute 6.1, 48 GB total)"
+        - Same multi-GPU: "2x Tesla P40 (Compute 6.1, 48 GB total)"
+        - Mixed multi-GPU: "Tesla P40 + Quadro RTX 8000 (70 GB total)"
         """
         if not self.gpu_detected:
             return ""
 
-        if self.gpu_count > 1:
-            return f"{self.gpu_count}x {self.gpu_name} (Compute {self.gpu_compute_cap}, {self.gpu_vram_gb} GB total)"
-        else:
+        if self.gpu_count == 1:
             return f"{self.gpu_name} (Compute {self.gpu_compute_cap}, {self.gpu_vram_gb} GB)"
+
+        # Multi-GPU: check if all same model
+        unique_names = list(dict.fromkeys(self.gpu_all_names))
+        if len(unique_names) == 1:
+            return f"{self.gpu_count}x {unique_names[0]} (Compute {self.gpu_compute_cap}, {self.gpu_vram_gb} GB total)"
+        return f"{' + '.join(unique_names)} ({self.gpu_vram_gb} GB total)"
+
+    @rx.var
+    def gpu_compatible_text(self) -> str:
+        """Compatible backends as display text (excluding cloud_api)."""
+        display_names = {
+            "ollama": "Ollama",
+            "llamacpp": "llama.cpp",
+            "vllm": "vLLM",
+            "tabbyapi": "TabbyAPI",
+        }
+        names = [display_names.get(b, b) for b in self.available_backends if b != "cloud_api"]
+        return ", ".join(names) if names else ""
 
     @rx.var
     def grouped_backends_display(self) -> List[str]:
@@ -803,16 +821,18 @@ class AIState(rx.State):
                     _global_backend_state["gpu_info"] = gpu_info
 
                     # Format GPU info with count and VRAM (nominal specs)
-                    # Uses centralized round_to_nominal_vram from gpu_monitor.py
-                    vram_per_gpu_gb = round_to_nominal_vram(gpu_info.vram_mb)
-                    total_vram_gb = vram_per_gpu_gb * gpu_info.gpu_count
+                    # Round each GPU individually to avoid mixed-GPU rounding errors
+                    total_vram_gb = sum(
+                        round_to_nominal_vram(v) for v in gpu_info.all_gpu_vram_mb
+                    ) if gpu_info.all_gpu_vram_mb else round_to_nominal_vram(gpu_info.vram_mb)
 
-                    if gpu_info.gpu_count > 1:
-                        # Multi-GPU: "2x Tesla P40 (Compute 6.1, 48 GB total)"
+                    unique_names = list(dict.fromkeys(gpu_info.all_gpu_names))
+                    if gpu_info.gpu_count == 1:
+                        log_message(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability}, {total_vram_gb} GB)")
+                    elif len(unique_names) == 1:
                         log_message(f"✅ GPU: {gpu_info.gpu_count}x {gpu_info.name} (Compute {gpu_info.compute_capability}, {total_vram_gb} GB total)")
                     else:
-                        # Single GPU: "Tesla P40 (Compute 6.1, 24 GB)"
-                        log_message(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability}, {vram_per_gpu_gb} GB)")
+                        log_message(f"✅ GPU: {' + '.join(unique_names)} ({total_vram_gb} GB total)")
 
                     if gpu_info.unsupported_backends:
                         log_message(f"⚠️ Incompatible backends: {', '.join(gpu_info.unsupported_backends)}")
@@ -1136,17 +1156,16 @@ class AIState(rx.State):
                 self.gpu_compute_cap = gpu_info.compute_capability
                 self.gpu_warnings = gpu_info.warnings
                 self.gpu_count = gpu_info.gpu_count
+                self.gpu_all_names = gpu_info.all_gpu_names
 
-                # Calculate nominal VRAM (round up to marketing specs)
-                # Uses centralized round_to_nominal_vram from gpu_monitor.py
-                vram_per_gpu_gb = round_to_nominal_vram(gpu_info.vram_mb)
-                self.gpu_vram_gb = vram_per_gpu_gb * gpu_info.gpu_count
-
-                # Show GPU info in debug console
-                if self.gpu_count > 1:
-                    self.add_debug(f"🎮 GPU: {self.gpu_count}x {self.gpu_name} (Compute {self.gpu_compute_cap}, {self.gpu_vram_gb} GB total)")
+                # Calculate nominal VRAM (round each GPU individually)
+                if gpu_info.all_gpu_vram_mb:
+                    self.gpu_vram_gb = sum(round_to_nominal_vram(v) for v in gpu_info.all_gpu_vram_mb)
                 else:
-                    self.add_debug(f"🎮 GPU: {self.gpu_name} (Compute {self.gpu_compute_cap}, {self.gpu_vram_gb} GB)")
+                    self.gpu_vram_gb = round_to_nominal_vram(gpu_info.vram_mb)
+
+                # Show GPU info in debug console (use same logic as gpu_display_text)
+                self.add_debug(f"🎮 GPU: {self.gpu_display_text}")
 
                 # Filter available backends based on GPU compatibility
                 # Only show backends that are actually compatible with the GPU
@@ -7078,22 +7097,28 @@ class AIState(rx.State):
             )
 
             # Step 1: Stop llama-swap to free VRAM
-            # Auto-detect: system service or user service
-            _is_system = subprocess.run(
-                ["systemctl", "cat", "llama-swap.service"],
-                capture_output=True, timeout=5
-            ).returncode == 0
-            _systemctl_cmd = ["systemctl"] if _is_system else ["systemctl", "--user"]
+            # Detect service type by checking if user service file exists
+            from pathlib import Path
+            _user_service_path = Path.home() / ".config/systemd/user/llama-swap.service"
+            _systemctl_cmd = ["systemctl", "--user"] if _user_service_path.exists() else ["systemctl"]
+
+            # AIfred runs as a system service (User=mp) without D-Bus session env.
+            # systemctl --user needs these to reach the user session manager.
+            import os
+            _systemctl_env = os.environ.copy()
+            uid = os.getuid()
+            _systemctl_env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{uid}")
+            _systemctl_env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{uid}/bus")
 
             self.add_debug("🛑 Stopping llama-swap service...")
             yield
             try:
                 subprocess.run(
                     [*_systemctl_cmd, "stop", "llama-swap"],
-                    check=True, timeout=15
+                    check=True, timeout=15, env=_systemctl_env
                 )
                 llama_swap_stopped = True
-                self.add_debug("   llama-swap stopped")
+                self.add_debug("   llama-swap stopped via systemctl")
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 self.add_debug(f"⚠️ Could not stop llama-swap: {e}")
                 self.add_debug("   Continuing anyway (VRAM may be limited)")
@@ -7163,7 +7188,7 @@ class AIState(rx.State):
             try:
                 subprocess.run(
                     [*_systemctl_cmd, "start", "llama-swap"],
-                    check=True, timeout=15
+                    check=True, timeout=15, env=_systemctl_env
                 )
                 llama_swap_stopped = False
                 self.add_debug("   llama-swap started")
@@ -7171,7 +7196,7 @@ class AIState(rx.State):
                 self.add_debug("⚠️ Could not restart llama-swap")
             yield
 
-            # Step 6: Save thinking result (already tested during calibration)
+            # Step 6: Save thinking result (tested during calibration)
             if thinking_tested:
                 from .lib.model_vram_cache import set_thinking_support_for_model
                 set_thinking_support_for_model(self.aifred_model_id, supports_thinking)
@@ -7180,12 +7205,6 @@ class AIState(rx.State):
                     f"🧠 Reasoning: {'yes' if supports_thinking else 'no'} "
                     f"(tested during calibration)"
                 )
-            else:
-                # Fallback: test via llama-swap (hybrid mode or old format)
-                import asyncio
-                await asyncio.sleep(2.0)
-                async for _ in self._test_and_save_thinking(backend, self.aifred_model_id):
-                    yield
 
             self.add_debug(CONSOLE_SEPARATOR)
 
@@ -7198,7 +7217,7 @@ class AIState(rx.State):
                 try:
                     subprocess.run(
                         [*_systemctl_cmd, "start", "llama-swap"],
-                        timeout=15
+                        timeout=15, env=_systemctl_env
                     )
                 except Exception:
                     pass
