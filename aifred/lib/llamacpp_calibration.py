@@ -1,12 +1,13 @@
 """
-llama.cpp Context Calibration via llama-swap
+llama.cpp Context & NGL Calibration via llama-swap
 
-Determines the maximum context window for each GGUF model by binary search:
-start llama-server directly on a temp port with varying -c values,
-check if it starts successfully (health endpoint), find the maximum.
+Two-phase calibration:
+1. GPU-only: Binary search for max -c with -ngl 99 (all layers on GPU)
+2. Hybrid: If GPU-only yields too little context, reduce -ngl to offload
+   layers to CPU, freeing VRAM for KV cache (more context, slower inference)
 
 Results are cached in model_vram_cache.json and written back to the
-llama-swap YAML config.
+llama-swap YAML config (both -c and -ngl).
 """
 
 import asyncio
@@ -24,10 +25,17 @@ from .config import (
     CALIBRATION_MIN_CONTEXT,
     LLAMACPP_CALIBRATION_PORT,
     LLAMACPP_HEALTH_TIMEOUT,
+    MAX_SWAP_INCREASE_MB,
+    MIN_FREE_RAM_MB,
+    MIN_USEFUL_CONTEXT_TOKENS,
     VRAM_SAFETY_MARGIN,
 )
 from .formatting import format_number
-from .gguf_utils import extract_quantization_from_filename, get_gguf_native_context
+from .gguf_utils import (
+    extract_quantization_from_filename,
+    get_gguf_layer_count,
+    get_gguf_native_context,
+)
 from .gpu_utils import get_gpu_memory_info
 from .model_vram_cache import add_llamacpp_calibration
 
@@ -165,16 +173,76 @@ def _replace_context_in_model_block(content: str, model_id: str, new_context: in
     return '\n'.join(result_lines)
 
 
+def update_llamaswap_ngl(
+    config_path: Path,
+    model_id: str,
+    new_ngl: int
+) -> bool:
+    """
+    Update the -ngl value in llama-swap YAML for a specific model.
+
+    Uses regex on raw file content to preserve YAML formatting.
+    """
+    if not config_path.exists():
+        logger.error(f"llama-swap config not found: {config_path}")
+        return False
+
+    config = parse_llamaswap_config(config_path)
+    model_info = config.get(model_id)
+    if not model_info:
+        logger.error(f"Model {model_id} not found in llama-swap config")
+        return False
+
+    if model_info["ngl"] == new_ngl:
+        logger.info(f"llama-swap config already up to date: {model_id} -ngl {new_ngl}")
+        return True
+
+    content = config_path.read_text(encoding='utf-8')
+    new_content = _replace_ngl_in_model_block(content, model_id, new_ngl)
+
+    if new_content == content:
+        logger.error(f"Could not replace -ngl value for {model_id} in config")
+        return False
+
+    config_path.write_text(new_content, encoding='utf-8')
+    logger.info(f"Updated llama-swap config: {model_id} → -ngl {new_ngl}")
+    return True
+
+
+def _replace_ngl_in_model_block(content: str, model_id: str, new_ngl: int) -> str:
+    """Replace -ngl value in a specific model's cmd block, preserving formatting."""
+    lines = content.split('\n')
+    in_model_block = False
+    result_lines = []
+
+    for line in lines:
+        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
+            in_model_block = True
+        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
+            in_model_block = False
+
+        if in_model_block:
+            line = re.sub(r'-ngl\s+\d+', f'-ngl {new_ngl}', line)
+
+        result_lines.append(line)
+
+    return '\n'.join(result_lines)
+
+
 async def _start_llama_server(
     full_cmd: str,
     context: int,
     port: int,
+    ngl: Optional[int] = None,
 ) -> Optional[subprocess.Popen]:
     """Start a llama-server process using original llama-swap cmd.
 
     Replaces -c and --port/${PORT} in the original command,
     preserving all GPU flags (tensor-split, flash-attn, mlock etc.).
     Injects -np 1 and -fit off for stable calibration on Pascal GPUs.
+
+    Args:
+        ngl: If set, replaces -ngl value in cmd (for hybrid calibration)
     """
     import shlex
 
@@ -183,6 +251,10 @@ async def _start_llama_server(
 
     # Replace -c value with test context
     cmd_str = re.sub(r'(-c\s+)\d+', rf'\g<1>{context}', cmd_str)
+
+    # Replace -ngl value for hybrid calibration
+    if ngl is not None:
+        cmd_str = re.sub(r'(-ngl\s+)\d+', rf'\g<1>{ngl}', cmd_str)
 
     # Inject calibration-safe flags if not already present
     # -np 1: single slot (auto defaults to 4, wastes VRAM)
@@ -280,6 +352,7 @@ async def _calibration_test(
     full_cmd: str,
     context: int,
     port: int,
+    ngl: Optional[int] = None,
 ) -> bool:
     """Full calibration test: start server → health check → real inference → cleanup.
 
@@ -287,7 +360,7 @@ async def _calibration_test(
     crashes on the first real inference request due to additional CUDA kernel
     allocations. This function tests actual inference to confirm the context fits.
     """
-    process = await _start_llama_server(full_cmd, context, port)
+    process = await _start_llama_server(full_cmd, context, port, ngl=ngl)
     if not process:
         return False
 
@@ -332,6 +405,249 @@ def _estimate_upper_bound(
     return min(vram_estimated, native_context)
 
 
+def _estimate_ngl_for_context(
+    total_layers: int,
+    model_size_gb: float,
+    free_vram_mb: int,
+    target_context: int,
+    mb_per_token: float = 0.08,
+) -> int:
+    """
+    Estimate NGL (GPU layers) needed to fit target_context in VRAM.
+
+    Calculates how many layers can stay on GPU while leaving enough
+    VRAM for KV cache at the target context size.
+
+    Formula:
+        vram_for_kv = target_context * mb_per_token
+        vram_for_weights = free_vram - vram_for_kv - safety_margin
+        ngl = vram_for_weights / vram_per_layer
+    """
+    model_size_mb = model_size_gb * 1024
+    vram_per_layer = model_size_mb / total_layers
+    vram_for_kv = target_context * mb_per_token
+    vram_for_weights = free_vram_mb - vram_for_kv - VRAM_SAFETY_MARGIN
+
+    if vram_for_weights <= 0:
+        return 1
+
+    ngl = int(vram_for_weights / vram_per_layer)
+    return max(1, min(ngl, total_layers))
+
+
+async def _calibrate_hybrid(
+    model_id: str,
+    gguf_path: Path,
+    full_cmd: str,
+    native_context: int,
+    model_size_gb: float,
+    quantization: str,
+    total_layers: int,
+    free_vram_mb: int,
+    port: int,
+) -> AsyncIterator[str]:
+    """
+    Hybrid NGL+context calibration for oversized models.
+
+    Algorithm:
+    1. Build descending list of context targets (native → 128K → 64K → 32K)
+    2. For each target: estimate NGL via VRAM formula, verify empirically
+    3. Once a working (ngl, context) pair is found: binary search context upward
+    4. Monitor RAM+swap throughout (CPU layers consume RAM)
+    5. Final yield: "__RESULT__:{context}:{ngl}:hybrid" or "__RESULT__:0:0:error"
+    """
+    from .gpu_utils import get_free_ram_mb, get_swap_used_mb
+
+    yield f"Hybrid calibration: {total_layers} layers, {format_number(model_size_gb, 1)} GB model"
+
+    # Build descending context targets
+    context_targets = []
+    if native_context > 131072:
+        context_targets.append(native_context)
+        context_targets.append(131072)
+    elif native_context > 65536:
+        context_targets.append(native_context)
+        context_targets.append(65536)
+    else:
+        context_targets.append(native_context)
+    if native_context > 32768:
+        context_targets.append(32768)
+    # Absolute minimum
+    context_targets.append(16384)
+    # Deduplicate while preserving order
+    seen: set[int] = set()
+    context_targets = [c for c in context_targets if not (c in seen or seen.add(c))]
+
+    best_ngl: Optional[int] = None
+    best_ctx: Optional[int] = None
+    iteration = 0
+
+    for target_ctx in context_targets:
+        estimated_ngl = _estimate_ngl_for_context(
+            total_layers, model_size_gb, free_vram_mb, target_ctx
+        )
+
+        # Check RAM feasibility (CPU layers need RAM)
+        cpu_layers = total_layers - estimated_ngl
+        vram_per_layer = model_size_gb * 1024 / total_layers
+        ram_for_cpu_layers = cpu_layers * vram_per_layer
+        free_ram = get_free_ram_mb()
+
+        if free_ram and (free_ram - ram_for_cpu_layers) < MIN_FREE_RAM_MB:
+            yield (
+                f"Skip ctx={format_number(target_ctx)}: "
+                f"not enough RAM for {cpu_layers} CPU layers "
+                f"({format_number(int(ram_for_cpu_layers))} MB needed, "
+                f"{format_number(free_ram)} MB free)"
+            )
+            continue
+
+        if estimated_ngl < 1:
+            yield f"Skip ctx={format_number(target_ctx)}: would need ngl<1"
+            continue
+
+        iteration += 1
+        yield (
+            f"[{iteration}] Testing ngl={estimated_ngl} "
+            f"({cpu_layers} CPU layers), ctx={format_number(target_ctx)}..."
+        )
+
+        swap_before = get_swap_used_mb()
+        fits = await _calibration_test(full_cmd, target_ctx, port, ngl=estimated_ngl)
+
+        if fits:
+            # Check RAM and swap after load
+            ram_after = get_free_ram_mb()
+            swap_after = get_swap_used_mb()
+            swap_increase = 0
+            if swap_before is not None and swap_after is not None:
+                swap_increase = max(0, swap_after - swap_before)
+
+            ram_ok = ram_after is not None and ram_after >= MIN_FREE_RAM_MB
+            swap_ok = swap_increase <= MAX_SWAP_INCREASE_MB
+
+            if ram_ok and swap_ok:
+                best_ngl = estimated_ngl
+                best_ctx = target_ctx
+                ram_str = format_number(ram_after) if ram_after else "N/A"
+                yield (
+                    f"✓ ngl={estimated_ngl}, ctx={format_number(target_ctx)} fits "
+                    f"({ram_str} MB free, +{format_number(swap_increase)} MB swap)"
+                )
+                break
+            elif not swap_ok:
+                yield (
+                    f"✗ ngl={estimated_ngl}, ctx={format_number(target_ctx)} "
+                    f"causes swapping (+{format_number(swap_increase)} MB)"
+                )
+            else:
+                ram_str = format_number(ram_after) if ram_after else "N/A"
+                yield (
+                    f"✗ ngl={estimated_ngl}, ctx={format_number(target_ctx)} "
+                    f"RAM insufficient ({ram_str} MB < {format_number(MIN_FREE_RAM_MB)} MB)"
+                )
+        else:
+            yield f"✗ ngl={estimated_ngl}, ctx={format_number(target_ctx)} failed to start"
+
+            # NGL estimate was too aggressive → binary search NGL downward
+            yield f"Binary searching NGL for ctx={format_number(target_ctx)}..."
+            ngl_low = 1
+            ngl_high = estimated_ngl
+            ngl_result = 0
+
+            while ngl_high - ngl_low > 2:
+                ngl_mid = (ngl_low + ngl_high) // 2
+                iteration += 1
+                cpu_mid = total_layers - ngl_mid
+                yield f"[{iteration}] Testing ngl={ngl_mid} ({cpu_mid} CPU layers)..."
+
+                swap_before = get_swap_used_mb()
+                fits = await _calibration_test(full_cmd, target_ctx, port, ngl=ngl_mid)
+
+                if fits:
+                    ram_after = get_free_ram_mb()
+                    swap_after = get_swap_used_mb()
+                    swap_increase = 0
+                    if swap_before is not None and swap_after is not None:
+                        swap_increase = max(0, swap_after - swap_before)
+
+                    ram_ok = ram_after is not None and ram_after >= MIN_FREE_RAM_MB
+                    swap_ok = swap_increase <= MAX_SWAP_INCREASE_MB
+
+                    if ram_ok and swap_ok:
+                        ngl_result = ngl_mid
+                        ngl_low = ngl_mid
+                        yield f"✓ ngl={ngl_mid} fits"
+                    else:
+                        ngl_high = ngl_mid
+                        yield f"✗ ngl={ngl_mid} memory issues"
+                else:
+                    ngl_high = ngl_mid
+                    yield f"✗ ngl={ngl_mid} failed"
+
+            if ngl_result > 0:
+                best_ngl = ngl_result
+                best_ctx = target_ctx
+                break
+
+    if best_ngl is None or best_ctx is None:
+        yield "Hybrid calibration failed: no working (ngl, context) combination found"
+        yield "__RESULT__:0:0:error"
+        return
+
+    # Phase 2: Binary search context upward at the found NGL
+    yield (
+        f"NGL={best_ngl} found. Binary searching context upward "
+        f"from {format_number(best_ctx)}..."
+    )
+
+    ctx_low = best_ctx
+    ctx_high = native_context
+
+    while ctx_high - ctx_low > 512:
+        ctx_mid = (ctx_low + ctx_high) // 2
+        iteration += 1
+        yield f"[{iteration}] Testing ctx={format_number(ctx_mid)} at ngl={best_ngl}..."
+
+        swap_before = get_swap_used_mb()
+        fits = await _calibration_test(full_cmd, ctx_mid, port, ngl=best_ngl)
+
+        if fits:
+            ram_after = get_free_ram_mb()
+            swap_after = get_swap_used_mb()
+            swap_increase = 0
+            if swap_before is not None and swap_after is not None:
+                swap_increase = max(0, swap_after - swap_before)
+
+            ram_ok = ram_after is not None and ram_after >= MIN_FREE_RAM_MB
+            swap_ok = swap_increase <= MAX_SWAP_INCREASE_MB
+
+            if ram_ok and swap_ok:
+                ctx_low = ctx_mid
+                best_ctx = ctx_mid
+                yield f"✓ ctx={format_number(ctx_mid)} fits"
+            else:
+                ctx_high = ctx_mid
+                yield f"✗ ctx={format_number(ctx_mid)} memory issues"
+        else:
+            ctx_high = ctx_mid
+            yield f"✗ ctx={format_number(ctx_mid)} too large"
+
+    # Save result
+    _save_calibration(
+        model_id, best_ctx, native_context,
+        gguf_path, quantization, model_size_gb,
+        ngl=best_ngl, mode="hybrid"
+    )
+
+    yield (
+        f"Hybrid calibration complete: ngl={best_ngl}, "
+        f"ctx={format_number(best_ctx)} tokens "
+        f"({total_layers - best_ngl} layers on CPU, {iteration} iterations)"
+    )
+    yield f"__RESULT__:{best_ctx}:{best_ngl}:hybrid"
+
+
 def _save_calibration(
     model_id: str,
     max_context: int,
@@ -339,6 +655,8 @@ def _save_calibration(
     gguf_path: Path,
     quantization: str,
     model_size_gb: float,
+    ngl: int = 99,
+    mode: str = "gpu",
 ) -> None:
     """Save calibration result to VRAM cache."""
     gpu_info = get_gpu_memory_info()
@@ -351,6 +669,8 @@ def _save_calibration(
         quantization=quantization,
         gpu_model=gpu_model,
         model_size_gb=model_size_gb,
+        ngl=ngl,
+        mode=mode,
     )
 
 
@@ -361,16 +681,16 @@ async def calibrate_llamacpp_model(
     port: int = LLAMACPP_CALIBRATION_PORT,
 ) -> AsyncIterator[str]:
     """
-    Binary search calibration for a llama.cpp model.
+    Two-phase calibration for a llama.cpp model.
 
-    Algorithm matches Ollama calibration workflow:
-    1. Upper bound = native_context (not VRAM estimate)
-    2. Try native_context first (often fits for small models)
-    3. If too large, binary search to 512-token precision
-    4. VRAM estimate used as optimization hint only
+    Phase 1 (GPU-only): Binary search for max -c with ngl=99
+    Phase 2 (Hybrid): If GPU-only < MIN_USEFUL_CONTEXT, reduce -ngl to free VRAM
 
     Async generator that yields progress messages.
-    Final yield: "__RESULT__:{context}" or "__RESULT__:0:error"
+    Final yield format: "__RESULT__:{context}:{ngl}:{mode}"
+      mode: "gpu" or "hybrid"
+      Example: "__RESULT__:222960:99:gpu" or "__RESULT__:131072:28:hybrid"
+    Error: "__RESULT__:0:0:error"
     """
     # Step 1: Read GGUF metadata
     yield f"Reading GGUF metadata: {gguf_path.name}"
@@ -378,7 +698,7 @@ async def calibrate_llamacpp_model(
     native_context = get_gguf_native_context(gguf_path)
     if not native_context:
         yield "Could not read native context from GGUF metadata"
-        yield "__RESULT__:0:error"
+        yield "__RESULT__:0:0:error"
         return
 
     model_size_gb = gguf_path.stat().st_size / (1024 ** 3)
@@ -398,7 +718,7 @@ async def calibrate_llamacpp_model(
 
     if free_vram < 1000:
         yield "Not enough VRAM (<1 GB free)"
-        yield "__RESULT__:0:error"
+        yield "__RESULT__:0:0:error"
         return
 
     # Step 3: Calculate search bounds
@@ -413,6 +733,9 @@ async def calibrate_llamacpp_model(
         f"VRAM estimate: {format_number(vram_estimate)}"
     )
 
+    # === PHASE 1: GPU-only calibration (ngl=99) ===
+    yield "Phase 1: GPU-only calibration (ngl=99)"
+
     # Step 4: Try native_context first (like Ollama tries max_target first)
     iteration = 0
     iteration += 1
@@ -425,7 +748,7 @@ async def calibrate_llamacpp_model(
             model_id, result, native_context,
             gguf_path, quantization, model_size_gb
         )
-        yield f"__RESULT__:{result}"
+        yield f"__RESULT__:{result}:99:gpu"
         return
     else:
         yield f"✗ {format_number(native_context)} too large"
@@ -467,7 +790,40 @@ async def calibrate_llamacpp_model(
             high = mid
             yield f"✗ {format_number(mid)} too large"
 
-    # Step 7: Save result
+    # === PHASE 2: Hybrid calibration (if GPU-only context too small) ===
+    if result < MIN_USEFUL_CONTEXT_TOKENS:
+        yield (
+            f"GPU-only context ({format_number(result)}) < "
+            f"minimum useful ({format_number(MIN_USEFUL_CONTEXT_TOKENS)})"
+        )
+
+        total_layers = get_gguf_layer_count(gguf_path)
+        if not total_layers:
+            yield "Cannot read layer count from GGUF — hybrid mode unavailable"
+        else:
+            yield f"Phase 2: Hybrid calibration ({total_layers} layers)"
+
+            # Re-measure VRAM (should be free after GPU-only tests)
+            stabilized, wait_time, free_vram = await wait_for_vram_stable(
+                max_wait_seconds=10.0
+            )
+
+            async for hybrid_msg in _calibrate_hybrid(
+                model_id=model_id,
+                gguf_path=gguf_path,
+                full_cmd=full_cmd,
+                native_context=native_context,
+                model_size_gb=model_size_gb,
+                quantization=quantization,
+                total_layers=total_layers,
+                free_vram_mb=free_vram,
+                port=port,
+            ):
+                yield hybrid_msg
+                if hybrid_msg.startswith("__RESULT__:"):
+                    return
+
+    # Step 7: Save GPU-only result
     _save_calibration(
         model_id, result, native_context,
         gguf_path, quantization, model_size_gb
@@ -478,4 +834,4 @@ async def calibrate_llamacpp_model(
         f"(native: {format_number(native_context)}, "
         f"{iteration} iterations)"
     )
-    yield f"__RESULT__:{result}"
+    yield f"__RESULT__:{result}:99:gpu"

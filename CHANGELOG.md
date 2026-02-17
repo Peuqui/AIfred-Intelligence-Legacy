@@ -5,6 +5,28 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.34.0] - 2026-02-17 🔧 llama.cpp Hybrid-Kalibrierung (NGL + Context)
+
+### Added
+
+- **Hybrid-Kalibrierung für übergroße Modelle** - Zweiphasiger Algorithmus findet den Sweet Spot zwischen GPU-Layer-Offloading (`-ngl`) und Kontextgröße (`-c`)
+  - **Phase 1** (bestehend): GPU-only mit `ngl=99`, Binary Search auf `-c`
+  - **Phase 2** (NEU): Wenn Phase 1 < 16K Context liefert → Hybrid-Modus
+    - Reduziert `-ngl` um VRAM für KV-Cache freizumachen
+    - Probiert Context-Targets absteigend: native → 128K → 64K → 32K → 16K
+    - NGL-Schätzung per VRAM-Formel + empirische Verifikation
+    - Binary Search für optimales NGL + Context-Paar
+    - RAM+Swap-Monitoring verhindert System-Thrashing
+  - Ergebnis: Modelle wie Qwen3-Next-80B (48GB VRAM) bekommen statt 4K Context jetzt 32-64K+
+- **`_estimate_ngl_for_context()`** - VRAM-basierte NGL-Schätzung: `ngl = (free_vram - ctx×mb_per_token - safety) / vram_per_layer`
+- **`update_llamaswap_ngl()`** - Schreibt optimierten `-ngl` Wert in llama-swap YAML Config
+- **`get_llamacpp_calibration_info()`** - Neuer Cache-Getter liefert vollständige Kalibrierungs-Info (ngl, mode, max_context)
+- **VRAM-Cache erweitert** - Speichert jetzt `ngl` und `mode` (gpu/hybrid) pro Kalibrierung
+
+### Fixed
+
+- **`get_gguf_layer_count()` Bugfix** - Hardcodierte Architektur-Keys durch generisches `endswith('.block_count')` Pattern ersetzt (funktioniert jetzt mit allen GGUF-Architekturen)
+
 ## [2.33.0] - 2026-02-17 🧹 KoboldCPP Backend entfernt
 
 ### Removed

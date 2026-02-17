@@ -733,7 +733,9 @@ def add_llamacpp_calibration(
     gguf_path: str,
     quantization: str,
     gpu_model: str,
-    model_size_gb: float
+    model_size_gb: float,
+    ngl: int = 99,
+    mode: str = "gpu",
 ) -> bool:
     """
     Add a calibration point for a llama.cpp model (via llama-swap).
@@ -749,6 +751,8 @@ def add_llamacpp_calibration(
         quantization: Quantization level (e.g., "Q4_K_M")
         gpu_model: GPU model name (e.g., "NVIDIA GeForce RTX 3090 Ti")
         model_size_gb: GGUF file size in GB
+        ngl: GPU layers used (99 = all on GPU, lower = hybrid mode)
+        mode: Calibration mode ("gpu" or "hybrid")
 
     Returns:
         True if successfully added, False otherwise
@@ -777,6 +781,8 @@ def add_llamacpp_calibration(
 
     calibration = {
         "max_context": max_context,
+        "ngl": ngl,
+        "mode": mode,
         "measured_at": datetime.now().isoformat()
     }
 
@@ -789,7 +795,7 @@ def add_llamacpp_calibration(
 
     logger.info(
         f"Added llama.cpp calibration for {model_id}: "
-        f"{max_context:,} tokens (native: {native_context:,})"
+        f"{max_context:,} tokens (native: {native_context:,}, ngl={ngl}, mode={mode})"
     )
 
     return save_cache(cache)
@@ -816,6 +822,29 @@ def get_llamacpp_calibration(model_id: str) -> Optional[int]:
 
     # Return most recent calibration
     return int(calibrations[-1]["max_context"])
+
+
+def get_llamacpp_calibration_info(model_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get full calibration info for a llama.cpp model (including ngl and mode).
+
+    Returns:
+        Dict with keys: max_context, ngl, mode, measured_at
+        Or None if not calibrated
+    """
+    cache = load_cache()
+    if model_id not in cache:
+        return None
+    calibrations = cache[model_id].get("llamacpp_calibrations", [])
+    if not calibrations:
+        return None
+    latest = calibrations[-1]
+    return {
+        "max_context": int(latest["max_context"]),
+        "ngl": latest.get("ngl", 99),
+        "mode": latest.get("mode", "gpu"),
+        "measured_at": latest.get("measured_at", ""),
+    }
 
 
 def get_llamacpp_calibrations(model_id: str) -> List[Dict[str, Any]]:

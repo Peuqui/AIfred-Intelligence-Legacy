@@ -82,26 +82,20 @@ def get_gguf_layer_count(gguf_path: Path) -> Optional[int]:
             try:
                 reader = gguf.GGUFReader(f)
 
-                # Try common architecture-specific keys
-                layer_keys = [
-                    'llama.block_count',        # Llama, Qwen, Yi
-                    'mistral.block_count',      # Mistral
-                    'gpt2.block_count',         # GPT2
-                    'phi.block_count',          # Phi
-                    'gemma.block_count',        # Gemma
-                    'qwen2.block_count',        # Qwen2
-                    'qwen3moe.block_count',     # Qwen3 MoE
-                    'block_count',              # Generic fallback
-                ]
-
+                # Generic pattern: match any *.block_count key
+                # (same approach as get_gguf_native_context for context_length)
                 for field in reader.fields.values():
-                    for key in layer_keys:
-                        if field.name == key:
+                    field_name = field.name.lower()
+                    if field_name.endswith('.block_count') or field_name == 'block_count':
+                        try:
                             value_array = field.parts[-1]
                             layer_count = int(value_array[0]) if len(value_array) > 0 else None
-                            if layer_count:
-                                logger.info(f"✅ Layer count from GGUF metadata ({key}): {layer_count}")
+                            if layer_count and layer_count > 0:
+                                logger.info(f"✅ Layer count from GGUF metadata ({field.name}): {layer_count}")
                                 return layer_count
+                        except (IndexError, ValueError, TypeError) as e:
+                            logger.debug(f"Failed to parse {field.name}: {e}")
+                            continue
 
                 logger.warning("No block_count key found in GGUF metadata")
                 return None

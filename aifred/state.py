@@ -7054,17 +7054,17 @@ class AIState(rx.State):
         """
         llama.cpp calibration via direct llama-server binary search.
 
-        Workflow (matches Ollama pattern):
+        Workflow:
         1. Stop llama-swap service (free VRAM)
-        2. Binary search via llama-server (native_context as upper bound)
-        3. Update llama-swap YAML with calibrated -c value
-        4. Restart llama-swap service
-        5. Test thinking capability
-        6. Save results to cache
+        2. Phase 1: GPU-only binary search (ngl=99)
+        3. Phase 2: Hybrid NGL+context search (if GPU-only < 16K)
+        4. Update llama-swap YAML with calibrated -c and -ngl values
+        5. Restart llama-swap service
+        6. Test thinking capability
         """
         import subprocess
         from .lib.formatting import format_number
-        from .lib.llamacpp_calibration import update_llamaswap_context
+        from .lib.llamacpp_calibration import update_llamaswap_context, update_llamaswap_ngl
         from .lib.config import LLAMASWAP_CONFIG_PATH
 
         llama_swap_stopped = False
@@ -7099,14 +7099,18 @@ class AIState(rx.State):
                 self.add_debug("   Continuing anyway (VRAM may be limited)")
             yield
 
-            # Step 2: Run binary search
+            # Step 2: Run calibration (Phase 1: GPU-only, Phase 2: Hybrid if needed)
             calibrated_ctx = None
+            calibrated_ngl = 99
+            calibrated_mode = "gpu"
             async for progress_msg in backend.calibrate_max_context_generator(
                 self.aifred_model_id
             ):
                 if progress_msg.startswith("__RESULT__:"):
                     parts = progress_msg.split(":")
                     calibrated_ctx = int(parts[1])
+                    calibrated_ngl = int(parts[2]) if len(parts) > 2 else 99
+                    calibrated_mode = parts[3] if len(parts) > 3 else "gpu"
                 else:
                     self.add_debug(f"📊 {progress_msg}")
                     yield
@@ -7119,22 +7123,34 @@ class AIState(rx.State):
                 return
 
             self.add_debug(CONSOLE_SEPARATOR)
-            self.add_debug(f"✅ Calibrated: {format_number(calibrated_ctx)} tokens")
+            mode_str = f" (hybrid, ngl={calibrated_ngl})" if calibrated_mode == "hybrid" else ""
+            self.add_debug(f"✅ Calibrated: {format_number(calibrated_ctx)} tokens{mode_str}")
 
-            # Step 4: Update llama-swap YAML
+            # Step 4: Update llama-swap YAML (-c and optionally -ngl)
             self.add_debug("📝 Updating llama-swap config...")
-            updated = update_llamaswap_context(
+            updated_ctx = update_llamaswap_context(
                 LLAMASWAP_CONFIG_PATH,
                 self.aifred_model_id,
                 calibrated_ctx
             )
-            if updated:
+            if updated_ctx:
                 self.add_debug(
                     f"   -c {format_number(calibrated_ctx)} written to "
                     f"{LLAMASWAP_CONFIG_PATH.name}"
                 )
             else:
-                self.add_debug("⚠️ Could not update llama-swap config")
+                self.add_debug("⚠️ Could not update -c in llama-swap config")
+
+            if calibrated_mode == "hybrid":
+                updated_ngl = update_llamaswap_ngl(
+                    LLAMASWAP_CONFIG_PATH,
+                    self.aifred_model_id,
+                    calibrated_ngl
+                )
+                if updated_ngl:
+                    self.add_debug(f"   -ngl {calibrated_ngl} written (hybrid mode)")
+                else:
+                    self.add_debug("⚠️ Could not update -ngl in llama-swap config")
             yield
 
             # Step 5: Restart llama-swap (needed for thinking test)
