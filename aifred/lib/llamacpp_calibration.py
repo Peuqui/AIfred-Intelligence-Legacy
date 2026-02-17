@@ -379,33 +379,50 @@ def _kill_process(process: subprocess.Popen) -> None:
             process.wait(timeout=3)
 
 
-async def _calibration_test(
+async def _start_and_verify(
     full_cmd: str,
     context: int,
     port: int,
     ngl: Optional[int] = None,
-) -> bool:
-    """Full calibration test: start server → health check → real inference → cleanup.
+) -> Optional[asyncio.subprocess.Process]:
+    """Start server, verify it works via health check + inference, return process.
 
+    Returns the running process on success (caller must kill it), or None on failure.
     Health check alone is insufficient: on tight VRAM, the server starts OK but
     crashes on the first real inference request due to additional CUDA kernel
     allocations. This function tests actual inference to confirm the context fits.
     """
     process = await _start_llama_server(full_cmd, context, port, ngl=ngl)
     if not process:
-        return False
+        return None
 
-    try:
-        # Phase 1: Wait for server to be ready
-        ready = await _wait_for_ready(port, LLAMACPP_HEALTH_TIMEOUT, process)
-        if not ready:
-            return False
-
-        # Phase 2: Test real inference (catches VRAM edge-case crashes)
-        return await _test_inference(port, process)
-    finally:
+    ready = await _wait_for_ready(port, LLAMACPP_HEALTH_TIMEOUT, process)
+    if not ready:
         _kill_process(process)
-        await asyncio.sleep(1.5)  # Let VRAM settle before next test
+        await asyncio.sleep(1.5)
+        return None
+
+    if not await _test_inference(port, process):
+        _kill_process(process)
+        await asyncio.sleep(1.5)
+        return None
+
+    return process
+
+
+async def _calibration_test(
+    full_cmd: str,
+    context: int,
+    port: int,
+    ngl: Optional[int] = None,
+) -> bool:
+    """Full calibration test: start → verify → cleanup. Returns True if context fits."""
+    process = await _start_and_verify(full_cmd, context, port, ngl=ngl)
+    if not process:
+        return False
+    _kill_process(process)
+    await asyncio.sleep(1.5)
+    return True
 
 
 def _estimate_upper_bound(
@@ -759,22 +776,28 @@ async def calibrate_llamacpp_model(
         f"VRAM estimate: {format_number(vram_estimate)}"
     )
 
-    # Helper: start server with final context, test thinking, yield result
-    async def _finish_calibration(ctx: int, ngl: int, mode: str):
-        """Start server once with final context, test thinking, emit result."""
+    # Helper: test thinking on running server (or start new one), yield result
+    async def _finish_calibration(
+        ctx: int, ngl: int, mode: str,
+        process: Optional[asyncio.subprocess.Process] = None,
+    ):
+        """Test thinking on server, save calibration, emit result.
+
+        If process is provided, reuses the already-running server (avoids reload).
+        Otherwise starts a new server for the thinking test.
+        """
         _save_calibration(
             model_id, ctx, native_context,
             gguf_path, quantization, model_size_gb,
             ngl=ngl, mode=mode
         )
-        # Start server with calibrated context for thinking test
-        process = await _start_llama_server(full_cmd, ctx, port, ngl=ngl if ngl != 99 else None)
+        # Reuse existing server or start a new one
+        if not process:
+            process = await _start_and_verify(full_cmd, ctx, port, ngl=ngl if ngl != 99 else None)
         thinks = False
         if process:
-            ready = await _wait_for_ready(port, LLAMACPP_HEALTH_TIMEOUT, process)
-            if ready:
-                yield "Testing reasoning capability..."
-                thinks = await test_thinking_on_port(port)
+            yield "Testing reasoning capability..."
+            thinks = await test_thinking_on_port(port)
             _kill_process(process)
             await asyncio.sleep(1.5)
         yield f"__RESULT__:{ctx}:{ngl}:{mode}:{'thinks' if thinks else 'nothink'}"
@@ -786,10 +809,11 @@ async def calibrate_llamacpp_model(
     iteration = 0
     iteration += 1
     yield f"[{iteration}] Testing native max: {format_number(native_context)}..."
-    fits = await _calibration_test(full_cmd, native_context, port)
-    if fits:
+    process = await _start_and_verify(full_cmd, native_context, port)
+    if process:
         yield f"✓ Native context {format_number(native_context)} fits!"
-        async for msg in _finish_calibration(native_context, 99, "gpu"):
+        # Reuse running server for thinking test (avoids reloading the model)
+        async for msg in _finish_calibration(native_context, 99, "gpu", process=process):
             yield msg
         return
     else:
