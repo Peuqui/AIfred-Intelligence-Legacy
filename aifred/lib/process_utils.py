@@ -6,8 +6,7 @@ Provides common functions for:
 - GPU memory cleanup
 - Service management (systemctl)
 
-This module reduces code duplication across state.py, vllm_manager.py,
-and koboldcpp_manager.py.
+This module reduces code duplication across state.py and vllm_manager.py.
 """
 
 import subprocess
@@ -26,7 +25,7 @@ async def stop_process(
     Uses pgrep to check if process exists, pkill to terminate.
 
     Args:
-        pattern: Process pattern for pgrep/pkill (e.g., "vllm serve", "koboldcpp")
+        pattern: Process pattern for pgrep/pkill (e.g., "vllm serve")
         wait_for_vram: Wait for GPU memory to be freed after stopping
         wait_seconds: Seconds to wait for VRAM release (default: 2.0)
 
@@ -158,7 +157,6 @@ def restart_service(service_name: str, check: bool = False) -> bool:
 PROCESS_PATTERNS = {
     "vllm": "vllm serve",
     "tabbyapi": "tabbyapi",
-    "koboldcpp": "koboldcpp",
 }
 
 
@@ -169,7 +167,7 @@ async def stop_backend_process(backend_type: str, wait_for_vram: bool = True) ->
     Convenience wrapper using PROCESS_PATTERNS.
 
     Args:
-        backend_type: Backend identifier ("vllm", "tabbyapi", "koboldcpp")
+        backend_type: Backend identifier ("vllm", "tabbyapi")
         wait_for_vram: Wait for GPU memory release
 
     Returns:

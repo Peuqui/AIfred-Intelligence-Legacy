@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # AIfred Intelligence - Complete Installation Script
-# Installiert alles: Python-Environment, KoboldCPP (optional), Systemd-Services (optional)
+# Installiert alles: Python-Environment, Systemd-Services (optional)
 #
 
 set -e  # Exit on error
@@ -29,7 +29,7 @@ echo ""
 # SCHRITT 1: Python Environment Setup (OHNE sudo)
 # ============================================================
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  Schritt 1/3: Python Environment Setup${NC}"
+echo -e "${BLUE}  Schritt 1/2: Python Environment Setup${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
@@ -46,36 +46,10 @@ echo ""
 sleep 1
 
 # ============================================================
-# SCHRITT 2: KoboldCPP Installation (Optional, OHNE sudo)
+# SCHRITT 2: Systemd Services Installation (Optional, MIT sudo)
 # ============================================================
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  Schritt 2/3: KoboldCPP Installation (Optional)${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "KoboldCPP wird für GGUF-Modelle benötigt."
-echo ""
-read -p "KoboldCPP installieren? (j/N): " -n 1 -r
-echo ""
-
-if [[ $REPLY =~ ^[JjYy]$ ]]; then
-    if [ -f "$SCRIPT_DIR/install_koboldcpp.sh" ]; then
-        bash "$SCRIPT_DIR/install_koboldcpp.sh"
-    else
-        echo -e "${RED}❌ Script nicht gefunden: $SCRIPT_DIR/install_koboldcpp.sh${NC}"
-        echo "   Überspringe KoboldCPP-Installation..."
-    fi
-else
-    echo -e "${YELLOW}⏭️  KoboldCPP-Installation übersprungen${NC}"
-fi
-
-echo ""
-sleep 1
-
-# ============================================================
-# SCHRITT 3: Systemd Services Installation (Optional, MIT sudo)
-# ============================================================
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  Schritt 3/3: Systemd Services Installation (Optional)${NC}"
+echo -e "${BLUE}  Schritt 2/2: Systemd Services Installation (Optional)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo "Systemd-Services für automatischen Start beim Booten."

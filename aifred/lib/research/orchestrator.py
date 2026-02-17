@@ -83,7 +83,7 @@ async def perform_agent_research(
     if backend_type == 'ollama':
         automatik_llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
     else:
-        # KoboldCPP, vLLM, TabbyAPI: Same model, same client (no model switching)
+        # vLLM, TabbyAPI, llama.cpp: Same model, same client (no model switching)
         automatik_llm_client = llm_client
 
     # ==============================================================

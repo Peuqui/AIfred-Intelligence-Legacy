@@ -2,7 +2,7 @@
 GGUF Model Discovery and Metadata Utilities
 
 Finds GGUF models on the filesystem and extracts metadata
-for KoboldCPP backend integration.
+for llama.cpp backend integration.
 """
 
 import struct
@@ -344,7 +344,7 @@ def find_ollama_gguf_blobs() -> List[GGUFModelInfo]:
     """
     Find GGUF models in Ollama blob storage
 
-    WARNING: Ollama blobs are NOT directly usable in KoboldCPP!
+    WARNING: Ollama blobs are NOT directly usable as standalone GGUF files!
     This function is for reference only - users should download dedicated GGUFs.
 
     Ollama uses its own format and requires conversion.

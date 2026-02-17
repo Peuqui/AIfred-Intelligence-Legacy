@@ -68,7 +68,7 @@ def native_select_backend(value_var, on_change_handler, disabled_condition, back
         value_var: State variable for current backend display name (AIState.backend_label)
         on_change_handler: Event handler function (AIState.switch_backend_by_label)
         disabled_condition: Boolean condition to disable the select
-        backend_list: List of backend display names (e.g., ["Ollama", "KoboldCPP"])
+        backend_list: List of backend display names (e.g., ["Ollama", "llama.cpp"])
     """
     return rx.el.select(
         # Simple foreach - value and text are the same
@@ -2139,20 +2139,11 @@ def chat_history_display() -> rx.Component:
                         color=COLORS["text_secondary"],
                         margin_top="3",
                     ),
-                    rx.cond(
-                        AIState.is_koboldcpp_auto_restarting,
-                        rx.text(
-                            "KoboldCPP startet neu (nach Inaktivität)...",
-                            font_size="14px",
-                            color=COLORS["text_secondary"],
-                            margin_top="3",
-                        ),
-                        rx.text(
-                            "Backend wird gewechselt...",
-                            font_size="14px",
-                            color=COLORS["text_secondary"],
-                            margin_top="3",
-                        ),
+                    rx.text(
+                        "Backend wird gewechselt...",
+                        font_size="14px",
+                        color=COLORS["text_secondary"],
+                        margin_top="3",
                     ),
                 ),
             ),
@@ -2277,8 +2268,8 @@ def chat_history_display() -> rx.Component:
     )
 
     chat_content = rx.cond(
-        AIState.backend_initializing | AIState.backend_switching | AIState.vllm_restarting | AIState.is_koboldcpp_auto_restarting | AIState.is_uploading_image,
-        loading_spinner,  # Show spinner during initialization, backend switch, vLLM restart, KoboldCPP auto-restart, or image upload
+        AIState.backend_initializing | AIState.backend_switching | AIState.vllm_restarting | AIState.is_uploading_image,
+        loading_spinner,  # Show spinner during initialization, backend switch, vLLM restart, or image upload
         chat_history_box,
     )
     
@@ -2662,10 +2653,6 @@ def settings_accordion() -> rx.Component:
                                     rx.select.item("Ollama", value="ollama"),
                                 ),
                                 rx.cond(
-                                    AIState.available_backends.contains("koboldcpp"),
-                                    rx.select.item("KoboldCPP", value="koboldcpp"),
-                                ),
-                                rx.cond(
                                     AIState.available_backends.contains("vllm"),
                                     rx.select.item("vLLM", value="vllm"),
                                 ),
@@ -2742,8 +2729,8 @@ def settings_accordion() -> rx.Component:
                                             rx.text(
                                                 rx.cond(
                                                     AIState.ui_language == "de",
-                                                    "Verfügbar: Ollama, KoboldCPP",
-                                                    "Available: Ollama, KoboldCPP"
+                                                    "Verfügbar: Ollama",
+                                                    "Available: Ollama"
                                                 ),
                                                 font_size="10px",
                                                 color="#666",
@@ -3109,7 +3096,7 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
-                # Automatik LLM Selection - Hidden for KoboldCPP (single model only)
+                # Automatik LLM Selection - Hidden for backends without dynamic model support
                 rx.cond(
                     AIState.backend_supports_dynamic_models,
                     rx.hstack(
@@ -3163,7 +3150,7 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
-                # Vision LLM Selection - Hidden for KoboldCPP (single model only)
+                # Vision LLM Selection - Hidden for backends without dynamic model support
                 rx.cond(
                     AIState.backend_supports_dynamic_models,
                     rx.hstack(

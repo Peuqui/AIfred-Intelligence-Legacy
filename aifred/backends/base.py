@@ -273,7 +273,7 @@ class LLMBackend(ABC):
 
     def set_startup_context(self, context: int, debug_messages: List[str]) -> None:
         """
-        Cache startup context for backends with fixed context (vLLM, TabbyAPI, KoboldCPP).
+        Cache startup context for backends with fixed context (vLLM, TabbyAPI).
 
         Called after server startup to cache the calculated context limit.
         This value is returned by calculate_practical_context() for fixed-context backends.

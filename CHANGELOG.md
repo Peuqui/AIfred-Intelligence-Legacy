@@ -5,6 +5,27 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.33.0] - 2026-02-17 🧹 KoboldCPP Backend entfernt
+
+### Removed
+
+- **KoboldCPP Backend komplett entfernt** - Das gesamte KoboldCPP-Backend wurde aus der Codebase entfernt
+  - llama.cpp via llama-swap ersetzt KoboldCPP vollständig (bessere Performance, einfachere Architektur)
+  - **Gelöschte Dateien:**
+    - `aifred/backends/koboldcpp.py` - Backend-Adapter (556 Zeilen)
+    - `aifred/lib/koboldcpp_manager.py` - Prozess-Management mit RoPE-Scaling, OOM-Retry, GPU-Config (979 Zeilen)
+    - `aifred/lib/koboldcpp_utils.py` - Error-Parsing Utilities (156 Zeilen)
+    - `scripts/install_koboldcpp.sh` - Installations-Script (206 Zeilen)
+  - **Bereinigt in 24 Dateien:**
+    - `state.py`: 8 State-Variablen, 6 Methoden (~380 Zeilen), ~15 elif-Branches entfernt
+    - `aifred.py`: UI-Elemente (Auto-Restart, Spinner, Backend-Dropdown-Eintrag)
+    - `config.py`: Alle `KOBOLDCPP_*` Konstanten (RoPE, QuantKV, Inactivity, Safety Margins)
+    - `backends/__init__.py`: Import, Registry-Eintrag, `__all__`
+    - 14 Library-Dateien: Tote Code-Branches, Kommentare, Docstrings
+    - READMEs, TODO, CLAUDE.md, systemd-Service, Install-Script
+  - **Gesamtbilanz:** -3.052 Zeilen, +75 Zeilen (Kommentar-Updates "KoboldCPP" → "llama.cpp")
+  - CHANGELOG-Historie bleibt erhalten (KoboldCPP-Einträge dokumentieren die Entwicklung)
+
 ## [2.32.0] - 2026-02-17 ⚡ Performance: Ollama Reload Fix & llama.cpp Thinking Control
 
 ### Fixed

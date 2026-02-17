@@ -156,13 +156,6 @@ BACKEND_DEFAULT_MODELS = {
         "salomo_model": "ArtusDev/Qwen_Qwen3-4B-Instruct-2507-EXL3",      # Salomo: EXL3, ~2.8GB
         "vision_model": "",                                                # Vision: Auto-detect
     },
-    "koboldcpp": {
-        "aifred_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",            # AIfred Main-LLM: GGUF Q4_K_M, ~17.3GB (from ~/models/)
-        "automatik_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",         # KoboldCPP: only 1 model (same as AIfred)
-        "sokrates_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",          # KoboldCPP: only 1 model
-        "salomo_model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M",            # KoboldCPP: only 1 model
-        "vision_model": "",                                                # Vision: Not supported
-    },
     "llamacpp": {
         "aifred_model": "qwen3-30b-a3b-instruct-2507-q8_0",               # AIfred Main-LLM: Q8_0, ~32GB (2x P40)
         "automatik_model": "qwen3-4b-instruct-2507-q4_k_m",               # Automatik: Q4_K_M, ~2.6GB
@@ -223,7 +216,6 @@ CLOUD_API_PROVIDERS = {
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_VLLM_URL = "http://localhost:8001/v1"
 DEFAULT_TABBYAPI_URL = "http://localhost:5000/v1"
-DEFAULT_KOBOLDCPP_URL = "http://localhost:5001/v1"
 DEFAULT_LLAMACPP_URL = os.environ.get("LLAMACPP_URL", "http://localhost:8080/v1")
 
 # llama-swap / llama-server calibration
@@ -237,7 +229,6 @@ BACKEND_URLS = {
     "ollama": DEFAULT_OLLAMA_URL,
     "vllm": DEFAULT_VLLM_URL,      # Port 8001 for dev (8000 on production MiniPC)
     "tabbyapi": DEFAULT_TABBYAPI_URL,
-    "koboldcpp": DEFAULT_KOBOLDCPP_URL,
     "llamacpp": DEFAULT_LLAMACPP_URL,  # llama-swap proxy (see docs/llamacpp-setup.md)
     "cloud_api": "",  # Dynamic - set based on provider selection
 }
@@ -245,7 +236,6 @@ BACKEND_URLS = {
 # Backend display labels (for UI dropdowns)
 BACKEND_LABELS = {
     "ollama": "Ollama",
-    "koboldcpp": "KoboldCPP",
     "llamacpp": "llama.cpp",
     "tabbyapi": "TabbyAPI",
     "vllm": "vLLM",
@@ -253,7 +243,7 @@ BACKEND_LABELS = {
 }
 
 # Default backend ordering (for dropdowns)
-BACKEND_ORDER = ["llamacpp", "ollama", "koboldcpp", "vllm", "tabbyapi", "cloud_api"]
+BACKEND_ORDER = ["llamacpp", "ollama", "vllm", "tabbyapi", "cloud_api"]
 
 # ============================================================
 # AVAILABLE VOICES (Engine-specific)
@@ -893,14 +883,6 @@ VRAM_CONTEXT_RATIO_MOE = 0.10    # ~100KB per token (MoE models, 48% more contex
 # Using percentage-based buffer to scale with context size (2% of vLLM's reported max)
 VLLM_CONTEXT_SAFETY_PERCENT = 0.02  # 2% safety buffer (iteratively applied to each vLLM-reported max)
 
-# KoboldCPP Context Calibration Safety Buffer (Fixed Tokens)
-# Fixed token reduction for KoboldCPP when VRAM-calculated context fails
-# Unlike vLLM (which uses percentage), llama.cpp benefits from fixed reduction:
-# - GGUF models have fixed memory footprint (no dynamic allocation)
-# - llama.cpp OOM errors don't provide exact limits (only "out of memory")
-# - With Q4 KV cache: 1500 tokens ≈ 75MB safety buffer (realistic for Q4 quantized KV)
-KOBOLDCPP_CONTEXT_SAFETY_TOKENS = 1500  # 1.5K token reduction for final attempt (Q4 KV)
-
 # ============================================================
 # OLLAMA HYBRID MODE (CPU OFFLOAD) CONFIGURATION
 # ============================================================
@@ -913,63 +895,6 @@ HYBRID_MIN_CONTEXT = 2048  # 2K tokens (conservative fallback)
 
 # Minimum RAM reserve to prevent swapping
 RAM_RESERVE_MIN = 2048  # 2 GB minimum reserve
-
-# ============================================================
-# KOBOLDCPP ROPE SCALING CONFIGURATION
-# ============================================================
-# Linear RoPE Scaling factor for context extension beyond native limit
-#
-# Quality Impact (Perplexity increase):
-# - 1.0x: No scaling (native context only, best quality)
-# - 1.5x: ~5% perplexity increase (barely noticeable)
-# - 2.0x: ~10% perplexity increase (noticeable in long texts)
-# - 3.0x+: 40-60% perplexity increase (significant quality loss)
-#
-# Example: Native 32K context → 1.5x = 48K, 2.0x = 64K
-#
-# NOTE: vLLM/TabbyAPI use superior YaRN scaling (better quality at same factor)
-# KoboldCPP only supports Linear RoPE (llama.cpp limitation)
-KOBOLDCPP_ROPE_SCALING_FACTOR = 1.5  # Conservative 1.5x for good quality/capacity balance
-
-# KoboldCPP Hard Limit (llama.cpp limitation)
-# KoboldCPP enforces: --contextsize must be within [256, 262144]
-# This is independent of model architecture or VRAM - it's a hard coded limit in llama.cpp
-KOBOLDCPP_HARD_MAX_CONTEXT = 262144  # Maximum allowed by KoboldCPP CLI
-
-# ============================================================
-# KOBOLDCPP QUANTKV CONFIGURATION
-# ============================================================
-# KV-Cache Quantization Level (--quantkv parameter)
-# Reduces VRAM usage for large context windows
-#
-# Options:
-#   0 = FP16 (no quantization, 100% VRAM, best quality)
-#   1 = Q8   (8-bit quantization, ~50% VRAM savings, minimal quality loss)
-#   2 = Q4   (4-bit quantization, ~75% VRAM savings, slight quality loss)
-#
-# NOTE: quantkv=2 has a known deadlock bug on multi-GPU setups with
-# flashattention enabled after 2-3 large requests. Use quantkv=1 for stability.
-#
-# Recommended:
-#   - Single GPU: quantkv=2 (max VRAM savings)
-#   - Multi-GPU (2x P40): quantkv=1 (stability, confirmed working with 262k context)
-KOBOLDCPP_QUANTKV = 1  # Q8 quantization - stable on multi-GPU, ~50% VRAM savings
-
-# ============================================================
-# KOBOLDCPP INACTIVITY AUTO-SHUTDOWN (Rolling Window)
-# ============================================================
-# Automatically shutdown KoboldCPP after inactivity period to save power (~100W idle)
-# Server restarts automatically on next request (Phase 1: Backend Auto-Restart)
-#
-# Rolling Window Approach:
-# - Continuous GPU checks every KOBOLDCPP_INACTIVITY_CHECK_INTERVAL seconds
-# - Shutdown when N consecutive checks were idle (N = TIMEOUT / INTERVAL)
-# - Any GPU activity resets counter to 0
-#
-# Testing: Set KOBOLDCPP_INACTIVITY_TIMEOUT = 30 for 30-second tests
-# Production: Set KOBOLDCPP_INACTIVITY_TIMEOUT = 1800 for 30-minute timeout
-KOBOLDCPP_INACTIVITY_TIMEOUT = 300  # Seconds of inactivity before auto-shutdown (300s = 5 minutes)
-KOBOLDCPP_INACTIVITY_CHECK_INTERVAL = 60  # Check GPU utilization every 60 seconds (1 minute)
 
 # ============================================================
 # VECTOR CACHE CONFIGURATION (ChromaDB Similarity Thresholds)

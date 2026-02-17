@@ -3,8 +3,8 @@ Model Discovery - Backend-agnostic model discovery for AIfred
 
 Provides functions to discover available models from different backends:
 - vLLM/TabbyAPI: Scan HuggingFace cache
-- KoboldCPP: Scan filesystem for GGUF files
 - Ollama: Query server API
+- llama.cpp: Query llama-swap API
 
 Returns Dict[model_id, display_label] for UI dropdown population.
 """
@@ -60,35 +60,6 @@ def discover_huggingface_models(
 
     log_message(f"📂 Found {len(result)} {backend_type}-compatible models ({len(model_dirs)} total in cache)")
     return result
-
-
-def discover_gguf_models() -> Dict[str, str]:
-    """
-    Discover GGUF models from filesystem for KoboldCPP backend.
-
-    Returns:
-        Dict mapping model_name to display label with size
-    """
-    from .gguf_utils import find_all_gguf_models
-
-    try:
-        gguf_models = find_all_gguf_models()
-
-        if not gguf_models:
-            log_message("⚠️ No GGUF models found")
-            return {}
-
-        result = {
-            m.name: f"{m.name} ({m.size_gb:.1f} GB)"
-            for m in gguf_models
-        }
-
-        log_message(f"📂 Found {len(result)} GGUF models")
-        return result
-
-    except Exception as e:
-        log_message(f"❌ GGUF discovery failed: {e}")
-        return {}
 
 
 def discover_ollama_models(backend_url: str, timeout: float = 5.0) -> Dict[str, str]:
@@ -193,7 +164,7 @@ def discover_models(
     Unified model discovery for any backend type.
 
     Args:
-        backend_type: "ollama", "vllm", "tabbyapi", "koboldcpp", or "llamacpp"
+        backend_type: "ollama", "vllm", "tabbyapi", or "llamacpp"
         backend_url: Required for Ollama and llamacpp backends
         is_compatible_fn: Required for vLLM/TabbyAPI backends
 
@@ -204,9 +175,6 @@ def discover_models(
         if not is_compatible_fn:
             raise ValueError("is_compatible_fn required for vLLM/TabbyAPI")
         unsorted = discover_huggingface_models(backend_type, is_compatible_fn)
-
-    elif backend_type == "koboldcpp":
-        unsorted = discover_gguf_models()
 
     elif backend_type == "ollama":
         if not backend_url:

@@ -13,7 +13,6 @@ from .config import (
     VRAM_CONTEXT_RATIO_DENSE,
     VRAM_CONTEXT_RATIO_MOE,
     ENABLE_VRAM_CONTEXT_CALCULATION,
-    KOBOLDCPP_QUANTKV,
     DEFAULT_OLLAMA_URL
 )
 from .formatting import format_number
@@ -109,7 +108,6 @@ def get_free_vram_mb() -> Optional[int]:
     Query free VRAM using pynvml (NVIDIA Management Library)
 
     For multi-GPU systems, returns the SUM of free VRAM across ALL GPUs.
-    This matches KoboldCPP's behavior which can utilize multiple GPUs.
 
     Returns:
         int: Total free VRAM in MB (summed across all GPUs), or None if GPU unavailable
@@ -182,7 +180,6 @@ def get_all_gpus_memory_info() -> Optional[Dict]:
     Query memory info for ALL GPUs in the system.
 
     Returns aggregated stats plus per-GPU details.
-    Useful for multi-GPU setups like KoboldCPP.
 
     Returns:
         Dict with keys:
@@ -675,10 +672,6 @@ async def calculate_vram_based_context(
     return final_num_ctx, debug_msgs
 
 
-# ===================================================================
-# KoboldCPP GPU Configuration Detection
-# ===================================================================
-
 def detect_gpu_vendor() -> str:
     """
     Detect GPU vendor (NVIDIA, AMD, or CPU-only)
@@ -775,129 +768,6 @@ def get_gpu_vram_per_gpu() -> list[int]:
         pass
 
     return vram_sizes
-
-
-def detect_koboldcpp_gpu_config() -> Dict:
-    """
-    Detect GPU configuration and return KoboldCPP config template
-
-    Returns:
-        Dict with KoboldCPP configuration:
-        {
-            "type": "rtx" | "dual_p40" | "amd_rocm" | "cpu",
-            "description": "RTX 3090 Ti (Single GPU)" | "2x Tesla P40 (Context-Offload)" | etc.,
-            "gpu_count": 1 | 2,
-            "gpu_names": ["NVIDIA GeForce RTX 3090 Ti"],
-            "gpu_vram_mb": [24564],
-            "total_vram_mb": 24564,
-            "config": {
-                "gpu_layers": -1 | 40,
-                "context_offload": True | False,
-                "tensor_split": "1,0" | None,
-                "flash_attention": True | False,
-                "quantized_kv": True | False,
-                "use_cublas": True | False,
-                "cublas_args": None | "mmq"
-            }
-        }
-    """
-    vendor = detect_gpu_vendor()
-
-    if vendor == "cpu":
-        return {
-            "type": "cpu",
-            "description": "CPU-only (No GPU acceleration)",
-            "gpu_count": 0,
-            "gpu_names": [],
-            "gpu_vram_mb": [],
-            "total_vram_mb": 0,
-            "config": {
-                "gpu_layers": 0,
-                "context_offload": False,
-                "tensor_split": None,
-                "flash_attention": False,
-                "quantized_kv": False,
-                "quantkv": 0,  # No KV quantization for CPU
-                "use_cublas": False,
-                "cublas_args": None
-            }
-        }
-
-    if vendor == "amd":
-        gpu_count = 1  # Simplified: assume 1 AMD GPU
-        return {
-            "type": "amd_rocm",
-            "description": "AMD GPU (ROCm)",
-            "gpu_count": gpu_count,
-            "gpu_names": ["AMD GPU (ROCm)"],
-            "gpu_vram_mb": [0],  # Unknown without rocm-smi parsing
-            "total_vram_mb": 0,
-            "config": {
-                "gpu_layers": -1,  # All layers
-                "context_offload": False,
-                "tensor_split": None,
-                "flash_attention": True,
-                "quantized_kv": True,
-                "quantkv": 2,  # Q4 for single GPU (safe)
-                "use_cublas": True,
-                "cublas_args": "mmq"  # AMD-specific optimized kernels
-            }
-        }
-
-    # NVIDIA GPUs
-    gpu_count = get_gpu_count()
-    gpu_names = get_gpu_names()
-    gpu_vram = get_gpu_vram_per_gpu()
-    total_vram = sum(gpu_vram) if gpu_vram else 0
-
-    # Dual GPU detection
-    if gpu_count == 2:
-        # Check if both GPUs are Tesla P40
-        is_dual_p40 = all("P40" in name for name in gpu_names)
-
-        if is_dual_p40:
-            # Default config for dual P40 (can be overridden dynamically by single-GPU check)
-            return {
-                "type": "dual_p40",
-                "description": "2x Tesla P40 (Automatic Distribution)",
-                "gpu_count": 2,
-                "gpu_names": gpu_names,
-                "gpu_vram_mb": gpu_vram,
-                "total_vram_mb": total_vram,
-                "single_gpu_vram_mb": gpu_vram[0] if gpu_vram else 0,  # For single-GPU decision
-                "config": {
-                    "gpu_layers": -1,           # All layers on GPU (distributed automatically)
-                    "context_offload": False,   # Not supported by KoboldCPP (uses auto-distribution)
-                    "tensor_split": None,       # Let KoboldCPP auto-distribute (50/50) - overridable
-                    "flash_attention": True,    # P40 supports Flash Attention (Compute Capability 6.1)
-                    "quantized_kv": True,       # Enable KV cache quantization
-                    "quantkv": KOBOLDCPP_QUANTKV,  # Use config value (1=Q8 for multi-GPU stability)
-                    "use_cublas": True,
-                    "cublas_args": None
-                }
-            }
-
-    # Single GPU or generic dual GPU (RTX config)
-    # For single GPU, quantkv=2 is safe. For multi-GPU, use config default.
-    quantkv_value = 2 if gpu_count == 1 else KOBOLDCPP_QUANTKV
-    return {
-        "type": "rtx",
-        "description": f"{gpu_names[0] if gpu_names else 'NVIDIA GPU'} (Single GPU)" if gpu_count == 1 else f"{gpu_count}x {gpu_names[0]} (Generic)",
-        "gpu_count": gpu_count,
-        "gpu_names": gpu_names,
-        "gpu_vram_mb": gpu_vram,
-        "total_vram_mb": total_vram,
-        "config": {
-            "gpu_layers": -1,  # All layers
-            "context_offload": False,
-            "tensor_split": None,
-            "flash_attention": True,
-            "quantized_kv": True,
-            "quantkv": quantkv_value,  # Q4 for single GPU, config default for multi-GPU
-            "use_cublas": True,
-            "cublas_args": None
-        }
-    }
 
 
 def calculate_gpu_layers(model_size_gb: float, vram_mb: int) -> int:

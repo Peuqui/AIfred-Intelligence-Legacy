@@ -164,7 +164,7 @@ def backend_supports_dynamic_models(backend: Any) -> bool:
 
     Returns:
         True if backend can load different models on-demand (like Ollama, TabbyAPI)
-        False if backend requires server restart for model changes (like vLLM, KoboldCPP)
+        False if backend requires server restart for model changes (like vLLM)
 
     Usage:
         >>> from aifred.lib.backends import BackendFactory

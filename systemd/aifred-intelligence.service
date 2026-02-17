@@ -19,7 +19,6 @@ Environment="REFLEX_HOT_RELOAD_EXCLUDE_PATHS=data:prompts"
 ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
 KillMode=control-group
-ExecStopPost=/usr/bin/pkill -f koboldcpp || true
 RestartSec=10
 StandardOutput=journal
 StandardError=journal

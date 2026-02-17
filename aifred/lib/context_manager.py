@@ -544,13 +544,6 @@ async def calculate_dynamic_num_ctx(
     # Calculate tokens from message size
     estimated_tokens = estimate_tokens(messages)  # 1 token ≈ 3.5 chars
 
-    # Constant 8K reserve for LLM output
-    # For research (summarization), output is SHORTER than input, so 8K is sufficient
-    # (~6000 words / 4-5 A4 pages for detailed answers)
-    reserve = OUTPUT_RESERVE_TOKENS  # 8192
-
-    needed_tokens = estimated_tokens + reserve
-
     # Query model limit from backend (~40ms, does NOT load model!)
     model_limit, _ = await llm_client.get_model_context_limit(model_name)
 
@@ -558,10 +551,8 @@ async def calculate_dynamic_num_ctx(
     # - Ollama: Dynamic VRAM calculation (based on current free VRAM)
     # - vLLM: Cached startup value (FIXED, cannot be changed at runtime)
     # - TabbyAPI: Cached startup value or API query
-    # - KoboldCPP: Cached startup value (FIXED, num_ctx not changeable at runtime)
     vram_debug_msgs = []
     backend = llm_client._get_backend()
-    backend_type = type(backend).__name__
 
     if enable_vram_limit:
         # Use backend-specific context calculation
@@ -589,24 +580,12 @@ async def calculate_dynamic_num_ctx(
         max_practical_ctx = max(2048, max_practical_ctx - moss_token_reserve)
         vram_debug_msgs.append(f"🔊 MOSS-TTS reserviert: ~{format_number(MOSS_TTS_VRAM_MB)} MB ({format_number(moss_token_reserve)} tok)")
 
-    # Backend-specific context calculation
-    calculated_ctx = needed_tokens
-
-    if backend_type == "KoboldCPPBackend":
-        # KoboldCPP: num_ctx is FIXED at server start, cannot be changed at runtime
-        # We MUST always use the full context (max_practical_ctx = startup value)
-        final_num_ctx = max_practical_ctx
-        log_message(
-            f"🎯 KoboldCPP: Using fixed startup context: {format_number(final_num_ctx)} tok "
-            f"(~{format_number(estimated_tokens)} needed, {format_number(calculated_ctx)} calculated)"
-        )
-    else:
-        # Ollama/vLLM/TabbyAPI: Dynamic num_ctx calculation possible
-        # gpu_utils.calculate_vram_based_context() returns:
-        # - Calibrated: the measured max_context_gpu_only value
-        # - Uncalibrated: dynamically calculated VRAM-based value
-        # In both cases: Clip to model limit
-        final_num_ctx = min(max_practical_ctx, model_limit)
+    # Ollama/vLLM/TabbyAPI/llama.cpp: Dynamic num_ctx calculation possible
+    # gpu_utils.calculate_vram_based_context() returns:
+    # - Calibrated: the measured max_context_gpu_only value
+    # - Uncalibrated: dynamically calculated VRAM-based value
+    # In both cases: Clip to model limit
+    final_num_ctx = min(max_practical_ctx, model_limit)
 
     # Store VRAM limit in global cache for history compression
     # (prevents history from recalculating the limit)
@@ -618,15 +597,13 @@ async def calculate_dynamic_num_ctx(
     if state is not None:
         state.last_vram_limit = min(max_practical_ctx, model_limit)
 
-    # Log Context Window Info (only for Ollama/vLLM/TabbyAPI)
-    if backend_type != "KoboldCPPBackend":
-        # Calculate available output space
-        available_output = final_num_ctx - estimated_tokens
-        log_message(
-            f"🎯 Context Window: {format_number(final_num_ctx)} tok "
-            f"(Input: ~{format_number(estimated_tokens)}, Output space: ~{format_number(available_output)}, "
-            f"VRAM limit: {format_number(max_practical_ctx)}, Model max: {format_number(model_limit)})"
-        )
+    # Log Context Window Info
+    available_output = final_num_ctx - estimated_tokens
+    log_message(
+        f"🎯 Context Window: {format_number(final_num_ctx)} tok "
+        f"(Input: ~{format_number(estimated_tokens)}, Output space: ~{format_number(available_output)}, "
+        f"VRAM limit: {format_number(max_practical_ctx)}, Model max: {format_number(model_limit)})"
+    )
 
     return final_num_ctx, vram_debug_msgs
 
@@ -1066,7 +1043,7 @@ async def prepare_automatik_llm(
         # Only Ollama and llama.cpp benefit from preloading:
         # - Ollama: Set num_ctx to avoid 262K default allocation
         # - llama.cpp: Trigger llama-swap cold-start before user's first question
-        # - vLLM/TabbyAPI/KoboldCPP: Models stay loaded, no preload needed
+        # - vLLM/TabbyAPI: Models stay loaded, no preload needed
         if backend_type not in ("ollama", "llamacpp"):
             yield {"type": "result", "data": (True, 0.0)}
             return

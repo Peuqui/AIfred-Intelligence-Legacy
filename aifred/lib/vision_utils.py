@@ -2,7 +2,7 @@
 Vision/Image Processing Utilities
 
 Multi-backend vision model detection and image handling for AIfred Intelligence.
-Supports Ollama, KoboldCPP (GGUF), vLLM, and TabbyAPI backends.
+Supports Ollama, llama.cpp (via llama-swap), vLLM, and TabbyAPI backends.
 """
 
 import logging
@@ -49,7 +49,7 @@ async def is_vision_model(state, model_name: str) -> bool:
 
     Detection Strategy by Backend:
     1. **Ollama**: Query /api/show for model_info with .vision.* keys
-    2. **KoboldCPP**: Read GGUF metadata for general.architecture (via gguf_utils_vision.py)
+    2. **llama.cpp**: Name-based pattern matching (llama-swap keys are descriptive)
     3. **vLLM/TabbyAPI**: Read HuggingFace config.json for architectures/model_type
     4. **Fallback**: Name-based pattern matching
 
@@ -109,22 +109,6 @@ async def is_vision_model(state, model_name: str) -> bool:
                 if any(vision_key in key for vision_key in vision_keys):
                     logger.info(f"✅ Vision model detected (Ollama model_info): {model_name} has {key}")
                     return True
-
-        # === KOBOLDCPP: Check GGUF metadata ===
-        elif backend_type == "koboldcpp":
-            from .gguf_utils import find_all_gguf_models
-            from .gguf_utils_vision import is_vision_language_model
-
-            # Find GGUF file for this model
-            gguf_models = find_all_gguf_models()
-            for gguf_model in gguf_models:
-                # Match model name (case-insensitive, partial match)
-                if gguf_model.name.lower() in model_name.lower() or model_name.lower() in gguf_model.name.lower():
-                    # Read multiple GGUF metadata fields for comprehensive vision detection
-                    arch, tags, name = _get_gguf_vision_metadata(gguf_model.path)
-                    if is_vision_language_model(arch, tags=tags, name=name):
-                        logger.info(f"✅ Vision model detected (GGUF): {model_name} (arch={arch}, tags={tags}, name={name})")
-                        return True
 
         # === LLAMACPP: Name-based detection (llama-swap keys are descriptive) ===
         elif backend_type == "llamacpp":

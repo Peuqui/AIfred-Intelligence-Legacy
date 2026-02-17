@@ -17,14 +17,14 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 ## ✨ Features
 
 ### 🎯 Core Features
-- **Multi-Backend Support**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), KoboldCPP (GGUF), TabbyAPI (EXL2), **Cloud APIs** (Qwen, DeepSeek, Claude)
+- **Multi-Backend Support**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), **Cloud APIs** (Qwen, DeepSeek, Claude)
 - **Vision/OCR Support**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
 - **Image Crop Tool**: Interactive crop before OCR/analysis (8-point handles, 4K auto-resize)
 - **3-Model Architecture**: Specialized Vision-LLM for OCR, Main-LLM for interpretation
 - **Thinking Mode**: Chain-of-Thought reasoning for complex tasks (Qwen3, NemoTron, QwQ - llama.cpp, Ollama, vLLM)
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
-- **Automatic Context Calibration**: VRAM-aware context sizing per backend - Ollama (Binary Search + RoPE scaling 1.0x/1.5x/2.0x, hybrid CPU offload), llama.cpp (Binary Search via direct llama-server), KoboldCPP (Binary Search with RoPE)
+- **Automatic Context Calibration**: VRAM-aware context sizing per backend - Ollama (Binary Search + RoPE scaling 1.0x/1.5x/2.0x, hybrid CPU offload), llama.cpp (Binary Search via direct llama-server)
 - **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (double-buffered HTML5 audio, seamless playback during LLM inference)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
@@ -228,8 +228,6 @@ Each message is displayed individually with its emoji and mode label:
   - **llama.cpp**: Binary search via direct llama-server testing (stops llama-swap, tests on temp port, updates YAML config)
   - Results cached in unified `data/model_vram_cache.json`
 - **RoPE 2x Extended Context**: Optional extended calibration up to 2x native context limit
-- **KoboldCPP Dynamic RoPE**: Intelligent VRAM-based context optimization with automatic RoPE scaling
-- **Multi-User Queue**: KoboldCPP request queuing for concurrent users (up to 5 clients)
 - **Parallel Web Search**: 2-3 optimized queries distributed in parallel across APIs (Tavily, Brave, SearXNG), automatic URL deduplication, optional self-hosted SearXNG
 - **Parallel Scraping**: ThreadPoolExecutor scrapes 3-7 URLs simultaneously, first successful results are used
 - **Failed Sources Display**: Shows unavailable URLs with error reasons (Cloudflare, 404, Timeout) - persisted in Vector Cache for cache hits
@@ -999,7 +997,6 @@ curl http://localhost:8002/api/sessions
   - **llama.cpp** via llama-swap (GGUF models) - best performance, full GPU control ([setup guide](docs/llamacpp-setup.md))
   - **Ollama** (easy, GGUF models) - recommended for getting started
   - **vLLM** (fast, AWQ models) - best performance for AWQ (requires Compute Capability 7.5+)
-  - **KoboldCPP** (GGUF models) - dynamic RoPE scaling
   - **TabbyAPI** (ExLlamaV2/V3, EXL2 models) - experimental
 - 8GB+ RAM (12GB+ recommended for larger models)
 - Docker (for ChromaDB Vector Cache)
@@ -1228,7 +1225,6 @@ AIfred supports different LLM backends that can be switched dynamically in the U
 - **llama.cpp** (via llama-swap): GGUF models, best raw performance (+43% generation, +30% prompt processing vs Ollama), full GPU control, multi-GPU support. Uses a 3-tier architecture: **llama-swap** (Go proxy, model management) → **llama-server** (inference) → **llama.cpp** (library). Automatic VRAM calibration via Binary Search (stops llama-swap, tests llama-server directly, updates config). See [setup guide](docs/llamacpp-setup.md).
 - **Ollama**: GGUF models (Q4/Q8), easiest installation, automatic model management, good performance after v2.32.0 optimizations
 - **vLLM**: AWQ models (4-bit), best performance with AWQ Marlin kernel
-- **KoboldCPP**: GGUF models with dynamic RoPE scaling and VRAM optimization
 - **TabbyAPI**: EXL2 models (ExLlamaV2/V3) - experimental, basic support only
 
 ### GPU Compatibility Detection
@@ -1307,7 +1303,6 @@ AIfred-Intelligence/
 │   │   ├── llamacpp.py       # llama.cpp Backend (GGUF via llama-swap)
 │   │   ├── ollama.py         # Ollama Backend (GGUF)
 │   │   ├── vllm.py           # vLLM Backend (AWQ)
-│   │   ├── koboldcpp.py      # KoboldCPP Backend (GGUF)
 │   │   └── tabbyapi.py       # TabbyAPI Backend (EXL2)
 │   ├── lib/               # Core Libraries
 │   │   ├── multi_agent.py       # Multi-Agent System (AIfred, Sokrates, Salomo)
@@ -1656,7 +1651,6 @@ Environment="PYTHONUNBUFFERED=1"
 ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --env prod --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
 KillMode=control-group
-ExecStopPost=/usr/bin/pkill -f koboldcpp || true
 RestartSec=10
 StandardOutput=journal
 StandardError=journal

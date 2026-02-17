@@ -872,7 +872,7 @@ async def chat_with_vision_pipeline(
         images: List of image dicts with "name" and "base64" keys
         vision_model: Vision-LLM model name (e.g., "qwen3-vl:8b")
         main_model: Main LLM for post-processing (e.g., "qwen3:30b")
-        backend_type: "ollama", "koboldcpp", "vllm", "tabbyapi"
+        backend_type: "ollama", "llamacpp", "vllm", "tabbyapi"
         backend_url: Backend URL (optional, uses default if None)
         llm_options: Additional LLM options
         state: AIState object (REQUIRED for per-agent num_ctx lookup via get_agent_num_ctx)
@@ -1253,7 +1253,7 @@ async def chat_interactive_mode(
     if backend_type == 'ollama':
         automatik_llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
     else:
-        # KoboldCPP, vLLM, TabbyAPI: Same model, same client (no model switching)
+        # vLLM, TabbyAPI, llama.cpp: Same model, same client (no model switching)
         automatik_llm_client = llm_client
 
     # VRAM Change Detection (only for vLLM backend)

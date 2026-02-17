@@ -40,7 +40,7 @@
 - **ChromaDB Vector Cache** - Semantischer Cache für Web-Research (Docker)
 - **RAG-System** - Retrieval-Augmented Generation mit Relevanz-Check
 - **History Compression** - Automatische Kompression (siehe unten)
-- **Multi-Backend Support** - llama.cpp (via llama-swap), Ollama, vLLM, TabbyAPI, KoboldCPP
+- **Multi-Backend Support** - llama.cpp (via llama-swap), Ollama, vLLM, TabbyAPI
 - **Thinking Mode** - Chain-of-Thought für Qwen3 Modelle
 
 ---
@@ -59,7 +59,7 @@
 
 ### Architektur
 - Python/Reflex Anwendung (nicht Gradio!)
-- Backends: llama.cpp (via llama-swap), Ollama, vLLM, TabbyAPI, KoboldCPP
+- Backends: llama.cpp (via llama-swap), Ollama, vLLM, TabbyAPI
 - Multi-Agent System:
   - AIfred (Hauptagent)
   - Sokrates (Kritiker)
