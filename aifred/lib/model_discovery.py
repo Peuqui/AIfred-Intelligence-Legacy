@@ -124,6 +124,8 @@ def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[st
 
         result = {}
         for mid in model_ids:
+            if mid.endswith("-speed"):
+                continue  # Speed variants are internal; exposed via Ctx/Speed toggle only
             size_gb = model_sizes.get(mid)
             if size_gb is not None:
                 result[mid] = f"{mid} ({size_gb:.1f} GB)"
