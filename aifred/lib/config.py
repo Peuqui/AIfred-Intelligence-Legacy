@@ -220,7 +220,7 @@ DEFAULT_LLAMACPP_URL = os.environ.get("LLAMACPP_URL", "http://localhost:8080/v1"
 
 # llama-swap / llama-server calibration
 LLAMASWAP_CONFIG_PATH = Path(os.environ.get(
-    "LLAMASWAP_CONFIG", str(Path.home() / "Projekte/AIfred-Intelligence/config/llama-swap-config.yaml")
+    "LLAMASWAP_CONFIG", str(Path.home() / ".config" / "llama-swap" / "config.yaml")
 ))
 LLAMACPP_HEALTH_TIMEOUT = 120     # Seconds until llama-server ready (large models need 60-90s)
 LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "9999"))
