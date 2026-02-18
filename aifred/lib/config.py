@@ -216,7 +216,7 @@ CLOUD_API_PROVIDERS = {
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_VLLM_URL = "http://localhost:8001/v1"
 DEFAULT_TABBYAPI_URL = "http://localhost:5000/v1"
-DEFAULT_LLAMACPP_URL = os.environ.get("LLAMACPP_URL", "http://localhost:8080/v1")
+DEFAULT_LLAMACPP_URL = os.environ.get("LLAMACPP_URL", "http://localhost:11435/v1")
 
 # llama-swap / llama-server calibration
 LLAMASWAP_CONFIG_PATH = Path(os.environ.get(
