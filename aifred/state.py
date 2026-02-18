@@ -7190,16 +7190,18 @@ class AIState(rx.State):
             else:
                 self.add_debug("⚠️ Could not update -c in llama-swap config")
 
-            if calibrated_mode == "hybrid":
-                updated_ngl = update_llamaswap_ngl(
-                    LLAMASWAP_CONFIG_PATH,
-                    self.aifred_model_id,
-                    calibrated_ngl
-                )
-                if updated_ngl:
-                    self.add_debug(f"   -ngl {calibrated_ngl} written (hybrid mode)")
-                else:
-                    self.add_debug("⚠️ Could not update -ngl in llama-swap config")
+            # Always write ngl: gpu-mode uses 99, hybrid uses the calculated value.
+            # Without this, a stale ngl (e.g. from a previous hybrid calibration) stays.
+            updated_ngl = update_llamaswap_ngl(
+                LLAMASWAP_CONFIG_PATH,
+                self.aifred_model_id,
+                calibrated_ngl
+            )
+            if updated_ngl:
+                mode_label = "hybrid mode" if calibrated_mode == "hybrid" else "gpu mode"
+                self.add_debug(f"   -ngl {calibrated_ngl} written ({mode_label})")
+            else:
+                self.add_debug("⚠️ Could not update -ngl in llama-swap config")
             yield
 
             # Step 5: Restart llama-swap
