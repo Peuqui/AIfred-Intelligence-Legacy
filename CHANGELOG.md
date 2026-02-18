@@ -5,6 +5,19 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.37.1] - 2026-02-18 🔧 Bugfixes & Code-Vereinfachung
+
+### Fixed
+
+- **Cold-Start-Bug bei Speed-Modus + expliziter Automatik-LLM** - `_effective_automatik_id` erkennt jetzt, wenn Automatik-LLM explizit auf AIfred's Base-Modell gesetzt ist und AIfred im Speed-Modus läuft → folgt automatisch der Speed-Variante statt llama-swap-Swap auszulösen (~80s Delay pro Automatik-Aufruf)
+- **Automatik-LLM Preload beim Start entfernt** - Verhinderte 60-80s Startup-Delay bei großen Modellen; erster Request lädt das Modell bei Bedarf
+
+### Changed
+
+- **Title-Generierung vereinfacht** - `_generate_session_title` nutzt jetzt direkt `_effective_automatik_id` wie alle anderen Automatik-Aufrufe (Intent-Erkennung, History-Kompression etc.); interner `model_id`-Parameter entfernt
+
+---
+
 ## [2.37.0] - 2026-02-18 🔍 llama-swap Autoscan & Automatik-LLM Vereinheitlichung
 
 ### Added

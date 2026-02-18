@@ -402,7 +402,6 @@ class AIState(rx.State):
     _session_initialized: bool = False  # Guard against multiple session restore callbacks
     _on_load_running: bool = False  # Guard against multiple on_load() calls
     _last_detected_language: str = ""  # Last detected language from Intent Detection (for title generation)
-    _last_inference_model_id: str = ""  # Last model actually used for LLM inference (for title generation)
 
     # Backend Status
     backend_healthy: bool = False
@@ -677,8 +676,14 @@ class AIState(rx.State):
 
     @property
     def _effective_automatik_id(self) -> str:
-        """Resolve Automatik model ID: empty = same as AIfred."""
-        return self.automatik_model_id or self.aifred_model_id
+        """Resolve Automatik model ID: empty or same base model as AIfred = follow AIfred exactly."""
+        if not self.automatik_model_id:
+            return self.aifred_model_id
+        # If Automatik is explicitly set to AIfred's base model (while AIfred may be in speed
+        # mode), follow AIfred's current model_id to avoid llama-swap cold-start swaps.
+        if self.automatik_model_id == self.aifred_model_id.removesuffix("-speed"):
+            return self.aifred_model_id
+        return self.automatik_model_id
 
     @rx.var
     def is_unanimous_consensus(self) -> bool:
@@ -3597,7 +3602,7 @@ class AIState(rx.State):
 
                 # CRITICAL: Generate title and save session before early return
                 # (finally block may not execute for async generators)
-                async for _ in self._generate_session_title(self._effective_automatik_id):
+                async for _ in self._generate_session_title():
                     yield  # Forward UI updates from title generation
                 self._save_current_session()
                 self.refresh_session_list()
@@ -3849,7 +3854,7 @@ class AIState(rx.State):
 
             # Generate session title at end of flow (uses small Automatik model)
             # Only runs on first Q&A pair, skipped if title already exists
-            async for _ in self._generate_session_title(self._effective_automatik_id):
+            async for _ in self._generate_session_title():
                 yield  # Forward UI updates from title generation
 
             # Auto-Save: Session nach jeder Chat-Nachricht speichern
@@ -5205,18 +5210,15 @@ class AIState(rx.State):
             owner=self.logged_in_user  # Required for session creation
         )
 
-    async def _generate_session_title(self, model_id: str | None = None):
+    async def _generate_session_title(self):
         """
         Generate a chat title using LLM based on first Q&A pair.
 
         This is an async generator that yields for UI updates during title generation.
         Called at the END of send_message() flow (in finally block).
-        Uses the small Automatik model with thinking disabled for fast response.
+        Uses the Automatik model (same as Intent Detection and other Automatik tasks).
 
         Only executes on first Q&A pair - skipped if title already exists.
-
-        Args:
-            model_id: Model to use for title generation. Defaults to automatik_model_id.
 
         Yields:
             None - yields are for UI updates only
@@ -5289,10 +5291,7 @@ class AIState(rx.State):
                 ai_response=first_ai_response
             )
 
-            # Use AIfred's current model_id (guaranteed to be loaded after the response).
-            # Do NOT use _effective_automatik_id: if AIfred is in speed mode but automatik_model_id
-            # still points to the base model, that would trigger a llama-swap cold-start (~80s).
-            title_model = model_id or self.aifred_model_id or self._effective_automatik_id
+            title_model = self._effective_automatik_id
 
             llm_client = LLMClient(
                 backend_type=self.backend_type,
