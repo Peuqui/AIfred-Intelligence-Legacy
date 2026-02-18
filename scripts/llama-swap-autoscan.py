@@ -29,6 +29,8 @@ OLLAMA_PATHS = [
     Path.home() / ".ollama" / "models",         # User-Installation
 ]
 
+HF_CACHE_DIR = Path.home() / ".cache" / "huggingface" / "hub"
+
 LLAMASWAP_CONFIG = Path.home() / ".config" / "llama-swap" / "config.yaml"
 # Persists models that failed the compatibility test — not re-tested on subsequent runs.
 # Delete an entry manually to re-test after a llama.cpp update.
@@ -279,6 +281,94 @@ def create_symlinks(ollama_models: list[dict]) -> list[dict]:
         symlink_path.symlink_to(model["blob_path"])
         print(f"  + Symlink: {model['symlink_name']} → {model['blob_path'].name[:24]}...")
         existing_targets[blob_resolved] = model["symlink_name"]
+        new_symlinks.append(model)
+
+    return new_symlinks
+
+
+# ---------------------------------------------------------------------------
+# HuggingFace cache scanning
+# ---------------------------------------------------------------------------
+
+def _hf_latest_snapshot(repo_dir: Path) -> Optional[Path]:
+    """
+    Return the active snapshot directory for an HF repo.
+
+    Prefers the commit referenced by refs/main; falls back to the
+    lexicographically last entry in snapshots/ (newest by sort order).
+    """
+    refs_main = repo_dir / "refs" / "main"
+    if refs_main.exists():
+        commit = refs_main.read_text().strip()
+        snapshot = repo_dir / "snapshots" / commit
+        if snapshot.exists():
+            return snapshot
+
+    snapshots_dir = repo_dir / "snapshots"
+    if not snapshots_dir.exists():
+        return None
+    entries = sorted(snapshots_dir.iterdir())
+    return entries[-1] if entries else None
+
+
+def scan_hf_cache() -> list[dict]:
+    """
+    Scan HuggingFace cache for GGUF files.
+
+    Only considers the active snapshot (refs/main or latest commit hash).
+    Returns list of dicts: name (stem), hf_path (Path inside the snapshot).
+    """
+    if not HF_CACHE_DIR.exists():
+        return []
+
+    results = []
+    for repo_dir in sorted(HF_CACHE_DIR.glob("models--*")):
+        snapshot = _hf_latest_snapshot(repo_dir)
+        if not snapshot:
+            continue
+        for gguf_file in sorted(snapshot.glob("*.gguf")):
+            results.append({
+                "name": gguf_file.stem,
+                "hf_path": gguf_file,
+            })
+
+    return results
+
+
+def create_hf_symlinks(hf_models: list[dict]) -> list[dict]:
+    """
+    Create symlinks in MODELS_DIR for HuggingFace GGUFs.
+
+    Skips creation if the same blob is already covered by an existing
+    file or symlink in ~/models/ (Ollama or manual).
+
+    Returns list of newly created symlink entries (as scan_gguf_models dicts).
+    """
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+    existing_targets: dict[str, str] = {}
+    for existing_file in MODELS_DIR.glob("*.gguf"):
+        resolved = str(existing_file.resolve())
+        existing_targets[resolved] = existing_file.name
+
+    new_symlinks = []
+    for model in hf_models:
+        symlink_path = MODELS_DIR / (model["name"] + ".gguf")
+
+        if symlink_path.exists() or symlink_path.is_symlink():
+            print(f"  = Exists:  {symlink_path.name}")
+            continue
+
+        # Resolve through HF's own symlinks (snapshots → blobs) for dedup
+        hf_resolved = str(model["hf_path"].resolve())
+        existing_name = existing_targets.get(hf_resolved)
+        if existing_name:
+            print(f"  = Covered: {symlink_path.name} (already via {existing_name})")
+            continue
+
+        symlink_path.symlink_to(model["hf_path"])
+        print(f"  + Symlink: {symlink_path.name} → HuggingFace cache")
+        existing_targets[hf_resolved] = symlink_path.name
         new_symlinks.append(model)
 
     return new_symlinks
@@ -670,7 +760,7 @@ def main() -> None:
     print("=== llama-swap Autoscan ===")
     print()
 
-    # Step 1: Scan Ollama and create symlinks
+    # Step 1a: Scan Ollama and create symlinks
     ollama_base = find_ollama_base()
     if ollama_base:
         print("Scanning Ollama models...")
@@ -679,7 +769,17 @@ def main() -> None:
         print(f"  {len(ollama_models)} Ollama models found, {len(new_symlinks)} new symlinks created")
     else:
         print("No Ollama installation found, skipping.")
-        ollama_models = []
+
+    print()
+
+    # Step 1b: Scan HuggingFace cache and create symlinks
+    print("Scanning HuggingFace cache...")
+    hf_models = scan_hf_cache()
+    if hf_models:
+        new_hf_symlinks = create_hf_symlinks(hf_models)
+        print(f"  {len(hf_models)} HF GGUFs found, {len(new_hf_symlinks)} new symlinks created")
+    else:
+        print("  No HuggingFace cache found or empty.")
 
     print()
 
