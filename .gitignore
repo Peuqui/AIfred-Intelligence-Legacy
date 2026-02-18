@@ -94,6 +94,9 @@ assets/tts_audio/
 # Plus: settings.json, accounts.json, allowed_users.json, model_vram_cache.json
 data/
 
+# Local machine-specific configuration (absolute paths, never commit)
+config/
+
 # Test Directory (local test files)
 Test/
 
