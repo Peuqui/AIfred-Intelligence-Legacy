@@ -1063,6 +1063,18 @@ async def calibrate_llamacpp_model(
             # Measure VRAM while server is running — llama.cpp pre-allocates the full
             # KV cache at startup, so this gives a stable worst-case value
             vram_used_mb = get_total_used_vram_mb()
+            if vram_used_mb is not None:
+                gpu_info = get_gpu_memory_info()
+                total_mb = gpu_info["total_mb"] if gpu_info else 0
+                if total_mb > 0:
+                    free_mb = total_mb - vram_used_mb
+                    yield (
+                        f"VRAM used: {format_number(vram_used_mb)} MB / "
+                        f"{format_number(total_mb)} MB total "
+                        f"({format_number(free_mb)} MB free)"
+                    )
+                else:
+                    yield f"VRAM used: {format_number(vram_used_mb)} MB"
             yield "Testing reasoning capability..."
             thinks = await test_thinking_on_port(port)
             _kill_process(process)

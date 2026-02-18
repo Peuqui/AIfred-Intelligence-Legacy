@@ -794,12 +794,14 @@ def add_llamacpp_calibration(
     if vram_used_mb is not None:
         calibration["vram_used_mb"] = vram_used_mb
 
-    cache[model_id]["llamacpp_calibrations"].append(calibration)
-
-    # Keep last 5 calibrations
-    if len(cache[model_id]["llamacpp_calibrations"]) > 5:
-        cache[model_id]["llamacpp_calibrations"] = \
-            cache[model_id]["llamacpp_calibrations"][-5:]
+    # Replace existing entry with same mode, or append if first calibration for this mode
+    calibrations = cache[model_id]["llamacpp_calibrations"]
+    for i, cal in enumerate(calibrations):
+        if cal.get("mode") == mode:
+            calibrations[i] = calibration
+            break
+    else:
+        calibrations.append(calibration)
 
     speed_info = f", speed_split={speed_split}:1" if speed_split > 0 else ""
     logger.info(
