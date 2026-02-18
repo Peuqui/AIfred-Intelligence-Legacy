@@ -33,6 +33,7 @@ python-dotenv>=1.0.0    # .env file support
 
 # Model Management
 huggingface_hub>=1.4.1          # HuggingFace model downloads (hf CLI + GGUF discovery)
+hf>=1.4.1                       # HuggingFace CLI tool (hf download, hf upload, etc.)
 gguf>=0.10.0                    # GGUF metadata reading (native context detection)
 
 # Utilities
