@@ -31,6 +31,10 @@ openai-whisper>=20231117 # Speech-to-Text
 # Configuration & Environment
 python-dotenv>=1.0.0    # .env file support
 
+# Model Management
+huggingface_hub>=1.4.1          # HuggingFace model downloads (hf CLI + GGUF discovery)
+gguf>=0.10.0                    # GGUF metadata reading (native context detection)
+
 # Utilities
 python-multipart>=0.0.20
 platformdirs>=4.5.0
