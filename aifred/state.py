@@ -6701,6 +6701,56 @@ class AIState(rx.State):
                     self.add_debug("⚠️ vLLM might not be ready yet (timeout after 5s)")
 
                 yield  # Update UI
+            elif self.backend_type == "llamacpp":
+                # llama-swap: restart via systemctl --user (user service)
+                import os as _os
+                import subprocess as _sp
+                from pathlib import Path as _Path
+
+                _user_service = _Path.home() / ".config/systemd/user/llama-swap.service"
+                _cmd_prefix = ["systemctl", "--user"] if _user_service.exists() else ["systemctl"]
+                _env = _os.environ.copy()
+                _uid = _os.getuid()
+                _env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{_uid}")
+                _env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{_uid}/bus")
+
+                result = _sp.run(
+                    _cmd_prefix + ["restart", "llama-swap"],
+                    env=_env,
+                    capture_output=True,
+                )
+
+                if result.returncode == 0:
+                    self.add_debug("✅ llama-swap service restarted (autoscan running...)")
+                else:
+                    err = result.stderr.decode(errors='replace').strip()
+                    self.add_debug(f"⚠️ llama-swap restart failed: {err or 'unknown error'}")
+                yield
+
+                # Wait for llama-swap to be ready (ExecStartPre/autoscan may take a few seconds)
+                self.add_debug("⏳ Waiting for llama-swap to be ready...")
+                yield
+
+                max_retries = 20  # up to 10s — autoscan ExecStartPre can take time
+                llamacpp_ready = False
+                for attempt in range(max_retries):
+                    try:
+                        response = httpx.get(f"{self.backend_url}/v1/models", timeout=2.0)
+                        if response.status_code == 200:
+                            elapsed = (attempt + 1) * 0.5
+                            self.add_debug(f"✅ llama-swap ready after {elapsed:.1f}s")
+                            llamacpp_ready = True
+                            break
+                    except httpx.RequestError:
+                        pass
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(0.5)
+                        yield
+
+                if not llamacpp_ready:
+                    self.add_debug("⚠️ llama-swap might not be ready yet (timeout after 10s)")
+                yield
+
             elif self.backend_type == "tabbyapi":
                 # TabbyAPI: Unload and reload model via API
                 self.add_debug("⏹️ Unloading TabbyAPI model...")

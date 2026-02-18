@@ -288,25 +288,64 @@ def create_symlinks(ollama_models: list[dict]) -> list[dict]:
 # GGUF scanning and delta detection
 # ---------------------------------------------------------------------------
 
+def _strip_quant_suffix(stem: str) -> str:
+    """
+    Strip quantization suffix from a GGUF stem.
+
+    Examples:
+        Qwen3VL-8B-Instruct-Q4_K_M  → Qwen3VL-8B-Instruct
+        mmproj-Qwen3VL-8B-Instruct-F16 → mmproj-Qwen3VL-8B-Instruct
+    """
+    return re.sub(r'-(?:BF|[QqFf])\d[0-9_A-Za-z]*$', '', stem, flags=re.IGNORECASE)
+
+
+def _find_mmproj(model_stem: str, mmproj_files: dict[str, Path]) -> Optional[Path]:
+    """
+    Match a model stem to a mmproj file by common base name (quantization-stripped).
+
+    Example: model "Qwen3VL-8B-Instruct-Q4_K_M" matches mmproj "Qwen3VL-8B-Instruct-F16"
+    because both share the base "qwen3vl-8b-instruct".
+    """
+    model_base = _strip_quant_suffix(model_stem).lower()
+    for mmproj_stem, mmp_path in mmproj_files.items():
+        mmproj_base = _strip_quant_suffix(mmproj_stem).lower()
+        if model_base == mmproj_base:
+            return mmp_path
+    return None
+
+
 def scan_gguf_models() -> list[dict]:
     """
     Scan ~/models/ for all GGUF files.
 
-    Returns list of dicts with keys: name (stem), path
+    Detects mmproj-*.gguf files and pairs them with their corresponding VL model.
+
+    Returns list of dicts with keys: name (stem), path, mmproj_path (Optional[Path])
     """
     if not MODELS_DIR.exists():
         return []
 
+    # Collect mmproj files first: stem-without-prefix → path
+    mmproj_files: dict[str, Path] = {}
+    for mmp in sorted(MODELS_DIR.glob("mmproj-*.gguf")):
+        mmproj_files[mmp.stem[len("mmproj-"):]] = mmp
+
     models = []
     for gguf_file in sorted(MODELS_DIR.glob("*.gguf")):
+        # mmproj files are not standalone models
+        if gguf_file.name.startswith("mmproj-"):
+            continue
+
         # Skip split-GGUF parts (only count the first part or single files)
         if re.match(r'.*-\d{5}-of-\d{5}\.gguf$', gguf_file.name):
             if not gguf_file.name.endswith("-00001-of-" + gguf_file.name.split("-of-")[-1]):
                 continue
 
+        model_stem = gguf_file.stem
         models.append({
-            "name": gguf_file.stem,
+            "name": model_stem,
             "path": gguf_file,
+            "mmproj_path": _find_mmproj(model_stem, mmproj_files),
         })
 
     return models
@@ -417,6 +456,8 @@ def append_models_to_yaml(
     """
     Append new model entries to llama-swap-config.yaml.
 
+    VL models (with mmproj_path set) get a --mmproj argument in the cmd.
+
     Returns number of models added.
     """
     if not new_models:
@@ -437,19 +478,29 @@ def append_models_to_yaml(
         # Use the symlink path itself (not resolved), so the YAML points to ~/models/Name.gguf
         path = model["path"].absolute()
         context = get_native_context(model["path"])
+        mmproj = model.get("mmproj_path")
 
-        cmd_line = (
-            f"{server_bin} --port ${{PORT}} "
-            f"--model {path} "
-            f"-ngl {DEFAULT_NGL} -c {context} {DEFAULT_FLAGS}"
-        )
+        if mmproj:
+            cmd_line = (
+                f"{server_bin} --port ${{PORT}} "
+                f"--model {path} "
+                f"--mmproj {mmproj.absolute()} "
+                f"-ngl {DEFAULT_NGL} -c {context} {DEFAULT_FLAGS}"
+            )
+            print(f"  + Added: {name} (VL, context: {context:,}, mmproj: {mmproj.name})")
+        else:
+            cmd_line = (
+                f"{server_bin} --port ${{PORT}} "
+                f"--model {path} "
+                f"-ngl {DEFAULT_NGL} -c {context} {DEFAULT_FLAGS}"
+            )
+            print(f"  + Added: {name} (native context: {context:,})")
 
         # Append YAML block
         content += f"  {name}:\n"
         content += f"    cmd: {cmd_line}\n"
         content += f"    ttl: {DEFAULT_TTL}\n"
 
-        print(f"  + Added: {name} (native context: {context:,})")
         added += 1
 
     config_path.write_text(content)
@@ -540,13 +591,19 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def test_model_compatibility(gguf_path: Path, server_bin: Path) -> tuple[bool, str]:
+def test_model_compatibility(
+    gguf_path: Path,
+    server_bin: Path,
+    mmproj_path: Optional[Path] = None,
+) -> tuple[bool, str]:
     """
     Quick llama-server startup test for a new model.
 
     Starts llama-server with minimal flags and waits COMPAT_TEST_TIMEOUT seconds.
     - If the process exits within the timeout → reads stdout for known error patterns.
     - If the process is still running after the timeout → model is loading fine (compatible).
+
+    For VL models, pass mmproj_path so llama-server gets the required --mmproj argument.
 
     Returns:
         (True, "")              — compatible (or test inconclusive)
@@ -565,6 +622,8 @@ def test_model_compatibility(gguf_path: Path, server_bin: Path) -> tuple[bool, s
         "-c", "512",
         "-np", "1",
     ]
+    if mmproj_path:
+        cmd += ["--mmproj", str(mmproj_path.resolve())]
 
     try:
         proc = subprocess.Popen(
@@ -589,6 +648,15 @@ def test_model_compatibility(gguf_path: Path, server_bin: Path) -> tuple[bool, s
         m = re.search(r"unknown model architecture: '([^']+)'", output)
         arch = m.group(1) if m else "unknown"
         return False, f"unsupported architecture '{arch}'"
+
+    if "key not found in model" in output:
+        m = re.search(r"key not found in model: (\S+)", output)
+        key = m.group(1) if m else "unknown key"
+        # Detect Ollama blobs by resolving the symlink
+        hint = ""
+        if gguf_path.is_symlink() and ".ollama" in str(gguf_path.resolve()):
+            hint = " — Ollama blob missing llama.cpp metadata; download official GGUF from HuggingFace"
+        return False, f"missing GGUF metadata key '{key}'{hint}"
 
     # Other early exits (e.g. port conflict) — don't block the model
     return True, ""
@@ -630,6 +698,11 @@ def main() -> None:
                 print(f"    ~ {name}: {skip_list[name]}")
 
     new_models = find_new_models(all_ggufs, existing | set(skip_list))
+    vl_models = [m for m in new_models if m.get("mmproj_path")]
+    if vl_models:
+        print(f"  {len(vl_models)} VL model(s) detected with mmproj:")
+        for m in vl_models:
+            print(f"    ◆ {m['name']} + {m['mmproj_path'].name}")  # type: ignore[union-attr]
     print(f"  Found {len(all_ggufs)} GGUFs, {len(new_models)} new")
     print()
 
@@ -642,14 +715,16 @@ def main() -> None:
     print("Testing new models for llama-server compatibility...")
     compatible_models = []
     for model in new_models:
-        compat, reason = test_model_compatibility(model["path"], server_bin)
+        compat, reason = test_model_compatibility(model["path"], server_bin, model.get("mmproj_path"))
         if compat:
             compatible_models.append(model)
-            print(f"  ✓ {model['name']}")
+            mmproj = model.get("mmproj_path")
+            label = f"VL + {mmproj.name}" if mmproj else "OK"
+            print(f"  ✓ {model['name']} ({label})")
         else:
             skip_list[model["name"]] = reason
             save_skip_list(skip_list)
-            print(f"  ✗ {model['name']}: {reason} — skipping (not supported by this llama-server build)")
+            print(f"  ✗ {model['name']}: {reason} — skipping")
     new_models = compatible_models
     print()
 

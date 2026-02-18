@@ -5,6 +5,36 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.39.0] - 2026-02-18 🎥 VL-Modell-Support & llamacpp Restart-Fix
+
+### Added
+
+- **Autoscan: Vision-Language-Modell-Unterstützung (mmproj)** - Autoscan erkennt jetzt `mmproj-*.gguf`-Dateien und verknüpft sie automatisch mit dem passenden Haupt-Modell
+  - `_strip_quant_suffix()` und `_find_mmproj()`: Quantisierungs-Suffix wird entfernt (z.B. `Q4_K_M`, `Q8_0`, `F16`) und Basis-Namen verglichen (case-insensitive)
+  - VL-Modelle erhalten `--mmproj <pfad>` im llama-swap YAML-Eintrag
+  - Ausgabe zeigt VL-Modelle mit Projector: `◆ Qwen3VL-8B-Instruct-Q4_K_M + mmproj-Qwen3VL-8B-Instruct-F16.gguf`
+  - `test_model_compatibility()` nimmt `mmproj_path: Optional[Path]` entgegen und testet VL-Modelle korrekt
+- **Autoscan: Erkennung fehlender GGUF-Metadaten** - Neuer Fehlertyp `"key not found in model"` wird jetzt abgefangen (z.B. `qwen3vl.rope.dimension_sections` bei Ollama-Blobs)
+  - Bei Ollama-Blob-Symlinks: Hinweis `— Ollama blob missing llama.cpp metadata; download official GGUF from HuggingFace`
+  - Modell landet in der Skip-Liste mit erklärendem Grund
+
+### Fixed
+
+- **llamacpp Backend Restart ohne Funktion** - `restart_backend()` hatte keinen `llamacpp`-Branch → Klick auf Restart tat nichts
+  - Führt jetzt `systemctl --user restart llama-swap` aus (mit `XDG_RUNTIME_DIR`/`DBUS_SESSION_BUS_ADDRESS` für Service-Kontext)
+  - Wartet bis llama-swap bereit ist: Pollt `/v1/models` mit bis zu 20 Versuchen (0.5s Intervall, max 10s)
+  - Debug-Anzeige: `✅ llama-swap ready after 3.5s` bzw. Fehlermeldung bei Timeout
+
+### Changed
+
+- **VRAM-Cache bereinigt** - 6 verwaiste/unbrauchbare Einträge entfernt:
+  - `Qwen3-VL-8B-Q4_K_M` (Ollama-Blob fehlt MRoPE-Metadaten, fundamental inkompatibel)
+  - `Qwen3-14B-Q4_K_M`, `Qwen3-VL-30B-A3B-Instruct-Q4_K_M` (Dateien existieren nicht mehr)
+  - `Smollm2-135m-F16` (8192 Token Kontext — zu klein für AIfred-Systemprompt)
+  - `Qwen3-1.7B-Q4_K_M`, `Qwen3-4B-Instruct-2507-Q4_K_M` (entfernt)
+
+---
+
 ## [2.38.0] - 2026-02-18 🛡️ Autoscan Kompatibilitätsprüfung & Kalibrierungs-Fixes
 
 ### Added
