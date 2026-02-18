@@ -407,9 +407,38 @@ models:
 ### Starten
 
 ```bash
-# llama-swap starten
+# llama-swap starten (Port 11435 = neben Ollama 11434)
 CUDA_DEVICE_ORDER=PCI_BUS_ID GGML_CUDA_GRAPH_OPT=1 \
-  llama-swap --config llama-swap.yaml --listen :8080
+  llama-swap --config ~/.config/llama-swap/config.yaml --listen :11435
+```
+
+### Systemd-Service
+
+```ini
+# ~/.config/systemd/user/llama-swap.service
+[Unit]
+Description=llama-swap - LLM Model Proxy for llama.cpp
+After=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/path/to/venv/bin/python /path/to/scripts/llama-swap-autoscan.py
+ExecStart=/home/mp/llama-swap -config /home/mp/.config/llama-swap/config.yaml --listen :11435
+Restart=on-failure
+RestartSec=5
+Environment=PATH=/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin
+Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+# Service steuern
+systemctl --user enable llama-swap
+systemctl --user start llama-swap
+systemctl --user status llama-swap
+journalctl --user -u llama-swap -f
 ```
 
 ### API-Endpunkte
@@ -425,14 +454,67 @@ CUDA_DEVICE_ORDER=PCI_BUS_ID GGML_CUDA_GRAPH_OPT=1 \
 
 ---
 
+## Automatische Modell-Erkennung (Autoscan)
+
+Das Script `scripts/llama-swap-autoscan.py` erkennt automatisch neue GGUF-Modelle und konfiguriert sie fuer llama-swap. Es laeuft als `ExecStartPre` vor jedem llama-swap-Start.
+
+### Was das Script macht
+
+1. **Ollama-Manifests scannen** - Liest Ollama-Manifests aus System- und User-Pfaden, findet GGUF-Blobs und erstellt Symlinks mit beschreibenden Dateinamen in `~/models/`
+   - Beispiel: `sha256-6335adf...` -> `Qwen3-14B-Q8_0.gguf`
+   - Deduplizierung: Bei mehreren Tags fuer denselben Blob wird der laengste/beschreibendste Name gewaehlt
+   - Embedding-Modelle (BERT, nomic, etc.) werden uebersprungen
+2. **Neue GGUFs erkennen** - Vergleicht `~/models/*.gguf` mit bestehenden Eintraegen in der llama-swap Config
+3. **llama-swap Config erweitern** - Fuer jedes neue Modell wird ein YAML-Block angehaengt mit Default-Parametern (`-ngl 99`, `--flash-attn on`, `-ctk q8_0 -ctv q8_0`, etc.)
+4. **VRAM-Cache vorbereiten** - Minimale Eintraege in `data/model_vram_cache.json` anlegen (Kalibrierung erfolgt spaeter ueber die AIfred-UI)
+
+### Manuell ausfuehren
+
+```bash
+python scripts/llama-swap-autoscan.py
+```
+
+### Typische Ausgabe
+
+```
+=== llama-swap Autoscan ===
+Scanning Ollama models...
+  + Symlink: Qwen3-14B-Q8_0.gguf -> sha256-6335adf...
+  = Exists:  Qwen3-8B-Q4_K_M.gguf
+  ~ Skip:    nomic-embed-text-v2-moe (embedding model)
+Scanning ~/models/ for new GGUFs...
+  Found 6 GGUFs, 1 new
+Updating llama-swap config...
+  + Added: Qwen3-14B-Q8_0 (native context: 40960)
+Updating VRAM cache...
+  + Added: Qwen3-14B-Q8_0
+Done. 1 new model(s) added.
+```
+
+### Konfiguration
+
+Die Konstanten stehen am Anfang des Scripts:
+
+| Konstante | Default | Beschreibung |
+|---|---|---|
+| `MODELS_DIR` | `~/models/` | Verzeichnis fuer GGUF-Dateien und Symlinks |
+| `OLLAMA_PATHS` | System + User | Ollama-Model-Verzeichnisse |
+| `LLAMASWAP_CONFIG` | `~/.config/llama-swap/config.yaml` | llama-swap Konfigurationsdatei |
+| `LLAMA_SERVER_BIN` | `~/llama.cpp/build/bin/llama-server` | Pfad zur llama-server Binary |
+| `DEFAULT_TTL` | 300 | Inaktivitaets-Timeout in Sekunden |
+| `DEFAULT_FLAGS` | `--flash-attn on -ctk q8_0 -ctv q8_0 -np 1 -t 4 --mlock` | Standard-Parameter |
+
+---
+
 ## AIfred Integration
 
 llama-swap ist OpenAI-kompatibel. In AIfred wird es als eigenes Backend registriert:
 
 - Backend-Typ: `llamacpp`
-- URL: `LLAMACPP_URL` ENV oder `http://localhost:8080/v1`
+- URL: `LLAMACPP_URL` ENV oder `http://localhost:11435/v1`
 - API-Key: Dummy (lokaler Service)
 - Modell-Name in AIfred = Modell-Key in llama-swap Config
+- Config-Pfad: `~/.config/llama-swap/config.yaml` (XDG-Standard)
 
 ---
 

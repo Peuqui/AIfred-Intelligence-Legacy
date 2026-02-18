@@ -230,6 +230,11 @@ Each message is displayed individually with its emoji and mode label:
     - **Phase 2** (Speed variant): Binary search on `--tensor-split N:1` at 32K context → aggressive GPU split for maximum throughput (e.g. 11:1 on dual 72 GB GPUs). Creates a separate `model-speed` entry in llama-swap YAML config
     - **Phase 3** (Hybrid fallback): If Phase 1 < 16K → NGL reduction to free VRAM for KV-cache
   - Results cached in unified `data/model_vram_cache.json`
+- **llama-swap Autoscan**: Automatic model discovery on service start (`scripts/llama-swap-autoscan.py`)
+  - Scans Ollama manifests → creates descriptive symlinks in `~/models/` (e.g., `sha256-6335adf...` → `Qwen3-14B-Q8_0.gguf`)
+  - Detects new GGUFs and adds llama-swap config entries with optimal defaults
+  - Creates preliminary VRAM cache entries (calibration via UI)
+  - Runs as `ExecStartPre` in systemd service → zero manual setup for new models
 - **Ctx/Speed Switch**: Per-agent toggle between two pre-calibrated variants (Ctx = max context, ⚡ Speed = 32K + aggressive GPU split)
 - **RoPE 2x Extended Context**: Optional extended calibration up to 2x native context limit
 - **Parallel Web Search**: 2-3 optimized queries distributed in parallel across APIs (Tavily, Brave, SearXNG), automatic URL deduplication, optional self-hosted SearXNG
@@ -295,6 +300,7 @@ AIfred supports cloud LLM providers via OpenAI-compatible APIs:
   - Better semantic understanding for complex addressee detection ("What does Alfred think about Salomo's answer?")
   - Small 4B models may struggle with nuanced sentence semantics
   - Thinking mode is automatically disabled for Automatik tasks (fast decisions)
+  - **"(same as AIfred-LLM)"** option available - uses the same model as AIfred without extra VRAM
 - **Main LLM**: Use larger models (14B+, ideally 30B+) for better context understanding and prompt following
   - Both Instruct and Thinking models work well
   - Enable "Thinking Mode" for chain-of-thought reasoning on complex tasks

@@ -3282,19 +3282,19 @@ def settings_accordion() -> rx.Component:
                             AIState.is_mobile,
                             # MOBILE: Native HTML <select> (simple list)
                             native_select_model(
-                                AIState.automatik_model,  # Display name with size
-                                AIState.set_automatik_model,  # Original handler
+                                AIState.automatik_model_select_value,
+                                AIState.set_automatik_model,
                                 AIState.backend_switching,
-                                AIState.available_models,  # Simple list of display names
+                                AIState.automatik_available_models,
                             ),
-                            # DESKTOP: Radix UI Select
+                            # DESKTOP: Radix UI Select with "(wie AIfred-LLM)" as first option
                             rx.select(
-                                AIState.available_models,
-                                value=AIState.automatik_model,
+                                AIState.automatik_available_models,
+                                value=AIState.automatik_model_select_value,
                                 on_change=AIState.set_automatik_model,
                                 size="2",
-                                position="popper",  # Better mobile positioning (adapts to viewport)
-                                disabled=AIState.backend_switching,  # Disable during backend switch
+                                position="popper",
+                                disabled=AIState.backend_switching,
                             ),
                         ),
                         spacing="3",

@@ -5,6 +5,34 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.37.0] - 2026-02-18 🔍 llama-swap Autoscan & Automatik-LLM Vereinheitlichung
+
+### Added
+
+- **llama-swap Autoscan** (`scripts/llama-swap-autoscan.py`) - Automatische Modell-Erkennung beim Service-Start
+  - Scannt Ollama-Manifests und erstellt beschreibende Symlinks in `~/models/` (z.B. `sha256-6335adf...` → `Qwen3-14B-Q8_0.gguf`)
+  - Inline-Deduplizierung: Bei mehreren Ollama-Tags zum selben Blob wird der längste/beschreibendste Name gewählt
+  - Blob-Target-Guard in `create_symlinks()`: Verhindert Duplikate durch manuelle Symlinks die denselben Blob abdecken
+  - Erkennt neue GGUFs und ergänzt llama-swap Config mit Einträgen für optimale Default-Parameter
+  - Erstellt vorläufige VRAM-Cache-Einträge (Kalibrierung über UI)
+  - Läuft als `ExecStartPre` im systemd-Service → kein manuelles Setup für neue Modelle nötig
+  - Embedding-Modelle (BERT, nomic, etc.) werden automatisch übersprungen
+- **„(wie AIfred-LLM)" Option für Automatik-LLM** - Konsistenz mit Sokrates/Salomo-Dropdowns
+  - Automatik-LLM-Dropdown zeigt jetzt „(wie AIfred-LLM)" als erste Option (intern als Leerstring gespeichert)
+  - Auflösung über `_effective_automatik_id`-Property: `""` → `aifred_model_id` an allen funktionalen Stellen (Intent-Erkennung, Chat-Calls, Session-Titel, RoPE-Factor, Preload)
+  - Restore/Validierung: Leerstring wird korrekt als „wie AIfred" akzeptiert (kein Fallback auf config.py-Default)
+  - Debug-Anzeige: Zeigt `(= AIfred)` wenn Automatik-LLM dem Haupt-Modell folgt
+  - vLLM/TabbyAPI (Single-Model-Backends): Automatik wird automatisch auf `""` gesetzt statt explizit auf AIfred-ID
+
+### Changed
+
+- **llama-swap Config-Pfad** verschoben zu `~/.config/llama-swap/config.yaml` (XDG-Standard, weg von `~/llama-swap-config.yaml`)
+- **llama-swap Port** von 8080 → **11435** (direkt neben Ollama 11434, weniger Konflikt-Risiko)
+- `LLAMACPP_URL`-Default in `config.py` auf `http://localhost:11435/v1` aktualisiert
+- Systemd-Service nutzt `--listen :11435` und neuen Config-Pfad
+
+---
+
 ## [2.36.0] - 2026-02-18 ⚡ Speed-Kalibrierung für Multi-GPU llama.cpp
 
 ### Added

@@ -615,7 +615,9 @@ class AIState(rx.State):
 
     @rx.var
     def automatik_model_label(self) -> str:
-        """Get display label for automatik model"""
+        """Get display label for automatik model (empty = same as AIfred)"""
+        if not self.automatik_model_id:
+            return self.available_models_dict.get(self.aifred_model_id, self.aifred_model_id)
         return self.available_models_dict.get(self.automatik_model_id, self.automatik_model_id)
 
     @rx.var
@@ -657,6 +659,25 @@ class AIState(rx.State):
         from .lib.i18n import t
         lang = self.ui_language if self.ui_language != "auto" else "de"
         return t("sokrates_llm_same", lang=lang) if self.salomo_model == "" else self.salomo_model
+
+    @rx.var(deps=["available_models", "ui_language"], auto_deps=False)
+    def automatik_available_models(self) -> list[str]:
+        """Model list with localized '(wie AIfred-LLM)' as first selectable option."""
+        from .lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        return [t("sokrates_llm_same", lang=lang)] + list(self.available_models)
+
+    @rx.var(deps=["automatik_model", "ui_language"], auto_deps=False)
+    def automatik_model_select_value(self) -> str:
+        """Maps empty string (auto) to the localized sentinel label for the select."""
+        from .lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        return t("sokrates_llm_same", lang=lang) if self.automatik_model == "" else self.automatik_model
+
+    @property
+    def _effective_automatik_id(self) -> str:
+        """Resolve Automatik model ID: empty = same as AIfred."""
+        return self.automatik_model_id or self.aifred_model_id
 
     @rx.var
     def is_unanimous_consensus(self) -> bool:
@@ -926,6 +947,7 @@ class AIState(rx.State):
             # Load saved settings
             from .lib.settings import load_settings
             saved_settings = load_settings()
+            _had_backend_settings = False
 
             if saved_settings:
                 # Use saved settings
@@ -1078,7 +1100,8 @@ class AIState(rx.State):
 
                 # Load per-backend models (all 5 agents: AIfred, Automatik, Vision, Sokrates, Salomo)
                 backend_models = saved_settings.get("backend_models", {})
-                if self.backend_id in backend_models:
+                _had_backend_settings = self.backend_id in backend_models
+                if _had_backend_settings:
                     backend_data = backend_models[self.backend_id]
                     # Load pure IDs (backward compatible - extract from old display format)
                     selected_raw = backend_data.get("aifred_model", "")
@@ -1163,7 +1186,7 @@ class AIState(rx.State):
                 else:
                     self.add_debug("⚠️ No aifred_model configured")
 
-            if not self.automatik_model:
+            if not self.automatik_model and not _had_backend_settings:
                 self.automatik_model = backend_defaults.get("automatik_model", "")
                 self.automatik_model_id = self.automatik_model  # Sync ID with display name
                 if self.automatik_model:
@@ -1338,16 +1361,20 @@ class AIState(rx.State):
                 self.aifred_model_id = first_id
                 self.aifred_model = self.available_models_dict.get(first_id, first_id)
 
-            # Validate and sync automatik_model (use settings, not global state)
-            if self.automatik_model_id and self.automatik_model_id in self.available_models_dict:
+            # Validate and sync automatik_model (can be empty = use Main-LLM)
+            if not self.automatik_model_id:
+                # Empty = "same as AIfred-LLM" - keep empty
+                self.automatik_model = ""
+            elif self.automatik_model_id in self.available_models_dict:
                 self.automatik_model = self.available_models_dict[self.automatik_model_id]
             elif _global_backend_state.get("automatik_model_id") in self.available_models_dict:
                 self.automatik_model_id = _global_backend_state["automatik_model_id"]
                 self.automatik_model = self.available_models_dict[self.automatik_model_id]
             else:
-                first_id = next(iter(self.available_models_dict.keys()), "")
-                self.automatik_model_id = first_id
-                self.automatik_model = self.available_models_dict.get(first_id, first_id)
+                # Model ID was set but model not found - clear it (same as AIfred)
+                log_message(f"⚠️ Configured automatik model '{self.automatik_model_id}' not found, using same as AIfred")
+                self.automatik_model_id = ""
+                self.automatik_model = ""
 
             # Validate and sync vision_model (use settings, not global state)
             if self.vision_model_id and self.vision_model_id in self.vision_models_cache:
@@ -1378,11 +1405,13 @@ class AIState(rx.State):
                 self.salomo_model_id = ""
                 self.salomo_model = ""
 
-            # vLLM can only load ONE model - ensure Automatik-LLM matches Main-LLM
-            if self.backend_type == "vllm" and self.automatik_model != self.aifred_model:
-                self.automatik_model = self.aifred_model
-                _global_backend_state["automatik_model"] = self.aifred_model  # Update global state
-                self._save_settings()  # Persist the correction
+            # vLLM can only load ONE model - ensure Automatik uses same as AIfred
+            if self.backend_type == "vllm" and self.automatik_model_id:
+                self.automatik_model = ""
+                self.automatik_model_id = ""
+                _global_backend_state["automatik_model"] = ""
+                _global_backend_state["automatik_model_id"] = ""
+                self._save_settings()
 
             # Check vLLM manager status if exists
             if self.backend_type == "vllm":
@@ -1579,15 +1608,16 @@ class AIState(rx.State):
                     self.aifred_model_id = first_id
                     self.aifred_model = self.available_models_dict[first_id]
 
-                # Validate and sync automatik_model
-                if self.automatik_model_id in self.available_models_dict:
+                # Validate and sync automatik_model (can be empty = use Main-LLM)
+                if not self.automatik_model_id:
+                    pass  # Empty = "same as AIfred-LLM"
+                elif self.automatik_model_id in self.available_models_dict:
                     self.automatik_model = self.available_models_dict[self.automatik_model_id]
                 elif self.available_models_dict:
-                    # Fallback to first available model
-                    first_id = next(iter(self.available_models_dict.keys()))
-                    log_message(f"⚠️ Configured automatik model '{self.automatik_model_id}' not found, using '{first_id}'")
-                    self.automatik_model_id = first_id
-                    self.automatik_model = self.available_models_dict[first_id]
+                    # Model not found - clear it (same as AIfred)
+                    log_message(f"⚠️ Configured automatik model '{self.automatik_model_id}' not found, using same as AIfred")
+                    self.automatik_model_id = ""
+                    self.automatik_model = ""
 
                 # Validate and sync sokrates_model (can be empty = use Main-LLM)
                 if self.sokrates_model_id and self.sokrates_model_id in self.available_models_dict:
@@ -1644,7 +1674,10 @@ class AIState(rx.State):
                     # Compact format for Mobile: Multi-line with indentation
                     self.add_debug(f"✅ {len(self.available_models)} models available")
                     self.add_debug(f"   AIfred: {format_model_with_ctx(self.aifred_model, self.aifred_model_id)}")
-                    self.add_debug(f"   Automatic: {format_model_with_ctx(self.automatik_model, self.automatik_model_id)}")
+                    if self.automatik_model_id:
+                        self.add_debug(f"   Automatic: {format_model_with_ctx(self.automatik_model, self.automatik_model_id)}")
+                    else:
+                        self.add_debug("   Automatic: (= AIfred)")
                     # Show Sokrates and Salomo models if multi-agent mode is active
                     if self.multi_agent_mode != "standard":
                         if self.sokrates_model_id:
@@ -1676,9 +1709,11 @@ class AIState(rx.State):
             temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
             caps = temp_backend.get_capabilities()
 
-            if not caps.get("dynamic_models", True) and self.automatik_model != self.aifred_model:
-                self.automatik_model = self.aifred_model
-                self._save_settings()  # Persist the correction
+            if not caps.get("dynamic_models", True) and self.automatik_model_id and self.automatik_model_id != self.aifred_model_id:
+                # Non-dynamic backend: force same as AIfred (empty = already correct)
+                self.automatik_model = ""
+                self.automatik_model_id = ""
+                self._save_settings()
 
             # Store in global state BEFORE starting servers (so fast path works on reload)
             _global_backend_state["backend_type"] = self.backend_type
@@ -1732,19 +1767,20 @@ class AIState(rx.State):
             # Preload Automatik-LLM to hide cold-start latency
             # - Ollama: Also sets num_ctx to avoid huge default KV-Cache
             # - llama.cpp: Triggers llama-swap cold-start
-            if self.backend_type in ("ollama", "llamacpp") and self.automatik_model_id:
+            if self.backend_type in ("ollama", "llamacpp"):
                 from .lib.context_manager import prepare_automatik_llm
                 from aifred.backends import BackendFactory
                 auto_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
 
+                effective_auto = self._effective_automatik_id
                 # If Automatik = Haupt-LLM: use calibrated context to avoid reload penalty
                 preload_ctx = None  # Default: small 4K context
-                if self.automatik_model_id == self.aifred_model_id and self.aifred_max_context:
+                if effective_auto == self.aifred_model_id and self.aifred_max_context:
                     preload_ctx = self.aifred_max_context
 
                 async for item in prepare_automatik_llm(
                     backend=auto_backend,
-                    model_name=self.automatik_model_id,
+                    model_name=effective_auto,
                     backend_type=self.backend_type,
                     num_ctx=preload_ctx
                 ):
@@ -2297,7 +2333,8 @@ class AIState(rx.State):
             if target_main_model:
                 self.aifred_model = target_main_model
                 self.aifred_model_id = target_main_model
-            if target_auto_model:
+            # Automatik can be empty (= use Main-LLM), None means not in settings
+            if target_auto_model is not None:
                 self.automatik_model = target_auto_model
                 self.automatik_model_id = target_auto_model
             if target_vision_model:
@@ -2310,12 +2347,12 @@ class AIState(rx.State):
             self.salomo_model = target_salomo_model or ""
 
             # vLLM and TabbyAPI can only load ONE model at a time
-            # Set automatik_model = aifred_model BEFORE initialize_backend() to prevent wrong model loading
+            # Force Automatik = same as AIfred (empty string)
             if new_backend in ["vllm", "tabbyapi"]:
-                if self.automatik_model != self.aifred_model:
-                    self.add_debug(f"⚠️ {new_backend} can only load one model - using {self.aifred_model} for both AIfred and Automatic")
-                self.automatik_model = self.aifred_model
-                self.automatik_model_id = self.aifred_model_id  # Sync IDs too
+                if self.automatik_model_id:
+                    self.add_debug(f"⚠️ {new_backend} can only load one model - Automatic will use AIfred-LLM")
+                self.automatik_model = ""
+                self.automatik_model_id = ""
 
             # Switch backend and load models
             self.backend_type = new_backend
@@ -2528,11 +2565,13 @@ class AIState(rx.State):
             else:
                 self.salomo_model = model_id
 
-        # Automatik model
+        # Automatik model (can be empty = same as AIfred)
         if "automatik_model" in settings:
             model_id = settings["automatik_model"]
             self.automatik_model_id = model_id
-            if model_id in self.available_models_dict:
+            if not model_id:
+                self.automatik_model = ""  # Same as AIfred
+            elif model_id in self.available_models_dict:
                 self.automatik_model = self.available_models_dict[model_id]
             else:
                 self.automatik_model = model_id
@@ -3151,13 +3190,14 @@ class AIState(rx.State):
         # When different models: use AUTOMATIK_LLM_NUM_CTX from config.py
         from .lib.config import AUTOMATIK_LLM_NUM_CTX
         from .lib.formatting import format_number
-        if self.automatik_model_id == self.aifred_model_id:
+        effective_auto = self._effective_automatik_id
+        if effective_auto == self.aifred_model_id:
             # Same model: MUST send same num_ctx as preload to prevent Ollama reload!
             # Ollama uses MODEL DEFAULT (not currently loaded context) when num_ctx is omitted.
             # Omitting num_ctx causes Ollama to reload with default → then main inference
             # sends calibrated num_ctx → Ollama reloads AGAIN. Two unnecessary reloads!
             auto_num_ctx: int | None = self.aifred_max_context if self.aifred_max_context else None
-            log_message(f"🔧 Automatik = AIfred ({self.automatik_model_id}) → num_ctx={auto_num_ctx} (match preload)")
+            log_message(f"🔧 Automatik = AIfred ({effective_auto}) → num_ctx={auto_num_ctx} (match preload)")
 
             # Warning if AIfred context is below recommended Automatik threshold
             effective_ctx = self.aifred_max_context or 0
@@ -3189,7 +3229,7 @@ class AIState(rx.State):
         else:
             detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(
                 user_msg,
-                self.automatik_model_id,
+                effective_auto,
                 llm_client,
                 automatik_num_ctx=auto_num_ctx
             )
@@ -3491,7 +3531,7 @@ class AIState(rx.State):
                         user_text=original_user_text,
                         stt_time=0.0,
                         model_choice=self.aifred_model_id,
-                        automatik_model=self.automatik_model_id,
+                        automatik_model=effective_auto,
                         history=self.chat_history,
                         llm_history=self.llm_history,
                         session_id=self.session_id,
@@ -3579,7 +3619,7 @@ class AIState(rx.State):
 
                 # CRITICAL: Generate title and save session before early return
                 # (finally block may not execute for async generators)
-                async for _ in self._generate_session_title(self.automatik_model_id):
+                async for _ in self._generate_session_title(self._effective_automatik_id):
                     yield  # Forward UI updates from title generation
                 self._save_current_session()
                 self.refresh_session_list()
@@ -3604,7 +3644,7 @@ class AIState(rx.State):
                 user_text=user_msg,
                 stt_time=0.0,
                 model_choice=self.aifred_model_id,
-                automatik_model=self.automatik_model_id,
+                automatik_model=effective_auto,
                 history=self.chat_history,
                 llm_history=self.llm_history,
                 session_id=self.session_id,
@@ -3831,7 +3871,7 @@ class AIState(rx.State):
 
             # Generate session title at end of flow (uses small Automatik model)
             # Only runs on first Q&A pair, skipped if title already exists
-            async for _ in self._generate_session_title(self.automatik_model_id):
+            async for _ in self._generate_session_title(self._effective_automatik_id):
                 yield  # Forward UI updates from title generation
 
             # Auto-Save: Session nach jeder Chat-Nachricht speichern
@@ -5272,7 +5312,7 @@ class AIState(rx.State):
             )
 
             # Use Automatik model (small, fast) - stays warm for next request
-            title_model = model_id or self.automatik_model_id
+            title_model = model_id or self._effective_automatik_id
 
             llm_client = LLMClient(
                 backend_type=self.backend_type,
@@ -6845,9 +6885,10 @@ class AIState(rx.State):
         """Set RoPE scaling factor for Automatik-LLM"""
         factor = float(value.replace("x", ""))
         self.automatik_rope_factor = factor
-        if self.automatik_model_id:
+        effective_auto = self._effective_automatik_id
+        if effective_auto:
             from .lib.model_vram_cache import set_rope_factor_for_model
-            set_rope_factor_for_model(self.automatik_model_id, factor)
+            set_rope_factor_for_model(effective_auto, factor)
 
     def set_sokrates_rope_factor(self, value: str):
         """Set RoPE scaling factor for Sokrates-LLM"""
@@ -8050,13 +8091,21 @@ class AIState(rx.State):
 
     async def set_automatik_model(self, model: str):
         """Set automatik model for decision and query optimization"""
+        from .lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        if model == t("sokrates_llm_same", lang=lang):
+            model = ""
+
         old_model = self.automatik_model
         self.automatik_model = model
         self.automatik_model_id = self._resolve_model_id(model)
-        self.add_debug(f"⚡ Automatic-LLM: {model}")
-        # Show calibration info for Ollama models
-        self._show_model_calibration_info(self.automatik_model_id)
         self._save_settings()
+
+        if model:
+            self.add_debug(f"⚡ Automatic-LLM: {model}")
+            self._show_model_calibration_info(self.automatik_model_id)
+        else:
+            self.add_debug("⚡ Automatic-LLM: (same as Main-LLM)")
 
         # vLLM/TabbyAPI: Auto-restart backend for model change
         if self.backend_type in ["vllm", "tabbyapi"] and old_model != model:
@@ -8105,12 +8154,13 @@ class AIState(rx.State):
         # Update ID
         self.automatik_model_id = model_id
 
-        # Load per-model RoPE factor from cache
-        if self.backend_id == "ollama":
-            from .lib.model_vram_cache import get_rope_factor_for_model
-            self.automatik_rope_factor = get_rope_factor_for_model(model_id)
-        elif self.backend_type == "llamacpp":
-            self.automatik_rope_factor = 1.0
+        # Load per-model RoPE factor from cache (skip if empty = same as AIfred)
+        if model_id:
+            if self.backend_id == "ollama":
+                from .lib.model_vram_cache import get_rope_factor_for_model
+                self.automatik_rope_factor = get_rope_factor_for_model(model_id)
+            elif self.backend_type == "llamacpp":
+                self.automatik_rope_factor = 1.0
 
         # Sync deprecated display variable
         display_label = self.available_models_dict.get(model_id, model_id)

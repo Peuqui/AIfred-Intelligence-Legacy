@@ -219,6 +219,11 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
     - **Phase 2** (Speed-Variante): Binäre Suche auf `--tensor-split N:1` bei 32K Kontext → aggressivere GPU-Lastverteilung für maximalen Durchsatz (z.B. 11:1 bei Dual-72-GB-GPUs). Erstellt separaten `modell-speed`-Eintrag in llama-swap YAML-Config
     - **Phase 3** (Hybrid-Fallback): Wenn Phase 1 < 16K → NGL-Reduzierung um VRAM für KV-Cache freizumachen
   - Ergebnisse in einheitlichem `data/model_vram_cache.json` gespeichert
+- **llama-swap Autoscan**: Automatische Modell-Erkennung beim Service-Start (`scripts/llama-swap-autoscan.py`)
+  - Scannt Ollama-Manifests → erstellt beschreibende Symlinks in `~/models/` (z.B. `sha256-6335adf...` → `Qwen3-14B-Q8_0.gguf`)
+  - Erkennt neue GGUFs und erstellt llama-swap Config-Einträge mit optimalen Defaults
+  - Erstellt vorläufige VRAM-Cache-Einträge (Kalibrierung über die UI)
+  - Läuft als `ExecStartPre` im systemd-Service → kein manuelles Setup für neue Modelle nötig
 - **Ctx/Speed-Schalter**: Pro-Agenten-Toggle zwischen zwei vorkalibrierten Varianten (Ctx = maximaler Kontext, ⚡ Speed = 32K + aggressive GPU-Lastverteilung)
 - **Parallele Web-Suche**: 2-3 optimierte Queries parallel auf APIs verteilt (Tavily, Brave, SearXNG), automatische URL-Deduplizierung, optionales self-hosted SearXNG
 - **Paralleles Scraping**: ThreadPoolExecutor scrapt 3-7 URLs gleichzeitig, erste erfolgreiche Ergebnisse werden verwendet
@@ -260,6 +265,7 @@ Die Suche nach der perfekten TTS-Erfahrung führte durch mehrere Iterationen:
   - Besseres semantisches Verständnis für komplexe Adressaten-Erkennung ("Was denkt Alfred über Salomos Antwort?")
   - Kleine 4B-Modelle können bei nuancierten Satzsemantiken Schwierigkeiten haben
   - Thinking-Modus wird automatisch für Automatik-Aufgaben deaktiviert (schnelle Entscheidungen)
+  - **„(wie AIfred-LLM)"**-Option verfügbar – nutzt dasselbe Modell wie AIfred ohne zusätzlichen VRAM
 - **Haupt-LLM**: Größere Modelle (14B+, idealerweise 30B+) für besseres Kontextverständnis und Prompt-Following
   - Sowohl Instruct- als auch Thinking-Modelle funktionieren gut
   - "Denkmodus" für Chain-of-Thought-Reasoning bei komplexen Aufgaben aktivieren
