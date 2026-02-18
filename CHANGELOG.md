@@ -5,6 +5,42 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.36.0] - 2026-02-18 ⚡ Speed-Kalibrierung für Multi-GPU llama.cpp
+
+### Added
+
+- **Speed-Kalibrierung für Multi-GPU-Setups** - Dreiphasiger Algorithmus optimiert automatisch die GPU-Lastverteilung für maximale Inferenz-Geschwindigkeit
+  - **Phase 1** (GPU-only): Native Kontext-Kalibrierung mit `ngl=99`, Binary Search auf `-c`
+  - **Phase 2** (Speed-Variante): Bei Multi-GPU-Setup → Binary Search auf `--tensor-split N:1` bei 32K Kontext (CUDA_DEVICE_ORDER=FASTEST_FIRST)
+    - Findet maximale Tensor-Split-Ratio: GPU0 bekommt N Teile, GPU1 bekommt 1 Teil
+    - Aggressivere GPU-Lastverteilung → höherer Durchsatz (z.B. 11:1 bei 72GB Dual-GPU)
+    - Erstellt separaten `model_id-speed` YAML-Eintrag in llama-swap Config
+  - **Phase 3** (Hybrid-Fallback): Wenn Phase 1 < 16K Kontext → Hybrid-Modus (NGL-Reduzierung)
+  - `speed_split`-Wert in `data/model_vram_cache.json` gespeichert
+- **Ctx/Speed-Schalter in der UI** - Toggle zwischen zwei vorkalibrierten Modell-Varianten
+  - Erscheint bei AIfred, Sokrates und Salomo (nur bei Modellen mit kalibrierter Speed-Variante)
+  - **Ctx** (grün): Maximaler Kontext, ausgewogene GPU-Lastverteilung
+  - **⚡ Speed** (orange): 32K Kontext, aggressive GPU-Lastverteilung (schneller)
+  - Mit Tooltip (i18n, DE/EN)
+- **„(wie AIfred-LLM)" als wählbare erste Option** in Sokrates- und Salomo-Dropdowns
+  - Intern als Leerstring gespeichert (verwendet dasselbe Modell wie AIfred)
+  - Vollständig i18n-fähig (DE: „(wie AIfred-LLM)", EN: „(same as AIfred-LLM)")
+
+### Fixed
+
+- **Prozess-Leak in `_start_and_verify`** - Bei abgebrochenem Kalibrierungs-Generator (z.B. Doppelklick auf Kalibrieren) wurde der llama-server-Prozess nicht beendet
+  - `except BaseException: _kill_process(process); raise` fängt `GeneratorExit` und `CancelledError` ab
+- **`has_speed_variant` beim Neustart nicht gesetzt** - Nach Neustart von AIfred wurde der Speed-Toggle nicht angezeigt, obwohl die Kalibrierung erfolgreich war
+  - Startup-Block liest jetzt `speed_split` aus Cache und setzt `{agent}_has_speed_variant` korrekt
+
+### Changed
+
+- **Phase-Benennung in der Kalibrierung** - Phase-Nummerierung logisch umstrukturiert:
+  - Phase 1 (GPU-only, Basis) → Phase 2 (Speed-Optimierung, Erfolgspfad) → Phase 3 (Hybrid-Fallback)
+  - Vorher: Phase 2 = Hybrid-Fallback, Phase 3 = Speed — was den Kontrollfluss verschleiert hat
+
+---
+
 ## [2.35.0] - 2026-02-18 🐛 Backend-Wechsel & Kalibrierungs-Fixes
 
 ### Fixed

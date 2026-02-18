@@ -2947,18 +2947,25 @@ def settings_accordion() -> rx.Component:
                             AIState.aifred_has_speed_variant,
                             rx.tooltip(
                                 rx.hstack(
-                                    rx.text("⚡", font_size="14px"),
-                                    rx.checkbox(
+                                    rx.text(
+                                        "Ctx",
+                                        font_size="10px",
+                                        color=rx.cond(AIState.aifred_speed_mode, "#666", "#4CAF50"),
+                                    ),
+                                    rx.switch(
                                         checked=AIState.aifred_speed_mode,
                                         on_change=lambda _: AIState.toggle_aifred_speed_mode(),
                                         size="1",
-                                        color_scheme="blue",
-                                        variant="surface",
+                                    ),
+                                    rx.text(
+                                        "⚡",
+                                        font_size="10px",
+                                        color=rx.cond(AIState.aifred_speed_mode, "#FFA500", "#666"),
                                     ),
                                     spacing="1",
                                     align="center",
                                 ),
-                                content="Speed-Modus: aggressive GPU-Aufteilung, 32K Kontext (schneller, weniger Kontext)",
+                                content=AIState.speed_switch_tooltip,
                             ),
                         ),
                         spacing="2",
@@ -2979,24 +2986,19 @@ def settings_accordion() -> rx.Component:
                             AIState.is_mobile,
                             # MOBILE: Native HTML <select> (simple list)
                             native_select_model(
-                                rx.cond(
-                                    AIState.sokrates_model == "",
-                                    t("sokrates_llm_same"),
-                                    AIState.sokrates_model
-                                ),
+                                AIState.sokrates_model_select_value,
                                 AIState.set_sokrates_model,
                                 AIState.backend_switching,
-                                AIState.available_models,  # Use same list as main model
+                                AIState.sokrates_available_models,
                             ),
-                            # DESKTOP: Radix UI Select with placeholder for "same as main"
+                            # DESKTOP: Radix UI Select with "(wie AIfred-LLM)" as first option
                             rx.select(
-                                AIState.available_models,
-                                value=AIState.sokrates_model,
+                                AIState.sokrates_available_models,
+                                value=AIState.sokrates_model_select_value,
                                 on_change=AIState.set_sokrates_model,
                                 size="2",
                                 position="popper",
                                 disabled=AIState.backend_switching,
-                                placeholder=t("sokrates_llm_same"),
                             ),
                         ),
                         spacing="3",
@@ -3092,18 +3094,25 @@ def settings_accordion() -> rx.Component:
                                 AIState.sokrates_has_speed_variant,
                                 rx.tooltip(
                                     rx.hstack(
-                                        rx.text("⚡", font_size="14px"),
-                                        rx.checkbox(
+                                        rx.text(
+                                            "Ctx",
+                                            font_size="10px",
+                                            color=rx.cond(AIState.sokrates_speed_mode, "#666", "#4CAF50"),
+                                        ),
+                                        rx.switch(
                                             checked=AIState.sokrates_speed_mode,
                                             on_change=lambda _: AIState.toggle_sokrates_speed_mode(),
                                             size="1",
-                                            color_scheme="blue",
-                                            variant="surface",
+                                        ),
+                                        rx.text(
+                                            "⚡",
+                                            font_size="10px",
+                                            color=rx.cond(AIState.sokrates_speed_mode, "#FFA500", "#666"),
                                         ),
                                         spacing="1",
                                         align="center",
                                     ),
-                                    content="Speed-Modus: aggressive GPU-Aufteilung, 32K Kontext",
+                                    content=AIState.speed_switch_tooltip,
                                 ),
                             ),
                             spacing="2",
@@ -3125,24 +3134,19 @@ def settings_accordion() -> rx.Component:
                             AIState.is_mobile,
                             # MOBILE: Native HTML <select> (simple list)
                             native_select_model(
-                                rx.cond(
-                                    AIState.salomo_model == "",
-                                    t("sokrates_llm_same"),  # Same placeholder as Sokrates
-                                    AIState.salomo_model
-                                ),
+                                AIState.salomo_model_select_value,
                                 AIState.set_salomo_model,
                                 AIState.backend_switching,
-                                AIState.available_models,
+                                AIState.salomo_available_models,
                             ),
-                            # DESKTOP: Radix UI Select with placeholder for "same as main"
+                            # DESKTOP: Radix UI Select with "(wie AIfred-LLM)" as first option
                             rx.select(
-                                AIState.available_models,
-                                value=AIState.salomo_model,
+                                AIState.salomo_available_models,
+                                value=AIState.salomo_model_select_value,
                                 on_change=AIState.set_salomo_model,
                                 size="2",
                                 position="popper",
                                 disabled=AIState.backend_switching,
-                                placeholder=t("sokrates_llm_same"),  # Same placeholder as Sokrates
                             ),
                         ),
                         spacing="3",
@@ -3238,18 +3242,25 @@ def settings_accordion() -> rx.Component:
                                 AIState.salomo_has_speed_variant,
                                 rx.tooltip(
                                     rx.hstack(
-                                        rx.text("⚡", font_size="14px"),
-                                        rx.checkbox(
+                                        rx.text(
+                                            "Ctx",
+                                            font_size="10px",
+                                            color=rx.cond(AIState.salomo_speed_mode, "#666", "#4CAF50"),
+                                        ),
+                                        rx.switch(
                                             checked=AIState.salomo_speed_mode,
                                             on_change=lambda _: AIState.toggle_salomo_speed_mode(),
                                             size="1",
-                                            color_scheme="blue",
-                                            variant="surface",
+                                        ),
+                                        rx.text(
+                                            "⚡",
+                                            font_size="10px",
+                                            color=rx.cond(AIState.salomo_speed_mode, "#FFA500", "#666"),
                                         ),
                                         spacing="1",
                                         align="center",
                                     ),
-                                    content="Speed-Modus: aggressive GPU-Aufteilung, 32K Kontext",
+                                    content=AIState.speed_switch_tooltip,
                                 ),
                             ),
                             spacing="2",

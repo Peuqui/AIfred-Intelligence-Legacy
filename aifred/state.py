@@ -630,10 +630,45 @@ class AIState(rx.State):
             return ""  # Empty = use Main-LLM
         return self.available_models_dict.get(self.sokrates_model_id, self.sokrates_model_id)
 
+    @rx.var(deps=["available_models", "ui_language"], auto_deps=False)
+    def sokrates_available_models(self) -> list[str]:
+        """Model list with localized '(wie AIfred-LLM)' as first selectable option."""
+        from .lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        return [t("sokrates_llm_same", lang=lang)] + list(self.available_models)
+
+    @rx.var(deps=["available_models", "ui_language"], auto_deps=False)
+    def salomo_available_models(self) -> list[str]:
+        """Model list with localized '(wie AIfred-LLM)' as first selectable option."""
+        from .lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        return [t("sokrates_llm_same", lang=lang)] + list(self.available_models)
+
+    @rx.var(deps=["sokrates_model", "ui_language"], auto_deps=False)
+    def sokrates_model_select_value(self) -> str:
+        """Maps empty string (auto) to the localized sentinel label for the select."""
+        from .lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        return t("sokrates_llm_same", lang=lang) if self.sokrates_model == "" else self.sokrates_model
+
+    @rx.var(deps=["salomo_model", "ui_language"], auto_deps=False)
+    def salomo_model_select_value(self) -> str:
+        """Maps empty string (auto) to the localized sentinel label for the select."""
+        from .lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        return t("sokrates_llm_same", lang=lang) if self.salomo_model == "" else self.salomo_model
+
     @rx.var
     def is_unanimous_consensus(self) -> bool:
         """Check if consensus type is unanimous (for toggle state)"""
         return self.consensus_type == "unanimous"
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def speed_switch_tooltip(self) -> str:
+        """Localized tooltip for the Ctx/Speed switch."""
+        from .lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        return t("speed_switch_tooltip", lang=lang)
 
     @rx.var(deps=["consensus_type", "ui_language"], auto_deps=False)
     def consensus_toggle_tooltip(self) -> str:
@@ -7901,6 +7936,10 @@ class AIState(rx.State):
 
     def set_sokrates_model(self, model: str):
         """Set Sokrates LLM model for multi-agent debate"""
+        from .lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        if model == t("sokrates_llm_same", lang=lang):
+            model = ""
         self.sokrates_model = model
         self.sokrates_model_id = self._resolve_model_id(model)
 
@@ -7935,6 +7974,10 @@ class AIState(rx.State):
 
     def set_salomo_model(self, model: str):
         """Set Salomo LLM model for multi-agent debate"""
+        from .lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"
+        if model == t("sokrates_llm_same", lang=lang):
+            model = ""
         self.salomo_model = model
         self.salomo_model_id = self._resolve_model_id(model)
 

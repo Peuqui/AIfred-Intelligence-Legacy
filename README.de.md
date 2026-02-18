@@ -24,7 +24,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Denkmodus**: Chain-of-Thought-Reasoning für komplexe Aufgaben (Qwen3, NemoTron, QwQ - llama.cpp, Ollama, vLLM)
 - **Automatische Web-Recherche**: KI entscheidet selbst, wann Recherche nötig ist
 - **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung
-- **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße pro Backend - Ollama (Binary Search + RoPE-Skalierung 1.0x/1.5x/2.0x, Hybrid CPU-Offload), llama.cpp (Binary Search via direkten llama-server)
+- **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße pro Backend - Ollama (Binary Search + RoPE-Skalierung 1.0x/1.5x/2.0x, Hybrid CPU-Offload), llama.cpp (3-phasig: GPU-only Binary Search → Speed-Variante mit Tensor-Split-Optimierung für Multi-GPU → Hybrid NGL-Fallback)
 - **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud-Streaming mit Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **nahtlose Echtzeit-Audioausgabe** (Double-Buffered HTML5 Audio, lückenlose Wiedergabe während der LLM-Inferenz)
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
@@ -214,8 +214,12 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
 - **GPU-Erkennung**: Automatische Erkennung und Warnung bei inkompatiblen Backend-GPU-Kombinationen ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
 - **Kontext-Kalibrierung**: Intelligente Kalibrierung pro Modell für Ollama und llama.cpp
   - **Ollama**: Binäre Suche mit automatischer VRAM/Hybrid-Modus-Erkennung (512 Token Präzision, 3 GB RAM-Reserve)
-  - **llama.cpp**: Binäre Suche via direkten llama-server-Test (stoppt llama-swap, testet auf Temp-Port, aktualisiert YAML-Config)
+  - **llama.cpp** (3-phasige Kalibrierung für Multi-GPU-Setups):
+    - **Phase 1** (GPU-only): Binäre Suche auf `-c` mit `ngl=99`, stoppt llama-swap, testet auf Temp-Port
+    - **Phase 2** (Speed-Variante): Binäre Suche auf `--tensor-split N:1` bei 32K Kontext → aggressivere GPU-Lastverteilung für maximalen Durchsatz (z.B. 11:1 bei Dual-72-GB-GPUs). Erstellt separaten `modell-speed`-Eintrag in llama-swap YAML-Config
+    - **Phase 3** (Hybrid-Fallback): Wenn Phase 1 < 16K → NGL-Reduzierung um VRAM für KV-Cache freizumachen
   - Ergebnisse in einheitlichem `data/model_vram_cache.json` gespeichert
+- **Ctx/Speed-Schalter**: Pro-Agenten-Toggle zwischen zwei vorkalibrierten Varianten (Ctx = maximaler Kontext, ⚡ Speed = 32K + aggressive GPU-Lastverteilung)
 - **Parallele Web-Suche**: 2-3 optimierte Queries parallel auf APIs verteilt (Tavily, Brave, SearXNG), automatische URL-Deduplizierung, optionales self-hosted SearXNG
 - **Paralleles Scraping**: ThreadPoolExecutor scrapt 3-7 URLs gleichzeitig, erste erfolgreiche Ergebnisse werden verwendet
 - **Nicht-verfügbare Quellen**: Zeigt nicht scrapbare URLs mit Fehlergrund an (Cloudflare, 404, Timeout) - im Vector Cache gespeichert für Cache-Hits
@@ -1099,7 +1103,7 @@ Die App läuft dann unter: http://localhost:3002
 
 AIfred unterstützt verschiedene LLM-Backends, die in der UI dynamisch gewechselt werden können:
 
-- **llama.cpp** (via llama-swap): GGUF-Modelle, beste Roh-Performance (+43% Generation, +30% Prompt-Processing vs Ollama), volle GPU-Kontrolle, Multi-GPU-Unterstützung. Verwendet eine 3-stufige Architektur: **llama-swap** (Go-Proxy, Modell-Management) → **llama-server** (Inferenz) → **llama.cpp** (Library). Automatische VRAM-Kalibrierung via Binary Search (stoppt llama-swap, testet llama-server direkt, aktualisiert Config). Siehe [Setup-Anleitung](docs/llamacpp-setup.md).
+- **llama.cpp** (via llama-swap): GGUF-Modelle, beste Roh-Performance (+43% Generation, +30% Prompt-Processing vs Ollama), volle GPU-Kontrolle, Multi-GPU-Unterstützung. Verwendet eine 3-stufige Architektur: **llama-swap** (Go-Proxy, Modell-Management) → **llama-server** (Inferenz) → **llama.cpp** (Library). Automatische VRAM-Kalibrierung via 3-phasiger Binärer Suche: GPU-only Kontext-Sizing → Speed-Variante mit optimierter Tensor-Split für maximalen Multi-GPU-Durchsatz → Hybrid NGL-Fallback für übergroße Modelle. Siehe [Setup-Anleitung](docs/llamacpp-setup.md).
 - **Ollama**: GGUF-Modelle (Q4/Q8), einfachste Installation, automatisches Modell-Management, gute Performance nach v2.32.0-Optimierungen
 - **vLLM**: AWQ-Modelle (4-bit), beste Performance mit AWQ Marlin Kernel
 - **TabbyAPI**: EXL2-Modelle (ExLlamaV2/V3) - experimentell, nur Basis-Unterstützung

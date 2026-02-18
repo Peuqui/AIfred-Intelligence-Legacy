@@ -24,7 +24,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Thinking Mode**: Chain-of-Thought reasoning for complex tasks (Qwen3, NemoTron, QwQ - llama.cpp, Ollama, vLLM)
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
-- **Automatic Context Calibration**: VRAM-aware context sizing per backend - Ollama (Binary Search + RoPE scaling 1.0x/1.5x/2.0x, hybrid CPU offload), llama.cpp (Binary Search via direct llama-server)
+- **Automatic Context Calibration**: VRAM-aware context sizing per backend - Ollama (Binary Search + RoPE scaling 1.0x/1.5x/2.0x, hybrid CPU offload), llama.cpp (3-phase: GPU-only Binary Search → Speed variant with tensor-split optimization for multi-GPU → Hybrid NGL fallback)
 - **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (double-buffered HTML5 audio, seamless playback during LLM inference)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
@@ -225,8 +225,12 @@ Each message is displayed individually with its emoji and mode label:
   - **Ollama**: Binary search with automatic VRAM/Hybrid mode detection (512 token precision)
     - Hybrid mode for CPU+GPU offload (MoE vs Dense detection, 3 GB RAM reserve)
     - Auto-Hybrid threshold: VRAM-only < 16k tokens → switch to Hybrid
-  - **llama.cpp**: Binary search via direct llama-server testing (stops llama-swap, tests on temp port, updates YAML config)
+  - **llama.cpp** (3-phase calibration for multi-GPU setups):
+    - **Phase 1** (GPU-only): Binary search on `-c` with `ngl=99`, stops llama-swap, tests on temp port
+    - **Phase 2** (Speed variant): Binary search on `--tensor-split N:1` at 32K context → aggressive GPU split for maximum throughput (e.g. 11:1 on dual 72 GB GPUs). Creates a separate `model-speed` entry in llama-swap YAML config
+    - **Phase 3** (Hybrid fallback): If Phase 1 < 16K → NGL reduction to free VRAM for KV-cache
   - Results cached in unified `data/model_vram_cache.json`
+- **Ctx/Speed Switch**: Per-agent toggle between two pre-calibrated variants (Ctx = max context, ⚡ Speed = 32K + aggressive GPU split)
 - **RoPE 2x Extended Context**: Optional extended calibration up to 2x native context limit
 - **Parallel Web Search**: 2-3 optimized queries distributed in parallel across APIs (Tavily, Brave, SearXNG), automatic URL deduplication, optional self-hosted SearXNG
 - **Parallel Scraping**: ThreadPoolExecutor scrapes 3-7 URLs simultaneously, first successful results are used
@@ -1222,7 +1226,7 @@ The app will run at: http://localhost:3002
 
 AIfred supports different LLM backends that can be switched dynamically in the UI:
 
-- **llama.cpp** (via llama-swap): GGUF models, best raw performance (+43% generation, +30% prompt processing vs Ollama), full GPU control, multi-GPU support. Uses a 3-tier architecture: **llama-swap** (Go proxy, model management) → **llama-server** (inference) → **llama.cpp** (library). Automatic VRAM calibration via Binary Search (stops llama-swap, tests llama-server directly, updates config). See [setup guide](docs/llamacpp-setup.md).
+- **llama.cpp** (via llama-swap): GGUF models, best raw performance (+43% generation, +30% prompt processing vs Ollama), full GPU control, multi-GPU support. Uses a 3-tier architecture: **llama-swap** (Go proxy, model management) → **llama-server** (inference) → **llama.cpp** (library). Automatic VRAM calibration via 3-phase Binary Search: GPU-only context sizing → Speed variant with optimized tensor-split for multi-GPU throughput → Hybrid NGL fallback for oversized models. See [setup guide](docs/llamacpp-setup.md).
 - **Ollama**: GGUF models (Q4/Q8), easiest installation, automatic model management, good performance after v2.32.0 optimizations
 - **vLLM**: AWQ models (4-bit), best performance with AWQ Marlin kernel
 - **TabbyAPI**: EXL2 models (ExLlamaV2/V3) - experimental, basic support only
