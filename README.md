@@ -227,11 +227,16 @@ Each message is displayed individually with its emoji and mode label:
     - Auto-Hybrid threshold: VRAM-only < 16k tokens → switch to Hybrid
   - **llama.cpp** (3-phase calibration for multi-GPU setups):
     - **Phase 1** (GPU-only): Binary search on `-c` with `ngl=99`, stops llama-swap, tests on temp port
-    - **Phase 2** (Speed variant): Binary search on `--tensor-split N:1` at 32K context → aggressive GPU split for maximum throughput (e.g. 11:1 on dual 72 GB GPUs). Creates a separate `model-speed` entry in llama-swap YAML config
+      - Small model shortcut: models with `native_context ≤ 8192` are tested directly (no binary search)
+      - flash-attn auto-detection: startup failure → automatic retry without `--flash-attn`, updates llama-swap YAML on success
+    - **Phase 2** (Speed variant): Binary search on `--tensor-split N:1` at 32K context → aggressive GPU split for maximum throughput. Creates a separate `model-speed` entry in llama-swap YAML config
     - **Phase 3** (Hybrid fallback): If Phase 1 < 16K → NGL reduction to free VRAM for KV-cache
+    - Startup errors (unknown architecture, wrong CUDA version) are logged and never written as false calibration data
   - Results cached in unified `data/model_vram_cache.json`
 - **llama-swap Autoscan**: Automatic model discovery on service start (`scripts/llama-swap-autoscan.py`)
   - Scans Ollama manifests → creates descriptive symlinks in `~/models/` (e.g., `sha256-6335adf...` → `Qwen3-14B-Q8_0.gguf`)
+  - **Compatibility test**: each new model is briefly started with llama-server — unsupported architectures (e.g. `deepseekocr`) are detected and excluded before being added to the config
+  - **Skip list** (`~/.config/llama-swap/autoscan-skip.json`): incompatible models are remembered, no re-test on every restart. Delete entry to re-test after a llama.cpp update
   - Detects new GGUFs and adds llama-swap config entries with optimal defaults
   - Creates preliminary VRAM cache entries (calibration via UI)
   - Runs as `ExecStartPre` in systemd service → zero manual setup for new models

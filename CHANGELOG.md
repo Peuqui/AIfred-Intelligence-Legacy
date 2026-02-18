@@ -5,6 +5,28 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.38.0] - 2026-02-18 🛡️ Autoscan Kompatibilitätsprüfung & Kalibrierungs-Fixes
+
+### Added
+
+- **Autoscan: Kompatibilitätsprüfung für neue Modelle** - Startet llama-server kurz für jedes neu entdeckte Modell (6s Timeout) und erkennt unsupportete Architekturen (z.B. `deepseekocr`) bevor sie in die Config kommen
+  - Inkompatible Modelle werden mit Grund übersprungen: `✗ Deepseek-OCR-3B-F16: unsupported architecture 'deepseekocr'`
+  - Kompatible Architekturen: Timeout = Server läuft = alles gut → wird normal eingetragen
+- **Autoscan: Skip-Liste** (`~/.config/llama-swap/autoscan-skip.json`) - Einmal geprüfte inkompatible Modelle werden persistent gespeichert, kein erneuter Test bei jedem llama-swap-Start
+  - Eintrag manuell löschen um nach llama.cpp-Update neu zu testen
+- **Kalibrierung: flash-attn Auto-Detection** (`update_llamaswap_flash_attn()`) - Wenn ein Modell nicht startet und `--flash-attn on` im Cmd ist: automatischer Retry ohne flash-attn
+  - Bei Erfolg: llama-swap Config wird automatisch auf `--flash-attn off` umgestellt
+  - Greift im Sonderfall für kleine Modelle (native_context ≤ 8192)
+- **Kalibrierung: Sonderfall für kleine Modelle** - Modelle mit `native_context ≤ CALIBRATION_MIN_CONTEXT` (8192 Token) werden direkt getestet ohne Binary-Search (die ohnehin keinen Sinn ergibt)
+- **Kalibrierung: Startup-Fehler sichtbar** - `stderr=subprocess.STDOUT` in Popen: llama-server-Output (stdout+stderr kombiniert) wird bei Fehlschlag vollständig ins Log geschrieben
+
+### Fixed
+
+- **Kalibrierung: Falsche Daten bei Startup-Fehler** - `any_test_succeeded` Guard verhindert dass ein nicht-VRAM-bedingter Startfehler (z.B. unbekannte Architektur) fälschlicherweise als `max_context=8192` in den VRAM-Cache geschrieben wird
+- **Kalibrierung: `config_path` nicht übergeben** - `aifred/backends/llamacpp.py` übergibt jetzt `config_path=LLAMASWAP_CONFIG_PATH` an `calibrate_llamacpp_model()` damit YAML-Updates (flash-attn, context, ngl) tatsächlich in die Config geschrieben werden
+
+---
+
 ## [2.37.1] - 2026-02-18 🔧 Bugfixes & Code-Vereinfachung
 
 ### Fixed

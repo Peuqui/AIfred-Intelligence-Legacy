@@ -464,9 +464,13 @@ Das Script `scripts/llama-swap-autoscan.py` erkennt automatisch neue GGUF-Modell
    - Beispiel: `sha256-6335adf...` -> `Qwen3-14B-Q8_0.gguf`
    - Deduplizierung: Bei mehreren Tags fuer denselben Blob wird der laengste/beschreibendste Name gewaehlt
    - Embedding-Modelle (BERT, nomic, etc.) werden uebersprungen
-2. **Neue GGUFs erkennen** - Vergleicht `~/models/*.gguf` mit bestehenden Eintraegen in der llama-swap Config
-3. **llama-swap Config erweitern** - Fuer jedes neue Modell wird ein YAML-Block angehaengt mit Default-Parametern (`-ngl 99`, `--flash-attn on`, `-ctk q8_0 -ctv q8_0`, etc.)
-4. **VRAM-Cache vorbereiten** - Minimale Eintraege in `data/model_vram_cache.json` anlegen (Kalibrierung erfolgt spaeter ueber die AIfred-UI)
+2. **Neue GGUFs erkennen** - Vergleicht `~/models/*.gguf` mit bestehenden Eintraegen in der llama-swap Config (und der Skip-Liste, s.u.)
+3. **Kompatibilitaetspruefung** - Jedes neue Modell wird kurz mit llama-server gestartet (max. 6 Sekunden):
+   - Prozess endet mit Fehler innerhalb von 6s → inkompatible Architektur erkannt (z.B. `deepseekocr`) → Modell wird **nicht** in die Config eingetragen
+   - Prozess laeuft nach 6s noch → Server ist up, Architektur OK → Modell wird normal eingetragen
+   - Inkompatible Modelle werden in `autoscan-skip.json` gespeichert und bei folgenden Starts **nicht** erneut geprueft
+4. **llama-swap Config erweitern** - Fuer jedes kompatible neue Modell wird ein YAML-Block angehaengt mit Default-Parametern (`-ngl 99`, `--flash-attn on`, `-ctk q8_0 -ctv q8_0`, etc.)
+5. **VRAM-Cache vorbereiten** - Minimale Eintraege in `data/model_vram_cache.json` anlegen (Kalibrierung erfolgt spaeter ueber die AIfred-UI)
 
 ### Manuell ausfuehren
 
@@ -482,13 +486,17 @@ Scanning Ollama models...
   + Symlink: Qwen3-14B-Q8_0.gguf -> sha256-6335adf...
   = Exists:  Qwen3-8B-Q4_K_M.gguf
   ~ Skip:    nomic-embed-text-v2-moe (embedding model)
-Scanning ~/models/ for new GGUFs...
-  Found 6 GGUFs, 1 new
+Scanning ~/models/ for GGUFs...
+  1 model(s) skipped (known incompatible, remove from autoscan-skip.json to re-test):
+    ~ Deepseek-OCR-3B-F16: unsupported architecture 'deepseekocr'
+  Found 7 GGUFs, 1 new
+Testing new models for llama-server compatibility...
+  ✓ Qwen3-14B-Q8_0
 Updating llama-swap config...
   + Added: Qwen3-14B-Q8_0 (native context: 40960)
 Updating VRAM cache...
   + Added: Qwen3-14B-Q8_0
-Done. 1 new model(s) added.
+Done. 1 model(s) added to config, 1 VRAM cache entries created.
 ```
 
 ### Konfiguration
@@ -503,6 +511,20 @@ Die Konstanten stehen am Anfang des Scripts:
 | `LLAMA_SERVER_BIN` | `~/llama.cpp/build/bin/llama-server` | Pfad zur llama-server Binary |
 | `DEFAULT_TTL` | 300 | Inaktivitaets-Timeout in Sekunden |
 | `DEFAULT_FLAGS` | `--flash-attn on -ctk q8_0 -ctv q8_0 -np 1 -t 4 --mlock` | Standard-Parameter |
+| `AUTOSCAN_SKIP_FILE` | `~/.config/llama-swap/autoscan-skip.json` | Persistente Liste inkompatibler Modelle |
+| `COMPAT_TEST_TIMEOUT` | 6 | Sekunden Wartezeit beim Kompatibilitaetstest |
+
+### Skip-Liste verwalten
+
+Inkompatible Modelle werden in `~/.config/llama-swap/autoscan-skip.json` gespeichert:
+
+```json
+{
+  "Deepseek-OCR-3B-F16": "unsupported architecture 'deepseekocr'"
+}
+```
+
+Nach einem llama.cpp-Update das die fehlende Architektur ergaenzt: Eintrag aus der Datei loeschen, dann beim naechsten llama-swap-Start wird das Modell erneut geprueft und bei Erfolg automatisch eingetragen.
 
 ---
 

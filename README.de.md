@@ -216,11 +216,16 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
   - **Ollama**: Binäre Suche mit automatischer VRAM/Hybrid-Modus-Erkennung (512 Token Präzision, 3 GB RAM-Reserve)
   - **llama.cpp** (3-phasige Kalibrierung für Multi-GPU-Setups):
     - **Phase 1** (GPU-only): Binäre Suche auf `-c` mit `ngl=99`, stoppt llama-swap, testet auf Temp-Port
+      - Small-Model-Shortcut: Modelle mit `native_context ≤ 8192` werden direkt getestet (keine Binärsuche)
+      - flash-attn-Auto-Erkennung: Startfehler → automatischer Neuversuch ohne `--flash-attn`, aktualisiert llama-swap YAML bei Erfolg
     - **Phase 2** (Speed-Variante): Binäre Suche auf `--tensor-split N:1` bei 32K Kontext → aggressivere GPU-Lastverteilung für maximalen Durchsatz (z.B. 11:1 bei Dual-72-GB-GPUs). Erstellt separaten `modell-speed`-Eintrag in llama-swap YAML-Config
     - **Phase 3** (Hybrid-Fallback): Wenn Phase 1 < 16K → NGL-Reduzierung um VRAM für KV-Cache freizumachen
+    - Startfehler (unbekannte Architektur, falsche CUDA-Version) werden geloggt und nie als falsche Kalibrierungsdaten gespeichert
   - Ergebnisse in einheitlichem `data/model_vram_cache.json` gespeichert
 - **llama-swap Autoscan**: Automatische Modell-Erkennung beim Service-Start (`scripts/llama-swap-autoscan.py`)
   - Scannt Ollama-Manifests → erstellt beschreibende Symlinks in `~/models/` (z.B. `sha256-6335adf...` → `Qwen3-14B-Q8_0.gguf`)
+  - **Kompatibilitätsprüfung**: Jedes neue Modell wird kurz mit llama-server gestartet — nicht unterstützte Architekturen (z.B. `deepseekocr`) werden erkannt und nicht in die Config aufgenommen
+  - **Skip-Liste** (`~/.config/llama-swap/autoscan-skip.json`): Inkompatible Modelle werden gespeichert und nicht bei jedem Neustart erneut geprüft. Eintrag löschen, um nach einem llama.cpp-Update erneut zu testen
   - Erkennt neue GGUFs und erstellt llama-swap Config-Einträge mit optimalen Defaults
   - Erstellt vorläufige VRAM-Cache-Einträge (Kalibrierung über die UI)
   - Läuft als `ExecStartPre` im systemd-Service → kein manuelles Setup für neue Modelle nötig

@@ -414,6 +414,7 @@ class LlamaCppBackend(LLMBackend):
             model_id=model,
             gguf_path=gguf_path,
             full_cmd=model_info["full_cmd"],
+            config_path=LLAMASWAP_CONFIG_PATH,
         ):
             yield msg
 

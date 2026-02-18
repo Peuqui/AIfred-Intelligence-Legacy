@@ -13,6 +13,8 @@ Designed to run as ExecStartPre before llama-swap service starts.
 
 import json
 import re
+import socket
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -28,6 +30,9 @@ OLLAMA_PATHS = [
 ]
 
 LLAMASWAP_CONFIG = Path.home() / ".config" / "llama-swap" / "config.yaml"
+# Persists models that failed the compatibility test — not re-tested on subsequent runs.
+# Delete an entry manually to re-test after a llama.cpp update.
+AUTOSCAN_SKIP_FILE = LLAMASWAP_CONFIG.parent / "autoscan-skip.json"
 
 # VRAM cache lives in the AIfred data directory
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -500,6 +505,96 @@ def update_vram_cache(new_models: list[dict]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Incompatibility skip list
+# ---------------------------------------------------------------------------
+
+def load_skip_list() -> dict[str, str]:
+    """Load models that previously failed the compatibility test (name → reason)."""
+    if not AUTOSCAN_SKIP_FILE.exists():
+        return {}
+    try:
+        return json.loads(AUTOSCAN_SKIP_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_skip_list(skip: dict[str, str]) -> None:
+    """Persist the skip list to disk."""
+    AUTOSCAN_SKIP_FILE.write_text(json.dumps(skip, indent=2, ensure_ascii=False) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Compatibility test
+# ---------------------------------------------------------------------------
+
+# How long to wait for llama-server to crash with a startup error.
+# Compatible models keep running (serving HTTP), so they always hit this timeout.
+# Incompatible models fail within 1-2 s → we catch the error before the timeout.
+COMPAT_TEST_TIMEOUT = 6
+
+
+def _free_port() -> int:
+    """Return an available TCP port on localhost."""
+    with socket.socket() as s:
+        s.bind(('', 0))
+        return s.getsockname()[1]
+
+
+def test_model_compatibility(gguf_path: Path, server_bin: Path) -> tuple[bool, str]:
+    """
+    Quick llama-server startup test for a new model.
+
+    Starts llama-server with minimal flags and waits COMPAT_TEST_TIMEOUT seconds.
+    - If the process exits within the timeout → reads stdout for known error patterns.
+    - If the process is still running after the timeout → model is loading fine (compatible).
+
+    Returns:
+        (True, "")              — compatible (or test inconclusive)
+        (False, "reason str")   — known incompatibility detected
+    """
+    if not server_bin.exists():
+        return True, ""
+
+    port = _free_port()
+    cmd = [
+        str(server_bin),
+        "--port", str(port),
+        "--model", str(gguf_path.resolve()),
+        # Minimal settings — architecture errors occur before any weight loading
+        "-ngl", "99",
+        "-c", "512",
+        "-np", "1",
+    ]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    except Exception:
+        return True, ""  # Can't run the binary — not the model's fault
+
+    try:
+        stdout_data, _ = proc.communicate(timeout=COMPAT_TEST_TIMEOUT)
+        output = stdout_data.decode('utf-8', errors='replace')
+    except subprocess.TimeoutExpired:
+        # Still running after timeout → server is up, model is compatible
+        proc.kill()
+        proc.communicate()
+        return True, ""
+
+    # Process exited before timeout — check for known permanent failures
+    if "unknown model architecture" in output:
+        m = re.search(r"unknown model architecture: '([^']+)'", output)
+        arch = m.group(1) if m else "unknown"
+        return False, f"unsupported architecture '{arch}'"
+
+    # Other early exits (e.g. port conflict) — don't block the model
+    return True, ""
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -524,7 +619,17 @@ def main() -> None:
     print("Scanning ~/models/ for GGUFs...")
     all_ggufs = scan_gguf_models()
     existing = parse_existing_yaml_models(LLAMASWAP_CONFIG)
-    new_models = find_new_models(all_ggufs, existing)
+    skip_list = load_skip_list()
+
+    # Models in the skip list are known-incompatible — treat as already handled
+    if skip_list:
+        skipped = [m["name"] for m in all_ggufs if m["name"] in skip_list and m["name"] not in existing]
+        if skipped:
+            print(f"  {len(skipped)} model(s) skipped (known incompatible, remove from {AUTOSCAN_SKIP_FILE.name} to re-test):")
+            for name in skipped:
+                print(f"    ~ {name}: {skip_list[name]}")
+
+    new_models = find_new_models(all_ggufs, existing | set(skip_list))
     print(f"  Found {len(all_ggufs)} GGUFs, {len(new_models)} new")
     print()
 
@@ -532,13 +637,32 @@ def main() -> None:
         print("No new models to add. Done.")
         return
 
-    # Step 3: Add to llama-swap config
-    print("Updating llama-swap-config.yaml...")
+    # Step 3: Compatibility test — only for genuinely new models, result cached in skip list
     server_bin = detect_llama_server_bin(LLAMASWAP_CONFIG)
+    print("Testing new models for llama-server compatibility...")
+    compatible_models = []
+    for model in new_models:
+        compat, reason = test_model_compatibility(model["path"], server_bin)
+        if compat:
+            compatible_models.append(model)
+            print(f"  ✓ {model['name']}")
+        else:
+            skip_list[model["name"]] = reason
+            save_skip_list(skip_list)
+            print(f"  ✗ {model['name']}: {reason} — skipping (not supported by this llama-server build)")
+    new_models = compatible_models
+    print()
+
+    if not new_models:
+        print("No compatible models to add. Done.")
+        return
+
+    # Step 4: Add to llama-swap config
+    print("Updating llama-swap-config.yaml...")
     yaml_added = append_models_to_yaml(LLAMASWAP_CONFIG, new_models, server_bin)
     print()
 
-    # Step 4: Update VRAM cache
+    # Step 5: Update VRAM cache
     print("Updating VRAM cache...")
     cache_added = update_vram_cache(new_models)
     print()

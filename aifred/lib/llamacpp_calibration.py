@@ -229,6 +229,54 @@ def _replace_ngl_in_model_block(content: str, model_id: str, new_ngl: int) -> st
     return '\n'.join(result_lines)
 
 
+def _replace_flash_attn_in_model_block(content: str, model_id: str, enabled: bool) -> str:
+    """Set --flash-attn on/off in a specific model's cmd block, preserving formatting."""
+    new_val = "on" if enabled else "off"
+    lines = content.split('\n')
+    in_model_block = False
+    result_lines = []
+
+    for line in lines:
+        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
+            in_model_block = True
+        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
+            in_model_block = False
+
+        if in_model_block:
+            line = re.sub(r'--flash-attn\s+\w+', f'--flash-attn {new_val}', line)
+
+        result_lines.append(line)
+
+    return '\n'.join(result_lines)
+
+
+def update_llamaswap_flash_attn(
+    config_path: Path,
+    model_id: str,
+    enabled: bool = False,
+) -> bool:
+    """
+    Update --flash-attn flag in llama-swap YAML for a specific model.
+
+    Uses regex on raw file content to preserve YAML formatting.
+    Called with enabled=False when architecture incompatibility is detected during calibration.
+    """
+    if not config_path.exists():
+        logger.error(f"llama-swap config not found: {config_path}")
+        return False
+
+    content = config_path.read_text(encoding='utf-8')
+    new_content = _replace_flash_attn_in_model_block(content, model_id, enabled)
+
+    if new_content == content:
+        logger.warning(f"--flash-attn flag not found for {model_id} in llama-swap config")
+        return False
+
+    config_path.write_text(new_content, encoding='utf-8')
+    logger.info(f"Updated llama-swap config: {model_id} → --flash-attn {'on' if enabled else 'off'}")
+    return True
+
+
 async def _start_llama_server(
     full_cmd: str,
     context: int,
@@ -270,7 +318,7 @@ async def _start_llama_server(
         process = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # merge stderr into stdout — llama-server logs to stdout
             preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN)
         )
         return process
@@ -290,6 +338,15 @@ async def _wait_for_ready(
 
     while (asyncio.get_event_loop().time() - start) < timeout:
         if process.poll() is not None:
+            # Process died — log output to help diagnose startup failures
+            # (unknown architecture, flash-attn incompatibility, wrong CUDA version, ...)
+            if process.stdout:
+                try:
+                    output = process.stdout.read().decode('utf-8', errors='replace')
+                    if output.strip():
+                        logger.error(f"llama-server crashed. output:\n{output[:2000]}")
+                except Exception:
+                    pass
             return False
 
         try:
@@ -399,7 +456,15 @@ async def _start_and_verify(
     try:
         ready = await _wait_for_ready(port, LLAMACPP_HEALTH_TIMEOUT, process)
         if not ready:
+            # Kill first so stdout pipe is flushed and readable
             _kill_process(process)
+            if process.stdout:
+                try:
+                    output = process.stdout.read().decode('utf-8', errors='replace')
+                    if output.strip():
+                        logger.error(f"llama-server failed to start. output:\n{output[:2000]}")
+                except Exception:
+                    pass
             await asyncio.sleep(1.5)
             return None
 
@@ -916,6 +981,7 @@ async def calibrate_llamacpp_model(
     gguf_path: Path,
     full_cmd: str,
     port: int = LLAMACPP_CALIBRATION_PORT,
+    config_path: Optional[Path] = None,
 ) -> AsyncIterator[str]:
     """
     Two-phase calibration for a llama.cpp model.
@@ -998,6 +1064,39 @@ async def calibrate_llamacpp_model(
             await asyncio.sleep(1.5)
         yield f"__RESULT__:{ctx}:{ngl}:{mode}:{'thinks' if thinks else 'nothink'}"
 
+    # === Small model: native context ≤ calibration minimum ===
+    # These models always fit in GPU memory — startup failure is NOT an OOM issue.
+    # Most likely cause: --flash-attn incompatibility (Deepseek-OCR, Mamba, etc.)
+    if native_context <= CALIBRATION_MIN_CONTEXT:
+        yield (
+            f"Small model: native context {format_number(native_context)} ≤ "
+            f"calibration minimum {format_number(CALIBRATION_MIN_CONTEXT)} — testing directly"
+        )
+        process = await _start_and_verify(full_cmd, native_context, port)
+
+        if process is None and '--flash-attn on' in full_cmd:
+            yield "Startup failed — retrying without --flash-attn (not all architectures support it)"
+            cmd_no_fa = full_cmd.replace('--flash-attn on', '--flash-attn off')
+            process = await _start_and_verify(cmd_no_fa, native_context, port)
+            if process:
+                yield "✓ Architecture incompatible with --flash-attn — updating llama-swap config"
+                if config_path:
+                    update_llamaswap_flash_attn(config_path, model_id)
+                # Use flash-attn-free cmd for the thinking test (closure picks this up)
+                full_cmd = cmd_no_fa
+
+        if process:
+            yield f"✓ {format_number(native_context)} tokens confirmed"
+            async for msg in _finish_calibration(native_context, 99, "gpu", process=process):
+                yield msg
+        else:
+            yield (
+                "Model failed to start — see llama-server logs "
+                "(incompatible architecture, CUDA version, or corrupted GGUF?)"
+            )
+            yield "__RESULT__:0:0:error"
+        return
+
     # === PHASE 1: GPU-only calibration (ngl=99) ===
     yield "Phase 1: GPU-only calibration (ngl=99)"
 
@@ -1024,6 +1123,7 @@ async def calibrate_llamacpp_model(
         yield f"✗ {format_number(native_context)} too large"
 
     # Step 5: Try VRAM estimate as optimization (skip to good range)
+    any_test_succeeded = False
     if vram_estimate < native_context and vram_estimate > low:
         iteration += 1
         yield f"[{iteration}] Testing VRAM estimate: {format_number(vram_estimate)}..."
@@ -1032,6 +1132,7 @@ async def calibrate_llamacpp_model(
             yield f"✓ {format_number(vram_estimate)} fits"
             low = vram_estimate
             result = vram_estimate
+            any_test_succeeded = True
         else:
             yield f"✗ {format_number(vram_estimate)} too large"
             high = vram_estimate
@@ -1055,6 +1156,7 @@ async def calibrate_llamacpp_model(
         if fits:
             result = mid
             low = mid
+            any_test_succeeded = True
             yield f"✓ {format_number(mid)} fits"
         else:
             high = mid
@@ -1110,6 +1212,13 @@ async def calibrate_llamacpp_model(
             yield msg
 
     # Step 7: Final test with thinking check
+    if not any_test_succeeded:
+        # No context size worked at all — don't write a false calibration to the cache.
+        # (All binary-search tests failed, hybrid also failed.)
+        yield "Calibration failed: model failed to start at all tested contexts — check llama-server logs"
+        yield "__RESULT__:0:0:error"
+        return
+
     yield (
         f"Calibration complete: {format_number(result)} tokens "
         f"(native: {format_number(native_context)}, "
