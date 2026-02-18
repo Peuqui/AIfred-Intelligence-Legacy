@@ -646,6 +646,48 @@ def update_vram_cache(new_models: list[dict]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Groups section
+# ---------------------------------------------------------------------------
+
+def update_groups_in_yaml(config_path: Path) -> None:
+    """
+    Write or replace the groups.main.members section in llama-swap-config.yaml.
+
+    Lists all configured models except -speed variants as members of 'main'.
+    The swap:true flag tells llama-swap that only one model from this group
+    can be loaded at a time, enforcing VRAM exclusivity.
+    """
+    if not config_path.exists():
+        return
+
+    all_models = parse_existing_yaml_models(config_path)
+    members = sorted(
+        name for name in all_models
+        if not name.endswith("-speed")
+    )
+
+    if not members:
+        return
+
+    content = config_path.read_text()
+
+    # Remove any existing groups section (from "groups:" to end of file)
+    content = re.sub(r'\ngroups:.*$', '', content, flags=re.DOTALL)
+    content = content.rstrip("\n") + "\n"
+
+    members_yaml = "\n".join(f"      - {m}" for m in members)
+    content += (
+        "\ngroups:\n"
+        "  main:\n"
+        "    members:\n"
+        f"{members_yaml}\n"
+        "    swap: true\n"
+    )
+
+    config_path.write_text(content)
+
+
+# ---------------------------------------------------------------------------
 # Incompatibility skip list
 # ---------------------------------------------------------------------------
 
@@ -835,6 +877,12 @@ def main() -> None:
     # Step 4: Add to llama-swap config
     print("Updating llama-swap-config.yaml...")
     yaml_added = append_models_to_yaml(LLAMASWAP_CONFIG, new_models, server_bin)
+    update_groups_in_yaml(LLAMASWAP_CONFIG)
+    all_members = sorted(
+        n for n in parse_existing_yaml_models(LLAMASWAP_CONFIG)
+        if not n.endswith("-speed")
+    )
+    print(f"Groups updated: main → [{', '.join(all_members)}]")
     print()
 
     # Step 5: Update VRAM cache

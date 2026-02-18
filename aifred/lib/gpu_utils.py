@@ -103,6 +103,40 @@ def get_free_vram_for_single_gpu(gpu_index: int = 0) -> Optional[int]:
         return None
 
 
+def get_total_used_vram_mb() -> Optional[int]:
+    """
+    Query used VRAM using pynvml (NVIDIA Management Library)
+
+    For multi-GPU systems, returns the SUM of used VRAM across ALL GPUs.
+    Useful for measuring how much VRAM a loaded model actually occupies.
+
+    Returns:
+        int: Total used VRAM in MB (summed across all GPUs), or None if GPU unavailable
+    """
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+
+        device_count = pynvml.nvmlDeviceGetCount()
+
+        total_used_mb = 0
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            total_used_mb += mem_info.used / (1024 * 1024)
+
+        pynvml.nvmlShutdown()
+
+        return int(total_used_mb)
+
+    except ImportError:
+        logger.warning("pynvml not installed - install via: pip install pynvml")
+        return None
+    except Exception as e:
+        logger.debug(f"Could not query GPU via pynvml: {e}")
+        return None
+
+
 def get_free_vram_mb() -> Optional[int]:
     """
     Query free VRAM using pynvml (NVIDIA Management Library)

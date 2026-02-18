@@ -959,6 +959,7 @@ def _save_calibration(
     model_size_gb: float,
     ngl: int = 99,
     mode: str = "gpu",
+    vram_used_mb: Optional[int] = None,
 ) -> None:
     """Save calibration result to VRAM cache."""
     gpu_info = get_gpu_memory_info()
@@ -973,6 +974,7 @@ def _save_calibration(
         model_size_gb=model_size_gb,
         ngl=ngl,
         mode=mode,
+        vram_used_mb=vram_used_mb,
     )
 
 
@@ -1043,25 +1045,34 @@ async def calibrate_llamacpp_model(
         ctx: int, ngl: int, mode: str,
         process: Optional[asyncio.subprocess.Process] = None,
     ):
-        """Test thinking on server, save calibration, emit result.
+        """Test thinking on server, measure VRAM, save calibration, emit result.
 
         If process is provided, reuses the already-running server (avoids reload).
         Otherwise starts a new server for the thinking test.
+        VRAM is measured while the server is running (KV cache pre-allocated = stable value).
         """
-        _save_calibration(
-            model_id, ctx, native_context,
-            gguf_path, quantization, model_size_gb,
-            ngl=ngl, mode=mode
-        )
+        from .gpu_utils import get_total_used_vram_mb
+
         # Reuse existing server or start a new one
         if not process:
             process = await _start_and_verify(full_cmd, ctx, port, ngl=ngl if ngl != 99 else None)
+
+        vram_used_mb = None
         thinks = False
         if process:
+            # Measure VRAM while server is running — llama.cpp pre-allocates the full
+            # KV cache at startup, so this gives a stable worst-case value
+            vram_used_mb = get_total_used_vram_mb()
             yield "Testing reasoning capability..."
             thinks = await test_thinking_on_port(port)
             _kill_process(process)
             await asyncio.sleep(1.5)
+
+        _save_calibration(
+            model_id, ctx, native_context,
+            gguf_path, quantization, model_size_gb,
+            ngl=ngl, mode=mode, vram_used_mb=vram_used_mb
+        )
         yield f"__RESULT__:{ctx}:{ngl}:{mode}:{'thinks' if thinks else 'nothink'}"
 
     # === Small model: native context ≤ calibration minimum ===

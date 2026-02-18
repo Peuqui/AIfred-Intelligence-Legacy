@@ -62,16 +62,13 @@ chmod +x ~/llama-swap
 mkdir -p ~/.config/llama-swap
 ```
 
-Create the initial (empty) config file — autoscan will populate it:
-
 ```bash
-cat > ~/.config/llama-swap/config.yaml << 'EOF'
-models:
-EOF
+# Create the config directory — the autoscan creates the config file itself
+mkdir -p ~/.config/llama-swap
 ```
 
-> This file must exist before llama-swap starts. The autoscan only appends model
-> entries; it does not create the `models:` header on its own.
+> **Note:** The autoscan creates `config.yaml` from scratch when models are found.
+> An empty stub is only needed if you start llama-swap before downloading any models.
 
 ---
 
@@ -110,6 +107,7 @@ ExecStart=/home/YOUR_USER/llama-swap \
     --listen :11435
 Restart=on-failure
 RestartSec=5
+TimeoutStartSec=300
 Environment=PATH=/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin
 Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64
 Environment=CUDA_DEVICE_ORDER=FASTEST_FIRST
@@ -175,6 +173,7 @@ The autoscan will:
 2. Create a symlink `~/models/Qwen3-14B-Q8_0.gguf` → Ollama blob
 3. Run a 6-second compatibility test with llama-server
 4. Write an entry to `~/.config/llama-swap/config.yaml`
+5. Update the `groups.main.members` list in the config
 
 > **Limitation:** Vision-Language (VL) models pulled via Ollama (e.g. `qwen3-vl`)
 > are not compatible with llama-server. Ollama's GGUF blobs omit the MRoPE
@@ -184,14 +183,14 @@ The autoscan will:
 ### Option B: HuggingFace
 
 ```bash
-# Install the HF CLI (one-time)
+# Install the HF CLI (one-time, includes the 'hf' command)
 pip install huggingface_hub
 
 # Download a model (lands in ~/.cache/huggingface/hub/)
-huggingface-cli download Qwen/Qwen3-14B-GGUF --include "Qwen3-14B-Q8_0.gguf"
+hf download Qwen/Qwen3-14B-GGUF --include "Qwen3-14B-Q8_0.gguf"
 
 # VL model with projector (mmproj)
-huggingface-cli download Qwen/Qwen3-VL-8B-Instruct-GGUF \
+hf download Qwen/Qwen3-VL-8B-Instruct-GGUF \
     --include "Qwen3-VL-8B-Instruct-Q4_K_M.gguf" "mmproj-Qwen3-VL-8B-Instruct-F16.gguf"
 
 systemctl --user restart llama-swap
@@ -201,6 +200,7 @@ The autoscan will:
 1. Scan `~/.cache/huggingface/hub/` for GGUFs in the active snapshot
 2. Create a symlink `~/models/Qwen3-14B-Q8_0.gguf` → HF cache path
 3. Run the compatibility test and write the YAML entry
+4. Update the `groups.main.members` list in the config
 
 VL models are detected automatically when a matching `mmproj-*.gguf` file is
 present in the same HF snapshot. The YAML entry will include `--mmproj` automatically.
@@ -273,6 +273,7 @@ Updating VRAM cache...
   + Added: Qwen3-14B-Q8_0
 
 Done. 1 model(s) added to config, 1 VRAM cache entries created.
+Groups updated: main → [Qwen3-14B-Q8_0, Qwen3-8B-Q4_K_M]
 ```
 
 ---

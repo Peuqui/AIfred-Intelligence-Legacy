@@ -222,13 +222,17 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
     - **Phase 3** (Hybrid-Fallback): Wenn Phase 1 < 16K → NGL-Reduzierung um VRAM für KV-Cache freizumachen
     - Startfehler (unbekannte Architektur, falsche CUDA-Version) werden geloggt und nie als falsche Kalibrierungsdaten gespeichert
   - Ergebnisse in einheitlichem `data/model_vram_cache.json` gespeichert
-- **llama-swap Autoscan**: Automatische Modell-Erkennung beim Service-Start (`scripts/llama-swap-autoscan.py`)
+- **llama-swap Autoscan**: Automatische Modell-Erkennung beim Service-Start (`scripts/llama-swap-autoscan.py`) — **kein manuelles YAML-Editieren nötig**
   - Scannt Ollama-Manifests → erstellt beschreibende Symlinks in `~/models/` (z.B. `sha256-6335adf...` → `Qwen3-14B-Q8_0.gguf`)
+  - Scannt HuggingFace-Cache (`~/.cache/huggingface/hub/`) → erstellt Symlinks für heruntergeladene GGUFs
+  - VL-Modelle (mit passendem `mmproj-*.gguf`) erhalten automatisch das `--mmproj`-Argument
   - **Kompatibilitätsprüfung**: Jedes neue Modell wird kurz mit llama-server gestartet — nicht unterstützte Architekturen (z.B. `deepseekocr`) werden erkannt und nicht in die Config aufgenommen
   - **Skip-Liste** (`~/.config/llama-swap/autoscan-skip.json`): Inkompatible Modelle werden gespeichert und nicht bei jedem Neustart erneut geprüft. Eintrag löschen, um nach einem llama.cpp-Update erneut zu testen
-  - Erkennt neue GGUFs und erstellt llama-swap Config-Einträge mit optimalen Defaults
-  - Erstellt vorläufige VRAM-Cache-Einträge (Kalibrierung über die UI)
-  - Läuft als `ExecStartPre` im systemd-Service → kein manuelles Setup für neue Modelle nötig
+  - Erkennt neue GGUFs und erstellt llama-swap Config-Einträge mit optimalen Defaults (`-ngl 99`, `--flash-attn on`, `-ctk q8_0`, etc.)
+  - Pflegt `groups.main.members` in der YAML automatisch — alle Modelle teilen VRAM-Exklusivität ohne manuelles Editieren
+  - Erstellt vorläufige VRAM-Cache-Einträge (Kalibrierung über die UI speichert `vram_used_mb` während das Modell geladen ist)
+  - Erstellt `config.yaml` von Grund auf falls nicht vorhanden — kein manuelles Bootstrap nötig
+  - Läuft als `ExecStartPre` im systemd-Service → `ollama pull model` oder `hf download` genügt, um ein Modell hinzuzufügen
 - **Ctx/Speed-Schalter**: Pro-Agenten-Toggle zwischen zwei vorkalibrierten Varianten (Ctx = maximaler Kontext, ⚡ Speed = 32K + aggressive GPU-Lastverteilung)
 - **Parallele Web-Suche**: 2-3 optimierte Queries parallel auf APIs verteilt (Tavily, Brave, SearXNG), automatische URL-Deduplizierung, optionales self-hosted SearXNG
 - **Paralleles Scraping**: ThreadPoolExecutor scrapt 3-7 URLs gleichzeitig, erste erfolgreiche Ergebnisse werden verwendet
@@ -912,6 +916,8 @@ curl http://localhost:8002/api/sessions
   - **Ollama** (einfach, GGUF-Modelle) - empfohlen für Einsteiger
   - **vLLM** (schnell, AWQ-Modelle) - beste Performance für AWQ (erfordert Compute Capability 7.5+)
   - **TabbyAPI** (ExLlamaV2/V3, EXL2-Modelle) - experimentell
+
+> **Zero-Config Modell-Management (llama.cpp-Backend):** Nach dem einmaligen Setup genügt `ollama pull model` oder `hf download ...`, dann llama-swap neu starten — der Autoscan konfiguriert alles automatisch (YAML-Einträge, Gruppen, VRAM-Cache). Vollständige Anleitung: [docs/deployment.md](docs/deployment.md).
 - 8GB+ RAM (12GB+ empfohlen für größere Modelle)
 - Docker (für ChromaDB Vector Cache)
 - **GPU**: NVIDIA GPU empfohlen (siehe [GPU Compatibility Guide](docs/GPU_COMPATIBILITY.md))

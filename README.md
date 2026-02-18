@@ -233,13 +233,17 @@ Each message is displayed individually with its emoji and mode label:
     - **Phase 3** (Hybrid fallback): If Phase 1 < 16K → NGL reduction to free VRAM for KV-cache
     - Startup errors (unknown architecture, wrong CUDA version) are logged and never written as false calibration data
   - Results cached in unified `data/model_vram_cache.json`
-- **llama-swap Autoscan**: Automatic model discovery on service start (`scripts/llama-swap-autoscan.py`)
+- **llama-swap Autoscan**: Automatic model discovery on service start (`scripts/llama-swap-autoscan.py`) — **zero manual YAML editing required**
   - Scans Ollama manifests → creates descriptive symlinks in `~/models/` (e.g., `sha256-6335adf...` → `Qwen3-14B-Q8_0.gguf`)
+  - Scans HuggingFace cache (`~/.cache/huggingface/hub/`) → creates symlinks for downloaded GGUFs
+  - VL models (with matching `mmproj-*.gguf`) automatically get `--mmproj` argument
   - **Compatibility test**: each new model is briefly started with llama-server — unsupported architectures (e.g. `deepseekocr`) are detected and excluded before being added to the config
   - **Skip list** (`~/.config/llama-swap/autoscan-skip.json`): incompatible models are remembered, no re-test on every restart. Delete entry to re-test after a llama.cpp update
-  - Detects new GGUFs and adds llama-swap config entries with optimal defaults
-  - Creates preliminary VRAM cache entries (calibration via UI)
-  - Runs as `ExecStartPre` in systemd service → zero manual setup for new models
+  - Detects new GGUFs and adds llama-swap config entries with optimal defaults (`-ngl 99`, `--flash-attn on`, `-ctk q8_0`, etc.)
+  - Automatically maintains `groups.main.members` in the YAML — all models share VRAM exclusivity without manual editing
+  - Creates preliminary VRAM cache entries (calibration via UI adds `vram_used_mb` measured while the model is loaded)
+  - Creates `config.yaml` from scratch if not present — no manual bootstrap required
+  - Runs as `ExecStartPre` in systemd service → `ollama pull model` or `hf download` is all it takes to add a model
 - **Ctx/Speed Switch**: Per-agent toggle between two pre-calibrated variants (Ctx = max context, ⚡ Speed = 32K + aggressive GPU split)
 - **RoPE 2x Extended Context**: Optional extended calibration up to 2x native context limit
 - **Parallel Web Search**: 2-3 optimized queries distributed in parallel across APIs (Tavily, Brave, SearXNG), automatic URL deduplication, optional self-hosted SearXNG
@@ -1013,6 +1017,8 @@ curl http://localhost:8002/api/sessions
   - **Ollama** (easy, GGUF models) - recommended for getting started
   - **vLLM** (fast, AWQ models) - best performance for AWQ (requires Compute Capability 7.5+)
   - **TabbyAPI** (ExLlamaV2/V3, EXL2 models) - experimental
+
+> **Zero-Config Model Management (llama.cpp backend):** After the initial setup, adding models requires no manual configuration. Just run `ollama pull model` or `hf download ...`, then restart llama-swap — the autoscan configures everything automatically (YAML entries, groups, VRAM cache). See [docs/deployment.md](docs/deployment.md) for the full setup guide.
 - 8GB+ RAM (12GB+ recommended for larger models)
 - Docker (for ChromaDB Vector Cache)
 - **GPU**: NVIDIA GPU recommended (see [GPU Compatibility Guide](docs/GPU_COMPATIBILITY.md))

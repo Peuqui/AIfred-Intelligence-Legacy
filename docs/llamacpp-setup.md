@@ -470,7 +470,9 @@ and configures them for llama-swap. It runs as `ExecStartPre` before every llama
    - Incompatible models are saved to `autoscan-skip.json` and **not re-tested** on subsequent starts
 5. **Extend llama-swap config** — for each compatible new model, a YAML block is appended with default parameters (`-ngl 99`, `--flash-attn on`, `-ctk q8_0 -ctv q8_0`, etc.)
    - VL models (with a matching `mmproj-*.gguf`) automatically get a `--mmproj` argument
-6. **Prepare VRAM cache** — minimal entries in `data/model_vram_cache.json` (calibration is done later via the AIfred UI)
+   - The config file is created from scratch if it does not exist yet
+6. **Update groups** — the `groups.main.members` list is rewritten to include all configured models (excluding `-speed` variants). This ensures llama-swap enforces VRAM exclusivity between models.
+7. **Prepare VRAM cache** — minimal entries in `data/model_vram_cache.json` (calibration is done later via the AIfred UI)
 
 ### Run manually
 
@@ -507,6 +509,7 @@ Updating VRAM cache...
   + Added: Qwen3-14B-Q8_0
 
 Done. 1 model(s) added to config, 1 VRAM cache entries created.
+Groups updated: main → [Qwen3-14B-Q8_0, Qwen3-8B-Q4_K_M]
 ```
 
 ### Configuration constants

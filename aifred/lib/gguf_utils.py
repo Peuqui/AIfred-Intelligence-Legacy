@@ -522,7 +522,7 @@ if __name__ == "__main__":
         print("❌ No GGUF models found")
         print()
         print("Download models with:")
-        print("  huggingface-cli download bartowski/Qwen3-30B-Instruct-2507-GGUF \\")
+        print("  hf download bartowski/Qwen3-30B-Instruct-2507-GGUF \\")
         print("      Qwen3-30B-Instruct-2507-Q4_K_M.gguf --local-dir ~/models/")
     else:
         print(f"✅ Found {len(models)} GGUF model(s):")
