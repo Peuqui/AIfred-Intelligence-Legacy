@@ -3103,6 +3103,7 @@ def settings_accordion() -> rx.Component:
                                             checked=AIState.sokrates_speed_mode,
                                             on_change=lambda _: AIState.toggle_sokrates_speed_mode(),
                                             size="1",
+                                            disabled=AIState.sokrates_model == "",
                                         ),
                                         rx.text(
                                             "⚡",
@@ -3251,6 +3252,7 @@ def settings_accordion() -> rx.Component:
                                             checked=AIState.salomo_speed_mode,
                                             on_change=lambda _: AIState.toggle_salomo_speed_mode(),
                                             size="1",
+                                            disabled=AIState.salomo_model == "",
                                         ),
                                         rx.text(
                                             "⚡",
