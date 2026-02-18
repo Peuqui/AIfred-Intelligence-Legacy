@@ -737,6 +737,7 @@ def add_llamacpp_calibration(
     model_size_gb: float,
     ngl: int = 99,
     mode: str = "gpu",
+    speed_split: int = 0,
 ) -> bool:
     """
     Add a calibration point for a llama.cpp model (via llama-swap).
@@ -754,6 +755,7 @@ def add_llamacpp_calibration(
         model_size_gb: GGUF file size in GB
         ngl: GPU layers used (99 = all on GPU, lower = hybrid mode)
         mode: Calibration mode ("gpu" or "hybrid")
+        speed_split: Tensor-split N for the speed variant (N:1 ratio). 0 = no speed variant.
 
     Returns:
         True if successfully added, False otherwise
@@ -780,12 +782,14 @@ def add_llamacpp_calibration(
     cache[model_id]["gpu_model"] = gpu_model
     cache[model_id]["gguf_path"] = gguf_path
 
-    calibration = {
+    calibration: Dict[str, Any] = {
         "max_context": max_context,
         "ngl": ngl,
         "mode": mode,
         "measured_at": datetime.now().isoformat()
     }
+    if speed_split > 0:
+        calibration["speed_split"] = speed_split
 
     cache[model_id]["llamacpp_calibrations"].append(calibration)
 
@@ -794,9 +798,10 @@ def add_llamacpp_calibration(
         cache[model_id]["llamacpp_calibrations"] = \
             cache[model_id]["llamacpp_calibrations"][-5:]
 
+    speed_info = f", speed_split={speed_split}:1" if speed_split > 0 else ""
     logger.info(
         f"Added llama.cpp calibration for {model_id}: "
-        f"{max_context:,} tokens (native: {native_context:,}, ngl={ngl}, mode={mode})"
+        f"{max_context:,} tokens (native: {native_context:,}, ngl={ngl}, mode={mode}{speed_info})"
     )
 
     return save_cache(cache)
@@ -846,6 +851,42 @@ def get_llamacpp_calibration_info(model_id: str) -> Optional[Dict[str, Any]]:
         "mode": latest.get("mode", "gpu"),
         "measured_at": latest.get("measured_at", ""),
     }
+
+
+def update_llamacpp_speed_split(model_id: str, speed_split: int) -> bool:
+    """
+    Update the speed_split field on the most recent llama.cpp calibration entry.
+
+    Called after speed variant calibration completes (separate from main calibration
+    because the speed result arrives after the context result is already saved).
+    """
+    cache = load_cache()
+    if model_id not in cache:
+        return False
+    calibrations = cache[model_id].get("llamacpp_calibrations", [])
+    if not calibrations:
+        return False
+    calibrations[-1]["speed_split"] = speed_split
+    logger.info(f"Updated speed_split={speed_split}:1 for {model_id}")
+    return save_cache(cache)
+
+
+def get_llamacpp_speed_split(model_id: str) -> int:
+    """
+    Get the speed-variant tensor-split N for a llama.cpp model.
+
+    Returns the N from the most recent calibration that has a speed_split.
+    A value of 0 means no speed variant was calibrated.
+    """
+    cache = load_cache()
+    if model_id not in cache:
+        return 0
+    calibrations = cache[model_id].get("llamacpp_calibrations", [])
+    for cal in reversed(calibrations):
+        split = cal.get("speed_split", 0)
+        if split > 0:
+            return int(split)
+    return 0
 
 
 def get_llamacpp_calibrations(model_id: str) -> List[Dict[str, Any]]:

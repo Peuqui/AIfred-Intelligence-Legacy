@@ -734,9 +734,9 @@ CALIBRATION_MIN_CONTEXT = 8192  # 8K minimum for usable context
 # HYBRID MODE THRESHOLD CONFIGURATION
 # ============================================================
 # When VRAM-only calibration yields less than this, switch to Hybrid mode.
-# 16K is the minimum for meaningful LLM usage with multi-turn conversations,
-# RAG context injection, and system prompts.
-MIN_USEFUL_CONTEXT_TOKENS = 16384  # 16K - below this, VRAM-only is not useful
+# Also used as minimum context target for the Speed variant in dual calibration.
+# 32K is sufficient for multi-turn chat with RAG, system prompts, and reasoning.
+MIN_USEFUL_CONTEXT_TOKENS = 32768  # 32K - below this, VRAM-only is not useful
 
 # Minimum free RAM to maintain during Hybrid mode calibration.
 # This is a FIXED reserve (not dynamic) to ensure system stability.

@@ -396,18 +396,24 @@ async def _start_and_verify(
     if not process:
         return None
 
-    ready = await _wait_for_ready(port, LLAMACPP_HEALTH_TIMEOUT, process)
-    if not ready:
-        _kill_process(process)
-        await asyncio.sleep(1.5)
-        return None
+    try:
+        ready = await _wait_for_ready(port, LLAMACPP_HEALTH_TIMEOUT, process)
+        if not ready:
+            _kill_process(process)
+            await asyncio.sleep(1.5)
+            return None
 
-    if not await _test_inference(port, process):
-        _kill_process(process)
-        await asyncio.sleep(1.5)
-        return None
+        if not await _test_inference(port, process):
+            _kill_process(process)
+            await asyncio.sleep(1.5)
+            return None
 
-    return process
+        return process
+    except BaseException:
+        # GeneratorExit (async generator abandoned, e.g. double-click calibrate) or
+        # CancelledError: process is orphaned if not cleaned up here — it would hold VRAM.
+        _kill_process(process)
+        raise
 
 
 async def _calibration_test(
@@ -423,6 +429,195 @@ async def _calibration_test(
     _kill_process(process)
     await asyncio.sleep(1.5)
     return True
+
+
+def _get_model_block_bounds(content: str, model_id: str) -> tuple[int, int]:
+    """Return (start_line, end_line) for a model's YAML block (end is exclusive).
+
+    Returns (-1, -1) if model not found.
+    """
+    lines = content.split('\n')
+    start = -1
+    model_indent = 0
+
+    for i, line in enumerate(lines):
+        m = re.match(rf'^(\s+){re.escape(model_id)}\s*:', line)
+        if m:
+            start = i
+            model_indent = len(m.group(1))
+            break
+
+    if start < 0:
+        return -1, -1
+
+    # End: next non-blank, non-comment line at same (or less) indentation
+    for i in range(start + 1, len(lines)):
+        line = lines[i]
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        current_indent = len(line) - len(line.lstrip())
+        if current_indent <= model_indent:
+            return start, i
+
+    return start, len(lines)
+
+
+def add_llamaswap_speed_variant(
+    config_path: Path,
+    model_id: str,
+    speed_split_n: int,
+    speed_context: int,
+) -> bool:
+    """
+    Add (or update) a -speed variant YAML entry in the llama-swap config.
+
+    Copies the existing model_id block, renames it to model_id-speed,
+    and replaces tensor-split and -c with speed values.
+    Preserves all other YAML formatting from the original block.
+
+    Args:
+        speed_split_n: Fast-GPU part of N:1 split (e.g. 10 → "10,1")
+        speed_context: Context size for speed variant (typically MIN_USEFUL_CONTEXT_TOKENS)
+    """
+    if not config_path.exists():
+        logger.error(f"llama-swap config not found: {config_path}")
+        return False
+
+    content = config_path.read_text(encoding='utf-8')
+    lines = content.split('\n')
+
+    # Find original model block
+    orig_start, orig_end = _get_model_block_bounds(content, model_id)
+    if orig_start < 0:
+        logger.error(f"Model {model_id} not found in llama-swap config")
+        return False
+
+    orig_block_lines = lines[orig_start:orig_end]
+
+    # Trim trailing blank lines and section comments so they don't get duplicated
+    while orig_block_lines and (
+        not orig_block_lines[-1].strip()
+        or orig_block_lines[-1].strip().startswith('#')
+    ):
+        orig_block_lines.pop()
+
+    # Build speed block by modifying the original block's text
+    speed_model_id = f"{model_id}-speed"
+    speed_block_text = '\n'.join(orig_block_lines)
+
+    # Rename: replace only the model key (first occurrence)
+    speed_block_text = re.sub(
+        rf'^(\s+){re.escape(model_id)}\s*:',
+        rf'\g<1>{speed_model_id}:',
+        speed_block_text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+
+    # Replace tensor-split and context in cmd
+    speed_block_text = _replace_tensor_split(speed_block_text, speed_split_n, 1)
+    speed_block_text = re.sub(r'-c\s+\d+', f'-c {speed_context}', speed_block_text)
+
+    speed_block_lines = speed_block_text.split('\n')
+
+    # Check if speed variant already exists — update it in-place
+    speed_start, speed_end = _get_model_block_bounds(content, speed_model_id)
+    if speed_start >= 0:
+        new_lines = lines[:speed_start] + speed_block_lines + lines[speed_end:]
+        config_path.write_text('\n'.join(new_lines), encoding='utf-8')
+        logger.info(f"Updated speed variant in llama-swap config: {speed_model_id}")
+    else:
+        # Insert right after the original block
+        new_lines = lines[:orig_end] + speed_block_lines + lines[orig_end:]
+        config_path.write_text('\n'.join(new_lines), encoding='utf-8')
+        logger.info(f"Added speed variant to llama-swap config: {speed_model_id}")
+
+    return True
+
+
+def _has_tensor_split(full_cmd: str) -> bool:
+    """Return True if the cmd uses multi-GPU tensor split."""
+    return bool(re.search(r'(--tensor-split|-ts)\s+[\d.,]+', full_cmd))
+
+
+def _replace_tensor_split(cmd: str, fast_n: int, slow_n: int = 1) -> str:
+    """Replace the tensor-split ratio in cmd with fast_n:slow_n."""
+    new_val = f"{fast_n},{slow_n}"
+    cmd = re.sub(r'(--tensor-split\s+)[\d.,]+', rf'\g<1>{new_val}', cmd)
+    cmd = re.sub(r'(-ts\s+)[\d.,]+', rf'\g<1>{new_val}', cmd)
+    return cmd
+
+
+async def _calibrate_speed_split(
+    full_cmd: str,
+    port: int,
+    target_context: int,
+) -> AsyncIterator[str]:
+    """
+    Binary search for the most aggressive tensor-split ratio at target_context.
+
+    Searches N from 99 downward (N:1 split), finds the highest N where the model
+    loads successfully at target_context tokens. Starts from 99 (most aggressive),
+    mirroring how context calibration starts from native_context.
+
+    Yields progress messages.
+    Final: "__SPEED__:{N}" where N is the best ratio, or "__SPEED__:0" on failure.
+    """
+    yield f"Speed calibration: binary search tensor-split at ctx={format_number(target_context)}"
+
+    iteration = 0
+
+    # Test 99:1 first — best case, avoids unnecessary search
+    iteration += 1
+    cmd_99 = _replace_tensor_split(full_cmd, 99, 1)
+    yield f"[{iteration}] Testing split 99:1..."
+    fits = await _calibration_test(cmd_99, target_context, port)
+    if fits:
+        yield "✓ 99:1 fits — best possible split"
+        yield "__SPEED__:99"
+        return
+
+    yield "✗ 99:1 failed, binary search..."
+
+    # Binary search [2, 98] — find highest N:1 that still loads
+    split_low = 2
+    split_high = 98
+    best_n = 0
+
+    while split_high - split_low > 1:
+        iteration += 1
+        split_mid = (split_low + split_high) // 2
+        cmd_mid = _replace_tensor_split(full_cmd, split_mid, 1)
+        yield f"[{iteration}] Testing split {split_mid}:1..."
+
+        fits = await _calibration_test(cmd_mid, target_context, port)
+        if fits:
+            best_n = split_mid
+            split_low = split_mid
+            yield f"✓ {split_mid}:1 fits"
+        else:
+            split_high = split_mid
+            yield f"✗ {split_mid}:1 failed"
+
+    # Binary search leaves split_low untested when all higher values fail — check it explicitly
+    if best_n == 0:
+        iteration += 1
+        cmd_low = _replace_tensor_split(full_cmd, split_low, 1)
+        yield f"[{iteration}] Testing split {split_low}:1 (lower bound)..."
+        fits = await _calibration_test(cmd_low, target_context, port)
+        if fits:
+            best_n = split_low
+            yield f"✓ {split_low}:1 fits"
+        else:
+            yield f"✗ {split_low}:1 failed"
+
+    if best_n > 0:
+        yield f"Speed split found: {best_n}:1 ({iteration} iterations)"
+        yield f"__SPEED__:{best_n}"
+    else:
+        yield "Speed calibration failed: no tensor-split above 1:1 works at speed context"
+        yield "__SPEED__:0"
 
 
 def _estimate_upper_bound(
@@ -726,7 +921,8 @@ async def calibrate_llamacpp_model(
     Two-phase calibration for a llama.cpp model.
 
     Phase 1 (GPU-only): Binary search for max -c with ngl=99
-    Phase 2 (Hybrid): If GPU-only < MIN_USEFUL_CONTEXT, reduce -ngl to free VRAM
+    Phase 2 (Speed): Tensor-split optimization for multi-GPU (if Phase 1 succeeds)
+    Phase 3 (Hybrid): CPU-offload fallback if GPU-only context < MIN_USEFUL_CONTEXT
 
     Async generator that yields progress messages.
     Final yield format: "__RESULT__:{context}:{ngl}:{mode}"
@@ -812,7 +1008,15 @@ async def calibrate_llamacpp_model(
     process = await _start_and_verify(full_cmd, native_context, port)
     if process:
         yield f"✓ Native context {format_number(native_context)} fits!"
-        # Reuse running server for thinking test (avoids reloading the model)
+        if _has_tensor_split(full_cmd):
+            # Speed calibration starts its own server on the same port — kill first
+            _kill_process(process)
+            await asyncio.sleep(1.5)
+            process = None
+            yield "Phase 2: Speed variant calibration (tensor-split optimization)"
+            async for msg in _calibrate_speed_split(full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS):
+                yield msg
+        # process=None here → _finish_calibration starts a fresh server for thinking test
         async for msg in _finish_calibration(native_context, 99, "gpu", process=process):
             yield msg
         return
@@ -856,7 +1060,7 @@ async def calibrate_llamacpp_model(
             high = mid
             yield f"✗ {format_number(mid)} too large"
 
-    # === PHASE 2: Hybrid calibration (if GPU-only context too small) ===
+    # === PHASE 3: Hybrid calibration (fallback if GPU-only context too small) ===
     if result < MIN_USEFUL_CONTEXT_TOKENS:
         yield (
             f"GPU-only context ({format_number(result)}) < "
@@ -867,7 +1071,7 @@ async def calibrate_llamacpp_model(
         if not total_layers:
             yield "Cannot read layer count from GGUF — hybrid mode unavailable"
         else:
-            yield f"Phase 2: Hybrid calibration ({total_layers} layers)"
+            yield f"Phase 3: Hybrid calibration (fallback, {total_layers} layers)"
 
             # Re-measure VRAM (should be free after GPU-only tests)
             stabilized, wait_time, free_vram = await wait_for_vram_stable(
@@ -898,6 +1102,12 @@ async def calibrate_llamacpp_model(
                 async for msg in _finish_calibration(hybrid_ctx, hybrid_ngl, "hybrid"):
                     yield msg
                 return
+
+    # === PHASE 2: Speed variant calibration (multi-GPU only) ===
+    if _has_tensor_split(full_cmd):
+        yield "Phase 2: Speed variant calibration (tensor-split optimization)"
+        async for msg in _calibrate_speed_split(full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS):
+            yield msg
 
     # Step 7: Final test with thinking check
     yield (

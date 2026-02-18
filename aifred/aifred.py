@@ -2911,7 +2911,7 @@ def settings_accordion() -> rx.Component:
                         spacing="2",
                         align="center",
                     ),
-                    # Other backends: Personality + Reasoning only
+                    # Other backends: Personality + Reasoning + optional Speed toggle
                     rx.hstack(
                         rx.tooltip(
                             rx.hstack(
@@ -2942,6 +2942,24 @@ def settings_accordion() -> rx.Component:
                                 align="center",
                             ),
                             content=t("reasoning_tooltip"),
+                        ),
+                        rx.cond(
+                            AIState.aifred_has_speed_variant,
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("⚡", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.aifred_speed_mode,
+                                        on_change=lambda _: AIState.toggle_aifred_speed_mode(),
+                                        size="1",
+                                        color_scheme="blue",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content="Speed-Modus: aggressive GPU-Aufteilung, 32K Kontext (schneller, weniger Kontext)",
+                            ),
                         ),
                         spacing="2",
                         align="center",
@@ -3038,7 +3056,7 @@ def settings_accordion() -> rx.Component:
                             spacing="2",
                             align="center",
                         ),
-                        # Other backends: Personality + Reasoning only
+                        # Other backends: Personality + Reasoning + optional Speed toggle
                         rx.hstack(
                             rx.tooltip(
                                 rx.hstack(
@@ -3069,6 +3087,24 @@ def settings_accordion() -> rx.Component:
                                     align="center",
                                 ),
                                 content=t("reasoning_tooltip"),
+                            ),
+                            rx.cond(
+                                AIState.sokrates_has_speed_variant,
+                                rx.tooltip(
+                                    rx.hstack(
+                                        rx.text("⚡", font_size="14px"),
+                                        rx.checkbox(
+                                            checked=AIState.sokrates_speed_mode,
+                                            on_change=lambda _: AIState.toggle_sokrates_speed_mode(),
+                                            size="1",
+                                            color_scheme="blue",
+                                            variant="surface",
+                                        ),
+                                        spacing="1",
+                                        align="center",
+                                    ),
+                                    content="Speed-Modus: aggressive GPU-Aufteilung, 32K Kontext",
+                                ),
                             ),
                             spacing="2",
                             align="center",
@@ -3197,6 +3233,24 @@ def settings_accordion() -> rx.Component:
                                     align="center",
                                 ),
                                 content=t("reasoning_tooltip"),
+                            ),
+                            rx.cond(
+                                AIState.salomo_has_speed_variant,
+                                rx.tooltip(
+                                    rx.hstack(
+                                        rx.text("⚡", font_size="14px"),
+                                        rx.checkbox(
+                                            checked=AIState.salomo_speed_mode,
+                                            on_change=lambda _: AIState.toggle_salomo_speed_mode(),
+                                            size="1",
+                                            color_scheme="blue",
+                                            variant="surface",
+                                        ),
+                                        spacing="1",
+                                        align="center",
+                                    ),
+                                    content="Speed-Modus: aggressive GPU-Aufteilung, 32K Kontext",
+                                ),
                             ),
                             spacing="2",
                             align="center",

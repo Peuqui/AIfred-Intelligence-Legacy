@@ -160,6 +160,16 @@ class AIState(rx.State):
     sokrates_reasoning: bool = True      # 💭 Sokrates step-by-step reasoning
     salomo_reasoning: bool = True        # 💭 Salomo step-by-step reasoning
 
+    # Per-Agent Speed Mode Toggles (llamacpp only: swap to -speed YAML variant)
+    # True = aggressive tensor-split, 32K context; False = balanced split, max context
+    aifred_speed_mode: bool = False      # ⚡ AIfred speed variant
+    sokrates_speed_mode: bool = False    # ⚡ Sokrates speed variant
+    salomo_speed_mode: bool = False      # ⚡ Salomo speed variant
+    # Whether a speed variant exists for the currently selected model (from VRAM cache)
+    aifred_has_speed_variant: bool = False
+    sokrates_has_speed_variant: bool = False
+    salomo_has_speed_variant: bool = False
+
     # Image Upload State
     pending_images: List[Dict[str, str]] = []  # [{"name": "img.jpg", "path": "/abs/path.jpg", "url": "/_upload/...", "size_kb": int}]
     image_upload_warning: str = ""  # Warning message if non-vision model selected
@@ -947,6 +957,11 @@ class AIState(rx.State):
                 if "aifred_reasoning" not in saved_settings or "sokrates_reasoning" not in saved_settings or "salomo_reasoning" not in saved_settings:
                     self._save_reasoning_settings()
 
+                # Load speed mode toggles (llamacpp only, restored after model is loaded)
+                self.aifred_speed_mode = saved_settings.get("aifred_speed_mode", False)
+                self.sokrates_speed_mode = saved_settings.get("sokrates_speed_mode", False)
+                self.salomo_speed_mode = saved_settings.get("salomo_speed_mode", False)
+
                 # Load Vision settings (PERSISTENT - unlike Chat LLM num_ctx)
                 self.vision_num_ctx_enabled = saved_settings.get("vision_num_ctx_enabled", self.vision_num_ctx_enabled)
                 self.vision_num_ctx = saved_settings.get("vision_num_ctx", self.vision_num_ctx)
@@ -1070,7 +1085,11 @@ class AIState(rx.State):
                             self.salomo_supports_thinking = params["supports_thinking"]
 
                     elif self.backend_id == "llamacpp":
-                        from .lib.model_vram_cache import get_llamacpp_calibration, get_thinking_support_for_model
+                        from .lib.model_vram_cache import (
+                            get_llamacpp_calibration,
+                            get_thinking_support_for_model,
+                            get_llamacpp_speed_split,
+                        )
 
                         for agent, model_id in [
                             ("aifred", self.aifred_model_id),
@@ -1082,6 +1101,7 @@ class AIState(rx.State):
                                 setattr(self, f"{agent}_max_context", get_llamacpp_calibration(model_id) or 0)
                                 setattr(self, f"{agent}_is_hybrid", False)
                                 setattr(self, f"{agent}_supports_thinking", get_thinking_support_for_model(model_id))
+                                setattr(self, f"{agent}_has_speed_variant", get_llamacpp_speed_split(model_id) > 0)
 
                     # Sync deprecated variables (will be populated later after models load)
                     self.aifred_model = selected_raw
@@ -1770,6 +1790,9 @@ class AIState(rx.State):
             "aifred_reasoning": self.aifred_reasoning,
             "sokrates_reasoning": self.sokrates_reasoning,
             "salomo_reasoning": self.salomo_reasoning,
+            "aifred_speed_mode": self.aifred_speed_mode,
+            "sokrates_speed_mode": self.sokrates_speed_mode,
+            "salomo_speed_mode": self.salomo_speed_mode,
             # TTS/STT Settings
             "enable_tts": self.enable_tts,
             "voice": self.tts_voice,  # Legacy key name for backward compatibility
@@ -6881,6 +6904,33 @@ class AIState(rx.State):
         from .lib.prompt_loader import set_reasoning_enabled
         set_reasoning_enabled("salomo", self.salomo_reasoning)
 
+    def toggle_aifred_speed_mode(self):
+        """Toggle AIfred between speed variant (aggressive split, 32K ctx) and context variant."""
+        self.aifred_speed_mode = not self.aifred_speed_mode
+        base_id = self._resolve_model_id(self.aifred_model)
+        self.aifred_model_id = f"{base_id}-speed" if self.aifred_speed_mode else base_id
+        status = "⚡ speed" if self.aifred_speed_mode else "📖 context"
+        self.add_debug(f"🔀 AIfred mode: {status}")
+        self._save_settings()
+
+    def toggle_sokrates_speed_mode(self):
+        """Toggle Sokrates between speed variant and context variant."""
+        self.sokrates_speed_mode = not self.sokrates_speed_mode
+        base_id = self._resolve_model_id(self.sokrates_model)
+        self.sokrates_model_id = f"{base_id}-speed" if self.sokrates_speed_mode else base_id
+        status = "⚡ speed" if self.sokrates_speed_mode else "📖 context"
+        self.add_debug(f"🔀 Sokrates mode: {status}")
+        self._save_settings()
+
+    def toggle_salomo_speed_mode(self):
+        """Toggle Salomo between speed variant and context variant."""
+        self.salomo_speed_mode = not self.salomo_speed_mode
+        base_id = self._resolve_model_id(self.salomo_model)
+        self.salomo_model_id = f"{base_id}-speed" if self.salomo_speed_mode else base_id
+        status = "⚡ speed" if self.salomo_speed_mode else "📖 context"
+        self.add_debug(f"🔀 Salomo mode: {status}")
+        self._save_settings()
+
     def _save_reasoning_settings(self):
         """Save reasoning toggle states to settings.json"""
         from .lib.settings import load_settings, save_settings
@@ -7095,15 +7145,20 @@ class AIState(rx.State):
         Workflow:
         1. Stop llama-swap service (free VRAM)
         2. Phase 1: GPU-only binary search (ngl=99)
-        3. Phase 2: Hybrid NGL+context search (if GPU-only < 16K)
+        3. Phase 2: Speed variant calibration (multi-GPU tensor-split, if Phase 1 succeeds)
+        4. Phase 3: Hybrid NGL+context search (if GPU-only < MIN_USEFUL_CONTEXT_TOKENS)
         4. Update llama-swap YAML with calibrated -c and -ngl values
         5. Restart llama-swap service
         6. Test thinking capability
         """
         import subprocess
         from .lib.formatting import format_number
-        from .lib.llamacpp_calibration import update_llamaswap_context, update_llamaswap_ngl
-        from .lib.config import LLAMASWAP_CONFIG_PATH
+        from .lib.llamacpp_calibration import (
+            update_llamaswap_context,
+            update_llamaswap_ngl,
+            add_llamaswap_speed_variant,
+        )
+        from .lib.config import LLAMASWAP_CONFIG_PATH, MIN_USEFUL_CONTEXT_TOKENS
 
         llama_swap_stopped = False
 
@@ -7143,12 +7198,15 @@ class AIState(rx.State):
                 self.add_debug("   Continuing anyway (VRAM may be limited)")
             yield
 
-            # Step 2: Run calibration (Phase 1: GPU-only, Phase 2: Hybrid if needed)
+            # Step 2: Run calibration (Phase 1: GPU-only, Phase 2: Hybrid if needed,
+            #          Phase 3: Speed split for multi-GPU models)
             # Result format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}
+            # Speed format:  __SPEED__:{N}  (N:1 tensor-split for speed variant, 0=none)
             calibrated_ctx = None
             calibrated_ngl = 99
             calibrated_mode = "gpu"
             thinking_tested = False
+            speed_split_n = 0
             async for progress_msg in backend.calibrate_max_context_generator(
                 self.aifred_model_id
             ):
@@ -7160,6 +7218,8 @@ class AIState(rx.State):
                     if len(parts) > 4:
                         thinking_tested = True
                         supports_thinking = parts[4] == "thinks"
+                elif progress_msg.startswith("__SPEED__:"):
+                    speed_split_n = int(progress_msg.split(":")[1])
                 else:
                     self.add_debug(f"📊 {progress_msg}")
                     yield
@@ -7202,6 +7262,27 @@ class AIState(rx.State):
                 self.add_debug(f"   -ngl {calibrated_ngl} written ({mode_label})")
             else:
                 self.add_debug("⚠️ Could not update -ngl in llama-swap config")
+
+            # Write speed variant YAML entry (only for multi-GPU models with valid split)
+            if speed_split_n > 0:
+                added_speed = add_llamaswap_speed_variant(
+                    LLAMASWAP_CONFIG_PATH,
+                    self.aifred_model_id,
+                    speed_split_n,
+                    MIN_USEFUL_CONTEXT_TOKENS,
+                )
+                if added_speed:
+                    self.add_debug(
+                        f"   ⚡ Speed variant: {self.aifred_model_id}-speed "
+                        f"(split {speed_split_n}:1, ctx {format_number(MIN_USEFUL_CONTEXT_TOKENS)})"
+                    )
+                    # Patch speed_split into the latest calibration entry (already saved)
+                    from .lib.model_vram_cache import update_llamacpp_speed_split
+                    update_llamacpp_speed_split(self.aifred_model_id, speed_split_n)
+                    # Toggle immediately visible without restart
+                    self.aifred_has_speed_variant = True
+                else:
+                    self.add_debug("⚠️ Could not write speed variant to llama-swap config")
             yield
 
             # Step 5: Restart llama-swap
@@ -7338,11 +7419,18 @@ class AIState(rx.State):
             self.aifred_is_hybrid = params["is_hybrid"]
             self.aifred_supports_thinking = params["supports_thinking"]
         elif self.backend_type == "llamacpp":
-            from .lib.model_vram_cache import get_llamacpp_calibration, get_thinking_support_for_model
+            from .lib.model_vram_cache import (
+                get_llamacpp_calibration,
+                get_thinking_support_for_model,
+                get_llamacpp_speed_split,
+            )
             self.aifred_rope_factor = 1.0
             self.aifred_max_context = get_llamacpp_calibration(self.aifred_model_id) or 0
             self.aifred_is_hybrid = False
             self.aifred_supports_thinking = get_thinking_support_for_model(self.aifred_model_id)
+            self.aifred_has_speed_variant = get_llamacpp_speed_split(self.aifred_model_id) > 0
+            if not self.aifred_has_speed_variant:
+                self.aifred_speed_mode = False
 
         # Show calibration info for Ollama models
         self._show_model_calibration_info(self.aifred_model_id)
@@ -7825,11 +7913,18 @@ class AIState(rx.State):
             self.sokrates_is_hybrid = params["is_hybrid"]
             self.sokrates_supports_thinking = params["supports_thinking"]
         elif self.backend_type == "llamacpp" and self.sokrates_model_id:
-            from .lib.model_vram_cache import get_llamacpp_calibration, get_thinking_support_for_model
+            from .lib.model_vram_cache import (
+                get_llamacpp_calibration,
+                get_thinking_support_for_model,
+                get_llamacpp_speed_split,
+            )
             self.sokrates_rope_factor = 1.0
             self.sokrates_max_context = get_llamacpp_calibration(self.sokrates_model_id) or 0
             self.sokrates_is_hybrid = False
             self.sokrates_supports_thinking = get_thinking_support_for_model(self.sokrates_model_id)
+            self.sokrates_has_speed_variant = get_llamacpp_speed_split(self.sokrates_model_id) > 0
+            if not self.sokrates_has_speed_variant:
+                self.sokrates_speed_mode = False
 
         self._save_settings()
         if model:
@@ -7852,11 +7947,18 @@ class AIState(rx.State):
             self.salomo_is_hybrid = params["is_hybrid"]
             self.salomo_supports_thinking = params["supports_thinking"]
         elif self.backend_type == "llamacpp" and self.salomo_model_id:
-            from .lib.model_vram_cache import get_llamacpp_calibration, get_thinking_support_for_model
+            from .lib.model_vram_cache import (
+                get_llamacpp_calibration,
+                get_thinking_support_for_model,
+                get_llamacpp_speed_split,
+            )
             self.salomo_rope_factor = 1.0
             self.salomo_max_context = get_llamacpp_calibration(self.salomo_model_id) or 0
             self.salomo_is_hybrid = False
             self.salomo_supports_thinking = get_thinking_support_for_model(self.salomo_model_id)
+            self.salomo_has_speed_variant = get_llamacpp_speed_split(self.salomo_model_id) > 0
+            if not self.salomo_has_speed_variant:
+                self.salomo_speed_mode = False
 
         self._save_settings()
         if model:
