@@ -5223,13 +5223,22 @@ class AIState(rx.State):
             )
 
             messages = [{"role": "user", "content": prompt}]
+
+            # num_ctx: Must match the currently loaded context to avoid Ollama reload.
+            # Ollama uses model DEFAULT (not currently loaded ctx) when num_ctx is omitted.
+            # → omitting num_ctx after main inference would cause a full reload (5-28s penalty).
+            if title_model == self.aifred_model_id and self.aifred_max_context:
+                # Same model as main LLM → reuse calibrated context, no reload
+                title_num_ctx = self.aifred_max_context
+            else:
+                from .lib.config import AUTOMATIK_LLM_NUM_CTX
+                title_num_ctx = AUTOMATIK_LLM_NUM_CTX
+
             options = {
                 "temperature": 0.3,  # Low temperature for consistent titles
                 "num_predict": 50,   # Short response
                 "enable_thinking": False,  # Disable thinking for faster response
-                # NOTE: No num_ctx here! If title_model = Haupt-LLM, a different
-                # num_ctx would trigger a full model reload in Ollama (5-15s penalty).
-                # The model is already loaded with its calibrated context - reuse it.
+                "num_ctx": title_num_ctx,
             }
 
             # Timeout: Title generation runs AFTER is_generating=False.
