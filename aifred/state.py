@@ -402,6 +402,7 @@ class AIState(rx.State):
     _session_initialized: bool = False  # Guard against multiple session restore callbacks
     _on_load_running: bool = False  # Guard against multiple on_load() calls
     _last_detected_language: str = ""  # Last detected language from Intent Detection (for title generation)
+    _last_inference_model_id: str = ""  # Last model actually used for LLM inference (for title generation)
 
     # Backend Status
     backend_healthy: bool = False
@@ -1764,29 +1765,6 @@ class AIState(rx.State):
             if self.backend_type == "vllm":
                 await self._start_vllm_server()
 
-            # Preload Automatik-LLM to hide cold-start latency
-            # - Ollama: Also sets num_ctx to avoid huge default KV-Cache
-            # - llama.cpp: Triggers llama-swap cold-start
-            if self.backend_type in ("ollama", "llamacpp"):
-                from .lib.context_manager import prepare_automatik_llm
-                from aifred.backends import BackendFactory
-                auto_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
-
-                effective_auto = self._effective_automatik_id
-                # If Automatik = Haupt-LLM: use calibrated context to avoid reload penalty
-                preload_ctx = None  # Default: small 4K context
-                if effective_auto == self.aifred_model_id and self.aifred_max_context:
-                    preload_ctx = self.aifred_max_context
-
-                async for item in prepare_automatik_llm(
-                    backend=auto_backend,
-                    model_name=effective_auto,
-                    backend_type=self.backend_type,
-                    num_ctx=preload_ctx
-                ):
-                    if item.get("type") == "debug":
-                        self.add_debug(item["message"])
-                    # Ignore result - we don't need to store it
 
             # Store in global state for future page reloads
             # vllm_manager is already stored in _global_backend_state by its start function
@@ -5311,8 +5289,10 @@ class AIState(rx.State):
                 ai_response=first_ai_response
             )
 
-            # Use Automatik model (small, fast) - stays warm for next request
-            title_model = model_id or self._effective_automatik_id
+            # Use AIfred's current model_id (guaranteed to be loaded after the response).
+            # Do NOT use _effective_automatik_id: if AIfred is in speed mode but automatik_model_id
+            # still points to the base model, that would trigger a llama-swap cold-start (~80s).
+            title_model = model_id or self.aifred_model_id or self._effective_automatik_id
 
             llm_client = LLMClient(
                 backend_type=self.backend_type,
@@ -6985,27 +6965,38 @@ class AIState(rx.State):
         self.aifred_speed_mode = not self.aifred_speed_mode
         base_id = self._resolve_model_id(self.aifred_model)
         self.aifred_model_id = f"{base_id}-speed" if self.aifred_speed_mode else base_id
-        status = "⚡ speed" if self.aifred_speed_mode else "📖 context"
-        self.add_debug(f"🔀 AIfred mode: {status}")
+        self.add_debug(f"🔀 AIfred mode: {self._speed_mode_debug_str(self.aifred_speed_mode, base_id, self.aifred_max_context)}")
         self._save_settings()
 
     def toggle_sokrates_speed_mode(self):
         """Toggle Sokrates between speed variant and context variant."""
         self.sokrates_speed_mode = not self.sokrates_speed_mode
-        base_id = self._resolve_model_id(self.sokrates_model)
+        base_id = self._resolve_model_id(self.sokrates_model) or self._resolve_model_id(self.aifred_model)
         self.sokrates_model_id = f"{base_id}-speed" if self.sokrates_speed_mode else base_id
-        status = "⚡ speed" if self.sokrates_speed_mode else "📖 context"
-        self.add_debug(f"🔀 Sokrates mode: {status}")
+        self.add_debug(f"🔀 Sokrates mode: {self._speed_mode_debug_str(self.sokrates_speed_mode, base_id, self.sokrates_max_context)}")
         self._save_settings()
 
     def toggle_salomo_speed_mode(self):
         """Toggle Salomo between speed variant and context variant."""
         self.salomo_speed_mode = not self.salomo_speed_mode
-        base_id = self._resolve_model_id(self.salomo_model)
+        base_id = self._resolve_model_id(self.salomo_model) or self._resolve_model_id(self.aifred_model)
         self.salomo_model_id = f"{base_id}-speed" if self.salomo_speed_mode else base_id
-        status = "⚡ speed" if self.salomo_speed_mode else "📖 context"
-        self.add_debug(f"🔀 Salomo mode: {status}")
+        self.add_debug(f"🔀 Salomo mode: {self._speed_mode_debug_str(self.salomo_speed_mode, base_id, self.salomo_max_context)}")
         self._save_settings()
+
+    def _speed_mode_debug_str(self, speed_on: bool, base_model_id: str, max_ctx: int) -> str:
+        """Build debug string for speed mode toggle showing tensor-split and context."""
+        from .lib.model_vram_cache import get_llamacpp_speed_split
+        from .lib.formatting import format_number
+        from .lib.config import MIN_USEFUL_CONTEXT_TOKENS
+        if speed_on:
+            split = get_llamacpp_speed_split(base_model_id)
+            split_str = f" ({split}:1 tensor-split)" if split > 0 else ""
+            ctx = format_number(MIN_USEFUL_CONTEXT_TOKENS)
+            return f"⚡ speed — {ctx} tok{split_str}"
+        else:
+            ctx = format_number(max_ctx) if max_ctx else "n/a"
+            return f"📖 context — {ctx} tok"
 
     def _save_reasoning_settings(self):
         """Save reasoning toggle states to settings.json"""
@@ -7984,6 +7975,11 @@ class AIState(rx.State):
         self.sokrates_model = model
         self.sokrates_model_id = self._resolve_model_id(model)
 
+        if not self.sokrates_model_id:
+            # "(wie AIfred-LLM)" selected — clear speed variant
+            self.sokrates_has_speed_variant = False
+            self.sokrates_speed_mode = False
+
         # Load all model parameters from cache (rope_factor, max_context, is_hybrid, supports_thinking)
         if self.backend_id == "ollama" and self.sokrates_model_id:
             from .lib.model_vram_cache import get_model_parameters
@@ -8021,6 +8017,11 @@ class AIState(rx.State):
             model = ""
         self.salomo_model = model
         self.salomo_model_id = self._resolve_model_id(model)
+
+        if not self.salomo_model_id:
+            # "(wie AIfred-LLM)" selected — clear speed variant
+            self.salomo_has_speed_variant = False
+            self.salomo_speed_mode = False
 
         # Load all model parameters from cache (rope_factor, max_context, is_hybrid, supports_thinking)
         if self.backend_id == "ollama" and self.salomo_model_id:
