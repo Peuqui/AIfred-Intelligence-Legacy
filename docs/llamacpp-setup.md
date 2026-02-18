@@ -3,7 +3,7 @@
 Referenzdokument fuer die llama.cpp Integration in AIfred via llama-swap.
 Wird bei Hardware-Aenderungen oder neuen llama.cpp Releases aktualisiert.
 
-**Stand:** 2026-02-17
+**Stand:** 2026-02-18
 
 ---
 
@@ -245,18 +245,67 @@ Das bekannte FA-Penalty betrifft hauptsaechlich GLM-4.7-FLASH (siehe Benchmark-S
 **Empfehlung:** FA immer einschalten (`--flash-attn on`).
 KV-Cache Quantisierung (`-ctk q8_0 -ctv q8_0`) spart zusaetzlich ~50% KV-VRAM.
 
+### Benchmark: Tensor-Split Optimierung (2026-02-18)
+
+**Hardware:** RTX 8000 (CUDA0, 46 GB) + Tesla P40 (CUDA1, 24 GB), `CUDA_DEVICE_ORDER=FASTEST_FIRST`
+**Modell:** Qwen3-32B Q4_K_M (18,8 GB)
+**Tool:** `llama-bench` (llama.cpp v8076)
+**Parameter:** `-ngl 99 -np 1 -fit off --flash-attn on -ctk q8_0 -ctv q8_0 -sm layer -t 4 -b 2048 -ub 512`
+
+| Config | Tensor-Split (RTX8000:P40) | PP (tok/s) | TG (tok/s) | Anmerkung |
+|--------|---------------------------|-----------|-----------|-----------|
+| A | RTX 8000 allein | 631 | **22,19** | Baseline (Single GPU) |
+| B | P40 allein | 214 | **9,87** | Zum Vergleich |
+| C | 1:1 | 326 | **13,42** | Gleich aufgeteilt |
+| D | 2:1 (bisherige Config) | 394 | **15,59** | War Standard in llama-swap |
+| E | 5:1 | 497 | **18,15** | Deutlich schneller |
+| F | 10:1 | 565 | **19,68** | Optimum fuer 32B |
+
+**Erkenntnisse:**
+
+- **10:1 Split** ist **26% schneller** als 2:1 bei TG (19,68 vs. 15,59 tok/s)
+- Jeder Layer auf der P40 bremst durch geringere Bandbreite (346 GB/s vs. 672 GB/s RTX 8000)
+- Das PP-Optimum naehert sich ebenfalls dem Single-GPU-Wert (565 vs. 631)
+- **Faustregel:** P40 nur so viel nutzen wie fuer VRAM noetig, den Rest auf die RTX 8000
+
+**Empfehlung nach Modellgroesse und Kontext:**
+
+| Modell | Modell-VRAM | Kontext | KV-Typ | Empf. Split (RTX:P40) | VRAM-Bedarf gesamt |
+|--------|------------|---------|--------|----------------------|-------------------|
+| 4B–14B Q4_K_M | < 10 GB | 131K | q8_0 | `-dev CUDA0` | < 20 GB |
+| 32B Q4_K_M | 18,8 GB | 16K | q8_0 | `-dev CUDA0` | ~22 GB |
+| 30B A3B Q8_0 | ~31 GB | 238K | q8_0 | `-ts 2,1` | ~50–55 GB |
+| 80B Q4_K_M | 46,6 GB | 262K | q4_0 | `-ts 2,1` | ~65 GB |
+| 120B Q8_0 | ~59 GB | 131K | q4_0 | `-ts 2,1` | ~65–70 GB |
+
+**Warum Kontext den Split bestimmt:**
+
+Der KV-Cache wird im selben Verhaeltnis wie das Modell auf die GPUs verteilt (-sm layer).
+Bei einem 10:1-Split liegen 91% des KV-Cache auf der RTX 8000. Wenn das Modell schon
+die meiste RTX-VRAM belegt, bleibt zu wenig Platz fuer den KV-Cache grosser Kontexte.
+
+- **Modell passt auf RTX allein (< 46 GB):** hoher Split moeglich → P40 als Speed-Bremse minimieren
+- **Modell passt NICHT auf RTX allein (≥ 46 GB):** Split ≈ VRAM-Verhaeltnis (46:24 ≈ 2:1) optimal, weil so KV-Cache gleichmaessig auf freien VRAM beider GPUs verteilt wird
+- **2:1 als Faustformel:** Fuer grosse Modelle (80B+) und grosse Kontexte immer nahe am VRAM-Verhaeltnis bleiben
+
+**Hinweis CUDA_DEVICE_ORDER:** Der llama-swap-Dienst laeuft mit `CUDA_DEVICE_ORDER=FASTEST_FIRST`,
+daher ist CUDA0 = RTX 8000 und CUDA1 = P40. Tensor-Split-Werte beziehen sich auf CUDA0:CUDA1.
+
 ### Tensor-Split Empfehlungen
 
 ```bash
+# Anmerkung: Mit CUDA_DEVICE_ORDER=FASTEST_FIRST gilt CUDA0=RTX 8000, CUDA1=P40
+
 # 2x P40 (gleich stark): Gleich verteilen
 -sm layer --tensor-split 1,1
 
-# P40 (GPU0) + RTX 8000 (GPU1)
-# Standard: P40 ~28%, RTX 8000 ~72%
--sm layer -ts 1,2.5
+# RTX 8000 (CUDA0) + P40 (CUDA1): Minimaler P40-Anteil (nur VRAM-Erweiterung)
+# Fuer Modelle die BEIDE GPUs benoetigen (>46 GB)
+-sm layer -ts 10,1   # 30B A3B Q8_0: gut
+-sm layer -ts 24,1   # 80B Q4_K_M: VRAM-begrenzt
 
-# Aggressiv: P40 nur VRAM-Erweiterung ~9%
--sm layer -ts 0.1,1
+# Single GPU (Modell passt auf RTX 8000)
+-dev CUDA0           # Bis 32B Q4_K_M: kein Split, volle RTX 8000 Speed
 
 # 2x RTX 8000 (gleich stark): Gleich verteilen
 -sm layer -ts 1,1
