@@ -14,7 +14,9 @@ import asyncio
 import logging
 import re
 import signal
+import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import AsyncIterator, Dict, Optional
 
@@ -277,6 +279,60 @@ def update_llamaswap_flash_attn(
     return True
 
 
+def _read_server_log(process: subprocess.Popen) -> str:
+    """Read output from the server's log file (replaces stdout pipe reading)."""
+    log_path = getattr(process, '_server_log', None)
+    if not log_path:
+        return ""
+    try:
+        with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def _parse_vram_from_server_log(
+    log_path: str,
+) -> tuple[Optional[int], Optional[Dict[str, int]]]:
+    """Parse CUDA VRAM allocation from llama-server's startup log.
+
+    Sums all CUDA buffer sizes (model weights + KV cache) reported by
+    llm_load_tensors and llama_kv_cache_init. This is the exact VRAM
+    footprint of the model, independent of nvidia-smi/pynvml availability.
+
+    Works on all platforms including WSL2 where per-process VRAM queries fail.
+
+    Returns:
+        (total_mb, per_gpu_dict) where per_gpu_dict maps e.g. {"CUDA0": 8032, "CUDA1": 5000}
+        Both are None if no CUDA allocation found.
+    """
+    try:
+        with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read()
+    except OSError:
+        return None, None
+
+    per_gpu: Dict[str, float] = {}
+    # Match all CUDA GPU buffer allocations (model weights, KV cache, compute):
+    #   load_tensors:    CUDA0 model buffer size =  4643.78 MiB
+    #   llama_kv_cache:  CUDA0 KV buffer size =   306.00 MiB
+    #   sched_reserve:   CUDA0 compute buffer size =   304.75 MiB
+    # Excludes CPU_Mapped and CUDA_Host (not GPU VRAM).
+    for match in re.finditer(
+        r'(CUDA\d+)\s+(?:\w+\s+)?buffer size\s*=\s*([\d.]+)\s*MiB', content
+    ):
+        gpu_id = match.group(1)
+        mib = float(match.group(2))
+        per_gpu[gpu_id] = per_gpu.get(gpu_id, 0.0) + mib
+
+    if not per_gpu:
+        return None, None
+
+    total_mb = int(sum(per_gpu.values()))
+    per_gpu_int = {gpu: int(mib) for gpu, mib in per_gpu.items()}
+    return total_mb, per_gpu_int
+
+
 async def _start_llama_server(
     full_cmd: str,
     context: int,
@@ -315,15 +371,29 @@ async def _start_llama_server(
     args = shlex.split(cmd_str)
 
     try:
+        # Write stdout to tempfile (parseable for VRAM info, readable after crash)
+        fd, log_path = tempfile.mkstemp(suffix='.log', prefix='llama_')
         process = subprocess.Popen(
             args,
-            stdout=subprocess.PIPE,
+            stdout=fd,
             stderr=subprocess.STDOUT,  # merge stderr into stdout — llama-server logs to stdout
             preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN)
         )
+        os.close(fd)  # Popen has dup'd the fd
+        process._server_log = log_path  # type: ignore[attr-defined]
         return process
     except Exception as e:
         logger.error(f"Failed to start llama-server: {e}")
+        if 'fd' in locals():
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if 'log_path' in locals():
+            try:
+                os.unlink(log_path)
+            except OSError:
+                pass
         return None
 
 
@@ -338,16 +408,7 @@ async def _wait_for_ready(
 
     while (asyncio.get_event_loop().time() - start) < timeout:
         if process.poll() is not None:
-            # Process died — log output to help diagnose startup failures
-            # (unknown architecture, flash-attn incompatibility, wrong CUDA version, ...)
-            if process.stdout:
-                try:
-                    output = process.stdout.read().decode('utf-8', errors='replace')
-                    if output.strip():
-                        logger.error(f"llama-server crashed. output:\n{output[:2000]}")
-                except Exception:
-                    pass
-            return False
+            return False  # Process died — caller handles logging
 
         try:
             async with httpx.AsyncClient() as client:
@@ -426,7 +487,7 @@ async def test_thinking_on_port(port: int) -> bool:
 
 
 def _kill_process(process: subprocess.Popen) -> None:
-    """Kill a llama-server process and wait for cleanup."""
+    """Kill a llama-server process, wait for cleanup, remove server log."""
     if process.poll() is None:
         process.terminate()
         try:
@@ -434,6 +495,13 @@ def _kill_process(process: subprocess.Popen) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=3)
+    # Clean up server log tempfile
+    log_path = getattr(process, '_server_log', None)
+    if log_path:
+        try:
+            os.unlink(log_path)
+        except OSError:
+            pass
 
 
 async def _start_and_verify(
@@ -456,15 +524,11 @@ async def _start_and_verify(
     try:
         ready = await _wait_for_ready(port, LLAMACPP_HEALTH_TIMEOUT, process)
         if not ready:
-            # Kill first so stdout pipe is flushed and readable
+            # Read log before killing (kill cleans up the tempfile)
+            output = _read_server_log(process)
             _kill_process(process)
-            if process.stdout:
-                try:
-                    output = process.stdout.read().decode('utf-8', errors='replace')
-                    if output.strip():
-                        logger.error(f"llama-server failed to start. output:\n{output[:2000]}")
-                except Exception:
-                    pass
+            if output.strip():
+                logger.error(f"llama-server failed to start. output:\n{output[:2000]}")
             await asyncio.sleep(1.5)
             return None
 
@@ -959,7 +1023,7 @@ def _save_calibration(
     model_size_gb: float,
     ngl: int = 99,
     mode: str = "gpu",
-    vram_used_mb: Optional[int] = None,
+    vram_per_gpu: Optional[Dict[str, int]] = None,
 ) -> None:
     """Save calibration result to VRAM cache."""
     gpu_info = get_gpu_memory_info()
@@ -974,7 +1038,7 @@ def _save_calibration(
         model_size_gb=model_size_gb,
         ngl=ngl,
         mode=mode,
-        vram_used_mb=vram_used_mb,
+        vram_per_gpu=vram_per_gpu,
     )
 
 
@@ -1049,31 +1113,29 @@ async def calibrate_llamacpp_model(
 
         If process is provided, reuses the already-running server (avoids reload).
         Otherwise starts a new server for the thinking test.
-        VRAM is measured while the server is running (KV cache pre-allocated = stable value).
+        VRAM is parsed from llama-server's own startup log (exact, platform-independent).
         """
-        from .gpu_utils import get_process_vram_mb
-
         # Reuse existing server or start a new one
         if not process:
             process = await _start_and_verify(full_cmd, ctx, port, ngl=ngl if ngl != 99 else None)
 
-        vram_used_mb = None
+        vram_per_gpu: Optional[Dict[str, int]] = None
         thinks = False
         if process:
-            # Measure VRAM for the llama-server process specifically (not total GPU).
-            # Per-process measurement is stable on desktop GPUs where other apps
-            # (compositor, browser, etc.) cause fluctuating total VRAM usage.
-            vram_used_mb = get_process_vram_mb(process.pid)
-            if vram_used_mb is not None:
-                gpu_info = get_gpu_memory_info()
-                total_mb = gpu_info["total_mb"] if gpu_info else 0
-                if total_mb > 0:
-                    yield (
-                        f"VRAM (model): {format_number(vram_used_mb)} MB / "
-                        f"{format_number(total_mb)} MB total"
+            # Parse VRAM from llama-server's startup log (works on all platforms)
+            log_path = getattr(process, '_server_log', None)
+            if log_path:
+                _total, vram_per_gpu = _parse_vram_from_server_log(log_path)
+            if vram_per_gpu:
+                total_mb = sum(vram_per_gpu.values())
+                if len(vram_per_gpu) > 1:
+                    parts = ", ".join(
+                        f"{gpu}: {format_number(mb)} MB"
+                        for gpu, mb in sorted(vram_per_gpu.items())
                     )
+                    yield f"VRAM (model): {format_number(total_mb)} MB ({parts})"
                 else:
-                    yield f"VRAM (model): {format_number(vram_used_mb)} MB"
+                    yield f"VRAM (model): {format_number(total_mb)} MB"
             yield "Testing reasoning capability..."
             thinks = await test_thinking_on_port(port)
             _kill_process(process)
@@ -1082,7 +1144,7 @@ async def calibrate_llamacpp_model(
         _save_calibration(
             model_id, ctx, native_context,
             gguf_path, quantization, model_size_gb,
-            ngl=ngl, mode=mode, vram_used_mb=vram_used_mb
+            ngl=ngl, mode=mode, vram_per_gpu=vram_per_gpu,
         )
         yield f"__RESULT__:{ctx}:{ngl}:{mode}:{'thinks' if thinks else 'nothink'}"
 
