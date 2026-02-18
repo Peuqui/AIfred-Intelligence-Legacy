@@ -1796,17 +1796,18 @@ class AIState(rx.State):
         existing = load_settings() or {}
         backend_models = existing.get("backend_models", {})
 
-        # Only update backend models if we have valid model IDs
-        # This prevents overwriting with empty strings during early initialization
-        # (e.g., when UI language is switched before backend is fully loaded)
-        if self.aifred_model_id and self.backend_id:
-            backend_models[self.backend_id] = {
-                "aifred_model": self.aifred_model_id,
-                "automatik_model": self.automatik_model_id,
-                "vision_model": self.vision_model_id,
-                "sokrates_model": self.sokrates_model_id,
-                "salomo_model": self.salomo_model_id,
-            }
+        # Only update backend models if model IDs are validated against current backend.
+        # Prevents saving stale IDs from a different backend during transitions
+        # (e.g., backend_id already switched but model_ids not yet validated).
+        if self.aifred_model_id and self.backend_id and self.available_models_dict:
+            if self.aifred_model_id in self.available_models_dict:
+                backend_models[self.backend_id] = {
+                    "aifred_model": self.aifred_model_id,
+                    "automatik_model": self.automatik_model_id,
+                    "vision_model": self.vision_model_id,
+                    "sokrates_model": self.sokrates_model_id,
+                    "salomo_model": self.salomo_model_id,
+                }
 
         settings = {
             "backend_type": self.backend_type,

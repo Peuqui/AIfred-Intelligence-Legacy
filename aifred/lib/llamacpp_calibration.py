@@ -1,9 +1,10 @@
 """
 llama.cpp Context & NGL Calibration via llama-swap
 
-Two-phase calibration:
-1. GPU-only: Binary search for max -c with -ngl 99 (all layers on GPU)
-2. Hybrid: If GPU-only yields too little context, reduce -ngl to offload
+Projection-based calibration using llama-fit-params for exact VRAM estimation:
+1. GPU-only: VRAM projection (0.3s each) → calculate max context → verify with server
+2. Speed: Tensor-split optimization for multi-GPU setups
+3. Hybrid: If GPU-only yields too little context, reduce -ngl to offload
    layers to CPU, freeing VRAM for KV cache (more context, slower inference)
 
 Results are cached in model_vram_cache.json and written back to the
@@ -13,6 +14,7 @@ llama-swap YAML config (both -c and -ngl).
 import asyncio
 import logging
 import re
+import shlex
 import signal
 import os
 import subprocess
@@ -333,6 +335,107 @@ def _parse_vram_from_server_log(
     return total_mb, per_gpu_int
 
 
+def _get_fit_params_binary(full_cmd: str) -> Path:
+    """Derive llama-fit-params binary path from llama-server command.
+
+    Both binaries are built in the same CMake build directory.
+    """
+    server_bin = shlex.split(full_cmd)[0]
+    return Path(server_bin).parent / "llama-fit-params"
+
+
+# GPU-relevant flags that affect VRAM projection.
+# These must be forwarded to llama-fit-params for accurate results.
+_GPU_FLAGS = {
+    "-ngl", "--flash-attn", "-ctk", "-ctv",
+    "-ts", "--tensor-split", "-sm", "--split-mode",
+    "-np", "-ub", "-b",
+}
+
+
+def _build_fit_params_cmd(
+    full_cmd: str, gguf_path: Path, context: int
+) -> list[str]:
+    """Build llama-fit-params command from llama-server command.
+
+    Extracts only GPU-relevant flags (that affect VRAM usage).
+    Omits port, threads, mlock, fit — fit-params runs its own fitting.
+    """
+    fit_bin = str(_get_fit_params_binary(full_cmd))
+    cmd = [fit_bin, "--model", str(gguf_path), "-c", str(context)]
+
+    parts = shlex.split(full_cmd)
+    i = 1  # skip binary path
+    while i < len(parts):
+        if parts[i] in _GPU_FLAGS and i + 1 < len(parts):
+            cmd.extend([parts[i], parts[i + 1]])
+            i += 2
+        else:
+            i += 1
+
+    return cmd
+
+
+def _get_vram_projection(
+    full_cmd: str, gguf_path: Path, context: int
+) -> tuple[int, int]:
+    """Get VRAM projection from llama-fit-params (fast, no model loading).
+
+    Runs the llama-fit-params binary which reads GGUF metadata and GPU info
+    to calculate projected VRAM usage in ~0.3 seconds.
+
+    Returns:
+        (projected_mb, free_mb) — projected VRAM usage and available GPU memory.
+
+    Raises:
+        RuntimeError: If the binary fails or output cannot be parsed.
+    """
+    cmd = _build_fit_params_cmd(full_cmd, gguf_path, context)
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=15
+    )
+    output = result.stdout + result.stderr
+
+    match = re.search(
+        r'projected to use\s+(\d+)\s*MiB of device memory vs\.\s*(\d+)\s*MiB of free device memory',
+        output,
+    )
+    if not match:
+        raise RuntimeError(
+            f"llama-fit-params: could not parse projection from output:\n{output[:500]}"
+        )
+    return int(match.group(1)), int(match.group(2))
+
+
+def _calculate_max_context(
+    proj_low: tuple[int, int],
+    proj_high: tuple[int, int],
+    ctx_low: int,
+    ctx_high: int,
+) -> tuple[int, float]:
+    """Calculate maximum context from two VRAM projections.
+
+    Uses linear interpolation: VRAM = base + rate * context.
+    Two projection points give us the exact rate (MiB per context token)
+    and base (model weights + compute buffer, constant).
+
+    Returns:
+        (max_context, rate) where rate is MiB per token.
+    """
+    p_low, free_mb = proj_low
+    p_high, _ = proj_high
+
+    rate = (p_high - p_low) / (ctx_high - ctx_low)
+    base = p_low - ctx_low * rate
+    available = free_mb - base - VRAM_SAFETY_MARGIN
+
+    if available <= 0 or rate <= 0:
+        return CALIBRATION_MIN_CONTEXT, rate
+
+    max_ctx = int(available / rate)
+    return max(max_ctx, CALIBRATION_MIN_CONTEXT), rate
+
+
 async def _start_llama_server(
     full_cmd: str,
     context: int,
@@ -348,8 +451,6 @@ async def _start_llama_server(
     Args:
         ngl: If set, replaces -ngl value in cmd (for hybrid calibration)
     """
-    import shlex
-
     # Replace ${PORT} placeholder and --port value
     cmd_str = full_cmd.replace("${PORT}", str(port))
 
@@ -749,40 +850,13 @@ async def _calibrate_speed_split(
         yield "__SPEED__:0"
 
 
-def _estimate_upper_bound(
-    free_vram_mb: int,
-    model_size_gb: float,
-    native_context: int
-) -> int:
-    """
-    Estimate upper bound for context based on available VRAM.
-
-    After model weights are loaded, remaining VRAM is for KV cache.
-    Uses conservative MB/token ratio for Q4 quantized KV cache.
-    """
-    model_size_mb = model_size_gb * 1024
-    available_for_context_mb = free_vram_mb - model_size_mb - VRAM_SAFETY_MARGIN
-
-    if available_for_context_mb <= 0:
-        return CALIBRATION_MIN_CONTEXT
-
-    # Conservative ratio based on P40 benchmarks (2026-02-17):
-    # Q8 KV + FA: ~0.08 MiB/token (4B: 0.075, 30B: 0.050)
-    # FP16 KV: ~0.14 MiB/token (4B: 0.141, 30B: 0.094)
-    # Use 0.08 as default (Q8 KV is now standard in llama-swap config)
-    mb_per_token = 0.08
-    vram_estimated = int(available_for_context_mb / mb_per_token)
-
-    # Cap at native context
-    return min(vram_estimated, native_context)
-
 
 def _estimate_ngl_for_context(
     total_layers: int,
     model_size_gb: float,
     free_vram_mb: int,
     target_context: int,
-    mb_per_token: float = 0.08,
+    mb_per_token: float,
 ) -> int:
     """
     Estimate NGL (GPU layers) needed to fit target_context in VRAM.
@@ -817,6 +891,7 @@ async def _calibrate_hybrid(
     total_layers: int,
     free_vram_mb: int,
     port: int,
+    mb_per_token: float = 0.08,
 ) -> AsyncIterator[str]:
     """
     Hybrid NGL+context calibration for oversized models.
@@ -856,7 +931,8 @@ async def _calibrate_hybrid(
 
     for target_ctx in context_targets:
         estimated_ngl = _estimate_ngl_for_context(
-            total_layers, model_size_gb, free_vram_mb, target_ctx
+            total_layers, model_size_gb, free_vram_mb, target_ctx,
+            mb_per_token=mb_per_token,
         )
 
         # Check RAM feasibility (CPU layers need RAM)
@@ -1050,9 +1126,9 @@ async def calibrate_llamacpp_model(
     config_path: Optional[Path] = None,
 ) -> AsyncIterator[str]:
     """
-    Two-phase calibration for a llama.cpp model.
+    Projection-based calibration for a llama.cpp model.
 
-    Phase 1 (GPU-only): Binary search for max -c with ngl=99
+    Phase 1 (GPU-only): VRAM projection via llama-fit-params → verify with server
     Phase 2 (Speed): Tensor-split optimization for multi-GPU (if Phase 1 succeeds)
     Phase 3 (Hybrid): CPU-offload fallback if GPU-only context < MIN_USEFUL_CONTEXT
 
@@ -1092,17 +1168,24 @@ async def calibrate_llamacpp_model(
         yield "__RESULT__:0:0:error"
         return
 
-    # Step 3: Calculate search bounds
-    # Upper bound = native_context (like Ollama), NOT VRAM estimate
-    # VRAM estimate is only used as optimization hint
-    vram_estimate = _estimate_upper_bound(free_vram, model_size_gb, native_context)
-    low = CALIBRATION_MIN_CONTEXT
-    high = native_context  # Absolute maximum = native context
-
-    yield (
-        f"Native context: {format_number(native_context)} | "
-        f"VRAM estimate: {format_number(vram_estimate)}"
-    )
+    # Step 3: VRAM projection via llama-fit-params (0.6s, no model loading)
+    yield "Calculating VRAM projection..."
+    try:
+        proj_low = _get_vram_projection(full_cmd, gguf_path, CALIBRATION_MIN_CONTEXT)
+        proj_high = _get_vram_projection(full_cmd, gguf_path, native_context)
+        calculated_max, rate = _calculate_max_context(
+            proj_low, proj_high, CALIBRATION_MIN_CONTEXT, native_context,
+        )
+        calculated_max = min(calculated_max, native_context)
+        yield (
+            f"Projection: {format_number(rate, 4)} MiB/tok, "
+            f"max ~{format_number(calculated_max)} tokens "
+            f"(native: {format_number(native_context)})"
+        )
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+        yield f"VRAM projection failed: {exc}"
+        yield "__RESULT__:0:0:error"
+        return
 
     # Helper: test thinking on running server (or start new one), yield result
     async def _finish_calibration(
@@ -1184,129 +1267,126 @@ async def calibrate_llamacpp_model(
     # === PHASE 1: GPU-only calibration (ngl=99) ===
     yield "Phase 1: GPU-only calibration (ngl=99)"
 
-    # Step 4: Try native_context first (like Ollama tries max_target first)
-    iteration = 0
-    iteration += 1
-    yield f"[{iteration}] Testing native max: {format_number(native_context)}..."
-    process = await _start_and_verify(full_cmd, native_context, port)
+    # Step 4: Test projection-based context estimate
+    test_ctx = min(calculated_max, native_context)
+    label = "native" if test_ctx == native_context else "projected"
+    yield f"[1] Testing {label}: {format_number(test_ctx)}..."
+
+    process = await _start_and_verify(full_cmd, test_ctx, port)
+    result = 0
+
     if process:
-        yield f"✓ Native context {format_number(native_context)} fits!"
+        yield f"✓ {format_number(test_ctx)} fits"
+        result = test_ctx
+        _kill_process(process)
+        await asyncio.sleep(1.5)
+
+        # Step 5: Binary search upward toward native_context (512-token precision)
+        if result < native_context:
+            low = result
+            high = native_context
+            iteration = 1
+            while high - low > 512:
+                mid = (low + high) // 2
+                iteration += 1
+                yield f"[{iteration}] Testing {format_number(mid)}..."
+                test_proc = await _start_and_verify(full_cmd, mid, port)
+                if test_proc:
+                    low = mid
+                    result = mid
+                    yield f"✓ {format_number(mid)} fits"
+                    _kill_process(test_proc)
+                    await asyncio.sleep(1.5)
+                else:
+                    high = mid
+                    yield f"✗ {format_number(mid)} too large"
+            yield (
+                f"Optimum: {format_number(result)} tokens "
+                f"(+{format_number(result - test_ctx)} vs projection)"
+            )
+    else:
+        # Step 5b: Projection too optimistic — binary search downward (512-token precision)
+        yield f"✗ {format_number(test_ctx)} too large — searching downward"
+        low = CALIBRATION_MIN_CONTEXT
+        high = test_ctx
+        iteration = 1
+        while high - low > 512:
+            mid = (low + high) // 2
+            iteration += 1
+            yield f"[{iteration}] Testing {format_number(mid)}..."
+            test_proc = await _start_and_verify(full_cmd, mid, port)
+            if test_proc:
+                low = mid
+                result = mid
+                yield f"✓ {format_number(mid)} fits"
+                _kill_process(test_proc)
+                await asyncio.sleep(1.5)
+            else:
+                high = mid
+                yield f"✗ {format_number(mid)} too large"
+        if result:
+            yield (
+                f"Optimum: {format_number(result)} tokens "
+                f"({format_number(test_ctx - result)} below projection)"
+            )
+
+    # GPU-only success with useful context → finish
+    if result >= MIN_USEFUL_CONTEXT_TOKENS:
         if _has_tensor_split(full_cmd):
-            # Speed calibration starts its own server on the same port — kill first
-            _kill_process(process)
-            await asyncio.sleep(1.5)
-            process = None
             yield "Phase 2: Speed variant calibration (tensor-split optimization)"
             async for msg in _calibrate_speed_split(full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS):
                 yield msg
-        # process=None here → _finish_calibration starts a fresh server for thinking test
-        async for msg in _finish_calibration(native_context, 99, "gpu", process=process):
+        async for msg in _finish_calibration(result, 99, "gpu"):
             yield msg
         return
-    else:
-        yield f"✗ {format_number(native_context)} too large"
 
-    # Step 5: Try VRAM estimate as optimization (skip to good range)
-    any_test_succeeded = False
-    if vram_estimate < native_context and vram_estimate > low:
-        iteration += 1
-        yield f"[{iteration}] Testing VRAM estimate: {format_number(vram_estimate)}..."
-        fits = await _calibration_test(full_cmd, vram_estimate, port)
-        if fits:
-            yield f"✓ {format_number(vram_estimate)} fits"
-            low = vram_estimate
-            result = vram_estimate
-            any_test_succeeded = True
-        else:
-            yield f"✗ {format_number(vram_estimate)} too large"
-            high = vram_estimate
-            result = low
-    else:
-        result = low
+    # result too small for GPU-only
+        await asyncio.sleep(1.5)
 
+    # === PHASE 3: Hybrid calibration (GPU-only context insufficient) ===
     yield (
-        f"Binary search: {format_number(low)} → {format_number(high)} "
-        f"(precision: 512 tokens)"
+        f"GPU-only context ({format_number(result)}) < "
+        f"minimum useful ({format_number(MIN_USEFUL_CONTEXT_TOKENS)})"
     )
 
-    # Step 6: Binary search (like Ollama: 512-token precision)
-    while high - low > 512:
-        iteration += 1
-        mid = (low + high) // 2
-
-        yield f"[{iteration}] Testing {format_number(mid)} (range: {format_number(low)}-{format_number(high)})..."
-
-        fits = await _calibration_test(full_cmd, mid, port)
-        if fits:
-            result = mid
-            low = mid
-            any_test_succeeded = True
-            yield f"✓ {format_number(mid)} fits"
-        else:
-            high = mid
-            yield f"✗ {format_number(mid)} too large"
-
-    # === PHASE 3: Hybrid calibration (fallback if GPU-only context too small) ===
-    if result < MIN_USEFUL_CONTEXT_TOKENS:
-        yield (
-            f"GPU-only context ({format_number(result)}) < "
-            f"minimum useful ({format_number(MIN_USEFUL_CONTEXT_TOKENS)})"
-        )
-
-        total_layers = get_gguf_layer_count(gguf_path)
-        if not total_layers:
-            yield "Cannot read layer count from GGUF — hybrid mode unavailable"
-        else:
-            yield f"Phase 3: Hybrid calibration (fallback, {total_layers} layers)"
-
-            # Re-measure VRAM (should be free after GPU-only tests)
-            stabilized, wait_time, free_vram = await wait_for_vram_stable(
-                max_wait_seconds=10.0
-            )
-
-            hybrid_ctx = None
-            hybrid_ngl = None
-            async for hybrid_msg in _calibrate_hybrid(
-                model_id=model_id,
-                gguf_path=gguf_path,
-                full_cmd=full_cmd,
-                native_context=native_context,
-                model_size_gb=model_size_gb,
-                quantization=quantization,
-                total_layers=total_layers,
-                free_vram_mb=free_vram,
-                port=port,
-            ):
-                if hybrid_msg.startswith("__HYBRID__:"):
-                    parts = hybrid_msg.split(":")
-                    hybrid_ctx = int(parts[1])
-                    hybrid_ngl = int(parts[2])
-                else:
-                    yield hybrid_msg
-
-            if hybrid_ctx and hybrid_ngl:
-                async for msg in _finish_calibration(hybrid_ctx, hybrid_ngl, "hybrid"):
-                    yield msg
-                return
-
-    # === PHASE 2: Speed variant calibration (multi-GPU only) ===
-    if _has_tensor_split(full_cmd):
-        yield "Phase 2: Speed variant calibration (tensor-split optimization)"
-        async for msg in _calibrate_speed_split(full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS):
-            yield msg
-
-    # Step 7: Final test with thinking check
-    if not any_test_succeeded:
-        # No context size worked at all — don't write a false calibration to the cache.
-        # (All binary-search tests failed, hybrid also failed.)
-        yield "Calibration failed: model failed to start at all tested contexts — check llama-server logs"
+    total_layers = get_gguf_layer_count(gguf_path)
+    if not total_layers:
+        yield "Cannot read layer count from GGUF — hybrid mode unavailable"
         yield "__RESULT__:0:0:error"
         return
 
-    yield (
-        f"Calibration complete: {format_number(result)} tokens "
-        f"(native: {format_number(native_context)}, "
-        f"{iteration} iterations)"
+    yield f"Phase 3: Hybrid calibration (fallback, {total_layers} layers)"
+
+    # Re-measure VRAM (should be free after GPU-only tests)
+    stabilized, wait_time, free_vram = await wait_for_vram_stable(
+        max_wait_seconds=10.0
     )
-    async for msg in _finish_calibration(result, 99, "gpu"):
-        yield msg
+
+    hybrid_ctx = None
+    hybrid_ngl = None
+    async for hybrid_msg in _calibrate_hybrid(
+        model_id=model_id,
+        gguf_path=gguf_path,
+        full_cmd=full_cmd,
+        native_context=native_context,
+        model_size_gb=model_size_gb,
+        quantization=quantization,
+        total_layers=total_layers,
+        free_vram_mb=free_vram,
+        port=port,
+        mb_per_token=rate,
+    ):
+        if hybrid_msg.startswith("__HYBRID__:"):
+            parts = hybrid_msg.split(":")
+            hybrid_ctx = int(parts[1])
+            hybrid_ngl = int(parts[2])
+        else:
+            yield hybrid_msg
+
+    if hybrid_ctx and hybrid_ngl:
+        async for msg in _finish_calibration(hybrid_ctx, hybrid_ngl, "hybrid"):
+            yield msg
+        return
+
+    yield "Calibration failed: no working configuration found — check llama-server logs"
+    yield "__RESULT__:0:0:error"

@@ -5,6 +5,28 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.40.0] - 2026-02-19 🚀 Projektionsbasierte Kalibration & Settings-Guard
+
+### Changed
+
+- **Kalibration: llama-fit-params Projektion statt Heuristik** - VRAM-Projektion via `llama-fit-params` Binary (0,3s pro Aufruf, kein Model-Loading) berechnet exakte MiB/Token-Rate aus zwei Datenpunkten
+  - Ersetzt die alte hardcodierte 0,08 MiB/tok Heuristik durch modell-spezifische Berechnung
+  - Zwei-Punkt-Interpolation: `rate = (P_high - P_low) / (ctx_high - ctx_low)` für exakte lineare VRAM-Projektion
+  - `_get_fit_params_binary()`, `_build_fit_params_cmd()`, `_get_vram_projection()`, `_calculate_max_context()`: Neue Funktionen für die Projektionsberechnung
+  - `_estimate_upper_bound()` entfernt (obsolet durch Projektion)
+- **Kalibration: Binary Search in beide Richtungen** - Nach der initialen Projektion wird der tatsächliche maximale Context per Binary Search mit 512-Token-Granularität gesucht
+  - Projektion passt → Binary Search aufwärts [calculated_max, native_context]
+  - Projektion zu optimistisch → Binary Search abwärts [MIN_CONTEXT, calculated_max]
+  - Ergebnis: typisch +21.000 Tokens mehr als die konservative Projektion allein (getestet: 261.801 vs 240.211 bei Qwen3-4B Q8_0)
+
+### Fixed
+
+- **Settings: Cross-Backend-Korruption verhindert** - `_save_settings()` validiert jetzt Model-IDs gegen `available_models_dict` bevor `backend_models` geschrieben wird
+  - Verhindert, dass llamacpp-Model-IDs unter dem Ollama-Backend gespeichert werden (und umgekehrt) bei Race Conditions während Backend-Switches
+  - Bestehendes `backend_models` bleibt erhalten wenn die Validierung fehlschlägt (kein Datenverlust)
+
+---
+
 ## [2.39.0] - 2026-02-18 🎥 VL-Modell-Support & llamacpp Restart-Fix
 
 ### Added
