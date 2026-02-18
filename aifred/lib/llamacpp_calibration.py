@@ -1051,7 +1051,7 @@ async def calibrate_llamacpp_model(
         Otherwise starts a new server for the thinking test.
         VRAM is measured while the server is running (KV cache pre-allocated = stable value).
         """
-        from .gpu_utils import get_total_used_vram_mb
+        from .gpu_utils import get_process_vram_mb
 
         # Reuse existing server or start a new one
         if not process:
@@ -1060,21 +1060,20 @@ async def calibrate_llamacpp_model(
         vram_used_mb = None
         thinks = False
         if process:
-            # Measure VRAM while server is running — llama.cpp pre-allocates the full
-            # KV cache at startup, so this gives a stable worst-case value
-            vram_used_mb = get_total_used_vram_mb()
+            # Measure VRAM for the llama-server process specifically (not total GPU).
+            # Per-process measurement is stable on desktop GPUs where other apps
+            # (compositor, browser, etc.) cause fluctuating total VRAM usage.
+            vram_used_mb = get_process_vram_mb(process.pid)
             if vram_used_mb is not None:
                 gpu_info = get_gpu_memory_info()
                 total_mb = gpu_info["total_mb"] if gpu_info else 0
                 if total_mb > 0:
-                    free_mb = total_mb - vram_used_mb
                     yield (
-                        f"VRAM used: {format_number(vram_used_mb)} MB / "
-                        f"{format_number(total_mb)} MB total "
-                        f"({format_number(free_mb)} MB free)"
+                        f"VRAM (model): {format_number(vram_used_mb)} MB / "
+                        f"{format_number(total_mb)} MB total"
                     )
                 else:
-                    yield f"VRAM used: {format_number(vram_used_mb)} MB"
+                    yield f"VRAM (model): {format_number(vram_used_mb)} MB"
             yield "Testing reasoning capability..."
             thinks = await test_thinking_on_port(port)
             _kill_process(process)

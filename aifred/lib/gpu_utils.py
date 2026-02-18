@@ -137,6 +137,45 @@ def get_total_used_vram_mb() -> Optional[int]:
         return None
 
 
+def get_process_vram_mb(pid: int) -> Optional[int]:
+    """
+    Query VRAM used by a specific process (by PID) across all GPUs.
+
+    Uses nvmlDeviceGetComputeRunningProcesses() for per-process measurement.
+    Unlike total/delta VRAM, this is independent of desktop activity and other
+    GPU consumers — it reports exactly what the target process uses.
+
+    Args:
+        pid: Process ID to query
+
+    Returns:
+        int: VRAM in MB used by this process (summed across all GPUs), or None
+    """
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+
+        device_count = pynvml.nvmlDeviceGetCount()
+        total_mb = 0
+
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            processes = pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
+            for proc in processes:
+                if proc.pid == pid:
+                    total_mb += proc.usedGpuMemory / (1024 * 1024)
+
+        pynvml.nvmlShutdown()
+        return int(total_mb) if total_mb > 0 else None
+
+    except ImportError:
+        logger.warning("pynvml not installed - install via: pip install pynvml")
+        return None
+    except Exception as e:
+        logger.debug(f"Could not query process VRAM for PID {pid}: {e}")
+        return None
+
+
 def get_free_vram_mb() -> Optional[int]:
     """
     Query free VRAM using pynvml (NVIDIA Management Library)
