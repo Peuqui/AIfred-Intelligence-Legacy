@@ -329,19 +329,20 @@ def add_ollama_calibration(
         field_name = "max_context_1.0x"
         mode_label = "1.0x (native, fallback)"
 
-    # Add calibration point
+    # Add or replace calibration point for this rope_factor
     calibration = {
         field_name: max_context_gpu_only,
         "is_hybrid": is_hybrid,
         "measured_at": datetime.now().isoformat()
     }
 
-    cache[model_name]["ollama_calibrations"].append(calibration)
-
-    # Keep only last 5 calibrations per model
-    if len(cache[model_name]["ollama_calibrations"]) > 5:
-        cache[model_name]["ollama_calibrations"] = \
-            cache[model_name]["ollama_calibrations"][-5:]
+    calibrations = cache[model_name]["ollama_calibrations"]
+    for i, cal in enumerate(calibrations):
+        if field_name in cal:
+            calibrations[i] = calibration
+            break
+    else:
+        calibrations.append(calibration)
 
     hybrid_label = " [HYBRID]" if is_hybrid else ""
     logger.info(

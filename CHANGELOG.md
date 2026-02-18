@@ -5,6 +5,20 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.35.0] - 2026-02-18 🐛 Backend-Wechsel & Kalibrierungs-Fixes
+
+### Fixed
+
+- **llama-swap Stop/Start beim Backend-Wechsel** - `systemctl --user` schlug im Kontext des AIfred System-Service (User=mp) lautlos fehl, weil `XDG_RUNTIME_DIR` und `DBUS_SESSION_BUS_ADDRESS` fehlten
+  - `_cleanup_old_backend()`: llama-swap wird beim Wechsel weg von llamacpp jetzt korrekt gestoppt
+  - `initialize_backend()`: Auto-Start von llama-swap beim Wechsel zu llamacpp jetzt korrekt
+  - Beide Stellen verwenden jetzt `Path.exists()` zur Service-Erkennung (statt `systemctl cat`) und setzen die D-Bus Session-Env explizit — konsistent mit dem bestehenden Kalibrierungs-Code
+- **Doppelte Kalibrierungseinträge im VRAM-Cache** - `save_ollama_calibration()` hängte bei jeder Neukalibrierung einen weiteren Eintrag an statt den vorhandenen zu überschreiben
+  - Für denselben RoPE-Faktor wird jetzt der bestehende Eintrag ersetzt
+  - Betraf 20 Modelle im Cache (je 2 Duplikate) — alle bereinigt
+  - Kritisch bei `gpt-oss:120b`: Alter Eintrag hatte `is_hybrid: true` mit 41.529 ctx, neuer hat `is_hybrid: false` mit 262.144 ctx — Code las fälschlicherweise den alten, was zu unnötigem Modell-Reload und Session-Titel-Timeout führte
+- **`is_hybrid` Flag für qwen3-next:80b** - Nach Hardware-Upgrade passt das Modell komplett in VRAM — Cache-Eintrag manuell auf `is_hybrid: false` korrigiert
+
 ## [2.34.0] - 2026-02-17 🔧 llama.cpp Hybrid-Kalibrierung (NGL + Context)
 
 ### Added

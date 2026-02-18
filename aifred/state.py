@@ -1427,13 +1427,18 @@ class AIState(rx.State):
                         # Auto-start llama-swap service
                         self.add_debug("⚠️ llama-swap not reachable, starting service...")
                         try:
+                            import os as _os
                             import subprocess as _sp
-                            _is_system = _sp.run(
-                                ["systemctl", "cat", "llama-swap.service"],
-                                capture_output=True, timeout=5
-                            ).returncode == 0
-                            _cmd = ["systemctl"] if _is_system else ["systemctl", "--user"]
-                            _sp.run([*_cmd, "start", "llama-swap"], check=True, timeout=15)
+                            from pathlib import Path as _Path
+                            _user_service = _Path.home() / ".config/systemd/user/llama-swap.service"
+                            _cmd = ["systemctl", "--user"] if _user_service.exists() else ["systemctl"]
+                            # AIfred runs as system service (User=mp) without D-Bus session env.
+                            # systemctl --user needs XDG_RUNTIME_DIR + DBUS_SESSION_BUS_ADDRESS.
+                            _env = _os.environ.copy()
+                            _uid = _os.getuid()
+                            _env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{_uid}")
+                            _env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{_uid}/bus")
+                            _sp.run([*_cmd, "start", "llama-swap"], check=True, timeout=15, env=_env)
                             import asyncio
                             await asyncio.sleep(2.0)
                             models_dict = discover_models(
@@ -2874,13 +2879,18 @@ class AIState(rx.State):
             # Stop llama-swap service to free GPU VRAM
             self.add_debug("🛑 Stopping llama-swap service...")
             try:
+                import os as _os
                 import subprocess as _sp
-                _is_system = _sp.run(
-                    ["systemctl", "cat", "llama-swap.service"],
-                    capture_output=True, timeout=5
-                ).returncode == 0
-                _cmd = ["systemctl"] if _is_system else ["systemctl", "--user"]
-                _sp.run([*_cmd, "stop", "llama-swap"], check=True, timeout=15)
+                from pathlib import Path as _Path
+                _user_service = _Path.home() / ".config/systemd/user/llama-swap.service"
+                _cmd = ["systemctl", "--user"] if _user_service.exists() else ["systemctl"]
+                # AIfred runs as system service (User=mp) without D-Bus session env.
+                # systemctl --user needs XDG_RUNTIME_DIR + DBUS_SESSION_BUS_ADDRESS.
+                _env = _os.environ.copy()
+                _uid = _os.getuid()
+                _env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{_uid}")
+                _env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{_uid}/bus")
+                _sp.run([*_cmd, "stop", "llama-swap"], check=True, timeout=15, env=_env)
                 self.add_debug("✅ llama-swap service stopped")
             except Exception as e:
                 self.add_debug(f"⚠️ Could not stop llama-swap: {e}")
