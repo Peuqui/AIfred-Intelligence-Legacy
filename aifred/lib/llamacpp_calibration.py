@@ -41,7 +41,7 @@ from .gguf_utils import (
     get_gguf_layer_count,
     get_gguf_native_context,
 )
-from .gpu_utils import get_gpu_memory_info
+from .gpu_utils import get_all_gpus_memory_info, get_gpu_memory_info
 from .model_vram_cache import add_llamacpp_calibration
 
 logger = logging.getLogger(__name__)
@@ -107,11 +107,19 @@ def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
                     pass
                 break
 
+        # Extract -ctk (KV cache key quantization)
+        kv_cache_quant = ""
+        for i, part in enumerate(parts):
+            if part == "-ctk" and i + 1 < len(parts):
+                kv_cache_quant = parts[i + 1]
+                break
+
         result[model_id] = {
             "gguf_path": gguf_path,
             "llama_server_bin": llama_server_bin,
             "current_context": current_context,
             "ngl": ngl,
+            "kv_cache_quant": kv_cache_quant,
             "full_cmd": cmd,
         }
 
@@ -279,6 +287,49 @@ def update_llamaswap_flash_attn(
 
     config_path.write_text(new_content, encoding='utf-8')
     logger.info(f"Updated llama-swap config: {model_id} → --flash-attn {'on' if enabled else 'off'}")
+    return True
+
+
+def update_llamaswap_kv_cache_quant(
+    config_path: Path,
+    model_id: str,
+    kv_quant: str,
+) -> bool:
+    """
+    Update -ctk/-ctv quantization in llama-swap YAML for a specific model.
+
+    Returns True if the config was modified.
+    """
+    if not config_path.exists():
+        logger.error(f"llama-swap config not found: {config_path}")
+        return False
+
+    content = config_path.read_text(encoding='utf-8')
+    lines = content.split('\n')
+    in_model_block = False
+    changed = False
+    result_lines = []
+
+    for line in lines:
+        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
+            in_model_block = True
+        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
+            in_model_block = False
+
+        if in_model_block:
+            new_line = re.sub(r'-ctk\s+\S+', f'-ctk {kv_quant}', line)
+            new_line = re.sub(r'-ctv\s+\S+', f'-ctv {kv_quant}', new_line)
+            if new_line != line:
+                changed = True
+            line = new_line
+
+        result_lines.append(line)
+
+    if not changed:
+        return False
+
+    config_path.write_text('\n'.join(result_lines), encoding='utf-8')
+    logger.info(f"Updated llama-swap config: {model_id} → KV cache {kv_quant}")
     return True
 
 
@@ -953,25 +1004,12 @@ async def _calibrate_speed_split(
             yield "__SPEED__:0"
         return
 
-    yield f"✓ {probe_n}:1 fits — searching for maximum"
+    yield f"✓ {probe_n}:1 fits — binary search for maximum"
 
-    # Step 3: Probe succeeded — check best case 99:1
-    iteration += 1
-    cmd_99 = _replace_tensor_split(full_cmd, 99, 1)
-    yield f"[{iteration}] Testing split 99:1..."
-    fits = await _calibration_test(cmd_99, target_context, port)
-    if fits:
-        yield "✓ 99:1 fits — best possible split"
-        yield f"Speed split found: 99:1 ({iteration} iterations)"
-        yield "__SPEED__:99"
-        return
-
-    yield "✗ 99:1 failed, binary search..."
-
-    # Step 4: Binary search [probe_n, 98] for maximum
+    # Step 3: Binary search [probe_n, 48] for maximum split
+    best_n = probe_n
     split_low = probe_n
-    split_high = 98
-    best_n = probe_n  # probe_n already confirmed to work
+    split_high = 48
 
     while split_high - split_low > 1:
         iteration += 1
@@ -1244,8 +1282,11 @@ def _save_calibration(
     vram_per_gpu: Optional[Dict[str, int]] = None,
 ) -> None:
     """Save calibration result to VRAM cache."""
-    gpu_info = get_gpu_memory_info()
-    gpu_model = gpu_info.get("gpu_model", "Unknown") if gpu_info else "Unknown"
+    all_gpus = get_all_gpus_memory_info()
+    if all_gpus and all_gpus.get("gpu_models"):
+        gpu_model = ", ".join(all_gpus["gpu_models"])
+    else:
+        gpu_model = "Unknown"
     add_llamacpp_calibration(
         model_id=model_id,
         max_context=max_context,
@@ -1293,10 +1334,37 @@ async def calibrate_llamacpp_model(
     model_size_gb = get_gguf_total_size(gguf_path) / (1024 ** 3)
     quantization = extract_quantization_from_filename(gguf_path.name)
 
+    # Check KV-cache quantization: large models (>60% VRAM) need q4_0
+    current_kv = ""
+    for i, part in enumerate(full_cmd.split()):
+        if part == "-ctk" and i + 1 < len(full_cmd.split()):
+            current_kv = full_cmd.split()[i + 1]
+            break
+
+    gpu_info = get_all_gpus_memory_info()
+    total_vram_mb = gpu_info["total_mb"] if gpu_info else 0
+    model_size_mb = model_size_gb * 1024
+    vram_ratio = model_size_mb / total_vram_mb if total_vram_mb > 0 else 0
+
+    recommended_kv = "q4_0" if vram_ratio > 0.60 else "q8_0"
+
+    total_vram_gb = total_vram_mb / 1024
     yield (
-        f"Model: {model_id} ({format_number(model_size_gb, 1)} GB, {quantization}), "
-        f"native context: {format_number(native_context)}"
+        f"Model: {model_id} ({format_number(model_size_gb, 1)} GB), "
+        f"native context: {format_number(native_context)}, "
+        f"KV-Cache: {current_kv or '?'} "
+        f"(model = {vram_ratio:.0%} of {format_number(total_vram_gb, 1)} GB VRAM)"
     )
+
+    if current_kv and current_kv != recommended_kv:
+        yield (
+            f"KV-Cache mismatch: config has {current_kv}, "
+            f"recommended {recommended_kv} (model {vram_ratio:.0%} of VRAM) — updating"
+        )
+        full_cmd = re.sub(r'-ctk\s+\S+', f'-ctk {recommended_kv}', full_cmd)
+        full_cmd = re.sub(r'-ctv\s+\S+', f'-ctv {recommended_kv}', full_cmd)
+        if config_path:
+            update_llamaswap_kv_cache_quant(config_path, model_id, recommended_kv)
 
     # Step 2: Check VRAM
     from aifred.backends.ollama import wait_for_vram_stable

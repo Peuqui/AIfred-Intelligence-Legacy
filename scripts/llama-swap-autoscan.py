@@ -45,10 +45,68 @@ VRAM_CACHE_FILE = PROJECT_ROOT / "data" / "model_vram_cache.json"
 LLAMA_SERVER_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-server"
 DEFAULT_TTL = 300
 DEFAULT_NGL = 99
-DEFAULT_FLAGS = "--flash-attn on -ctk q8_0 -ctv q8_0 -np 1 -t 4 --mlock"
+DEFAULT_FLAGS_BASE = "--flash-attn on -np 1 -t 4 --mlock"
 DEFAULT_CONTEXT = 32768  # Fallback if GGUF metadata unreadable
 
+# If GGUF file size exceeds this fraction of total GPU VRAM → use q4_0 KV cache
+KV_CACHE_VRAM_THRESHOLD = 0.60
+
 # No size filter - even tiny LLMs (135M edge models) should be loadable
+
+
+# ---------------------------------------------------------------------------
+# VRAM and model size helpers
+# ---------------------------------------------------------------------------
+
+def get_total_vram_mb() -> int:
+    """Query total VRAM across all NVIDIA GPUs via pynvml. Returns 0 if unavailable."""
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        total = 0
+        for i in range(pynvml.nvmlDeviceGetCount()):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            total += mem.total
+        pynvml.nvmlShutdown()
+        return int(total / (1024 * 1024))
+    except Exception:
+        return 0
+
+
+def get_gguf_total_size(gguf_path: Path) -> int:
+    """Get total file size in bytes. Sums all parts for split GGUFs."""
+    resolved = gguf_path.resolve()
+    name = resolved.name
+
+    # Split GGUF: name-00001-of-00005.gguf
+    match = re.match(r'^(.+)-(\d{5})-of-(\d{5})\.gguf$', name)
+    if match:
+        base, _, total_parts = match.groups()
+        total_size = 0
+        for i in range(1, int(total_parts) + 1):
+            part = resolved.parent / f"{base}-{i:05d}-of-{total_parts}.gguf"
+            if part.exists():
+                total_size += part.stat().st_size
+        return total_size
+
+    return resolved.stat().st_size
+
+
+def choose_kv_cache_quant(gguf_path: Path, total_vram_mb: int) -> str:
+    """Choose KV cache quantization based on model size vs total VRAM.
+
+    Returns 'q4_0' for large models (>60% VRAM), 'q8_0' otherwise.
+    """
+    if total_vram_mb == 0:
+        return "q8_0"
+
+    gguf_size_mb = get_gguf_total_size(gguf_path) / (1024 * 1024)
+    ratio = gguf_size_mb / total_vram_mb
+
+    kv_quant = "q4_0" if ratio > KV_CACHE_VRAM_THRESHOLD else "q8_0"
+    print(f"    KV cache: {kv_quant} (model {gguf_size_mb:.0f} MB = {ratio:.0%} of {total_vram_mb} MB VRAM)")
+    return kv_quant
 
 
 # ---------------------------------------------------------------------------
@@ -564,6 +622,9 @@ def append_models_to_yaml(
     else:
         content = "models:\n"
 
+    # Query total VRAM once for all models
+    total_vram_mb = get_total_vram_mb()
+
     # Build all new model blocks first
     added = 0
     new_blocks = ""
@@ -574,19 +635,23 @@ def append_models_to_yaml(
         context = get_native_context(model["path"])
         mmproj = model.get("mmproj_path")
 
+        # Choose KV cache quant based on model size vs VRAM
+        kv_quant = choose_kv_cache_quant(model["path"], total_vram_mb)
+        flags = f"-ctk {kv_quant} -ctv {kv_quant} {DEFAULT_FLAGS_BASE}"
+
         if mmproj:
             cmd_line = (
                 f"{server_bin} --port ${{PORT}} "
                 f"--model {path} "
                 f"--mmproj {mmproj.absolute()} "
-                f"-ngl {DEFAULT_NGL} -c {context} {DEFAULT_FLAGS}"
+                f"-ngl {DEFAULT_NGL} -c {context} {flags}"
             )
             print(f"  + Added: {name} (VL, context: {context:,}, mmproj: {mmproj.name})")
         else:
             cmd_line = (
                 f"{server_bin} --port ${{PORT}} "
                 f"--model {path} "
-                f"-ngl {DEFAULT_NGL} -c {context} {DEFAULT_FLAGS}"
+                f"-ngl {DEFAULT_NGL} -c {context} {flags}"
             )
             print(f"  + Added: {name} (native context: {context:,})")
 

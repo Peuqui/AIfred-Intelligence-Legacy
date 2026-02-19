@@ -1055,8 +1055,23 @@ async def prepare_automatik_llm(
             yield {"type": "debug", "message": f"🤖 Automatik-LLM ({model_name}) is being preloaded (Context: {formatted_ctx})..."}
             log_message(f"🔄 prepare_automatik_llm: Preloading {model_name} with Context={preload_ctx}")
         else:
-            yield {"type": "debug", "message": f"🤖 Automatik-LLM ({model_name}) is being preloaded..."}
-            log_message(f"🔄 prepare_automatik_llm: Preloading {model_name} (llama-swap cold-start)")
+            # Extract model details from llama-swap config
+            details = ""
+            try:
+                from .llamacpp_calibration import parse_llamaswap_config
+                from .config import LLAMASWAP_CONFIG_PATH
+                model_info = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(model_name, {})
+                parts = []
+                if model_info.get("current_context"):
+                    parts.append(f"Context: {format_number(model_info['current_context'])}")
+                if model_info.get("kv_cache_quant"):
+                    parts.append(f"KV-Cache: {model_info['kv_cache_quant']}")
+                if parts:
+                    details = f" ({', '.join(parts)})"
+            except Exception:
+                pass
+            yield {"type": "debug", "message": f"🤖 Automatik-LLM ({model_name}) is being preloaded{details}..."}
+            log_message(f"🔄 prepare_automatik_llm: Preloading {model_name}{details} (llama-swap cold-start)")
 
         import asyncio
         await asyncio.sleep(0)  # Flush UI update

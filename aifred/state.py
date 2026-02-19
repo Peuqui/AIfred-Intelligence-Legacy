@@ -3239,7 +3239,24 @@ class AIState(rx.State):
                         resp = await http_client.get(f"{swap_base}/running")
                         running_models = [m.get("model") for m in resp.json().get("running", [])]
                         if effective_auto not in running_models:
-                            self.add_debug(f"🔄 Model Cold Start ({effective_auto}) — loading into VRAM, this may take some time")
+                            # Extract model details from llama-swap config
+                            details = ""
+                            try:
+                                from .lib.llamacpp_calibration import parse_llamaswap_config
+                                from .lib.config import LLAMASWAP_CONFIG_PATH
+                                from .lib.formatting import format_number
+                                model_info = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(effective_auto, {})
+                                parts = []
+                                if model_info.get("current_context"):
+                                    parts.append(f"Context: {format_number(model_info['current_context'])}")
+                                if model_info.get("kv_cache_quant"):
+                                    parts.append(f"KV-Cache: {model_info['kv_cache_quant']}")
+                                if parts:
+                                    details = f" ({', '.join(parts)})"
+                            except Exception:
+                                pass
+                            self.add_debug(f"🔄 Model Cold Start ({effective_auto}){details} — loading into VRAM, this may take a while")
+                            log_message(f"🔄 Cold Start: {effective_auto}{details}")
                             yield
                 except Exception:
                     pass  # Can't check — proceed normally, don't show false warnings
