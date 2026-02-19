@@ -12,6 +12,7 @@ from typing import Dict, List, Tuple, Optional
 from ..prompt_loader import load_prompt
 from ..logging_utils import log_message
 from ..formatting import format_number
+from ..context_manager import strip_thinking_blocks
 from ..config import DEBUG_LOG_RAW_MESSAGES
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,8 @@ async def rank_urls_by_relevance(
 
         # Extract response text from LLMResponse dataclass
         response_text = response.text if hasattr(response, 'text') else str(response)
+        # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
+        response_text = strip_thinking_blocks(response_text).strip()
 
         # RAW Debug Output (controlled by DEBUG_LOG_RAW_MESSAGES flag)
         if DEBUG_LOG_RAW_MESSAGES:

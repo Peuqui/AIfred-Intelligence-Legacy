@@ -16,6 +16,7 @@ Also detects dialog addressing (who is being spoken to):
 from typing import Optional, Dict, Tuple
 from .logging_utils import log_message
 from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prompt
+from .context_manager import strip_thinking_blocks
 
 
 def parse_intent_addressee_language(
@@ -179,9 +180,11 @@ async def detect_query_intent_and_addressee(
             options=intent_options
         )
         response_raw = response.text
+        # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
+        response_clean = strip_thinking_blocks(response_raw).strip()
 
-        intent, addressee, detected_language = parse_intent_addressee_language(response_raw, context="general")
-        log_message(f"✅ Intent: {intent}, Addressee: {addressee or 'none'}, Language: {detected_language.upper()}, Raw: '{response_raw}'")
+        intent, addressee, detected_language = parse_intent_addressee_language(response_clean, context="general")
+        log_message(f"✅ Intent: {intent}, Addressee: {addressee or 'none'}, Language: {detected_language.upper()}, Raw: '{response_clean}'")
         return (intent, addressee, detected_language, response_raw)
 
     except Exception as e:
@@ -265,8 +268,10 @@ async def detect_cache_followup_intent(
             options=followup_intent_options
         )
         intent_raw = response.text
+        # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
+        intent_clean = strip_thinking_blocks(intent_raw).strip()
 
-        intent = parse_intent_from_response(intent_raw, context="cache_followup")
+        intent = parse_intent_from_response(intent_clean, context="cache_followup")
         log_message(f"✅ Cache-Followup Intent ({automatik_model}): {intent}")
         return intent
 

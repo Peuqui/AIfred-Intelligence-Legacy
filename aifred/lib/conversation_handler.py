@@ -600,7 +600,7 @@ async def detect_research_decision(
             messages=messages,
             options=options
         )
-        raw_response = response.text.strip()
+        raw_response = strip_thinking_blocks(response.text).strip()
         decision_time = decision_timer.elapsed()
 
         # DEBUG: Log raw response
@@ -779,7 +779,7 @@ async def generate_search_queries(
             messages=messages,
             options=options
         )
-        raw_response = response.text.strip()
+        raw_response = strip_thinking_blocks(response.text).strip()
         generation_time = generation_timer.elapsed()
 
         log_message("=" * 60)
@@ -1280,7 +1280,8 @@ async def chat_interactive_mode(
         llm_options['_vram_warning'] = vram_warning
 
     try:
-        yield {"type": "debug", "message": "📨 User request received"}
+        # NOTE: "📨 User request received" is now in state.py send_message()
+        # (before intent detection, consistent across all modes)
 
         # ============================================================
         # RESEARCH MODE ROUTING (Single Source of Truth)

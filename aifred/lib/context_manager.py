@@ -870,6 +870,8 @@ async def summarize_history_if_needed(
         end_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
         summary_text = response.text if response else ""
+        # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
+        summary_text = strip_thinking_blocks(summary_text).strip() if summary_text else ""
 
         if response:
             tokens_generated = response.tokens_generated

@@ -3153,8 +3153,9 @@ class AIState(rx.State):
         })
         # Sync to llm_history (for LLM context - use ORIGINAL user_msg, not display variant)
         self.llm_history.append({"role": "user", "content": user_msg})
+        self.add_debug("📨 User request received")
 
-        yield  # Update UI - user sees their message NOW, before XTTS/LLM operations
+        yield  # Update UI - user sees their message + debug confirmation NOW
 
         # TTS: Ensure Docker container is running BEFORE Ollama loads models (reserves VRAM)
         # This runs on every message, not just at startup - handles container restart scenarios
@@ -3224,6 +3225,24 @@ class AIState(rx.State):
                 # Different model: use config constant
                 auto_num_ctx = AUTOMATIK_LLM_NUM_CTX
                 log_message(f"🔧 Automatik ≠ AIfred → Context: {auto_num_ctx}")
+
+            # ============================================================
+            # COLD START DETECTION (llama.cpp only)
+            # llama-swap loads models on-demand — first request triggers cold start.
+            # Check /running BEFORE the first LLM call so the user knows why it's slow.
+            # ============================================================
+            if self.backend_type == "llamacpp":
+                try:
+                    import httpx
+                    swap_base = self.backend_url.rstrip("/").removesuffix("/v1")
+                    async with httpx.AsyncClient(timeout=5.0) as http_client:
+                        resp = await http_client.get(f"{swap_base}/running")
+                        running_models = [m.get("model") for m in resp.json().get("running", [])]
+                        if effective_auto not in running_models:
+                            self.add_debug(f"🔄 Model Cold Start ({effective_auto}) — loading into VRAM, this may take some time")
+                            yield
+                except Exception:
+                    pass  # Can't check — proceed normally, don't show false warnings
 
             # ============================================================
             # INTENT + ADDRESSEE + LANGUAGE DETECTION (first LLM call)
@@ -5344,8 +5363,8 @@ class AIState(rx.State):
 
             options = {
                 "temperature": 0.3,  # Low temperature for consistent titles
-                "num_predict": 50,   # Short response
-                "enable_thinking": False,  # Disable thinking for faster response
+                "num_predict": 300,  # Room for reasoning (~100-150 tok) + title (~10 tok)
+                "enable_thinking": False,  # Respected by Qwen3; GPT-OSS ignores it but works via num_predict headroom
                 "num_ctx": title_num_ctx,
             }
 

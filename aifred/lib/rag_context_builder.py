@@ -11,6 +11,7 @@ import string
 from typing import Dict, Optional
 from .logging_utils import log_message
 from .prompt_loader import load_prompt
+from .context_manager import strip_thinking_blocks
 
 
 async def build_rag_context(
@@ -117,7 +118,8 @@ async def build_rag_context(
             )
 
             # LLMResponse object has .text attribute, not dict
-            decision = response.text.strip().lower()
+            # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
+            decision = strip_thinking_blocks(response.text).strip().lower()
 
             # Decision: LLM says relevant OR shared keyword heuristic triggered
             is_relevant_llm = 'relevant' in decision and 'not_relevant' not in decision
