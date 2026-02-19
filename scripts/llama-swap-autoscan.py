@@ -5,8 +5,9 @@ llama-swap Autoscan - Automatic model discovery and configuration
 Scans for new GGUF models (Ollama blobs, HuggingFace cache, ~/models/)
 and automatically:
 1. Creates symlinks for Ollama blobs with descriptive filenames
-2. Adds new model entries to llama-swap-config.yaml
-3. Creates preliminary VRAM cache entries
+2. Cleans up dead symlinks and stale config entries for removed models
+3. Adds new model entries to llama-swap-config.yaml
+4. Creates preliminary VRAM cache entries
 
 Designed to run as ExecStartPre before llama-swap service starts.
 """
@@ -713,6 +714,190 @@ def save_skip_list(skip: dict[str, str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Cleanup of removed models
+# ---------------------------------------------------------------------------
+
+def cleanup_dead_symlinks() -> list[str]:
+    """
+    Remove broken symlinks from ~/models/.
+
+    Returns list of removed symlink names (stems).
+    """
+    if not MODELS_DIR.exists():
+        return []
+
+    removed = []
+    for gguf_file in sorted(MODELS_DIR.glob("*.gguf")):
+        if gguf_file.is_symlink() and not gguf_file.exists():
+            gguf_file.unlink()
+            print(f"  - Removed dead symlink: {gguf_file.name}")
+            removed.append(gguf_file.stem)
+
+    return removed
+
+
+def _extract_model_path(cmd: str) -> Optional[Path]:
+    """Extract the --model file path from a llama-server command line."""
+    match = re.search(r'--model\s+(\S+)', cmd)
+    return Path(match.group(1)) if match else None
+
+
+def _parse_model_cmds(config_path: Path) -> dict[str, str]:
+    """
+    Parse model entries with their cmd lines from config YAML.
+
+    Returns dict: model_name → cmd string.
+    """
+    if not config_path.exists():
+        return {}
+
+    content = config_path.read_text()
+    entries: dict[str, str] = {}
+    in_models = False
+    current_name: Optional[str] = None
+    cmd_lines: list[str] = []
+    collecting_cmd = False
+
+    for line in content.splitlines():
+        if line.strip() == "models:":
+            in_models = True
+            continue
+
+        if not in_models:
+            continue
+
+        match = re.match(r'^  ([A-Za-z0-9][A-Za-z0-9._-]*):$', line)
+        if match:
+            if current_name and cmd_lines:
+                entries[current_name] = " ".join(cmd_lines)
+            current_name = match.group(1)
+            cmd_lines = []
+            collecting_cmd = False
+            continue
+
+        cmd_match = re.match(r'^\s+cmd:\s+(.+)$', line)
+        if cmd_match and current_name:
+            raw = cmd_match.group(1).strip()
+            if raw.startswith("'") or raw.startswith('"'):
+                quote = raw[0]
+                if raw.endswith(quote) and len(raw) > 1:
+                    cmd_lines = [raw[1:-1]]
+                else:
+                    cmd_lines = [raw[1:]]
+                    collecting_cmd = True
+            else:
+                cmd_lines = [raw]
+            continue
+
+        if collecting_cmd and current_name:
+            stripped = line.strip()
+            if stripped.endswith("'") or stripped.endswith('"'):
+                cmd_lines.append(stripped[:-1])
+                collecting_cmd = False
+            else:
+                cmd_lines.append(stripped)
+            continue
+
+        if line and not line.startswith(" "):
+            if current_name and cmd_lines:
+                entries[current_name] = " ".join(cmd_lines)
+            break
+    else:
+        if current_name and cmd_lines:
+            entries[current_name] = " ".join(cmd_lines)
+
+    return entries
+
+
+def _remove_model_block(content: str, name: str) -> str:
+    """Remove a single model entry block from YAML content."""
+    pattern = rf'^  {re.escape(name)}:\n(?:    .+\n)*'
+    return re.sub(pattern, '', content, count=1, flags=re.MULTILINE)
+
+
+def cleanup_stale_config(config_path: Path) -> list[str]:
+    """
+    Remove config entries for models whose GGUF files no longer exist.
+
+    Returns list of removed model names.
+    """
+    model_cmds = _parse_model_cmds(config_path)
+    if not model_cmds:
+        return []
+
+    stale = []
+    for name, cmd in model_cmds.items():
+        model_path = _extract_model_path(cmd)
+        if model_path and not model_path.exists():
+            stale.append(name)
+
+    if not stale:
+        return []
+
+    content = config_path.read_text()
+    for name in stale:
+        content = _remove_model_block(content, name)
+        print(f"  - Removed: {name}")
+
+    content = re.sub(r'\n{3,}', '\n\n', content)
+    config_path.write_text(content)
+
+    return stale
+
+
+def cleanup_skip_list() -> int:
+    """Remove skip-list entries for models whose files no longer exist."""
+    skip = load_skip_list()
+    if not skip:
+        return 0
+
+    to_remove = [
+        name for name in skip
+        if not (MODELS_DIR / f"{name}.gguf").exists()
+        and not (MODELS_DIR / f"{name}.gguf").is_symlink()
+    ]
+
+    for name in to_remove:
+        del skip[name]
+        print(f"  - Skip list: removed {name}")
+
+    if to_remove:
+        save_skip_list(skip)
+
+    return len(to_remove)
+
+
+def cleanup_vram_cache(active_models: set[str]) -> int:
+    """
+    Remove VRAM cache entries for models no longer in the config.
+
+    Takes the set of currently configured model names and removes
+    any cache entries that don't match.
+
+    Returns number of entries removed.
+    """
+    if not VRAM_CACHE_FILE.exists():
+        return 0
+
+    try:
+        cache = json.loads(VRAM_CACHE_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return 0
+
+    active_lower = {name.lower() for name in active_models}
+    to_remove = [name for name in cache if name.lower() not in active_lower]
+
+    for name in to_remove:
+        del cache[name]
+        print(f"  - VRAM cache: removed {name}")
+
+    if to_remove:
+        VRAM_CACHE_FILE.write_text(json.dumps(cache, indent=2, ensure_ascii=False) + "\n")
+
+    return len(to_remove)
+
+
+# ---------------------------------------------------------------------------
 # Compatibility test
 # ---------------------------------------------------------------------------
 
@@ -808,6 +993,8 @@ def main() -> None:
     print("=== llama-swap Autoscan ===")
     print()
 
+    config_changed = False
+
     # Step 1a: Scan Ollama and create symlinks
     ollama_base = find_ollama_base()
     if ollama_base:
@@ -828,6 +1015,24 @@ def main() -> None:
         print(f"  {len(hf_models)} HF GGUFs found, {len(new_hf_symlinks)} new symlinks created")
     else:
         print("  No HuggingFace cache found or empty.")
+
+    print()
+
+    # Step 1c: Clean up dead symlinks and stale config entries
+    print("Cleaning up...")
+    removed_symlinks = cleanup_dead_symlinks()
+    stale_models = cleanup_stale_config(LLAMASWAP_CONFIG)
+    stale_skip = cleanup_skip_list()
+    if removed_symlinks or stale_models or stale_skip:
+        if removed_symlinks:
+            print(f"  {len(removed_symlinks)} dead symlink(s) removed")
+        if stale_models:
+            print(f"  {len(stale_models)} stale model(s) removed from config")
+            config_changed = True
+        if stale_skip:
+            print(f"  {stale_skip} stale skip-list entry/entries removed")
+    else:
+        print("  Nothing to clean up")
 
     print()
 
@@ -854,49 +1059,66 @@ def main() -> None:
     print(f"  Found {len(all_ggufs)} GGUFs, {len(new_models)} new")
     print()
 
-    if not new_models:
-        print("No new models to add. Done.")
-        return
-
     # Step 3: Compatibility test — only for genuinely new models, result cached in skip list
-    server_bin = detect_llama_server_bin(LLAMASWAP_CONFIG)
-    print("Testing new models for llama-server compatibility...")
-    compatible_models = []
-    for model in new_models:
-        compat, reason = test_model_compatibility(model["path"], server_bin, model.get("mmproj_path"))
-        if compat:
-            compatible_models.append(model)
-            mmproj = model.get("mmproj_path")
-            label = f"VL + {mmproj.name}" if mmproj else "OK"
-            print(f"  ✓ {model['name']} ({label})")
-        else:
-            skip_list[model["name"]] = reason
-            save_skip_list(skip_list)
-            print(f"  ✗ {model['name']}: {reason} — skipping")
-    new_models = compatible_models
-    print()
+    yaml_added = 0
+    cache_added = 0
 
-    if not new_models:
-        print("No compatible models to add. Done.")
-        return
+    if new_models:
+        server_bin = detect_llama_server_bin(LLAMASWAP_CONFIG)
+        print("Testing new models for llama-server compatibility...")
+        compatible_models = []
+        for model in new_models:
+            compat, reason = test_model_compatibility(model["path"], server_bin, model.get("mmproj_path"))
+            if compat:
+                compatible_models.append(model)
+                mmproj = model.get("mmproj_path")
+                label = f"VL + {mmproj.name}" if mmproj else "OK"
+                print(f"  ✓ {model['name']} ({label})")
+            else:
+                skip_list[model["name"]] = reason
+                save_skip_list(skip_list)
+                print(f"  ✗ {model['name']}: {reason} — skipping")
+        new_models = compatible_models
+        print()
 
-    # Step 4: Add to llama-swap config
-    print("Updating llama-swap-config.yaml...")
-    yaml_added = append_models_to_yaml(LLAMASWAP_CONFIG, new_models, server_bin)
-    update_groups_in_yaml(LLAMASWAP_CONFIG)
-    all_members = sorted(
-        n for n in parse_existing_yaml_models(LLAMASWAP_CONFIG)
-        if not n.endswith("-speed")
-    )
-    print(f"Groups updated: main → [{', '.join(all_members)}]")
-    print()
+        # Step 4: Add to llama-swap config
+        if new_models:
+            print("Updating llama-swap-config.yaml...")
+            yaml_added = append_models_to_yaml(LLAMASWAP_CONFIG, new_models, server_bin)
+            config_changed = True
 
-    # Step 5: Update VRAM cache
-    print("Updating VRAM cache...")
-    cache_added = update_vram_cache(new_models)
-    print()
+            # Step 5: Update VRAM cache
+            print("Updating VRAM cache...")
+            cache_added = update_vram_cache(new_models)
+            print()
 
-    print(f"Done. {yaml_added} model(s) added to config, {cache_added} VRAM cache entries created.")
+    # Update groups if config was modified (cleanup or new models)
+    if config_changed:
+        update_groups_in_yaml(LLAMASWAP_CONFIG)
+        all_members = sorted(
+            n for n in parse_existing_yaml_models(LLAMASWAP_CONFIG)
+            if not n.endswith("-speed")
+        )
+        print(f"Groups updated: main → [{', '.join(all_members)}]")
+
+        # Clean up VRAM cache for models no longer in config
+        stale_vram = cleanup_vram_cache(parse_existing_yaml_models(LLAMASWAP_CONFIG))
+        if stale_vram:
+            print(f"  {stale_vram} stale VRAM cache entry/entries removed")
+        print()
+
+    # Summary
+    parts = []
+    if stale_models:
+        parts.append(f"{len(stale_models)} removed")
+    if yaml_added:
+        parts.append(f"{yaml_added} added")
+    if cache_added:
+        parts.append(f"{cache_added} VRAM cache entries added")
+    if parts:
+        print(f"Done. {', '.join(parts)}.")
+    else:
+        print("No changes. Done.")
 
 
 if __name__ == "__main__":

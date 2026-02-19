@@ -18,6 +18,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 
 ### 🎯 Core Features
 - **Multi-Backend Support**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), **Cloud APIs** (Qwen, DeepSeek, Claude)
+- **Automatic Model Lifecycle**: Zero-config model management — new models auto-discovered from Ollama/HuggingFace on service start, removed models auto-cleaned from config
 - **Vision/OCR Support**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
 - **Image Crop Tool**: Interactive crop before OCR/analysis (8-point handles, 4K auto-resize)
 - **3-Model Architecture**: Specialized Vision-LLM for OCR, Main-LLM for interpretation

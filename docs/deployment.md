@@ -259,6 +259,9 @@ Scanning Ollama models...
 Scanning HuggingFace cache...
   No HuggingFace cache found or empty.
 
+Cleaning up...
+  Nothing to clean up
+
 Scanning ~/models/ for GGUFs...
   Found 5 GGUFs, 1 new
 
@@ -271,13 +274,51 @@ Updating llama-swap-config.yaml...
 Updating VRAM cache...
   + Added: Qwen3-14B-Q8_0
 
-Done. 1 model(s) added to config, 1 VRAM cache entries created.
 Groups updated: main → [Qwen3-14B-Q8_0, Qwen3-8B-Q4_K_M]
+
+Done. 1 added, 1 VRAM cache entries added.
 ```
 
 ---
 
-## 8. VRAM calibration
+## 8. Removing models
+
+When a model is deleted (via `ollama rm`, removing the GGUF file, or clearing
+the HuggingFace cache), the autoscan cleans up automatically on the next
+llama-swap restart:
+
+```bash
+ollama rm qwen3:8b
+systemctl --user restart llama-swap
+```
+
+The autoscan will:
+1. Remove broken symlinks in `~/models/`
+2. Remove config entries whose `--model` path no longer exists
+3. Remove stale entries from the compatibility skip list
+4. Remove orphaned VRAM cache entries
+5. Update the `groups.main.members` list
+
+Cleanup output example:
+```
+Cleaning up...
+  - Removed dead symlink: Qwen3-8B-Q8_0.gguf
+  - Removed: qwen3-8b-q8_0
+  1 dead symlink(s) removed
+  1 stale model(s) removed from config
+
+Groups updated: main → [Qwen3-14B-Q8_0]
+  - VRAM cache: removed qwen3-8b-q8_0
+  1 stale VRAM cache entry/entries removed
+
+Done. 1 removed.
+```
+
+No manual YAML editing required.
+
+---
+
+## 9. VRAM calibration
 
 New models are added with their **native context** from the GGUF metadata.
 This is often larger than what actually fits in VRAM.
@@ -293,7 +334,7 @@ If that exceeds VRAM, the first request will fail with an OOM error.
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 ### Model does not appear in AIfred
 

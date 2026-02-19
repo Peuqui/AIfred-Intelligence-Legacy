@@ -5,6 +5,19 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.42.0] - 2026-02-19 🔄 Autoscan Model Lifecycle
+
+### Added
+
+- **Autoscan cleanup on service start** - The `llama-swap-autoscan.py` script now handles the full model lifecycle: discovery AND removal
+  - Dead symlinks in `~/models/` are automatically removed
+  - Config entries for models whose GGUF files no longer exist are removed from `config.yaml`
+  - Stale skip-list entries (for models that were removed after failing compatibility tests) are cleaned up
+  - VRAM cache entries for models no longer in the config are pruned
+  - Groups section is automatically updated after any config changes
+
+---
+
 ## [2.41.4] - 2026-02-19 🛡️ Inference Deadlock Fix
 
 ### Fixed
