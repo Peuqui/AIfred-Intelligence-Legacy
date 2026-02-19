@@ -3182,134 +3182,140 @@ class AIState(rx.State):
                 self.add_debug(f"⚠️ {msg}")
             yield
 
-        # Create LLM client once - used for ALL LLM operations
-        from .lib.llm_client import LLMClient
-        llm_client = LLMClient(
-            backend_type=self.backend_type,
-            base_url=self.backend_url
-        )
-
-        # ============================================================
-        # AUTOMATIK NUM_CTX CALCULATION (once, used for all Automatik calls)
-        # ============================================================
-        # When Automatik = AIfred (same model): don't set num_ctx → no model reload
-        # When different models: use AUTOMATIK_LLM_NUM_CTX from config.py
-        from .lib.config import AUTOMATIK_LLM_NUM_CTX
-        from .lib.formatting import format_number
-        effective_auto = self._effective_automatik_id
-        if effective_auto == self.aifred_model_id:
-            # Same model: MUST send same num_ctx as preload to prevent Ollama reload!
-            # Ollama uses MODEL DEFAULT (not currently loaded context) when num_ctx is omitted.
-            # Omitting num_ctx causes Ollama to reload with default → then main inference
-            # sends calibrated num_ctx → Ollama reloads AGAIN. Two unnecessary reloads!
-            auto_num_ctx: int | None = self.aifred_max_context if self.aifred_max_context else None
-            log_message(f"🔧 Automatik = AIfred ({effective_auto}) → num_ctx={auto_num_ctx} (match preload)")
-
-            # Warning if AIfred context is below recommended Automatik threshold
-            effective_ctx = self.aifred_max_context or 0
-            if effective_ctx > 0 and effective_ctx < AUTOMATIK_LLM_NUM_CTX:
-                self.add_debug(
-                    f"⚠️ Automatik Context ({format_number(effective_ctx)}) < recommended ({format_number(AUTOMATIK_LLM_NUM_CTX)}) - Automatik tasks may be less reliable"
-                )
-                log_message(f"⚠️ Automatik Context warning: {effective_ctx} < {AUTOMATIK_LLM_NUM_CTX}")
-        else:
-            # Different model: use config constant
-            auto_num_ctx = AUTOMATIK_LLM_NUM_CTX
-            log_message(f"🔧 Automatik ≠ AIfred → Context: {auto_num_ctx}")
-
-        # ============================================================
-        # INTENT + ADDRESSEE + LANGUAGE DETECTION (first LLM call)
-        # ============================================================
-        # Must run BEFORE compression check to get detected_language
-        from .lib.intent_detector import detect_query_intent_and_addressee
-
-        # If user_msg is empty (image-only), skip Intent Detection and use UI language
-        if not user_msg.strip():
-            from .lib.prompt_loader import get_language
-            detected_intent = "FAKTISCH"
-            addressed_to = None
-            detected_language = get_language()
-            intent_raw = ""
-            self.add_debug(f"🎯 Intent: {detected_intent} (image-only), Lang: {detected_language.upper()} (UI)")
-            self._last_detected_language = detected_language  # Store for title generation
-        else:
-            detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(
-                user_msg,
-                effective_auto,
-                llm_client,
-                automatik_num_ctx=auto_num_ctx
-            )
-            # Log Intent Detection result to UI debug console (always visible)
-            addressee_display = addressed_to.capitalize() if addressed_to else "–"
-            self.add_debug(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}, Lang: {detected_language.upper()}")
-            self._last_detected_language = detected_language  # Store for title generation
-
-        # ============================================================
-        # PRE-MESSAGE: History Compression Check
-        # ============================================================
-        # Check BEFORE adding new message - handles session restore, model changes, etc.
-
-        if self.chat_history:
-            from .lib.context_manager import summarize_history_if_needed, get_largest_compression_model
-            from .lib.research.context_utils import get_agent_num_ctx
-
-            # Determine effective context limit using per-agent settings
-            # Uses get_agent_num_ctx() which is the SINGLE SOURCE OF TRUTH
-            context_limits = []
-
-            # AIfred context
-            aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.aifred_model_id)
-            context_limits.append(aifred_ctx)
-
-            # Multi-agent contexts (if not standard mode)
-            if self.multi_agent_mode != "standard":
-                if self.sokrates_model_id:
-                    sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.sokrates_model_id)
-                    context_limits.append(sokrates_ctx)
-                if self.salomo_model_id:
-                    salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.salomo_model_id)
-                    context_limits.append(salomo_ctx)
-
-            # Use minimum of all agent limits
-            context_limit = min(context_limits) if context_limits else 4096
-
-            # Get system prompt tokens from cache (v2.14.0+)
-            # Cache is populated at startup in on_load()
-            from .lib.prompt_loader import get_max_system_prompt_tokens
-            system_prompt_tokens = get_max_system_prompt_tokens(self.multi_agent_mode, detected_language)
-
-            # Select largest model for compression (AIfred/Sokrates/Salomo)
-            compression_model = get_largest_compression_model(
-                aifred_model=self.aifred_model_id,
-                sokrates_model=self.sokrates_model_id,
-                salomo_model=self.salomo_model_id
-            )
-
-            # Check and compress if needed (DUAL-HISTORY)
-            async for event in summarize_history_if_needed(
-                history=self.chat_history,
-                llm_client=llm_client,
-                model_name=compression_model,  # Use largest available model for quality
-                context_limit=context_limit,
-                llm_history=self.llm_history,
-                system_prompt_tokens=system_prompt_tokens,
-                detected_language=detected_language  # From Intent Detection
-            ):
-                if event["type"] == "history_update":
-                    # DUAL-HISTORY: Update both histories
-                    self.chat_history = event["chat_history"]
-                    if event.get("llm_history") is not None:
-                        self.llm_history = event["llm_history"]
-                    self.add_debug(f"✅ Pre-Message Compression: {len(self.chat_history)} UI / {len(self.llm_history)} LLM messages")
-                    yield
-                elif event["type"] == "debug":
-                    self.add_debug(event["message"])
-                    yield
-
-        # NOTE: User message was already added to chat_history at the start of send_message()
-        # (before XTTS check) so user sees their message immediately
-
         try:
+            # ============================================================
+            # MAIN TRY BLOCK: Covers ALL stages from LLM client creation
+            # through inference. Ensures is_generating is ALWAYS reset in finally,
+            # even if intent detection hangs, compression fails, or the generator
+            # is cancelled by WebSocket disconnect (GeneratorExit).
+            # ============================================================
+
+            # Create LLM client once - used for ALL LLM operations
+            from .lib.llm_client import LLMClient
+            llm_client = LLMClient(
+                backend_type=self.backend_type,
+                base_url=self.backend_url
+            )
+
+            # ============================================================
+            # AUTOMATIK NUM_CTX CALCULATION (once, used for all Automatik calls)
+            # ============================================================
+            # When Automatik = AIfred (same model): don't set num_ctx → no model reload
+            # When different models: use AUTOMATIK_LLM_NUM_CTX from config.py
+            from .lib.config import AUTOMATIK_LLM_NUM_CTX
+            from .lib.formatting import format_number
+            effective_auto = self._effective_automatik_id
+            if effective_auto == self.aifred_model_id:
+                # Same model: MUST send same num_ctx as preload to prevent Ollama reload!
+                # Ollama uses MODEL DEFAULT (not currently loaded context) when num_ctx is omitted.
+                # Omitting num_ctx causes Ollama to reload with default → then main inference
+                # sends calibrated num_ctx → Ollama reloads AGAIN. Two unnecessary reloads!
+                auto_num_ctx: int | None = self.aifred_max_context if self.aifred_max_context else None
+                log_message(f"🔧 Automatik = AIfred ({effective_auto}) → num_ctx={auto_num_ctx} (match preload)")
+
+                # Warning if AIfred context is below recommended Automatik threshold
+                effective_ctx = self.aifred_max_context or 0
+                if effective_ctx > 0 and effective_ctx < AUTOMATIK_LLM_NUM_CTX:
+                    self.add_debug(
+                        f"⚠️ Automatik Context ({format_number(effective_ctx)}) < recommended ({format_number(AUTOMATIK_LLM_NUM_CTX)}) - Automatik tasks may be less reliable"
+                    )
+                    log_message(f"⚠️ Automatik Context warning: {effective_ctx} < {AUTOMATIK_LLM_NUM_CTX}")
+            else:
+                # Different model: use config constant
+                auto_num_ctx = AUTOMATIK_LLM_NUM_CTX
+                log_message(f"🔧 Automatik ≠ AIfred → Context: {auto_num_ctx}")
+
+            # ============================================================
+            # INTENT + ADDRESSEE + LANGUAGE DETECTION (first LLM call)
+            # ============================================================
+            # Must run BEFORE compression check to get detected_language
+            from .lib.intent_detector import detect_query_intent_and_addressee
+
+            # If user_msg is empty (image-only), skip Intent Detection and use UI language
+            if not user_msg.strip():
+                from .lib.prompt_loader import get_language
+                detected_intent = "FAKTISCH"
+                addressed_to = None
+                detected_language = get_language()
+                intent_raw = ""
+                self.add_debug(f"🎯 Intent: {detected_intent} (image-only), Lang: {detected_language.upper()} (UI)")
+                self._last_detected_language = detected_language  # Store for title generation
+            else:
+                detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(
+                    user_msg,
+                    effective_auto,
+                    llm_client,
+                    automatik_num_ctx=auto_num_ctx
+                )
+                # Log Intent Detection result to UI debug console (always visible)
+                addressee_display = addressed_to.capitalize() if addressed_to else "–"
+                self.add_debug(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}, Lang: {detected_language.upper()}")
+                self._last_detected_language = detected_language  # Store for title generation
+
+            # ============================================================
+            # PRE-MESSAGE: History Compression Check
+            # ============================================================
+            # Check BEFORE adding new message - handles session restore, model changes, etc.
+
+            if self.chat_history:
+                from .lib.context_manager import summarize_history_if_needed, get_largest_compression_model
+                from .lib.research.context_utils import get_agent_num_ctx
+
+                # Determine effective context limit using per-agent settings
+                # Uses get_agent_num_ctx() which is the SINGLE SOURCE OF TRUTH
+                context_limits = []
+
+                # AIfred context
+                aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.aifred_model_id)
+                context_limits.append(aifred_ctx)
+
+                # Multi-agent contexts (if not standard mode)
+                if self.multi_agent_mode != "standard":
+                    if self.sokrates_model_id:
+                        sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.sokrates_model_id)
+                        context_limits.append(sokrates_ctx)
+                    if self.salomo_model_id:
+                        salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.salomo_model_id)
+                        context_limits.append(salomo_ctx)
+
+                # Use minimum of all agent limits
+                context_limit = min(context_limits) if context_limits else 4096
+
+                # Get system prompt tokens from cache (v2.14.0+)
+                # Cache is populated at startup in on_load()
+                from .lib.prompt_loader import get_max_system_prompt_tokens
+                system_prompt_tokens = get_max_system_prompt_tokens(self.multi_agent_mode, detected_language)
+
+                # Select largest model for compression (AIfred/Sokrates/Salomo)
+                compression_model = get_largest_compression_model(
+                    aifred_model=self.aifred_model_id,
+                    sokrates_model=self.sokrates_model_id,
+                    salomo_model=self.salomo_model_id
+                )
+
+                # Check and compress if needed (DUAL-HISTORY)
+                async for event in summarize_history_if_needed(
+                    history=self.chat_history,
+                    llm_client=llm_client,
+                    model_name=compression_model,  # Use largest available model for quality
+                    context_limit=context_limit,
+                    llm_history=self.llm_history,
+                    system_prompt_tokens=system_prompt_tokens,
+                    detected_language=detected_language  # From Intent Detection
+                ):
+                    if event["type"] == "history_update":
+                        # DUAL-HISTORY: Update both histories
+                        self.chat_history = event["chat_history"]
+                        if event.get("llm_history") is not None:
+                            self.llm_history = event["llm_history"]
+                        self.add_debug(f"✅ Pre-Message Compression: {len(self.chat_history)} UI / {len(self.llm_history)} LLM messages")
+                        yield
+                    elif event["type"] == "debug":
+                        self.add_debug(event["message"])
+                        yield
+
+            # NOTE: User message was already added to chat_history at the start of send_message()
+            # (before XTTS check) so user sees their message immediately
             # ============================================================
             # DIALOG ROUTING (uses intent/addressee from above)
             # ============================================================

@@ -5,6 +5,15 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.41.4] - 2026-02-19 🛡️ Inference Deadlock Fix
+
+### Fixed
+
+- **is_generating deadlock** - Intent detection and compression check were outside the try/finally block in `send_message()`. A WebSocket disconnect (e.g. phone standby) during cold start would cancel the generator via `GeneratorExit`, leaving `is_generating=True` permanently and blocking the session
+- **Cold start timeout** - Increased llama.cpp backend timeout from 120s to 180s to accommodate large model loading (120B Q8 = ~2min cold start via llama-swap)
+
+---
+
 ## [2.41.3] - 2026-02-19 🔧 Metadata, Title & Mobile Fixes
 
 ### Fixed
