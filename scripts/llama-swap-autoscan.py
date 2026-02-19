@@ -51,6 +51,9 @@ DEFAULT_CONTEXT = 32768  # Fallback if GGUF metadata unreadable
 # If GGUF file size exceeds this fraction of total GPU VRAM → use q4_0 KV cache
 KV_CACHE_VRAM_THRESHOLD = 0.60
 
+# If GGUF file size exceeds this fraction of the largest GPU's VRAM → use tensor-split
+MULTI_GPU_VRAM_THRESHOLD = 0.80
+
 # No size filter - even tiny LLMs (135M edge models) should be loadable
 
 
@@ -72,6 +75,23 @@ def get_total_vram_mb() -> int:
         return int(total / (1024 * 1024))
     except Exception:
         return 0
+
+
+def get_per_gpu_vram_mb() -> list[int]:
+    """Query VRAM per GPU, sorted by size descending (matches CUDA_DEVICE_ORDER=FASTEST_FIRST)."""
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        gpus = []
+        for i in range(pynvml.nvmlDeviceGetCount()):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            gpus.append(int(mem.total / (1024 * 1024)))
+        pynvml.nvmlShutdown()
+        gpus.sort(reverse=True)
+        return gpus
+    except Exception:
+        return []
 
 
 def get_gguf_total_size(gguf_path: Path) -> int:
@@ -107,6 +127,38 @@ def choose_kv_cache_quant(gguf_path: Path, total_vram_mb: int) -> str:
     kv_quant = "q4_0" if ratio > KV_CACHE_VRAM_THRESHOLD else "q8_0"
     print(f"    KV cache: {kv_quant} (model {gguf_size_mb:.0f} MB = {ratio:.0%} of {total_vram_mb} MB VRAM)")
     return kv_quant
+
+
+def build_gpu_flags(gguf_path: Path, per_gpu_vram: list[int]) -> str:
+    """Build GPU distribution flags based on model size vs available GPUs.
+
+    Returns:
+        "" — single GPU or model fits on one GPU (no extra flags needed)
+        "-sm layer --tensor-split 2,1 -fit off" — large model spread across GPUs
+    """
+    if len(per_gpu_vram) <= 1:
+        return ""
+
+    largest_gpu_mb = per_gpu_vram[0]
+    gguf_size_mb = get_gguf_total_size(gguf_path) / (1024 * 1024)
+    ratio = gguf_size_mb / largest_gpu_mb
+
+    if ratio <= MULTI_GPU_VRAM_THRESHOLD:
+        print(f"    GPU: single (model {gguf_size_mb:.0f} MB = {ratio:.0%} of largest GPU {largest_gpu_mb} MB)")
+        return ""
+
+    # Model needs multiple GPUs — calculate tensor-split from VRAM proportions
+    min_vram = min(per_gpu_vram)
+    split_parts = [max(1, round(v / min_vram)) for v in per_gpu_vram]
+    split_str = ",".join(str(p) for p in split_parts)
+
+    total_vram_mb = sum(per_gpu_vram)
+    print(
+        f"    GPU: tensor-split {split_str} "
+        f"(model {gguf_size_mb:.0f} MB = {ratio:.0%} of largest {largest_gpu_mb} MB, "
+        f"total {total_vram_mb} MB)"
+    )
+    return f"-sm layer --tensor-split {split_str} -fit off"
 
 
 # ---------------------------------------------------------------------------
@@ -622,8 +674,9 @@ def append_models_to_yaml(
     else:
         content = "models:\n"
 
-    # Query total VRAM once for all models
+    # Query GPU info once for all models
     total_vram_mb = get_total_vram_mb()
+    per_gpu_vram = get_per_gpu_vram_mb()
 
     # Build all new model blocks first
     added = 0
@@ -635,9 +688,14 @@ def append_models_to_yaml(
         context = get_native_context(model["path"])
         mmproj = model.get("mmproj_path")
 
-        # Choose KV cache quant based on model size vs VRAM
+        # Choose KV cache quant based on model size vs total VRAM
         kv_quant = choose_kv_cache_quant(model["path"], total_vram_mb)
         flags = f"-ctk {kv_quant} -ctv {kv_quant} {DEFAULT_FLAGS_BASE}"
+
+        # Choose GPU distribution (single vs tensor-split)
+        gpu_flags = build_gpu_flags(model["path"], per_gpu_vram)
+        if gpu_flags:
+            flags = f"{gpu_flags} {flags}"
 
         if mmproj:
             cmd_line = (
