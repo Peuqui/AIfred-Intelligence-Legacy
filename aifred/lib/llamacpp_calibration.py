@@ -66,7 +66,7 @@ def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
 
-    if not config or "models" not in config:
+    if not config or not config.get("models"):
         return {}
 
     result: Dict[str, Dict] = {}

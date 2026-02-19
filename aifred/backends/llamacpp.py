@@ -399,7 +399,7 @@ class LlamaCppBackend(LLMBackend):
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         if model not in config:
             yield f"Model '{model}' not found in llama-swap config: {LLAMASWAP_CONFIG_PATH}"
-            yield "__RESULT__:0:error"
+            yield "__RESULT__:0:0:error"
             return
 
         model_info = config[model]
@@ -407,7 +407,7 @@ class LlamaCppBackend(LLMBackend):
 
         if not gguf_path.exists():
             yield f"GGUF file not found: {gguf_path}"
-            yield "__RESULT__:0:error"
+            yield "__RESULT__:0:0:error"
             return
 
         async for msg in calibrate_llamacpp_model(
