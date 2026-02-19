@@ -877,6 +877,18 @@ def _has_tensor_split(full_cmd: str) -> bool:
     return bool(re.search(r'(--tensor-split|-ts)\s+[\d.,]+', full_cmd))
 
 
+def _parse_tensor_split_n(cmd: str) -> int:
+    """Extract the fast-GPU part N from --tensor-split N,1 in cmd.
+
+    Returns the integer part of the first value (e.g. "2,1" → 2, "11,1" → 11).
+    Returns 0 if no tensor-split found.
+    """
+    match = re.search(r'(?:--tensor-split|-ts)\s+([\d.]+)', cmd)
+    if not match:
+        return 0
+    return int(float(match.group(1)))
+
+
 def _replace_tensor_split(cmd: str, fast_n: int, slow_n: int = 1) -> str:
     """Replace the tensor-split ratio in cmd with fast_n:slow_n."""
     new_val = f"{fast_n},{slow_n}"
@@ -891,35 +903,75 @@ async def _calibrate_speed_split(
     target_context: int,
 ) -> AsyncIterator[str]:
     """
-    Binary search for the most aggressive tensor-split ratio at target_context.
+    Probe + binary search for the most aggressive tensor-split ratio at target_context.
 
-    Searches N from 99 downward (N:1 split), finds the highest N where the model
-    loads successfully at target_context tokens. Starts from 99 (most aggressive),
-    mirroring how context calibration starts from native_context.
+    Probes slightly above the original split ratio to detect whether there's
+    any headroom. No headroom = 1-2 tests, headroom = binary search upward.
+
+    Algorithm:
+    1. Parse original split N from cmd (e.g. 2 from "2,1")
+    2. Test N+2 — if fail, test N+1 — if fail, no speed variant possible
+    3. If N+2 succeeds, test 99:1 (best case), then binary search [N+2, 99]
 
     Yields progress messages.
     Final: "__SPEED__:{N}" where N is the best ratio, or "__SPEED__:0" on failure.
     """
-    yield f"Speed calibration: binary search tensor-split at ctx={format_number(target_context)}"
+    original_n = _parse_tensor_split_n(full_cmd)
+    if original_n <= 0:
+        yield "Speed calibration: cannot parse original tensor-split ratio"
+        yield "__SPEED__:0"
+        return
+
+    yield (
+        f"Speed calibration: bottom-up from {original_n}:1 "
+        f"at ctx={format_number(target_context)}"
+    )
 
     iteration = 0
 
-    # Test 99:1 first — best case, avoids unnecessary search
+    # Step 1: Probe original+2 — quick check for headroom
+    probe_n = original_n + 2
+    iteration += 1
+    cmd_probe = _replace_tensor_split(full_cmd, probe_n, 1)
+    yield f"[{iteration}] Testing split {probe_n}:1 (probe)..."
+    fits = await _calibration_test(cmd_probe, target_context, port)
+
+    if not fits:
+        yield f"✗ {probe_n}:1 failed"
+        # Step 2: Try original+1 — last chance for any improvement
+        fallback_n = original_n + 1
+        iteration += 1
+        cmd_fallback = _replace_tensor_split(full_cmd, fallback_n, 1)
+        yield f"[{iteration}] Testing split {fallback_n}:1..."
+        fits = await _calibration_test(cmd_fallback, target_context, port)
+        if fits:
+            yield f"✓ {fallback_n}:1 fits — small improvement over {original_n}:1"
+            yield f"Speed split found: {fallback_n}:1 ({iteration} iterations)"
+            yield f"__SPEED__:{fallback_n}"
+        else:
+            yield f"✗ {fallback_n}:1 failed — no speed variant possible"
+            yield "__SPEED__:0"
+        return
+
+    yield f"✓ {probe_n}:1 fits — searching for maximum"
+
+    # Step 3: Probe succeeded — check best case 99:1
     iteration += 1
     cmd_99 = _replace_tensor_split(full_cmd, 99, 1)
     yield f"[{iteration}] Testing split 99:1..."
     fits = await _calibration_test(cmd_99, target_context, port)
     if fits:
         yield "✓ 99:1 fits — best possible split"
+        yield f"Speed split found: 99:1 ({iteration} iterations)"
         yield "__SPEED__:99"
         return
 
     yield "✗ 99:1 failed, binary search..."
 
-    # Binary search [2, 98] — find highest N:1 that still loads
-    split_low = 2
+    # Step 4: Binary search [probe_n, 98] for maximum
+    split_low = probe_n
     split_high = 98
-    best_n = 0
+    best_n = probe_n  # probe_n already confirmed to work
 
     while split_high - split_low > 1:
         iteration += 1
@@ -936,24 +988,8 @@ async def _calibrate_speed_split(
             split_high = split_mid
             yield f"✗ {split_mid}:1 failed"
 
-    # Binary search leaves split_low untested when all higher values fail — check it explicitly
-    if best_n == 0:
-        iteration += 1
-        cmd_low = _replace_tensor_split(full_cmd, split_low, 1)
-        yield f"[{iteration}] Testing split {split_low}:1 (lower bound)..."
-        fits = await _calibration_test(cmd_low, target_context, port)
-        if fits:
-            best_n = split_low
-            yield f"✓ {split_low}:1 fits"
-        else:
-            yield f"✗ {split_low}:1 failed"
-
-    if best_n > 0:
-        yield f"Speed split found: {best_n}:1 ({iteration} iterations)"
-        yield f"__SPEED__:{best_n}"
-    else:
-        yield "Speed calibration failed: no tensor-split above 1:1 works at speed context"
-        yield "__SPEED__:0"
+    yield f"Speed split found: {best_n}:1 ({iteration} iterations)"
+    yield f"__SPEED__:{best_n}"
 
 
 

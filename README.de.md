@@ -218,7 +218,7 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
     - **Phase 1** (GPU-only): Binäre Suche auf `-c` mit `ngl=99`, stoppt llama-swap, testet auf Temp-Port
       - Small-Model-Shortcut: Modelle mit `native_context ≤ 8192` werden direkt getestet (keine Binärsuche)
       - flash-attn-Auto-Erkennung: Startfehler → automatischer Neuversuch ohne `--flash-attn`, aktualisiert llama-swap YAML bei Erfolg
-    - **Phase 2** (Speed-Variante): Binäre Suche auf `--tensor-split N:1` bei 32K Kontext → aggressivere GPU-Lastverteilung für maximalen Durchsatz (z.B. 11:1 bei Dual-72-GB-GPUs). Erstellt separaten `modell-speed`-Eintrag in llama-swap YAML-Config
+    - **Phase 2** (Speed-Variante): Probe + Binary Search auf `--tensor-split N:1` bei 32K Kontext → Probe ab Original-Split+2 prüft ob aggressivere GPU-Lastverteilung möglich ist (z.B. 11:1 bei Dual-72-GB-GPUs). Kein Spielraum = 1-2 Tests, Spielraum = Binary Search aufwärts bis Maximum. Erstellt separaten `modell-speed`-Eintrag in llama-swap YAML-Config
     - **Phase 3** (Hybrid-Fallback): Wenn Phase 1 < 16K → NGL-Reduzierung um VRAM für KV-Cache freizumachen
     - Startfehler (unbekannte Architektur, falsche CUDA-Version) werden geloggt und nie als falsche Kalibrierungsdaten gespeichert
   - Ergebnisse in einheitlichem `data/model_vram_cache.json` gespeichert

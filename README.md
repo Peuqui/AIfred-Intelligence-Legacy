@@ -229,7 +229,7 @@ Each message is displayed individually with its emoji and mode label:
     - **Phase 1** (GPU-only): Binary search on `-c` with `ngl=99`, stops llama-swap, tests on temp port
       - Small model shortcut: models with `native_context ≤ 8192` are tested directly (no binary search)
       - flash-attn auto-detection: startup failure → automatic retry without `--flash-attn`, updates llama-swap YAML on success
-    - **Phase 2** (Speed variant): Binary search on `--tensor-split N:1` at 32K context → aggressive GPU split for maximum throughput. Creates a separate `model-speed` entry in llama-swap YAML config
+    - **Phase 2** (Speed variant): Probe + binary search on `--tensor-split N:1` at 32K context → probes from original split+2 whether a more aggressive GPU split is possible (e.g. 11:1 on dual-72GB GPUs). No headroom = 1-2 tests, headroom found = binary search upward to maximum. Creates a separate `model-speed` entry in llama-swap YAML config
     - **Phase 3** (Hybrid fallback): If Phase 1 < 16K → NGL reduction to free VRAM for KV-cache
     - Startup errors (unknown architecture, wrong CUDA version) are logged and never written as false calibration data
   - Results cached in unified `data/model_vram_cache.json`

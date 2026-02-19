@@ -5,6 +5,18 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.41.2] - 2026-02-19 ⚡ Speed-Split Probe-Optimierung
+
+### Changed
+
+- **Speed-Split-Kalibration: Probe + Binary Search statt Top-Down** - Effizienterer Algorithmus für alle Modelle
+  - Bisherig: Startete bei 99:1 und suchte abwärts → 7+ Server-Starts (~5 min) auch wenn kein besserer Split möglich
+  - Neu: Probe bei Original-Split+2 prüft ob Spielraum existiert → kein Spielraum = 1-2 Tests (~30s), Spielraum vorhanden = Binary Search aufwärts bis Maximum
+  - Algorithmus: Probe (N+2) → Fail → N+1 testen → Fail → fertig | Probe erfolgreich → 99:1 testen → Binary Search [N+2, 99]
+  - Neue Hilfsfunktion `_parse_tensor_split_n()` extrahiert Original-Split-Ratio aus dem Server-Kommando
+
+---
+
 ## [2.41.1] - 2026-02-19 📊 Tensor Split Benchmark & Metadata-Fix
 
 ### Added
