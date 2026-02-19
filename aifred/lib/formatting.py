@@ -260,8 +260,8 @@ def build_inference_metadata(
         display_parts.append(f"TTFT: {format_number(ttft, 2)}s")
     if prompt_per_sec:
         display_parts.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
-    display_parts.append(f"Inference: {format_number(inference_time, 1)}s")
     display_parts.append(f"{format_number(tokens_per_sec, 1)} tok/s")
+    display_parts.append(f"Inference: {format_number(inference_time, 1)}s")
     # Source with backend label (e.g. "Own Knowledge (model) [llamacpp]")
     source_display = f"{source} [{backend_type}]" if backend_type else source
     display_parts.append(f"Source: {source_display}")

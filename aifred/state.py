@@ -2063,10 +2063,6 @@ class AIState(rx.State):
         if "ttft" in metadata and metadata["ttft"]:
             parts.append(f"TTFT: {format_number(metadata['ttft'], 2)}s")
 
-        # Inference time
-        if "inference_time" in metadata and metadata["inference_time"]:
-            parts.append(f"Inference: {format_number(metadata['inference_time'], 1)}s")
-
         # PP speed (prompt processing)
         prompt_per_sec = metadata.get("prompt_per_sec", 0)
         if prompt_per_sec:
@@ -2075,6 +2071,10 @@ class AIState(rx.State):
         # Tokens per second (generation)
         if "tokens_per_sec" in metadata and metadata["tokens_per_sec"]:
             parts.append(f"{format_number(metadata['tokens_per_sec'], 1)} tok/s")
+
+        # Inference time
+        if "inference_time" in metadata and metadata["inference_time"]:
+            parts.append(f"Inference: {format_number(metadata['inference_time'], 1)}s")
 
         # Source (with backend label if available)
         if "source" in metadata and metadata["source"]:
