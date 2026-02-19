@@ -16,8 +16,12 @@ import json
 import re
 import socket
 import subprocess
+import tempfile
+import time
 from pathlib import Path
 from typing import Optional
+from urllib.error import URLError
+from urllib.request import urlopen
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -45,11 +49,12 @@ VRAM_CACHE_FILE = PROJECT_ROOT / "data" / "model_vram_cache.json"
 LLAMA_SERVER_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-server"
 DEFAULT_TTL = 300
 DEFAULT_NGL = 99
-DEFAULT_FLAGS_BASE = "--flash-attn on -np 1 -t 4 --mlock"
+DEFAULT_FLAGS_BASE = "--flash-attn on -np 1 -t 4 --mlock --reasoning-format deepseek"
 DEFAULT_CONTEXT = 32768  # Fallback if GGUF metadata unreadable
 
-# If GGUF file size exceeds this fraction of total GPU VRAM → use q4_0 KV cache
-KV_CACHE_VRAM_THRESHOLD = 0.60
+# Max seconds to wait for llama-server to finish loading during KV cache calibration.
+# Small models load in <5s, large models (80B+) may take 30-60s.
+CALIBRATION_TIMEOUT = 120
 
 # If GGUF file size exceeds this fraction of the largest GPU's VRAM → use tensor-split
 MULTI_GPU_VRAM_THRESHOLD = 0.80
@@ -113,20 +118,105 @@ def get_gguf_total_size(gguf_path: Path) -> int:
     return resolved.stat().st_size
 
 
-def choose_kv_cache_quant(gguf_path: Path, total_vram_mb: int) -> str:
-    """Choose KV cache quantization based on model size vs total VRAM.
+def _extract_error(output: str, returncode: int) -> str:
+    """Parse llama-server output for meaningful error reason."""
+    lower = output.lower()
+    if "cuda" in lower and "out of memory" in lower:
+        return "CUDA out of memory"
+    if "failed to allocate" in lower:
+        return "Failed to allocate memory"
+    if "not enough" in lower:
+        return "Not enough memory"
+    if "ggml" in lower and ("alloc" in lower or "memory" in lower):
+        return "Memory allocation failed"
+    return f"Crashed (exit code {returncode})"
 
-    Returns 'q4_0' for large models (>60% VRAM), 'q8_0' otherwise.
+
+def _try_start_model(
+    server_bin: Path,
+    gguf_path: Path,
+    context: int,
+    gpu_flags: str,
+    kv_quant: Optional[str] = None,
+    mmproj_path: Optional[Path] = None,
+) -> tuple[bool, str]:
+    """Try starting llama-server with given KV cache settings.
+
+    Polls the /health endpoint to detect successful load.
+    Returns (success, message).
     """
-    if total_vram_mb == 0:
-        return "q8_0"
+    port = _free_port()
+    cmd = [
+        str(server_bin), "--port", str(port),
+        "--model", str(gguf_path.resolve()),
+        "-ngl", str(DEFAULT_NGL), "-c", str(context),
+    ]
+    if kv_quant:
+        cmd += ["-ctk", kv_quant, "-ctv", kv_quant]
+    if gpu_flags:
+        cmd += gpu_flags.split()
+    if mmproj_path:
+        cmd += ["--mmproj", str(mmproj_path.resolve())]
+    cmd += DEFAULT_FLAGS_BASE.split()
 
-    gguf_size_mb = get_gguf_total_size(gguf_path) / (1024 * 1024)
-    ratio = gguf_size_mb / total_vram_mb
+    with tempfile.TemporaryFile() as logfile:
+        try:
+            proc = subprocess.Popen(cmd, stdout=logfile, stderr=subprocess.STDOUT)
+        except Exception as e:
+            return False, str(e)
 
-    kv_quant = "q4_0" if ratio > KV_CACHE_VRAM_THRESHOLD else "q8_0"
-    print(f"    KV cache: {kv_quant} (model {gguf_size_mb:.0f} MB = {ratio:.0%} of {total_vram_mb} MB VRAM)")
-    return kv_quant
+        try:
+            deadline = time.monotonic() + CALIBRATION_TIMEOUT
+            while time.monotonic() < deadline:
+                if proc.poll() is not None:
+                    logfile.seek(0)
+                    output = logfile.read().decode("utf-8", errors="replace")
+                    return False, _extract_error(output, proc.returncode)
+                try:
+                    resp = urlopen(f"http://localhost:{port}/health", timeout=2)
+                    if resp.status == 200:
+                        proc.kill()
+                        proc.wait()
+                        return True, "OK"
+                except (URLError, OSError):
+                    pass
+                time.sleep(1)
+
+            proc.kill()
+            proc.wait()
+            return False, f"Timeout ({CALIBRATION_TIMEOUT}s)"
+        except Exception:
+            proc.kill()
+            proc.wait()
+            raise
+
+
+def calibrate_kv_cache(
+    server_bin: Path,
+    gguf_path: Path,
+    context: int,
+    gpu_flags: str,
+    mmproj_path: Optional[Path] = None,
+) -> tuple[Optional[str], bool]:
+    """Calibrate KV cache by trying f16 → q8_0 → q4_0.
+
+    Returns (kv_quant, success). kv_quant is None for f16.
+    """
+    variants = [
+        (None, "f16"),
+        ("q8_0", "q8_0"),
+        ("q4_0", "q4_0"),
+    ]
+    for kv_quant, label in variants:
+        print(f"    {label}... ", end="", flush=True)
+        success, msg = _try_start_model(
+            server_bin, gguf_path, context, gpu_flags, kv_quant, mmproj_path,
+        )
+        print(msg)
+        if success:
+            return kv_quant, True
+
+    return None, False
 
 
 def build_gpu_flags(gguf_path: Path, per_gpu_vram: list[int]) -> str:
@@ -674,29 +764,28 @@ def append_models_to_yaml(
     else:
         content = "models:\n"
 
-    # Query GPU info once for all models
-    total_vram_mb = get_total_vram_mb()
-    per_gpu_vram = get_per_gpu_vram_mb()
-
     # Build all new model blocks first
+    # Models must have calibrated_context, calibrated_gpu_flags, calibrated_kv_quant
+    # set by calibrate_kv_cache() before calling this function.
     added = 0
     new_blocks = ""
     for model in new_models:
         name = model["name"]
-        # Use the symlink path itself (not resolved), so the YAML points to ~/models/Name.gguf
         path = model["path"].absolute()
-        context = get_native_context(model["path"])
+        context = model["calibrated_context"]
         mmproj = model.get("mmproj_path")
+        kv_quant = model["calibrated_kv_quant"]
+        gpu_flags = model["calibrated_gpu_flags"]
 
-        # Choose KV cache quant based on model size vs total VRAM
-        kv_quant = choose_kv_cache_quant(model["path"], total_vram_mb)
-        flags = f"-ctk {kv_quant} -ctv {kv_quant} {DEFAULT_FLAGS_BASE}"
+        if kv_quant:
+            flags = f"-ctk {kv_quant} -ctv {kv_quant} {DEFAULT_FLAGS_BASE}"
+        else:
+            flags = DEFAULT_FLAGS_BASE
 
-        # Choose GPU distribution (single vs tensor-split)
-        gpu_flags = build_gpu_flags(model["path"], per_gpu_vram)
         if gpu_flags:
             flags = f"{gpu_flags} {flags}"
 
+        kv_label = f", KV: {kv_quant}" if kv_quant else ""
         if mmproj:
             cmd_line = (
                 f"{server_bin} --port ${{PORT}} "
@@ -704,14 +793,14 @@ def append_models_to_yaml(
                 f"--mmproj {mmproj.absolute()} "
                 f"-ngl {DEFAULT_NGL} -c {context} {flags}"
             )
-            print(f"  + Added: {name} (VL, context: {context:,}, mmproj: {mmproj.name})")
+            print(f"  + Added: {name} (VL, context: {context:,}{kv_label}, mmproj: {mmproj.name})")
         else:
             cmd_line = (
                 f"{server_bin} --port ${{PORT}} "
                 f"--model {path} "
                 f"-ngl {DEFAULT_NGL} -c {context} {flags}"
             )
-            print(f"  + Added: {name} (native context: {context:,})")
+            print(f"  + Added: {name} (context: {context:,}{kv_label})")
 
         new_blocks += f"  {name}:\n"
         new_blocks += f"    cmd: {cmd_line}\n"
@@ -1214,13 +1303,43 @@ def main() -> None:
         new_models = compatible_models
         print()
 
-        # Step 4: Add to llama-swap config
+        # Step 4: KV cache calibration — try f16, fall back to q8_0, then q4_0
+        if new_models:
+            print("Calibrating KV cache for new models...")
+            per_gpu_vram = get_per_gpu_vram_mb()
+            calibrated_models = []
+            for model in new_models:
+                context = get_native_context(model["path"])
+                gpu_flags = build_gpu_flags(model["path"], per_gpu_vram)
+                mmproj = model.get("mmproj_path")
+
+                print(f"  {model['name']} (context: {context:,}):")
+                kv_quant, success = calibrate_kv_cache(
+                    server_bin, model["path"], context, gpu_flags, mmproj,
+                )
+                if success:
+                    model["calibrated_kv_quant"] = kv_quant
+                    model["calibrated_context"] = context
+                    model["calibrated_gpu_flags"] = gpu_flags
+                    calibrated_models.append(model)
+                    label = "f16" if kv_quant is None else kv_quant
+                    print(f"    → Using {label} KV cache")
+                else:
+                    print(
+                        f"    ✗ Doesn't fit in VRAM even with q4_0 "
+                        f"at {context:,} context — skipping"
+                    )
+
+            new_models = calibrated_models
+            print()
+
+        # Step 5: Add to llama-swap config
         if new_models:
             print("Updating llama-swap-config.yaml...")
             yaml_added = append_models_to_yaml(LLAMASWAP_CONFIG, new_models, server_bin)
             config_changed = True
 
-            # Step 5: Update VRAM cache
+            # Step 6: Update VRAM cache
             print("Updating VRAM cache...")
             cache_added = update_vram_cache(new_models)
             print()
