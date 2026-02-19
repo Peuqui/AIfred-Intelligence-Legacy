@@ -684,9 +684,10 @@ def update_groups_in_yaml(config_path: Path) -> None:
     content += (
         "\ngroups:\n"
         "  main:\n"
+        "    exclusive: true\n"
+        "    swap: true\n"
         "    members:\n"
         f"{members_yaml}\n"
-        "    swap: true\n"
     )
 
     config_path.write_text(content)
