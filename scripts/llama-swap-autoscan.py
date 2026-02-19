@@ -564,7 +564,9 @@ def append_models_to_yaml(
     else:
         content = "models:\n"
 
+    # Build all new model blocks first
     added = 0
+    new_blocks = ""
     for model in new_models:
         name = model["name"]
         # Use the symlink path itself (not resolved), so the YAML points to ~/models/Name.gguf
@@ -588,12 +590,20 @@ def append_models_to_yaml(
             )
             print(f"  + Added: {name} (native context: {context:,})")
 
-        # Append YAML block
-        content += f"  {name}:\n"
-        content += f"    cmd: {cmd_line}\n"
-        content += f"    ttl: {DEFAULT_TTL}\n"
+        new_blocks += f"  {name}:\n"
+        new_blocks += f"    cmd: {cmd_line}\n"
+        new_blocks += f"    ttl: {DEFAULT_TTL}\n"
 
         added += 1
+
+    # Insert before groups: section (if present) so update_groups_in_yaml
+    # doesn't accidentally delete newly added models via its EOF regex.
+    groups_match = re.search(r'^groups:', content, re.MULTILINE)
+    if groups_match:
+        insert_pos = groups_match.start()
+        content = content[:insert_pos] + new_blocks + content[insert_pos:]
+    else:
+        content += new_blocks
 
     config_path.write_text(content)
     return added
