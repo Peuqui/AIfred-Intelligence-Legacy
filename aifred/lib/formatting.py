@@ -255,17 +255,26 @@ def build_inference_metadata(
     }
 
     # --- Metadata display string (for chat bubble) ---
-    display_parts: list[str] = []
+    # Split into speed metrics (no wrap) and info (wrap allowed before)
+    perf_parts: list[str] = []
+    info_parts: list[str] = []
     if ttft:
-        display_parts.append(f"TTFT: {format_number(ttft, 2)}s")
+        perf_parts.append(f"TTFT: {format_number(ttft, 2)}s")
     if prompt_per_sec:
-        display_parts.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
-    display_parts.append(f"{format_number(tokens_per_sec, 1)} tok/s")
-    display_parts.append(f"Inference: {format_number(inference_time, 1)}s")
+        perf_parts.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
+    perf_parts.append(f"{format_number(tokens_per_sec, 1)} tok/s")
+    info_parts.append(f"Inference: {format_number(inference_time, 1)}s")
     # Source with backend label (e.g. "Own Knowledge (model) [llamacpp]")
     source_display = f"{source} [{backend_type}]" if backend_type else source
-    display_parts.append(f"Source: {source_display}")
-    metadata_display = format_metadata("    ".join(display_parts))
+    info_parts.append(f"Source: {source_display}")
+    # Within groups: "    " → non-breaking spaces (no wrap)
+    # Between groups: 3 nbsp + regular space → allows line break on mobile
+    groups = []
+    if perf_parts:
+        groups.append("    ".join(perf_parts))
+    if info_parts:
+        groups.append("    ".join(info_parts))
+    metadata_display = format_metadata("\u00A0\u00A0\u00A0 ".join(groups))
 
     # --- Debug "done" message ---
     if backend_type == "cloud_api" and tokens_prompt > 0:

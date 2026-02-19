@@ -2057,38 +2057,46 @@ class AIState(rx.State):
 
         from .lib.formatting import format_number
 
-        parts = []
+        # Split into speed metrics (no wrap) and info (wrap allowed before)
+        perf_parts = []
+        info_parts = []
 
         # TTFT (Time To First Token)
         if "ttft" in metadata and metadata["ttft"]:
-            parts.append(f"TTFT: {format_number(metadata['ttft'], 2)}s")
+            perf_parts.append(f"TTFT: {format_number(metadata['ttft'], 2)}s")
 
         # PP speed (prompt processing)
         prompt_per_sec = metadata.get("prompt_per_sec", 0)
         if prompt_per_sec:
-            parts.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
+            perf_parts.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
 
         # Tokens per second (generation)
         if "tokens_per_sec" in metadata and metadata["tokens_per_sec"]:
-            parts.append(f"{format_number(metadata['tokens_per_sec'], 1)} tok/s")
+            perf_parts.append(f"{format_number(metadata['tokens_per_sec'], 1)} tok/s")
 
         # Inference time
         if "inference_time" in metadata and metadata["inference_time"]:
-            parts.append(f"Inference: {format_number(metadata['inference_time'], 1)}s")
+            info_parts.append(f"Inference: {format_number(metadata['inference_time'], 1)}s")
 
         # Source (with backend label if available)
         if "source" in metadata and metadata["source"]:
             source = metadata["source"]
             backend = metadata.get("backend_type", "")
             source_display = f"{source} [{backend}]" if backend else source
-            parts.append(f"Source: {source_display}")
+            info_parts.append(f"Source: {source_display}")
 
-        if not parts:
+        if not perf_parts and not info_parts:
             return ""
 
-        # Join with 4 spaces (will be converted to non-breaking spaces by format_metadata)
         from .lib.formatting import format_metadata
-        metadata_text = "    ".join(parts)
+        # Within groups: "    " → non-breaking spaces (no wrap)
+        # Between groups: 3 nbsp + regular space → allows line break on mobile
+        groups = []
+        if perf_parts:
+            groups.append("    ".join(perf_parts))
+        if info_parts:
+            groups.append("    ".join(info_parts))
+        metadata_text = "\u00A0\u00A0\u00A0 ".join(groups)
         return format_metadata(metadata_text)
 
     def _sync_to_llm_history(self, agent: str, content: str) -> None:
@@ -5333,7 +5341,7 @@ class AIState(rx.State):
             }
 
             # Timeout: Title generation runs AFTER is_generating=False.
-            # Long blocking here prevents the UI from receiving subsequent yields.
+            # Large models (120B+) need significant PP time even for short prompts.
             import asyncio
             response = await asyncio.wait_for(
                 llm_client.chat(
@@ -5341,7 +5349,7 @@ class AIState(rx.State):
                     messages=messages,
                     options=options
                 ),
-                timeout=15.0
+                timeout=30.0
             )
 
             # Extract and clean title - strip thinking blocks first!
@@ -5366,9 +5374,11 @@ class AIState(rx.State):
         except asyncio.TimeoutError:
             log_message("⚠️ Title generation timed out (>15s) - skipping")
             self.add_debug("⚠️ Session title: Timeout (>15s)")
+            self.add_debug("────────────────────")
         except Exception as e:
             log_message(f"⚠️ Title generation failed: {e}")
-            # Non-critical - don't raise, just log
+            self.add_debug(f"⚠️ Session title failed: {e}")
+            self.add_debug("────────────────────")
 
     def _get_backend_url(self) -> str:
         """Get current backend URL based on backend_type."""
