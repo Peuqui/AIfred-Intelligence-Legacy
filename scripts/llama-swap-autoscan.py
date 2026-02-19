@@ -158,7 +158,7 @@ def build_gpu_flags(gguf_path: Path, per_gpu_vram: list[int]) -> str:
         f"(model {gguf_size_mb:.0f} MB = {ratio:.0%} of largest {largest_gpu_mb} MB, "
         f"total {total_vram_mb} MB)"
     )
-    return f"-sm layer --tensor-split {split_str} -fit off"
+    return f"-sm layer --tensor-split {split_str} -fit off -b 512 -ub 256"
 
 
 # ---------------------------------------------------------------------------

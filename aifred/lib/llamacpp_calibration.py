@@ -604,12 +604,13 @@ async def _wait_for_ready(
 async def _test_inference(
     port: int,
     process: subprocess.Popen,
-    timeout: float = 30.0,
+    timeout: float = 120.0,
 ) -> bool:
     """Test actual inference — health check alone is insufficient.
 
     On tight VRAM, the server starts and passes health checks but crashes
     on the first real request due to additional CUDA kernel allocations.
+    Timeout is generous (120s) because thinking models reason before responding.
     """
     url = f"http://localhost:{port}/v1/chat/completions"
     payload = {
@@ -623,10 +624,12 @@ async def _test_inference(
             response = await client.post(url, json=payload, timeout=timeout)
             if response.status_code == 200:
                 data = response.json()
-                # Verify we got actual content back
+                # Verify we got actual content back (thinking models use reasoning_content)
                 choices = data.get("choices", [])
-                if choices and choices[0].get("message", {}).get("content"):
-                    return True
+                if choices:
+                    msg = choices[0].get("message", {})
+                    if msg.get("content") or msg.get("reasoning_content"):
+                        return True
         return False
     except Exception:
         # Process may have crashed during inference
