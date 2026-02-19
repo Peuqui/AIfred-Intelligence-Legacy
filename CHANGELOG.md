@@ -5,6 +5,24 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.41.1] - 2026-02-19 📊 Tensor Split Benchmark & Metadata-Fix
+
+### Added
+
+- **Tensor Split Benchmark** - Real-world performance comparison between aggressive (11:1) and balanced (2:1) tensor split on Qwen3-Next-80B across RTX 8000 + P40
+  - Markdown documentation: [docs/tensor-split-benchmark.md](docs/tensor-split-benchmark.md)
+  - Interactive HTML showcase: [docs/examples/Benchmark_Tensor_Split_EN.html](docs/examples/Benchmark_Tensor_Split_EN.html)
+  - Added to GitHub Pages showcase index with new "Performance & Benchmarks" section
+  - Key finding: 10–15% faster generation in R1 with aggressive split, shrinking to ~4% in R2; PP ~2% faster with balanced split
+
+### Fixed
+
+- **Metadata display order** - Unified across all response paths (direct, tribunal, consensus): TTFT → PP → tok/s → Inference → Source
+  - Fixed in `state.py:_format_panel_metadata` (Sokrates, Salomo, AIfred refinement panels)
+  - Fixed in `formatting.py:build_inference_metadata` (direct response path)
+
+---
+
 ## [2.41.0] - 2026-02-19 🛡️ VMM-sichere VRAM-Kalibration
 
 ### Changed

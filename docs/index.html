@@ -282,6 +282,32 @@
             <a class="btn" href="examples/Coding.html">View Full Chat</a>
         </div>
 
+        <div class="section-title">Performance & Benchmarks</div>
+
+        <div class="example-card">
+            <h2>Tensor Split Benchmark: Speed vs. Full Context</h2>
+            <p>
+                <strong>Does aggressive GPU placement matter?</strong> When running a 46.6 GB model across two
+                unequal GPUs (RTX 8000 + Tesla P40), the tensor split ratio determines how much computation
+                happens on the fast vs. slow GPU. This benchmark compares a balanced 2:1 split (full 262K context)
+                against an aggressive 11:1 split (32K context, 92% on the fast GPU).
+            </p>
+            <p>
+                Measured through a real 6-turn AIfred tribunal debate ("Is water wet?") with 3 agents across
+                2 rounds. Results: <strong>10&ndash;15% faster generation in Round 1</strong>, shrinking to ~4% in
+                Round 2. Prompt processing is ~2% <em>slower</em> with aggressive split. Total wall-clock
+                time: 10 seconds saved (113s vs 124s). Zero quality difference.
+            </p>
+            <div class="tags">
+                <span class="tag tag-orange">Benchmark</span>
+                <span class="tag">Multi-GPU</span>
+                <span class="tag">Tensor Split</span>
+                <span class="tag tag-green">Qwen3-Next:80B Local</span>
+            </div>
+            <a class="btn" href="examples/Benchmark_Tensor_Split_EN.html">View Full Benchmark</a>
+            <a class="btn btn-secondary" href="https://github.com/Peuqui/AIfred-Intelligence/blob/main/docs/tensor-split-benchmark.md">Raw Data (Markdown)</a>
+        </div>
+
         <div class="section-title">Web Research</div>
 
         <div class="example-card">

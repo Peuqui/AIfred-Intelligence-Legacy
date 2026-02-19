@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIfred Benchmark - Tensor Split: Speed vs. Full Context</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #1f2937;
+            --text-primary: #e5e7eb;
+            --text-secondary: #9ca3af;
+            --accent-gold: #d4af37;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-orange: #f59e0b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+            line-height: 1.7;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        .container { max-width: 960px; margin: 0 auto; }
+        h1 { color: var(--accent-gold); font-size: 2rem; margin-bottom: 0.5rem; }
+        h2 { color: var(--accent-blue); font-size: 1.5rem; margin: 2.5rem 0 1rem; border-bottom: 1px solid #374151; padding-bottom: 0.5rem; }
+        h3 { color: var(--text-primary); font-size: 1.2rem; margin: 1.5rem 0 0.75rem; }
+        p { margin-bottom: 1rem; }
+        a { color: var(--accent-blue); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .meta { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 2rem; }
+        .meta span { margin-right: 2rem; }
+        hr { border: none; border-top: 1px solid #374151; margin: 2rem 0; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; background: var(--bg-card); border-radius: 8px; overflow: hidden; font-size: 0.92rem; }
+        th, td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid #374151; }
+        th { background: #374151; color: var(--accent-gold); font-weight: 600; }
+        tr:last-child td { border-bottom: none; }
+        .faster { color: var(--accent-green); font-weight: 600; }
+        .slower { color: var(--accent-red); font-weight: 600; }
+        .neutral { color: var(--text-secondary); }
+        .highlight { background: linear-gradient(120deg, rgba(212,175,55,0.2) 0%, rgba(212,175,55,0.1) 100%); padding: 1.25rem; border-radius: 8px; margin: 1.5rem 0; }
+        .highlight-blue { background: linear-gradient(120deg, rgba(59,130,246,0.15) 0%, rgba(59,130,246,0.05) 100%); padding: 1.25rem; border-radius: 8px; margin: 1.5rem 0; }
+        .config-box { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
+        .config-card { flex: 1; min-width: 280px; background: var(--bg-card); border-radius: 10px; padding: 1.25rem; border-top: 3px solid; }
+        .config-speed { border-color: var(--accent-orange); }
+        .config-normal { border-color: var(--accent-blue); }
+        .config-card h4 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+        .config-speed h4 { color: var(--accent-orange); }
+        .config-normal h4 { color: var(--accent-blue); }
+        .config-card code { background: #374151; padding: 0.15rem 0.4rem; border-radius: 3px; font-family: 'Consolas', monospace; font-size: 0.85rem; }
+        .config-card ul { list-style: none; margin: 0; padding: 0; }
+        .config-card li { padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.9rem; }
+        .config-card li strong { color: var(--text-primary); }
+        .calibration-steps { background: var(--bg-card); border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0; font-family: 'Consolas', monospace; font-size: 0.88rem; line-height: 1.9; }
+        .cal-fail { color: var(--accent-red); }
+        .cal-pass { color: var(--accent-green); }
+        .cal-selected { color: var(--accent-gold); font-weight: bold; }
+        .finding { background: var(--bg-card); border-radius: 10px; padding: 1.25rem; margin: 1rem 0; border-left: 4px solid var(--accent-blue); }
+        .finding h4 { color: var(--accent-blue); margin-bottom: 0.5rem; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+        .summary-stat { background: var(--bg-card); border-radius: 10px; padding: 1.25rem; text-align: center; }
+        .summary-stat .value { font-size: 1.8rem; font-weight: 700; margin: 0.5rem 0 0.25rem; }
+        .summary-stat .label { color: var(--text-secondary); font-size: 0.85rem; }
+        .summary-stat .sub { color: var(--text-secondary); font-size: 0.8rem; }
+        .value-green { color: var(--accent-green); }
+        .value-orange { color: var(--accent-orange); }
+        .value-blue { color: var(--accent-blue); }
+        .value-red { color: var(--accent-red); }
+        blockquote { background: #374151; border-left: 4px solid var(--accent-blue); padding: 1rem; margin: 1rem 0; border-radius: 0 8px 8px 0; font-style: italic; }
+        ul, ol { margin: 0.5rem 0 1rem 1.5rem; }
+        li { margin-bottom: 0.4rem; }
+        strong { color: var(--accent-gold); }
+        .footer { text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #374151; color: var(--text-secondary); }
+        .footer a { color: var(--accent-gold); }
+        @media (max-width: 600px) {
+            body { padding: 1rem; }
+            .config-box { flex-direction: column; }
+            .summary-grid { grid-template-columns: 1fr 1fr; }
+            table { font-size: 0.82rem; }
+            th, td { padding: 0.4rem 0.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Tensor Split Benchmark</h1>
+        <p style="color: var(--accent-gold); font-size: 1.15rem; margin-bottom: 0.5rem;">Speed Variant (11:1) vs. Full Context (2:1)</p>
+
+        <div class="meta">
+            <span><strong>Date:</strong> February 19, 2026</span>
+            <span><strong>Model:</strong> Qwen3-Next-80B-A3B Q4_K_M</span>
+            <span><strong>Mode:</strong> Auto-Consensus (2 rounds, 6 turns)</span>
+        </div>
+
+        <hr>
+
+        <h2>What This Benchmark Measures</h2>
+        <p>
+            When running large language models across two GPUs of different speeds, the
+            <em>tensor split ratio</em> determines how much of the model sits on each GPU.
+            A balanced split (2:1) maximizes available context but forces every token through
+            the slower GPU. An aggressive split (11:1) keeps almost everything on the fast GPU
+            but limits context size.
+        </p>
+        <p>
+            This benchmark compares both configurations in a real-world AIfred multi-agent tribunal:
+            3 agents (AIfred, Sokrates, Salomo) debating the same philosophical question across
+            2 rounds &mdash; identical prompt, identical model weights, different tensor placement.
+        </p>
+
+        <h2>Hardware & Configuration</h2>
+
+        <table>
+            <tr><th>Component</th><th>Specification</th></tr>
+            <tr><td>GPU 0 (CUDA0)</td><td>Quadro RTX 8000 &mdash; 48 GB GDDR6, 672 GB/s bandwidth</td></tr>
+            <tr><td>GPU 1 (CUDA1)</td><td>Tesla P40 &mdash; 24 GB GDDR5X, 346 GB/s bandwidth</td></tr>
+            <tr><td>Interconnect</td><td>PCIe 3.0 x16 (CPU&harr;GPU0), PCIe 3.0 x4 eGPU (GPU1)</td></tr>
+            <tr><td>Model</td><td>Qwen3-Next-80B-A3B-Instruct Q4_K_M (46.6 GB, 48 layers, 512 experts / 10 active)</td></tr>
+            <tr><td>llama.cpp</td><td>v8076, CUDA Graphs enabled</td></tr>
+            <tr><td>Test prompt</td><td>"Ist Wasser nass?" (Is water wet?) &mdash; 6-turn multi-agent debate</td></tr>
+        </table>
+
+        <div class="config-box">
+            <div class="config-card config-speed">
+                <h4>Speed Variant (11:1)</h4>
+                <ul>
+                    <li><strong>Tensor split:</strong> <code>-ts 11,1</code> (92% on RTX 8000)</li>
+                    <li><strong>Context:</strong> <code>-c 32768</code></li>
+                    <li><strong>KV cache:</strong> <code>-ctk q4_0 -ctv q4_0</code></li>
+                    <li><strong>VRAM:</strong> 52 GB (35.3 + 16.8 GB)</li>
+                </ul>
+            </div>
+            <div class="config-card config-normal">
+                <h4>Normal / Full Context (2:1)</h4>
+                <ul>
+                    <li><strong>Tensor split:</strong> <code>-ts 2,1</code> (67% on RTX 8000)</li>
+                    <li><strong>Context:</strong> <code>-c 262144</code> (native max)</li>
+                    <li><strong>KV cache:</strong> <code>-ctk q4_0 -ctv q4_0</code></li>
+                    <li><strong>VRAM:</strong> ~65 GB (balanced)</li>
+                </ul>
+            </div>
+        </div>
+
+        <h3>How 11:1 Was Found</h3>
+        <p>AIfred's calibration system uses binary search to find the maximum tensor split that still fits in VRAM at 32K context:</p>
+        <div class="calibration-steps">
+            <span class="cal-fail">[1] 99:1 &rarr; failed</span> &nbsp;&nbsp;
+            <span class="cal-fail">[2] 50:1 &rarr; failed</span> &nbsp;&nbsp;
+            <span class="cal-fail">[3] 26:1 &rarr; failed</span> &nbsp;&nbsp;
+            <span class="cal-fail">[4] 14:1 &rarr; failed</span><br>
+            <span class="cal-pass">[5] &nbsp;8:1 &rarr; fits</span> &nbsp;&nbsp;&nbsp;
+            <span class="cal-selected">[6] 11:1 &rarr; fits &larr; SELECTED</span> &nbsp;&nbsp;
+            <span class="cal-fail">[7] 12:1 &rarr; failed</span>
+        </div>
+
+        <hr>
+
+        <h2>Results at a Glance</h2>
+
+        <div class="summary-grid">
+            <div class="summary-stat">
+                <div class="label">Generation Speed (R1)</div>
+                <div class="value value-green">+13.4%</div>
+                <div class="sub">33.1 vs 29.2 tok/s</div>
+            </div>
+            <div class="summary-stat">
+                <div class="label">Generation Speed (R2)</div>
+                <div class="value value-orange">+4.3%</div>
+                <div class="sub">21.7 vs 20.8 tok/s</div>
+            </div>
+            <div class="summary-stat">
+                <div class="label">Prompt Processing</div>
+                <div class="value value-red">-2.2%</div>
+                <div class="sub">327 vs 335 tok/s</div>
+            </div>
+            <div class="summary-stat">
+                <div class="label">Total Wall-Clock</div>
+                <div class="value value-green">-8.2%</div>
+                <div class="sub">113.5s vs 123.6s</div>
+            </div>
+        </div>
+
+        <h2>Detailed Per-Turn Comparison</h2>
+
+        <h3>Round 1 &mdash; Initial Responses</h3>
+        <table>
+            <tr>
+                <th>Turn</th>
+                <th>Metric</th>
+                <th style="color: var(--accent-orange)">Speed (11:1)</th>
+                <th style="color: var(--accent-blue)">Normal (2:1)</th>
+                <th>Delta</th>
+            </tr>
+            <tr><td rowspan="4"><strong>AIfred</strong></td>
+                <td>TTFT</td><td>3.89s</td><td>3.86s</td><td class="neutral">+0.8%</td></tr>
+            <tr><td>PP</td><td>310.1 tok/s</td><td>312.5 tok/s</td><td class="neutral">-0.8%</td></tr>
+            <tr><td>Gen tok/s</td><td>33.4</td><td>29.0</td><td class="faster">+15.2%</td></tr>
+            <tr><td>Inference</td><td>9.6s</td><td>10.5s</td><td class="faster">-8.6%</td></tr>
+
+            <tr><td rowspan="4"><strong>Sokrates</strong></td>
+                <td>TTFT</td><td>8.39s</td><td>8.16s</td><td class="neutral">+2.8%</td></tr>
+            <tr><td>PP</td><td>319.0 tok/s</td><td>325.9 tok/s</td><td class="neutral">-2.1%</td></tr>
+            <tr><td>Gen tok/s</td><td>35.0</td><td>30.2</td><td class="faster">+15.9%</td></tr>
+            <tr><td>Inference</td><td>22.9s</td><td>25.2s</td><td class="faster">-9.1%</td></tr>
+
+            <tr><td rowspan="4"><strong>Salomo</strong></td>
+                <td>TTFT</td><td>7.76s</td><td>7.33s</td><td class="neutral">+5.9%</td></tr>
+            <tr><td>PP</td><td>331.3 tok/s</td><td>343.3 tok/s</td><td class="slower">-3.5%</td></tr>
+            <tr><td>Gen tok/s</td><td>30.9</td><td>28.3</td><td class="faster">+9.2%</td></tr>
+            <tr><td>Inference</td><td>17.7s</td><td>19.7s</td><td class="faster">-10.2%</td></tr>
+        </table>
+
+        <h3>Round 2 &mdash; Refinement, Critical Review, Synthesis</h3>
+        <table>
+            <tr>
+                <th>Turn</th>
+                <th>Metric</th>
+                <th style="color: var(--accent-orange)">Speed (11:1)</th>
+                <th style="color: var(--accent-blue)">Normal (2:1)</th>
+                <th>Delta</th>
+            </tr>
+            <tr><td rowspan="4"><strong>AIfred R2</strong></td>
+                <td>TTFT</td><td>11.57s</td><td>11.30s</td><td class="neutral">+2.4%</td></tr>
+            <tr><td>PP</td><td>334.2 tok/s</td><td>339.3 tok/s</td><td class="neutral">-1.5%</td></tr>
+            <tr><td>Gen tok/s</td><td>18.8</td><td>20.5</td><td class="slower">-8.3%</td></tr>
+            <tr><td>Inference</td><td>17.6s</td><td>21.0s</td><td class="faster">-16.2%</td></tr>
+
+            <tr><td rowspan="4"><strong>Sokrates R2</strong></td>
+                <td>TTFT</td><td>13.14s</td><td>13.10s</td><td class="neutral">+0.3%</td></tr>
+            <tr><td>PP</td><td>333.0 tok/s</td><td>338.3 tok/s</td><td class="neutral">-1.6%</td></tr>
+            <tr><td>Gen tok/s</td><td>27.2</td><td>20.8</td><td class="faster">+30.6%</td></tr>
+            <tr><td>Inference</td><td>26.5s</td><td>24.9s</td><td class="slower">+6.4%</td></tr>
+
+            <tr><td rowspan="4"><strong>Salomo R2</strong></td>
+                <td>TTFT</td><td>12.47s</td><td>11.65s</td><td class="neutral">+7.0%</td></tr>
+            <tr><td>PP</td><td>336.3 tok/s</td><td>347.7 tok/s</td><td class="slower">-3.3%</td></tr>
+            <tr><td>Gen tok/s</td><td>19.2</td><td>21.2</td><td class="slower">-9.4%</td></tr>
+            <tr><td>Inference</td><td>19.2s</td><td>22.3s</td><td class="faster">-13.9%</td></tr>
+        </table>
+
+        <h2>Session Totals</h2>
+        <table>
+            <tr>
+                <th>Metric</th>
+                <th style="color: var(--accent-orange)">Speed (11:1)</th>
+                <th style="color: var(--accent-blue)">Normal (2:1)</th>
+                <th>Delta</th>
+            </tr>
+            <tr><td>Total inference time</td><td>113.5s</td><td>123.6s</td><td class="faster">-8.2%</td></tr>
+            <tr><td>Total tokens generated</td><td>3,087</td><td>3,044</td><td class="neutral">+1.4%</td></tr>
+            <tr><td>Effective throughput</td><td>27.2 tok/s</td><td>24.6 tok/s</td><td class="faster">+10.6%</td></tr>
+            <tr><td>Average PP</td><td>327.3 tok/s</td><td>334.5 tok/s</td><td class="slower">-2.2%</td></tr>
+            <tr><td>Context utilization</td><td>11% of 32K</td><td>1% of 262K</td><td class="neutral">&mdash;</td></tr>
+        </table>
+
+        <hr>
+
+        <h2>Key Findings</h2>
+
+        <div class="finding">
+            <h4>1. Generation is 10&ndash;15% faster with aggressive split &mdash; in Round 1</h4>
+            <p>With small context, every generated token benefits from having 92% of model layers
+            on the faster RTX 8000 (672 GB/s) instead of routing through the P40 (346 GB/s).
+            R1 average: 33.1 vs 29.2 tok/s.</p>
+        </div>
+
+        <div class="finding">
+            <h4>2. The advantage shrinks in Round 2 (~4%)</h4>
+            <p>As the conversation grows, attention over accumulated KV cache becomes the dominant
+            cost. R2 shows higher variance (18.8&ndash;27.2 tok/s) suggesting that output length and
+            content complexity matter more than tensor placement at these context sizes.</p>
+        </div>
+
+        <div class="finding">
+            <h4>3. Prompt processing is ~2% faster with balanced split</h4>
+            <p>PP benefits from parallel KV cache writes across both GPUs. With 11:1, 92% of the
+            KV cache must be written to one GPU, creating a memory bandwidth bottleneck during
+            prompt ingestion. The effect is small but consistent.</p>
+        </div>
+
+        <div class="finding">
+            <h4>4. Inference time &ne; generation speed</h4>
+            <p>Shorter wall-clock inference does not always mean higher tok/s. Example: AIfred R2
+            speed variant finishes in 17.6s (332 tokens, 18.8 tok/s) vs normal in 21.0s (430 tokens,
+            20.5 tok/s). The speed variant was faster in wall-clock because it generated
+            <strong>fewer tokens</strong> &mdash; not because it generated them faster. The model
+            is nondeterministic, so output length varies between runs. Always compare tok/s
+            (throughput) rather than inference time when evaluating hardware configurations.</p>
+        </div>
+
+        <h2>When to Use Which</h2>
+        <table>
+            <tr><th>Use Case</th><th>Recommended</th><th>Reason</th></tr>
+            <tr><td>Short conversations (&lt;8K context)</td><td style="color: var(--accent-orange)">Speed (11:1)</td><td>10&ndash;15% faster generation</td></tr>
+            <tr><td>Multi-turn tribunal (typical)</td><td style="color: var(--accent-orange)">Speed (11:1)</td><td>~10% faster overall, 32K is sufficient</td></tr>
+            <tr><td>Long conversations (&gt;32K tokens)</td><td style="color: var(--accent-blue)">Normal (2:1)</td><td>Speed variant would truncate history</td></tr>
+            <tr><td>RAG with large documents</td><td style="color: var(--accent-blue)">Normal (2:1)</td><td>Full context needed for retrieval</td></tr>
+        </table>
+
+        <div class="highlight">
+            <strong>Rule of thumb:</strong> Use the speed variant by default. Switch to normal
+            only when you actually need &gt;32K context tokens. AIfred's calibration system
+            creates both configurations automatically and selects based on context requirements.
+        </div>
+
+        <hr>
+
+        <div class="footer">
+            <p>
+                <a href="../index.html">&larr; Back to Showcase</a> &nbsp;&bull;&nbsp;
+                <a href="https://github.com/Peuqui/AIfred-Intelligence">GitHub Repository</a> &nbsp;&bull;&nbsp;
+                <a href="../llamacpp-setup.html">llama.cpp Setup Guide</a>
+            </p>
+            <p style="margin-top: 0.75rem; font-size: 0.85rem;">
+                Generated from AIfred session data. Sessions: <code>a903c6f6</code> (speed) and <code>0adf7397</code> (normal).
+            </p>
+        </div>
+    </div>
+</body>
+</html>

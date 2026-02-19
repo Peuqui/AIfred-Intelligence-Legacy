@@ -248,6 +248,10 @@ KV cache quantization (`-ctk q8_0 -ctv q8_0`) saves an additional ~50% KV VRAM.
 
 ### Benchmark: Tensor Split Optimization (2026-02-18)
 
+> **Real-world benchmark:** See [tensor-split-benchmark.md](tensor-split-benchmark.md) for a
+> full AIfred multi-agent tribunal comparison between aggressive (11:1) and balanced (2:1) split
+> on Qwen3-Next-80B-A3B-Instruct.
+
 **Hardware:** RTX 8000 (CUDA0, 46 GB) + Tesla P40 (CUDA1, 24 GB), `CUDA_DEVICE_ORDER=FASTEST_FIRST`
 **Model:** Qwen3-32B Q4_K_M (18.8 GB)
 **Tool:** `llama-bench` (llama.cpp v8076)

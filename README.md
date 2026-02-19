@@ -2039,6 +2039,8 @@ More documentation in the `docs/` directory:
 - [Architecture Overview](docs/architecture/)
 - [API Documentation](docs/api/)
 - [Migration Guide](docs/infrastructure/MIGRATION.md)
+- [llama.cpp + llama-swap Setup Guide](docs/llamacpp-setup.md)
+- [Tensor Split Benchmark: Speed vs. Full Context](docs/tensor-split-benchmark.md)
 
 ---
 
