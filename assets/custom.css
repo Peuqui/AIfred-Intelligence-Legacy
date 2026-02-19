@@ -530,8 +530,8 @@ div em {
     }
 
     #debug-console-box {
-        height: 800px !important;  /* Mobile: feste Höhe */
-        min-height: 800px !important;
+        height: 70vh !important;  /* Mobile: 70% des Viewports */
+        min-height: 70vh !important;
         flex: none !important;
     }
 }
