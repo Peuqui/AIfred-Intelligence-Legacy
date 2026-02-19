@@ -476,10 +476,11 @@ def parse_existing_yaml_models(config_path: Path) -> set[str]:
 
 
 def find_new_models(all_ggufs: list[dict], existing_models: set[str]) -> list[dict]:
-    """Find GGUFs that are not yet in the llama-swap config."""
+    """Find GGUFs that are not yet in the llama-swap config (case-insensitive)."""
+    existing_lower = {name.lower() for name in existing_models}
     new = []
     for gguf in all_ggufs:
-        if gguf["name"] not in existing_models:
+        if gguf["name"].lower() not in existing_lower:
             new.append(gguf)
     return new
 
