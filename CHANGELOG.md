@@ -5,6 +5,26 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.41.0] - 2026-02-19 🛡️ VMM-sichere VRAM-Kalibration
+
+### Changed
+
+- **Kalibration: pynvml statt Breakdown für VRAM-Messung** - `_test_context_physical()` misst jetzt GPU-weiten freien VRAM via pynvml (nvidia-smi) statt llama.cpp-internem Breakdown (`free` dort ist immer 0)
+  - Sofortige Messung nach Server-Start (kein Settle-Delay nötig — Delta <15 MB verifiziert)
+  - Breakdown wird nur noch als Diagnose-Info geloggt (self + unaccounted)
+- **Plattform-abhängige VRAM Safety Margin** - Neue Konstante `LLAMACPP_VRAM_SAFETY_MARGIN` ersetzt `VRAM_SAFETY_MARGIN` in der llama.cpp-Kalibration
+  - WSL2/Windows (WDDM): 1536 MB — WDDM swappt VRAM still ins System-RAM (7x Slowdown)
+  - Natives Linux: 512 MB — `cudaMalloc` gibt OOM zurück, kein stilles Swapping
+  - Automatische Erkennung via `platform.release()` (WSL2) und `os.name` (Windows)
+  - Gemessen auf WSL2 RTX 3090 Ti: 512 MB → 70 tok/s, 1024 MB → marginal, 1536 MB → 137 tok/s
+- **Plattform-Logging beim Start** - OS/Kernel und WDDM-Status werden in Debug-Log und Konsole geloggt
+
+### Fixed
+
+- **VMM Overallocation Detection** - `_check_vram_physical_fit()` prüft jetzt `free < margin` statt `self > total` — erkennt Fälle wo "unaccounted" VRAM (~4 GB für CUDA-Runtime, Display, Treiber) via VMM verdrängt wird
+
+---
+
 ## [2.40.0] - 2026-02-19 🚀 Projektionsbasierte Kalibration & Settings-Guard
 
 ### Changed

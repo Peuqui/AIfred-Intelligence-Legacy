@@ -29,12 +29,13 @@ from .config import (
     CALIBRATION_MIN_CONTEXT,
     LLAMACPP_CALIBRATION_PORT,
     LLAMACPP_HEALTH_TIMEOUT,
+    LLAMACPP_VRAM_SAFETY_MARGIN,
     MAX_SWAP_INCREASE_MB,
     MIN_FREE_RAM_MB,
     MIN_USEFUL_CONTEXT_TOKENS,
-    VRAM_SAFETY_MARGIN,
 )
 from .formatting import format_number
+from .logging_utils import log_message
 from .gguf_utils import (
     extract_quantization_from_filename,
     get_gguf_layer_count,
@@ -293,46 +294,71 @@ def _read_server_log(process: subprocess.Popen) -> str:
         return ""
 
 
-def _parse_vram_from_server_log(
+
+def _parse_memory_breakdown(
     log_path: str,
-) -> tuple[Optional[int], Optional[Dict[str, int]]]:
-    """Parse CUDA VRAM allocation from llama-server's startup log.
+) -> Optional[Dict[str, Dict[str, int]]]:
+    """Parse llama_memory_breakdown_print from server exit log.
 
-    Sums all CUDA buffer sizes (model weights + KV cache) reported by
-    llm_load_tensors and llama_kv_cache_init. This is the exact VRAM
-    footprint of the model, independent of nvidia-smi/pynvml availability.
+    This line is printed when llama-server exits and gives physical VRAM totals:
+        llama_memory_breakdown_print: |   - CUDA0 (RTX 3090 Ti) | 24563 = 1886 + (18233 = 17524 +     408 +     300) +        4444 |
+    Format: | GPU_NAME | total = free + (self = model + context + compute) + unaccounted |
 
-    Works on all platforms including WSL2 where per-process VRAM queries fail.
-
-    Returns:
-        (total_mb, per_gpu_dict) where per_gpu_dict maps e.g. {"CUDA0": 8032, "CUDA1": 5000}
-        Both are None if no CUDA allocation found.
+    Returns dict per GPU: {"CUDA0": {"total": 24563, "free": 1886, "self": 18233}}
+    Returns None if breakdown not found (server didn't exit cleanly, old llama.cpp build).
     """
     try:
         with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
             content = f.read()
     except OSError:
-        return None, None
+        return None
 
-    per_gpu: Dict[str, float] = {}
-    # Match all CUDA GPU buffer allocations (model weights, KV cache, compute):
-    #   load_tensors:    CUDA0 model buffer size =  4643.78 MiB
-    #   llama_kv_cache:  CUDA0 KV buffer size =   306.00 MiB
-    #   sched_reserve:   CUDA0 compute buffer size =   304.75 MiB
-    # Excludes CPU_Mapped and CUDA_Host (not GPU VRAM).
+    result: Dict[str, Dict[str, int]] = {}
+    # Match CUDA GPU lines from breakdown:
+    #   |   - CUDA0 (RTX 3090 Ti) | 24563 = 1886 + (18233 = 17524 + ...
     for match in re.finditer(
-        r'(CUDA\d+)\s+(?:\w+\s+)?buffer size\s*=\s*([\d.]+)\s*MiB', content
+        r'llama_memory_breakdown_print:\s*\|\s+-\s+(CUDA\d+)\s+\([^)]+\)\s*\|\s*'
+        r'(\d+)\s*=\s*(\d+)\s*\+\s*\(\s*(\d+)',
+        content,
     ):
         gpu_id = match.group(1)
-        mib = float(match.group(2))
-        per_gpu[gpu_id] = per_gpu.get(gpu_id, 0.0) + mib
+        result[gpu_id] = {
+            "total": int(match.group(2)),
+            "free": int(match.group(3)),
+            "self": int(match.group(4)),
+        }
 
-    if not per_gpu:
-        return None, None
+    return result if result else None
 
-    total_mb = int(sum(per_gpu.values()))
-    per_gpu_int = {gpu: int(mib) for gpu, mib in per_gpu.items()}
-    return total_mb, per_gpu_int
+
+def _check_vram_physical_fit(log_path: str) -> Optional[tuple[bool, str]]:
+    """Check if enough physical VRAM remains free after allocation.
+
+    Parses llama_memory_breakdown_print (written at server exit).
+    Checks that free VRAM >= LLAMACPP_VRAM_SAFETY_MARGIN per GPU.
+
+    On Ampere+ GPUs, CUDA VMM can silently swap to system RAM when physical
+    VRAM is exhausted — self <= total passes but inference slows down 7x.
+    Checking 'free' catches this: if free < safety margin, unaccounted memory
+    (CUDA runtime, display, driver ~4 GB) is being displaced via VMM.
+
+    Returns:
+        (fits, detail_msg) — fits=True if all GPUs have free >= LLAMACPP_VRAM_SAFETY_MARGIN,
+        fits=False if free VRAM too low.
+        None if breakdown unavailable (old build, unclean exit).
+    """
+    breakdown = _parse_memory_breakdown(log_path)
+    if not breakdown:
+        return None
+
+    for gpu_id, info in breakdown.items():
+        if info["free"] < LLAMACPP_VRAM_SAFETY_MARGIN:
+            return (
+                False,
+                f"{gpu_id}: {info['free']} MB free < {LLAMACPP_VRAM_SAFETY_MARGIN} MB minimum "
+                f"(self={info['self']} MB, total={info['total']} MB)",
+            )
+    return (True, "")
 
 
 def _get_fit_params_binary(full_cmd: str) -> Path:
@@ -427,7 +453,7 @@ def _calculate_max_context(
 
     rate = (p_high - p_low) / (ctx_high - ctx_low)
     base = p_low - ctx_low * rate
-    available = free_mb - base - VRAM_SAFETY_MARGIN
+    available = free_mb - base - LLAMACPP_VRAM_SAFETY_MARGIN
 
     if available <= 0 or rate <= 0:
         return CALIBRATION_MIN_CONTEXT, rate
@@ -587,8 +613,13 @@ async def test_thinking_on_port(port: int) -> bool:
         return False
 
 
-def _kill_process(process: subprocess.Popen) -> None:
-    """Kill a llama-server process, wait for cleanup, remove server log."""
+def _kill_process(process: subprocess.Popen, keep_log: bool = False) -> None:
+    """Kill a llama-server process and wait for cleanup.
+
+    Args:
+        keep_log: If True, preserve the server log file for breakdown parsing.
+                  Caller must call _cleanup_server_log() after reading the log.
+    """
     if process.poll() is None:
         process.terminate()
         try:
@@ -596,7 +627,12 @@ def _kill_process(process: subprocess.Popen) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=3)
-    # Clean up server log tempfile
+    if not keep_log:
+        _cleanup_server_log(process)
+
+
+def _cleanup_server_log(process: subprocess.Popen) -> None:
+    """Remove the server's temporary log file."""
     log_path = getattr(process, '_server_log', None)
     if log_path:
         try:
@@ -659,6 +695,76 @@ async def _calibration_test(
     _kill_process(process)
     await asyncio.sleep(1.5)
     return True
+
+
+async def _test_context_physical(
+    full_cmd: str, context: int, port: int,
+) -> tuple[bool, str]:
+    """Test if a context size fits in physical VRAM.
+
+    Starts server, verifies health, measures free VRAM via pynvml (nvidia-smi).
+    Breakdown from server exit is logged for diagnostics but not used for
+    the decision (breakdown 'free' is always 0 — it measures llama.cpp's
+    internal allocator, not GPU-wide free VRAM).
+
+    Returns:
+        (fits, detail) — fits=True if server starts AND free VRAM >= LLAMACPP_VRAM_SAFETY_MARGIN.
+    """
+    process = await _start_and_verify(full_cmd, context, port)
+    if not process:
+        log_message(
+            f"VRAM ctx={format_number(context)}: OOM (server failed to start)",
+            category="stats",
+        )
+        return (False, "OOM")
+
+    # pynvml = GPU-wide free VRAM (reliable, matches nvidia-smi)
+    gpu_info = get_gpu_memory_info()
+    free_mb = gpu_info["free_mb"] if gpu_info else None
+    used_mb = gpu_info["used_mb"] if gpu_info else None
+    log_message(
+        f"VRAM ctx={format_number(context)}: "
+        f"pynvml free={free_mb} MB, used={used_mb} MB",
+        category="stats",
+    )
+
+    # Kill server, keep log for breakdown diagnostics
+    _kill_process(process, keep_log=True)
+    await asyncio.sleep(1.5)
+
+    # Breakdown: only for diagnostics (free is always 0, self = model allocation)
+    log_path = getattr(process, '_server_log', None)
+    if log_path:
+        breakdown = _parse_memory_breakdown(log_path)
+        if breakdown:
+            for gpu_id, info in breakdown.items():
+                log_message(
+                    f"VRAM ctx={format_number(context)}: "
+                    f"breakdown {gpu_id}: self={info['self']} MB, "
+                    f"unaccounted={info['total'] - info['free'] - info['self']} MB",
+                    category="stats",
+                )
+        _cleanup_server_log(process)
+    else:
+        _cleanup_server_log(process)
+
+    # Decision: pynvml free vs safety margin
+    if free_mb is not None and free_mb < LLAMACPP_VRAM_SAFETY_MARGIN:
+        log_message(
+            f"VRAM ctx={format_number(context)}: FAIL — "
+            f"{free_mb} MB free < {LLAMACPP_VRAM_SAFETY_MARGIN} MB margin",
+            category="stats",
+        )
+        return (
+            False,
+            f"{free_mb} MB free < {LLAMACPP_VRAM_SAFETY_MARGIN} MB minimum",
+        )
+    detail = f"{free_mb} MB free" if free_mb is not None else "VRAM unknown"
+    log_message(
+        f"VRAM ctx={format_number(context)}: OK — {detail}",
+        category="stats",
+    )
+    return (True, detail)
 
 
 def _get_model_block_bounds(content: str, model_id: str) -> tuple[int, int]:
@@ -872,7 +978,7 @@ def _estimate_ngl_for_context(
     model_size_mb = model_size_gb * 1024
     vram_per_layer = model_size_mb / total_layers
     vram_for_kv = target_context * mb_per_token
-    vram_for_weights = free_vram_mb - vram_for_kv - VRAM_SAFETY_MARGIN
+    vram_for_weights = free_vram_mb - vram_for_kv - LLAMACPP_VRAM_SAFETY_MARGIN
 
     if vram_for_weights <= 0:
         return 1
@@ -1196,7 +1302,7 @@ async def calibrate_llamacpp_model(
 
         If process is provided, reuses the already-running server (avoids reload).
         Otherwise starts a new server for the thinking test.
-        VRAM is parsed from llama-server's own startup log (exact, platform-independent).
+        VRAM is parsed from llama_memory_breakdown_print (written at server exit).
         """
         # Reuse existing server or start a new one
         if not process:
@@ -1205,24 +1311,28 @@ async def calibrate_llamacpp_model(
         vram_per_gpu: Optional[Dict[str, int]] = None
         thinks = False
         if process:
-            # Parse VRAM from llama-server's startup log (works on all platforms)
-            log_path = getattr(process, '_server_log', None)
-            if log_path:
-                _total, vram_per_gpu = _parse_vram_from_server_log(log_path)
-            if vram_per_gpu:
-                total_mb = sum(vram_per_gpu.values())
-                if len(vram_per_gpu) > 1:
-                    parts = ", ".join(
-                        f"{gpu}: {format_number(mb)} MB"
-                        for gpu, mb in sorted(vram_per_gpu.items())
-                    )
-                    yield f"VRAM (model): {format_number(total_mb)} MB ({parts})"
-                else:
-                    yield f"VRAM (model): {format_number(total_mb)} MB"
             yield "Testing reasoning capability..."
             thinks = await test_thinking_on_port(port)
-            _kill_process(process)
+            # Kill but keep log for breakdown parsing
+            _kill_process(process, keep_log=True)
             await asyncio.sleep(1.5)
+            # Parse VRAM from breakdown (physical allocation per GPU)
+            log_path = getattr(process, '_server_log', None)
+            if log_path:
+                breakdown = _parse_memory_breakdown(log_path)
+                if breakdown:
+                    # Use 'self' from breakdown (actual allocation, not virtual)
+                    vram_per_gpu = {gpu: info["self"] for gpu, info in breakdown.items()}
+                    total_mb = sum(vram_per_gpu.values())
+                    if len(vram_per_gpu) > 1:
+                        parts = ", ".join(
+                            f"{gpu}: {format_number(mb)} MB"
+                            for gpu, mb in sorted(vram_per_gpu.items())
+                        )
+                        yield f"VRAM (model): {format_number(total_mb)} MB ({parts})"
+                    else:
+                        yield f"VRAM (model): {format_number(total_mb)} MB"
+                _cleanup_server_log(process)
 
         _save_calibration(
             model_id, ctx, native_context,
@@ -1267,19 +1377,17 @@ async def calibrate_llamacpp_model(
     # === PHASE 1: GPU-only calibration (ngl=99) ===
     yield "Phase 1: GPU-only calibration (ngl=99)"
 
-    # Step 4: Test projection-based context estimate
+    # Step 4: Test projection-based context estimate (with VMM overallocation check)
     test_ctx = min(calculated_max, native_context)
     label = "native" if test_ctx == native_context else "projected"
     yield f"[1] Testing {label}: {format_number(test_ctx)}..."
 
-    process = await _start_and_verify(full_cmd, test_ctx, port)
+    fits, detail = await _test_context_physical(full_cmd, test_ctx, port)
     result = 0
 
-    if process:
+    if fits:
         yield f"✓ {format_number(test_ctx)} fits"
         result = test_ctx
-        _kill_process(process)
-        await asyncio.sleep(1.5)
 
         # Step 5: Binary search upward toward native_context (512-token precision)
         if result < native_context:
@@ -1290,23 +1398,29 @@ async def calibrate_llamacpp_model(
                 mid = (low + high) // 2
                 iteration += 1
                 yield f"[{iteration}] Testing {format_number(mid)}..."
-                test_proc = await _start_and_verify(full_cmd, mid, port)
-                if test_proc:
+                mid_fits, mid_detail = await _test_context_physical(full_cmd, mid, port)
+                if mid_fits:
                     low = mid
                     result = mid
                     yield f"✓ {format_number(mid)} fits"
-                    _kill_process(test_proc)
-                    await asyncio.sleep(1.5)
                 else:
                     high = mid
-                    yield f"✗ {format_number(mid)} too large"
+                    if "VMM" in mid_detail:
+                        yield f"✗ {format_number(mid)} VMM overallocation"
+                    else:
+                        yield f"✗ {format_number(mid)} too large"
             yield (
                 f"Optimum: {format_number(result)} tokens "
                 f"(+{format_number(result - test_ctx)} vs projection)"
             )
     else:
-        # Step 5b: Projection too optimistic — binary search downward (512-token precision)
-        yield f"✗ {format_number(test_ctx)} too large — searching downward"
+        # Projection doesn't fit — either OOM or VMM overallocation
+        if "VMM" in detail:
+            yield f"✗ {format_number(test_ctx)} VMM overallocation — searching downward"
+        else:
+            yield f"✗ {format_number(test_ctx)} too large — searching downward"
+
+        # Step 5b: Binary search downward (512-token precision)
         low = CALIBRATION_MIN_CONTEXT
         high = test_ctx
         iteration = 1
@@ -1314,16 +1428,17 @@ async def calibrate_llamacpp_model(
             mid = (low + high) // 2
             iteration += 1
             yield f"[{iteration}] Testing {format_number(mid)}..."
-            test_proc = await _start_and_verify(full_cmd, mid, port)
-            if test_proc:
+            mid_fits, mid_detail = await _test_context_physical(full_cmd, mid, port)
+            if mid_fits:
                 low = mid
                 result = mid
                 yield f"✓ {format_number(mid)} fits"
-                _kill_process(test_proc)
-                await asyncio.sleep(1.5)
             else:
                 high = mid
-                yield f"✗ {format_number(mid)} too large"
+                if "VMM" in mid_detail:
+                    yield f"✗ {format_number(mid)} VMM overallocation"
+                else:
+                    yield f"✗ {format_number(mid)} too large"
         if result:
             yield (
                 f"Optimum: {format_number(result)} tokens "

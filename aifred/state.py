@@ -867,6 +867,19 @@ class AIState(rx.State):
             # Initialize debug log (only once)
             initialize_debug_log(force_reset=False)
 
+            # Log platform info
+            import platform
+            kernel = platform.release()
+            is_wsl = "microsoft" in kernel.lower()
+            is_windows = os.name == "nt"
+            if is_wsl:
+                env_label = "WSL2 (WDDM — VRAM swapping possible)"
+            elif is_windows:
+                env_label = "Windows (WDDM — VRAM swapping possible)"
+            else:
+                env_label = "Native Linux (no VRAM swapping)"
+            log_message(f"🖥️ Platform: {platform.system()} {kernel} — {env_label}")
+
             # Initialize language settings
             from .lib.config import DEFAULT_LANGUAGE
             set_language(DEFAULT_LANGUAGE)

@@ -6,6 +6,7 @@ the AIfred Intelligence application.
 """
 
 import os
+import platform
 from pathlib import Path
 
 # ============================================================
@@ -841,9 +842,15 @@ DEBUG_LOG_RAW_MESSAGES = True
 ENABLE_VRAM_CONTEXT_CALCULATION = True
 
 # Safety margin reserved for OS and other GPU processes (MB)
-# Realistic overhead: Xorg (~300MB) + Whisper STT (~1-2GB if active) + Buffer (~200MB)
-# Optimized: 512MB for desktop + overhead (not wasteful)
+# General VRAM safety margin (vLLM, gpu_utils)
 VRAM_SAFETY_MARGIN = 512  # MB
+
+# llama.cpp VRAM safety margin — platform-dependent.
+# On WSL2/Windows: WDDM silently swaps VRAM to system RAM instead of OOM → 7x slowdown.
+# On native Linux: cudaMalloc returns OOM, no silent swapping — smaller margin sufficient.
+# Measured on WSL2: 512 → 70 tok/s (VMM), 1024 → marginal, 1536 → 137 tok/s (full speed)
+_is_wddm = "microsoft" in platform.release().lower() or os.name == "nt"
+LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 512  # MB
 
 # XTTS VRAM reservation (MB)
 # XTTS model uses ~2044 MiB when loaded. Add small buffer for safety.
