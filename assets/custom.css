@@ -300,14 +300,19 @@ details a[href]:hover {
     50% { opacity: 0; }
 }
 
-/* Metadata-Text in Markdown (kursiv) - grauer und dezenter */
+/* Italic text in Markdown - consistent color */
 em,
 .rt-Text em,
 .rt-Box em,
 p em,
 div em {
-    color: #e2e8f0 !important;  /* Gleiche Farbe wie normaler Text */
+    color: #e2e8f0 !important;
     font-style: italic !important;
+}
+
+/* Metadata line: last paragraph that is entirely italic (e.g. "*(TTFT: ... tok/s ...)*") */
+p:last-child > em:only-child {
+    font-size: 0.9em !important;
 }
 
 /* ============================================================

@@ -278,7 +278,9 @@ def image_upload_section() -> rx.Component:
                 variant="soft",
                 color_scheme="green",
                 padding_y="24px",
-                min_width=["auto", "auto", "160px"],  # Compact on mobile, fixed on desktop
+                min_width=["auto", "auto", "160px"],  # Fixed on desktop
+                flex=["2 1 0%", "2 1 0%", "0 0 auto"],  # Mobile: 2x share, Desktop: auto
+                width=["100%", "100%", "auto"],
                 on_click=AIState.toggle_audio_recording,
                 disabled=AIState.is_generating | AIState.is_uploading_image,
             ),
@@ -295,6 +297,7 @@ def image_upload_section() -> rx.Component:
                             variant="soft",
                             color_scheme="red",
                             padding_y="24px",
+                            width="100%",
                             disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
                             on_click=AIState.on_camera_click,
                         ),
@@ -307,6 +310,7 @@ def image_upload_section() -> rx.Component:
                     multiple=False,
                     border="none",
                     padding="0",
+                    flex=["1 1 0%", "1 1 0%", "0 0 auto"],  # Mobile: 1x share, Desktop: auto
                 ),
             ),
 
@@ -320,6 +324,7 @@ def image_upload_section() -> rx.Component:
                         variant="soft",
                         color_scheme="red",
                         padding_y="24px",
+                        width="100%",
                         disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
                         on_click=AIState.on_file_picker_click,
                     ),
@@ -332,6 +337,7 @@ def image_upload_section() -> rx.Component:
                 multiple=True,
                 border="none",
                 padding="0",
+                flex=["1 1 0%", "1 1 0%", "0 0 auto"],  # Mobile: 1x share, Desktop: auto
             ),
 
             # Audio File Upload Button
@@ -343,6 +349,7 @@ def image_upload_section() -> rx.Component:
                     variant="soft",
                     color_scheme="blue",
                     padding_y="24px",
+                    width="100%",
                     disabled=AIState.is_generating | AIState.is_uploading_image,
                 ),
                 id="audio-upload",
@@ -352,6 +359,7 @@ def image_upload_section() -> rx.Component:
                 multiple=False,
                 border="none",
                 padding="0",
+                flex=["1 1 0%", "1 1 0%", "0 0 auto"],  # Mobile: 1x share, Desktop: auto
             ),
 
             # Hidden upload for MediaRecorder (JavaScript will populate this)

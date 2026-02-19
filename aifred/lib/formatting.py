@@ -187,7 +187,8 @@ def format_metadata(metadata_text: str) -> str:
     Note:
         Uses Markdown instead of HTML since rx.markdown() escapes inline HTML.
         Italic formatting (*...*) signals meta-information.
-        4 normal spaces are converted to 4 non-breaking spaces.
+        4 normal spaces (group-internal separators) are converted to 4 non-breaking spaces.
+        Individual value spaces (e.g. "TTFT: 0.25s") should already use nbsp from callers.
     """
     if not metadata_text:
         return metadata_text
@@ -259,14 +260,15 @@ def build_inference_metadata(
     perf_parts: list[str] = []
     info_parts: list[str] = []
     if ttft:
-        perf_parts.append(f"TTFT: {format_number(ttft, 2)}s")
+        perf_parts.append(f"TTFT:\u00A0{format_number(ttft, 2)}s")
     if prompt_per_sec:
-        perf_parts.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
-    perf_parts.append(f"{format_number(tokens_per_sec, 1)} tok/s")
-    info_parts.append(f"Inference: {format_number(inference_time, 1)}s")
+        perf_parts.append(f"PP:\u00A0{format_number(prompt_per_sec, 1)}\u00A0tok/s")
+    perf_parts.append(f"{format_number(tokens_per_sec, 1)}\u00A0tok/s")
+    perf_parts.append(f"Inference:\u00A0{format_number(inference_time, 1)}s")
     # Source with backend label (e.g. "Own Knowledge (model) [llamacpp]")
-    source_display = f"{source} [{backend_type}]" if backend_type else source
-    info_parts.append(f"Source: {source_display}")
+    source_display = f"{source}\u00A0[{backend_type}]" if backend_type else source
+    # Replace all spaces within source so it stays as one unbreakable unit
+    info_parts.append(f"Source:\u00A0{source_display.replace(' ', chr(0xA0))}")
     # Within groups: "    " → non-breaking spaces (no wrap)
     # Between groups: 3 nbsp + regular space → allows line break on mobile
     groups = []

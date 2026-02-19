@@ -2063,27 +2063,28 @@ class AIState(rx.State):
 
         # TTFT (Time To First Token)
         if "ttft" in metadata and metadata["ttft"]:
-            perf_parts.append(f"TTFT: {format_number(metadata['ttft'], 2)}s")
+            perf_parts.append(f"TTFT:\u00A0{format_number(metadata['ttft'], 2)}s")
 
         # PP speed (prompt processing)
         prompt_per_sec = metadata.get("prompt_per_sec", 0)
         if prompt_per_sec:
-            perf_parts.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
+            perf_parts.append(f"PP:\u00A0{format_number(prompt_per_sec, 1)}\u00A0tok/s")
 
         # Tokens per second (generation)
         if "tokens_per_sec" in metadata and metadata["tokens_per_sec"]:
-            perf_parts.append(f"{format_number(metadata['tokens_per_sec'], 1)} tok/s")
+            perf_parts.append(f"{format_number(metadata['tokens_per_sec'], 1)}\u00A0tok/s")
 
         # Inference time
         if "inference_time" in metadata and metadata["inference_time"]:
-            info_parts.append(f"Inference: {format_number(metadata['inference_time'], 1)}s")
+            perf_parts.append(f"Inference:\u00A0{format_number(metadata['inference_time'], 1)}s")
 
         # Source (with backend label if available)
         if "source" in metadata and metadata["source"]:
             source = metadata["source"]
             backend = metadata.get("backend_type", "")
-            source_display = f"{source} [{backend}]" if backend else source
-            info_parts.append(f"Source: {source_display}")
+            source_display = f"{source}\u00A0[{backend}]" if backend else source
+            # Replace all spaces within source so it stays as one unbreakable unit
+            info_parts.append(f"Source:\u00A0{source_display.replace(' ', chr(0xA0))}")
 
         if not perf_parts and not info_parts:
             return ""
@@ -5300,6 +5301,9 @@ class AIState(rx.State):
         if len(first_ai_response) > 500:
             first_ai_response = first_ai_response[:500] + "..."
 
+        # Track whether title was successfully generated (for finally block)
+        _title_done = False
+
         try:
             # Show user that title is being generated (can take a few seconds)
             self.add_debug("🏷️ Generating session title...")
@@ -5369,16 +5373,32 @@ class AIState(rx.State):
                 self.add_debug(f"🏷️ Session title: {title}")
                 console_separator()
                 self.add_debug("────────────────────")
+                _title_done = True
                 yield  # Update UI to show generated title
+            else:
+                # LLM returned empty/thinking-only response
+                log_message("⚠️ Title generation: LLM returned empty title")
+                self.add_debug("⚠️ Session title: empty response")
+                self.add_debug("────────────────────")
+                _title_done = True
 
         except asyncio.TimeoutError:
-            log_message("⚠️ Title generation timed out (>15s) - skipping")
-            self.add_debug("⚠️ Session title: Timeout (>15s)")
+            log_message("⚠️ Title generation timed out (>30s) - skipping")
+            self.add_debug("⚠️ Session title: Timeout (>30s)")
             self.add_debug("────────────────────")
+            _title_done = True
         except Exception as e:
             log_message(f"⚠️ Title generation failed: {e}")
             self.add_debug(f"⚠️ Session title failed: {e}")
             self.add_debug("────────────────────")
+            _title_done = True
+        finally:
+            # Catch silent cancellations: GeneratorExit (aclose) and CancelledError
+            # bypass except Exception. Log so user sees what happened.
+            if not _title_done:
+                log_message("⚠️ Title generation cancelled (generator closed)")
+                self.add_debug("⚠️ Session title: cancelled")
+                self.add_debug("────────────────────")
 
     def _get_backend_url(self) -> str:
         """Get current backend URL based on backend_type."""
