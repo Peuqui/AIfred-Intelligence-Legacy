@@ -2576,11 +2576,22 @@ def settings_accordion() -> rx.Component:
                         rx.text(t("ui_language"), font_weight="bold", font_size="12px"),
                         rx.cond(
                             AIState.is_mobile,
-                            # MOBILE: Native HTML <select>
-                            native_select_tts(
-                                AIState.ui_language,
-                                AIState.set_ui_language,
-                                ["de", "en"],
+                            # MOBILE: Native HTML <select> (static options, no rx.foreach)
+                            rx.el.select(
+                                rx.el.option("de", value="de"),
+                                rx.el.option("en", value="en"),
+                                value=AIState.ui_language,
+                                on_change=AIState.set_ui_language,
+                                style={
+                                    "padding": "8px 12px",
+                                    "font_size": "12px",
+                                    "color": COLORS["text_primary"],
+                                    "background": COLORS["input_bg"],
+                                    "border": f"1px solid {COLORS['border']}",
+                                    "border_radius": "6px",
+                                    "min_height": "48px",
+                                    "cursor": "pointer",
+                                },
                             ),
                             # DESKTOP: Radix UI Select
                             rx.select(
