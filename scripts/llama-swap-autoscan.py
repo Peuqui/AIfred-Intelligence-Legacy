@@ -672,8 +672,12 @@ def update_groups_in_yaml(config_path: Path) -> None:
 
     content = config_path.read_text()
 
-    # Remove any existing groups section (from "groups:" to end of file)
-    content = re.sub(r'\ngroups:.*$', '', content, flags=re.DOTALL)
+    # Remove ALL existing groups sections (can appear anywhere in the file)
+    # Match "groups:" at line start through to the next top-level key or EOF
+    content = re.sub(
+        r'^groups:.*?(?=^\S|\Z)', '', content,
+        flags=re.MULTILINE | re.DOTALL,
+    )
     content = content.rstrip("\n") + "\n"
 
     members_yaml = "\n".join(f"      - {m}" for m in members)
