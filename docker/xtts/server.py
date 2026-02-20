@@ -938,7 +938,7 @@ WEB_UI_HTML = """
             font-size: 14px;
             margin-bottom: 15px;
         }
-        textarea { min-height: 120px; resize: vertical; }
+        textarea { min-height: 400px; resize: vertical; }
         select { cursor: pointer; }
         .row { display: flex; gap: 15px; }
         .row > div { flex: 1; }

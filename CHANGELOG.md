@@ -5,6 +5,37 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.43.0] - 2026-02-20 🔊 TTS Overhaul + Fit-Params Calibration
+
+### Added
+
+- **TTS language propagation** - TTS engines now receive the detected response language (`_last_detected_language`) instead of hardcoded `"de"`, enabling correct phonetics for English and other languages
+- **TTS engine in filenames** - Audio files now include engine name and human-readable timestamps: `audio_aifred_moss_20260220-114047-553.ogg`
+- **Failed bubble tracking** - TTS regeneration logs exactly which bubbles failed (bubble index + chat index), not just "4/5 regenerated"
+- **TTS container readiness check** - `_regenerate_all_tts` and `_regenerate_bubble_tts` ensure the TTS container is running before starting regeneration
+- **MOSS-TTS torch.compile** - Optional `MOSS_TORCH_COMPILE=1` env var compiles the model graph for ~10-25% faster inference (first request slower due to compilation)
+- **MOSS-TTS ellipsis preprocessing** - `...` replaced with `. –` for better prosody/pause handling
+- **Calibration: fit-params projection** - Autoscan and hybrid calibration now use `llama-fit-params` per-GPU VRAM projections (~0.5s each) instead of actual server starts (~30-60s each), reducing calibration from minutes to seconds
+- **Calibration: RAM measurement** - `VmRSS` from `/proc/<pid>/status` stored as `ram_cpu_mb` in VRAM cache for hybrid models
+- **Autoscan: split-GGUF name cleanup** - Strips `00001-of-00003` suffix from split model filenames
+
+### Changed
+
+- **Gunicorn timeout removed** - All TTS containers (MOSS-TTS, XTTS) now use `--timeout 0` to prevent worker kills during long generations
+- **TTS Web UI textarea** - Text input area enlarged from 120px to 400px min-height for both MOSS-TTS and XTTS
+- **TTS containers pinned to GPU 1** - MOSS-TTS and XTTS docker-compose now use `device_ids: ['1']` (RTX 8000)
+- **PYTHONUNBUFFERED=1** - Added to MOSS-TTS docker-compose for immediate log visibility
+- **Hybrid calibration refactored** - Replaced server-start binary search with fit-params projection binary search (no more `_estimate_ngl_for_context`, `_save_calibration`, swap monitoring)
+- **Autoscan calibration refactored** - Replaced `calibrate_kv_cache` (server starts) with `calibrate_model_fit_params` (fit-params projections)
+
+### Removed
+
+- `_estimate_ngl_for_context()` — replaced by fit-params per-GPU projection
+- `_save_calibration()` — inlined into `calibrate_llamacpp_model()`
+- `calibrate_kv_cache()`, `_try_start_model()`, `_extract_error()` from autoscan — replaced by `calibrate_model_fit_params()`
+
+---
+
 ## [2.42.0] - 2026-02-19 🔄 Autoscan Model Lifecycle
 
 ### Added

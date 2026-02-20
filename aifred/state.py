@@ -5981,12 +5981,14 @@ class AIState(rx.State):
             # Generate TTS audio (returns URL path like "/tts_audio/audio_123.mp3")
             # Per-agent speed is applied at generation time (different from browser playback rate)
             # Pitch adjustment is applied via ffmpeg post-processing
+            tts_language = self._last_detected_language or self.ui_language
             audio_url = await generate_tts(
                 text=clean_text,
                 voice_choice=voice_choice,
                 speed_choice=speed_value,
                 tts_engine=self.tts_engine,
-                pitch=pitch_value
+                pitch=pitch_value,
+                language=tts_language
             )
 
             if audio_url:
@@ -6100,12 +6102,14 @@ class AIState(rx.State):
             set_tts_agent(agent)
 
             # Generate TTS audio
+            tts_language = self._last_detected_language or self.ui_language
             audio_url = await generate_tts(
                 text=clean_text,
                 voice_choice=voice_choice,
                 speed_choice=speed_value,
                 tts_engine=self.tts_engine,
-                pitch=pitch_value
+                pitch=pitch_value,
+                language=tts_language
             )
 
             if audio_url:
@@ -6543,8 +6547,9 @@ class AIState(rx.State):
                         pass
 
             # Generate TTS audio (this is the slow part - runs in parallel)
+            tts_language = self._last_detected_language or self.ui_language
             log_message(f"🔊 TTS Generate: Calling generate_tts() seq={seq} for agent={agent}: {repr(clean_text)}")
-            log_message(f"🔊 TTS Generate: voice={voice_choice}, speed={speed_value}, pitch={pitch_value}, engine={tts_engine}")
+            log_message(f"🔊 TTS Generate: voice={voice_choice}, speed={speed_value}, pitch={pitch_value}, engine={tts_engine}, lang={tts_language}")
 
             audio_url = await generate_tts(
                 text=clean_text,
@@ -6552,7 +6557,8 @@ class AIState(rx.State):
                 speed_choice=speed_value,
                 tts_engine=tts_engine,
                 pitch=pitch_value,
-                agent=agent  # Pass agent for correct filename prefix
+                agent=agent,  # Pass agent for correct filename prefix
+                language=tts_language
             )
 
             if audio_url:
@@ -8890,12 +8896,14 @@ class AIState(rx.State):
                     pass
 
         # Generate TTS (complete bubble at once for best quality)
+        tts_language = self._last_detected_language or self.ui_language
         audio_url = await generate_tts(
             text=clean_text,
             voice_choice=voice_choice,
             speed_choice=speed_value,
             tts_engine=self.tts_engine,
-            pitch=pitch_value
+            pitch=pitch_value,
+            language=tts_language
         )
 
         if not audio_url:
@@ -8952,6 +8960,23 @@ class AIState(rx.State):
 
         yield rx.call_script("stopTts()")
 
+        # Ensure TTS container is running
+        if self.tts_engine == "xtts":
+            from .lib.process_utils import ensure_xtts_ready
+            success, msg = ensure_xtts_ready(timeout=60)
+            if not success:
+                self.add_debug(f"❌ {msg}")
+                self.tts_regenerating = False
+                return
+        elif self.tts_engine == "moss":
+            from .lib.process_utils import ensure_moss_ready
+            success, msg, device = ensure_moss_ready(timeout=120)
+            self.moss_tts_device = device if success else ""
+            if not success:
+                self.add_debug(f"❌ {msg}")
+                self.tts_regenerating = False
+                return
+
         agent = self.chat_history[bubble_index].get("agent", "aifred")
         self.add_debug(f"🔄 TTS Re-Synth: Regenerating bubble {bubble_index} ({agent})...")
         yield
@@ -8988,11 +9013,33 @@ class AIState(rx.State):
 
         yield rx.call_script("stopTts()")
 
+        # Ensure TTS container is running before regeneration
+        if self.tts_engine == "xtts":
+            from .lib.process_utils import ensure_xtts_ready
+            success, msg = ensure_xtts_ready(timeout=60)
+            if not success:
+                self.add_debug(f"❌ {msg}")
+                self.tts_regenerating = False
+                return
+            self.add_debug(f"✅ {msg}")
+            yield
+        elif self.tts_engine == "moss":
+            from .lib.process_utils import ensure_moss_ready
+            success, msg, device = ensure_moss_ready(timeout=120)
+            self.moss_tts_device = device if success else ""
+            if not success:
+                self.add_debug(f"❌ {msg}")
+                self.tts_regenerating = False
+                return
+            self.add_debug(f"✅ {msg}")
+            yield
+
         self.add_debug(f"🔄 TTS Re-Synth: Regenerating all {len(assistant_indices)} bubbles...")
         yield
 
         try:
             success_count = 0
+            failed_bubbles = []
             for i, bubble_idx in enumerate(assistant_indices):
                 self.add_debug(f"🔄 Processing bubble {i+1}/{len(assistant_indices)}...")
                 yield
@@ -9001,12 +9048,18 @@ class AIState(rx.State):
                 success = await self._regenerate_bubble_tts_core(bubble_idx, save_session=False)
                 if success:
                     success_count += 1
+                else:
+                    failed_bubbles.append(i + 1)
+                    self.add_debug(f"⚠️ Bubble {i+1}/{len(assistant_indices)} failed (chat index {bubble_idx})")
 
             # Save session once after all regenerations
             self.chat_history = list(self.chat_history)
             self._save_current_session()
 
-            self.add_debug(f"✅ TTS: {success_count}/{len(assistant_indices)} bubbles regenerated")
+            if failed_bubbles:
+                self.add_debug(f"⚠️ TTS: {success_count}/{len(assistant_indices)} bubbles regenerated — failed: {failed_bubbles}")
+            else:
+                self.add_debug(f"✅ TTS: {success_count}/{len(assistant_indices)} bubbles regenerated")
 
         except Exception as e:
             self.add_debug(f"❌ TTS Error: {e}")

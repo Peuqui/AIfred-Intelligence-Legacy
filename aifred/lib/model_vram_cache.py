@@ -739,6 +739,7 @@ def add_llamacpp_calibration(
     mode: str = "gpu",
     speed_split: int = 0,
     vram_per_gpu: Optional[Dict[str, int]] = None,
+    ram_cpu_mb: Optional[int] = None,
 ) -> bool:
     """
     Add a calibration point for a llama.cpp model (via llama-swap).
@@ -793,6 +794,8 @@ def add_llamacpp_calibration(
         calibration["speed_split"] = speed_split
     if vram_per_gpu:
         calibration["vram_per_gpu"] = vram_per_gpu
+    if ram_cpu_mb and ram_cpu_mb > 0:
+        calibration["ram_cpu_mb"] = ram_cpu_mb
 
     # Replace existing entry with same mode, or append if first calibration for this mode
     calibrations = cache[model_id]["llamacpp_calibrations"]

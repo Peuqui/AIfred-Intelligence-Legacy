@@ -34,8 +34,9 @@ TTS_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 SESSION_AUDIO_DIR = DATA_DIR / "audio"
 SESSION_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
-# Current agent for filename prefixing (set by state before TTS calls)
+# Current agent and engine for filename prefixing (set by state before TTS calls)
 _current_tts_agent: str = "aifred"
+_current_tts_engine: str = ""
 
 # Streaming content hint tracking - ensures hints are only spoken once per block
 # Reset when regular text is detected, so next occurrence gets announced again
@@ -60,23 +61,33 @@ def set_tts_agent(agent_name: str) -> None:
     _current_tts_agent = agent_name.lower()
 
 
+def set_tts_engine(engine_name: str) -> None:
+    """Set current TTS engine name for filename prefixing."""
+    global _current_tts_engine
+    _current_tts_engine = engine_name.lower()
+
+
 def _generate_tts_filename(extension: str = "wav") -> str:
     """
-    Generate TTS audio filename with agent prefix.
+    Generate TTS audio filename with agent, engine, and human-readable timestamp.
 
-    Format: audio_{agent}_{timestamp_ms}.{ext}
-    Example: audio_aifred_1737489600123.wav
+    Format: audio_{agent}_{engine}_{YYYYMMDD-HHmmss-ms}.{ext}
+    Example: audio_aifred_moss_20260220-114047-553.ogg
 
     Args:
-        extension: File extension (wav, mp3)
+        extension: File extension (wav, mp3, ogg)
 
     Returns:
         Filename string
     """
-    global _current_tts_agent
+    from datetime import datetime
+
+    global _current_tts_agent, _current_tts_engine
     agent = _current_tts_agent or "aifred"
-    timestamp = int(time.time() * 1000)
-    return f"audio_{agent}_{timestamp}.{extension}"
+    engine = _current_tts_engine or "tts"
+    now = datetime.now()
+    timestamp = now.strftime("%Y%m%d-%H%M%S") + f"-{now.microsecond // 1000:03d}"
+    return f"audio_{agent}_{engine}_{timestamp}.{extension}"
 
 
 def concatenate_wav_files(wav_urls: list[str], delete_originals: bool = True) -> str | None:
@@ -1828,7 +1839,7 @@ def transcribe_audio(audio_path, whisper_model, language="de"):
     return user_text, stt_time
 
 
-async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: float = 1.0, agent: str = "aifred"):
+async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: float = 1.0, agent: str = "aifred", language: str = "de"):
     """
     Generate TTS audio from text (XTTS, MOSS-TTS, Piper, eSpeak, or Edge).
 
@@ -1839,15 +1850,17 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
         tts_engine: Engine key (e.g. "xtts", "moss", "dashscope", "piper", "espeak", "edge")
         pitch: Pitch factor (0.8 = 20% lower, 1.0 = unchanged, 1.2 = 20% higher)
         agent: Agent name for filename prefix (e.g. "sokrates", "aifred")
+        language: Language code for TTS phonetics (e.g. "de", "en")
 
     Returns:
         str: Path to generated audio file, or None
     """
     from .config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
 
-    # Set agent for filename generation BEFORE any TTS call
+    # Set agent and engine for filename generation BEFORE any TTS call
     # This ensures correct filename even with parallel create_task calls
     set_tts_agent(agent)
+    set_tts_engine(tts_engine)
 
     # Strip "★ " UI prefix centrally - engines receive clean voice names
     if voice_choice.startswith("★ "):
@@ -1863,17 +1876,17 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
             # Speed is applied via ffmpeg post-processing (XTTS generates at fixed rate)
             # Run in thread pool to avoid blocking event loop during HTTP call
             audio_url = await loop.run_in_executor(
-                None, generate_speech_xtts, text, 1.0, voice_choice, "de"
+                None, generate_speech_xtts, text, 1.0, voice_choice, language
             )
         elif tts_engine == "moss":
             # MOSS-TTS Local (Docker) - zero-shot voice cloning, 20 languages
             audio_url = await loop.run_in_executor(
-                None, generate_speech_moss, text, 1.0, voice_choice, "de"
+                None, generate_speech_moss, text, 1.0, voice_choice, language
             )
         elif tts_engine == "dashscope":
             # DashScope Qwen3-TTS (Cloud) - streaming TTS, 0 GPU VRAM
             audio_url = await loop.run_in_executor(
-                None, generate_speech_dashscope, text, 1.0, voice_choice, "de"
+                None, generate_speech_dashscope, text, 1.0, voice_choice, language
             )
         elif tts_engine == "piper":
             # Piper TTS (local) - synchronous subprocess call

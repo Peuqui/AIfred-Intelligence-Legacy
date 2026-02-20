@@ -25,4 +25,5 @@ WORKDIR /app
 EXPOSE 5055
 
 # Run with gunicorn for production stability
-CMD ["gunicorn", "--bind", "0.0.0.0:5055", "--timeout", "300", "--workers", "1", "server:app"]
+# No timeout (0): TTS generation can take arbitrarily long for large bubbles
+CMD ["gunicorn", "--bind", "0.0.0.0:5055", "--timeout", "0", "--workers", "1", "server:app"]

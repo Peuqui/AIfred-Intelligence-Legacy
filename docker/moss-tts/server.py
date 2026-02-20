@@ -57,6 +57,10 @@ TOP_P = float(os.environ.get("MOSS_TOP_P", "0.95"))
 TOP_K = int(os.environ.get("MOSS_TOP_K", "50"))
 REPETITION_PENALTY = float(os.environ.get("MOSS_REPETITION_PENALTY", "1.1"))
 
+# torch.compile optimization (GPU only, reduces inference time by ~10-25%)
+# First request after load compiles the model (~30-60s), subsequent requests are faster
+TORCH_COMPILE = os.environ.get("MOSS_TORCH_COMPILE", "").lower() in ("1", "true", "yes")
+
 # Paths
 VOICES_DIR = Path("/app/voices")
 
@@ -226,6 +230,14 @@ def load_model():
     ).to(_device)
     _model.eval()
 
+    # torch.compile: JIT-compile the model for faster inference
+    # Fuses GPU kernels, eliminates memory copies, optimizes compute graph
+    # First call after load is slow (~30-60s compilation), subsequent calls faster
+    if TORCH_COMPILE and _device == "cuda":
+        logger.info("Applying torch.compile (mode=reduce-overhead)...")
+        _model = torch.compile(_model, mode="reduce-overhead")
+        logger.info("torch.compile applied - first inference will trigger compilation")
+
     # Patch: transformers 5.x DynamicCache expects num_hidden_layers on config,
     # but MossTTSDelayConfig only has local_num_layers
     _patch_num_hidden_layers(_model.config)
@@ -312,6 +324,9 @@ def generate_tts(text: str, speaker: str | None = None) -> tuple[str, str]:
     import torchaudio
 
     model = get_model()
+
+    # Minimal text preprocessing for better prosody
+    text = text.replace('...', '. –')
 
     # Build conversation with optional voice reference
     if speaker:
@@ -596,7 +611,7 @@ WEB_UI_HTML = """
             border-radius: 5px; background: #0f0f23; color: #fff;
             font-size: 14px; margin-bottom: 15px;
         }
-        textarea { min-height: 120px; resize: vertical; }
+        textarea { min-height: 400px; resize: vertical; }
         .row { display: flex; gap: 15px; }
         .row > div { flex: 1; }
         button {

@@ -16,12 +16,9 @@ import json
 import re
 import socket
 import subprocess
-import tempfile
-import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from urllib.error import URLError
-from urllib.request import urlopen
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -47,17 +44,18 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 VRAM_CACHE_FILE = PROJECT_ROOT / "data" / "model_vram_cache.json"
 
 LLAMA_SERVER_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-server"
+LLAMA_FIT_PARAMS_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-fit-params"
 DEFAULT_TTL = 300
 DEFAULT_NGL = 99
 DEFAULT_FLAGS_BASE = "--flash-attn on -np 1 -t 4 --mlock --reasoning-format deepseek"
 DEFAULT_CONTEXT = 32768  # Fallback if GGUF metadata unreadable
-
-# Max seconds to wait for llama-server to finish loading during KV cache calibration.
-# Small models load in <5s, large models (80B+) may take 30-60s.
-CALIBRATION_TIMEOUT = 120
+FALLBACK_CONTEXT = 32768  # Reduced context when native context doesn't fit
 
 # If GGUF file size exceeds this fraction of the largest GPU's VRAM → use tensor-split
 MULTI_GPU_VRAM_THRESHOLD = 0.80
+
+# Minimum free VRAM per GPU after model load (MiB) — Linux without WDDM
+VRAM_SAFETY_MARGIN_MB = 512
 
 # No size filter - even tiny LLMs (135M edge models) should be loadable
 
@@ -96,6 +94,17 @@ def get_per_gpu_vram_mb() -> list[int]:
         gpus.sort(reverse=True)
         return gpus
     except Exception:
+        pass
+    # Fallback: nvidia-smi
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            text=True,
+        )
+        gpus = [int(line.strip()) for line in out.strip().splitlines() if line.strip()]
+        gpus.sort(reverse=True)
+        return gpus
+    except Exception:
         return []
 
 
@@ -116,107 +125,6 @@ def get_gguf_total_size(gguf_path: Path) -> int:
         return total_size
 
     return resolved.stat().st_size
-
-
-def _extract_error(output: str, returncode: int) -> str:
-    """Parse llama-server output for meaningful error reason."""
-    lower = output.lower()
-    if "cuda" in lower and "out of memory" in lower:
-        return "CUDA out of memory"
-    if "failed to allocate" in lower:
-        return "Failed to allocate memory"
-    if "not enough" in lower:
-        return "Not enough memory"
-    if "ggml" in lower and ("alloc" in lower or "memory" in lower):
-        return "Memory allocation failed"
-    return f"Crashed (exit code {returncode})"
-
-
-def _try_start_model(
-    server_bin: Path,
-    gguf_path: Path,
-    context: int,
-    gpu_flags: str,
-    kv_quant: Optional[str] = None,
-    mmproj_path: Optional[Path] = None,
-) -> tuple[bool, str]:
-    """Try starting llama-server with given KV cache settings.
-
-    Polls the /health endpoint to detect successful load.
-    Returns (success, message).
-    """
-    port = _free_port()
-    cmd = [
-        str(server_bin), "--port", str(port),
-        "--model", str(gguf_path.resolve()),
-        "-ngl", str(DEFAULT_NGL), "-c", str(context),
-    ]
-    if kv_quant:
-        cmd += ["-ctk", kv_quant, "-ctv", kv_quant]
-    if gpu_flags:
-        cmd += gpu_flags.split()
-    if mmproj_path:
-        cmd += ["--mmproj", str(mmproj_path.resolve())]
-    cmd += DEFAULT_FLAGS_BASE.split()
-
-    with tempfile.TemporaryFile() as logfile:
-        try:
-            proc = subprocess.Popen(cmd, stdout=logfile, stderr=subprocess.STDOUT)
-        except Exception as e:
-            return False, str(e)
-
-        try:
-            deadline = time.monotonic() + CALIBRATION_TIMEOUT
-            while time.monotonic() < deadline:
-                if proc.poll() is not None:
-                    logfile.seek(0)
-                    output = logfile.read().decode("utf-8", errors="replace")
-                    return False, _extract_error(output, proc.returncode)
-                try:
-                    resp = urlopen(f"http://localhost:{port}/health", timeout=2)
-                    if resp.status == 200:
-                        proc.kill()
-                        proc.wait()
-                        return True, "OK"
-                except (URLError, OSError):
-                    pass
-                time.sleep(1)
-
-            proc.kill()
-            proc.wait()
-            return False, f"Timeout ({CALIBRATION_TIMEOUT}s)"
-        except Exception:
-            proc.kill()
-            proc.wait()
-            raise
-
-
-def calibrate_kv_cache(
-    server_bin: Path,
-    gguf_path: Path,
-    context: int,
-    gpu_flags: str,
-    mmproj_path: Optional[Path] = None,
-) -> tuple[Optional[str], bool]:
-    """Calibrate KV cache by trying f16 → q8_0 → q4_0.
-
-    Returns (kv_quant, success). kv_quant is None for f16.
-    """
-    variants = [
-        (None, "f16"),
-        ("q8_0", "q8_0"),
-        ("q4_0", "q4_0"),
-    ]
-    for kv_quant, label in variants:
-        print(f"    {label}... ", end="", flush=True)
-        success, msg = _try_start_model(
-            server_bin, gguf_path, context, gpu_flags, kv_quant, mmproj_path,
-        )
-        print(msg)
-        if success:
-            return kv_quant, True
-
-    return None, False
 
 
 def build_gpu_flags(gguf_path: Path, per_gpu_vram: list[int]) -> str:
@@ -249,6 +157,185 @@ def build_gpu_flags(gguf_path: Path, per_gpu_vram: list[int]) -> str:
         f"total {total_vram_mb} MB)"
     )
     return f"-sm layer --tensor-split {split_str} -fit off -b 512 -ub 256"
+
+
+# ---------------------------------------------------------------------------
+# VRAM calibration via llama-fit-params
+# ---------------------------------------------------------------------------
+
+def _build_fit_params_cmd(
+    gguf_path: Path,
+    context: int,
+    ngl: int,
+    gpu_flags: str,
+    kv_quant: Optional[str] = None,
+    mmproj_path: Optional[Path] = None,
+) -> list[str]:
+    """Build llama-fit-params command for per-GPU VRAM projection."""
+    cmd = [
+        str(LLAMA_FIT_PARAMS_BIN),
+        "--model", str(gguf_path.resolve()),
+        "-ngl", str(ngl),
+        "-c", str(context),
+        "--flash-attn", "on",
+        "-np", "1",
+    ]
+    if mmproj_path:
+        cmd.extend(["--mmproj", str(mmproj_path.resolve())])
+    if kv_quant:
+        cmd.extend(["-ctk", kv_quant, "-ctv", kv_quant])
+    # GPU flags: -sm, --tensor-split, -b, -ub (skip -fit which is server-only)
+    if gpu_flags:
+        parts = gpu_flags.split()
+        i = 0
+        while i < len(parts):
+            if parts[i] == "-fit":
+                i += 2  # skip -fit and its value
+            else:
+                cmd.append(parts[i])
+                i += 1
+    return cmd
+
+
+def _fit_params_per_gpu(
+    gguf_path: Path,
+    context: int,
+    ngl: int,
+    gpu_flags: str,
+    kv_quant: Optional[str] = None,
+    mmproj_path: Optional[Path] = None,
+) -> dict[str, dict[str, int]]:
+    """
+    Run llama-fit-params and parse per-GPU VRAM projections.
+
+    Returns dict like {"CUDA0": {"total": 45355, "used": 43710, "free": 1478}}.
+    Empty dict if fit-params unavailable or parsing fails.
+    """
+    cmd = _build_fit_params_cmd(gguf_path, context, ngl, gpu_flags, kv_quant, mmproj_path)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return {}
+
+    # Per-GPU lines appear in stderr (present even on exit code 1)
+    output = result.stderr + result.stdout
+    pattern = re.compile(
+        r'(CUDA\d+)\s+\([^)]+\)\s*:\s*(\d+)\s+total\s*,\s*(\d+)\s+used\s*,\s*(-?\d+)\s+free'
+    )
+    gpus: dict[str, dict[str, int]] = {}
+    for m in pattern.finditer(output):
+        gpus[m.group(1)] = {
+            "total": int(m.group(2)),
+            "used": int(m.group(3)),
+            "free": int(m.group(4)),
+        }
+    return gpus
+
+
+def _find_best_ngl(
+    gguf_path: Path,
+    context: int,
+    gpu_flags: str,
+    kv_quant: Optional[str] = None,
+    mmproj_path: Optional[Path] = None,
+) -> tuple[int, dict[str, dict[str, int]]]:
+    """
+    Binary search for the highest NGL where all GPUs have free >= safety margin.
+
+    Returns (best_ngl, gpu_projections). Returns (0, {}) if no NGL works.
+    """
+    ngl_low = 1
+    ngl_high = 99
+    best_ngl = 0
+    best_gpus: dict[str, dict[str, int]] = {}
+
+    while ngl_low <= ngl_high:
+        ngl_mid = (ngl_low + ngl_high) // 2
+        gpus = _fit_params_per_gpu(gguf_path, context, ngl_mid, gpu_flags, kv_quant, mmproj_path)
+        if not gpus:
+            ngl_high = ngl_mid - 1
+            continue
+        min_free = min(g["free"] for g in gpus.values())
+        if min_free >= VRAM_SAFETY_MARGIN_MB:
+            best_ngl = ngl_mid
+            best_gpus = gpus
+            ngl_low = ngl_mid + 1
+        else:
+            ngl_high = ngl_mid - 1
+
+    return best_ngl, best_gpus
+
+
+def calibrate_model_fit_params(
+    model: dict,
+    server_bin: Path,
+    per_gpu_vram: list[int],
+) -> bool:
+    """
+    Calibrate a model using llama-fit-params for per-GPU VRAM projection.
+
+    Sets calibrated_context, calibrated_kv_quant, calibrated_gpu_flags, calibrated_ngl
+    on the model dict.
+
+    Returns True if calibration succeeded.
+    """
+    gguf_path = model["path"]
+    native_context = get_native_context(gguf_path)
+    gpu_flags = build_gpu_flags(gguf_path, per_gpu_vram)
+    total_vram_mb = sum(per_gpu_vram)
+    model_mb = get_gguf_total_size(gguf_path) / (1024 * 1024)
+    mmproj = model.get("mmproj_path")
+    needs_ngl_search = bool(gpu_flags) or model_mb > total_vram_mb * MULTI_GPU_VRAM_THRESHOLD
+
+    print(f"  {model['name']} ({model_mb:,.0f} MB, native context: {native_context:,}):")
+
+    if not LLAMA_FIT_PARAMS_BIN.exists():
+        print("    ! llama-fit-params not found, using safe defaults")
+        model["calibrated_context"] = min(native_context, FALLBACK_CONTEXT)
+        model["calibrated_kv_quant"] = "q4_0"
+        model["calibrated_gpu_flags"] = gpu_flags
+        model["calibrated_ngl"] = DEFAULT_NGL if not needs_ngl_search else 1
+        return True
+
+    # Try KV quant levels: f16 (best quality), q8_0, q4_0 (most VRAM-efficient)
+    for kv in [None, "q8_0", "q4_0"]:
+        kv_label = kv or "f16"
+
+        # Try native context first, then reduced
+        contexts = [native_context]
+        if native_context > FALLBACK_CONTEXT:
+            contexts.append(FALLBACK_CONTEXT)
+
+        for context in contexts:
+            if needs_ngl_search:
+                best_ngl, gpus = _find_best_ngl(
+                    gguf_path, context, gpu_flags, kv, mmproj,
+                )
+            else:
+                # Single GPU, model fits — just check with ngl=99
+                gpus = _fit_params_per_gpu(
+                    gguf_path, context, DEFAULT_NGL, gpu_flags, kv, mmproj,
+                )
+                if gpus:
+                    min_free = min(g["free"] for g in gpus.values())
+                    best_ngl = DEFAULT_NGL if min_free >= VRAM_SAFETY_MARGIN_MB else 0
+                else:
+                    best_ngl = 0
+
+            if best_ngl > 0:
+                min_free = min(g["free"] for g in gpus.values())
+                ngl_info = f", ngl={best_ngl}" if best_ngl != DEFAULT_NGL else ""
+                print(f"    ✓ KV={kv_label}, context={context:,}{ngl_info} (min free: {min_free} MB)")
+                model["calibrated_context"] = context
+                model["calibrated_kv_quant"] = kv
+                model["calibrated_gpu_flags"] = gpu_flags
+                model["calibrated_ngl"] = best_ngl
+                return True
+            else:
+                print(f"    ✗ KV={kv_label}, context={context:,} — doesn't fit")
+
+    print("    ✗ Cannot fit on available hardware")
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -633,6 +720,10 @@ def scan_gguf_models() -> list[dict]:
                 continue
 
         model_stem = gguf_file.stem
+        # Strip split-GGUF part suffix: "Model-00001-of-00003" → "Model"
+        split_match = re.match(r'^(.+)-\d{5}-of-\d{5}$', model_stem)
+        if split_match:
+            model_stem = split_match.group(1)
         models.append({
             "name": model_stem,
             "path": gguf_file,
@@ -690,32 +781,36 @@ def find_new_models(all_ggufs: list[dict], existing_models: set[str]) -> list[di
 # GGUF metadata reading
 # ---------------------------------------------------------------------------
 
-def get_native_context(gguf_path: Path) -> int:
-    """
-    Read native context length from GGUF metadata.
-
-    Uses gguf-py library if available, falls back to DEFAULT_CONTEXT.
-    """
+def _read_gguf_field(gguf_path: Path, suffix: str) -> Optional[int]:
+    """Read a single integer field from GGUF metadata by key suffix."""
     try:
-        # Resolve symlinks to read the actual file
         real_path = gguf_path.resolve()
-
         import gguf
         with open(real_path, "rb") as f:
             reader = gguf.GGUFReader(f)
             for field in reader.fields.values():
-                field_name = field.name.lower()
-                if field_name.endswith('.context_length') or field_name == 'context_length':
+                if field.name.lower().endswith(suffix):
                     value_array = field.parts[-1]
-                    context = int(value_array[0]) if len(value_array) > 0 else None
-                    if context and context > 0:
-                        return context
+                    if len(value_array) > 0:
+                        val = int(value_array[0])
+                        if val > 0:
+                            return val
     except ImportError:
-        print("  ! gguf-py not installed, using default context")
-    except Exception as e:
-        print(f"  ! Error reading GGUF metadata: {e}")
+        pass
+    except Exception:
+        pass
+    return None
 
-    return DEFAULT_CONTEXT
+
+def get_native_context(gguf_path: Path) -> int:
+    """Read native context length from GGUF metadata."""
+    val = _read_gguf_field(gguf_path, ".context_length")
+    if val is None:
+        val = _read_gguf_field(gguf_path, "context_length")
+    if val is None:
+        print("  ! Cannot read context from GGUF, using default")
+        return DEFAULT_CONTEXT
+    return val
 
 
 # ---------------------------------------------------------------------------
@@ -765,8 +860,8 @@ def append_models_to_yaml(
         content = "models:\n"
 
     # Build all new model blocks first
-    # Models must have calibrated_context, calibrated_gpu_flags, calibrated_kv_quant
-    # set by calibrate_kv_cache() before calling this function.
+    # Models must have calibrated_context, calibrated_gpu_flags, calibrated_kv_quant,
+    # calibrated_ngl set by calibration before calling this function.
     added = 0
     new_blocks = ""
     for model in new_models:
@@ -776,6 +871,7 @@ def append_models_to_yaml(
         mmproj = model.get("mmproj_path")
         kv_quant = model["calibrated_kv_quant"]
         gpu_flags = model["calibrated_gpu_flags"]
+        ngl = model.get("calibrated_ngl", DEFAULT_NGL)
 
         if kv_quant:
             flags = f"-ctk {kv_quant} -ctv {kv_quant} {DEFAULT_FLAGS_BASE}"
@@ -786,21 +882,22 @@ def append_models_to_yaml(
             flags = f"{gpu_flags} {flags}"
 
         kv_label = f", KV: {kv_quant}" if kv_quant else ""
+        ngl_label = f", ngl: {ngl}" if ngl != DEFAULT_NGL else ""
         if mmproj:
             cmd_line = (
                 f"{server_bin} --port ${{PORT}} "
                 f"--model {path} "
                 f"--mmproj {mmproj.absolute()} "
-                f"-ngl {DEFAULT_NGL} -c {context} {flags}"
+                f"-ngl {ngl} -c {context} {flags}"
             )
-            print(f"  + Added: {name} (VL, context: {context:,}{kv_label}, mmproj: {mmproj.name})")
+            print(f"  + Added: {name} (VL, context: {context:,}{kv_label}{ngl_label}, mmproj: {mmproj.name})")
         else:
             cmd_line = (
                 f"{server_bin} --port ${{PORT}} "
                 f"--model {path} "
-                f"-ngl {DEFAULT_NGL} -c {context} {flags}"
+                f"-ngl {ngl} -c {context} {flags}"
             )
-            print(f"  + Added: {name} (context: {context:,}{kv_label})")
+            print(f"  + Added: {name} (context: {context:,}{kv_label}{ngl_label})")
 
         new_blocks += f"  {name}:\n"
         new_blocks += f"    cmd: {cmd_line}\n"
@@ -849,13 +946,24 @@ def update_vram_cache(new_models: list[dict]) -> int:
         if name in cache:
             continue
 
-        context = get_native_context(model["path"])
+        native_context = get_native_context(model["path"])
+        ngl = model.get("calibrated_ngl", DEFAULT_NGL)
+        cal_context = model.get("calibrated_context", native_context)
+        kv_quant = model.get("calibrated_kv_quant")
+        mode = "hybrid" if ngl != DEFAULT_NGL else "gpu"
+
+        calibration_entry = {
+            "max_context": cal_context,
+            "ngl": ngl,
+            "mode": mode,
+            "measured_at": datetime.now().isoformat(),
+        }
 
         cache[name] = {
             "backend": "llamacpp",
-            "native_context": context,
+            "native_context": native_context,
             "gpu_model": "",
-            "llamacpp_calibrations": [],
+            "llamacpp_calibrations": [calibration_entry],
         }
 
         print(f"  + Added: {name}")
@@ -1303,33 +1411,14 @@ def main() -> None:
         new_models = compatible_models
         print()
 
-        # Step 4: KV cache calibration — try f16, fall back to q8_0, then q4_0
+        # Step 4: Calibrate using llama-fit-params (per-GPU VRAM projection)
         if new_models:
-            print("Calibrating KV cache for new models...")
+            print("Calibrating new models (llama-fit-params)...")
             per_gpu_vram = get_per_gpu_vram_mb()
             calibrated_models = []
             for model in new_models:
-                context = get_native_context(model["path"])
-                gpu_flags = build_gpu_flags(model["path"], per_gpu_vram)
-                mmproj = model.get("mmproj_path")
-
-                print(f"  {model['name']} (context: {context:,}):")
-                kv_quant, success = calibrate_kv_cache(
-                    server_bin, model["path"], context, gpu_flags, mmproj,
-                )
-                if success:
-                    model["calibrated_kv_quant"] = kv_quant
-                    model["calibrated_context"] = context
-                    model["calibrated_gpu_flags"] = gpu_flags
+                if calibrate_model_fit_params(model, server_bin, per_gpu_vram):
                     calibrated_models.append(model)
-                    label = "f16" if kv_quant is None else kv_quant
-                    print(f"    → Using {label} KV cache")
-                else:
-                    print(
-                        f"    ✗ Doesn't fit in VRAM even with q4_0 "
-                        f"at {context:,} context — skipping"
-                    )
-
             new_models = calibrated_models
             print()
 
