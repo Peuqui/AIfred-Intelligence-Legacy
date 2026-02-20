@@ -63,6 +63,7 @@ TORCH_COMPILE = os.environ.get("MOSS_TORCH_COMPILE", "").lower() in ("1", "true"
 
 # Paths
 VOICES_DIR = Path("/app/voices")
+FP32_CACHE_DIR = Path("/root/.cache/huggingface/moss-tts-8b-fp32")
 
 # Model state (lazy loaded)
 _processor = None
@@ -202,6 +203,81 @@ def _patch_num_hidden_layers(config):
             return
 
 
+def _ensure_fp32_cache():
+    """Pre-convert model to float32 safetensors on first run.
+
+    Converts shard by shard to avoid loading the entire 34 GB model into RAM.
+    Each shard is ~4.6 GB (bfloat16) → ~9.2 GB (float32). Peak RAM ~14 GB.
+    Only runs once — checks for existing cache first.
+    """
+    import json
+    import gc
+    import torch
+    from safetensors.torch import load_file, save_file
+    from huggingface_hub import cached_assets_path
+
+    has_safetensors = FP32_CACHE_DIR.exists() and any(FP32_CACHE_DIR.glob("*.safetensors"))
+    if has_safetensors:
+        logger.info(f"Float32 cache exists: {FP32_CACHE_DIR}")
+        return
+
+    # Clean up incomplete cache from previous failed attempt
+    if FP32_CACHE_DIR.exists():
+        import shutil
+        shutil.rmtree(FP32_CACHE_DIR)
+        logger.info("Removed incomplete fp32 cache")
+
+    # Resolve the HuggingFace cache snapshot directory
+    from huggingface_hub import snapshot_download
+    src_dir = Path(snapshot_download(MODEL_NAME, local_files_only=True))
+    index_file = src_dir / "model.safetensors.index.json"
+
+    if not index_file.exists():
+        raise FileNotFoundError(f"No shard index found at {index_file}")
+
+    with open(index_file) as f:
+        index = json.load(f)
+
+    shard_files = sorted(set(index["weight_map"].values()))
+    logger.info(f"First run: converting {len(shard_files)} shards to float32 (one-time)...")
+
+    FP32_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Convert shard by shard — only one shard in RAM at a time
+    new_weight_map = {}
+    for i, shard_name in enumerate(shard_files):
+        shard_path = src_dir / shard_name
+        logger.info(f"  Shard {i+1}/{len(shard_files)}: {shard_name} ...")
+
+        tensors = load_file(str(shard_path))
+        fp32_tensors = {k: v.to(torch.float32) for k, v in tensors.items()}
+
+        # Update weight map
+        for key in fp32_tensors:
+            new_weight_map[key] = shard_name
+
+        save_file(fp32_tensors, str(FP32_CACHE_DIR / shard_name))
+        logger.info(f"  Shard {i+1}/{len(shard_files)}: saved ({len(fp32_tensors)} tensors)")
+
+        del tensors, fp32_tensors
+        gc.collect()
+
+    # Write updated index
+    new_index = {"metadata": index.get("metadata", {}), "weight_map": new_weight_map}
+    with open(FP32_CACHE_DIR / "model.safetensors.index.json", "w") as f:
+        json.dump(new_index, f, indent=2)
+
+    # Copy config files from source
+    for cfg_name in ["config.json", "configuration_moss_tts.py", "modeling_moss_tts.py",
+                     "inference_utils.py", "processing_moss_tts.py", "generation_config.json"]:
+        cfg_src = src_dir / cfg_name
+        if cfg_src.exists():
+            import shutil
+            shutil.copy2(str(cfg_src), str(FP32_CACHE_DIR / cfg_name))
+
+    logger.info(f"Float32 cache saved to {FP32_CACHE_DIR} ({len(shard_files)} shards)")
+
+
 def load_model():
     """Load MOSS-TTS 8B model and processor."""
     global _processor, _model, _generation_config, _device, _sample_rate
@@ -218,20 +294,30 @@ def load_model():
     dtype = resolve_dtype()
     attn_impl = resolve_attn_implementation()
 
-    logger.info(f"Loading MOSS-TTS 8B model: {MODEL_NAME}")
+    # Pre-convert to float32 on first run (saves conversion time on subsequent loads)
+    if dtype == torch.float32:
+        _ensure_fp32_cache()
+        model_path = str(FP32_CACHE_DIR)
+        logger.info(f"Loading from float32 cache: {model_path}")
+    else:
+        model_path = MODEL_NAME
+        logger.info(f"Loading from HuggingFace: {model_path}")
+
     logger.info(f"Device: {_device}, dtype: {dtype}, attention: {attn_impl}")
 
-    # Load processor
+    # Load processor (always from original — processor isn't saved in fp32 cache)
     _processor = AutoProcessor.from_pretrained(MODEL_NAME, trust_remote_code=True)
     _processor.audio_tokenizer = _processor.audio_tokenizer.to(_device)
 
-    # Load model
+    # Load model — tensor by tensor, directly to GPU (no full RAM copy)
     _model = AutoModel.from_pretrained(
-        MODEL_NAME,
+        model_path,
         trust_remote_code=True,
         attn_implementation=attn_impl,
         torch_dtype=dtype,
-    ).to(_device)
+        device_map=_device,
+        low_cpu_mem_usage=True,
+    )
     _model.eval()
 
     # torch.compile: JIT-compile the model for faster inference

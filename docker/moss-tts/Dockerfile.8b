@@ -16,7 +16,7 @@ RUN cd /opt/moss-tts && pip install --no-cache-dir \
     --extra-index-url https://download.pytorch.org/whl/cu128 -e .
 
 # Flask + Gunicorn for API server
-RUN pip install --no-cache-dir flask gunicorn
+RUN pip install --no-cache-dir flask gunicorn accelerate
 
 # Copy 8B server variant
 COPY server_8b.py /app/server.py
