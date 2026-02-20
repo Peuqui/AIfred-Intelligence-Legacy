@@ -1,8 +1,8 @@
 """
-MOSS-TTS HTTP Server for AIfred.
+MOSS-TTS 8B (MossTTSDelay) HTTP Server for AIfred.
 
-Provides a simple REST API for text-to-speech generation using MOSS-TTS.
-Uses the MossTTSLocal (1.7B) model by default for efficient VRAM usage.
+Provides a simple REST API for text-to-speech generation using the 8B flagship model.
+Better long-form stability and more robust voice cloning than the 1.7B variant.
 
 Supports zero-shot voice cloning from reference WAV files.
 No transcription needed - the model analyzes the audio directly.
@@ -46,20 +46,19 @@ app = Flask(__name__)
 # ============================================================
 # Configuration (from environment variables)
 # ============================================================
-MODEL_NAME = os.environ.get("MOSS_MODEL", "OpenMOSS-Team/MOSS-TTS-Local-Transformer")
-VRAM_THRESHOLD_GB = float(os.environ.get("MOSS_VRAM_THRESHOLD", "4.0"))
+MODEL_NAME = os.environ.get("MOSS_MODEL", "OpenMOSS-Team/MOSS-TTS")
+VRAM_THRESHOLD_GB = float(os.environ.get("MOSS_VRAM_THRESHOLD", "16.0"))
 FORCE_CPU = os.environ.get("MOSS_FORCE_CPU", "").lower() in ("1", "true", "yes")
 EAGER_LOAD = os.environ.get("MOSS_EAGER_LOAD", "").lower() in ("1", "true", "yes")
 KEEP_ALIVE_MINUTES = int(os.environ.get("MOSS_KEEP_ALIVE", "5"))
 
-# Inference parameters
-TEMPERATURE = float(os.environ.get("MOSS_TEMPERATURE", "1.5"))
-TOP_P = float(os.environ.get("MOSS_TOP_P", "0.95"))
-TOP_K = int(os.environ.get("MOSS_TOP_K", "50"))
-REPETITION_PENALTY = float(os.environ.get("MOSS_REPETITION_PENALTY", "1.1"))
+# Inference parameters (8B recommended defaults)
+TEMPERATURE = float(os.environ.get("MOSS_TEMPERATURE", "1.7"))
+TOP_P = float(os.environ.get("MOSS_TOP_P", "0.8"))
+TOP_K = int(os.environ.get("MOSS_TOP_K", "25"))
+REPETITION_PENALTY = float(os.environ.get("MOSS_REPETITION_PENALTY", "1.0"))
 
-# torch.compile optimization (GPU only, reduces inference time by ~10-25%)
-# First request after load compiles the model (~30-60s), subsequent requests are faster
+# torch.compile optimization (GPU only)
 TORCH_COMPILE = os.environ.get("MOSS_TORCH_COMPILE", "").lower() in ("1", "true", "yes")
 
 # Paths
@@ -77,7 +76,7 @@ _last_request_time = None
 _restart_timer = None
 _active_requests = 0
 
-logger.info(f"MOSS-TTS Config: model={MODEL_NAME}, temperature={TEMPERATURE}, "
+logger.info(f"MOSS-TTS 8B Config: model={MODEL_NAME}, temperature={TEMPERATURE}, "
             f"top_p={TOP_P}, top_k={TOP_K}, repetition_penalty={REPETITION_PENALTY}")
 
 
@@ -162,8 +161,12 @@ def resolve_attn_implementation() -> str:
 def resolve_dtype():
     """Choose best dtype for current hardware.
 
-    - Ampere+ (CC >= 8.0): bfloat16 (best for transformers)
-    - Pascal/Turing (CC 6.x-7.x): float16 (no bfloat16 hardware support)
+    The 8B MossTTSDelay model's generate() divides logits by temperature
+    in-place. In float16, this produces NaN for large logit values,
+    crashing torch.multinomial. We use float32 on GPUs without bfloat16.
+
+    - Ampere+ (CC >= 8.0): bfloat16 (best for transformers, sufficient range)
+    - Pascal/Turing (CC 6.x-7.x): float32 (float16 causes NaN in generate)
     - CPU: float32
     """
     import torch
@@ -176,8 +179,8 @@ def resolve_dtype():
         logger.info(f"GPU CC {major}.x - using bfloat16")
         return torch.bfloat16
     else:
-        logger.info(f"GPU CC {major}.x - using float16 (no bfloat16 support)")
-        return torch.float16
+        logger.info(f"GPU CC {major}.x - using float32 (float16 causes NaN in 8B generate)")
+        return torch.float32
 
 
 def _patch_num_hidden_layers(config):
@@ -185,7 +188,7 @@ def _patch_num_hidden_layers(config):
 
     transformers 5.x DynamicCache requires num_hidden_layers on decoder configs,
     but MossTTSDelayConfig only exposes local_num_layers. The DynamicCache needs the
-    layer count from the language model (Qwen3, 28 layers), not the local transformer (4).
+    layer count from the language model (Qwen3), not the local transformer.
     """
     if hasattr(config, 'num_hidden_layers'):
         return
@@ -200,10 +203,10 @@ def _patch_num_hidden_layers(config):
 
 
 def load_model():
-    """Load MOSS-TTS model and processor."""
+    """Load MOSS-TTS 8B model and processor."""
     global _processor, _model, _generation_config, _device, _sample_rate
     import torch
-    from transformers import AutoModel, AutoProcessor, GenerationConfig
+    from transformers import AutoModel, AutoProcessor
 
     # SDPA backend configuration (from MOSS-TTS docs)
     torch.backends.cuda.enable_cudnn_sdp(False)
@@ -215,7 +218,7 @@ def load_model():
     dtype = resolve_dtype()
     attn_impl = resolve_attn_implementation()
 
-    logger.info(f"Loading MOSS-TTS model: {MODEL_NAME}")
+    logger.info(f"Loading MOSS-TTS 8B model: {MODEL_NAME}")
     logger.info(f"Device: {_device}, dtype: {dtype}, attention: {attn_impl}")
 
     # Load processor
@@ -232,71 +235,19 @@ def load_model():
     _model.eval()
 
     # torch.compile: JIT-compile the model for faster inference
-    # Fuses GPU kernels, eliminates memory copies, optimizes compute graph
-    # First call after load is slow (~30-60s compilation), subsequent calls faster
     if TORCH_COMPILE and _device == "cuda":
         logger.info("Applying torch.compile (mode=reduce-overhead)...")
         _model = torch.compile(_model, mode="reduce-overhead")
         logger.info("torch.compile applied - first inference will trigger compilation")
 
-    # Patch: transformers 5.x DynamicCache expects num_hidden_layers on config,
-    # but MossTTSDelayConfig only has local_num_layers
+    # Patch: transformers 5.x DynamicCache expects num_hidden_layers on config
     _patch_num_hidden_layers(_model.config)
 
     # Sample rate from model config
     _sample_rate = _processor.model_config.sampling_rate
     logger.info(f"Sample rate: {_sample_rate} Hz")
 
-    # Generation config (MossTTSLocal-specific)
-    _generation_config = _build_generation_config()
-
-    logger.info(f"MOSS-TTS model loaded on {_device.upper()}")
-
-
-def _build_generation_config():
-    """Build generation config for MossTTSLocal architecture."""
-    from transformers import GenerationConfig
-
-    # MossTTSLocal uses a custom DelayGenerationConfig
-    # We subclass GenerationConfig to add the extra fields
-    class DelayGenerationConfig(GenerationConfig):
-        def __init__(self, **kwargs):
-            super().__init__(**kwargs)
-            self.layers = kwargs.get("layers", [{} for _ in range(32)])
-            self.do_samples = kwargs.get("do_samples", None)
-            self.n_vq_for_inference = 32
-
-    config = DelayGenerationConfig.from_pretrained(MODEL_NAME)
-    config.pad_token_id = _processor.tokenizer.pad_token_id
-    config.eos_token_id = 151653
-    config.max_new_tokens = 1000000
-    config.use_cache = True
-    config.do_sample = False
-
-    # Model-specific settings
-    config.n_vq_for_inference = _model.channels - 1
-    config.do_samples = [True] * _model.channels
-
-    # Layer-specific sampling parameters
-    # First layer: audio prosody (temperature controls variation)
-    # Other layers: acoustic detail (more conservative)
-    config.layers = [
-        {
-            "repetition_penalty": 1.0,
-            "temperature": TEMPERATURE,
-            "top_p": 1.0,
-            "top_k": TOP_K,
-        }
-    ] + [
-        {
-            "repetition_penalty": REPETITION_PENALTY,
-            "temperature": 1.0,
-            "top_p": TOP_P,
-            "top_k": TOP_K,
-        }
-    ] * (_model.channels - 1)
-
-    return config
+    logger.info(f"MOSS-TTS 8B model loaded on {_device.upper()}")
 
 
 def get_model():
@@ -310,13 +261,23 @@ def get_model():
 # TTS Generation
 # ============================================================
 
-def generate_tts(text: str, speaker: str | None = None) -> tuple[str, str]:
+def generate_tts(text: str, speaker: str | None = None,
+                 audio_temperature: float | None = None,
+                 text_temperature: float | None = None,
+                 audio_top_p: float | None = None,
+                 audio_top_k: int | None = None,
+                 audio_repetition_penalty: float | None = None) -> tuple[str, str]:
     """
     Generate TTS audio.
 
     Args:
         text: Text to synthesize
         speaker: Voice name (WAV file in voices/ dir), or None for default voice
+        audio_temperature: Override for audio sampling temperature
+        text_temperature: Override for text sampling temperature
+        audio_top_p: Override for audio top-p
+        audio_top_k: Override for audio top-k
+        audio_repetition_penalty: Override for audio repetition penalty
 
     Returns:
         Tuple of (file_path, mimetype) for the generated audio
@@ -327,7 +288,7 @@ def generate_tts(text: str, speaker: str | None = None) -> tuple[str, str]:
     model = get_model()
 
     # Minimal text preprocessing for better prosody
-    text = text.replace('...', '. –')
+    text = text.replace('...', '. \u2013')
     text = re.sub(r'\.(?! )', '. ', text)
 
     # Build conversation with optional voice reference
@@ -339,6 +300,16 @@ def generate_tts(text: str, speaker: str | None = None) -> tuple[str, str]:
     else:
         conversation = [_processor.build_user_message(text=text)]
 
+    # Use per-request overrides or fall back to env defaults
+    gen_params = {
+        "audio_temperature": audio_temperature if audio_temperature is not None else TEMPERATURE,
+        "text_temperature": text_temperature if text_temperature is not None else 1.5,
+        "audio_top_p": audio_top_p if audio_top_p is not None else TOP_P,
+        "audio_top_k": audio_top_k if audio_top_k is not None else TOP_K,
+        "audio_repetition_penalty": audio_repetition_penalty if audio_repetition_penalty is not None else REPETITION_PENALTY,
+    }
+    logger.info(f"Generate params: {gen_params}")
+
     # Generate audio
     with torch.no_grad():
         batch = _processor([conversation], mode="generation")
@@ -348,7 +319,8 @@ def generate_tts(text: str, speaker: str | None = None) -> tuple[str, str]:
         outputs = model.generate(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            generation_config=_generation_config,
+            max_new_tokens=4096,
+            **gen_params,
         )
 
     # Decode audio
@@ -501,6 +473,13 @@ def tts():
     # language parameter accepted for API compatibility but MOSS-TTS
     # auto-detects language from text
 
+    # Optional per-request parameter overrides
+    audio_temperature = data.get("audio_temperature")
+    text_temperature = data.get("text_temperature")
+    audio_top_p = data.get("audio_top_p")
+    audio_top_k = data.get("audio_top_k")
+    audio_repetition_penalty = data.get("audio_repetition_penalty")
+
     if not text:
         return jsonify({"error": "Empty text"}), 400
 
@@ -508,7 +487,14 @@ def tts():
 
     _active_requests += 1
     try:
-        file_path, mimetype = generate_tts(text, speaker)
+        file_path, mimetype = generate_tts(
+            text, speaker,
+            audio_temperature=float(audio_temperature) if audio_temperature is not None else None,
+            text_temperature=float(text_temperature) if text_temperature is not None else None,
+            audio_top_p=float(audio_top_p) if audio_top_p is not None else None,
+            audio_top_k=int(audio_top_k) if audio_top_k is not None else None,
+            audio_repetition_penalty=float(audio_repetition_penalty) if audio_repetition_penalty is not None else None,
+        )
 
         # Clear CUDA cache
         if _device == "cuda":
@@ -564,7 +550,7 @@ def unload_model():
         return jsonify({"success": True, "freed_device": "not_loaded"})
 
     freed_device = _device or "unknown"
-    logger.info(f"Unloading MOSS-TTS model from {freed_device}...")
+    logger.info(f"Unloading MOSS-TTS 8B model from {freed_device}...")
 
     if _restart_timer is not None:
         _restart_timer.cancel()
@@ -578,7 +564,7 @@ def unload_model():
 
     _deep_cuda_cleanup()
 
-    logger.info(f"MOSS-TTS model unloaded from {freed_device}")
+    logger.info(f"MOSS-TTS 8B model unloaded from {freed_device}")
     return jsonify({"success": True, "freed_device": freed_device})
 
 
@@ -592,7 +578,7 @@ WEB_UI_HTML = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MOSS-TTS - Voice Cloning TTS</title>
+    <title>MOSS-TTS 8B - Voice Cloning TTS</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -634,11 +620,37 @@ WEB_UI_HTML = """
             font-size: 13px; color: #888;
         }
         .info code { color: #4caf50; background: #1a1a2e; padding: 2px 6px; border-radius: 3px; }
+        .speed-bar {
+            display: flex; gap: 4px; margin-top: 8px; align-items: center;
+        }
+        .speed-bar span { font-size: 12px; color: #888; margin-right: 4px; }
+        .speed-btn {
+            background: #1a1a2e; color: #888; border: 1px solid #333;
+            padding: 3px 8px; border-radius: 4px; font-size: 12px;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .speed-btn:hover { color: #fff; border-color: #4caf50; }
+        .speed-btn.active { background: #4caf50; color: #fff; border-color: #4caf50; }
+        .params { margin: 15px 0; }
+        .params summary {
+            cursor: pointer; color: #4caf50; font-weight: 600;
+            margin-bottom: 10px; user-select: none;
+        }
+        .param-row {
+            display: flex; align-items: center; gap: 10px;
+            margin-bottom: 8px;
+        }
+        .param-row label { min-width: 140px; margin: 0; }
+        .param-row input[type="range"] { flex: 1; accent-color: #4caf50; }
+        .param-row .val {
+            min-width: 40px; text-align: right;
+            font-family: monospace; color: #4caf50;
+        }
     </style>
 </head>
 <body>
-    <h1>MOSS-TTS</h1>
-    <p class="subtitle">MossTTSLocal 1.7B - Zero-Shot Voice Cloning</p>
+    <h1>MOSS-TTS 8B</h1>
+    <p class="subtitle">MossTTSDelay 8B Flagship - Zero-Shot Voice Cloning</p>
 
     <div class="section">
         <h2>Text-to-Speech</h2>
@@ -652,15 +664,56 @@ WEB_UI_HTML = """
             </div>
         </div>
 
+        <details class="params" open>
+            <summary>Generation Parameters</summary>
+            <div class="param-row">
+                <label>Audio Temperature</label>
+                <input type="range" id="audioTemp" min="0.1" max="3.0" step="0.1" value="1.7" oninput="this.nextElementSibling.textContent=this.value">
+                <span class="val">1.7</span>
+            </div>
+            <div class="param-row">
+                <label>Text Temperature</label>
+                <input type="range" id="textTemp" min="0.1" max="3.0" step="0.1" value="1.5" oninput="this.nextElementSibling.textContent=this.value">
+                <span class="val">1.5</span>
+            </div>
+            <div class="param-row">
+                <label>Audio Top-P</label>
+                <input type="range" id="audioTopP" min="0.1" max="1.0" step="0.05" value="0.8" oninput="this.nextElementSibling.textContent=this.value">
+                <span class="val">0.8</span>
+            </div>
+            <div class="param-row">
+                <label>Audio Top-K</label>
+                <input type="range" id="audioTopK" min="1" max="100" step="1" value="25" oninput="this.nextElementSibling.textContent=this.value">
+                <span class="val">25</span>
+            </div>
+            <div class="param-row">
+                <label>Repetition Penalty</label>
+                <input type="range" id="repPenalty" min="0.5" max="2.0" step="0.1" value="1.0" oninput="this.nextElementSibling.textContent=this.value">
+                <span class="val">1.0</span>
+            </div>
+            <button onclick="resetParams()" style="background:linear-gradient(135deg,#666,#444);padding:8px 16px;font-size:12px;margin-top:8px;">Reset to Defaults</button>
+        </details>
+
         <button onclick="generateTTS()" id="generateBtn">Generate Audio</button>
 
         <div id="status" class="status"></div>
         <audio id="audioPlayer" controls style="display:none;"></audio>
+        <div class="speed-bar" id="speedBar" style="display:none;">
+            <span>Speed:</span>
+            <button class="speed-btn" onclick="setSpeed(0.8)">0.8x</button>
+            <button class="speed-btn" onclick="setSpeed(0.9)">0.9x</button>
+            <button class="speed-btn active" onclick="setSpeed(1.0)">1.0x</button>
+            <button class="speed-btn" onclick="setSpeed(1.1)">1.1x</button>
+            <button class="speed-btn" onclick="setSpeed(1.2)">1.2x</button>
+            <button class="speed-btn" onclick="setSpeed(1.25)">1.25x</button>
+            <button class="speed-btn" onclick="setSpeed(1.5)">1.5x</button>
+            <button class="speed-btn" onclick="setSpeed(2.0)">2.0x</button>
+        </div>
     </div>
 
     <div class="section">
         <h2>Model Management</h2>
-        <p style="color:#888; margin-bottom:15px;">Unload model to free GPU memory.</p>
+        <p style="color:#888; margin-bottom:15px;">Unload model to free GPU memory (~20-24 GB).</p>
         <button onclick="unloadModel()" id="unloadBtn">Unload Model</button>
         <div id="unloadStatus" class="status"></div>
     </div>
@@ -675,6 +728,24 @@ WEB_UI_HTML = """
     </div>
 
     <script>
+        function setSpeed(rate) {
+            const player = document.getElementById('audioPlayer');
+            player.playbackRate = rate;
+            player.preservesPitch = true;
+            document.querySelectorAll('.speed-btn').forEach(b => {
+                b.classList.toggle('active', parseFloat(b.textContent) === rate);
+            });
+        }
+
+        const DEFAULTS = {audioTemp:'1.7', textTemp:'1.5', audioTopP:'0.8', audioTopK:'25', repPenalty:'1.0'};
+        function resetParams() {
+            for (const [id, val] of Object.entries(DEFAULTS)) {
+                const el = document.getElementById(id);
+                el.value = val;
+                el.nextElementSibling.textContent = val;
+            }
+        }
+
         async function loadVoices() {
             const select = document.getElementById('voice');
             select.innerHTML = '<option disabled>Loading...</option>';
@@ -707,12 +778,19 @@ WEB_UI_HTML = """
 
             btn.disabled = true;
             status.className = 'status loading';
-            status.textContent = 'Generating audio... (first request loads model, may take minutes)';
+            status.textContent = 'Generating audio... (first request loads 8B model, may take several minutes)';
             audio.style.display = 'none';
 
             try {
                 const startTime = Date.now();
-                const body = { text };
+                const body = {
+                    text,
+                    audio_temperature: parseFloat(document.getElementById('audioTemp').value),
+                    text_temperature: parseFloat(document.getElementById('textTemp').value),
+                    audio_top_p: parseFloat(document.getElementById('audioTopP').value),
+                    audio_top_k: parseInt(document.getElementById('audioTopK').value),
+                    audio_repetition_penalty: parseFloat(document.getElementById('repPenalty').value),
+                };
                 if (voice) body.speaker = voice;
 
                 const res = await fetch('/tts', {
@@ -729,6 +807,10 @@ WEB_UI_HTML = """
 
                 audio.src = url;
                 audio.style.display = 'block';
+                document.getElementById('speedBar').style.display = 'flex';
+                const currentRate = document.querySelector('.speed-btn.active');
+                if (currentRate) audio.playbackRate = parseFloat(currentRate.textContent);
+                audio.preservesPitch = true;
                 audio.play();
 
                 status.className = 'status success';
@@ -776,9 +858,9 @@ WEB_UI_HTML = """
 # ============================================================
 
 if EAGER_LOAD:
-    logger.info("EAGER_LOAD enabled - loading model at startup...")
+    logger.info("EAGER_LOAD enabled - loading 8B model at startup...")
     load_model()
-    logger.info("Model loaded and ready")
+    logger.info("8B model loaded and ready")
 
 if KEEP_ALIVE_MINUTES > 0:
     logger.info(f"Auto-shutdown timer: {KEEP_ALIVE_MINUTES} min")

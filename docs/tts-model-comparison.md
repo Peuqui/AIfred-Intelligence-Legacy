@@ -76,7 +76,7 @@ Latenz akzeptabel, da der LLM ohnehin satzweise streamt.
 | **CosyVoice-3** | Unklar | Multilingual | Unklar | Ja | Mittel | Unklar | Unklar | Unklar | Unklar | Unklar | Unklar |
 | **IndexTTS 2** | Unklar | Unklar | Unklar | Ja | Unklar | Unklar | Unklar | Unklar | Unklar | Unklar | Unklar |
 | **MOSS-TTS Local** | 1.7B | 20+ (CN,EN,DE,FR,ES,JA,KO,...) | Ja (nativ) | Ja (Zero-Shot) | Hoch | Nein (Chunk-basiert) | Unklar | 22.05 kHz | ~11.5 GB (BF16) | Global Latent + Local Transformer (MossTTSLocal) | Apache 2.0 |
-| **MOSS-TTS Delay** | 8B | 20+ | Ja (nativ) | Ja (Zero-Shot) | Hoch | Nein | Unklar | 22.05 kHz | ~16 GB (BF16) | Delay Pattern (MossTTSDelay) | Apache 2.0 |
+| **MOSS-TTS Delay** | 8B | 20+ | Ja (nativ) | Ja (Zero-Shot) | Hoch | Nein | ~9.3 tok/s | 22.05 kHz | ~17 GB (BF16) / ~34 GB (FP32, Turing) | Delay Pattern (MossTTSDelay) | Apache 2.0 |
 | **MOSS-TTS-Realtime** | 1.7B | 10+ (CN,EN,DE,FR,JA,KO,...) | Ja | Ja (Zero-Shot) | Hoch | Ja (Text-Streaming, `push_text`) | Unklar | 24 kHz | ~11.5 GB (BF16) + Codec | MossTTSRealtime + MOSS-Audio-Tokenizer | Apache 2.0 |
 | **MOSS-TTSD** | 8B | Multilingual | Ja | Ja (1-5 Sprecher) | Sehr hoch | Nein | Unklar | 22.05 kHz | ~16 GB (BF16) | MossTTSDelay (Dialog) | Apache 2.0 |
 | **MOSS-VoiceGenerator** | 8B | CN + EN | Nein | Nein (Stimme aus Textbeschreibung!) | Sehr hoch | Nein | Unklar | 22.05 kHz | ~16 GB (BF16) | MossTTSDelay | Apache 2.0 |
@@ -195,7 +195,7 @@ Fuer AIfred (kurze Saetze, konversationell) koennen die Ergebnisse abweichen.
   | Modell | Params | Fokus | Fuer AIfred? |
   |--------|--------|-------|-------------|
   | MossTTSLocal | 1.7B | Beste Benchmarks, Forschung | Ja (aktuell integriert) |
-  | MossTTSDelay | 8B | Produktion, Langform-Stabilitaet | Nein (zu viel VRAM) |
+  | MossTTSDelay | 8B | Produktion, Langform-Stabilitaet | Ja (RTX 8000, float32 ~34 GB) |
   | MossTTSRealtime | 1.7B | Streaming, Voice Agents | Ja (naechster Kandidat!) |
   | MOSS-TTSD | 8B | Multi-Speaker Dialog (1-5 Sprecher) | Nein (zu viel VRAM) |
   | MOSS-VoiceGenerator | 8B | Stimmen aus Textbeschreibung | Nein (zu viel VRAM) |
@@ -221,11 +221,12 @@ ist ein Wechsel problemlos.
 ## Empfohlene Evaluierungsreihenfolge
 
 1. ~~**MOSS-TTS Local** testen~~ ✅ Integriert! (Docker-Container, VRAM-Reservation, gute Qualitaet)
-2. **MOSS-TTS-Realtime** testen (Streaming via `push_text`, gleiche VRAM-Klasse wie Local)
-3. **F5-TTS** mit deutschem Fine-Tune testen (kleinstes Modell, schnellstes)
-4. **Qwen3-TTS** testen (nativer DE-Support, Streaming via Fork)
-5. **Higgs-Audio V2** testen (wenn mehr Expressivitaet gewuenscht)
-6. Falls keines ueberzeugt: XTTS v2 mit Carry-Mechanismus weiter optimieren
+2. ~~**MOSS-TTS Delay 8B** testen~~ ✅ Integriert! (RTX 8000 float32, eigene generate()-API, Web-UI mit Param-Slidern. Siehe [docs/moss-tts-8b-turing-notes.md](moss-tts-8b-turing-notes.md))
+3. **MOSS-TTS-Realtime** testen (Streaming via `push_text`, gleiche VRAM-Klasse wie Local)
+4. **F5-TTS** mit deutschem Fine-Tune testen (kleinstes Modell, schnellstes)
+5. **Qwen3-TTS** testen (nativer DE-Support, Streaming via Fork)
+6. **Higgs-Audio V2** testen (wenn mehr Expressivitaet gewuenscht)
+7. Falls keines ueberzeugt: XTTS v2 mit Carry-Mechanismus weiter optimieren
 
 ## Tipps aus der Community
 

@@ -1,5 +1,6 @@
 services:
   moss-tts:
+    image: moss-tts-1.7b
     build: .
     container_name: moss-tts
     restart: "no"  # AIfred controls container lifecycle
