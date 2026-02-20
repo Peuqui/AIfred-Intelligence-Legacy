@@ -1440,23 +1440,7 @@ class AIState(rx.State):
                 else:
                     self.add_debug("⚠️ vLLM manager exists but server not running")
 
-            # TTS: Ensure Docker container is running (also on page reload!)
-            if self.enable_tts and self.tts_engine == "xtts":
-                from .lib.process_utils import ensure_xtts_ready
-                success, msg = ensure_xtts_ready(timeout=60)
-                if success:
-                    self.add_debug(f"✅ {msg}")
-                    self._refresh_xtts_voices()
-                else:
-                    self.add_debug(f"⚠️ {msg}")
-            elif self.enable_tts and self.tts_engine == "moss":  # MOSS-TTS (batch)
-                from .lib.process_utils import ensure_moss_ready
-                success, msg, device = ensure_moss_ready(timeout=120)
-                self.moss_tts_device = device if success else ""
-                if success:
-                    self.add_debug(f"✅ {msg}")
-                else:
-                    self.add_debug(f"⚠️ {msg}")
+            # TTS: Do NOT preload container on page reload — starts on first use
 
             self.backend_healthy = True
             self.model_count = len(self.available_models)
@@ -1486,27 +1470,8 @@ class AIState(rx.State):
             self.backend_info = f"{self.backend_type} initializing..."
             self.add_debug(f"⚡ Backend: {self.backend_type} (skip health check)")
 
-            # TTS: Start Docker container before Ollama loads models (reserves VRAM)
-            if self.enable_tts and self.tts_engine == "xtts":
-                from .lib.process_utils import ensure_xtts_ready
-
-                self.add_debug("🔊 XTTS: Starting container...")
-                success, msg = ensure_xtts_ready(timeout=60)
-                if success:
-                    self.add_debug(f"✅ {msg}")
-                    self._refresh_xtts_voices()
-                else:
-                    self.add_debug(f"⚠️ {msg}")
-            elif self.enable_tts and self.tts_engine == "moss":  # MOSS-TTS (batch)
-                from .lib.process_utils import ensure_moss_ready
-
-                self.add_debug("🔊 MOSS-TTS: Starting container...")
-                success, msg, device = ensure_moss_ready(timeout=120)
-                self.moss_tts_device = device if success else ""
-                if success:
-                    self.add_debug(f"✅ {msg}")
-                else:
-                    self.add_debug(f"⚠️ {msg}")
+            # TTS: Do NOT preload container at startup — starts on first use
+            # (ensure_*_ready is called in send_message and regenerate flows)
 
             # Load models using centralized discovery module
             from .lib.model_discovery import discover_models
@@ -8774,54 +8739,6 @@ class AIState(rx.State):
         """Check if Salomo's TTS is enabled"""
         return self.tts_agent_voices.get("salomo", {}).get("enabled", True)
 
-    async def resynthesize_tts(self):
-        """Re-synthesize TTS for the last AI response"""
-        # Prevent double-clicks while regenerating
-        if self.tts_regenerating:
-            return
-
-        if not self.llm_history:
-            self.add_debug("⚠️ TTS Re-Synth: No response available")
-            return
-
-        # Get last AI response from llm_history (clean text without HTML)
-        last_message = self.llm_history[-1]
-        if last_message["role"] != "assistant":
-            self.add_debug("⚠️ TTS Re-Synth: Last message is not an AI response")
-            return
-
-        last_ai_response = last_message["content"]
-
-        # Extract agent from label prefix like "[AIFRED]: " or "[SOKRATES]: "
-        import re
-        agent = "aifred"  # Default
-        agent_match = re.match(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', last_ai_response)
-        if agent_match:
-            agent = agent_match.group(1).lower()
-            last_ai_response = last_ai_response[agent_match.end():]
-
-        if not last_ai_response or not last_ai_response.strip():
-            self.add_debug("⚠️ TTS Re-Synth: Last response is empty")
-            return
-
-        # Show spinner and disable button
-        self.tts_regenerating = True
-        yield
-
-        # FIRST: Stop any currently playing audio to avoid overlap
-        yield rx.call_script("stopTts()")
-
-        self.add_debug(f"🔄 TTS Re-Synth: Regenerating audio for {agent}...")
-        yield
-
-        try:
-            # Generate TTS for last response with correct agent voice settings
-            # State changes (tts_audio_path, tts_trigger_counter) auto-propagate to frontend
-            await self._generate_tts_for_response(last_ai_response, autoplay=True, agent=agent)
-        finally:
-            # Hide spinner and re-enable button
-            self.tts_regenerating = False
-
     async def _regenerate_bubble_tts_core(self, bubble_index: int, save_session: bool = True) -> bool:
         """Core TTS regeneration logic for a single bubble.
 
@@ -8956,26 +8873,26 @@ class AIState(rx.State):
             return
 
         self.tts_regenerating = True
-        yield
-
         yield rx.call_script("stopTts()")
 
-        # Ensure TTS container is running
+        # Auto-start TTS backend if not running — yield debug message BEFORE blocking call
         if self.tts_engine == "xtts":
+            self.add_debug("🔄 TTS Re-Synth: Starte XTTS Backend...")
+            yield
             from .lib.process_utils import ensure_xtts_ready
-            success, msg = ensure_xtts_ready(timeout=60)
-            if not success:
-                self.add_debug(f"❌ {msg}")
-                self.tts_regenerating = False
-                return
+            ok, msg = ensure_xtts_ready()
         elif self.tts_engine == "moss":
+            self.add_debug("🔄 TTS Re-Synth: Starte MOSS-TTS Backend...")
+            yield
             from .lib.process_utils import ensure_moss_ready
-            success, msg, device = ensure_moss_ready(timeout=120)
-            self.moss_tts_device = device if success else ""
-            if not success:
-                self.add_debug(f"❌ {msg}")
-                self.tts_regenerating = False
-                return
+            ok, msg, _device = ensure_moss_ready()
+        else:
+            ok, msg = True, "OK"
+
+        if not ok:
+            self.add_debug(f"❌ TTS Re-Synth: {msg}")
+            self.tts_regenerating = False
+            return
 
         agent = self.chat_history[bubble_index].get("agent", "aifred")
         self.add_debug(f"🔄 TTS Re-Synth: Regenerating bubble {bubble_index} ({agent})...")
@@ -9009,30 +8926,26 @@ class AIState(rx.State):
             return
 
         self.tts_regenerating = True
-        yield
-
         yield rx.call_script("stopTts()")
 
-        # Ensure TTS container is running before regeneration
+        # Auto-start TTS backend if not running — yield debug message BEFORE blocking call
         if self.tts_engine == "xtts":
+            self.add_debug("🔄 TTS Re-Synth (alle): Starte XTTS Backend...")
+            yield
             from .lib.process_utils import ensure_xtts_ready
-            success, msg = ensure_xtts_ready(timeout=60)
-            if not success:
-                self.add_debug(f"❌ {msg}")
-                self.tts_regenerating = False
-                return
-            self.add_debug(f"✅ {msg}")
-            yield
+            ok, msg = ensure_xtts_ready()
         elif self.tts_engine == "moss":
-            from .lib.process_utils import ensure_moss_ready
-            success, msg, device = ensure_moss_ready(timeout=120)
-            self.moss_tts_device = device if success else ""
-            if not success:
-                self.add_debug(f"❌ {msg}")
-                self.tts_regenerating = False
-                return
-            self.add_debug(f"✅ {msg}")
+            self.add_debug("🔄 TTS Re-Synth (alle): Starte MOSS-TTS Backend...")
             yield
+            from .lib.process_utils import ensure_moss_ready
+            ok, msg, _device = ensure_moss_ready()
+        else:
+            ok, msg = True, "OK"
+
+        if not ok:
+            self.add_debug(f"❌ TTS Re-Synth: {msg}")
+            self.tts_regenerating = False
+            return
 
         self.add_debug(f"🔄 TTS Re-Synth: Regenerating all {len(assistant_indices)} bubbles...")
         yield

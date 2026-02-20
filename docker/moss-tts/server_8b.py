@@ -287,9 +287,30 @@ def generate_tts(text: str, speaker: str | None = None,
 
     model = get_model()
 
-    # Minimal text preprocessing for better prosody
+    # Text preprocessing for better prosody
     text = text.replace('...', '. \u2013')
     text = re.sub(r'\.(?! )', '. ', text)
+
+    # Colons → period at end of line, comma mid-sentence (preserves time like 19:20)
+    text = re.sub(r'(?<!\d):\s*$', '.', text, flags=re.MULTILINE)
+    text = re.sub(r'(?<!\d):(?!\d|//)', ',', text)
+
+    # Add period to lines without sentence-ending punctuation (headings, list items)
+    lines = text.split('\n')
+    normalized = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if not re.search(r'[a-zA-ZäöüÄÖÜß0-9]', line):
+            continue
+        if not re.search(r'[.!?]["\'\)\]»"]*$', line):
+            if line[-1].isdigit():
+                line = line + ' .'
+            else:
+                line = line + '.'
+        normalized.append(line)
+    text = ' '.join(normalized)
 
     # Build conversation with optional voice reference
     if speaker:

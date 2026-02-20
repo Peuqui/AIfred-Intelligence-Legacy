@@ -1537,6 +1537,9 @@ def clean_text_for_tts(text):
     # These contain JSON metadata that should never be read aloud
     clean_text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL).strip()
 
+    # Fix "AIfred" pronunciation: capital I causes TTS to say "A-I-fred" instead of "Alfred"
+    clean_text = clean_text.replace('AIfred', 'Alfred')
+
     # Remove <think> tags and content (raw thinking from LLM)
     # Note: llm_history should be clean, but this handles edge cases
     # Use IGNORECASE to catch <Think>, <THINK>, etc.
@@ -1666,6 +1669,11 @@ def clean_text_for_tts(text):
     # Remove Multi-Agent round labels - these are UI markers prepended to messages
     # e.g., "[Auto-Konsens: Synthese R1]", "[Tribunal: Kritische Prüfung R2]"
     clean_text = re.sub(r'\[(Auto-Konsens|Tribunal|Devils? Advocate|Auto-Consensus):[^\]]+R\d+\]', '', clean_text, flags=re.IGNORECASE)
+
+    # Remove remaining square bracket content like [VERTEIDIGUNG], [Quelle], etc.
+    # Structural markers not meant to be read aloud.
+    # MUST come AFTER markdown link processing ([text](url) → text) to preserve link text
+    clean_text = re.sub(r'\[.*?\]', '', clean_text)
 
     # Remove most emojis, but KEEP laughter emojis for XTTS to convert to "hahaha"
     # Laughter emojis: 😂🤣😆😄😅😁🙂😊 (handled by XTTS server.py)
