@@ -8875,7 +8875,7 @@ class AIState(rx.State):
         self.tts_regenerating = True
         yield rx.call_script("stopTts()")
 
-        # Auto-start TTS backend if not running — yield debug message BEFORE blocking call
+        # Auto-start TTS backend if not running
         if self.tts_engine == "xtts":
             self.add_debug("🔄 TTS Re-Synth: Starte XTTS Backend...")
             yield
@@ -8928,7 +8928,7 @@ class AIState(rx.State):
         self.tts_regenerating = True
         yield rx.call_script("stopTts()")
 
-        # Auto-start TTS backend if not running — yield debug message BEFORE blocking call
+        # Auto-start TTS backend if not running
         if self.tts_engine == "xtts":
             self.add_debug("🔄 TTS Re-Synth (alle): Starte XTTS Backend...")
             yield
