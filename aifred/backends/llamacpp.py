@@ -32,7 +32,7 @@ class LlamaCppBackend(LLMBackend):
         self.client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,
-            timeout=180.0  # llama-swap may need to start+load a model (120B Q8 = ~2min cold start)
+            timeout=300.0  # llama-swap may need to start+load oversized models (MiniMax 80GB = ~3min cold start)
         )
 
     async def list_models(self) -> List[str]:

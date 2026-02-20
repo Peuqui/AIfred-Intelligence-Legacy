@@ -6,7 +6,9 @@ based on available GPU memory.
 """
 
 import logging
+import struct
 import requests
+from pathlib import Path
 from typing import Optional, Dict, List
 from .config import (
     VRAM_SAFETY_MARGIN,
@@ -411,43 +413,149 @@ def calculate_context_from_memory(
     return calculated_tokens
 
 
-def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
+def read_gguf_field(gguf_path: Path, key_suffix: str) -> Optional[int]:
     """
-    Detect if model is MoE (Mixture of Experts) architecture
+    Read an integer field from GGUF metadata by key suffix.
 
-    Uses two detection methods:
-    1. Model name patterns (e.g., "mixtral", "8x7b", "-a3b")
-    2. Ollama API family field (e.g., "qwen3moe", "mixtral")
-
-    MoE models have lower VRAM per token (0.10) vs Dense models (0.15).
+    Uses raw struct parsing — does not require the gguf Python module.
+    Searches for a metadata key ending with key_suffix (case-insensitive).
 
     Args:
-        model_name: Model name in Ollama (e.g., "qwen3:30b-a3b-instruct-2507-q4_K_M")
+        gguf_path: Path to GGUF model file
+        key_suffix: Suffix to match (e.g. ".expert_count", ".context_length")
+
+    Returns:
+        Integer value if found, None otherwise
+    """
+    # GGUF value type IDs
+    _UINT8, _INT8 = 0, 1
+    _UINT16, _INT16 = 2, 3
+    _UINT32, _INT32 = 4, 5
+    _FLOAT32 = 6
+    _BOOL = 7
+    _STRING = 8
+    _ARRAY = 9
+    _UINT64, _INT64 = 10, 11
+    _FLOAT64 = 12
+
+    try:
+        with open(gguf_path, "rb") as f:
+            magic = f.read(4)
+            if magic != b"GGUF":
+                return None
+
+            version = struct.unpack("<I", f.read(4))[0]
+            if version < 2:
+                return None
+
+            _tensor_count = struct.unpack("<Q", f.read(8))[0]
+            kv_count = struct.unpack("<Q", f.read(8))[0]
+
+            def _read_string():
+                length = struct.unpack("<Q", f.read(8))[0]
+                return f.read(length).decode("utf-8", errors="ignore")
+
+            def _read_value(vtype: int):
+                if vtype == _UINT8:
+                    return struct.unpack("<B", f.read(1))[0]
+                if vtype == _INT8:
+                    return struct.unpack("<b", f.read(1))[0]
+                if vtype == _UINT16:
+                    return struct.unpack("<H", f.read(2))[0]
+                if vtype == _INT16:
+                    return struct.unpack("<h", f.read(2))[0]
+                if vtype == _UINT32:
+                    return struct.unpack("<I", f.read(4))[0]
+                if vtype == _INT32:
+                    return struct.unpack("<i", f.read(4))[0]
+                if vtype == _FLOAT32:
+                    return struct.unpack("<f", f.read(4))[0]
+                if vtype == _BOOL:
+                    return struct.unpack("<B", f.read(1))[0]
+                if vtype == _STRING:
+                    return _read_string()
+                if vtype == _UINT64:
+                    return struct.unpack("<Q", f.read(8))[0]
+                if vtype == _INT64:
+                    return struct.unpack("<q", f.read(8))[0]
+                if vtype == _FLOAT64:
+                    return struct.unpack("<d", f.read(8))[0]
+                if vtype == _ARRAY:
+                    arr_type = struct.unpack("<I", f.read(4))[0]
+                    arr_len = struct.unpack("<Q", f.read(8))[0]
+                    return [_read_value(arr_type) for _ in range(arr_len)]
+                return None
+
+            suffix_lower = key_suffix.lower()
+            for _ in range(kv_count):
+                key = _read_string()
+                vtype = struct.unpack("<I", f.read(4))[0]
+                value = _read_value(vtype)
+
+                if key.lower().endswith(suffix_lower):
+                    if isinstance(value, (int, float)):
+                        return int(value)
+
+    except Exception as e:
+        logger.debug(f"GGUF read failed for {gguf_path}: {e}")
+
+    return None
+
+
+def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
+    """
+    Detect if model is MoE (Mixture of Experts) architecture.
+
+    Detection priority:
+    1. Cached expert_count in model_vram_cache.json (instant)
+    2. GGUF metadata: {arch}.expert_count field (for llama-swap models with gguf_path)
+    3. Ollama API family field (for Ollama-only models)
+
+    Results are cached in model_vram_cache.json for future calls.
+
+    Args:
+        model_name: Model name (Ollama tag or llama-swap model ID)
         ollama_url: Ollama API base URL
 
     Returns:
-        bool: True if MoE model, False if Dense or unknown
-
-    Examples:
-        - MoE: "mixtral:8x7b", "qwen3:30b-a3b", "deepseek-moe" → 0.10 MB/token
-        - Dense: "qwen3:32b", "llama3:70b" → 0.15 MB/token
+        True if MoE, False if Dense or unknown
     """
-    model_lower = model_name.lower()
+    from .model_vram_cache import load_cache, get_expert_counts, set_expert_counts
 
-    # Method 1: Check model name for MoE patterns (fast, no API call needed)
-    moe_name_patterns = [
-        "mixtral",      # Mixtral 8x7B, 8x22B
-        "8x7b", "8x22b",  # Expert count patterns
-        "-a3b",         # Qwen3 MoE (30B-A3B = 30B params, 3B active)
-        "moe",          # Generic MoE indicator
-        "deepseek-moe", # DeepSeek MoE models
-    ]
+    # Method 1: Check cached expert_count (fastest path)
+    cached = get_expert_counts(model_name)
+    if cached is not None:
+        is_moe = cached["expert_count"] > 1
+        logger.debug(
+            f"{'✅ MoE' if is_moe else '📊 Dense'} (cached): {model_name} "
+            f"(experts: {cached['expert_count']}, active: {cached['expert_used_count']})"
+        )
+        return is_moe
 
-    if any(pattern in model_lower for pattern in moe_name_patterns):
-        logger.debug(f"✅ MoE detected (name pattern): {model_name}")
-        return True
+    # Method 2: Read from GGUF metadata (llama-swap models have gguf_path in cache)
+    cache = load_cache()
+    entry = cache.get(model_name, {})
+    gguf_path_str = entry.get("gguf_path")
 
-    # Method 2: Query Ollama API for family field (fallback)
+    if gguf_path_str:
+        gguf_path = Path(gguf_path_str)
+        if gguf_path.exists():
+            expert_count = read_gguf_field(gguf_path, ".expert_count")
+            if expert_count is not None and expert_count > 1:
+                expert_used = read_gguf_field(gguf_path, ".expert_used_count") or 0
+                set_expert_counts(model_name, expert_count, expert_used)
+                logger.debug(
+                    f"✅ MoE detected (GGUF): {model_name} "
+                    f"(experts: {expert_count}, active: {expert_used})"
+                )
+                return True
+            elif expert_count is not None:
+                # expert_count == 0 or 1 → Dense, cache it
+                set_expert_counts(model_name, expert_count, 0)
+                logger.debug(f"📊 Dense model (GGUF): {model_name}")
+                return False
+
+    # Method 3: Query Ollama API for family field
     try:
         response = requests.post(
             f"{ollama_url}/api/show",
@@ -462,18 +570,17 @@ def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
             is_moe = any(indicator in family.lower() for indicator in moe_families)
 
             if is_moe:
-                logger.debug(f"✅ MoE detected (API family): {model_name} (family: {family})")
+                logger.debug(f"✅ MoE detected (Ollama API): {model_name} (family: {family})")
             else:
-                logger.debug(f"📊 Dense model: {model_name} (family: {family})")
+                logger.debug(f"📊 Dense model (Ollama API): {model_name} (family: {family})")
 
             return is_moe
-        else:
-            logger.debug(f"Could not query model info for {model_name}: {response.status_code}")
-            return False
 
     except Exception as e:
-        logger.debug(f"MoE API detection failed for {model_name}: {e}")
-        return False  # Default to Dense (safer)
+        logger.debug(f"Ollama API query failed for {model_name}: {e}")
+
+    logger.debug(f"📊 MoE detection inconclusive, defaulting to Dense: {model_name}")
+    return False
 
 
 def measure_vram_during_inference(

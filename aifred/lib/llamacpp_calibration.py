@@ -1439,6 +1439,49 @@ async def calibrate_llamacpp_model(
             yield "__RESULT__:0:0:error"
         return
 
+    # === Skip GPU-only for oversized models ===
+    # Model weights alone exceed total VRAM → GPU-only is impossible,
+    # jump straight to hybrid calibration (saves minutes of pointless OOM attempts)
+    if vram_ratio > 1.0:
+        yield (
+            f"Model is {vram_ratio:.0%} of VRAM — "
+            f"skipping GPU-only phase, going directly to hybrid calibration"
+        )
+
+        total_layers = get_gguf_layer_count(gguf_path)
+        if not total_layers:
+            yield "Cannot read layer count from GGUF — hybrid mode unavailable"
+            yield "__RESULT__:0:0:error"
+            return
+
+        yield f"Phase 3: Hybrid calibration ({total_layers} layers)"
+
+        hybrid_ctx = None
+        hybrid_ngl = None
+        async for hybrid_msg in _calibrate_hybrid(
+            model_id=model_id,
+            gguf_path=gguf_path,
+            full_cmd=full_cmd,
+            native_context=native_context,
+            model_size_gb=model_size_gb,
+            total_layers=total_layers,
+        ):
+            if hybrid_msg.startswith("__HYBRID__:"):
+                parts = hybrid_msg.split(":")
+                hybrid_ctx = int(parts[1])
+                hybrid_ngl = int(parts[2])
+            else:
+                yield hybrid_msg
+
+        if hybrid_ctx and hybrid_ngl:
+            async for msg in _finish_calibration(hybrid_ctx, hybrid_ngl, "hybrid"):
+                yield msg
+            return
+
+        yield "Calibration failed: no working configuration found — check llama-server logs"
+        yield "__RESULT__:0:0:error"
+        return
+
     # === PHASE 1: GPU-only calibration (ngl=99) ===
     yield "Phase 1: GPU-only calibration (ngl=99)"
 

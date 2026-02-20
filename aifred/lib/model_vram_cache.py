@@ -585,6 +585,59 @@ def get_thinking_support_for_model(model_name: str) -> Optional[bool]:
 
 
 # ============================================================================
+# MoE EXPERT COUNT FUNCTIONS
+# ============================================================================
+
+def get_expert_counts(model_name: str) -> Optional[Dict[str, int]]:
+    """
+    Get cached expert_count and expert_used_count for a model.
+
+    Returns:
+        Dict with "expert_count" and "expert_used_count" if present, None otherwise
+    """
+    cache = load_cache()
+    entry = cache.get(model_name, {})
+    expert_count = entry.get("expert_count")
+    if expert_count is not None:
+        return {
+            "expert_count": expert_count,
+            "expert_used_count": entry.get("expert_used_count", 0),
+        }
+    return None
+
+
+def set_expert_counts(model_name: str, expert_count: int, expert_used_count: int = 0) -> bool:
+    """
+    Cache expert_count and expert_used_count for a model.
+
+    Called during calibration or first model load when GGUF metadata is read.
+
+    Args:
+        model_name: Model name (key in cache)
+        expert_count: Total number of experts (e.g. 128 for GPT-OSS)
+        expert_used_count: Experts active per token (e.g. 4 for GPT-OSS)
+
+    Returns:
+        True if successfully saved
+    """
+    cache = load_cache()
+
+    if model_name not in cache:
+        cache[model_name] = {
+            "backend": "llamacpp",
+            "native_context": 0,
+            "gpu_model": "",
+        }
+
+    cache[model_name]["expert_count"] = expert_count
+    cache[model_name]["expert_used_count"] = expert_used_count
+
+    label = f"MoE ({expert_count}x, {expert_used_count} active)" if expert_count > 1 else "Dense"
+    logger.info(f"📊 Set expert counts for {model_name}: {label}")
+    return save_cache(cache)
+
+
+# ============================================================================
 # vLLM CALIBRATION FUNCTIONS (vLLM-specific)
 # ============================================================================
 
