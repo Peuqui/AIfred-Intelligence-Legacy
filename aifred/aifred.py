@@ -494,6 +494,7 @@ def text_input_section() -> rx.Component:
             on_change=AIState.set_user_input,
             width="100%",
             rows="5",
+            spell_check=False,
             disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
             style={
                 "border": f"1px solid {COLORS['border']}",
