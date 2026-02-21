@@ -47,7 +47,7 @@ LLAMA_SERVER_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-server"
 LLAMA_FIT_PARAMS_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-fit-params"
 DEFAULT_TTL = 300
 DEFAULT_NGL = 99
-DEFAULT_FLAGS_BASE = "--flash-attn on -np 1 -t 4 --mlock --reasoning-format deepseek"
+DEFAULT_FLAGS_BASE = "--flash-attn on -np 1 -t 4 --mlock --direct-io --jinja --no-context-shift"
 DEFAULT_CONTEXT = 32768  # Fallback if GGUF metadata unreadable
 FALLBACK_CONTEXT = 32768  # Reduced context when native context doesn't fit
 
@@ -813,6 +813,40 @@ def get_native_context(gguf_path: Path) -> int:
     return val
 
 
+def get_gguf_sampling_params(gguf_path: Path) -> dict[str, float]:
+    """Read recommended sampling parameters from GGUF metadata.
+
+    Newer GGUFs (Qwen3-Next, MiniMax, etc.) embed official sampling defaults
+    as general.sampling.temp/top_k/top_p/min_p fields.
+
+    Returns dict with keys: temp, top_k, top_p, min_p, repeat_penalty.
+    Falls back to llama.cpp defaults for missing fields.
+    """
+    # llama.cpp defaults (used when GGUF has no sampling metadata)
+    defaults = {
+        "temp": 0.8,
+        "top_k": 40,
+        "top_p": 0.95,
+        "min_p": 0.05,
+        "repeat_penalty": 1.0,
+    }
+
+    try:
+        from gguf import GGUFReader
+        reader = GGUFReader(str(gguf_path.resolve()))
+        for field in reader.fields.values():
+            if field.name.startswith("general.sampling."):
+                key = field.name.split(".")[-1]
+                if key in defaults and field.parts:
+                    val = field.parts[-1].tolist()
+                    if val:
+                        defaults[key] = round(float(val[0]), 4)
+    except Exception:
+        pass
+
+    return defaults
+
+
 # ---------------------------------------------------------------------------
 # YAML generation
 # ---------------------------------------------------------------------------
@@ -881,23 +915,32 @@ def append_models_to_yaml(
         if gpu_flags:
             flags = f"{gpu_flags} {flags}"
 
+        # Read sampling parameters from GGUF metadata (or use llama.cpp defaults)
+        sampling = get_gguf_sampling_params(path)
+        sampling_flags = (
+            f"--temp {sampling['temp']} --top-k {int(sampling['top_k'])} "
+            f"--top-p {sampling['top_p']} --min-p {sampling['min_p']} "
+            f"--repeat-penalty {sampling['repeat_penalty']}"
+        )
+
         kv_label = f", KV: {kv_quant}" if kv_quant else ""
         ngl_label = f", ngl: {ngl}" if ngl != DEFAULT_NGL else ""
+        sampling_label = f", temp={sampling['temp']}" if sampling['temp'] != 0.8 else ""
         if mmproj:
             cmd_line = (
                 f"{server_bin} --port ${{PORT}} "
                 f"--model {path} "
                 f"--mmproj {mmproj.absolute()} "
-                f"-ngl {ngl} -c {context} {flags}"
+                f"-ngl {ngl} -c {context} {flags} {sampling_flags}"
             )
-            print(f"  + Added: {name} (VL, context: {context:,}{kv_label}{ngl_label}, mmproj: {mmproj.name})")
+            print(f"  + Added: {name} (VL, context: {context:,}{kv_label}{ngl_label}{sampling_label}, mmproj: {mmproj.name})")
         else:
             cmd_line = (
                 f"{server_bin} --port ${{PORT}} "
                 f"--model {path} "
-                f"-ngl {ngl} -c {context} {flags}"
+                f"-ngl {ngl} -c {context} {flags} {sampling_flags}"
             )
-            print(f"  + Added: {name} (context: {context:,}{kv_label}{ngl_label})")
+            print(f"  + Added: {name} (context: {context:,}{kv_label}{ngl_label}{sampling_label})")
 
         new_blocks += f"  {name}:\n"
         new_blocks += f"    cmd: {cmd_line}\n"
@@ -955,6 +998,7 @@ def update_vram_cache(new_models: list[dict]) -> int:
         calibration_entry = {
             "max_context": cal_context,
             "ngl": ngl,
+            "kv_quant": kv_quant,
             "mode": mode,
             "measured_at": datetime.now().isoformat(),
         }

@@ -5,6 +5,18 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.45.1] - 2026-02-21 🔧 Autoscan: Smart Defaults + GGUF Sampling Metadata
+
+### Changed
+
+- **Autoscan default flags** - `DEFAULT_FLAGS_BASE` now includes `--jinja --no-context-shift --direct-io` instead of `--reasoning-format deepseek`. Auto-generated model configs get sensible base flags out of the box.
+- **GGUF sampling metadata** - New `get_gguf_sampling_params()` reads official sampling parameters (`temp`, `top_k`, `top_p`) from GGUF metadata fields (`general.sampling.*`). Models without metadata fall back to llama.cpp defaults.
+- **Sampling flags in generated configs** - `append_models_to_yaml()` now writes `--temp`/`--top-k`/`--top-p`/`--min-p`/`--repeat-penalty` flags into every auto-generated cmd line.
+
+### Fixed
+
+- **VRAM cache missing `kv_quant`** - `update_vram_cache()` now stores the `kv_quant` value in calibration entries (was extracted but never saved).
+
 ## [2.45.0] - 2026-02-21 🎲 Sampling Parameter Flow Fix + Persistence Redesign
 
 ### Fixed
