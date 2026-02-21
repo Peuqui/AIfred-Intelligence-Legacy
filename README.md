@@ -23,11 +23,13 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Image Crop Tool**: Interactive crop before OCR/analysis (8-point handles, 4K auto-resize)
 - **3-Model Architecture**: Specialized Vision-LLM for OCR, Main-LLM for interpretation
 - **Thinking Mode**: Chain-of-Thought reasoning for complex tasks (Qwen3, NemoTron, QwQ - llama.cpp, Ollama, vLLM)
+- **Harmony-Template Support**: GPT-OSS-120B with official Harmony format (`<|channel|>analysis<|message|>`)
 - **Automatic Web Research**: AI decides autonomously when research is needed
 - **History Compression**: Intelligent compression at 70% context utilization
 - **Automatic Context Calibration**: VRAM-aware context sizing per backend - Ollama (Binary Search + RoPE scaling 1.0x/1.5x/2.0x, hybrid CPU offload), llama.cpp (3-phase: GPU-only Binary Search → Speed variant with tensor-split optimization for multi-GPU → Hybrid NGL fallback)
 - **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (double-buffered HTML5 audio, seamless playback during LLM inference)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
+- **Sampling Parameters Table**: Per-agent control of Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual mode)
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **User Authentication**: Username + password login with whitelist-based registration, admin CLI for user management
 - **Session Persistence**: Chat history tied to user accounts, accessible from any device after login
@@ -36,6 +38,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **HTML Preview**: AI-generated HTML code opens directly in browser (new tab)
 - **LaTeX & Chemistry**: KaTeX for math formulas, mhchem extension for chemistry (`\ce{H2O}`, reactions, structure formulas)
 - **Multi-Agent Debate System**: AIfred + Sokrates as critical discussion partner for improved answer quality
+- **🚀 Massive Performance Improvements**: Direct-IO reduces model loading from 60-90s to **just 2 seconds** (~45x faster!) - see [Model Parameter Docs](docs/model-recommended-params.md) for all 200B+ optimizations (KV-Quant, Batch-Sizes, VRAM optimization)
 
 ### 🎩 Multi-Agent Discussion Modes
 
@@ -1331,7 +1334,7 @@ AIfred-Intelligence/
 │   │   ├── context_manager.py   # History compression
 │   │   ├── conversation_handler.py # Automatik mode, RAG context
 │   │   ├── config.py            # Default settings
-│   │   ├── vector_cache.py      # ChromaDB Vector Cache
+│   │   ���── vector_cache.py      # ChromaDB Vector Cache
 │   │   ├── model_vram_cache.py  # Unified VRAM cache (all backends)
 │   │   ├── llamacpp_calibration.py # llama.cpp Binary Search calibration
 │   │   ├── gguf_utils.py        # GGUF metadata reader (native context, quant)

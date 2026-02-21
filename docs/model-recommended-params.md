@@ -1,6 +1,8 @@
 # Empfohlene Parameter pro Modell (llama-server)
 
-Stand: 2026-02-21 — Recherche via Aragon
+Stand: 2026-02-21 — Offizielle Unsloth-Docs + Eigene Tests
+
+---
 
 ## GPT-OSS-120B
 
@@ -76,7 +78,9 @@ Stand: 2026-02-21 — Recherche via Aragon
 | -ctk / -ctv | q4_1 / q4_1 | |
 | KV-Cache-Reuse | kaputt | Hybrid-Architektur |
 
-## Wichtigste Erkenntnisse
+---
+
+## Wichtigste Erkenntnisse (Original)
 
 - **GPT-OSS**: Kein KV-Cache-Quant! (-ctk/-ctv killt Performance massiv)
 - **GPT-OSS**: --reasoning-format none, nicht deepseek (Harmony-Format ist inkompatibel)
@@ -85,3 +89,100 @@ Stand: 2026-02-21 — Recherche via Aragon
 - **Qwen3-Next**: -ub max 512 (hoeher crasht wegen Hybrid-Architektur)
 - **--jinja ist bei ALLEN Modellen Pflicht**
 - **--no-context-shift** ist Pflicht bei Qwen3 + KV-Quant
+
+---
+
+# 📌 Unsere Hardware-spezifische Anpassungen (Dual-GPU: RTX 8000 48GB + RTX P40 24GB)
+
+**Stand:** 2026-02-21 — Stress-Tests mit 200 Tokens bestanden
+
+## 🚀 Direct-IO Performance
+
+| Parameter | Wert | Effekt |
+|-----------|------|--------|
+| --direct-io | **ja, bei ALLEN Modellen** | **~45x schnelleres Laden!** (60-90s → 2s) |
+
+**Vorteile:**
+- Umgeht CPU-RAM Page-Cache
+- Füllt VRAM direkt (kein Umweg)
+- Weniger CPU-RAM Verbrauch
+
+**Funktioniert mit:** ext4, xfs, btrfs Dateisystemen
+
+---
+
+## 200B+ Modelle: KV-Quantisierung & Batch-Größen
+
+### Qwen3-235B-A22B Instruct
+
+| Parameter | Original | Unsere Anpassung | Grund |
+|-----------|----------|------------------|-------|
+| -ctk / -ctv | q8_0 | **q4_0** | q8_0 = OOM! |
+| -b / -ub | Default | **1024 / 512** | Optimal für VRAM |
+| --direct-io | — | **ja** | 2s Laden |
+| -ngl | — | 73 | Dual-GPU |
+| --tensor-split | — | 2,1 | RTX 8000 + P40 |
+
+**Unsere Tests:**
+- ✅ Stress-Test: 160 Tokens stabil
+- ✅ VRAM: 43,5 GB + 21,4 GB
+- ✅ CPU-RAM: ~24,9 GB (6 GB frei)
+- ❌ q8_0: OOM (crasht)
+
+### GLM-4.7-REAP-218B
+
+| Parameter | Original | Unsere Anpassung | Grund |
+|-----------|----------|------------------|-------|
+| -ctk / -ctv | q8_0 | **q4_0** | q8_0 = OOM! |
+| -b / -ub | 2048 / 512 | **2048 / 512** | Stabil |
+| --direct-io | — | **ja** | 2s Laden |
+| -ngl | — | 66 | Dual-GPU |
+| --tensor-split | — | 2,1 | RTX 8000 + P40 |
+
+**Unsere Tests:**
+- ✅ Stress-Test: 130 Tokens stabil
+- ✅ VRAM: 42 GB + 21 GB
+- ✅ CPU-RAM: ~25 GB
+- ❌ q8_0: OOM (crasht)
+
+### MiniMax-M2.5
+
+| Parameter | Original | Unsere Anpassung | Grund |
+|-----------|----------|------------------|-------|
+| -ctk / -ctv | q4_0 | **q4_0** | q8_0 = OOM! |
+| -b / -ub | 4096 / 4096 | **1024 / 512** | 4096 = OOM! |
+| --direct-io | — | **ja** | 2s Laden |
+| -ngl | — | 48 | Dual-GPU |
+| --tensor-split | — | 2,1 | RTX 8000 + P40 |
+
+**Unsere Tests:**
+- ✅ Stress-Test: 200 Tokens stabil
+- ✅ VRAM: 42 GB + 20,4 GB
+- ✅ CPU-RAM: ~24,6 GB
+- ❌ q8_0: OOM (crasht)
+- ❌ -b 4096: OOM (zu große Batches)
+
+---
+
+## Kleinere Modelle (<100B): KV-Cache f16
+
+**Erkenntnis:** Bei kleineren Modellen ist **f16 schneller als q8_0**!
+
+| Modell | -ctk / -ctv | Grund |
+|--------|-------------|-------|
+| Qwen3-4B | **f16** | Schneller als q8_0 |
+| Qwen3-14B | **f16** | Schneller als q8_0 |
+| Qwen3-30B-A3B | **f16** | Schneller als q8_0 |
+| Qwen3-Next-80B | **f16** | Hybrid-Architektur (KV-Reuse kaputt) |
+| GPT-OSS-120B | **f16** | Offiziell empfohlen |
+
+---
+
+## 📋 Finale Config für unsere Hardware
+
+**Alle Modelle laufen stabil mit:**
+- ✅ --direct-io (2s Laden)
+- ✅ KV-Quant q4_0 für 200B+ Modelle
+- ✅ Optimierte Batch-Größen
+
+**Hinweis:** Bei Hardware-Upgrade (mehr VRAM) können die Original-Parameter aus der Tabelle oben getestet werden!

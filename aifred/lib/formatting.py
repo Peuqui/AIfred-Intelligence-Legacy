@@ -590,6 +590,10 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
     """
     Extract ALL XML tags from text (generic, not hardcoded).
 
+    Supports two formats:
+    1. XML-style: <tag>content</tag> (DeepSeek/Qwen3)
+    2. Harmony-style: <|channel|>name<|message|>content<|end|> (GPT-OSS)
+
     IMPORTANT:
     1. HTML tags are IGNORED (blacklist in html_tags.py)
     2. Tags inside Markdown code blocks are IGNORED!
@@ -615,6 +619,9 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
         >>> extract_xml_tags("Thinking...\\n</think>\\nAnswer")  # Orphaned tag repaired!
         [("think", "Thinking...")]
 
+        >>> extract_xml_tags("<|channel|>analysis<|message|>think<|end|>Answer")  # Harmony!
+        [("analysis", "think")]
+
     Note:
         Repair of orphaned </think> tags happens in calling functions
         (format_thinking_process, build_debug_accordion), BEFORE extract_xml_tags is called.
@@ -629,11 +636,20 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
     matches = re.findall(pattern, text_without_codeblocks, re.DOTALL)
 
     # STEP 3: Filter: Only return non-HTML tags (blacklist from html_tags.py)
-    return [
+    xml_tags = [
         (tag_name, content.strip())
         for tag_name, content in matches
         if tag_name.lower() not in HTML_TAG_BLACKLIST
     ]
+
+    # STEP 4: Also extract GPT-OSS Harmony-style tags: <|channel|>NAME<|message|>CONTENT<|end|>
+    # Pattern: <|channel|>(analysis|commentary|final)<|message|>(.*?)<|end|>
+    harmony_pattern = r'<\|channel\|>(\w+)<\|message\|>(.*?)<\|end\|>'
+    harmony_matches = re.findall(harmony_pattern, text_without_codeblocks, re.DOTALL)
+    for channel_name, content in harmony_matches:
+        xml_tags.append((channel_name, content.strip()))
+
+    return xml_tags
 
 
 def format_debug_message(message: str) -> str:
@@ -744,7 +760,11 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
     for tag_name, _ in xml_tags:
         # Only remove if tag is in config (i.e., a collapsible was created)
         if tag_name in xml_tag_config:
-            pattern = rf'<{tag_name}>.*?</{tag_name}>'
+            # Harmony tags use <|channel|>NAME<|message|>CONTENT<|end|> format
+            if tag_name == "analysis":  # GPT-OSS Harmony
+                pattern = r'<\|channel\|>analysis<\|message\|>.*?<\|end\|>'
+            else:  # XML-style tags like <think>, <python>, etc.
+                pattern = rf'<{tag_name}>.*?</{tag_name}>'
             clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
     clean_response = clean_response.strip()
 

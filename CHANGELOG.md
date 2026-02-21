@@ -5,6 +5,37 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.44.0] - 2026-02-21 🚀 Direct-IO + Harmony-Template + 200B+ Model Support
+
+### Added
+
+- **Harmony-Template Support** - GPT-OSS-120B now uses official Harmony format (`<|channel|>analysis<|message|>`) with proper parsing
+- **Harmony parsing in AIfred** - `strip_thinking_blocks()` and `extract_xml_tags()` now recognize Harmony channels (`analysis`, `commentary`, `final`)
+- **Direct-IO flag** - `--direct-io` added to all llama-swap models for faster loading
+- **Model parameter documentation** - `docs/model-recommended-params.md` + `.en.md` with official defaults and hardware-specific optimizations
+- **README links** - Model parameter docs linked from both README.md and README.de.md
+
+### Changed
+
+- **KV-Quantization for 200B+ models** - Qwen3-235B, GLM-4.7-REAP, MiniMax-M2.5 now use q4_0 (q8_0 = OOM)
+- **Batch-size optimization** - Optimized `-b/-ub` for large models to prevent OOM crashes
+- **KV-Cache f16 for smaller models** - Models <100B now use f16 (faster than q8_0!)
+- **llama-swap config updated** - All models now have explicit `-ctk/-ctv`, `--direct-io`, and optimized batch-sizes
+
+### Fixed
+
+- **GPT-OSS-120B loading** - Fixed OOM crashes by reducing KV-Quant to q4_0 and batch-sizes to 512/512
+- **Harmony tag stripping** - Fixed `format_thinking_process()` to properly remove Harmony tags from clean response
+- **XML tag config** - Added `analysis` tag to `get_xml_tag_config()` for Harmony support
+
+### Technical Details
+
+- **Stress tests passed** - All 200B+ models stable with 130-200 tokens generation
+- **Direct-IO performance** - ~45x faster model loading (60-90s → 2s)
+- **VRAM usage** - Qwen3-235B: 43.5+21.4GB, GLM-4.7-REAP: 42+21GB, MiniMax-M2.5: 42+20.4GB
+
+---
+
 ## [2.43.0] - 2026-02-20 🔊 TTS Overhaul + Fit-Params Calibration
 
 ### Added
@@ -2866,7 +2897,7 @@ sokrates_temperature_offset: float = 0.2  # Nur im Auto-Modus
 
 ## [2.10.3] - 2025-12-25
 
-### 🏗️ Multi-Agent Architecture Refactoring
+### 🏗��� Multi-Agent Architecture Refactoring
 
 **Große Refaktorisierung: Multi-Agent Logik ausgelagert, Perspective-System implementiert, Sokrates-Prompts mit strukturiertem Format verstärkt.**
 

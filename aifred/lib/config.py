@@ -979,6 +979,7 @@ def get_xml_tag_config(lang: str = "de") -> dict:
 
     return {
         "think": {"icon": "💭", "label": t("collapsible_thinking", lang=lang), "class": "thinking-compact"},
+        "analysis": {"icon": "🧠", "label": t("collapsible_thinking", lang=lang), "class": "thinking-compact"},  # GPT-OSS Harmony
         "data": {"icon": "📊", "label": t("collapsible_data", lang=lang), "class": "thinking-compact"},
         "python": {"icon": "🐍", "label": t("collapsible_python", lang=lang), "class": "thinking-compact"},
         "code": {"icon": "💻", "label": t("collapsible_code", lang=lang), "class": "thinking-compact"},

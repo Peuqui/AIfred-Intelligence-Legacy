@@ -23,11 +23,13 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Bild-Zuschnitt-Tool**: Interaktiver Crop vor OCR/Analyse (8-Punkt-Handles, 4K Auto-Resize)
 - **3-Modell-Architektur**: Spezialisiertes Vision-LLM für OCR, Haupt-LLM für Interpretation
 - **Denkmodus**: Chain-of-Thought-Reasoning für komplexe Aufgaben (Qwen3, NemoTron, QwQ - llama.cpp, Ollama, vLLM)
+- **Harmony-Template Support**: GPT-OSS-120B mit offiziellem Harmony-Format (`<|channel|>analysis<|message|>`)
 - **Automatische Web-Recherche**: KI entscheidet selbst, wann Recherche nötig ist
 - **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung
 - **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße pro Backend - Ollama (Binary Search + RoPE-Skalierung 1.0x/1.5x/2.0x, Hybrid CPU-Offload), llama.cpp (3-phasig: GPU-only Binary Search → Speed-Variante mit Tensor-Split-Optimierung für Multi-GPU → Hybrid NGL-Fallback)
 - **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud-Streaming mit Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **nahtlose Echtzeit-Audioausgabe** (Double-Buffered HTML5 Audio, lückenlose Wiedergabe während der LLM-Inferenz)
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
+- **Sampling-Parameter-Tabelle**: Agentenspezifische Einstellung von Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual-Modus)
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
 - **Session-Persistenz**: Mobile Chat-History überlebt Browser-Hintergrund/Neustart (Cookie-basiert)
 - **Session-Verwaltung**: Chat-Liste mit LLM-generierten Titeln, zwischen Sessions wechseln, alte Chats löschen
@@ -35,6 +37,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **HTML-Vorschau**: KI-generierter HTML-Code öffnet direkt im Browser (neuer Tab)
 - **LaTeX & Chemie**: KaTeX für Mathe-Formeln, mhchem-Erweiterung für Chemie (`\ce{H2O}`, Reaktionen, Strukturformeln)
 - **Multi-Agent Debate System**: AIfred + Sokrates als kritischer Diskussionspartner für verbesserte Antwortqualität
+- **🚀 Massive Performance-Verbesserungen**: Direct-IO reduziert Modell-Ladezeiten von 60-90s auf **nur 2 Sekunden** (~45x schneller!) - Details in der [Modell-Parameter-Doku](docs/model-recommended-params.md) mit allen Optimierungen für 200B+ Modelle (KV-Quant, Batch-Größen, VRAM-Optimierung)
 
 ### 🎩 Multi-Agent Diskussionsmodi
 

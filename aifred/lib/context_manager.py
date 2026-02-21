@@ -178,21 +178,29 @@ def count_tokens_with_tokenizer(text: str) -> int:
 
 def strip_thinking_blocks(text: str) -> str:
     """
-    Remove <think>...</think> blocks from text (for History Compression).
+    Remove thinking blocks from text (for History Compression).
+
+    Supports two formats:
+    1. <think>...</think> (DeepSeek/Qwen3 style)
+    2. <|channel|>analysis<|message|>...<|end|> (GPT-OSS Harmony style)
 
     These blocks contain:
     - DeepSeek Reasoning (thinking process)
+    - GPT-OSS Harmony analysis channel
     - Vision-LLM JSON (structured extraction)
 
     Args:
-        text: Text with potential <think> blocks
+        text: Text with potential thinking blocks
 
     Returns:
-        Text without <think> blocks
+        Text without thinking blocks
     """
     import re
-    # Remove all <think>...</think> blocks (non-greedy, multi-line)
-    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    # Remove <think>...</think> blocks (non-greedy, multi-line)
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    # Remove GPT-OSS Harmony analysis channel: <|channel|>analysis<|message|>...<|end|>
+    text = re.sub(r'<\|channel\|>analysis<\|message\|>.*?<\|end\|>', '', text, flags=re.DOTALL)
+    return text.strip()
 
 
 def estimate_tokens(messages: List[Dict], model_name: Optional[str] = None) -> int:

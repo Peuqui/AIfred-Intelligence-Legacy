@@ -2247,12 +2247,16 @@ class AIState(rx.State):
         content = re.sub(r'\[LGTM\]', t("consensus_agreed", lang=lang), content, flags=re.IGNORECASE)
         content = re.sub(r'\[WEITER\]', t("consensus_continue", lang=lang), content, flags=re.IGNORECASE)
 
-        # 4. Assemble final content for display
+        # 4. Remove thinking blocks from content before storing (for History/Token estimation)
+        from .lib.context_manager import strip_thinking_blocks
+        clean_content = strip_thinking_blocks(content)
+
+        # 5. Assemble final content for display
         if marker:
-            final_content = f"{marker}{content}\n\n{meta_footer}"
+            final_content = f"{marker}{clean_content}\n\n{meta_footer}"
         else:
             # Standard mode: no marker, just content + metadata
-            final_content = f"{content}\n\n{meta_footer}" if meta_footer else content
+            final_content = f"{clean_content}\n\n{meta_footer}" if meta_footer else clean_content
 
         # 5. Create new message entry (dict-based format)
         # Include audio URLs if streaming TTS generated them
