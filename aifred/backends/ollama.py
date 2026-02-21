@@ -171,15 +171,14 @@ class OllamaBackend(LLMBackend):
                     "content": msg.content
                 })
 
-        # Build options dict
+        # Build options dict — always send all params
         ollama_options = {
             "temperature": options.temperature,
             "repeat_penalty": options.repeat_penalty,
             "top_p": options.top_p,
             "top_k": options.top_k,
+            "min_p": options.min_p,
         }
-        if options.min_p > 0:
-            ollama_options["min_p"] = options.min_p
         if options.num_ctx:
             ollama_options["num_ctx"] = options.num_ctx
         # NOTE: num_predict intentionally NOT set for Ollama
@@ -386,9 +385,8 @@ class OllamaBackend(LLMBackend):
             "repeat_penalty": options.repeat_penalty,
             "top_p": options.top_p,
             "top_k": options.top_k,
+            "min_p": options.min_p,
         }
-        if options.min_p > 0:
-            ollama_options["min_p"] = options.min_p
         if options.num_ctx:
             ollama_options["num_ctx"] = options.num_ctx
         # NOTE: num_predict intentionally NOT set for Ollama

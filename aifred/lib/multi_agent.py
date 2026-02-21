@@ -15,7 +15,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 # Imports for the functions (same as original state.py methods)
-from .llm_client import LLMClient
+from .llm_client import LLMClient, build_llm_options
 from .timer import Timer
 from .formatting import format_number, format_thinking_process, build_inference_metadata
 from .message_builder import build_messages_from_llm_history
@@ -46,25 +46,6 @@ from ..backends.base import LLMOptions
 
 if TYPE_CHECKING:
     from ..state import AIState
-
-
-# ============================================================
-# LLM OPTIONS BUILDER
-# ============================================================
-
-def _build_llm_options(state: "AIState", agent: str, temperature: float, num_ctx: int) -> LLMOptions:
-    """Build LLMOptions for an agent — sampling params always from state."""
-    from .prompt_loader import get_thinking_enabled
-    return LLMOptions(
-        temperature=temperature,
-        enable_thinking=get_thinking_enabled(agent),
-        supports_thinking=getattr(state, f"{agent}_supports_thinking") if state.backend_type in ("ollama", "llamacpp") else None,
-        num_ctx=num_ctx,
-        top_k=getattr(state, f"{agent}_top_k"),
-        top_p=getattr(state, f"{agent}_top_p"),
-        min_p=getattr(state, f"{agent}_min_p"),
-        repeat_penalty=getattr(state, f"{agent}_repeat_penalty"),
-    )
 
 
 # ============================================================
@@ -633,7 +614,7 @@ async def run_sokrates_direct_response(
         state.add_debug(f"🌡️ Temperature: {format_number(sokrates_direct_temp, 1)}")
 
         # LLM options - use per-agent reasoning toggle for enable_thinking
-        sokrates_options = _build_llm_options(state, "sokrates", sokrates_direct_temp, sokrates_num_ctx)
+        sokrates_options = build_llm_options(state, "sokrates", sokrates_direct_temp, sokrates_num_ctx)
 
         # Set current agent for unified streaming UI
         state.current_agent = "sokrates"
@@ -817,7 +798,7 @@ async def run_salomo_direct_response(
         state.add_debug(f"🌡️ Temperature: {format_number(salomo_direct_temp, 1)}")
 
         # LLM options - use per-agent reasoning toggle for enable_thinking
-        salomo_options = _build_llm_options(state, "salomo", salomo_direct_temp, salomo_num_ctx)
+        salomo_options = build_llm_options(state, "salomo", salomo_direct_temp, salomo_num_ctx)
 
         # Set current agent for unified streaming UI
         state.current_agent = "salomo"
@@ -1043,8 +1024,8 @@ async def run_sokrates_analysis(
 
         # LLM options with calculated context and temperatures
         # Use per-agent reasoning toggle for enable_thinking
-        sokrates_options = _build_llm_options(state, "sokrates", sokrates_temp, sokrates_num_ctx)
-        alfred_options = _build_llm_options(state, "aifred", alfred_temp, main_llm_ctx)
+        sokrates_options = build_llm_options(state, "sokrates", sokrates_temp, sokrates_num_ctx)
+        alfred_options = build_llm_options(state, "aifred", alfred_temp, main_llm_ctx)
 
         # Track current answer (may be refined in auto_consensus)
         current_answer = alfred_answer
@@ -1178,7 +1159,7 @@ async def run_sokrates_analysis(
                     state.add_debug(f"🎯 Salomo: {format_number(salomo_num_ctx)} tok ({salomo_source})")
 
                 # salomo_temp already calculated above (before the loop)
-                salomo_options = _build_llm_options(state, "salomo", salomo_temp, salomo_num_ctx)
+                salomo_options = build_llm_options(state, "salomo", salomo_temp, salomo_num_ctx)
 
                 # Build Salomo's messages: system + history
                 salomo_minimal = get_salomo_system_minimal(lang=detected_lang, multi_agent=True)
@@ -1487,9 +1468,9 @@ async def run_tribunal(
             salomo_temp = min(1.0, alfred_temp + state.salomo_temperature_offset)
 
         # Use per-agent reasoning toggle for enable_thinking
-        sokrates_options = _build_llm_options(state, "sokrates", sokrates_temp, sokrates_num_ctx)
-        alfred_options = _build_llm_options(state, "aifred", alfred_temp, main_llm_ctx)
-        salomo_options = _build_llm_options(state, "salomo", salomo_temp, salomo_num_ctx)
+        sokrates_options = build_llm_options(state, "sokrates", sokrates_temp, sokrates_num_ctx)
+        alfred_options = build_llm_options(state, "aifred", alfred_temp, main_llm_ctx)
+        salomo_options = build_llm_options(state, "salomo", salomo_temp, salomo_num_ctx)
 
         # Debug: Show context limits and temperatures
         state.add_debug(

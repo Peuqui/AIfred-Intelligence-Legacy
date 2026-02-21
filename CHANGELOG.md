@@ -5,6 +5,31 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.45.0] - 2026-02-21 🎲 Sampling Parameter Flow Fix + Persistence Redesign
+
+### Fixed
+
+- **Sampling params always sent to backend** - llama.cpp and Ollama backends now always send all sampling params (top_k, top_p, min_p, repeat_penalty) instead of conditionally skipping them when matching hardcoded defaults. This prevented user values from reaching the LLM if they happened to match the old check values.
+- **Reset button (↺) now visually updates** - Added `sampling_reset_key` counter as React `key` prop to force input re-mount on reset (uncontrolled `default_value` inputs don't update on state change otherwise)
+- **Lambda closure bug in sampling inputs** - Fixed closure capture in `on_blur` handlers (`lambda v, a=agent, p=param:` instead of `lambda v:`)
+- **Input field height clipping** - Sokrates/Salomo row numbers were cut off at top; fixed with explicit `height="28px"`
+- **Own-knowledge path missing sampling** - Direct AIfred response path now passes all sampling params via centralized `build_llm_options()`
+
+### Changed
+
+- **Centralized `build_llm_options()`** - Moved from `multi_agent.py` to `llm_client.py` as single source of truth for LLMOptions construction. All code paths (multi-agent, own-knowledge, direct response) use the same function.
+- **Sampling persistence redesign** - Sampling params (top_k, top_p, min_p, repeat_penalty) are no longer saved in `settings.json`. They reset to model-specific defaults from llama-swap YAML config on every restart. Temperature remains persisted.
+- **Model change resets all sampling** - Switching models resets ALL parameters including temperature to YAML defaults
+- **App restart preserves temperature** - Temperature is kept from `settings.json`; other sampling params reset to YAML defaults
+
+### Technical Details
+
+- `_reset_agent_sampling()` now accepts `include_temperature` parameter: `True` for model change/reset button, `False` for app startup
+- Both FAST PATH (page reload) and SLOW PATH (first init) call `_reset_agent_sampling(agent, include_temperature=False)` after model detection
+- Removed 12 sampling params from `_save_settings()` and `_load_settings()`
+
+---
+
 ## [2.44.0] - 2026-02-21 🚀 Direct-IO + Harmony-Template + 200B+ Model Support
 
 ### Added

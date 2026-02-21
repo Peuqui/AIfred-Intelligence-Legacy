@@ -793,10 +793,12 @@ def _sampling_input(agent: str, param: str, width: str = "55px") -> rx.Component
     attr_name = f"{agent}_{param}"
     return rx.input(
         default_value=getattr(AIState, attr_name).to(str),
-        on_blur=lambda v: getattr(AIState, f"set_{agent}_sampling")(param, v),
+        on_blur=lambda v, a=agent, p=param: getattr(AIState, f"set_{a}_sampling")(p, v),
+        key=AIState.sampling_reset_key.to(str) + f"_{agent}_{param}",
         type="number",
         width=width,
         size="1",
+        height="28px",
     )
 
 
@@ -812,9 +814,11 @@ def _temp_input(agent: str, width: str = "50px") -> rx.Component:
     return rx.input(
         default_value=attr.to(str),
         on_blur=handler,
+        key=AIState.sampling_reset_key.to(str) + f"_{agent}_temp",
         type="number",
         width=width,
         size="1",
+        height="28px",
         disabled=is_auto,
         opacity=rx.cond(is_auto, "0.5", "1.0"),
     )
@@ -897,14 +901,6 @@ def sampling_control_section() -> rx.Component:
         _sampling_agent_row("aifred", "🎩", "AIfred", AIState.reset_aifred_sampling),
         _sampling_agent_row("sokrates", "🏛️", "Sokrates", AIState.reset_sokrates_sampling),
         _sampling_agent_row("salomo", "👑", "Salomo", AIState.reset_salomo_sampling),
-        # Hint text based on mode
-        rx.cond(
-            AIState.temperature_mode == "auto",
-            rx.text(t("sampling_auto_hint"), font_size="10px", color=COLORS["text_secondary"],
-                    font_style="italic"),
-            rx.text(t("sampling_manual_hint"), font_size="10px", color=COLORS["text_secondary"],
-                    font_style="italic"),
-        ),
         width="100%",
         spacing="1",
     )

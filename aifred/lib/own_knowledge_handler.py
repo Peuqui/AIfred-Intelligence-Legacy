@@ -15,7 +15,7 @@ Yields Dict-Messages die vom Aufrufer geroutet werden:
 
 from typing import AsyncIterator, Dict, List, Optional, Any
 
-from .llm_client import LLMClient
+from .llm_client import LLMClient, build_llm_options
 from .timer import Timer
 from .formatting import format_number, format_thinking_process, build_inference_metadata
 from .prompt_loader import get_aifred_direct_prompt, get_aifred_system_minimal
@@ -26,8 +26,6 @@ from .logging_utils import log_message
 from .message_builder import inject_rag_context
 from .research.context_utils import get_agent_num_ctx
 
-# Import backend types
-from ..backends import LLMOptions
 
 
 async def handle_own_knowledge(
@@ -173,17 +171,8 @@ async def handle_own_knowledge(
         # Show context info
         yield {"type": "debug", "message": f"📊 AIfred: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})"}
 
-        # Build LLM options (with supports_thinking from state)
-        supports_thinking_value = None
-        if state and backend_type in ("ollama", "llamacpp"):
-            supports_thinking_value = state.aifred_supports_thinking
-
-        llm_options = LLMOptions(
-            temperature=final_temperature,
-            num_ctx=final_num_ctx,
-            enable_thinking=enable_thinking,
-            supports_thinking=supports_thinking_value
-        )
+        # Build LLM options via central builder (all sampling params from state)
+        llm_options = build_llm_options(state, "aifred", final_temperature, final_num_ctx)
 
         # Console: LLM starts (with MoE/Dense architecture info)
         from .gpu_utils import is_moe_model

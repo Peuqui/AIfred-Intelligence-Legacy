@@ -29,7 +29,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Automatic Context Calibration**: VRAM-aware context sizing per backend - Ollama (Binary Search + RoPE scaling 1.0x/1.5x/2.0x, hybrid CPU offload), llama.cpp (3-phase: GPU-only Binary Search → Speed variant with tensor-split optimization for multi-GPU → Hybrid NGL fallback)
 - **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (double-buffered HTML5 audio, seamless playback during LLM inference)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
-- **Sampling Parameters Table**: Per-agent control of Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual mode)
+- **Sampling Parameters Table**: Per-agent control of Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual mode) — sampling params reset to llama-swap YAML defaults on restart, temperature persisted in settings.json
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **User Authentication**: Username + password login with whitelist-based registration, admin CLI for user management
 - **Session Persistence**: Chat history tied to user accounts, accessible from any device after login
@@ -120,9 +120,15 @@ Own messages = assistant (no label), others = user (with label).
 
 **Temperature Control** (v2.10.4):
 - Auto mode: Intent-Detection determines base temperature (FACTUAL=0.2, MIXED=0.5, CREATIVE=1.1)
-- Manual mode: Separate sliders for AIfred and Sokrates temperature
+- Manual mode: Per-agent temperature in the sampling table
 - Configurable Sokrates offset in Auto mode (default +0.2, capped at 1.0)
 - All temperature settings in "LLM Parameters (Advanced)" collapsible
+
+**Sampling Parameter Persistence:**
+- **Temperature**: Persisted in `settings.json` (per-agent, survives restart)
+- **Top-K, Top-P, Min-P, Repeat-Penalty**: NOT persisted — reset to model-specific defaults from llama-swap YAML config on every restart
+- **Model change**: Resets ALL sampling parameters (including temperature) to YAML defaults
+- **Reset button (↺)**: Resets ALL sampling parameters (including temperature) to YAML defaults
 
 **Trialog Workflow (Auto-Consensus with Salomo):**
 ```
@@ -1270,6 +1276,15 @@ Settings are saved in `data/settings.json`:
 - When switching backends, the correct models are automatically restored
 - On first start, defaults from `aifred/lib/config.py` are used
 
+**Sampling Parameter Persistence:**
+
+| Parameter | Persisted? | On Restart | On Model Change |
+|-----------|-----------|------------|-----------------|
+| Temperature | Yes (settings.json) | Kept | Reset to YAML |
+| Top-K, Top-P, Min-P, Repeat-Penalty | No | Reset to YAML | Reset to YAML |
+
+Source of truth for sampling defaults: `--temp`, `--top-k`, `--top-p`, `--min-p`, `--repeat-penalty` flags in the llama-swap YAML config (`~/.config/llama-swap/config.yaml`).
+
 **Example Settings Structure:**
 ```json
 {
@@ -1312,7 +1327,7 @@ Each agent (AIfred, Sokrates, Salomo) has its own reasoning toggle in the LLM se
 
 **Additional Features:**
 - **Formatting**: Reasoning process displayed as collapsible accordion with model name and inference time
-- **Temperature**: Independent from reasoning - uses Intent Detection (auto) or manual slider
+- **Temperature**: Independent from reasoning - uses Intent Detection (auto) or manual value in sampling table
 - **Automatik-LLM**: Reasoning always DISABLED for Automatik decisions (8x faster)
 
 ---

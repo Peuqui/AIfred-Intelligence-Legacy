@@ -38,6 +38,7 @@ Die englische Variante wird separat inferiert (keine Uebersetzung).
 | Reasoning-Tiefe | Automatic (= Medium) |
 | Temperaturen | Alle Agenten manuell auf 1.0 (AIfred, Sokrates, Salomo) |
 | Flash Attention | Ein |
+| **Direct-IO** | **Ein (~45x schnelleres Laden: 60-90s → 2s)** |
 | Session | Frisch (keine Vorgeschichte) |
 
 ---
@@ -46,11 +47,13 @@ Die englische Variante wird separat inferiert (keine Uebersetzung).
 
 | Modell | Architektur | Params (total) | Aktive Params | Quant | Context | KV-Cache | Offload |
 |---|---|---|---|---|---|---|---|
-| GPT-OSS-120B | MoE (128x4) | 120B | ~4B | Q8_0 | 131.072 | f16 | Nein (ngl=99) |
-| Qwen3-Next-80B-A3B (Instruct, no-think) | MoE | 80B | 3B | Q4_K_M | 262.144 | f16 | Nein (ngl=99) |
-| Qwen3-Next-80B-A3B (Thinking) | MoE | 80B | 3B | Q4_K_M | 262.144 | f16 | Nein (ngl=99) |
-| MiniMax-M2.5 | MoE (256x4.9B) | ~230B | ~39B | Q2_K_XL | 32.768 | q4_0 | Ja (ngl=48/62) |
-| Qwen3-235B-A22B | MoE | 235B | 22B | Q2_K_XL | 32.768 | q4_0 | Ja (ngl=73) |
+| GPT-OSS-120B | MoE (128x4) | 120B | ~4B | Q8_0 | 131.072 | **f16** | Nein (ngl=99) |
+| Qwen3-Next-80B-A3B (Instruct, no-think) | MoE | 80B | 3B | Q4_K_M | 262.144 | **f16** | Nein (ngl=99) |
+| Qwen3-Next-80B-A3B (Thinking) | MoE | 80B | 3B | Q4_K_M | 262.144 | **f16** | Nein (ngl=99) |
+| MiniMax-M2.5 | MoE (256x4.9B) | ~230B | ~39B | Q2_K_XL | 32.768 | **q4_0** | Ja (ngl=48) |
+| Qwen3-235B-A22B | MoE | 235B | 22B | Q2_K_XL | 32.768 | **q4_0** | Ja (ngl=73) |
+
+**Update 2026-02-21:** KV-Cache auf q4_0 reduziert für 200B+ Modelle (q8_0 = OOM). Kleinere Modelle (<100B) auf f16 belassen (schneller als q8_0!).
 
 ### Sampling-Parameter (Server-seitig, llama-swap Config)
 
@@ -58,16 +61,17 @@ Die Client-Temperatur (1.0) ueberschreibt die Server-Defaults. Die uebrigen Samp
 werden server-seitig pro Modell gesetzt und gelten als Defaults, sofern der Client sie nicht
 explizit sendet.
 
-| Modell | temp | top_k | top_p | min_p | Sonstige |
-|---|---|---|---|---|---|
-| GPT-OSS-120B | 1.0* | (default) | 1.0 | (default) | -- |
-| Qwen3-Next-80B Instruct | (default) | (default) | (default) | (default) | -- |
-| Qwen3-Next-80B Thinking | (default) | (default) | (default) | (default) | --mlock |
-| MiniMax-M2.5 | 1.0* | 40 | 0.95 | 0.01 | -- |
-| Qwen3-235B | 0.7* | 20 | 0.8 | 0 | Herstellerempfehlung |
+| Modell | temp | top_k | top_p | min_p | -b/-ub | Sonstige |
+|---|---|---|---|---|---|---|
+| GPT-OSS-120B | 1.0* | 0 | 1.0 | 0.0 | **512/512** | --reasoning-format deepseek, --direct-io |
+| Qwen3-Next-80B Instruct | 0.7* | 20 | 0.8 | 0 | **512/256** | --direct-io |
+| Qwen3-Next-80B Thinking | 0.6* | 20 | 0.95 | 0 | **512/256** | --reasoning-format deepseek, --direct-io |
+| MiniMax-M2.5 | 1.0* | 40 | 0.95 | 0.01 | **1024/512** | --direct-io |
+| Qwen3-235B | 0.7* | 20 | 0.8 | 0 | **1024/512** | --direct-io |
 
 *Client sendet temp=1.0 fuer alle Agenten, ueberschreibt Server-Default.
-(default) = llama.cpp Standardwerte (temp=0.8, top_k=40, top_p=0.95, min_p=0.05)
+
+**Update 2026-02-21:** Batch-Größen optimiert (4096 = OOM bei MiniMax). --direct-io bei ALLEN Modellen (~45x schnelleres Laden).
 
 ### Hinweise zur Fairness
 
@@ -87,6 +91,9 @@ bei nur 1,7 tok/s Token-Generierung unertraeglich langsam war. Da half auch kein
 `--reasoning-format deepseek` -- die Thinking-Tokens werden trotzdem generiert, man sieht
 sie nur nicht mehr. Bei geschaetzten 30+ Minuten fuer ein komplettes Tribunal war schlicht
 keine Geduld mehr vorhanden.
+
+**Update 2026-02-21:** GLM-4.7-REAP jetzt stabil mit q4_0 KV-Quant und Direct-IO (2s Laden!).
+Benchmark noch nicht wiederholt.
 
 ---
 
@@ -389,9 +396,52 @@ Einziges Modell, das quantitative Argumente einfuehrt:
 - [ ] Audio-Generierung (TTS) fuer beste Session(s)
 - [ ] Englische Inferenzen fuer alle 5 Modelle
 - [ ] TTS-Rendering einer Session (DE + EN)
-- [ ] Deutsch/Englisch-Kreuzvergleich 
+- [ ] Deutsch/Englisch-Kreuzvergleich
 - [ ] Showcase-HTML erstellen (DE + EN)
 - [ ] Reddit-Post verfassen
+
+---
+
+## 🆕 Update 2026-02-21: 200B+ Model Optimizations
+
+### Direct-IO Performance
+
+Alle Modelle jetzt mit `--direct-io` Flag:
+- **Ladezeit:** 60-90s → **2 Sekunden** (~45x schneller!)
+- **Vorteil:** Umgeht CPU-RAM Page-Cache, füllt VRAM direkt
+- **Funktioniert mit:** ext4, xfs, btrfs Dateisystemen
+
+### KV-Quantisierung
+
+| Modell | Original | Neu | Grund |
+|--------|----------|-----|-------|
+| GPT-OSS-120B | f16 | **f16** | Beibehalten (offiziell empfohlen) |
+| Qwen3-Next-80B | f16 | **f16** | Beibehalten (Hybrid-Architektur) |
+| MiniMax-M2.5 | q4_0 | **q4_0** | Beibehalten (q8_0 = OOM) |
+| Qwen3-235B | q4_0 | **q4_0** | Beibehalten (q8_0 = OOM) |
+| GLM-4.7-REAP | q8_0 | **q4_0** | **Geändert!** (q8_0 = OOM) |
+
+### Batch-Größen-Optimierung
+
+| Modell | Original | Neu | Grund |
+|--------|----------|-----|-------|
+| GPT-OSS-120B | 2048/2048 | **512/512** | VRAM-Engpass |
+| Qwen3-Next-80B | 512/256 | **512/256** | Beibehalten |
+| MiniMax-M2.5 | 4096/4096 | **1024/512** | **Geändert!** (4096 = OOM) |
+| Qwen3-235B | 512/256 | **1024/512** | **Geändert!** (höher möglich) |
+| GLM-4.7-REAP | 2048/512 | **2048/512** | Beibehalten |
+
+### Stress-Tests Bestanden
+
+Alle 200B+ Modelle stabil mit 130-200 Tokens:
+- ✅ **Qwen3-235B-A22B:** 160 Tokens, VRAM: 43,5+21,4 GB
+- ✅ **GLM-4.7-REAP-218B:** 130 Tokens, VRAM: 42+21 GB
+- ✅ **MiniMax-M2.5:** 200 Tokens, VRAM: 42+20,4 GB
+
+### Dokumentation
+
+- 📄 [docs/model-recommended-params.md](model-recommended-params.md) - Deutsch
+- 📄 [docs/model-recommended-params.en.md](model-recommended-params.en.md) - Englisch
 
 ## Datenquellen
 

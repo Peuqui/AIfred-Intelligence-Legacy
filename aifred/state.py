@@ -183,6 +183,7 @@ class AIState(rx.State):
     salomo_top_p: float = DEFAULT_TOP_P
     salomo_min_p: float = DEFAULT_MIN_P
     salomo_repeat_penalty: float = DEFAULT_REPEAT_PENALTY
+    sampling_reset_key: int = 0          # UI key counter to force re-mount on reset
 
     # Per-Agent Speed Mode Toggles (llamacpp only: swap to -speed YAML variant)
     # True = aggressive tensor-split, 32K context; False = balanced split, max context
@@ -1073,32 +1074,8 @@ class AIState(rx.State):
                 if "aifred_thinking" not in saved_settings:
                     self._save_thinking_settings()
 
-                # Load per-agent sampling parameters
-                self.aifred_top_k = saved_settings.get("aifred_top_k", self.aifred_top_k)
-                self.aifred_top_p = saved_settings.get("aifred_top_p", self.aifred_top_p)
-                self.aifred_min_p = saved_settings.get("aifred_min_p", self.aifred_min_p)
-                self.aifred_repeat_penalty = saved_settings.get("aifred_repeat_penalty", self.aifred_repeat_penalty)
-                self.sokrates_top_k = saved_settings.get("sokrates_top_k", self.sokrates_top_k)
-                self.sokrates_top_p = saved_settings.get("sokrates_top_p", self.sokrates_top_p)
-                self.sokrates_min_p = saved_settings.get("sokrates_min_p", self.sokrates_min_p)
-                self.sokrates_repeat_penalty = saved_settings.get("sokrates_repeat_penalty", self.sokrates_repeat_penalty)
-                self.salomo_top_k = saved_settings.get("salomo_top_k", self.salomo_top_k)
-                self.salomo_top_p = saved_settings.get("salomo_top_p", self.salomo_top_p)
-                self.salomo_min_p = saved_settings.get("salomo_min_p", self.salomo_min_p)
-                self.salomo_repeat_penalty = saved_settings.get("salomo_repeat_penalty", self.salomo_repeat_penalty)
-
-                # Log sampling parameters if any differ from defaults
-                for agent_name in ("aifred", "sokrates", "salomo"):
-                    tk = getattr(self, f"{agent_name}_top_k")
-                    tp = getattr(self, f"{agent_name}_top_p")
-                    mp = getattr(self, f"{agent_name}_min_p")
-                    rp = getattr(self, f"{agent_name}_repeat_penalty")
-                    if (tk != DEFAULT_TOP_K or tp != DEFAULT_TOP_P
-                            or mp != DEFAULT_MIN_P or rp != DEFAULT_REPEAT_PENALTY):
-                        self.add_debug(
-                            f"🎲 {agent_name.capitalize()} sampling: "
-                            f"top_k={tk}, top_p={tp}, min_p={mp}, rep={rp}"
-                        )
+                # Note: Sampling params (top_k, top_p, min_p, repeat_penalty) NOT loaded
+                # from settings — they reset to YAML defaults on restart via _reset_agent_sampling()
 
                 # Load speed mode toggles (llamacpp only, restored after model is loaded)
                 self.aifred_speed_mode = saved_settings.get("aifred_speed_mode", False)
@@ -1509,6 +1486,12 @@ class AIState(rx.State):
 
             # TTS: Do NOT preload container on page reload — starts on first use
 
+            # === RESET SAMPLING PARAMETERS TO YAML DEFAULTS ===
+            # Temperature is preserved (loaded from settings.json in on_load)
+            # Sampling params (top_k, top_p, min_p, repeat_penalty) reset to YAML values
+            for agent in ["aifred", "sokrates", "salomo"]:
+                self._reset_agent_sampling(agent, include_temperature=False)
+
             self.backend_healthy = True
             self.model_count = len(self.available_models)
             self.backend_info = f"{self.model_count} models"
@@ -1807,6 +1790,12 @@ class AIState(rx.State):
                         setattr(self, f"{agent}_is_hybrid", False)
                         setattr(self, f"{agent}_supports_thinking", get_thinking_support_for_model(model_id))
 
+            # === RESET SAMPLING PARAMETERS TO YAML DEFAULTS ===
+            # Temperature is preserved (loaded from settings.json in on_load)
+            # Sampling params (top_k, top_p, min_p, repeat_penalty) reset to YAML values
+            for agent in ["aifred", "sokrates", "salomo"]:
+                self._reset_agent_sampling(agent, include_temperature=False)
+
             # === DETECT VISION MODELS (metadata-based) ===
             self.add_debug("🔍 Detecting vision-capable models...")
             await self._detect_vision_models()
@@ -1893,19 +1882,8 @@ class AIState(rx.State):
             "aifred_thinking": self.aifred_thinking,
             "sokrates_thinking": self.sokrates_thinking,
             "salomo_thinking": self.salomo_thinking,
-            # Per-Agent Sampling Parameters
-            "aifred_top_k": self.aifred_top_k,
-            "aifred_top_p": self.aifred_top_p,
-            "aifred_min_p": self.aifred_min_p,
-            "aifred_repeat_penalty": self.aifred_repeat_penalty,
-            "sokrates_top_k": self.sokrates_top_k,
-            "sokrates_top_p": self.sokrates_top_p,
-            "sokrates_min_p": self.sokrates_min_p,
-            "sokrates_repeat_penalty": self.sokrates_repeat_penalty,
-            "salomo_top_k": self.salomo_top_k,
-            "salomo_top_p": self.salomo_top_p,
-            "salomo_min_p": self.salomo_min_p,
-            "salomo_repeat_penalty": self.salomo_repeat_penalty,
+            # Note: Sampling params (top_k, top_p, min_p, repeat_penalty) NOT saved
+            # They reset to YAML defaults on restart. Temperature IS saved (see below).
             "aifred_speed_mode": self.aifred_speed_mode,
             "sokrates_speed_mode": self.sokrates_speed_mode,
             "salomo_speed_mode": self.salomo_speed_mode,
@@ -7302,8 +7280,14 @@ class AIState(rx.State):
         """Reset Salomo sampling to model defaults"""
         self._reset_agent_sampling("salomo")
 
-    def _reset_agent_sampling(self, agent: str):
-        """Reset sampling parameters for an agent to model/backend defaults."""
+    def _reset_agent_sampling(self, agent: str, include_temperature: bool = True):
+        """Reset sampling parameters for an agent to model/backend defaults.
+
+        Args:
+            agent: "aifred", "sokrates", or "salomo"
+            include_temperature: If True, reset temperature too (model change / reset button).
+                If False, keep current temperature (app restart — temperature is persisted).
+        """
         defaults = {
             "temperature": LLAMASERVER_DEFAULT_TEMPERATURE,
             "top_k": DEFAULT_TOP_K,
@@ -7330,22 +7314,27 @@ class AIState(rx.State):
                         "repeat_penalty": yaml_sampling.get("repeat_penalty", LLAMASERVER_DEFAULT_REPEAT_PENALTY),
                     }
 
-        # Temperature: AIfred uses self.temperature, others use self.{agent}_temperature
-        if agent == "aifred":
-            self.temperature = defaults["temperature"]
-        else:
-            setattr(self, f"{agent}_temperature", defaults["temperature"])
+        if include_temperature:
+            if agent == "aifred":
+                self.temperature = defaults["temperature"]
+            else:
+                setattr(self, f"{agent}_temperature", defaults["temperature"])
         setattr(self, f"{agent}_top_k", int(defaults["top_k"]))
         setattr(self, f"{agent}_top_p", defaults["top_p"])
         setattr(self, f"{agent}_min_p", defaults["min_p"])
         setattr(self, f"{agent}_repeat_penalty", defaults["repeat_penalty"])
+
+        # Debug log
+        temp_info = f"temp={defaults['temperature']}, " if include_temperature else ""
         self.add_debug(
             f"🎲 {agent.capitalize()} sampling reset: "
-            f"temp={defaults['temperature']}, top_k={int(defaults['top_k'])}, "
+            f"{temp_info}top_k={int(defaults['top_k'])}, "
             f"top_p={defaults['top_p']}, min_p={defaults['min_p']}, "
             f"rep={defaults['repeat_penalty']}"
         )
-        self._save_settings()
+
+        # Increment key to force UI re-mount of input fields
+        self.sampling_reset_key += 1
 
     async def calibrate_context(self):
         """

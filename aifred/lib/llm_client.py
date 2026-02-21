@@ -5,13 +5,35 @@ Provides async chat completions (streaming and non-streaming)
 with proper integration into the existing Backend system.
 """
 
-from typing import Dict, List, Optional, AsyncIterator, Union, Any, cast
+from typing import TYPE_CHECKING, Dict, List, Optional, AsyncIterator, Union, Any, cast
 
 from ..backends import BackendFactory
 from ..backends.base import LLMMessage, LLMOptions, LLMResponse
 
+if TYPE_CHECKING:
+    from ..state import AIState
+
 # Type alias for messages: can be Dict[str, str] or LLMMessage
 MessageType = Union[Dict[str, Any], LLMMessage]
+
+
+def build_llm_options(state: "AIState", agent: str, temperature: float, num_ctx: int) -> LLMOptions:
+    """Build LLMOptions for an agent — sampling params always from state.
+
+    Central function to ensure ALL sampling parameters are passed consistently.
+    Called from multi_agent.py, own_knowledge_handler.py, etc.
+    """
+    from .prompt_loader import get_thinking_enabled
+    return LLMOptions(
+        temperature=temperature,
+        enable_thinking=get_thinking_enabled(agent),
+        supports_thinking=getattr(state, f"{agent}_supports_thinking") if state.backend_type in ("ollama", "llamacpp") else None,
+        num_ctx=num_ctx,
+        top_k=getattr(state, f"{agent}_top_k"),
+        top_p=getattr(state, f"{agent}_top_p"),
+        min_p=getattr(state, f"{agent}_min_p"),
+        repeat_penalty=getattr(state, f"{agent}_repeat_penalty"),
+    )
 
 
 class LLMClient:

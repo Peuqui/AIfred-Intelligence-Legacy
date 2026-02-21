@@ -29,7 +29,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße pro Backend - Ollama (Binary Search + RoPE-Skalierung 1.0x/1.5x/2.0x, Hybrid CPU-Offload), llama.cpp (3-phasig: GPU-only Binary Search → Speed-Variante mit Tensor-Split-Optimierung für Multi-GPU → Hybrid NGL-Fallback)
 - **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud-Streaming mit Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **nahtlose Echtzeit-Audioausgabe** (Double-Buffered HTML5 Audio, lückenlose Wiedergabe während der LLM-Inferenz)
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
-- **Sampling-Parameter-Tabelle**: Agentenspezifische Einstellung von Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual-Modus)
+- **Sampling-Parameter-Tabelle**: Agentenspezifische Einstellung von Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual-Modus) — Sampling-Parameter werden bei Neustart auf llama-swap YAML-Defaults zurückgesetzt, Temperature wird in settings.json gespeichert
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
 - **Session-Persistenz**: Mobile Chat-History überlebt Browser-Hintergrund/Neustart (Cookie-basiert)
 - **Session-Verwaltung**: Chat-Liste mit LLM-generierten Titeln, zwischen Sessions wechseln, alte Chats löschen
@@ -116,6 +116,18 @@ Eigene Nachrichten = assistant (ohne Label), andere = user (mit Label).
 - Rundennummer-Platzhalter `{round_num}` - Sokrates weiß welche Runde es ist
 - Maximal 1-2 Kritikpunkte pro Runde
 - Sokrates kritisiert nur - entscheidet nie über Konsens (das ist Salomos Aufgabe)
+
+**Temperatursteuerung** (v2.10.4):
+- Auto-Modus: Intent-Detection bestimmt Basis-Temperatur (FACTUAL=0.2, MIXED=0.5, CREATIVE=1.1)
+- Manual-Modus: Per-Agent Temperatur in der Sampling-Tabelle
+- Konfigurierbarer Sokrates-Offset im Auto-Modus (Standard +0.2, max 1.0)
+- Alle Temperatur-Einstellungen im "LLM Parameters (Advanced)" Collapsible
+
+**Sampling-Parameter-Persistenz:**
+- **Temperature**: Wird in `settings.json` gespeichert (pro Agent, überlebt Neustart)
+- **Top-K, Top-P, Min-P, Repeat-Penalty**: NICHT gespeichert — werden bei jedem Neustart auf modellspezifische Defaults aus der llama-swap YAML-Config zurückgesetzt
+- **Modellwechsel**: Setzt ALLE Sampling-Parameter (inkl. Temperature) auf YAML-Defaults zurück
+- **Reset-Button (↺)**: Setzt ALLE Sampling-Parameter (inkl. Temperature) auf YAML-Defaults zurück
 
 **Trialog-Workflow (Auto-Konsens mit Salomo):**
 ```
@@ -1147,6 +1159,15 @@ Settings werden in `data/settings.json` gespeichert:
 - Beim Backend-Wechsel werden automatisch die richtigen Modelle wiederhergestellt
 - Beim ersten Start werden Defaults aus `aifred/lib/config.py` verwendet
 
+**Sampling-Parameter-Persistenz:**
+
+| Parameter | Gespeichert? | Bei Neustart | Bei Modellwechsel |
+|-----------|-------------|--------------|-------------------|
+| Temperature | Ja (settings.json) | Beibehalten | Reset auf YAML |
+| Top-K, Top-P, Min-P, Repeat-Penalty | Nein | Reset auf YAML | Reset auf YAML |
+
+Quelle der Sampling-Defaults: `--temp`, `--top-k`, `--top-p`, `--min-p`, `--repeat-penalty` Flags in der llama-swap YAML-Config (`~/.config/llama-swap/config.yaml`).
+
 **Beispiel Settings-Struktur:**
 ```json
 {
@@ -1189,7 +1210,7 @@ Jeder Agent (AIfred, Sokrates, Salomo) hat seinen eigenen Reasoning-Toggle in de
 
 **Weitere Features:**
 - **Formatierung**: Denkprozess als ausklappbares Collapsible mit Modellname und Inferenzzeit
-- **Temperature**: Unabhängig vom Reasoning - nutzt Intent Detection (auto) oder manuellen Slider
+- **Temperature**: Unabhängig vom Reasoning - nutzt Intent Detection (auto) oder manuellen Wert in der Sampling-Tabelle
 - **Automatik-LLM**: Reasoning immer DEAKTIVIERT für Automatik-Entscheidungen (8x schneller)
 
 ---
