@@ -68,12 +68,14 @@ class LlamaCppBackend(LLMBackend):
         if options.num_predict:
             kwargs["max_tokens"] = options.num_predict
 
-        # llama-server supports repetition_penalty and top_k via extra_body
+        # llama-server supports repetition_penalty, top_k, min_p via extra_body
         extra_body: Dict[str, Any] = {}
         if options.repeat_penalty and options.repeat_penalty != 1.0:
             extra_body["repetition_penalty"] = options.repeat_penalty
         if options.top_k and options.top_k != 40:
             extra_body["top_k"] = options.top_k
+        if options.min_p > 0:
+            extra_body["min_p"] = options.min_p
 
         # Thinking control: pass enable_thinking to Jinja chat template (PR #13196)
         if options.enable_thinking is not None:
@@ -150,6 +152,8 @@ class LlamaCppBackend(LLMBackend):
             extra_body["repetition_penalty"] = options.repeat_penalty
         if options.top_k and options.top_k != 40:
             extra_body["top_k"] = options.top_k
+        if options.min_p > 0:
+            extra_body["min_p"] = options.min_p
 
         # Thinking control: pass enable_thinking to Jinja chat template (PR #13196)
         if options.enable_thinking is not None:

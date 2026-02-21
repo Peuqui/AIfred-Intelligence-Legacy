@@ -1786,9 +1786,11 @@ async def chat_interactive_mode(
                 'num_ctx': final_num_ctx  # Dynamically calculated or user-specified
             }
 
-            # Add enable_thinking if provided in llm_options (user toggle)
-            if llm_options and 'enable_thinking' in llm_options:
-                main_llm_options['enable_thinking'] = llm_options['enable_thinking']
+            # Add enable_thinking and sampling params if provided in llm_options (user toggle)
+            if llm_options:
+                for key in ('enable_thinking', 'top_k', 'top_p', 'min_p', 'repeat_penalty'):
+                    if key in llm_options:
+                        main_llm_options[key] = llm_options[key]
 
             # Add supports_thinking from state (prevents 400 errors for calibrated models)
             if state and backend_type in ("ollama", "llamacpp"):

@@ -23,7 +23,11 @@ from .lib.config import (
     EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES,
     SOKRATES_TEMPERATURE_OFFSET, SALOMO_TEMPERATURE_OFFSET,
     DEBUG_MESSAGES_MAX,
-    CLOUD_API_PROVIDERS
+    CLOUD_API_PROVIDERS,
+    DEFAULT_TOP_K, DEFAULT_TOP_P, DEFAULT_MIN_P, DEFAULT_REPEAT_PENALTY,
+    LLAMASERVER_DEFAULT_TEMPERATURE, LLAMASERVER_DEFAULT_TOP_K,
+    LLAMASERVER_DEFAULT_TOP_P, LLAMASERVER_DEFAULT_MIN_P,
+    LLAMASERVER_DEFAULT_REPEAT_PENALTY
 )
 from .backends.cloud_api import is_cloud_api_configured
 from .lib.vllm_manager import vLLMProcessManager
@@ -155,10 +159,30 @@ class AIState(rx.State):
     sokrates_personality: bool = True    # 🏛️ Sokrates philosophical style
     salomo_personality: bool = True      # 👑 Salomo judge style
 
-    # Per-Agent Reasoning Toggles (True = Chain-of-Thought reasoning enabled)
+    # Per-Agent Reasoning Toggles (True = reasoning prompt injected into system prompt)
     aifred_reasoning: bool = True        # 💭 AIfred step-by-step reasoning
     sokrates_reasoning: bool = True      # 💭 Sokrates step-by-step reasoning
     salomo_reasoning: bool = True        # 💭 Salomo step-by-step reasoning
+
+    # Per-Agent Thinking Toggles (True = enable_thinking sent to backend API)
+    # Separate from reasoning: thinking = model-internal CoT, reasoning = prompt injection
+    aifred_thinking: bool = True         # 🧠 AIfred model thinking (CoT)
+    sokrates_thinking: bool = True       # 🧠 Sokrates model thinking (CoT)
+    salomo_thinking: bool = True         # 🧠 Salomo model thinking (CoT)
+
+    # Per-Agent Sampling Parameters
+    aifred_top_k: int = DEFAULT_TOP_K
+    aifred_top_p: float = DEFAULT_TOP_P
+    aifred_min_p: float = DEFAULT_MIN_P
+    aifred_repeat_penalty: float = DEFAULT_REPEAT_PENALTY
+    sokrates_top_k: int = DEFAULT_TOP_K
+    sokrates_top_p: float = DEFAULT_TOP_P
+    sokrates_min_p: float = DEFAULT_MIN_P
+    sokrates_repeat_penalty: float = DEFAULT_REPEAT_PENALTY
+    salomo_top_k: int = DEFAULT_TOP_K
+    salomo_top_p: float = DEFAULT_TOP_P
+    salomo_min_p: float = DEFAULT_MIN_P
+    salomo_repeat_penalty: float = DEFAULT_REPEAT_PENALTY
 
     # Per-Agent Speed Mode Toggles (llamacpp only: swap to -speed YAML variant)
     # True = aggressive tensor-split, 32K context; False = balanced split, max context
@@ -203,6 +227,9 @@ class AIState(rx.State):
 
     # Multi-Agent Help Modal
     multi_agent_help_open: bool = False  # Show help modal?
+
+    # Reasoning/Thinking Help Modal
+    reasoning_thinking_help_open: bool = False
 
     # Session Management (Chat History Picker)
     available_sessions: List[Dict[str, Any]] = []  # List of sessions from list_sessions()
@@ -1033,6 +1060,46 @@ class AIState(rx.State):
                 if "aifred_reasoning" not in saved_settings or "sokrates_reasoning" not in saved_settings or "salomo_reasoning" not in saved_settings:
                     self._save_reasoning_settings()
 
+                # Load and sync thinking toggles to prompt_loader
+                from .lib.prompt_loader import set_thinking_enabled
+                self.aifred_thinking = saved_settings.get("aifred_thinking", self.aifred_thinking)
+                self.sokrates_thinking = saved_settings.get("sokrates_thinking", self.sokrates_thinking)
+                self.salomo_thinking = saved_settings.get("salomo_thinking", self.salomo_thinking)
+                set_thinking_enabled("aifred", self.aifred_thinking)
+                set_thinking_enabled("sokrates", self.sokrates_thinking)
+                set_thinking_enabled("salomo", self.salomo_thinking)
+
+                # Persist thinking defaults if not in settings
+                if "aifred_thinking" not in saved_settings:
+                    self._save_thinking_settings()
+
+                # Load per-agent sampling parameters
+                self.aifred_top_k = saved_settings.get("aifred_top_k", self.aifred_top_k)
+                self.aifred_top_p = saved_settings.get("aifred_top_p", self.aifred_top_p)
+                self.aifred_min_p = saved_settings.get("aifred_min_p", self.aifred_min_p)
+                self.aifred_repeat_penalty = saved_settings.get("aifred_repeat_penalty", self.aifred_repeat_penalty)
+                self.sokrates_top_k = saved_settings.get("sokrates_top_k", self.sokrates_top_k)
+                self.sokrates_top_p = saved_settings.get("sokrates_top_p", self.sokrates_top_p)
+                self.sokrates_min_p = saved_settings.get("sokrates_min_p", self.sokrates_min_p)
+                self.sokrates_repeat_penalty = saved_settings.get("sokrates_repeat_penalty", self.sokrates_repeat_penalty)
+                self.salomo_top_k = saved_settings.get("salomo_top_k", self.salomo_top_k)
+                self.salomo_top_p = saved_settings.get("salomo_top_p", self.salomo_top_p)
+                self.salomo_min_p = saved_settings.get("salomo_min_p", self.salomo_min_p)
+                self.salomo_repeat_penalty = saved_settings.get("salomo_repeat_penalty", self.salomo_repeat_penalty)
+
+                # Log sampling parameters if any differ from defaults
+                for agent_name in ("aifred", "sokrates", "salomo"):
+                    tk = getattr(self, f"{agent_name}_top_k")
+                    tp = getattr(self, f"{agent_name}_top_p")
+                    mp = getattr(self, f"{agent_name}_min_p")
+                    rp = getattr(self, f"{agent_name}_repeat_penalty")
+                    if (tk != DEFAULT_TOP_K or tp != DEFAULT_TOP_P
+                            or mp != DEFAULT_MIN_P or rp != DEFAULT_REPEAT_PENALTY):
+                        self.add_debug(
+                            f"🎲 {agent_name.capitalize()} sampling: "
+                            f"top_k={tk}, top_p={tp}, min_p={mp}, rep={rp}"
+                        )
+
                 # Load speed mode toggles (llamacpp only, restored after model is loaded)
                 self.aifred_speed_mode = saved_settings.get("aifred_speed_mode", False)
                 self.sokrates_speed_mode = saved_settings.get("sokrates_speed_mode", False)
@@ -1823,6 +1890,22 @@ class AIState(rx.State):
             "aifred_reasoning": self.aifred_reasoning,
             "sokrates_reasoning": self.sokrates_reasoning,
             "salomo_reasoning": self.salomo_reasoning,
+            "aifred_thinking": self.aifred_thinking,
+            "sokrates_thinking": self.sokrates_thinking,
+            "salomo_thinking": self.salomo_thinking,
+            # Per-Agent Sampling Parameters
+            "aifred_top_k": self.aifred_top_k,
+            "aifred_top_p": self.aifred_top_p,
+            "aifred_min_p": self.aifred_min_p,
+            "aifred_repeat_penalty": self.aifred_repeat_penalty,
+            "sokrates_top_k": self.sokrates_top_k,
+            "sokrates_top_p": self.sokrates_top_p,
+            "sokrates_min_p": self.sokrates_min_p,
+            "sokrates_repeat_penalty": self.sokrates_repeat_penalty,
+            "salomo_top_k": self.salomo_top_k,
+            "salomo_top_p": self.salomo_top_p,
+            "salomo_min_p": self.salomo_min_p,
+            "salomo_repeat_penalty": self.salomo_repeat_penalty,
             "aifred_speed_mode": self.aifred_speed_mode,
             "sokrates_speed_mode": self.sokrates_speed_mode,
             "salomo_speed_mode": self.salomo_speed_mode,
@@ -3387,10 +3470,14 @@ class AIState(rx.State):
                 # NOTE: display_user_msg was already prepared and added to chat_history above (line ~3113)
                 # No need to update it here - user panel is already correct
 
-                # Build LLM options - use per-agent reasoning toggle for enable_thinking
-                from .lib.prompt_loader import get_reasoning_enabled
+                # Build LLM options - use per-agent thinking toggle for enable_thinking
+                from .lib.prompt_loader import get_thinking_enabled
                 llm_options = {
-                    'enable_thinking': get_reasoning_enabled("aifred")
+                    'enable_thinking': get_thinking_enabled("aifred"),
+                    'top_k': self.aifred_top_k,
+                    'top_p': self.aifred_top_p,
+                    'min_p': self.aifred_min_p,
+                    'repeat_penalty': self.aifred_repeat_penalty,
                 }
 
                 # Storage für Vision-JSON (wird in history gespeichert statt readable text)
@@ -3646,9 +3733,15 @@ class AIState(rx.State):
             # ============================================================
 
             from .lib.conversation_handler import chat_interactive_mode
-            from .lib.prompt_loader import get_reasoning_enabled
+            from .lib.prompt_loader import get_thinking_enabled
 
-            llm_options = {'enable_thinking': get_reasoning_enabled("aifred")}
+            llm_options = {
+                'enable_thinking': get_thinking_enabled("aifred"),
+                'top_k': self.aifred_top_k,
+                'top_p': self.aifred_top_p,
+                'min_p': self.aifred_min_p,
+                'repeat_penalty': self.aifred_repeat_penalty,
+            }
             result_data = None
             ai_text = ""
 
@@ -5577,6 +5670,18 @@ class AIState(rx.State):
         self.multi_agent_help_open = False
 
     # ============================================================
+    # REASONING/THINKING HELP MODAL HANDLERS
+    # ============================================================
+
+    def open_reasoning_thinking_help(self):
+        """Opens the reasoning/thinking explanation modal"""
+        self.reasoning_thinking_help_open = True
+
+    def close_reasoning_thinking_help(self):
+        """Closes the reasoning/thinking explanation modal"""
+        self.reasoning_thinking_help_open = False
+
+    # ============================================================
     # IMAGE CROP HANDLERS
     # ============================================================
 
@@ -7112,6 +7217,132 @@ class AIState(rx.State):
         settings["salomo_reasoning"] = self.salomo_reasoning
         save_settings(settings)
 
+    def toggle_aifred_thinking(self):
+        """Toggle AIfred model thinking (enable_thinking to backend) on/off"""
+        self.aifred_thinking = not self.aifred_thinking
+        status = "ON" if self.aifred_thinking else "OFF"
+        self.add_debug(f"🧠 AIfred thinking: {status}")
+        self._save_thinking_settings()
+        from .lib.prompt_loader import set_thinking_enabled
+        set_thinking_enabled("aifred", self.aifred_thinking)
+
+    def toggle_sokrates_thinking(self):
+        """Toggle Sokrates model thinking on/off"""
+        self.sokrates_thinking = not self.sokrates_thinking
+        status = "ON" if self.sokrates_thinking else "OFF"
+        self.add_debug(f"🧠 Sokrates thinking: {status}")
+        self._save_thinking_settings()
+        from .lib.prompt_loader import set_thinking_enabled
+        set_thinking_enabled("sokrates", self.sokrates_thinking)
+
+    def toggle_salomo_thinking(self):
+        """Toggle Salomo model thinking on/off"""
+        self.salomo_thinking = not self.salomo_thinking
+        status = "ON" if self.salomo_thinking else "OFF"
+        self.add_debug(f"🧠 Salomo thinking: {status}")
+        self._save_thinking_settings()
+        from .lib.prompt_loader import set_thinking_enabled
+        set_thinking_enabled("salomo", self.salomo_thinking)
+
+    def _save_thinking_settings(self):
+        """Save thinking toggle states to settings.json"""
+        from .lib.settings import load_settings, save_settings
+        settings = load_settings() or {}
+        settings["aifred_thinking"] = self.aifred_thinking
+        settings["sokrates_thinking"] = self.sokrates_thinking
+        settings["salomo_thinking"] = self.salomo_thinking
+        save_settings(settings)
+
+    def set_aifred_sampling(self, param: str, value: str):
+        """Set AIfred sampling parameter from UI input"""
+        self._set_agent_sampling("aifred", param, value)
+
+    def set_sokrates_sampling(self, param: str, value: str):
+        """Set Sokrates sampling parameter from UI input"""
+        self._set_agent_sampling("sokrates", param, value)
+
+    def set_salomo_sampling(self, param: str, value: str):
+        """Set Salomo sampling parameter from UI input"""
+        self._set_agent_sampling("salomo", param, value)
+
+    def _set_agent_sampling(self, agent: str, param: str, value: str):
+        """Set a sampling parameter for an agent and save to settings"""
+        try:
+            if param == "top_k":
+                int_val = int(float(value))
+                setattr(self, f"{agent}_top_k", max(0, min(200, int_val)))
+            elif param == "top_p":
+                float_val = float(value)
+                setattr(self, f"{agent}_top_p", max(0.0, min(1.0, float_val)))
+            elif param == "min_p":
+                float_val = float(value)
+                setattr(self, f"{agent}_min_p", max(0.0, min(1.0, float_val)))
+            elif param == "repeat_penalty":
+                float_val = float(value)
+                setattr(self, f"{agent}_repeat_penalty", max(1.0, min(2.0, float_val)))
+            final_val = getattr(self, f"{agent}_{param}")
+            self.add_debug(f"🎲 {agent.capitalize()} {param}={final_val}")
+            self._save_settings()
+        except (ValueError, TypeError):
+            pass
+
+    def reset_aifred_sampling(self):
+        """Reset AIfred sampling to model defaults"""
+        self._reset_agent_sampling("aifred")
+
+    def reset_sokrates_sampling(self):
+        """Reset Sokrates sampling to model defaults"""
+        self._reset_agent_sampling("sokrates")
+
+    def reset_salomo_sampling(self):
+        """Reset Salomo sampling to model defaults"""
+        self._reset_agent_sampling("salomo")
+
+    def _reset_agent_sampling(self, agent: str):
+        """Reset sampling parameters for an agent to model/backend defaults."""
+        defaults = {
+            "temperature": LLAMASERVER_DEFAULT_TEMPERATURE,
+            "top_k": DEFAULT_TOP_K,
+            "top_p": DEFAULT_TOP_P,
+            "min_p": DEFAULT_MIN_P,
+            "repeat_penalty": DEFAULT_REPEAT_PENALTY,
+        }
+
+        if self.backend_type == "llamacpp":
+            # Try to get model-specific values from llama-swap YAML
+            # Sokrates/Salomo with empty model_id inherit from AIfred
+            model_id = getattr(self, f"{agent}_model_id", "") or self.aifred_model_id
+            if model_id:
+                from .lib.llamacpp_calibration import parse_llamaswap_config, parse_sampling_from_cmd
+                from .lib.config import LLAMASWAP_CONFIG_PATH
+                config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                if model_id in config:
+                    yaml_sampling = parse_sampling_from_cmd(config[model_id]["full_cmd"])
+                    defaults = {
+                        "temperature": yaml_sampling.get("temperature", LLAMASERVER_DEFAULT_TEMPERATURE),
+                        "top_k": yaml_sampling.get("top_k", LLAMASERVER_DEFAULT_TOP_K),
+                        "top_p": yaml_sampling.get("top_p", LLAMASERVER_DEFAULT_TOP_P),
+                        "min_p": yaml_sampling.get("min_p", LLAMASERVER_DEFAULT_MIN_P),
+                        "repeat_penalty": yaml_sampling.get("repeat_penalty", LLAMASERVER_DEFAULT_REPEAT_PENALTY),
+                    }
+
+        # Temperature: AIfred uses self.temperature, others use self.{agent}_temperature
+        if agent == "aifred":
+            self.temperature = defaults["temperature"]
+        else:
+            setattr(self, f"{agent}_temperature", defaults["temperature"])
+        setattr(self, f"{agent}_top_k", int(defaults["top_k"]))
+        setattr(self, f"{agent}_top_p", defaults["top_p"])
+        setattr(self, f"{agent}_min_p", defaults["min_p"])
+        setattr(self, f"{agent}_repeat_penalty", defaults["repeat_penalty"])
+        self.add_debug(
+            f"🎲 {agent.capitalize()} sampling reset: "
+            f"temp={defaults['temperature']}, top_k={int(defaults['top_k'])}, "
+            f"top_p={defaults['top_p']}, min_p={defaults['min_p']}, "
+            f"rep={defaults['repeat_penalty']}"
+        )
+        self._save_settings()
+
     async def calibrate_context(self):
         """
         Calibrate maximum context window for current model.
@@ -7614,6 +7845,13 @@ class AIState(rx.State):
             else:
                 self.image_upload_warning = ""  # Clear warning
 
+        # Reset sampling params to model defaults for all affected agents
+        self._reset_agent_sampling("aifred")
+        if not self.sokrates_model_id:
+            self._reset_agent_sampling("sokrates")
+        if not self.salomo_model_id:
+            self._reset_agent_sampling("salomo")
+
         # ALWAYS save settings first (fixes Ollama not saving model changes)
         self._save_settings()
 
@@ -7800,6 +8038,33 @@ class AIState(rx.State):
         self.salomo_temperature_offset = offset[0] if isinstance(offset, list) else offset
         self._save_settings()
         self.add_debug(f"🌡️ Salomo Offset: +{self.salomo_temperature_offset:.1f}")
+
+    def set_aifred_temperature_input(self, value: str):
+        """Set AIfred temperature from text input field"""
+        try:
+            self.temperature = max(0.0, min(2.0, float(value)))
+            self.add_debug(f"🌡️ AIfred temperature={self.temperature}")
+            self._save_settings()
+        except (ValueError, TypeError):
+            pass
+
+    def set_sokrates_temperature_input(self, value: str):
+        """Set Sokrates temperature from text input field"""
+        try:
+            self.sokrates_temperature = max(0.0, min(2.0, float(value)))
+            self.add_debug(f"🌡️ Sokrates temperature={self.sokrates_temperature}")
+            self._save_settings()
+        except (ValueError, TypeError):
+            pass
+
+    def set_salomo_temperature_input(self, value: str):
+        """Set Salomo temperature from text input field"""
+        try:
+            self.salomo_temperature = max(0.0, min(2.0, float(value)))
+            self.add_debug(f"🌡️ Salomo temperature={self.salomo_temperature}")
+            self._save_settings()
+        except (ValueError, TypeError):
+            pass
 
     def calculate_manual_context(self):
         """
@@ -8107,6 +8372,9 @@ class AIState(rx.State):
             if not self.sokrates_has_speed_variant:
                 self.sokrates_speed_mode = False
 
+        # Reset sampling params to model defaults
+        self._reset_agent_sampling("sokrates")
+
         self._save_settings()
         if model:
             self.add_debug(f"🧠 Sokrates-LLM: {model}")
@@ -8149,6 +8417,9 @@ class AIState(rx.State):
             self.salomo_has_speed_variant = get_llamacpp_speed_split(self.salomo_model_id) > 0
             if not self.salomo_has_speed_variant:
                 self.salomo_speed_mode = False
+
+        # Reset sampling params to model defaults
+        self._reset_agent_sampling("salomo")
 
         self._save_settings()
         if model:

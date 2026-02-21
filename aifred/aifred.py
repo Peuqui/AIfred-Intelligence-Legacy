@@ -592,18 +592,21 @@ def text_input_section() -> rx.Component:
                         ),
                     ),
                     # Glühbirnen-Icon für Hilfe-Modal (Desktop + Mobile)
-                    rx.icon(
-                        "lightbulb",
-                        size=18,
-                        color="#FFD700",
-                        cursor="pointer",
-                        on_click=AIState.open_multi_agent_help,
-                        style={
-                            "transition": "transform 0.2s ease",
-                            "&:hover": {
-                                "transform": "scale(1.15)",
+                    rx.tooltip(
+                        rx.icon(
+                            "lightbulb",
+                            size=18,
+                            color="#FFD700",
+                            cursor="pointer",
+                            on_click=AIState.open_multi_agent_help,
+                            style={
+                                "transition": "transform 0.2s ease",
+                                "&:hover": {
+                                    "transform": "scale(1.15)",
+                                },
                             },
-                        },
+                        ),
+                        content=t("discussion_mode_tooltip"),
                     ),
                     # Consensus Type Toggle (nur bei auto_consensus sichtbar, neben Glühbirne)
                     rx.cond(
@@ -783,211 +786,127 @@ def text_input_section() -> rx.Component:
     )
 
 
-def temperature_control_section() -> rx.Component:
-    """Temperature control with Auto/Manual toggle and multi-agent sliders"""
-    return rx.vstack(
-        # Header
-        rx.text(
-            rx.cond(
-                AIState.ui_language == "de",
-                "🌡️ Temperature",
-                "🌡️ Temperature"
+
+
+def _sampling_input(agent: str, param: str, width: str = "55px") -> rx.Component:
+    """Helper: Input field for a sampling parameter (always editable)."""
+    attr_name = f"{agent}_{param}"
+    return rx.input(
+        default_value=getattr(AIState, attr_name).to(str),
+        on_blur=lambda v: getattr(AIState, f"set_{agent}_sampling")(param, v),
+        type="number",
+        width=width,
+        size="1",
+    )
+
+
+def _temp_input(agent: str, width: str = "50px") -> rx.Component:
+    """Helper: Temperature input field for an agent (disabled in Auto mode)."""
+    is_auto = AIState.temperature_mode == "auto"
+    # AIfred uses self.temperature, others use self.{agent}_temperature
+    if agent == "aifred":
+        attr = AIState.temperature
+    else:
+        attr = getattr(AIState, f"{agent}_temperature")
+    handler = getattr(AIState, f"set_{agent}_temperature_input")
+    return rx.input(
+        default_value=attr.to(str),
+        on_blur=handler,
+        type="number",
+        width=width,
+        size="1",
+        disabled=is_auto,
+        opacity=rx.cond(is_auto, "0.5", "1.0"),
+    )
+
+
+def _sampling_agent_row(agent: str, emoji: str, label: str, reset_handler) -> rx.Component:
+    """Helper: One agent row with temp + 4 sampling inputs + reset button."""
+    return rx.hstack(
+        rx.text(f"{emoji} {label}", font_size="10px", font_weight="bold", width="75px",
+                color=COLORS["text_primary"]),
+        _temp_input(agent),
+        _sampling_input(agent, "top_k"),
+        _sampling_input(agent, "top_p"),
+        _sampling_input(agent, "min_p"),
+        _sampling_input(agent, "repeat_penalty"),
+        rx.tooltip(
+            rx.icon(
+                "rotate-ccw",
+                size=13,
+                color=COLORS["primary"],
+                cursor="pointer",
+                on_click=reset_handler,
+                style={
+                    "transition": "all 0.2s ease",
+                    "&:hover": {"color": COLORS["primary_hover"], "transform": "scale(1.15)"},
+                },
             ),
-            font_weight="bold",
-            font_size="12px"
+            content=t("sampling_reset_tooltip"),
         ),
-
-        # Mode Toggle (Radio Buttons) - Language-aware
-        rx.cond(
-            AIState.ui_language == "de",
-            rx.radio(
-                ["🤖 Auto (Intent-Detection)", "✋ Manuell"],
-                default_value=rx.cond(
-                    AIState.temperature_mode == "manual",
-                    "✋ Manuell",
-                    "🤖 Auto (Intent-Detection)"
-                ),
-                on_change=AIState.set_temperature_mode_from_display,
-                direction="column",
-                spacing="2",
-                size="2",
-            ),
-            rx.radio(
-                ["🤖 Auto (Intent-Detection)", "✋ Manual"],
-                default_value=rx.cond(
-                    AIState.temperature_mode == "manual",
-                    "✋ Manual",
-                    "🤖 Auto (Intent-Detection)"
-                ),
-                on_change=AIState.set_temperature_mode_from_display,
-                direction="column",
-                spacing="2",
-                size="2",
-            ),
-        ),
-
-        # Conditional Sliders based on mode
-        rx.cond(
-            AIState.temperature_mode == "manual",
-            # Manual Mode: Two separate sliders for AIfred and Sokrates
-            rx.vstack(
-                # AIfred Slider
-                rx.hstack(
-                    rx.text(
-                        "🎩 AIfred:",
-                        font_size="11px",
-                        width="85px",
-                        font_weight="500",
-                    ),
-                    rx.slider(
-                        value=[AIState.temperature],
-                        min=0.0,
-                        max=2.0,
-                        step=0.1,
-                        on_change=AIState.set_temperature,
-                        flex="1",
-                    ),
-                    rx.text(
-                        f"{AIState.temperature:.1f}",
-                        font_size="11px",
-                        width="30px",
-                        text_align="right",
-                    ),
-                    spacing="2",
-                    width="100%",
-                    align_items="center",
-                ),
-                # Sokrates Slider
-                rx.hstack(
-                    rx.text(
-                        "🏛️ Sokrates:",
-                        font_size="11px",
-                        width="85px",
-                        font_weight="500",
-                    ),
-                    rx.slider(
-                        value=[AIState.sokrates_temperature],
-                        min=0.0,
-                        max=2.0,
-                        step=0.1,
-                        on_change=AIState.set_sokrates_temperature,
-                        flex="1",
-                    ),
-                    rx.text(
-                        f"{AIState.sokrates_temperature:.1f}",
-                        font_size="11px",
-                        width="30px",
-                        text_align="right",
-                    ),
-                    spacing="2",
-                    width="100%",
-                    align_items="center",
-                ),
-                # Salomo Slider
-                rx.hstack(
-                    rx.text(
-                        "⚖️ Salomo:",
-                        font_size="11px",
-                        width="85px",
-                        font_weight="500",
-                    ),
-                    rx.slider(
-                        value=[AIState.salomo_temperature],
-                        min=0.0,
-                        max=2.0,
-                        step=0.1,
-                        on_change=AIState.set_salomo_temperature,
-                        flex="1",
-                    ),
-                    rx.text(
-                        f"{AIState.salomo_temperature:.1f}",
-                        font_size="11px",
-                        width="30px",
-                        text_align="right",
-                    ),
-                    spacing="2",
-                    width="100%",
-                    align_items="center",
-                ),
-                spacing="2",
-                width="100%",
-                padding_top="2",
-            ),
-            # Auto Mode: Offset sliders for Sokrates and Salomo
-            rx.vstack(
-                # Sokrates Offset
-                rx.hstack(
-                    rx.text(
-                        "🏛️ Sokrates Offset:",
-                        font_size="11px",
-                        width="110px",
-                        font_weight="500",
-                    ),
-                    rx.slider(
-                        value=[AIState.sokrates_temperature_offset],
-                        min=0.0,
-                        max=0.5,
-                        step=0.1,
-                        on_change=AIState.set_sokrates_temperature_offset,
-                        flex="1",
-                    ),
-                    rx.text(
-                        f"+{AIState.sokrates_temperature_offset:.1f}",
-                        font_size="11px",
-                        width="35px",
-                        text_align="right",
-                    ),
-                    spacing="2",
-                    width="100%",
-                    align_items="center",
-                ),
-                # Salomo Offset
-                rx.hstack(
-                    rx.text(
-                        "⚖️ Salomo Offset:",
-                        font_size="11px",
-                        width="110px",
-                        font_weight="500",
-                    ),
-                    rx.slider(
-                        value=[AIState.salomo_temperature_offset],
-                        min=0.0,
-                        max=0.5,
-                        step=0.1,
-                        on_change=AIState.set_salomo_temperature_offset,
-                        flex="1",
-                    ),
-                    rx.text(
-                        f"+{AIState.salomo_temperature_offset:.1f}",
-                        font_size="11px",
-                        width="35px",
-                        text_align="right",
-                    ),
-                    spacing="2",
-                    width="100%",
-                    align_items="center",
-                ),
-                rx.text(
-                    rx.cond(
-                        AIState.ui_language == "de",
-                        "Agent-Temp = Intent-Temp + Offset (max 1.0)",
-                        "Agent Temp = Intent Temp + Offset (max 1.0)"
-                    ),
-                    font_size="10px",
-                    color=COLORS["text_secondary"],
-                    font_style="italic",
-                ),
-                spacing="1",
-                width="100%",
-                padding_top="2",
-            ),
-        ),
-
-        # Divider
-        rx.divider(margin_y="3"),
-
-        width="100%",
         spacing="2",
+        align="center",
+    )
+
+
+def sampling_control_section() -> rx.Component:
+    """Sampling parameters with Auto/Manual toggle and per-agent controls."""
+    return rx.vstack(
+        # Title row with Auto/Manual toggle
+        rx.hstack(
+            rx.text(t("sampling_section_label"), font_weight="bold", font_size="12px"),
+            rx.spacer(),
+            rx.tooltip(
+                rx.hstack(
+                    rx.text(t("sampling_temp_label"), font_size="10px", font_weight="bold",
+                            color=COLORS["text_primary"]),
+                    rx.text("Auto", font_size="10px", color=COLORS["text_secondary"]),
+                    rx.switch(
+                        checked=AIState.temperature_mode == "manual",
+                        on_change=AIState.set_temperature_mode,
+                        size="1",
+                    ),
+                    rx.text("Manual", font_size="10px", color=COLORS["text_secondary"]),
+                    spacing="1",
+                    align="center",
+                ),
+                content=t("sampling_temp_toggle_tooltip"),
+                max_width="280px",
+            ),
+            width="100%",
+            align="center",
+        ),
+        # Header row: label + param columns
+        rx.hstack(
+            rx.text("", width="75px"),
+            rx.text("Temp", font_size="9px", font_weight="bold", width="50px", text_align="center",
+                     color=COLORS["text_primary"]),
+            rx.text("Top-K", font_size="9px", font_weight="bold", width="55px", text_align="center",
+                     color=COLORS["text_primary"]),
+            rx.text("Top-P", font_size="9px", font_weight="bold", width="55px", text_align="center",
+                     color=COLORS["text_primary"]),
+            rx.text("Min-P", font_size="9px", font_weight="bold", width="55px", text_align="center",
+                     color=COLORS["text_primary"]),
+            rx.text("Rep.P", font_size="9px", font_weight="bold", width="55px", text_align="center",
+                     color=COLORS["text_primary"]),
+            rx.text("", width="13px"),
+            spacing="2",
+            align="center",
+        ),
+        # Agent rows
+        _sampling_agent_row("aifred", "🎩", "AIfred", AIState.reset_aifred_sampling),
+        _sampling_agent_row("sokrates", "🏛️", "Sokrates", AIState.reset_sokrates_sampling),
+        _sampling_agent_row("salomo", "👑", "Salomo", AIState.reset_salomo_sampling),
+        # Hint text based on mode
+        rx.cond(
+            AIState.temperature_mode == "auto",
+            rx.text(t("sampling_auto_hint"), font_size="10px", color=COLORS["text_secondary"],
+                    font_style="italic"),
+            rx.text(t("sampling_manual_hint"), font_size="10px", color=COLORS["text_secondary"],
+                    font_style="italic"),
+        ),
+        width="100%",
+        spacing="1",
     )
 
 
@@ -1012,8 +931,8 @@ def llm_parameters_accordion() -> rx.Component:
                 height="28px",
             ),
             content=rx.vstack(
-                # Temperature Control Section
-                temperature_control_section(),
+                # Sampling Parameters (includes Temperature)
+                sampling_control_section(),
 
                 # Context Window Control
                 rx.vstack(
@@ -2928,10 +2847,39 @@ def settings_accordion() -> rx.Component:
                             ),
                             content=t("reasoning_tooltip"),
                         ),
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("🧠", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_thinking,
+                                    on_change=lambda _: AIState.toggle_aifred_thinking(),
+                                    size="1",
+                                    color_scheme="blue",
+                                    variant="surface",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            content=t("thinking_tooltip"),
+                        ),
+                        rx.tooltip(
+                            rx.icon(
+                                "lightbulb",
+                                size=14,
+                                color="#FFD700",
+                                cursor="pointer",
+                                on_click=AIState.open_reasoning_thinking_help,
+                                style={
+                                    "transition": "transform 0.2s ease",
+                                    "&:hover": {"transform": "scale(1.15)"},
+                                },
+                            ),
+                            content=t("reasoning_thinking_help_lightbulb_tooltip"),
+                        ),
                         spacing="2",
                         align="center",
                     ),
-                    # Other backends: Personality + Reasoning + optional Speed toggle
+                    # Other backends: Personality + Reasoning + Thinking + Info + optional Speed toggle
                     rx.hstack(
                         rx.tooltip(
                             rx.hstack(
@@ -2962,6 +2910,35 @@ def settings_accordion() -> rx.Component:
                                 align="center",
                             ),
                             content=t("reasoning_tooltip"),
+                        ),
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("🧠", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_thinking,
+                                    on_change=lambda _: AIState.toggle_aifred_thinking(),
+                                    size="1",
+                                    color_scheme="blue",
+                                    variant="surface",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            content=t("thinking_tooltip"),
+                        ),
+                        rx.tooltip(
+                            rx.icon(
+                                "lightbulb",
+                                size=14,
+                                color="#FFD700",
+                                cursor="pointer",
+                                on_click=AIState.open_reasoning_thinking_help,
+                                style={
+                                    "transition": "transform 0.2s ease",
+                                    "&:hover": {"transform": "scale(1.15)"},
+                                },
+                            ),
+                            content=t("reasoning_thinking_help_lightbulb_tooltip"),
                         ),
                         rx.cond(
                             AIState.aifred_has_speed_variant,
@@ -3075,10 +3052,39 @@ def settings_accordion() -> rx.Component:
                                 ),
                                 content=t("reasoning_tooltip"),
                             ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("🧠", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_thinking,
+                                        on_change=lambda _: AIState.toggle_sokrates_thinking(),
+                                        size="1",
+                                        color_scheme="blue",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("thinking_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.icon(
+                                    "lightbulb",
+                                    size=14,
+                                    color="#FFD700",
+                                    cursor="pointer",
+                                    on_click=AIState.open_reasoning_thinking_help,
+                                    style={
+                                        "transition": "transform 0.2s ease",
+                                        "&:hover": {"transform": "scale(1.15)"},
+                                    },
+                                ),
+                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
+                            ),
                             spacing="2",
                             align="center",
                         ),
-                        # Other backends: Personality + Reasoning + optional Speed toggle
+                        # Other backends: Personality + Reasoning + Thinking + Info + optional Speed toggle
                         rx.hstack(
                             rx.tooltip(
                                 rx.hstack(
@@ -3109,6 +3115,35 @@ def settings_accordion() -> rx.Component:
                                     align="center",
                                 ),
                                 content=t("reasoning_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("🧠", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_thinking,
+                                        on_change=lambda _: AIState.toggle_sokrates_thinking(),
+                                        size="1",
+                                        color_scheme="blue",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("thinking_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.icon(
+                                    "lightbulb",
+                                    size=14,
+                                    color="#FFD700",
+                                    cursor="pointer",
+                                    on_click=AIState.open_reasoning_thinking_help,
+                                    style={
+                                        "transition": "transform 0.2s ease",
+                                        "&:hover": {"transform": "scale(1.15)"},
+                                    },
+                                ),
+                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
                             ),
                             rx.cond(
                                 AIState.sokrates_has_speed_variant,
@@ -3224,10 +3259,39 @@ def settings_accordion() -> rx.Component:
                                 ),
                                 content=t("reasoning_tooltip"),
                             ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("🧠", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_thinking,
+                                        on_change=lambda _: AIState.toggle_salomo_thinking(),
+                                        size="1",
+                                        color_scheme="blue",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("thinking_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.icon(
+                                    "lightbulb",
+                                    size=14,
+                                    color="#FFD700",
+                                    cursor="pointer",
+                                    on_click=AIState.open_reasoning_thinking_help,
+                                    style={
+                                        "transition": "transform 0.2s ease",
+                                        "&:hover": {"transform": "scale(1.15)"},
+                                    },
+                                ),
+                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
+                            ),
                             spacing="2",
                             align="center",
                         ),
-                        # Other backends: Personality + Reasoning only
+                        # Other backends: Personality + Reasoning + Thinking + Info
                         rx.hstack(
                             rx.tooltip(
                                 rx.hstack(
@@ -3258,6 +3322,35 @@ def settings_accordion() -> rx.Component:
                                     align="center",
                                 ),
                                 content=t("reasoning_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("🧠", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_thinking,
+                                        on_change=lambda _: AIState.toggle_salomo_thinking(),
+                                        size="1",
+                                        color_scheme="blue",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("thinking_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.icon(
+                                    "lightbulb",
+                                    size=14,
+                                    color="#FFD700",
+                                    cursor="pointer",
+                                    on_click=AIState.open_reasoning_thinking_help,
+                                    style={
+                                        "transition": "transform 0.2s ease",
+                                        "&:hover": {"transform": "scale(1.15)"},
+                                    },
+                                ),
+                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
                             ),
                             rx.cond(
                                 AIState.salomo_has_speed_variant,
@@ -4026,6 +4119,134 @@ def multi_agent_help_modal() -> rx.Component:
                 border_radius="12px",
                 max_width="95vw",
                 width="600px",
+                max_height="90vh",
+                overflow_y="auto",
+                position="relative",
+                z_index="1001",
+                color="white",
+            ),
+
+            # Fullscreen container
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index="1000",
+            display="flex",
+            justify_content="center",
+            align_items="center",
+        ),
+    )
+
+
+# ============================================================
+# REASONING/THINKING HELP MODAL
+# ============================================================
+
+def reasoning_thinking_help_modal() -> rx.Component:
+    """
+    Fullscreen Overlay explaining Reasoning vs. Thinking toggles.
+    Same visual style as multi_agent_help_modal().
+    """
+    return rx.cond(
+        AIState.reasoning_thinking_help_open,
+        # Fullscreen Overlay
+        rx.box(
+            # Backdrop (klickbar zum Schließen)
+            rx.box(
+                position="absolute",
+                top="0",
+                left="0",
+                width="100%",
+                height="100%",
+                background_color="rgba(0, 0, 0, 0.85)",
+                on_click=AIState.close_reasoning_thinking_help,
+            ),
+
+            # Modal Content - zentriert
+            rx.vstack(
+                # Header
+                rx.hstack(
+                    rx.icon("lightbulb", size=24, color="#FFD700"),
+                    rx.text(t("reasoning_thinking_help_title"), color="white", font_weight="bold", font_size="20px"),
+                    spacing="3",
+                    align="center",
+                ),
+
+                # Reasoning Section
+                rx.vstack(
+                    rx.text(t("reasoning_thinking_help_reasoning_title"), color="#FFA500", font_weight="bold", font_size="17px"),
+                    rx.text(t("reasoning_thinking_help_reasoning_desc"), color="#ccc", font_size="15px"),
+                    rx.text(t("reasoning_thinking_help_reasoning_effect"), color="#aaa", font_size="14px", font_style="italic"),
+                    spacing="2",
+                    width="100%",
+                    padding="12px",
+                    background_color="#2a2a2a",
+                    border_radius="8px",
+                ),
+
+                # Thinking Section
+                rx.vstack(
+                    rx.text(t("reasoning_thinking_help_thinking_title"), color="#4FC3F7", font_weight="bold", font_size="17px"),
+                    rx.text(t("reasoning_thinking_help_thinking_desc"), color="#ccc", font_size="15px"),
+                    rx.text(t("reasoning_thinking_help_thinking_effect"), color="#aaa", font_size="14px", font_style="italic"),
+                    spacing="2",
+                    width="100%",
+                    padding="12px",
+                    background_color="#2a2a2a",
+                    border_radius="8px",
+                ),
+
+                # Combinations Section
+                rx.divider(color="#444", margin_y="10px"),
+                rx.text(t("reasoning_thinking_help_combinations_title"), color="#FFD700", font_weight="bold", font_size="16px"),
+                rx.vstack(
+                    rx.hstack(
+                        rx.text("💭+🧠", min_width="60px", font_size="16px"),
+                        rx.text(t("reasoning_thinking_help_both_on"), color="#ccc", font_size="15px"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.hstack(
+                        rx.text("💭", min_width="60px", font_size="16px"),
+                        rx.text(t("reasoning_thinking_help_reasoning_only"), color="#ccc", font_size="15px"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.hstack(
+                        rx.text("🧠", min_width="60px", font_size="16px"),
+                        rx.text(t("reasoning_thinking_help_thinking_only"), color="#ccc", font_size="15px"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.hstack(
+                        rx.text("—", min_width="60px", font_size="16px", color="#666"),
+                        rx.text(t("reasoning_thinking_help_both_off"), color="#ccc", font_size="15px"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+
+                # Close button
+                rx.button(
+                    t("reasoning_thinking_help_close"),
+                    on_click=AIState.close_reasoning_thinking_help,
+                    variant="soft",
+                    color_scheme="gray",
+                    size="3",
+                    margin_top="15px",
+                ),
+
+                spacing="4",
+                align="center",
+                padding="25px",
+                background_color="#1a1a1a",
+                border_radius="12px",
+                max_width="95vw",
+                width="550px",
                 max_height="90vh",
                 overflow_y="auto",
                 position="relative",
@@ -4868,6 +5089,9 @@ console.log('✂️ Crop handler loaded');
 
         # Multi-Agent Help Modal (Diskussionsmodi-Übersicht)
         multi_agent_help_modal(),
+
+        # Reasoning/Thinking Help Modal
+        reasoning_thinking_help_modal(),
 
         # Hidden element to trigger camera detection on mount
         rx.box(

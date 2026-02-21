@@ -125,6 +125,31 @@ def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
     return result
 
 
+def parse_sampling_from_cmd(cmd: str) -> Dict[str, float]:
+    """
+    Extract sampling parameters from a llama-server cmd string.
+
+    Returns only explicitly set values. Missing params = not in dict.
+    Mapping: --temp → temperature, --top-k → top_k, --top-p → top_p, etc.
+    """
+    flag_map = {
+        "--temp": "temperature",
+        "--top-k": "top_k",
+        "--top-p": "top_p",
+        "--min-p": "min_p",
+        "--repeat-penalty": "repeat_penalty",
+    }
+    parts = cmd.split()
+    result: Dict[str, float] = {}
+    for i, part in enumerate(parts):
+        if part in flag_map and i + 1 < len(parts):
+            try:
+                result[flag_map[part]] = float(parts[i + 1])
+            except ValueError:
+                pass
+    return result
+
+
 def update_llamaswap_context(
     config_path: Path,
     model_id: str,

@@ -40,6 +40,15 @@ _reasoning_enabled = {
     "salomo": False
 }
 
+# Global thinking toggle states (loaded from settings)
+# Separate from reasoning: thinking controls enable_thinking (backend API),
+# reasoning controls the reasoning prompt injection (system prompt)
+_thinking_enabled = {
+    "aifred": True,
+    "sokrates": True,
+    "salomo": True
+}
+
 # Cache for system prompt token counts (populated at startup)
 # Format: {"aifred": {"de": tokens, "en": tokens}, "sokrates": {...}, ...}
 _system_prompt_token_cache: dict[str, dict[str, int]] = {}
@@ -157,6 +166,50 @@ def sync_reasoning_from_settings():
     _reasoning_enabled["aifred"] = settings.get("aifred_reasoning", False)
     _reasoning_enabled["sokrates"] = settings.get("sokrates_reasoning", False)
     _reasoning_enabled["salomo"] = settings.get("salomo_reasoning", False)
+
+
+def set_thinking_enabled(agent: str, enabled: bool):
+    """
+    Set thinking toggle state for an agent.
+
+    Controls enable_thinking sent to backend API (model-internal CoT).
+    Separate from reasoning which controls system prompt injection.
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+        enabled: True to enable model thinking (CoT)
+    """
+    global _thinking_enabled
+    if agent in _thinking_enabled:
+        _thinking_enabled[agent] = enabled
+
+
+def get_thinking_enabled(agent: str) -> bool:
+    """
+    Get thinking toggle state for an agent.
+
+    Args:
+        agent: Agent name ("aifred", "sokrates", "salomo")
+
+    Returns:
+        True if thinking is enabled, False otherwise
+    """
+    return _thinking_enabled.get(agent, True)
+
+
+def sync_thinking_from_settings():
+    """
+    Sync thinking toggle states from settings.json.
+
+    Called at startup and when settings change.
+    """
+    global _thinking_enabled
+    from .settings import load_settings
+
+    settings = load_settings() or {}
+    _thinking_enabled["aifred"] = settings.get("aifred_thinking", True)
+    _thinking_enabled["sokrates"] = settings.get("sokrates_thinking", True)
+    _thinking_enabled["salomo"] = settings.get("salomo_thinking", True)
 
 
 def load_reasoning(agent: str, lang: Optional[str] = None) -> str:

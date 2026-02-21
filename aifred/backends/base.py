@@ -41,6 +41,7 @@ class LLMOptions:
     repeat_penalty: float = 1.1
     top_p: float = 0.9
     top_k: int = 40
+    min_p: float = 0.0  # Min-P sampling (0 = disabled, typical: 0.05)
     seed: Optional[int] = None
     enable_thinking: Optional[bool] = None  # User preference: enable thinking if model supports it
     supports_thinking: Optional[bool] = None  # Model capability: None=unknown, True=supports, False=not supported

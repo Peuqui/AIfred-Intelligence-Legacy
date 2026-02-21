@@ -823,6 +823,21 @@ SOKRATES_TEMPERATURE_OFFSET = 0.2  # Sokrates = AIfred + 0.2
 SALOMO_TEMPERATURE_OFFSET = 0.3   # Salomo = AIfred + 0.3 (wisest, most creative)
 
 # ============================================================
+# DEFAULT SAMPLING PARAMETERS (Per-Agent Configurable)
+# ============================================================
+DEFAULT_TOP_K = 40          # Top-K sampling (0 = disabled)
+DEFAULT_TOP_P = 0.9         # Top-P (nucleus) sampling
+DEFAULT_MIN_P = 0.05        # Min-P sampling (0 = disabled)
+DEFAULT_REPEAT_PENALTY = 1.1  # Repetition penalty (1.0 = disabled)
+
+# llama-server built-in defaults (used for reset when no YAML overrides exist)
+LLAMASERVER_DEFAULT_TEMPERATURE = 0.8
+LLAMASERVER_DEFAULT_TOP_K = 40
+LLAMASERVER_DEFAULT_TOP_P = 0.95
+LLAMASERVER_DEFAULT_MIN_P = 0.1
+LLAMASERVER_DEFAULT_REPEAT_PENALTY = 1.0
+
+# ============================================================
 # DEBUG LOG PERSISTENCE
 # ============================================================
 # Maximum number of debug log entries to persist in session

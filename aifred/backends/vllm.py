@@ -81,6 +81,8 @@ class vLLMBackend(LLMBackend):
             extra_body["repetition_penalty"] = options.repeat_penalty
         if options.top_k and options.top_k != 40:
             extra_body["top_k"] = options.top_k
+        if options.min_p > 0:
+            extra_body["min_p"] = options.min_p
         if options.num_predict:
             kwargs["max_tokens"] = options.num_predict
 
@@ -164,6 +166,8 @@ class vLLMBackend(LLMBackend):
             extra_body["repetition_penalty"] = options.repeat_penalty
         if options.top_k and options.top_k != 40:
             extra_body["top_k"] = options.top_k
+        if options.min_p > 0:
+            extra_body["min_p"] = options.min_p
         if options.num_predict:
             kwargs["max_tokens"] = options.num_predict
 
