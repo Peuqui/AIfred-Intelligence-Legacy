@@ -1452,10 +1452,9 @@ async def chat_interactive_mode(
                         "has_audio": False,
                         "audio_urls_json": "[]"
                     })
-                    # llm_history: answer is already clean (from cache), no metadata
+                    # llm_history: sync via SSoT (strips thinking blocks internally)
                     answer_clean = strip_thinking_blocks(answer) if answer else ""
-                    if answer_clean:
-                        llm_history.append({"role": "assistant", "content": f"[AIFRED]: {answer_clean}"})
+                    state._sync_to_llm_history("aifred", answer)
 
                     # Return result - unified Dict format
                     yield {
@@ -1597,10 +1596,9 @@ async def chat_interactive_mode(
                     "has_audio": False,
                     "audio_urls_json": "[]"
                 })
-                # llm_history: answer is already clean (from cache), no metadata
+                # llm_history: sync via SSoT (strips thinking blocks internally)
                 answer_clean = strip_thinking_blocks(answer) if answer else ""
-                if answer_clean:
-                    llm_history.append({"role": "assistant", "content": f"[AIFRED]: {answer_clean}"})
+                state._sync_to_llm_history("aifred", answer)
 
                 # Return result - unified Dict format
                 yield {
@@ -1845,11 +1843,10 @@ async def chat_interactive_mode(
             tokens_prompt = metrics.get("tokens_prompt", 0)
             tokens_per_sec = metrics.get("tokens_per_second", 0)
 
-            # Update llm_history BEFORE calculating history_tokens
+            # Update llm_history BEFORE calculating history_tokens (SSoT)
             # so "History: X tok" reflects the current conversation state (incl. AI response)
             ai_text_clean = strip_thinking_blocks(ai_text) if ai_text else ""
-            if ai_text_clean:
-                llm_history.append({"role": "assistant", "content": f"[AIFRED]: {ai_text_clean}"})
+            state._sync_to_llm_history("aifred", ai_text)
 
             # Centralized metadata (PP speed, debug log, chat bubble)
             from .context_manager import estimate_tokens_from_llm_history

@@ -283,11 +283,8 @@ async def _stream_sokrates_to_history(
     if audio_urls:
         log_message(f"🔊 Sokrates: {len(audio_urls)} audio URLs collected for message")
 
-    # DUAL-HISTORY: Sync Sokrates response to llm_history
-    # Agent responses are assistant messages with speaker label (NOT system!)
-    cleaned = strip_thinking_blocks(full_response)
-    if cleaned:
-        state.llm_history.append({"role": "assistant", "content": f"[SOKRATES]: {cleaned}"})
+    # DUAL-HISTORY: Sync Sokrates response to llm_history (SSoT)
+    state._sync_to_llm_history("sokrates", full_response)
 
     # Clear streaming state (cleanup)
     state.current_ai_response = ""
@@ -371,11 +368,8 @@ async def _stream_alfred_refinement(
     if audio_urls:
         log_message(f"🔊 AIfred Refinement: {len(audio_urls)} audio URLs collected for message")
 
-    # DUAL-HISTORY: Sync AIfred refinement to llm_history
-    # Agent responses are assistant messages with speaker label (NOT system!)
-    cleaned = strip_thinking_blocks(full_response)
-    if cleaned:
-        state.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {cleaned}"})
+    # DUAL-HISTORY: Sync AIfred refinement to llm_history (SSoT)
+    state._sync_to_llm_history("aifred", full_response)
 
     # RETURN result as final yield (dict = result, None = UI update)
     yield {
@@ -468,11 +462,8 @@ async def _stream_salomo_to_history(
         "audio_urls": audio_urls
     }
 
-    # DUAL-HISTORY: Sync Salomo response to llm_history
-    # Agent responses are assistant messages with speaker label (NOT system!)
-    cleaned = strip_thinking_blocks(full_response)
-    if cleaned:
-        state.llm_history.append({"role": "assistant", "content": f"[SALOMO]: {cleaned}"})
+    # DUAL-HISTORY: Sync Salomo response to llm_history (SSoT)
+    state._sync_to_llm_history("salomo", full_response)
 
     # Clear streaming state (cleanup)
     state.current_ai_response = ""
@@ -684,10 +675,8 @@ async def run_sokrates_direct_response(
         if audio_urls:
             log_message(f"🔊 Sokrates Direct: {len(audio_urls)} audio URLs collected for message")
 
-        # Sync to llm_history with RAW content (before formatting removes code context)
-        cleaned = strip_thinking_blocks(full_response)
-        if cleaned:
-            state.llm_history.append({"role": "assistant", "content": f"[SOKRATES]: {cleaned}"})
+        # Sync to llm_history with RAW content (SSoT — before formatting removes code context)
+        state._sync_to_llm_history("sokrates", full_response)
 
         # Format thinking blocks as collapsibles for UI display
         formatted_response = format_thinking_process(
@@ -874,10 +863,8 @@ async def run_salomo_direct_response(
         if audio_urls:
             log_message(f"🔊 Salomo Direct: {len(audio_urls)} audio URLs collected for message")
 
-        # Sync to llm_history with RAW content (before formatting removes code context)
-        cleaned = strip_thinking_blocks(full_response)
-        if cleaned:
-            state.llm_history.append({"role": "assistant", "content": f"[SALOMO]: {cleaned}"})
+        # Sync to llm_history with RAW content (SSoT — before formatting removes code context)
+        state._sync_to_llm_history("salomo", full_response)
 
         # Format thinking blocks as collapsibles for UI display
         formatted_response = format_thinking_process(

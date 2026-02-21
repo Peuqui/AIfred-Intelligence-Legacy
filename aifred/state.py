@@ -2147,10 +2147,11 @@ class AIState(rx.State):
         label = agent.upper()
         clean_content = strip_thinking_blocks(content)
 
-        self.llm_history.append({
-            "role": "assistant",
-            "content": f"[{label}]: {clean_content}"
-        })
+        if clean_content:
+            self.llm_history.append({
+                "role": "assistant",
+                "content": f"[{label}]: {clean_content}"
+            })
 
     def add_agent_panel(
         self,
@@ -3586,10 +3587,8 @@ class AIState(rx.State):
                             sync_llm_history=False  # Sync manually below for proper formatting
                         )
 
-                        # Sync to llm_history manually (strip thinking blocks)
-                        response_clean = strip_thinking_blocks(full_response) if full_response else ""
-                        if response_clean:
-                            self.llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
+                        # Sync to llm_history via SSoT (strips thinking blocks internally)
+                        self._sync_to_llm_history("aifred", full_response)
 
                         self.add_debug(f"✅ Vision-LLM done ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
                         self.add_debug("────────────────────")

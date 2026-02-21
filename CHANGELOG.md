@@ -5,6 +5,20 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.45.3] - 2026-02-21 🔧 Refactor: llm_history SSoT (Single Source of Truth)
+
+### Changed
+
+- **llm_history append consolidated to `_sync_to_llm_history()`** - 9 manual `strip_thinking_blocks()` + `llm_history.append()` calls across 3 files replaced by single SSoT function. Eliminates Shotgun Surgery antipattern.
+- **`_sync_to_llm_history()` guard** - Added `if clean_content:` guard to prevent empty entries in llm_history
+
+### Technical Details
+
+- **`state.py`**: Vision Pipeline manual append → `self._sync_to_llm_history("aifred", full_response)`
+- **`multi_agent.py`**: 5 stellen (Sokrates Stream, AIfred Refinement, Salomo Stream, Sokrates Direct, Salomo Direct) → `state._sync_to_llm_history(agent, full_response)`
+- **`conversation_handler.py`**: 3 stellen (Cache-Hit, Quick/Deep Cache-Hit, Main LLM Response) → `state._sync_to_llm_history("aifred", raw_content)`. `strip_thinking_blocks()` call retained where `answer_clean`/`ai_text_clean` is needed for return values.
+- Net result: -17 lines, all llm_history sync logic in one place
+
 ## [2.45.2] - 2026-02-21 🐛 Fix: Thinking collapsibles leaking into LLM history
 
 ### Fixed
