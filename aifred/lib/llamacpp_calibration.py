@@ -1443,18 +1443,18 @@ async def calibrate_llamacpp_model(
     # Model weights alone exceed total VRAM → GPU-only is impossible,
     # jump straight to hybrid calibration (saves minutes of pointless OOM attempts)
     if vram_ratio > 1.0:
-        yield (
-            f"Model is {vram_ratio:.0%} of VRAM — "
-            f"skipping GPU-only phase, going directly to hybrid calibration"
+        oversized_msg = (
+            f"Oversized model: {format_number(model_size_gb, 1)} GB > "
+            f"{format_number(total_vram_gb, 1)} GB VRAM ({vram_ratio:.0%})"
         )
+        yield oversized_msg
+        yield "GPU-only phase skipped — hybrid calibration (GPU + CPU offload) required"
 
         total_layers = get_gguf_layer_count(gguf_path)
         if not total_layers:
             yield "Cannot read layer count from GGUF — hybrid mode unavailable"
             yield "__RESULT__:0:0:error"
             return
-
-        yield f"Phase 3: Hybrid calibration ({total_layers} layers)"
 
         hybrid_ctx = None
         hybrid_ngl = None
