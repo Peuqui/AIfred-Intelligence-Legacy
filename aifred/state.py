@@ -2129,9 +2129,18 @@ class AIState(rx.State):
     def _sync_to_llm_history(self, agent: str, content: str) -> None:
         """Sync agent response to llm_history with speaker label.
 
+        Strips only thinking blocks (<think>, Harmony analysis).
+        Code tags (<python>, <code>, etc.) are preserved because they
+        provide important context for the LLM.
+
+        IMPORTANT: Callers should pass RAW content (before format_thinking_process),
+        not formatted content with <details> collapsibles. If the caller already
+        formats before calling add_agent_panel(), use sync_llm_history=False and
+        sync manually with raw content.
+
         Args:
             agent: Agent identifier ("aifred", "sokrates", "salomo")
-            content: Agent response content (thinking blocks will be stripped)
+            content: Agent response content (should be RAW, not formatted)
         """
         from .lib.context_manager import strip_thinking_blocks
 

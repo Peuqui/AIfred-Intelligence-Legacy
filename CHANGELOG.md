@@ -5,6 +5,17 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.45.2] - 2026-02-21 🐛 Fix: Thinking collapsibles leaking into LLM history
+
+### Fixed
+
+- **`<details>` collapsibles leaking into llm_history** - Sokrates/Salomo Direct Response paths passed formatted content (with `<details>` HTML) to `_sync_to_llm_history()`, which only stripped raw `<think>` tags. Now syncs RAW content before formatting, matching the streaming paths pattern. Code tags (`<python>`, `<code>`, etc.) are correctly preserved for LLM context.
+
+### Technical Details
+
+- Sokrates/Salomo Direct: sync `strip_thinking_blocks(full_response)` to llm_history BEFORE `format_thinking_process()`, then `add_agent_panel(..., sync_llm_history=False)`
+- `_sync_to_llm_history()` docstring updated: callers must pass RAW content, not formatted
+
 ## [2.45.1] - 2026-02-21 🔧 Autoscan: Smart Defaults + GGUF Sampling Metadata
 
 ### Changed

@@ -684,7 +684,12 @@ async def run_sokrates_direct_response(
         if audio_urls:
             log_message(f"🔊 Sokrates Direct: {len(audio_urls)} audio URLs collected for message")
 
-        # Format thinking blocks if present
+        # Sync to llm_history with RAW content (before formatting removes code context)
+        cleaned = strip_thinking_blocks(full_response)
+        if cleaned:
+            state.llm_history.append({"role": "assistant", "content": f"[SOKRATES]: {cleaned}"})
+
+        # Format thinking blocks as collapsibles for UI display
         formatted_response = format_thinking_process(
             full_response,
             model_name=f"Sokrates ({sokrates_model})",
@@ -697,7 +702,8 @@ async def run_sokrates_direct_response(
             agent="sokrates",
             content=formatted_response,
             mode="direct",
-            metadata=panel_meta
+            metadata=panel_meta,
+            sync_llm_history=False  # Already synced above with raw content
         )
 
         # Clear streaming state (cleanup)
@@ -868,7 +874,12 @@ async def run_salomo_direct_response(
         if audio_urls:
             log_message(f"🔊 Salomo Direct: {len(audio_urls)} audio URLs collected for message")
 
-        # Format thinking blocks if present
+        # Sync to llm_history with RAW content (before formatting removes code context)
+        cleaned = strip_thinking_blocks(full_response)
+        if cleaned:
+            state.llm_history.append({"role": "assistant", "content": f"[SALOMO]: {cleaned}"})
+
+        # Format thinking blocks as collapsibles for UI display
         formatted_response = format_thinking_process(
             full_response,
             model_name=f"Salomo ({salomo_model})",
@@ -881,7 +892,8 @@ async def run_salomo_direct_response(
             agent="salomo",
             content=formatted_response,
             mode="direct",
-            metadata=panel_meta
+            metadata=panel_meta,
+            sync_llm_history=False  # Already synced above with raw content
         )
 
         # Clear streaming state (cleanup)
