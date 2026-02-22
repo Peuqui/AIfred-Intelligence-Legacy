@@ -1152,7 +1152,11 @@ def _parse_model_cmds(config_path: Path) -> dict[str, str]:
         cmd_match = re.match(r'^\s+cmd:\s+(.+)$', line)
         if cmd_match and current_name:
             raw = cmd_match.group(1).strip()
-            if raw.startswith("'") or raw.startswith('"'):
+            if raw in ("|", ">", "|-", ">-"):
+                # YAML block scalar (cmd: | or cmd: >) — collect indented lines
+                cmd_lines = []
+                collecting_cmd = True
+            elif raw.startswith("'") or raw.startswith('"'):
                 quote = raw[0]
                 if raw.endswith(quote) and len(raw) > 1:
                     cmd_lines = [raw[1:-1]]
@@ -1168,8 +1172,24 @@ def _parse_model_cmds(config_path: Path) -> dict[str, str]:
             if stripped.endswith("'") or stripped.endswith('"'):
                 cmd_lines.append(stripped[:-1])
                 collecting_cmd = False
-            else:
+            elif line.startswith("      "):
+                # Block scalar continuation (6+ spaces indent)
                 cmd_lines.append(stripped)
+            else:
+                # Less indent = block scalar ended, re-process this line
+                collecting_cmd = False
+                # Don't continue — let the line be processed by other matchers
+                # Check if it's a new model entry or other key
+                match2 = re.match(r'^  ([A-Za-z0-9][A-Za-z0-9._-]*):$', line)
+                if match2:
+                    if current_name and cmd_lines:
+                        entries[current_name] = " ".join(cmd_lines)
+                    current_name = match2.group(1)
+                    cmd_lines = []
+                elif line and not line.startswith(" "):
+                    if current_name and cmd_lines:
+                        entries[current_name] = " ".join(cmd_lines)
+                    break
             continue
 
         if line and not line.startswith(" "):
