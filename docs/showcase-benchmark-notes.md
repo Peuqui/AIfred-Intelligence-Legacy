@@ -95,6 +95,78 @@ keine Geduld mehr vorhanden.
 **Update 2026-02-21:** GLM-4.7-REAP jetzt stabil mit q4_0 KV-Quant und Direct-IO (2s Laden!).
 Benchmark noch nicht wiederholt.
 
+**Update 2026-02-22: Systematische Testreihe — IQ3_XXS ist fatal fuer GLM-4.7-REAP**
+
+Umfangreiche Testreihe mit verschiedenen Konfigurationen durchgefuehrt. Ergebnis: Das Modell
+ist bei IQ3_XXS-Quantisierung fundamental unbrauchbar — unabhaengig von Parametern.
+
+**Getestete Konfigurationen:**
+
+| Test | Jinja | Reasoning-Format | Sampling | Ergebnis |
+|------|-------|------------------|----------|----------|
+| 1. AIfred Tribunal (temp=1.0, min_p=0.01) | Ja | deepseek | Original | Garbled Deutsch ("biologischisch", "tubstances", "Vordirte") |
+| 2. AIfred Tribunal (temp=0.8, min_p=0.05) | Ja | deepseek | Konservativ | Faktisch besser, Sprache weiter garbled |
+| 3. Naked llama-server (kein Jinja) | Nein | — | Default | Endlos-Thinking-Loop, Content leer |
+| 4. Mit Jinja, ohne Reasoning-Format | Ja | — | Default | Identischer Thinking-Loop |
+| 5. Mit Jinja, Reasoning=none | Ja | none | Default | `<think>`-Tags im Content, gleicher Loop |
+| 6. Englischer Prompt (kein System-Prompt) | Ja | none | Default | Auch auf Englisch: identischer Loop |
+
+**Symptome im Detail:**
+
+1. **Garbled Language (ueber AIfred):** Das Modell erzeugt Pseudo-Woerter die wie eine
+   Mischung aus Deutsch, Englisch und Niederlaendisch klingen. Beispiele:
+   - "biologischisch" (statt "biologisch")
+   - "tubstances" (statt "substances")
+   - "organes" (statt "Organe")
+   - "Vordirte", "Nadirte (Nade)" — voellig erfundene Woerter
+   Faktisches Wissen ist teilweise erhalten, die Sprachproduktion aber zerstoert.
+
+2. **Reasoning-Loop (nackter Server):** Bei direktem API-Zugriff ohne AIfred verfaellt
+   das Modell in Endlos-Schleifen im Thinking-Modus:
+   ```
+   *Is it a typo for "Photosynthesis"?* No.
+   *Is it a typo for "Photosynthesis"?* No.
+   *Is it a typo for "Photosynthesis"?* No.
+   [... 10+ identische Wiederholungen ...]
+   ```
+   Das Modell erkennt "Photosynthesis" nicht als gueltiges Wort und vergleicht es mit sich
+   selbst — eine klassische Degeneration durch Quantisierungsverlust.
+
+3. **Thinking nicht abschaltbar:** Weder `enable_thinking: false` per API, noch
+   `--reasoning-format none`, noch Weglassen von `--jinja` verhindert das Thinking.
+   Das GLM-Template hat Thinking fest eingebaut (`thinking = 1`).
+
+**Ursachenanalyse: Warum versagt GLM bei IQ3_XXS, waehrend MoE-Modelle Q2 ueberleben?**
+
+GLM-4.7-REAP ist ein **Dense-Modell** (218B Parameter, 32B aktiv via MoE-aehnliche Architektur).
+Im Gegensatz zu echten MoE-Modellen (Qwen3-235B, MiniMax-M2.5) wird bei Dense-Modellen
+JEDES Gewicht fuer JEDE Inferenz genutzt. Bei ~3 Bit pro Gewicht (IQ3_XXS) akkumulieren
+die Quantisierungsfehler ueber alle 218B Parameter.
+
+Bei MoE-Modellen wie Qwen3-235B (Q2_K_XL, ~2 Bit) werden pro Token nur ~22B der 235B
+Parameter aktiviert. Die restlichen Experten bleiben inaktiv — deren Quantisierungsfehler
+wirken sich nicht aus. Daher koennen MoE-Modelle deutlich aggressivere Quantisierung
+tolerieren.
+
+| Modell | Architektur | Quant | Bits/Weight | Aktive Params | Sprachqualitaet |
+|--------|-------------|-------|-------------|---------------|-----------------|
+| Qwen3-235B | MoE | Q2_K_XL | ~2.0 | 22B (9%) | Sehr gut (1 Tippfehler) |
+| MiniMax-M2.5 | MoE | Q2_K_XL | ~2.0 | 39B (17%) | Mittel (CN/RU Leaks) |
+| GLM-4.7-REAP | Dense* | IQ3_XXS | ~3.0 | 32B (15%) | Unbrauchbar (Wortbrei + Loops) |
+
+*GLM nutzt Grouped-Query Attention, kein echtes MoE. Die "32B aktiv" beziehen sich auf
+die MoE-aehnliche REAP-Architektur, aber die Gewichte sind dichter verteilt als bei
+klassischen MoE-Modellen.
+
+**Fazit:** GLM-4.7-REAP benoetigt mindestens Q4-Quantisierung fuer brauchbare Ergebnisse.
+Bei IQ3_XXS ist es ein Showcase-Kandidat fuer "Was passiert wenn man zu stark quantisiert" —
+aber kein produktiv nutzbares Modell. Das GGUF wurde geloescht.
+
+**Showcase-Empfehlung:** Die GLM-Ergebnisse eignen sich hervorragend als Negativ-Beispiel
+im Showcase, um den Unterschied zwischen MoE- und Dense-Architektur bei aggressiver
+Quantisierung zu demonstrieren. Besonders die Reasoning-Loop-Ausgabe ("Is it a typo for
+Photosynthesis? No." x10) ist eindrucksvoll und selbsterklaerend.
+
 ---
 
 ## Performance-Metriken (Deutsche Inferenz)
@@ -314,7 +386,18 @@ Salomo ist der haerteste Test: Nur Qwen3-Next Instruct und Qwen3-235B liefern ec
 richterliche Synthesen. GPT-OSS erstellt ein Scoring-Modell (kreativ, aber unsalomonisch).
 MiniMax und Qwen3-Thinking produzieren generische "beide haben recht"-Zusammenfassungen.
 
-### 6. Multilingual-Kontamination korreliert mit Quantisierung
+### 6. Dense vs. MoE: Quantisierungstoleranz fundamental verschieden
+
+GLM-4.7-REAP (Dense, IQ3_XXS) ist bei ~3 Bit/Gewicht komplett unbrauchbar, waehrend
+Qwen3-235B (MoE, Q2_K_XL) bei ~2 Bit/Gewicht fast fehlerfrei funktioniert.
+Die Ursache: Bei MoE werden pro Token nur 9-17% der Gewichte aktiviert, der Rest bleibt
+inaktiv — Quantisierungsfehler in inaktiven Experten wirken sich nicht aus.
+Bei Dense-Modellen akkumulieren die Fehler ueber alle Gewichte.
+
+**Finding:** "MoE-Architekturen sind inherent quantisierungsresistenter als Dense-Modelle.
+Ein Q2-MoE kann einen Q4-Dense in der Sprachqualitaet uebertreffen."
+
+### 7. Multilingual-Kontamination korreliert mit Quantisierung
 
 | Modell | Quant | CN-Leak | RU-Leak | EN-Leak | Gesamt |
 |---|---|---|---|---|---|

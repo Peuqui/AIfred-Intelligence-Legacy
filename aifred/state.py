@@ -1545,18 +1545,8 @@ class AIState(rx.State):
                         # Auto-start llama-swap service
                         self.add_debug("⚠️ llama-swap not reachable, starting service...")
                         try:
-                            import os as _os
                             import subprocess as _sp
-                            from pathlib import Path as _Path
-                            _user_service = _Path.home() / ".config/systemd/user/llama-swap.service"
-                            _cmd = ["systemctl", "--user"] if _user_service.exists() else ["systemctl"]
-                            # AIfred runs as system service (User=mp) without D-Bus session env.
-                            # systemctl --user needs XDG_RUNTIME_DIR + DBUS_SESSION_BUS_ADDRESS.
-                            _env = _os.environ.copy()
-                            _uid = _os.getuid()
-                            _env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{_uid}")
-                            _env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{_uid}/bus")
-                            _sp.run([*_cmd, "start", "llama-swap"], check=True, timeout=15, env=_env)
+                            _sp.run(["systemctl", "start", "llama-swap"], check=True, timeout=15)
                             import asyncio
                             await asyncio.sleep(2.0)
                             models_dict = discover_models(
