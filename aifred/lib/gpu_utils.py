@@ -509,7 +509,8 @@ def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
     Detection priority:
     1. Cached expert_count in model_vram_cache.json (instant)
     2. GGUF metadata: {arch}.expert_count field (for llama-swap models with gguf_path)
-    3. Ollama API family field (for Ollama-only models)
+    3. Name-based: "-A{N}B" pattern (e.g. A3B, A22B) → MoE active parameter indicator
+    4. Ollama API family field (for Ollama-only models)
 
     Results are cached in model_vram_cache.json for future calls.
 
@@ -555,7 +556,19 @@ def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
                 logger.debug(f"📊 Dense model (GGUF): {model_name}")
                 return False
 
-    # Method 3: Query Ollama API for family field
+    # Method 3: Name-based detection — "-A{N}B" pattern (e.g. A3B, A22B, A32B)
+    # This is a strong MoE indicator used by Qwen, GLM, and other model families
+    import re as _re
+    active_match = _re.search(r'-[Aa](\d+)[Bb]', model_name)
+    if active_match:
+        active_params = int(active_match.group(1))
+        logger.debug(
+            f"✅ MoE detected (name pattern): {model_name} "
+            f"(active: {active_params}B)"
+        )
+        return True
+
+    # Method 4: Query Ollama API for family field
     try:
         response = requests.post(
             f"{ollama_url}/api/show",

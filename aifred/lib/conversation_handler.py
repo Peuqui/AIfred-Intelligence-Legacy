@@ -146,6 +146,7 @@ async def _process_single_image_vision(
     timer = Timer()
     response_text = ""
     metrics = None
+    ttft = None  # Time To First Token
 
     try:
         async for chunk in llm_client.chat_stream(
@@ -154,11 +155,18 @@ async def _process_single_image_vision(
             options=vision_options
         ):
             if chunk.get("type") == "content":
+                if ttft is None:
+                    ttft = timer.elapsed()
                 response_text += chunk.get("text", "")
             elif chunk.get("type") == "done":
                 metrics = chunk.get("metrics", {})
 
         elapsed = timer.elapsed()
+
+        # Inject TTFT into backend metrics (backend doesn't provide it)
+        if metrics is not None and ttft is not None:
+            metrics["ttft"] = ttft
+
         log_message(f"✅ [{image_index + 1}] {img_name} done ({elapsed:.1f}s)")
 
         # Try to parse JSON

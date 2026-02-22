@@ -3522,11 +3522,13 @@ class AIState(rx.State):
                         has_user_text_for_automatik = item.get("has_user_text", False)
 
                         # Finalize Vision response (with or without JSON)
-                        from .lib.formatting import format_thinking_process
+                        from .lib.formatting import format_thinking_process, build_inference_metadata
 
                         vision_time = final_vision_metrics.get("inference_time", 0) if final_vision_metrics else 0
                         tokens_generated = final_vision_metrics.get("tokens_generated", 0) if final_vision_metrics else 0
                         tokens_per_sec = final_vision_metrics.get("tokens_per_second", 0) if final_vision_metrics else 0
+                        tokens_prompt = final_vision_metrics.get("tokens_prompt", 0) if final_vision_metrics else 0
+                        vision_ttft = final_vision_metrics.get("ttft") if final_vision_metrics else None
 
                         if vision_json_response:
                             # JSON vorhanden → Build <data> Block
@@ -3552,6 +3554,19 @@ class AIState(rx.State):
                             # Neither JSON nor text - error
                             vision_content = "⚠️ Vision-LLM could not produce a result. See debug log."
 
+                        # Build unified metadata (same format as Main-LLM)
+                        metadata_dict, _, debug_msg = build_inference_metadata(
+                            ttft=vision_ttft,
+                            inference_time=vision_time,
+                            tokens_generated=tokens_generated,
+                            tokens_per_sec=tokens_per_sec,
+                            source=f"Vision ({self.vision_model_id})",
+                            backend_metrics=final_vision_metrics,
+                            tokens_prompt=tokens_prompt,
+                            backend_type=self.backend_type,
+                            agent_label="Vision-LLM",
+                        )
+
                         # APPEND Vision response as separate panel
                         # Note: User panel was already created above with display_user_msg
                         self.add_agent_panel(
@@ -3559,18 +3574,14 @@ class AIState(rx.State):
                             content=vision_content,
                             mode="vision",
                             round_num=None,
-                            metadata={
-                                "inference_time": vision_time,
-                                "tokens_per_sec": tokens_per_sec,
-                                "source": f"Vision ({self.vision_model_id})"
-                            },
+                            metadata=metadata_dict,
                             sync_llm_history=False  # Sync manually below for proper formatting
                         )
 
                         # Sync to llm_history via SSoT (strips thinking blocks internally)
                         self._sync_to_llm_history("aifred", full_response)
 
-                        self.add_debug(f"✅ Vision-LLM done ({vision_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
+                        self.add_debug(debug_msg)
                         self.add_debug("────────────────────")
                         yield
 
@@ -3689,7 +3700,10 @@ class AIState(rx.State):
 
                 # CRITICAL: Generate title and save session before early return
                 # (finally block may not execute for async generators)
-                async for _ in self._generate_session_title():
+                # Use vision model for title if available — it's still loaded in llama-swap,
+                # avoids cold-starting the main model just for a title.
+                vision_title_model = self.vision_model_id if self.vision_model_id else ""
+                async for _ in self._generate_session_title(title_model_override=vision_title_model):
                     yield  # Forward UI updates from title generation
                 self._save_current_session()
                 self.refresh_session_list()
@@ -5302,13 +5316,17 @@ class AIState(rx.State):
             owner=self.logged_in_user  # Required for session creation
         )
 
-    async def _generate_session_title(self):
+    async def _generate_session_title(self, title_model_override: str = ""):
         """
         Generate a chat title using LLM based on first Q&A pair.
 
         This is an async generator that yields for UI updates during title generation.
         Called at the END of send_message() flow (in finally block).
         Uses the Automatik model (same as Intent Detection and other Automatik tasks).
+
+        Args:
+            title_model_override: If set, use this model instead of _effective_automatik_id.
+                Useful after Vision-Only inference where the vision model is still loaded.
 
         Only executes on first Q&A pair - skipped if title already exists.
 
@@ -5386,7 +5404,7 @@ class AIState(rx.State):
                 ai_response=first_ai_response
             )
 
-            title_model = self._effective_automatik_id
+            title_model = title_model_override or self._effective_automatik_id
 
             llm_client = LLMClient(
                 backend_type=self.backend_type,
@@ -5399,7 +5417,10 @@ class AIState(rx.State):
             # num_ctx: Must match the currently loaded context to avoid Ollama reload.
             # Ollama uses model DEFAULT (not currently loaded ctx) when num_ctx is omitted.
             # → omitting num_ctx after main inference would cause a full reload (5-28s penalty).
-            if title_model == self.aifred_model_id and self.aifred_max_context:
+            if title_model_override == self.vision_model_id and self.vision_model_id:
+                # Vision model override → reuse vision context to avoid reload
+                title_num_ctx = self.vision_num_ctx if self.vision_num_ctx_enabled else 32768
+            elif title_model == self.aifred_model_id and self.aifred_max_context:
                 # Same model as main LLM → reuse calibrated context, no reload
                 title_num_ctx = self.aifred_max_context
             else:
