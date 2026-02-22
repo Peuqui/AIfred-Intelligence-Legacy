@@ -105,7 +105,8 @@ async def perform_agent_research(
         agent_timer=agent_timer,
         state=state,
         user_name=user_name,
-        automatik_num_ctx=automatik_num_ctx
+        automatik_num_ctx=automatik_num_ctx,
+        backend_type=backend_type,
     ):
         if item["type"] == "result":
             cache_handled = True
@@ -282,7 +283,8 @@ async def perform_agent_research(
         user_name=user_name,
         detected_intent=detected_intent,
         detected_language=detected_language,
-        volatility=volatility  # From Automatik-LLM decision
+        volatility=volatility,  # From Automatik-LLM decision
+        backend_type=backend_type,
     ):
         yield item
 

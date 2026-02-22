@@ -119,46 +119,6 @@ async def stream_llm_response(
     }
 
 
-def log_llm_completion(
-    inference_time: float,
-    metrics: Dict[str, Any],
-    prefix: str = "AIfred-LLM",
-    history_tokens: Optional[int] = None
-) -> Dict[str, Any]:
-    """
-    Create debug message for LLM completion.
-
-    Args:
-        inference_time: Total inference time in seconds
-        metrics: Metrics dict from stream_result
-        prefix: Label prefix (e.g., "AIfred-LLM", "Cache-Hit")
-        history_tokens: Optional history token count to display
-
-    Returns:
-        Debug chunk dict ready to yield
-
-    Example:
-        yield log_llm_completion(inference_time, metrics)
-        yield log_llm_completion(inference_time, metrics, history_tokens=801)
-    """
-    tokens_generated = metrics.get("tokens_generated", 0)
-    tokens_per_sec = metrics.get("tokens_per_second", 0)
-
-    message = (
-        f"✅ {prefix} done "
-        f"({format_number(inference_time, 1)}s, "
-        f"{format_number(tokens_generated)} tok, "
-        f"{format_number(tokens_per_sec, 1)} tok/s)"
-    )
-
-    # Append history token count if provided
-    if history_tokens is not None:
-        message += f" | History: {format_number(history_tokens)} tok"
-
-    log_message(message)
-    return {"type": "debug", "message": message}
-
-
 def extract_stream_metrics(result_chunk: Dict[str, Any]) -> Tuple[str, Dict, float, float]:
     """
     Extract values from stream_result chunk.

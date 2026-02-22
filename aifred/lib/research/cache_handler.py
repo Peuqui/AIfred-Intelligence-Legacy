@@ -14,7 +14,7 @@ from ..agent_tools import build_context
 from ..prompt_loader import load_prompt, load_identity, load_personality, load_reasoning
 from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx, strip_thinking_blocks
 from ..intent_detector import detect_cache_followup_intent, get_temperature_for_intent, get_temperature_label
-from ..formatting import format_thinking_process, format_number, format_metadata
+from ..formatting import format_thinking_process, format_number, build_inference_metadata
 from ..logging_utils import log_message, console_separator, CONSOLE_SEPARATOR
 from .context_utils import get_cache_context_budget
 from ..streaming_utils import stream_llm_response
@@ -36,7 +36,8 @@ async def handle_cache_hit(
     state=None,  # AIState object (REQUIRED for per-agent num_ctx lookup)
     user_name: Optional[str] = None,
     detected_language: str = "de",
-    automatik_num_ctx: Optional[int] = None
+    automatik_num_ctx: Optional[int] = None,
+    backend_type: str = "",
 ) -> AsyncIterator[Dict]:
     """
     Handles cache hit - uses cached research data to answer follow-up question
@@ -240,11 +241,11 @@ async def handle_cache_hit(
             metrics = chunk["metrics"]
             llm_time = chunk["inference_time"]
             tokens_per_sec = metrics.get("tokens_per_second", 0)
+            tokens_generated = metrics.get("tokens_generated", 0)
+            tokens_prompt = metrics.get("tokens_prompt", 0)
             ttft = chunk.get("ttft")
 
     total_time = agent_timer.elapsed()
-
-    tokens_generated = metrics.get("tokens_generated", 0)
 
     # Strip thinking blocks and update llm_history BEFORE calculating history_tokens
     final_answer_clean = strip_thinking_blocks(final_answer) if final_answer else ""
@@ -254,29 +255,34 @@ async def handle_cache_hit(
     # History tokens now reflect the current conversation state (incl. AI response)
     from ..context_manager import estimate_tokens_from_llm_history
     history_tokens = estimate_tokens_from_llm_history(llm_history)
-    yield {"type": "debug", "message": f"✅ AIfred-LLM done ({format_number(llm_time, 1)}s, {format_number(tokens_generated)} tok, {format_number(tokens_per_sec, 1)} tok/s, Cache-Total: {format_number(total_time, 1)}s) | History: {format_number(history_tokens)} tok"}
+
+    # Centralized metadata (PP speed, debug log, chat bubble) - same as all other paths
+    source_label = f"Session Cache ({model_choice})"
+    metadata_dict, metadata_display, debug_msg = build_inference_metadata(
+        ttft=ttft,
+        inference_time=llm_time,
+        tokens_generated=tokens_generated,
+        tokens_per_sec=tokens_per_sec,
+        source=source_label,
+        backend_metrics=metrics,
+        tokens_prompt=tokens_prompt,
+        history_tokens=history_tokens,
+        backend_type=backend_type,
+    )
+    yield {"type": "debug", "message": debug_msg}
+    metadata_dict["sources_count"] = len(cached_sources)
 
     # Format <think> tags as collapsible (if present)
     final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time, tokens_per_sec=tokens_per_sec)
 
-    # Timing text
-    source_label = f"Session Cache ({model_choice})"
-    timing_text = format_metadata(f"Cache-Hit: {format_number(total_time, 1)}s = LLM {format_number(llm_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: {source_label}")
-    ai_text_with_timing = final_answer_formatted + "\n\n" + timing_text
-
     # Add AI response to chat_history (UI display)
     history.append({
         "role": "assistant",
-        "content": ai_text_with_timing,
+        "content": f"{final_answer_formatted}\n\n{metadata_display}",
         "agent": "aifred",
         "mode": "session_cache",
         "round_num": 0,
-        "metadata": {
-            "inference_time": llm_time,
-            "tokens_per_sec": tokens_per_sec,
-            "source": source_label,
-            "sources_count": len(cached_sources)
-        },
+        "metadata": metadata_dict,
         "timestamp": datetime.datetime.now().isoformat()
     })
 
@@ -304,7 +310,7 @@ async def handle_cache_hit(
         "type": "result",
         "data": {
             "response_clean": final_answer_clean,
-            "response_html": ai_text_with_timing,
+            "response_html": f"{final_answer_formatted}\n\n{metadata_display}",
             "history": history,
             "inference_time": total_time,
             "tokens_per_sec": tokens_per_sec,

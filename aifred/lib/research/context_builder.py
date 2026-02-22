@@ -19,7 +19,7 @@ from ..timer import Timer
 from ..prompt_loader import get_system_rag_prompt
 from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens, strip_thinking_blocks
 from ..message_builder import build_messages_from_llm_history
-from ..formatting import format_thinking_process, build_debug_accordion, build_sources_collapsible, format_metadata, format_number
+from ..formatting import format_thinking_process, build_debug_accordion, build_sources_collapsible, build_inference_metadata, format_number
 from ..logging_utils import log_message
 from ..config import (
     CHARS_PER_TOKEN,
@@ -28,7 +28,7 @@ from ..config import (
 from ..vector_cache import format_ttl_hours
 from ..intent_detector import get_temperature_for_intent, get_temperature_label
 from .context_utils import get_rag_context_budget
-from ..streaming_utils import stream_llm_response, log_llm_completion
+from ..streaming_utils import stream_llm_response
 
 
 async def build_and_generate_response(
@@ -55,7 +55,8 @@ async def build_and_generate_response(
     user_name: Optional[str] = None,
     detected_intent: Optional[str] = None,
     detected_language: Optional[str] = None,
-    volatility: Optional[str] = None  # From Automatik-LLM (NOCACHE/DAILY/etc.)
+    volatility: Optional[str] = None,  # From Automatik-LLM (NOCACHE/DAILY/etc.)
+    backend_type: str = "",  # Backend type for metadata display
 ) -> AsyncIterator[Dict]:
     """
     Build context and generate LLM response
@@ -281,6 +282,8 @@ async def build_and_generate_response(
     metrics = {}
     inference_time = 0.0
     tokens_per_sec = 0.0
+    tokens_generated = 0
+    tokens_prompt = 0
     ttft = None
 
     async for chunk in stream_llm_response(
@@ -299,6 +302,8 @@ async def build_and_generate_response(
             metrics = chunk["metrics"]
             inference_time = chunk["inference_time"]
             tokens_per_sec = metrics.get("tokens_per_second", 0)
+            tokens_generated = metrics.get("tokens_generated", 0)
+            tokens_prompt = metrics.get("tokens_prompt", 0)
             ttft = chunk.get("ttft")
 
     # Strip thinking + update llm_history BEFORE history_tokens calculation
@@ -309,7 +314,6 @@ async def build_and_generate_response(
     # History tokens now reflect the current conversation state (incl. AI response)
     from ..context_manager import estimate_tokens_from_llm_history
     history_tokens = estimate_tokens_from_llm_history(llm_history)
-    yield log_llm_completion(inference_time, metrics, history_tokens=history_tokens)
 
     # Determine volatility: Automatik-LLM has priority, fallback to LLM tag or DAILY
     final_volatility = "DAILY"  # Default fallback
@@ -386,15 +390,22 @@ async def build_and_generate_response(
     if sources_collapsible:
         ai_response_complete = f"{sources_collapsible}\n\n{ai_response_complete}"
 
-    # Update history
+    # Centralized metadata (PP speed, debug log, chat bubble) - same as Own Knowledge
     total_time = agent_timer.elapsed()
-    ttft_str = f"TTFT: {format_number(ttft, 2)}s    " if ttft is not None else ""
-    metadata = format_metadata(f"{ttft_str}Inference: {format_number(inference_time, 1)}s    {format_number(tokens_per_sec, 1)} tok/s    Source: Web Research ({model_choice})")
-
-    # Add AI response to histories (parallel: chat_history + llm_history)
-    # User message was already added by state.py before calling this function
-    # Dict-based chat_history format
     source_label = f"Web Research ({model_choice})"
+    metadata_dict, metadata_display, debug_msg = build_inference_metadata(
+        ttft=ttft,
+        inference_time=inference_time,
+        tokens_generated=tokens_generated,
+        tokens_per_sec=tokens_per_sec,
+        source=source_label,
+        backend_metrics=metrics,
+        tokens_prompt=tokens_prompt,
+        history_tokens=history_tokens,
+        backend_type=backend_type,
+    )
+    yield {"type": "debug", "message": debug_msg}
+    metadata_dict["sources_count"] = len(scraped_only)
 
     # Build history content with sources collapsible prepended (like Denkprozess)
     history_content = thinking_html
@@ -403,17 +414,11 @@ async def build_and_generate_response(
 
     history.append({
         "role": "assistant",
-        "content": f"{history_content}\n\n{metadata}",
+        "content": f"{history_content}\n\n{metadata_display}",
         "agent": "aifred",
         "mode": "web_research",
         "round_num": 0,
-        "metadata": {
-            "ttft": ttft,
-            "inference_time": inference_time,
-            "tokens_per_sec": tokens_per_sec,
-            "source": source_label,
-            "sources_count": len(scraped_only)
-        },
+        "metadata": metadata_dict,
         "timestamp": datetime.datetime.now().isoformat()
     })
     # llm_history already updated above (before metadata calculation)
