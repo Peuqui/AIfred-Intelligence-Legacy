@@ -888,6 +888,7 @@ class AIState(rx.State):
 
         # FIRST-TIME GLOBAL INITIALIZATION (once per server start)
         if not _global_backend_initialized:
+            _global_backend_initialized = True  # Set FIRST to prevent ASGI race
             print("=" * 60)
             print("🚀 FIRST-TIME SERVER INITIALIZATION...")
             print("=" * 60)
@@ -971,7 +972,6 @@ class AIState(rx.State):
             except Exception as e:
                 log_message(f"ℹ️ Ollama not available for startup cleanup: {e}")
 
-            _global_backend_initialized = True
             print("✅ Global initialization complete")
 
         # PER-SESSION INITIALIZATION (every user/tab/reload)
