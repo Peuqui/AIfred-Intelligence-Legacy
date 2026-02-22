@@ -58,7 +58,7 @@ echo "  Service-Status: $STATUS"
 
 if [[ "$STATUS" == "active" ]]; then
     sleep 2
-    MODELS=$(curl -s --max-time 5 http://localhost:8100/v1/models 2>/dev/null | head -c 200)
+    MODELS=$(curl -s --max-time 5 http://localhost:11435/v1/models 2>/dev/null | head -c 200)
     if [[ -n "$MODELS" ]]; then
         echo "  API erreichbar: OK"
     else

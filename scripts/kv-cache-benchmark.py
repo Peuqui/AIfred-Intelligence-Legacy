@@ -155,7 +155,7 @@ def main():
     parser.add_argument("--model", type=str, required=True, choices=MODEL_PRESETS.keys(),
                         help="Modell-Preset (z.B. gpt-oss, qwen80b)")
     parser.add_argument("--runs", type=int, default=5, help="Anzahl Durchläufe pro Variante (default: 5)")
-    parser.add_argument("--port", type=int, default=8100, help="llama-swap Port (default: 8100)")
+    parser.add_argument("--port", type=int, default=11435, help="llama-swap Port (default: 11435)")
     parser.add_argument("--output", type=str, default=None, help="Output JSON Pfad")
     args = parser.parse_args()
 
