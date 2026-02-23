@@ -141,9 +141,9 @@ def check_consensus(votes: dict, consensus_type: str) -> bool:
     """
     lgtm_count = sum(votes.values())
     if consensus_type == "unanimous":
-        return lgtm_count == 3  # All must agree
+        return bool(lgtm_count == 3)  # All must agree
     else:  # majority
-        return lgtm_count >= 2  # 2/3 is enough
+        return bool(lgtm_count >= 2)  # 2/3 is enough
 
 
 def format_votes_debug(votes: dict, round_num: int) -> str:
@@ -219,7 +219,7 @@ async def _stream_sokrates_to_history(
     model: str,
     messages: list,
     options: LLMOptions,
-) -> AsyncGenerator[None, None]:
+) -> AsyncGenerator[dict[str, Any] | None, None]:
     """
     Stream Sokrates response into current_ai_response (unified streaming).
 
@@ -253,7 +253,7 @@ async def _stream_sokrates_to_history(
             token_count += 1
 
             state.stream_text_to_ui(chunk["text"])
-            yield
+            yield None
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
@@ -305,7 +305,7 @@ async def _stream_alfred_refinement(
     model: str,
     messages: list,
     options: LLMOptions,
-) -> AsyncGenerator[None, None]:
+) -> AsyncGenerator[dict[str, Any] | None, None]:
     """
     Stream AIfred's refined answer into current_ai_response (unified streaming).
 
@@ -338,7 +338,7 @@ async def _stream_alfred_refinement(
             token_count += 1
 
             state.stream_text_to_ui(chunk["text"])
-            yield
+            yield None
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
@@ -390,7 +390,7 @@ async def _stream_salomo_to_history(
     model: str,
     messages: list,
     options: LLMOptions,
-) -> AsyncGenerator[None, None]:
+) -> AsyncGenerator[dict[str, Any] | None, None]:
     """
     Stream Salomo response into current_ai_response (unified streaming).
 
@@ -424,7 +424,7 @@ async def _stream_salomo_to_history(
             token_count += 1
 
             state.stream_text_to_ui(chunk["text"])
-            yield
+            yield None
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
@@ -622,7 +622,7 @@ async def run_sokrates_direct_response(
         first_token = False
         sokrates_ttft = 0.0
 
-        async for chunk in llm_client.chat_stream(sokrates_model, messages, sokrates_options):
+        async for chunk in llm_client.chat_stream(sokrates_model, messages, sokrates_options):  # type: ignore[arg-type]
             chunk_type = chunk.get("type", "")
 
             if chunk_type == "content":
@@ -810,7 +810,7 @@ async def run_salomo_direct_response(
         first_token = False
         salomo_ttft = 0.0
 
-        async for chunk in llm_client.chat_stream(salomo_model, messages, salomo_options):
+        async for chunk in llm_client.chat_stream(salomo_model, messages, salomo_options):  # type: ignore[arg-type]
             chunk_type = chunk.get("type", "")
 
             if chunk_type == "content":
@@ -1099,6 +1099,9 @@ async def run_sokrates_analysis(
                     yield  # Forward UI updates
 
             # Extract Sokrates result from final yield
+            if result is None:
+                state.add_debug("❌ Sokrates stream returned no result")
+                break
             sokrates_response_text = result["text"]
             metadata_display = result["metadata_display"]
             metadata_dict = result["metadata_dict"]
@@ -1206,6 +1209,9 @@ async def run_sokrates_analysis(
                         yield
 
                 # Extract Salomo result from final yield
+                if salomo_result is None:
+                    state.add_debug("❌ Salomo stream returned no result")
+                    break
                 salomo_response_text = salomo_result["text"]
                 salomo_metadata_dict = salomo_result["metadata_dict"]
                 salomo_audio_urls = salomo_result.get("audio_urls", [])
@@ -1278,7 +1284,7 @@ async def run_sokrates_analysis(
 
                     # Build messages with AIfred's perspective
                     # Use llm_history (compressed) instead of chat_history (full UI)
-                    history_messages: list[dict[str, str]] = build_messages_from_llm_history(
+                    aifred_history_messages: list[dict[str, str]] = build_messages_from_llm_history(
                         state.llm_history,
                         current_user_text=refinement_prompt,
                         perspective="aifred",
@@ -1288,7 +1294,7 @@ async def run_sokrates_analysis(
                     # Build final message list: AIfred system prompt + history
                     # (Same pattern as Sokrates - agent needs system prompt for identity)
                     alfred_messages: list[dict[str, str]] = [{"role": "system", "content": aifred_system_prompt}]
-                    for msg in history_messages:
+                    for msg in aifred_history_messages:
                         # Keep all messages except non-summary system messages
                         if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
                             alfred_messages.append(msg)
@@ -1319,6 +1325,9 @@ async def run_sokrates_analysis(
                             yield
 
                     # Extract refined answer from final yield
+                    if alfred_result is None:
+                        state.add_debug("❌ AIfred refinement stream returned no result")
+                        break
                     current_answer = alfred_result["text"]
                     alfred_metadata_dict = alfred_result.get("metadata_dict", {})
                     alfred_audio_urls = alfred_result.get("audio_urls", [])
@@ -1528,6 +1537,9 @@ async def run_tribunal(
                     yield
 
             # Extract Sokrates result from final yield
+            if result is None:
+                state.add_debug("❌ Sokrates stream returned no result")
+                break
             sokrates_response_text = result["text"]
             metadata_dict = result["metadata_dict"]
             audio_urls = result.get("audio_urls", [])
@@ -1578,7 +1590,7 @@ async def run_tribunal(
                     yield
 
                 # Use llm_history (compressed) instead of chat_history (full UI)
-                history_messages: list[dict[str, str]] = build_messages_from_llm_history(
+                aifred_history_messages: list[dict[str, str]] = build_messages_from_llm_history(
                     state.llm_history,
                     current_user_text=refinement_prompt,
                     perspective="aifred",
@@ -1588,7 +1600,7 @@ async def run_tribunal(
                 # Build final message list: AIfred system prompt + history
                 # (Same pattern as Sokrates - agent needs system prompt for identity)
                 alfred_messages: list[dict[str, str]] = [{"role": "system", "content": aifred_system_prompt}]
-                for msg in history_messages:
+                for msg in aifred_history_messages:
                     # Keep all messages except non-summary system messages
                     if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
                         alfred_messages.append(msg)
@@ -1607,6 +1619,9 @@ async def run_tribunal(
                         yield
 
                 # Extract Alfred result from final yield
+                if alfred_result is None:
+                    state.add_debug("❌ AIfred stream returned no result")
+                    break
                 current_answer = alfred_result["text"]
                 alfred_metadata_dict = alfred_result.get("metadata_dict", {})
                 alfred_audio_urls = alfred_result.get("audio_urls", [])
@@ -1680,6 +1695,8 @@ async def run_tribunal(
                 yield
 
         # Extract Salomo result from final yield
+        if salomo_result is None:
+            raise RuntimeError("Salomo verdict stream returned no result")
         salomo_response_text = salomo_result["text"]
         salomo_metadata_dict = salomo_result["metadata_dict"]
         salomo_audio_urls = salomo_result.get("audio_urls", [])

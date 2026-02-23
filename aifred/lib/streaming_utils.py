@@ -119,7 +119,7 @@ async def stream_llm_response(
     }
 
 
-def extract_stream_metrics(result_chunk: Dict[str, Any]) -> Tuple[str, Dict, float, float]:
+def extract_stream_metrics(result_chunk: Dict[str, Any]) -> Tuple[str, Dict, float | None, float]:
     """
     Extract values from stream_result chunk.
 

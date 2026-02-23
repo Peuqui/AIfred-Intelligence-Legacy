@@ -96,7 +96,7 @@ class TabbyAPIBackend(LLMBackend):
 
         try:
             timer = Timer()
-            response = await self.client.chat.completions.create(**kwargs)
+            response = await self.client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
             inference_time = timer.elapsed()
 
             choice = response.choices[0]
@@ -176,7 +176,7 @@ class TabbyAPIBackend(LLMBackend):
 
         try:
             timer = Timer()
-            stream = await self.client.chat.completions.create(**kwargs)
+            stream = await self.client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
 
             total_tokens = 0
             prompt_tokens = 0

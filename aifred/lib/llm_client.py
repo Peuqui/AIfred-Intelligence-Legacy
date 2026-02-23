@@ -8,7 +8,7 @@ with proper integration into the existing Backend system.
 from typing import TYPE_CHECKING, Dict, List, Optional, AsyncIterator, Union, Any, cast
 
 from ..backends import BackendFactory
-from ..backends.base import LLMMessage, LLMOptions, LLMResponse
+from ..backends.base import LLMBackend, LLMMessage, LLMOptions, LLMResponse
 
 if TYPE_CHECKING:
     from ..state import AIState
@@ -71,7 +71,7 @@ class LLMClient:
         self.base_url = base_url
         self.provider = provider
         # Cache backend instance to prevent premature GC during async operations
-        self._backend = None
+        self._backend: LLMBackend | None = None
 
     def _get_backend(self):
         """Get or create backend instance (cached to prevent GC during async ops)"""
@@ -144,8 +144,7 @@ class LLMClient:
             llm_options = LLMOptions()
 
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
-        response = await backend.chat(model, converted_messages, llm_options)
-        return response
+        return cast(LLMResponse, await backend.chat(model, converted_messages, llm_options))
 
 
     async def chat_stream(
@@ -224,7 +223,7 @@ class LLMClient:
             RuntimeError: If model not found or context limit not available
         """
         backend = self._get_backend()
-        return await backend.get_model_context_limit(model)
+        return cast(tuple[int, int], await backend.get_model_context_limit(model))
 
     async def preload_model(self, model: str) -> tuple[bool, float]:
         """
@@ -242,7 +241,7 @@ class LLMClient:
         """
         backend = self._get_backend()
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
-        return await backend.preload_model(model)
+        return cast(tuple[bool, float], await backend.preload_model(model))
 
     async def is_model_loaded(self, model: str) -> bool:
         """
@@ -258,7 +257,7 @@ class LLMClient:
             bool: True if model is currently loaded in VRAM, False otherwise
         """
         backend = self._get_backend()
-        return await backend.is_model_loaded(model)
+        return cast(bool, await backend.is_model_loaded(model))
 
     async def close(self):
         """Cleanup resources (close cached backend if exists)"""

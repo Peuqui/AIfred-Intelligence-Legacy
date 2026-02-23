@@ -35,7 +35,7 @@ def get_gguf_architecture(gguf_path: Path) -> Optional[str]:
 
         with open(gguf_path, "rb") as f:
             try:
-                reader = gguf.GGUFReader(f)
+                reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
 
                 # Search for general.architecture key
                 for field in reader.fields.values():
@@ -61,7 +61,7 @@ def get_gguf_architecture(gguf_path: Path) -> Optional[str]:
         return None
 
 
-def is_vision_language_model(architecture: str, tags: str = None, name: str = None) -> bool:
+def is_vision_language_model(architecture: str, tags: Optional[str] = None, name: Optional[str] = None) -> bool:
     """
     Determine if model is a Vision-Language Model using multiple GGUF metadata fields.
 

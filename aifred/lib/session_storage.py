@@ -169,7 +169,8 @@ def _load_accounts() -> Dict[str, str]:
 
     try:
         with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            result: Dict[str, str] = json.load(f)
+            return result
     except (json.JSONDecodeError, IOError):
         return {}
 
@@ -422,7 +423,7 @@ def load_session(session_id: str) -> Optional[Dict[str, Any]]:
 
     try:
         with open(session_path, "r", encoding="utf-8") as f:
-            session = json.load(f)
+            session: Dict[str, Any] = json.load(f)
 
         return session
 
@@ -743,7 +744,8 @@ def get_session_title(session_id: str) -> Optional[str]:
     if session is None:
         return None
 
-    return session.get("data", {}).get("title")
+    title: str | None = session.get("data", {}).get("title")
+    return title
 
 
 # ============================================================
@@ -925,7 +927,8 @@ def get_and_clear_pending_message(session_id: str) -> Optional[str]:
         with open(session_path, 'w', encoding='utf-8') as f:
             json.dump(session, f, ensure_ascii=False, indent=2)
 
-        return pending_msg
+        result: str | None = pending_msg
+        return result
 
     except (ValueError, IOError, json.JSONDecodeError):
         return None

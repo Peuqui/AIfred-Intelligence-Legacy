@@ -65,7 +65,7 @@ class BraveSearchTool(BaseTool):
 
             response = requests.get(
                 self.api_url,
-                params={'q': query, 'count': 10},
+                params={'q': query, 'count': '10'},
                 headers={
                     'Accept': 'application/json',
                     'X-Subscription-Token': self.api_key
@@ -251,7 +251,7 @@ class SearXNGSearchTool(BaseTool):
                 'q': query,
                 'format': 'json',
                 'language': 'de',
-                'pageno': 1
+                'pageno': '1'
             }
 
             response = requests.get(

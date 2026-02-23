@@ -820,7 +820,7 @@ async def _start_and_verify(
     context: int,
     port: int,
     ngl: Optional[int] = None,
-) -> Optional[asyncio.subprocess.Process]:
+) -> Optional[subprocess.Popen]:
     """Start server, verify it works via health check + inference, return process.
 
     Returns the running process on success (caller must kill it), or None on failure.
@@ -1193,7 +1193,12 @@ async def _calibrate_hybrid(
         context_targets.append(32768)
     context_targets.append(16384)
     seen: set[int] = set()
-    context_targets = [c for c in context_targets if not (c in seen or seen.add(c))]
+    unique_targets: list[int] = []
+    for c in context_targets:
+        if c not in seen:
+            seen.add(c)
+            unique_targets.append(c)
+    context_targets = unique_targets
 
     best_ngl: Optional[int] = None
     best_ctx: Optional[int] = None
@@ -1378,7 +1383,7 @@ async def calibrate_llamacpp_model(
     # Helper: test thinking on running server (or start new one), yield result
     async def _finish_calibration(
         ctx: int, ngl: int, mode: str,
-        process: Optional[asyncio.subprocess.Process] = None,
+        process: Optional[subprocess.Popen] = None,
     ):
         """Test thinking on server, measure VRAM, save calibration, emit result.
 

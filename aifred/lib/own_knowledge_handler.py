@@ -13,9 +13,9 @@ Yields Dict-Messages die vom Aufrufer geroutet werden:
 - {"type": "result", "data": {...}}
 """
 
-from typing import AsyncIterator, Dict, List, Optional, Any
+from typing import AsyncIterator, Dict, List, Optional, Any, cast
 
-from .llm_client import LLMClient, build_llm_options
+from .llm_client import LLMClient, build_llm_options, MessageType
 from .timer import Timer
 from .formatting import format_number, format_thinking_process, build_inference_metadata
 from .prompt_loader import get_aifred_direct_prompt, get_aifred_system_minimal
@@ -89,23 +89,24 @@ async def handle_own_knowledge(
     # Uses perspective="aifred" to correctly assign roles for all agents
     from .message_builder import build_messages_from_llm_history
 
+    messages: list[dict[str, Any]]
     if multimodal_content is not None:
         # Multimodal: Build without user text, then append multimodal content
-        messages = build_messages_from_llm_history(
+        messages = list(build_messages_from_llm_history(
             llm_history,
             perspective="aifred",
             detected_language=detected_language
-        )
+        ))
         messages.append({"role": "user", "content": multimodal_content})
         log_message("📷 Multimodal content injected into user message")
     else:
         # Standard: Include user text directly
-        messages = build_messages_from_llm_history(
+        messages = list(build_messages_from_llm_history(
             llm_history,
             current_user_text=user_text,
             perspective="aifred",
             detected_language=detected_language
-        )
+        ))
 
     # Inject system prompt (direct or minimal based on addressing)
     if use_direct_prompt:
@@ -150,8 +151,9 @@ async def handle_own_knowledge(
         else:
             # Calculate from VRAM cache
             rope_factor = get_rope_factor_for_model(model_choice)
-            final_num_ctx = get_ollama_calibration(model_choice, rope_factor)
-            if final_num_ctx:
+            final_num_ctx_cached = get_ollama_calibration(model_choice, rope_factor)
+            if final_num_ctx_cached:
+                final_num_ctx = final_num_ctx_cached
                 yield {"type": "debug", "message": f"🎯 Context: {final_num_ctx:,} (from VRAM cache)"}
             else:
                 # Dynamic calculation
@@ -172,6 +174,7 @@ async def handle_own_knowledge(
         yield {"type": "debug", "message": f"📊 AIfred: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})"}
 
         # Build LLM options via central builder (all sampling params from state)
+        assert state is not None, "state required for build_llm_options"
         llm_options = build_llm_options(state, "aifred", final_temperature, final_num_ctx)
 
         # Console: LLM starts (with MoE/Dense architecture info)
@@ -196,7 +199,7 @@ async def handle_own_knowledge(
 
         async for chunk in llm_client.chat_stream(
             model=model_choice,
-            messages=messages,
+            messages=cast(list[MessageType], messages),
             options=llm_options
         ):
             if chunk["type"] == "content":

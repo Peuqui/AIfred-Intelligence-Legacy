@@ -140,7 +140,7 @@ class VectorCache:
                         "description": "AIfred web research results with semantic search",
                         "embedding_model": OLLAMA_EMBEDDING_MODEL
                     },
-                    embedding_function=self.embedding_function
+                    embedding_function=self.embedding_function  # type: ignore[arg-type]
                 )
             except ValueError:
                 # Embedding function conflict - recreate collection
@@ -152,7 +152,7 @@ class VectorCache:
                         "description": "AIfred web research results with semantic search",
                         "embedding_model": OLLAMA_EMBEDDING_MODEL
                     },
-                    embedding_function=self.embedding_function
+                    embedding_function=self.embedding_function  # type: ignore[arg-type]
                 )
 
             count = self.collection.count()
@@ -229,6 +229,8 @@ class VectorCache:
             }
 
         # Get best match
+        assert results['distances'] is not None
+        assert results['metadatas'] is not None
         distance = results['distances'][0][0]
         metadata = results['metadatas'][0][0]
 
@@ -236,12 +238,12 @@ class VectorCache:
         expires_at_str = metadata.get('expires_at')
         if expires_at_str and expires_at_str != 'None':
             try:
-                expiry_time = datetime.fromisoformat(expires_at_str)
+                expiry_time = datetime.fromisoformat(str(expires_at_str))
                 if datetime.now() > expiry_time:
                     # EXPIRED! Delete entry and return cache miss
                     entry_id = metadata.get('id')
                     if entry_id:
-                        self.collection.delete(ids=[entry_id])
+                        self.collection.delete(ids=[str(entry_id)])
                         volatility = metadata.get('volatility', 'UNKNOWN')
                         log_message(f"🗑️ Cache expired ({volatility} TTL), deleted: {entry_id}")
 
@@ -288,14 +290,14 @@ class VectorCache:
             sources_json = metadata.get('sources_json', '')
             if sources_json:
                 try:
-                    cached_sources = json.loads(sources_json)
+                    cached_sources = json.loads(str(sources_json))
                 except (json.JSONDecodeError, TypeError):
                     cached_sources = []
             # Parse failed sources
             failed_json = metadata.get('failed_sources_json', '')
             if failed_json:
                 try:
-                    failed_sources = json.loads(failed_json)
+                    failed_sources = json.loads(str(failed_json))
                 except (json.JSONDecodeError, TypeError):
                     failed_sources = []
 
@@ -376,6 +378,9 @@ class VectorCache:
         newest_entry = None
         newest_time = None
 
+        assert results['distances'] is not None
+        assert results['metadatas'] is not None
+        assert results['documents'] is not None
         for i, distance in enumerate(results['distances'][0]):
             # Only consider similar queries (distance < CACHE_DISTANCE_DUPLICATE from config)
             if distance < CACHE_DISTANCE_DUPLICATE:
@@ -383,7 +388,7 @@ class VectorCache:
                 timestamp_str = metadata.get('timestamp')
 
                 if timestamp_str:
-                    timestamp = datetime.fromisoformat(timestamp_str)
+                    timestamp = datetime.fromisoformat(str(timestamp_str))
                     if newest_time is None or timestamp > newest_time:
                         newest_time = timestamp
                         newest_entry = {
@@ -394,8 +399,8 @@ class VectorCache:
 
         # If we found a near-duplicate, return the newest one
         if newest_entry:
-            distance = newest_entry['distance']
-            metadata = newest_entry['metadata']
+            distance = float(newest_entry['distance'])  # type: ignore[arg-type]
+            metadata = newest_entry['metadata']  # type: ignore[assignment]
 
             # Determine confidence based on distance thresholds
             if distance < 0.5:
@@ -432,14 +437,14 @@ class VectorCache:
                 sources_json = metadata.get('sources_json', '')
                 if sources_json:
                     try:
-                        cached_sources = json.loads(sources_json)
+                        cached_sources = json.loads(str(sources_json))
                     except (json.JSONDecodeError, TypeError):
                         cached_sources = []
                 # Parse failed sources
                 failed_json = metadata.get('failed_sources_json', '')
                 if failed_json:
                     try:
-                        failed_sources = json.loads(failed_json)
+                        failed_sources = json.loads(str(failed_json))
                     except (json.JSONDecodeError, TypeError):
                         failed_sources = []
 
@@ -739,6 +744,9 @@ class VectorCache:
         # Start from CACHE_DISTANCE_HIGH because anything below that is a direct cache hit
         rag_candidates = []
 
+        assert results['distances'] is not None
+        assert results['documents'] is not None
+        assert results['metadatas'] is not None
         for i, (distance, document, metadata) in enumerate(zip(
             results['distances'][0],
             results['documents'][0],
@@ -795,6 +803,7 @@ class VectorCache:
             now = datetime.now()
             expired_ids = []
 
+            assert all_results['metadatas'] is not None
             for entry_id, metadata in zip(all_results['ids'], all_results['metadatas']):
                 expires_at_str = metadata.get('expires_at')
 
@@ -803,7 +812,7 @@ class VectorCache:
                     continue
 
                 try:
-                    expiry_time = datetime.fromisoformat(expires_at_str)
+                    expiry_time = datetime.fromisoformat(str(expires_at_str))
                     if now > expiry_time:
                         expired_ids.append(entry_id)
                 except (ValueError, TypeError):

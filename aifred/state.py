@@ -6,6 +6,7 @@ Main state for chat, settings, and backend management
 
 import reflex as rx
 from typing import List, Any, Dict, TypedDict
+from collections.abc import AsyncGenerator
 import uuid
 import os
 import asyncio
@@ -116,7 +117,7 @@ from .lib.audio_processing import (  # noqa: E402
 
 # Module-level storage for DashScope WebSocket TTS instances (keyed by session_id).
 # Cannot be stored in Reflex state because WebSocket/SSLSocket objects are not serializable.
-_dashscope_rt_instances: dict[str, object] = {}
+_dashscope_rt_instances: dict[str, Any] = {}
 
 
 class AIState(rx.State):
@@ -423,7 +424,7 @@ class AIState(rx.State):
     # TTS Ordering - ensures sentences are pushed to queue in order (critical for cloud APIs)
     _tts_next_seq: int = 0  # Next sequence number to assign to a sentence
     _tts_push_seq: int = 0  # Next sequence number expected for queue push
-    _tts_order_buffer: Dict[int, tuple] = {}  # {seq: (audio_url, playback_rate, request_id)} - completed but not yet pushed
+    _tts_order_buffer: Dict[int, tuple | None] = {}  # {seq: (audio_url, playback_rate, request_id) or None} - completed but not yet pushed
     # Session Persistence (Cookie-based session identification)
     session_id: str = ""  # Session ID from cookie (32 hex chars)
     session_restored: bool = False  # True if chat history was loaded from session
@@ -1730,7 +1731,7 @@ class AIState(rx.State):
             # Backends that can't switch models: ensure Automatik-LLM matches Main-LLM
             # Check via capabilities instead of hardcoding backend names
             from aifred.backends import BackendFactory
-            temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
+            temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)  # type: ignore[assignment]
             caps = temp_backend.get_capabilities()
 
             if not caps.get("dynamic_models", True) and self.automatik_model_id and self.automatik_model_id != self.aifred_model_id:
@@ -2845,7 +2846,7 @@ class AIState(rx.State):
             # ALWAYS calculate dynamically based on current VRAM (never use cached values!)
             vllm_manager = vLLMProcessManager(
                 port=8001,
-                max_model_len=None,  # ALWAYS auto-detect based on current VRAM
+                max_model_len=0,  # 0 = auto-detect based on current VRAM
                 gpu_memory_utilization=0.90,  # 90% safe on modern GPUs
                 yarn_config=yarn_config  # YaRN context extension (if enabled)
             )
@@ -5412,7 +5413,7 @@ class AIState(rx.State):
                 provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None
             )
 
-            messages = [{"role": "user", "content": prompt}]
+            messages: list[dict[str, Any] | Any] = [{"role": "user", "content": prompt}]
 
             # num_ctx: Must match the currently loaded context to avoid Ollama reload.
             # Ollama uses model DEFAULT (not currently loaded ctx) when num_ctx is omitted.
@@ -5498,12 +5499,12 @@ class AIState(rx.State):
         elif self.backend_type == "vllm":
             return config.DEFAULT_VLLM_URL
         elif self.backend_type == "tabbyapi":
-            return config.DEFAULT_TABBY_URL
+            return config.DEFAULT_TABBYAPI_URL
         elif self.backend_type == "llamacpp":
             return config.DEFAULT_LLAMACPP_URL
         elif self.backend_type == "cloud_api":
             # Cloud API URL is determined by provider in BackendFactory
-            return None
+            return ""
         return config.DEFAULT_OLLAMA_URL
 
     # ============================================================
@@ -5575,9 +5576,10 @@ class AIState(rx.State):
                 content = await file.read()
 
                 # Validate
-                valid, error = validate_image_file(file.filename, len(content))
+                filename = file.filename or "unknown.jpg"
+                valid, error = validate_image_file(filename, len(content))
                 if not valid:
-                    self.image_upload_warning = error
+                    self.image_upload_warning = error or ""
                     continue
 
                 # Resize if needed (save bandwidth/VRAM)
@@ -5586,14 +5588,14 @@ class AIState(rx.State):
                 # Camera photos: Shorten to "Image_001.jpg" (browser names are unreadably long)
                 # File uploads: Keep original filename
                 if from_camera:
-                    name_parts = file.filename.rsplit(".", 1)
+                    name_parts = filename.rsplit(".", 1)
                     if len(name_parts) == 2:
                         _, ext = name_parts
                         display_name = f"Image_{len(self.pending_images) + 1:03d}.{ext}"
                     else:
                         display_name = f"Image_{len(self.pending_images) + 1:03d}.jpg"
                 else:
-                    display_name = file.filename
+                    display_name = filename
 
                 # Save image as file (not Base64 in memory)
                 # Uses session_id for persistent session-based storage
@@ -5605,7 +5607,7 @@ class AIState(rx.State):
                     "name": display_name,
                     "path": str(image_path),  # Absolute path for LLM loading
                     "url": image_url,         # HTTP URL for UI display
-                    "size_kb": len(resized_content) // 1024
+                    "size_kb": str(len(resized_content) // 1024)
                 })
 
                 self.add_debug(f"📷 Image uploaded: {display_name} ({len(resized_content) // 1024} KB)")
@@ -5740,7 +5742,7 @@ class AIState(rx.State):
 
             # Update file size in pending_images
             new_size_kb = image_path.stat().st_size // 1024
-            self.pending_images[self.crop_image_index]["size_kb"] = new_size_kb
+            self.pending_images[self.crop_image_index]["size_kb"] = str(new_size_kb)
 
             # Update URLs with cache-busting timestamp
             import time
@@ -5849,7 +5851,7 @@ class AIState(rx.State):
                 "name": image_data["name"],
                 "path": str(new_path),
                 "url": new_url,
-                "size_kb": len(cropped_bytes) // 1024
+                "size_kb": str(len(cropped_bytes) // 1024)
             }
 
             self.add_debug(f"✂️ Image cropped: {width:.0f}% x {height:.0f}% → {px_width} x {px_height} px")
@@ -5914,7 +5916,7 @@ class AIState(rx.State):
 
         # Validate audio file type
         allowed_extensions = [".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm"]
-        file_ext = os.path.splitext(file.filename)[1].lower()
+        file_ext = os.path.splitext(file.filename or "")[1].lower()
         if file_ext not in allowed_extensions:
             self.add_debug(f"⚠️ Unsupported audio format: {file_ext}")
             return
@@ -6370,9 +6372,9 @@ class AIState(rx.State):
 
         # Wait for all pending TTS tasks to complete
         log_message(f"🔊 TTS Finalize: Waiting for {len(self._pending_tts_requests)} pending tasks...")
-        max_wait = 60  # Max 60 seconds - TTS can be slow for long sentences
+        max_wait = 60.0  # Max 60 seconds - TTS can be slow for long sentences
         wait_interval = 0.2  # Check every 200ms
-        waited = 0
+        waited = 0.0
         while self._pending_tts_requests and waited < max_wait:
             await asyncio.sleep(wait_interval)
             waited += wait_interval
@@ -7041,7 +7043,7 @@ class AIState(rx.State):
                     self.add_debug(f"⚠️ History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
 
             # Warn if no calibration exists for this mode
-            if value >= 2.0:
+            if factor >= 2.0:
                 # Check if extended calibration exists
                 extended_ctx = get_ollama_calibrated_max_context(self.aifred_model_id, rope_factor=2.0)
                 if extended_ctx is None:
@@ -7085,7 +7087,7 @@ class AIState(rx.State):
             from .lib.model_vram_cache import set_rope_factor_for_model
             set_rope_factor_for_model(self.vision_model_id, factor)
 
-    def toggle_aifred_personality(self):
+    def toggle_aifred_personality(self, _value: bool | None = None):
         """Toggle AIfred Butler personality style on/off"""
         self.aifred_personality = not self.aifred_personality
         status = "ON" if self.aifred_personality else "OFF"
@@ -7095,7 +7097,7 @@ class AIState(rx.State):
         from .lib.prompt_loader import set_personality_enabled
         set_personality_enabled("aifred", self.aifred_personality)
 
-    def toggle_sokrates_personality(self):
+    def toggle_sokrates_personality(self, _value: bool | None = None):
         """Toggle Sokrates philosophical personality style on/off"""
         self.sokrates_personality = not self.sokrates_personality
         status = "ON" if self.sokrates_personality else "OFF"
@@ -7105,7 +7107,7 @@ class AIState(rx.State):
         from .lib.prompt_loader import set_personality_enabled
         set_personality_enabled("sokrates", self.sokrates_personality)
 
-    def toggle_salomo_personality(self):
+    def toggle_salomo_personality(self, _value: bool | None = None):
         """Toggle Salomo judge personality style on/off"""
         self.salomo_personality = not self.salomo_personality
         status = "ON" if self.salomo_personality else "OFF"
@@ -7124,7 +7126,7 @@ class AIState(rx.State):
         settings["salomo_personality"] = self.salomo_personality
         save_settings(settings)
 
-    def toggle_aifred_reasoning(self):
+    def toggle_aifred_reasoning(self, _value: bool | None = None):
         """Toggle AIfred chain-of-thought reasoning on/off"""
         self.aifred_reasoning = not self.aifred_reasoning
         status = "ON" if self.aifred_reasoning else "OFF"
@@ -7133,7 +7135,7 @@ class AIState(rx.State):
         from .lib.prompt_loader import set_reasoning_enabled
         set_reasoning_enabled("aifred", self.aifred_reasoning)
 
-    def toggle_sokrates_reasoning(self):
+    def toggle_sokrates_reasoning(self, _value: bool | None = None):
         """Toggle Sokrates chain-of-thought reasoning on/off"""
         self.sokrates_reasoning = not self.sokrates_reasoning
         status = "ON" if self.sokrates_reasoning else "OFF"
@@ -7142,7 +7144,7 @@ class AIState(rx.State):
         from .lib.prompt_loader import set_reasoning_enabled
         set_reasoning_enabled("sokrates", self.sokrates_reasoning)
 
-    def toggle_salomo_reasoning(self):
+    def toggle_salomo_reasoning(self, _value: bool | None = None):
         """Toggle Salomo chain-of-thought reasoning on/off"""
         self.salomo_reasoning = not self.salomo_reasoning
         status = "ON" if self.salomo_reasoning else "OFF"
@@ -7151,7 +7153,7 @@ class AIState(rx.State):
         from .lib.prompt_loader import set_reasoning_enabled
         set_reasoning_enabled("salomo", self.salomo_reasoning)
 
-    def toggle_aifred_speed_mode(self):
+    def toggle_aifred_speed_mode(self, _value: bool | None = None):
         """Toggle AIfred between speed variant (aggressive split, 32K ctx) and context variant."""
         self.aifred_speed_mode = not self.aifred_speed_mode
         base_id = self._resolve_model_id(self.aifred_model)
@@ -7159,7 +7161,7 @@ class AIState(rx.State):
         self.add_debug(f"🔀 AIfred mode: {self._speed_mode_debug_str(self.aifred_speed_mode, base_id, self.aifred_max_context)}")
         self._save_settings()
 
-    def toggle_sokrates_speed_mode(self):
+    def toggle_sokrates_speed_mode(self, _value: bool | None = None):
         """Toggle Sokrates between speed variant and context variant."""
         self.sokrates_speed_mode = not self.sokrates_speed_mode
         base_id = self._resolve_model_id(self.sokrates_model) or self._resolve_model_id(self.aifred_model)
@@ -7167,7 +7169,7 @@ class AIState(rx.State):
         self.add_debug(f"🔀 Sokrates mode: {self._speed_mode_debug_str(self.sokrates_speed_mode, base_id, self.sokrates_max_context)}")
         self._save_settings()
 
-    def toggle_salomo_speed_mode(self):
+    def toggle_salomo_speed_mode(self, _value: bool | None = None):
         """Toggle Salomo between speed variant and context variant."""
         self.salomo_speed_mode = not self.salomo_speed_mode
         base_id = self._resolve_model_id(self.salomo_model) or self._resolve_model_id(self.aifred_model)
@@ -7198,7 +7200,7 @@ class AIState(rx.State):
         settings["salomo_reasoning"] = self.salomo_reasoning
         save_settings(settings)
 
-    def toggle_aifred_thinking(self):
+    def toggle_aifred_thinking(self, _value: bool | None = None):
         """Toggle AIfred model thinking (enable_thinking to backend) on/off"""
         self.aifred_thinking = not self.aifred_thinking
         status = "ON" if self.aifred_thinking else "OFF"
@@ -7207,7 +7209,7 @@ class AIState(rx.State):
         from .lib.prompt_loader import set_thinking_enabled
         set_thinking_enabled("aifred", self.aifred_thinking)
 
-    def toggle_sokrates_thinking(self):
+    def toggle_sokrates_thinking(self, _value: bool | None = None):
         """Toggle Sokrates model thinking on/off"""
         self.sokrates_thinking = not self.sokrates_thinking
         status = "ON" if self.sokrates_thinking else "OFF"
@@ -7216,7 +7218,7 @@ class AIState(rx.State):
         from .lib.prompt_loader import set_thinking_enabled
         set_thinking_enabled("sokrates", self.sokrates_thinking)
 
-    def toggle_salomo_thinking(self):
+    def toggle_salomo_thinking(self, _value: bool | None = None):
         """Toggle Salomo model thinking on/off"""
         self.salomo_thinking = not self.salomo_thinking
         status = "ON" if self.salomo_thinking else "OFF"
@@ -7386,7 +7388,7 @@ class AIState(rx.State):
 
             calibrated_ctx = None
             is_hybrid_mode = False  # Track if 1.0x resulted in hybrid mode
-            async for progress_msg in backend.calibrate_max_context_generator(
+            async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                 self.aifred_model_id,
                 rope_factor=1.0
             ):
@@ -7460,7 +7462,7 @@ class AIState(rx.State):
                     yield
 
                     rope_calibrated_ctx = None
-                    async for progress_msg in backend.calibrate_max_context_generator(
+                    async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                         self.aifred_model_id,
                         rope_factor=rope_factor,
                         min_context=prev_ctx,  # Start from previous result (1.0x or 1.5x)
@@ -7501,7 +7503,7 @@ class AIState(rx.State):
             self.is_calibrating = False
             yield
 
-    async def _test_and_save_thinking(self, backend: Any, model_id: str) -> None:
+    async def _test_and_save_thinking(self, backend: Any, model_id: str) -> AsyncGenerator[None, None]:
         """
         Test thinking capability and save result to cache + state.
 
@@ -7589,7 +7591,7 @@ class AIState(rx.State):
             calibrated_mode = "gpu"
             thinking_tested = False
             speed_split_n = 0
-            async for progress_msg in backend.calibrate_max_context_generator(
+            async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                 self.aifred_model_id
             ):
                 if progress_msg.startswith("__RESULT__:"):
@@ -8932,62 +8934,62 @@ class AIState(rx.State):
     @rx.var
     def aifred_voice(self) -> str:
         """Get AIfred's current voice"""
-        return self.tts_agent_voices.get("aifred", {}).get("voice", "")
+        return str(self.tts_agent_voices.get("aifred", {}).get("voice", ""))
 
     @rx.var
     def sokrates_voice(self) -> str:
         """Get Sokrates' current voice"""
-        return self.tts_agent_voices.get("sokrates", {}).get("voice", "")
+        return str(self.tts_agent_voices.get("sokrates", {}).get("voice", ""))
 
     @rx.var
     def salomo_voice(self) -> str:
         """Get Salomo's current voice"""
-        return self.tts_agent_voices.get("salomo", {}).get("voice", "")
+        return str(self.tts_agent_voices.get("salomo", {}).get("voice", ""))
 
     @rx.var
     def aifred_speed(self) -> str:
         """Get AIfred's current speed"""
-        return self.tts_agent_voices.get("aifred", {}).get("speed", "1.0x")
+        return str(self.tts_agent_voices.get("aifred", {}).get("speed", "1.0x"))
 
     @rx.var
     def sokrates_speed(self) -> str:
         """Get Sokrates' current speed"""
-        return self.tts_agent_voices.get("sokrates", {}).get("speed", "1.0x")
+        return str(self.tts_agent_voices.get("sokrates", {}).get("speed", "1.0x"))
 
     @rx.var
     def salomo_speed(self) -> str:
         """Get Salomo's current speed"""
-        return self.tts_agent_voices.get("salomo", {}).get("speed", "1.0x")
+        return str(self.tts_agent_voices.get("salomo", {}).get("speed", "1.0x"))
 
     @rx.var
     def aifred_pitch(self) -> str:
         """Get AIfred's current pitch"""
-        return self.tts_agent_voices.get("aifred", {}).get("pitch", "1.0")
+        return str(self.tts_agent_voices.get("aifred", {}).get("pitch", "1.0"))
 
     @rx.var
     def sokrates_pitch(self) -> str:
         """Get Sokrates' current pitch"""
-        return self.tts_agent_voices.get("sokrates", {}).get("pitch", "1.0")
+        return str(self.tts_agent_voices.get("sokrates", {}).get("pitch", "1.0"))
 
     @rx.var
     def salomo_pitch(self) -> str:
         """Get Salomo's current pitch"""
-        return self.tts_agent_voices.get("salomo", {}).get("pitch", "1.0")
+        return str(self.tts_agent_voices.get("salomo", {}).get("pitch", "1.0"))
 
     @rx.var
     def aifred_tts_enabled(self) -> bool:
         """Check if AIfred's TTS is enabled"""
-        return self.tts_agent_voices.get("aifred", {}).get("enabled", True)
+        return bool(self.tts_agent_voices.get("aifred", {}).get("enabled", True))
 
     @rx.var
     def sokrates_tts_enabled(self) -> bool:
         """Check if Sokrates' TTS is enabled"""
-        return self.tts_agent_voices.get("sokrates", {}).get("enabled", True)
+        return bool(self.tts_agent_voices.get("sokrates", {}).get("enabled", True))
 
     @rx.var
     def salomo_tts_enabled(self) -> bool:
         """Check if Salomo's TTS is enabled"""
-        return self.tts_agent_voices.get("salomo", {}).get("enabled", True)
+        return bool(self.tts_agent_voices.get("salomo", {}).get("enabled", True))
 
     async def _regenerate_bubble_tts_core(self, bubble_index: int, save_session: bool = True) -> bool:
         """Core TTS regeneration logic for a single bubble.
@@ -9130,17 +9132,17 @@ class AIState(rx.State):
             self.add_debug("🔄 TTS Re-Synth: Starte XTTS Backend...")
             yield
             from .lib.process_utils import ensure_xtts_ready
-            ok, msg = ensure_xtts_ready()
+            ok, tts_msg = ensure_xtts_ready()
         elif self.tts_engine == "moss":
             self.add_debug("🔄 TTS Re-Synth: Starte MOSS-TTS Backend...")
             yield
             from .lib.process_utils import ensure_moss_ready
-            ok, msg, _device = ensure_moss_ready()
+            ok, tts_msg, _device = ensure_moss_ready()
         else:
-            ok, msg = True, "OK"
+            ok, tts_msg = True, "OK"
 
         if not ok:
-            self.add_debug(f"❌ TTS Re-Synth: {msg}")
+            self.add_debug(f"❌ TTS Re-Synth: {tts_msg}")
             self.tts_regenerating = False
             return
 
@@ -9390,6 +9392,8 @@ class AIState(rx.State):
         engine_key = self._get_engine_key()
 
         # Get voice dictionary for current engine
+        # Values: str (Edge/XTTS/MOSS/DashScope) or tuple[str, str] (Piper/eSpeak)
+        voice_dict: dict[str, Any] = {}
         if engine_key == "piper":
             voice_dict = PIPER_VOICES
         elif engine_key == "espeak":

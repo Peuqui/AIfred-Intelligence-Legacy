@@ -42,7 +42,7 @@ def get_ui_locale() -> str:
     return _ui_locale
 
 
-def format_number(n: int | float, decimals: int = 0, locale: str = None) -> str:
+def format_number(n: int | float, decimals: int = 0, locale: str | None = None) -> str:
     """
     Format number with locale-aware separators.
 
@@ -483,7 +483,7 @@ def cleanup_old_html_previews(max_age_hours: int = 24) -> int:
     return deleted
 
 
-def format_html_preview(text: str, lang: str = None) -> str:
+def format_html_preview(text: str, lang: str | None = None) -> str:
     """
     Detect ```html code blocks, save them as files and generate preview buttons.
 
@@ -874,7 +874,7 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
     return result
 
 
-def build_sources_collapsible(used_sources: list, failed_sources: list, lang: str = None) -> str:
+def build_sources_collapsible(used_sources: list, failed_sources: list, lang: str | None = None) -> str:
     """
     Build HTML <details> collapsible for web sources.
 

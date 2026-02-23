@@ -220,6 +220,7 @@ async def perform_agent_research(
         log_message(f"🔎 Fallback query: {optimized_query}")
 
         # Use optimized query for fallback search
+        assert optimized_query is not None
         fallback_search = search_web(optimized_query)
         tool_results.append(fallback_search)
 

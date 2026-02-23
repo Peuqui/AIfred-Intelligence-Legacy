@@ -154,7 +154,7 @@ def build_messages_from_llm_history(
         - Other agents' labels are PRESERVED in user messages (allows referencing their statements)
     """
     if not llm_history:
-        messages = []
+        messages: list[dict[str, str]] = []
     else:
         # Multi-Agent perspective transformation
         messages = []

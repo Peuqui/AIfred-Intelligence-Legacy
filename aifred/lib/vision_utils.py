@@ -196,7 +196,7 @@ def _get_gguf_vision_metadata(gguf_path: Path) -> tuple:
         import gguf
 
         with open(gguf_path, "rb") as f:
-            reader = gguf.GGUFReader(f)
+            reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
 
             architecture = None
             tags = None
@@ -436,7 +436,7 @@ async def get_vision_model_capabilities(backend_url: str, model_name: str) -> Tu
         return True, None
 
 
-def resize_image_if_needed(image_bytes: bytes, max_dimension: int = None) -> bytes:
+def resize_image_if_needed(image_bytes: bytes, max_dimension: int | None = None) -> bytes:
     """
     Resize image if larger than max_dimension (preserves aspect ratio).
 
@@ -460,7 +460,7 @@ def resize_image_if_needed(image_bytes: bytes, max_dimension: int = None) -> byt
     from PIL import Image, ImageOps
     import io
 
-    img = Image.open(io.BytesIO(image_bytes))
+    img: Image.Image = Image.open(io.BytesIO(image_bytes))
     original_size = (img.width, img.height)
 
     # Fix EXIF rotation (important for phone photos!)
@@ -502,8 +502,8 @@ def resize_image_if_needed(image_bytes: bytes, max_dimension: int = None) -> byt
 
 def crop_and_resize_image(
     image_bytes: bytes,
-    crop_box: dict = None,
-    max_dimension: int = None
+    crop_box: dict | None = None,
+    max_dimension: int | None = None
 ) -> bytes:
     """
     Crop image (optional) and resize to max_dimension.
@@ -531,7 +531,7 @@ def crop_and_resize_image(
     if max_dimension is None:
         max_dimension = VISION_MAX_IMAGE_DIMENSION
 
-    img = Image.open(io.BytesIO(image_bytes))
+    img: Image.Image = Image.open(io.BytesIO(image_bytes))
 
     # Fix EXIF rotation (important for phone photos!)
     img = ImageOps.exif_transpose(img)
@@ -645,7 +645,7 @@ def get_image_url(image_path: Path) -> str:
         relative_path = image_path.relative_to(IMAGES_BASE_DIR)
     except ValueError:
         # Path not under IMAGES_BASE_DIR - use full path as fallback
-        relative_path = image_path.name
+        relative_path = Path(image_path.name)
 
     # Return relative URL - browser uses current host/port automatically
     return f"/_upload/images/{relative_path}"

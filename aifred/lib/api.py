@@ -200,9 +200,9 @@ def get_active_session_state():
     We use a module-level reference that gets set when a session is active.
     """
     try:
-        from ..state import _active_api_state
-        return _active_api_state
-    except (ImportError, AttributeError):
+        from .. import state as _state_module
+        return getattr(_state_module, "_active_api_state", None)
+    except ImportError:
         return None
 
 
@@ -471,7 +471,7 @@ class ChatClearRequest(BaseModel):
 
 
 @api_app.post("/chat/clear", response_model=SystemActionResponse, tags=["Chat"])
-async def clear_chat(request: ChatClearRequest = ChatClearRequest()):
+async def clear_chat(request: ChatClearRequest = ChatClearRequest(session_id=None)):
     """
     Clear chat history for a browser session.
 
@@ -758,7 +758,7 @@ async def run_calibration():
     log_message("🔧 API: Starting context calibration...")
 
     try:
-        from .model_vram_cache import calibrate_all_models
+        from .model_vram_cache import calibrate_all_models  # type: ignore[attr-defined]
 
         settings = load_settings() or {}
         backend_type = settings.get("backend_type", "ollama")

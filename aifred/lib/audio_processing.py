@@ -1249,7 +1249,8 @@ class DashScopeRealtimeTTS:
 
         # State
         import threading
-        self._tts: object | None = None
+        from typing import Any as _Any
+        self._tts: _Any = None
         self._chunks: list[bytes] = []
         self._done_event: threading.Event = threading.Event()
         self._first_chunk_time: float | None = None

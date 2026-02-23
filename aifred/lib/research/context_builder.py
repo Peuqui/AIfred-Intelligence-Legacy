@@ -36,7 +36,7 @@ async def build_and_generate_response(
     scraped_results: List[Dict],
     tool_results: List[Dict],
     failed_sources: List[Dict],
-    history: List[tuple],
+    history: List,
     llm_history: List[Dict[str, str]],
     session_id: Optional[str],
     mode: str,
@@ -197,8 +197,8 @@ async def build_and_generate_response(
             llm_client, model_choice, messages, llm_options,
             enable_vram_limit=enable_vram_limit
         )
-        for msg in vram_debug_msgs:
-            yield {"type": "debug", "message": msg}
+        for debug_msg in vram_debug_msgs:
+            yield {"type": "debug", "message": debug_msg}
 
     # Get model max context for compact display
     model_limit, _ = await llm_client.get_model_context_limit(model_choice)
@@ -254,8 +254,9 @@ async def build_and_generate_response(
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
     else:
         # Auto: Reuse detected_intent from state.py (no duplicate LLM call)
-        final_temperature = get_temperature_for_intent(detected_intent)
-        temp_label = get_temperature_label(detected_intent)
+        intent = detected_intent or "chat"
+        final_temperature = get_temperature_for_intent(intent)
+        temp_label = get_temperature_label(intent)
         log_message(f"🌡️ RAG Temperature: {final_temperature} (Intent: {detected_intent})")
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 

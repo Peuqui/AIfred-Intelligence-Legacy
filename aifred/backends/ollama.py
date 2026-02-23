@@ -6,7 +6,7 @@ Wraps Ollama API into unified LLMBackend interface
 
 import httpx
 import logging
-from typing import List, Optional, AsyncIterator, Dict
+from typing import Any, List, Optional, AsyncIterator, Dict
 from ..lib.timer import Timer
 from .base import (
     LLMBackend,
@@ -155,7 +155,7 @@ class OllamaBackend(LLMBackend):
                                 image_base64_list.append(base64_data)
 
                 # Build Ollama message with separate images array
-                ollama_msg = {
+                ollama_msg: dict[str, Any] = {
                     "role": msg.role,
                     "content": " ".join(text_parts)
                 }
@@ -363,7 +363,7 @@ class OllamaBackend(LLMBackend):
                                 image_base64_list.append(base64_data)
 
                 # Build Ollama message with separate images array
-                ollama_msg = {
+                ollama_msg: dict[str, Any] = {
                     "role": msg.role,
                     "content": " ".join(text_parts)
                 }
@@ -639,7 +639,7 @@ class OllamaBackend(LLMBackend):
                 logger.info("No models currently loaded")
                 return (True, [])
 
-            unloaded_models = []
+            unloaded_models: list[str] = []
 
             # Unload each model
             for model_info in loaded_models:
@@ -915,7 +915,7 @@ class OllamaBackend(LLMBackend):
             for loaded_model in loaded_models:
                 if loaded_model.get('name') == model:
                     # Return the context_length Ollama is using for this model
-                    return loaded_model.get('context_length')
+                    return int(loaded_model['context_length'])
 
             return None  # Model not loaded
 
@@ -1034,7 +1034,7 @@ class OllamaBackend(LLMBackend):
                         f"fully_in_vram={size == size_vram}"
                     )
 
-                    return size == size_vram
+                    return bool(size == size_vram)
 
             logger.warning(f"Model {model} not found in /api/ps response")
             return False
@@ -1109,7 +1109,7 @@ class OllamaBackend(LLMBackend):
                 if ram_ok and swap_ok:
                     result = mid
                     low = mid
-                    yield f"✓ {format_number(mid)} fits ({format_number(check_ram)} MB free, +{format_number(swap_increase)} MB swap)"
+                    yield f"✓ {format_number(mid)} fits ({format_number(check_ram or 0)} MB free, +{format_number(swap_increase)} MB swap)"
                 elif not swap_ok:
                     # Excessive swapping - context too large
                     high = mid
@@ -1308,6 +1308,8 @@ class OllamaBackend(LLMBackend):
             yield "→ Hybrid mode: CPU offload required"
 
             # Check if model fits in VRAM + RAM (with fixed reserve)
+            # free_ram_mb is guaranteed non-None here (line 1302 catches that case)
+            assert free_ram_mb is not None
             total_available_mb = free_vram_mb + free_ram_mb - MIN_FREE_RAM_MB
             if model_size_mb > total_available_mb:
                 yield f"❌ Model ({format_number(model_size_mb / 1024, 1)} GB) > available ({format_number(total_available_mb / 1024, 1)} GB)"

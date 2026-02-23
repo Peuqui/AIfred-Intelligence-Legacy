@@ -23,7 +23,7 @@ from ..streaming_utils import stream_llm_response
 async def handle_cache_hit(
     session_id: Optional[str],
     user_text: str,
-    history: List[tuple],
+    history: list,
     llm_history: List[Dict[str, str]],
     model_choice: str,
     automatik_model: str,
@@ -68,7 +68,8 @@ async def handle_cache_hit(
             log_message(f"⚠️ No cache found for session {session_id[:8]}... → Normal web research")
         return
 
-    # Cache-Hit! (cache_entry is guaranteed not None here)
+    # Cache-Hit! (cache_entry is guaranteed not None here, session_id must be valid)
+    assert session_id is not None
     log_message(f"💾 Cache-Hit! Using cached research (Session {session_id[:8]}...)")
     log_message(f"   Original question: {cache_entry.get('user_text', 'N/A')[:80]}...")
     log_message(f"   Cache contains {len(cached_sources)} sources")

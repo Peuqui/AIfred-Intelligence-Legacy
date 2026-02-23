@@ -12,7 +12,7 @@ Includes:
 """
 
 import datetime
-from typing import Dict, List, Optional, AsyncIterator
+from typing import Any, Dict, List, Optional, AsyncIterator
 
 from .llm_client import LLMClient
 from .timer import Timer
@@ -46,7 +46,7 @@ async def _process_single_image_vision(
     image_index: int,
     vision_model: str,
     backend_type: str,
-    backend_url: str,
+    backend_url: Optional[str],
     num_ctx: int,
     supports_chat_template: bool,
     lang: str,
@@ -87,7 +87,7 @@ async def _process_single_image_vision(
     log_message(f"📷 [{image_index + 1}] Processing: {img_name}")
 
     # Build content parts for single image
-    content_parts = []
+    content_parts: list[dict[str, Any]] = []
 
     # Add default prompt for template-less models
     if not supports_chat_template:
@@ -151,7 +151,7 @@ async def _process_single_image_vision(
     try:
         async for chunk in llm_client.chat_stream(
             model=vision_model,
-            messages=messages,
+            messages=messages,  # type: ignore[arg-type]
             options=vision_options
         ):
             if chunk.get("type") == "content":
@@ -923,11 +923,13 @@ async def chat_with_vision_pipeline(
     log_message(f"📐 Reading model capabilities for Vision-LLM ({vision_model})...")
 
     # Cloud API doesn't have /api/show endpoint - use sensible defaults
+    intrinsic_num_ctx: Optional[int]
     if backend_type == "cloud_api":
         supports_chat_template = True  # Cloud APIs always support chat format
         intrinsic_num_ctx = 128000     # Most cloud models have 128K+ context
         log_message("📋 Cloud API: assuming chat support, 128K context")
     else:
+        assert backend_url is not None, "backend_url required for non-cloud backends"
         supports_chat_template, intrinsic_num_ctx = await get_vision_model_capabilities(backend_url, vision_model)
 
     # === Calculate VRAM-based context limit (same as Main-LLM) ===
@@ -1242,7 +1244,7 @@ async def chat_interactive_mode(
     """
     # Build multimodal content if images present
     if pending_images:
-        user_content = [{"type": "text", "text": user_text}]
+        user_content: list[dict[str, Any]] = [{"type": "text", "text": user_text}]
         for img in pending_images:
             user_content.append({
                 "type": "image_url",
@@ -1311,7 +1313,7 @@ async def chat_interactive_mode(
                 model_choice=model_choice,
                 history=history,
                 llm_history=llm_history,
-                detected_intent=detected_intent,
+                detected_intent=detected_intent or "chat",
                 detected_language=detected_language,
                 temperature_mode=temperature_mode,
                 temperature=temperature,
@@ -1699,7 +1701,7 @@ async def chat_interactive_mode(
 
             if multimodal_user_content is not None:
                 # Multimodal: Build without user text, then append multimodal content
-                messages = build_messages_from_llm_history(
+                messages: list[dict[str, Any]] = build_messages_from_llm_history(
                     llm_history,
                     perspective="aifred",
                     detected_language=detected_user_language
@@ -1754,9 +1756,10 @@ async def chat_interactive_mode(
                 yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
             else:
                 # Auto: Reuse detected_intent from state.py (no duplicate LLM call)
-                final_temperature = get_temperature_for_intent(detected_intent)
-                temp_label = get_temperature_label(detected_intent)
-                log_message(f"🌡️ RAG Bypass Temperature: {final_temperature} (Intent: {detected_intent})")
+                intent = detected_intent or "chat"
+                final_temperature = get_temperature_for_intent(intent)
+                temp_label = get_temperature_label(intent)
+                log_message(f"🌡️ RAG Bypass Temperature: {final_temperature} (Intent: {intent})")
                 yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
             # Calculate num_ctx using centralized function (respects per-agent settings)
@@ -1816,7 +1819,7 @@ async def chat_interactive_mode(
 
             async for chunk in llm_client.chat_stream(
                 model=model_choice,
-                messages=llm_messages,
+                messages=llm_messages,  # type: ignore[arg-type]
                 options=main_llm_options
             ):
                 if chunk["type"] == "content":
@@ -1884,6 +1887,7 @@ async def chat_interactive_mode(
                 architecture = "moe" if is_moe else "dense"
 
                 # Save measurement to unified cache
+                assert vram_before_inference is not None  # guaranteed by guard on line 1834
                 add_vram_measurement(
                     model_name=model_choice,
                     context_tokens=final_num_ctx,
@@ -2052,7 +2056,7 @@ async def chat_interactive_mode(
                     model_choice=model_choice,
                     history=history,
                     llm_history=llm_history,
-                    detected_intent=detected_intent,
+                    detected_intent=detected_intent or "chat",
                     detected_language=detected_user_language,
                     temperature_mode=temperature_mode,
                     temperature=temperature,

@@ -97,13 +97,15 @@ class BackendFactory:
             base_url = BACKEND_URLS.get(backend_type, "http://localhost:8000")
 
         # Create instance
+        instance: LLMBackend
         if backend_type in ["vllm", "tabbyapi", "llamacpp"]:
             # OpenAI-compatible backends need api_key (even if dummy)
             api_key = api_key or "dummy"
-            return backend_class(base_url=base_url, api_key=api_key)
+            instance = backend_class(base_url=base_url, api_key=api_key)
         else:
             # Ollama doesn't need api_key
-            return backend_class(base_url=base_url)
+            instance = backend_class(base_url=base_url)
+        return instance
 
     @classmethod
     def list_available_backends(cls) -> list[str]:

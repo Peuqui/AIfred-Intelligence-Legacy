@@ -5,7 +5,7 @@ Extracted from agent_tools.py for better modularity.
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .base import BaseTool
 from .search_tools import MultiAPISearchTool
@@ -59,17 +59,18 @@ def get_tool_registry() -> ToolRegistry:
 # CONVENIENCE FUNCTIONS
 # ============================================================
 
-def search_web(query: str) -> Dict:
+def search_web(query: str) -> Dict[str, Any]:
     """
     Convenience function for web search with multi-API fallback
     (Legacy: Single query to ALL APIs in parallel)
     """
     registry = get_tool_registry()
     search_tool = registry.get("Multi-API Search")
+    assert search_tool is not None, "Multi-API Search tool not registered"
     return search_tool.execute(query)
 
 
-def search_web_multi(queries: List[str]) -> Dict:
+def search_web_multi(queries: List[str]) -> Dict[str, Any]:
     """
     Multi-query web search: Distributes queries across different APIs
 
@@ -89,6 +90,7 @@ def search_web_multi(queries: List[str]) -> Dict:
     """
     registry = get_tool_registry()
     search_tool = registry.get("Multi-API Search")
+    assert search_tool is not None, "Multi-API Search tool not registered"
 
     # Fallback: If only 1 query, use execute() for ALL APIs in parallel
     # This ensures all 3 APIs are used even when LLM returns just one query
@@ -101,10 +103,11 @@ def search_web_multi(queries: List[str]) -> Dict:
         result = search_tool.execute(queries[0])  # All 3 APIs parallel
         return result
 
+    assert isinstance(search_tool, MultiAPISearchTool)
     return search_tool.execute_multi_query(queries)
 
 
-def scrape_webpage(url: str) -> Dict:
+def scrape_webpage(url: str) -> Dict[str, Any]:
     """
     Convenience function for web scraping
 
@@ -113,6 +116,7 @@ def scrape_webpage(url: str) -> Dict:
     """
     registry = get_tool_registry()
     scraper_tool = registry.get("Web Scraper")
+    assert scraper_tool is not None, "Web Scraper tool not registered"
     return scraper_tool.execute(url)
 
 

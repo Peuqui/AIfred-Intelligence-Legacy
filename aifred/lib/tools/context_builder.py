@@ -13,7 +13,7 @@ from ..logging_utils import log_message
 # Logging Setup
 logger = logging.getLogger(__name__)
 
-def build_context(user_text: str, tool_results: List[Dict], max_context_tokens: int = None) -> str:
+def build_context(user_text: str, tool_results: List[Dict], max_context_tokens: int | None = None) -> str:
     """
     Build structured context for AI from tool results
 

@@ -242,7 +242,7 @@ class vLLMProcessManager:
     def __init__(
         self,
         port: int = 8001,
-        max_model_len: int = None,
+        max_model_len: int = 0,
         gpu_memory_utilization: float = 0.85,
         yarn_config: Optional[dict] = None
     ):
@@ -257,7 +257,7 @@ class vLLMProcessManager:
                 Example: {"factor": 2.0, "original_max_position_embeddings": 40960}
         """
         self.port = port
-        self.max_model_len = max_model_len  # None = auto-detect
+        self.max_model_len = max_model_len  # 0 = auto-detect
         self.gpu_memory_utilization = gpu_memory_utilization
         self.yarn_config = yarn_config  # YaRN configuration
         self.process: Optional[subprocess.Popen] = None
@@ -321,8 +321,8 @@ class vLLMProcessManager:
             "--gpu-memory-utilization", str(self.gpu_memory_utilization),
         ]
 
-        # Only add max-model-len if explicitly set (otherwise auto-detect)
-        if self.max_model_len is not None:
+        # Only add max-model-len if explicitly set (0 = auto-detect)
+        if self.max_model_len > 0:
             cmd.extend(["--max-model-len", str(self.max_model_len)])
 
         if quant:
@@ -491,8 +491,8 @@ class vLLMProcessManager:
             log_feedback(f"⚠️ Could not detect native context: {e}")
             native_context = 40960  # Default fallback
 
-        # If max_model_len is explicitly set, use it directly
-        if self.max_model_len is not None:
+        # If max_model_len is explicitly set, use it directly (0 = auto-detect)
+        if self.max_model_len > 0:
             log_feedback(f"📏 Using configured max_model_len: {self.max_model_len:,} tokens")
             success = await self.start(model, timeout=timeout)
             return (success, {
@@ -504,6 +504,8 @@ class vLLMProcessManager:
         # STRATEGY 1: Get current free VRAM and check cache for interpolation
         from aifred.lib.gpu_utils import get_gpu_memory_info
         gpu_info = get_gpu_memory_info()
+        free_vram_mb: int | float = 0
+        total_vram_mb: int | float = 0
         if gpu_info:
             total_vram_mb = gpu_info["total_mb"]
             free_vram_mb = gpu_info["free_mb"]
@@ -788,7 +790,7 @@ class vLLMProcessManager:
                     else:
                         log_feedback("⚠️ YaRN active - not caching (cache is for native context only)")
 
-                    result = {
+                    result: dict[str, int | float] = {
                         "native_context": native_context,
                         "hardware_limit": max_possible,
                         "used_context": max_possible

@@ -386,7 +386,8 @@ def get_ollama_calibration(model_name: str, rope_factor: float = 1.0) -> Optiona
     # Get latest calibration with the requested RoPE factor
     for cal in reversed(calibrations):
         if field_name in cal:
-            return cal[field_name]
+            result: int | None = cal[field_name]
+            return result
 
     return None
 
@@ -425,7 +426,8 @@ def is_ollama_model_hybrid(model_name: str, rope_factor: float = 1.0) -> bool:
     for cal in reversed(calibrations):
         if field_name in cal:
             # Return is_hybrid flag (default False if not present)
-            return cal.get("is_hybrid", False)
+            result: bool = cal.get("is_hybrid", False)
+            return result
 
     return False
 
@@ -581,7 +583,8 @@ def get_thinking_support_for_model(model_name: str) -> Optional[bool]:
     cache = load_cache()
     if model_name not in cache:
         return None
-    return cache[model_name].get("supports_thinking")
+    result: bool | None = cache[model_name].get("supports_thinking")
+    return result
 
 
 # ============================================================================

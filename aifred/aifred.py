@@ -446,7 +446,7 @@ def image_upload_section() -> rx.Component:
                             position="absolute",
                             top="4px",
                             left="4px",
-                            on_click=AIState.open_crop_modal(idx),
+                            on_click=AIState.open_crop_modal(idx),  # type: ignore[call-arg]
                             title=t("crop_tooltip"),
                         ),
                         # Remove-Button (rechts oben) - größer für Touch
@@ -458,7 +458,7 @@ def image_upload_section() -> rx.Component:
                             position="absolute",
                             top="4px",
                             right="4px",
-                            on_click=AIState.remove_pending_image(idx),
+                            on_click=AIState.remove_pending_image(idx),  # type: ignore[call-arg]
                         ),
                         position="relative",
                     )
@@ -967,7 +967,7 @@ def llm_parameters_accordion() -> rx.Component:
                                 on_blur=AIState.set_num_ctx_manual_aifred,
                                 type="number",
                                 width="78px",
-                                disabled=~AIState.num_ctx_manual_aifred_enabled,
+                                disabled=~AIState.num_ctx_manual_aifred_enabled,  # type: ignore[arg-type]
                                 opacity=rx.cond(
                                     AIState.num_ctx_manual_aifred_enabled,
                                     "1.0",
@@ -999,7 +999,7 @@ def llm_parameters_accordion() -> rx.Component:
                                 on_blur=AIState.set_num_ctx_manual_sokrates,
                                 type="number",
                                 width="78px",
-                                disabled=~AIState.num_ctx_manual_sokrates_enabled,
+                                disabled=~AIState.num_ctx_manual_sokrates_enabled,  # type: ignore[arg-type]
                                 opacity=rx.cond(
                                     AIState.num_ctx_manual_sokrates_enabled,
                                     "1.0",
@@ -1031,7 +1031,7 @@ def llm_parameters_accordion() -> rx.Component:
                                 on_blur=AIState.set_num_ctx_manual_salomo,
                                 type="number",
                                 width="78px",
-                                disabled=~AIState.num_ctx_manual_salomo_enabled,
+                                disabled=~AIState.num_ctx_manual_salomo_enabled,  # type: ignore[arg-type]
                                 opacity=rx.cond(
                                     AIState.num_ctx_manual_salomo_enabled,
                                     "1.0",
@@ -1064,7 +1064,7 @@ def llm_parameters_accordion() -> rx.Component:
                                 on_blur=AIState.set_vision_num_ctx,  # Save only when leaving field (Tab/Enter/click away)
                                 type="number",
                                 width="78px",
-                                disabled=~AIState.vision_num_ctx_enabled,
+                                disabled=~AIState.vision_num_ctx_enabled,  # type: ignore[arg-type]
                                 opacity=rx.cond(
                                     AIState.vision_num_ctx_enabled,
                                     "1.0",
@@ -1406,7 +1406,7 @@ def render_history_thumbnail(img_data) -> rx.Component:
         border_radius="4px",
         cursor="pointer",
         border=f"1px solid {COLORS['border']}",
-        on_click=AIState.open_lightbox(img_url),
+        on_click=AIState.open_lightbox(img_url),  # type: ignore[call-arg]
         style={
             "transition": "transform 0.2s ease, box-shadow 0.2s ease",
             # Mobile touch handling - prevent native context menu
@@ -1515,7 +1515,7 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
                 rx.spinner(size="1"),
                 rx.icon("refresh-cw", size=16),
             ),
-            on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),
+            on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),  # type: ignore[call-arg]
             title=t("audio_regenerate_tooltip"),
             size="1",
             variant="ghost",
@@ -1874,7 +1874,7 @@ def session_list_display() -> rx.Component:
                         size="1",
                         variant="ghost",
                         color_scheme="red",
-                        on_click=AIState.delete_session(session["session_id"]),
+                        on_click=AIState.delete_session(session["session_id"]),  # type: ignore[call-arg]
                         cursor="pointer",
                     ),
                     rx.fragment(),
@@ -1895,7 +1895,7 @@ def session_list_display() -> rx.Component:
                 "background_color": COLORS["card_bg"],
             },
             cursor="pointer",
-            on_click=AIState.switch_session(session["session_id"]),
+            on_click=AIState.switch_session(session["session_id"]),  # type: ignore[call-arg]
             width="100%",
         )
 
@@ -2818,7 +2818,7 @@ def settings_accordion() -> rx.Component:
                                 rx.text("🎩", font_size="14px"),
                                 rx.checkbox(
                                     checked=AIState.aifred_personality,
-                                    on_change=lambda _: AIState.toggle_aifred_personality(),
+                                    on_change=AIState.toggle_aifred_personality,
                                     size="1",
                                     color_scheme="orange",
                                     variant="surface",
@@ -2833,7 +2833,7 @@ def settings_accordion() -> rx.Component:
                                 rx.text("💭", font_size="14px"),
                                 rx.checkbox(
                                     checked=AIState.aifred_reasoning,
-                                    on_change=lambda _: AIState.toggle_aifred_reasoning(),
+                                    on_change=AIState.toggle_aifred_reasoning,
                                     size="1",
                                     color_scheme="orange",
                                     variant="surface",
@@ -2848,7 +2848,7 @@ def settings_accordion() -> rx.Component:
                                 rx.text("🧠", font_size="14px"),
                                 rx.checkbox(
                                     checked=AIState.aifred_thinking,
-                                    on_change=lambda _: AIState.toggle_aifred_thinking(),
+                                    on_change=AIState.toggle_aifred_thinking,
                                     size="1",
                                     color_scheme="blue",
                                     variant="surface",
@@ -2882,7 +2882,7 @@ def settings_accordion() -> rx.Component:
                                 rx.text("🎩", font_size="14px"),
                                 rx.checkbox(
                                     checked=AIState.aifred_personality,
-                                    on_change=lambda _: AIState.toggle_aifred_personality(),
+                                    on_change=AIState.toggle_aifred_personality,
                                     size="1",
                                     color_scheme="orange",
                                     variant="surface",
@@ -2897,7 +2897,7 @@ def settings_accordion() -> rx.Component:
                                 rx.text("💭", font_size="14px"),
                                 rx.checkbox(
                                     checked=AIState.aifred_reasoning,
-                                    on_change=lambda _: AIState.toggle_aifred_reasoning(),
+                                    on_change=AIState.toggle_aifred_reasoning,
                                     size="1",
                                     color_scheme="orange",
                                     variant="surface",
@@ -2912,7 +2912,7 @@ def settings_accordion() -> rx.Component:
                                 rx.text("🧠", font_size="14px"),
                                 rx.checkbox(
                                     checked=AIState.aifred_thinking,
-                                    on_change=lambda _: AIState.toggle_aifred_thinking(),
+                                    on_change=AIState.toggle_aifred_thinking,
                                     size="1",
                                     color_scheme="blue",
                                     variant="surface",
@@ -2947,7 +2947,7 @@ def settings_accordion() -> rx.Component:
                                     ),
                                     rx.switch(
                                         checked=AIState.aifred_speed_mode,
-                                        on_change=lambda _: AIState.toggle_aifred_speed_mode(),
+                                        on_change=AIState.toggle_aifred_speed_mode,
                                         size="1",
                                     ),
                                     rx.text(
@@ -3023,7 +3023,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("🏛️", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.sokrates_personality,
-                                        on_change=lambda _: AIState.toggle_sokrates_personality(),
+                                        on_change=AIState.toggle_sokrates_personality,
                                         size="1",
                                         color_scheme="orange",
                                         variant="surface",
@@ -3038,7 +3038,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("💭", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.sokrates_reasoning,
-                                        on_change=lambda _: AIState.toggle_sokrates_reasoning(),
+                                        on_change=AIState.toggle_sokrates_reasoning,
                                         size="1",
                                         color_scheme="orange",
                                         variant="surface",
@@ -3053,7 +3053,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("🧠", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.sokrates_thinking,
-                                        on_change=lambda _: AIState.toggle_sokrates_thinking(),
+                                        on_change=AIState.toggle_sokrates_thinking,
                                         size="1",
                                         color_scheme="blue",
                                         variant="surface",
@@ -3087,7 +3087,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("🏛️", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.sokrates_personality,
-                                        on_change=lambda _: AIState.toggle_sokrates_personality(),
+                                        on_change=AIState.toggle_sokrates_personality,
                                         size="1",
                                         color_scheme="orange",
                                         variant="surface",
@@ -3102,7 +3102,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("💭", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.sokrates_reasoning,
-                                        on_change=lambda _: AIState.toggle_sokrates_reasoning(),
+                                        on_change=AIState.toggle_sokrates_reasoning,
                                         size="1",
                                         color_scheme="orange",
                                         variant="surface",
@@ -3117,7 +3117,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("🧠", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.sokrates_thinking,
-                                        on_change=lambda _: AIState.toggle_sokrates_thinking(),
+                                        on_change=AIState.toggle_sokrates_thinking,
                                         size="1",
                                         color_scheme="blue",
                                         variant="surface",
@@ -3152,7 +3152,7 @@ def settings_accordion() -> rx.Component:
                                         ),
                                         rx.switch(
                                             checked=AIState.sokrates_speed_mode,
-                                            on_change=lambda _: AIState.toggle_sokrates_speed_mode(),
+                                            on_change=AIState.toggle_sokrates_speed_mode,
                                             size="1",
                                             disabled=AIState.sokrates_model == "",
                                         ),
@@ -3230,7 +3230,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("👑", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.salomo_personality,
-                                        on_change=lambda _: AIState.toggle_salomo_personality(),
+                                        on_change=AIState.toggle_salomo_personality,
                                         size="1",
                                         color_scheme="orange",
                                         variant="surface",
@@ -3245,7 +3245,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("💭", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.salomo_reasoning,
-                                        on_change=lambda _: AIState.toggle_salomo_reasoning(),
+                                        on_change=AIState.toggle_salomo_reasoning,
                                         size="1",
                                         color_scheme="orange",
                                         variant="surface",
@@ -3260,7 +3260,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("🧠", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.salomo_thinking,
-                                        on_change=lambda _: AIState.toggle_salomo_thinking(),
+                                        on_change=AIState.toggle_salomo_thinking,
                                         size="1",
                                         color_scheme="blue",
                                         variant="surface",
@@ -3294,7 +3294,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("👑", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.salomo_personality,
-                                        on_change=lambda _: AIState.toggle_salomo_personality(),
+                                        on_change=AIState.toggle_salomo_personality,
                                         size="1",
                                         color_scheme="orange",
                                         variant="surface",
@@ -3309,7 +3309,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("💭", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.salomo_reasoning,
-                                        on_change=lambda _: AIState.toggle_salomo_reasoning(),
+                                        on_change=AIState.toggle_salomo_reasoning,
                                         size="1",
                                         color_scheme="orange",
                                         variant="surface",
@@ -3324,7 +3324,7 @@ def settings_accordion() -> rx.Component:
                                     rx.text("🧠", font_size="14px"),
                                     rx.checkbox(
                                         checked=AIState.salomo_thinking,
-                                        on_change=lambda _: AIState.toggle_salomo_thinking(),
+                                        on_change=AIState.toggle_salomo_thinking,
                                         size="1",
                                         color_scheme="blue",
                                         variant="surface",
@@ -3359,7 +3359,7 @@ def settings_accordion() -> rx.Component:
                                         ),
                                         rx.switch(
                                             checked=AIState.salomo_speed_mode,
-                                            on_change=lambda _: AIState.toggle_salomo_speed_mode(),
+                                            on_change=AIState.toggle_salomo_speed_mode,
                                             size="1",
                                             disabled=AIState.salomo_model == "",
                                         ),
@@ -4306,7 +4306,7 @@ def login_dialog() -> rx.Component:
                             rx.hstack(
                                 rx.button(
                                     "Anmelden",
-                                    on_click=lambda: AIState.open_login_dialog("login"),
+                                    on_click=lambda: AIState.open_login_dialog("login"),  # type: ignore[arg-type]
                                     variant=rx.cond(AIState.login_mode == "login", "solid", "ghost"),
                                     color_scheme="orange",
                                     size="2",
@@ -4314,7 +4314,7 @@ def login_dialog() -> rx.Component:
                                 ),
                                 rx.button(
                                     "Registrieren",
-                                    on_click=lambda: AIState.open_login_dialog("register"),
+                                    on_click=lambda: AIState.open_login_dialog("register"),  # type: ignore[arg-type]
                                     variant=rx.cond(AIState.login_mode == "register", "solid", "ghost"),
                                     color_scheme="orange",
                                     size="2",
@@ -5241,7 +5241,7 @@ console.log('✂️ Crop handler loaded');
                         key="tts-audio-" + AIState.tts_trigger_counter.to(str),  # Force remount on new audio
                         # Set playback rate from agent settings via data attribute
                         # JavaScript reads this on play event
-                        **{"data-playback-rate": AIState.tts_playback_rate},
+                        **{"data-playback-rate": AIState.tts_playback_rate},  # type: ignore[arg-type]
                         style={
                             "width": "100%",
                             "height": "40px",
@@ -5363,6 +5363,7 @@ app = rx.App(
 # This avoids the "ASGI flow error: Connection already upgraded" bug
 # that occurs when using api_transformer with WebSocket connections
 from .lib.api import api_app  # noqa: E402
+assert app._api is not None
 app._api.mount("/api", api_app)
 
 # Mount static file directories from data/

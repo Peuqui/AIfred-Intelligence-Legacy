@@ -379,7 +379,7 @@ def is_summary_message(msg: Dict[str, Any]) -> bool:
 
     # Assistant with no user context and summary marker
     if role == "assistant":
-        return (
+        return bool(
             content.startswith("[📊 Compressed") or
             content.startswith("[📊 Komprimiert") or
             content.startswith("[📊 Summary #")
@@ -621,8 +621,8 @@ async def summarize_history_if_needed(
     llm_client,
     model_name: str,
     context_limit: int,
-    max_summaries: int = None,
-    llm_history: List[Dict[str, str]] = None,
+    max_summaries: int | None = None,
+    llm_history: List[Dict[str, str]] | None = None,
     system_prompt_tokens: int = 0,
     detected_language: str = "de"
 ) -> AsyncIterator[Dict]:

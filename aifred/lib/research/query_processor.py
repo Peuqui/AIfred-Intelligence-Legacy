@@ -126,7 +126,7 @@ async def process_query_and_search(
     llm_history: List[Dict[str, str]],
     automatik_model: str,
     automatik_llm_client,
-    llm_options: Dict = None,
+    llm_options: Dict | None = None,
     vision_json_context: Optional[Dict] = None,
     pre_generated_queries: Optional[List[str]] = None
 ) -> AsyncIterator[Dict]:
@@ -149,7 +149,7 @@ async def process_query_and_search(
         Tuple[str, str, float, List[str], List[Dict]]:
         (optimized_query, query_reasoning, query_opt_time, related_urls, tool_results)
     """
-    tool_results = []
+    tool_results: List[Dict] = []
 
     # ============================================================
     # STEP 0: URL DETECTION & INTENT ANALYSIS

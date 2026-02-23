@@ -34,7 +34,7 @@ def set_research_cache(cache_dict: Dict, lock: threading.Lock) -> None:
         lock: threading.Lock() for thread-safe access
     """
     global _research_cache, _research_cache_lock
-    _research_cache = cache_dict
+    _research_cache = OrderedDict(cache_dict)
     _research_cache_lock = lock
 
 
@@ -62,7 +62,7 @@ def get_cached_research(session_id: Optional[str]) -> Optional[Dict]:
         if session_id in _research_cache:
             cache_entry = _research_cache[session_id]
             log_message(f"   ✅ Cache-Hit! Entry found with {len(cache_entry.get('scraped_sources', []))} sources")
-            return cache_entry.copy()
+            return dict(cache_entry)
         else:
             log_message(f"   ❌ Cache-Miss! session_id '{session_id[:8]}...' not in cache")
     return None

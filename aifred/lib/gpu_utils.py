@@ -244,7 +244,7 @@ def get_gpu_model_name(gpu_index: int = 0) -> Optional[str]:
         if isinstance(name, bytes):
             name = name.decode('utf-8')
 
-        return name
+        return str(name)
 
     except Exception:
         return None

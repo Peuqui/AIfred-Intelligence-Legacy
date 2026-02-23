@@ -8,7 +8,7 @@ for llama.cpp backend integration.
 import struct
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ def get_gguf_layer_count(gguf_path: Path) -> Optional[int]:
 
         with open(gguf_path, "rb") as f:
             try:
-                reader = gguf.GGUFReader(f)
+                reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
 
                 # Generic pattern: match any *.block_count key
                 # (same approach as get_gguf_native_context for context_length)
@@ -175,7 +175,7 @@ def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
         with open(gguf_path, "rb") as f:
             try:
                 # Load GGUF metadata
-                reader = gguf.GGUFReader(f)
+                reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
 
                 # Search for ANY key that ends with 'context_length' or contains 'max_position_embeddings'
                 # This is more robust than hardcoding all possible architecture names
@@ -251,7 +251,7 @@ def extract_quantization_from_filename(filename: str) -> str:
     return "unknown"
 
 
-def parse_gguf_metadata(file_path: Path) -> Dict[str, any]:
+def parse_gguf_metadata(file_path: Path) -> Dict[str, Any]:
     """
     Parse GGUF file metadata (simplified version)
 
@@ -264,7 +264,7 @@ def parse_gguf_metadata(file_path: Path) -> Dict[str, any]:
     Returns:
         Dict with metadata (context_length, architecture, etc.)
     """
-    metadata = {}
+    metadata: Dict[str, Any] = {}
 
     try:
         with open(file_path, 'rb') as f:
@@ -296,7 +296,7 @@ def find_gguf_in_huggingface_cache() -> List[GGUFModelInfo]:
     Returns:
         List of GGUFModelInfo objects
     """
-    models = []
+    models: List[GGUFModelInfo] = []
     hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
 
     if not hf_cache.exists():
@@ -340,7 +340,7 @@ def find_gguf_in_custom_directory(directory: Path) -> List[GGUFModelInfo]:
     Returns:
         List of GGUFModelInfo objects
     """
-    models = []
+    models: List[GGUFModelInfo] = []
 
     if not directory.exists():
         return models
@@ -379,7 +379,7 @@ def find_ollama_gguf_blobs() -> List[GGUFModelInfo]:
     Returns:
         List of GGUFModelInfo objects (for informational purposes)
     """
-    models = []
+    models: List[GGUFModelInfo] = []
     ollama_blobs = Path.home() / ".ollama" / "models" / "blobs"
 
     if not ollama_blobs.exists():

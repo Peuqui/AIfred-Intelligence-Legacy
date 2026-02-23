@@ -10,7 +10,7 @@ Returns Dict[model_id, display_label] for UI dropdown population.
 """
 
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 import httpx
 
 from .logging_utils import log_message
@@ -19,7 +19,7 @@ from .model_manager import sort_models_grouped
 
 def discover_huggingface_models(
     backend_type: str,
-    is_compatible_fn: callable
+    is_compatible_fn: Callable[[Path, str], bool]
 ) -> Dict[str, str]:
     """
     Discover models from HuggingFace cache for vLLM/TabbyAPI backends.
@@ -161,7 +161,7 @@ def _get_llamacpp_model_sizes() -> Dict[str, float]:
 def discover_models(
     backend_type: str,
     backend_url: Optional[str] = None,
-    is_compatible_fn: Optional[callable] = None
+    is_compatible_fn: Optional[Callable[[Path, str], bool]] = None
 ) -> Dict[str, str]:
     """
     Unified model discovery for any backend type.
