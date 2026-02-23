@@ -17,6 +17,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 ## ✨ Features
 
 ### 🎯 Kern-Features
+- **Multi-Agent Debate System**: AIfred + Sokrates als kritischer Diskussionspartner für verbesserte Antwortqualität
 - **Multi-Backend-Unterstützung**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), **Cloud APIs** (Qwen, DeepSeek, Claude)
 - **Automatisches Modell-Lifecycle**: Zero-Config Modellverwaltung — neue Modelle werden beim Dienststart automatisch aus Ollama/HuggingFace erkannt, entfernte Modelle automatisch aus der Config bereinigt
 - **Vision/OCR-Unterstützung**: Bildanalyse mit multimodalen LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
@@ -33,10 +34,9 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
 - **Session-Persistenz**: Mobile Chat-History überlebt Browser-Hintergrund/Neustart (Cookie-basiert)
 - **Session-Verwaltung**: Chat-Liste mit LLM-generierten Titeln, zwischen Sessions wechseln, alte Chats löschen
-- **Chat teilen**: Export als portable HTML-Datei in neuem Browser-Tab (KaTeX-Fonts inline eingebettet, funktioniert offline)
+- **Chat teilen**: Export als portable HTML-Datei in neuem Browser-Tab (KaTeX-Fonts inline eingebettet, eingebettete TTS-Audioausgabe, funktioniert offline)
 - **HTML-Vorschau**: KI-generierter HTML-Code öffnet direkt im Browser (neuer Tab)
-- **LaTeX & Chemie**: KaTeX für Mathe-Formeln, mhchem-Erweiterung für Chemie (`\ce{H2O}`, Reaktionen, Strukturformeln)
-- **Multi-Agent Debate System**: AIfred + Sokrates als kritischer Diskussionspartner für verbesserte Antwortqualität
+- **LaTeX & Chemie**: KaTeX für Mathe-Formeln, mhchem-Erweiterung für Chemie (`\ce{H2O}`, Reaktionen)
 - **🚀 Massive Performance-Verbesserungen**: Direct-IO reduziert Modell-Ladezeiten von 60-90s auf **nur 2 Sekunden** (~45x schneller!) - Details in der [Modell-Parameter-Doku](docs/model-recommended-params.md) mit allen Optimierungen für 200B+ Modelle (KV-Quant, Batch-Größen, VRAM-Optimierung)
 
 ### 🎩 Multi-Agent Diskussionsmodi
