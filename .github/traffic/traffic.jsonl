@@ -1,0 +1,241 @@
+{
+  "date": "2026-02-23",
+  "views": {
+    "count": 66,
+    "uniques": 35,
+    "views": [
+      {
+        "timestamp": "2026-02-09T00:00:00Z",
+        "count": 7,
+        "uniques": 2
+      },
+      {
+        "timestamp": "2026-02-10T00:00:00Z",
+        "count": 3,
+        "uniques": 2
+      },
+      {
+        "timestamp": "2026-02-11T00:00:00Z",
+        "count": 3,
+        "uniques": 1
+      },
+      {
+        "timestamp": "2026-02-12T00:00:00Z",
+        "count": 3,
+        "uniques": 3
+      },
+      {
+        "timestamp": "2026-02-13T00:00:00Z",
+        "count": 1,
+        "uniques": 1
+      },
+      {
+        "timestamp": "2026-02-14T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-02-15T00:00:00Z",
+        "count": 10,
+        "uniques": 3
+      },
+      {
+        "timestamp": "2026-02-16T00:00:00Z",
+        "count": 13,
+        "uniques": 4
+      },
+      {
+        "timestamp": "2026-02-17T00:00:00Z",
+        "count": 2,
+        "uniques": 2
+      },
+      {
+        "timestamp": "2026-02-18T00:00:00Z",
+        "count": 8,
+        "uniques": 8
+      },
+      {
+        "timestamp": "2026-02-19T00:00:00Z",
+        "count": 8,
+        "uniques": 7
+      },
+      {
+        "timestamp": "2026-02-20T00:00:00Z",
+        "count": 2,
+        "uniques": 2
+      },
+      {
+        "timestamp": "2026-02-21T00:00:00Z",
+        "count": 3,
+        "uniques": 3
+      },
+      {
+        "timestamp": "2026-02-22T00:00:00Z",
+        "count": 3,
+        "uniques": 3
+      }
+    ]
+  },
+  "clones": {
+    "count": 2064,
+    "uniques": 340,
+    "clones": [
+      {
+        "timestamp": "2026-02-09T00:00:00Z",
+        "count": 111,
+        "uniques": 22
+      },
+      {
+        "timestamp": "2026-02-10T00:00:00Z",
+        "count": 2,
+        "uniques": 2
+      },
+      {
+        "timestamp": "2026-02-11T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-02-12T00:00:00Z",
+        "count": 175,
+        "uniques": 38
+      },
+      {
+        "timestamp": "2026-02-13T00:00:00Z",
+        "count": 79,
+        "uniques": 24
+      },
+      {
+        "timestamp": "2026-02-14T00:00:00Z",
+        "count": 148,
+        "uniques": 41
+      },
+      {
+        "timestamp": "2026-02-15T00:00:00Z",
+        "count": 102,
+        "uniques": 28
+      },
+      {
+        "timestamp": "2026-02-16T00:00:00Z",
+        "count": 128,
+        "uniques": 33
+      },
+      {
+        "timestamp": "2026-02-17T00:00:00Z",
+        "count": 145,
+        "uniques": 27
+      },
+      {
+        "timestamp": "2026-02-18T00:00:00Z",
+        "count": 432,
+        "uniques": 71
+      },
+      {
+        "timestamp": "2026-02-19T00:00:00Z",
+        "count": 335,
+        "uniques": 59
+      },
+      {
+        "timestamp": "2026-02-20T00:00:00Z",
+        "count": 97,
+        "uniques": 21
+      },
+      {
+        "timestamp": "2026-02-21T00:00:00Z",
+        "count": 172,
+        "uniques": 37
+      },
+      {
+        "timestamp": "2026-02-22T00:00:00Z",
+        "count": 138,
+        "uniques": 27
+      }
+    ]
+  },
+  "referrers": [
+    {
+      "referrer": "github.com",
+      "count": 27,
+      "uniques": 17
+    },
+    {
+      "referrer": "Google",
+      "count": 10,
+      "uniques": 1
+    },
+    {
+      "referrer": "reddit.com",
+      "count": 4,
+      "uniques": 3
+    },
+    {
+      "referrer": "peuqui.github.io",
+      "count": 1,
+      "uniques": 1
+    }
+  ],
+  "paths": [
+    {
+      "path": "/Peuqui/AIfred-Intelligence",
+      "title": "Peuqui/AIfred-Intelligence: 🎩 AIfred - Multi-Agent AI Assistant with TTS, RAG...",
+      "count": 42,
+      "uniques": 33
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/pulls",
+      "title": "Pull requests · Peuqui/AIfred-Intelligence · GitHub",
+      "count": 4,
+      "uniques": 4
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/issues",
+      "title": "GitHub · Where software is built",
+      "count": 3,
+      "uniques": 3
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/tree/main/docker/xtts",
+      "title": "AIfred-Intelligence/docker/xtts/Dockerfile at main · Peuqui/AIfred-Intelligen...",
+      "count": 3,
+      "uniques": 1
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/actions",
+      "title": "Workflow runs · Peuqui/AIfred-Intelligence · GitHub",
+      "count": 2,
+      "uniques": 2
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/blob/main/docker/xtts/README.md",
+      "title": "AIfred-Intelligence/docker/xtts/README.md at main · Peuqui/AIfred-Intelligenc...",
+      "count": 2,
+      "uniques": 1
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/blob/main/README.de.md",
+      "title": "AIfred-Intelligence/README.de.md at main · Peuqui/AIfred-Intelligence · GitHub",
+      "count": 1,
+      "uniques": 1
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/blob/main/docker/docker-compose.yml",
+      "title": "AIfred-Intelligence/docker at main · Peuqui/AIfred-Intelligence · GitHub",
+      "count": 1,
+      "uniques": 1
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/blob/main/docker/xtts/Dockerfile",
+      "title": "AIfred-Intelligence/docker/xtts at main · Peuqui/AIfred-Intelligence · GitHub",
+      "count": 1,
+      "uniques": 1
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/commit/67849fbd5387ab9fd553b82d07cccfa6ab7e8be3",
+      "title": "perf: fix Ollama reload, llama.cpp thinking, backend switch params · Peuqui/A...",
+      "count": 1,
+      "uniques": 1
+    }
+  ],
+  "stars": 22,
+  "forks": 2
+}
