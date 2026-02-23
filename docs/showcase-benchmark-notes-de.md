@@ -541,6 +541,7 @@ Einziges Modell, das quantitative Argumente einfuehrt:
 ### Zusatz-Analyse
 - Deutsch vs. Englisch Qualitaetsvergleich
 - Sprachliche Unterschiede, Persona-Konsistenz ueber Sprachen hinweg
+- 📄 [Tensor Split Benchmark: Speed Variant vs. Full Context](tensor-split-benchmark.md) — Multi-GPU Tensor-Split-Optimierung (11:1 vs. 2:1), reale Performance-Daten mit Qwen3-Next-80B auf RTX 8000 + P40
 
 ### Reddit-Post
 - Kurzer, knackiger Post mit Highlights
@@ -550,6 +551,7 @@ Einziges Modell, das quantitative Argumente einfuehrt:
   - Tribunal-Modus (Multi-Agent-Debatte)
   - Autoscan & Kalibrierung fuer lokale Modelle
   - Hardware-Benchmarks auf Prosumer-Setup
+  - Tensor-Split Speed-Benchmark (Multi-GPU Optimierung)
 
 ---
 
@@ -607,6 +609,7 @@ Alle 200B+ Modelle stabil mit 130-200 Tokens:
 
 - 📄 [docs/model-recommended-params.md](model-recommended-params.md) - Deutsch
 - 📄 [docs/model-recommended-params.en.md](model-recommended-params.en.md) - Englisch
+- 📄 [docs/tensor-split-benchmark.md](tensor-split-benchmark.md) - Tensor Split Speed Benchmark (Multi-GPU)
 
 ## Datenquellen
 
