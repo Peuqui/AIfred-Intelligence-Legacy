@@ -5,6 +5,36 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.46.0] - 2026-02-24 🏗️ Major Refactoring: Monolithen aufgelöst, Code dedupliziert
+
+### Changed
+
+- **`state.py` aufgelöst (9.433 → 432 LOC)** - Monolithische State-Datei in 12 Mixin-Module unter `aifred/state/` aufgeteilt. Jedes Mixin hat klare Verantwortung (Auth, Image, Export, Session, TTS, Chat, Settings, etc.). AIState erbt per Multiple Inheritance von allen Mixins.
+- **`aifred.py` aufgelöst (5.392 → 789 LOC)** - UI-Code in 6 Module unter `aifred/ui/` extrahiert: `helpers.py`, `modals.py`, `message_renderer.py`, `chat_display.py`, `input_sections.py`, `settings_accordion.py`.
+- **`multi_agent.py` dedupliziert (1.742 → 1.417 LOC, -19%)** - 3 identische Streaming-Helpers zu `_stream_agent_to_history()` zusammengeführt, 2 identische Direct-Response-Funktionen zu `_run_agent_direct_response()` mit Config-Dict.
+- **`conversation_handler.py` restructuriert** - 915-LOC-Monolith `chat_interactive_mode()` in Dispatcher (188 LOC) + 4 Sub-Funktionen zerlegt. 3 duplizierte Utilities extrahiert (`_select_history_for_context`, `_repair_json`, `_parse_json_with_recovery`).
+- **`audio_processing.py` dedupliziert** - 3 shared Utilities extrahiert (`_write_pcm_to_wav`, `_apply_pcm_gain`, `_validate_audio_output`), je 4+ Duplikate eliminiert.
+
+### Fixed
+
+- **2 Bugs in multi_agent.py** - Inkonsistente Cleanup-Reihenfolge in Streaming-Helpers: AIfred Refinement machte sync→yield→clear, Salomo machte yield→sync→clear. Korrekte Reihenfolge (sync→clear→yield) war nur bei Sokrates. Alle 3 jetzt einheitlich.
+- **config.py E402** - `import os as _os` auf Zeile 882 durch vorhandenes `os` (Zeile 8) ersetzt.
+
+### Removed
+
+- **5 tote Funktionen** - `cleanup_old_html_previews()`, `Timer.reset()`, `detect_query_intent()` (Legacy-Wrapper), `clear_console()`, `is_process_running()`
+- **9 tote Konstanten** - `SSL_KEYFILE`, `SSL_CERTFILE`, `DEBUG_ENABLED`, `BACKEND_ORDER`, `VOICES`, `RESEARCH_MODES`, `HYBRID_MIN_CONTEXT`, `RAM_RESERVE_MIN`, `CACHE_DISTANCE_MEDIUM`
+
+### Technical Details
+
+- 62 Dateien geändert (16.155 Insertions, 15.705 Deletions)
+- 21 neue Dateien (12 State-Mixins, 7 UI-Module, `state/__init__.py`, `ui/__init__.py`)
+- 1 Datei gelöscht (`state.py` → `state/` Package)
+- Größte Datei vorher: 9.433 LOC, nachher: 1.895 LOC
+- Dateien >2.000 LOC: 5 → 2
+- Mypy: 0 Errors (85 Dateien), Ruff: All checks passed
+- Service-Neustart verifiziert, Tribunal-Modus getestet
+
 ## [2.45.4] - 2026-02-23 🔧 Fix: Mypy 0 Errors (260 → 0 across 33 files)
 
 ### Fixed
