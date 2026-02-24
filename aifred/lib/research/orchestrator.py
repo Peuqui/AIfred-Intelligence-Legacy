@@ -105,6 +105,7 @@ async def perform_agent_research(
         agent_timer=agent_timer,
         state=state,
         user_name=user_name,
+        detected_language=detected_language or "de",
         automatik_num_ctx=automatik_num_ctx,
         backend_type=backend_type,
     ):

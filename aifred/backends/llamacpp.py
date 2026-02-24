@@ -3,37 +3,88 @@ llama.cpp Backend Adapter (via llama-swap)
 
 llama-swap is an OpenAI-compatible proxy that manages llama-server instances.
 It handles model loading/unloading, GPU allocation, and hot-swapping.
+chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 
 See docs/llamacpp-setup.md for hardware configuration and performance tuning.
 """
 
 import logging
 from typing import List, Optional, AsyncIterator, Dict, Any
-from openai import AsyncOpenAI
-from ..lib.timer import Timer
 from .base import (
-    LLMBackend,
-    LLMMessage,
+    OpenAICompatibleBackend,
     LLMOptions,
-    LLMResponse,
     BackendConnectionError,
-    BackendModelNotFoundError,
-    BackendInferenceError
 )
 
 logger = logging.getLogger(__name__)
 
 
-class LlamaCppBackend(LLMBackend):
-    """llama.cpp backend via llama-swap (OpenAI-compatible)"""
+class LlamaCppBackend(OpenAICompatibleBackend):
+    """llama.cpp backend via llama-swap (OpenAI-compatible)
+
+    Inherits chat() and chat_stream() from OpenAICompatibleBackend.
+    Overrides all 4 hooks for llama.cpp-specific behavior:
+    - _build_extra_body(): ALWAYS sends all sampling params (override server CLI defaults)
+    - _process_response_text(): extracts reasoning_content → <think> tags
+    - _process_stream_delta(): reasoning_content streaming with <think> state machine
+    - _finalize_stream(): closes open <think> tag if stream ends during thinking
+    """
+
+    BACKEND_NAME = "llama.cpp"
+    DEFAULT_TIMEOUT = 300.0  # llama-swap may need to start+load oversized models
 
     def __init__(self, base_url: str = "http://localhost:8080/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
-        self.client = AsyncOpenAI(
-            base_url=base_url,
-            api_key=api_key,
-            timeout=300.0  # llama-swap may need to start+load oversized models (MiniMax 80GB = ~3min cold start)
-        )
+
+    # === Hook overrides ===
+
+    def _build_extra_body(self, options: LLMOptions) -> Dict[str, Any]:
+        """llama.cpp: ALWAYS send all params to override server CLI defaults."""
+        extra_body: Dict[str, Any] = {
+            "repetition_penalty": options.repeat_penalty,
+            "top_k": options.top_k,
+            "min_p": options.min_p,
+        }
+        if options.enable_thinking is not None:
+            extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
+        return extra_body
+
+    def _process_response_text(self, choice: Any) -> str:
+        """Extract reasoning_content and wrap in <think> tags for unified handling."""
+        content = choice.message.content or ""
+        # llama-server puts thinking in reasoning_content (OpenAI format)
+        msg_dict = choice.message.model_dump() if hasattr(choice.message, 'model_dump') else {}
+        reasoning = msg_dict.get("reasoning_content") or ""
+        if reasoning:
+            return f"<think>{reasoning}</think>\n\n{content}"
+        return content
+
+    def _process_stream_delta(self, delta: Any, delta_dict: Dict, stream_state: Dict) -> List[Dict]:
+        """Stream reasoning_content as <think> tags (state machine)."""
+        chunks: List[Dict] = []
+        reasoning = delta_dict.get("reasoning_content") or ""
+
+        if reasoning:
+            if not stream_state.get("thinking_started"):
+                chunks.append({"type": "content", "text": "<think>"})
+                stream_state["thinking_started"] = True
+            chunks.append({"type": "content", "text": reasoning})
+
+        if delta.content:
+            if stream_state.get("thinking_started"):
+                chunks.append({"type": "content", "text": "</think>\n\n"})
+                stream_state["thinking_started"] = False
+            chunks.append({"type": "content", "text": delta.content})
+
+        return chunks
+
+    def _finalize_stream(self, stream_state: Dict) -> List[Dict]:
+        """Close open <think> tag if stream ends during thinking (edge case)."""
+        if stream_state.get("thinking_started"):
+            return [{"type": "content", "text": "</think>\n\n"}]
+        return []
+
+    # === Backend-specific methods ===
 
     async def list_models(self) -> List[str]:
         """Get list of available models from llama-swap"""
@@ -43,181 +94,6 @@ class LlamaCppBackend(LLMBackend):
             return self._available_models
         except Exception as e:
             raise BackendConnectionError(f"Failed to list llama.cpp models: {e}")
-
-    async def chat(
-        self,
-        model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
-        stream: bool = False
-    ) -> LLMResponse:
-        """Non-streaming chat with llama.cpp via llama-swap"""
-        if options is None:
-            options = LLMOptions()
-
-        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
-
-        kwargs: Dict[str, Any] = {
-            "model": model,
-            "messages": openai_messages,
-            "temperature": options.temperature,
-            "top_p": options.top_p,
-            "stream": False
-        }
-
-        if options.num_predict:
-            kwargs["max_tokens"] = options.num_predict
-
-        # llama-server supports repetition_penalty, top_k, min_p via extra_body
-        # Always send all params to override server CLI defaults with user values
-        extra_body: Dict[str, Any] = {
-            "repetition_penalty": options.repeat_penalty,
-            "top_k": options.top_k,
-            "min_p": options.min_p,
-        }
-
-        # Thinking control: pass enable_thinking to Jinja chat template (PR #13196)
-        if options.enable_thinking is not None:
-            extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
-
-        kwargs["extra_body"] = extra_body
-
-        try:
-            timer = Timer()
-            response = await self.client.chat.completions.create(**kwargs)
-            inference_time = timer.elapsed()
-
-            choice = response.choices[0]
-            content = choice.message.content or ""
-
-            # llama-server puts thinking in reasoning_content (OpenAI format)
-            # Convert to <think> tags for unified handling across all backends
-            msg_dict = choice.message.model_dump() if hasattr(choice.message, 'model_dump') else {}
-            reasoning = msg_dict.get("reasoning_content") or ""
-
-            if reasoning:
-                text = f"<think>{reasoning}</think>\n\n{content}"
-            else:
-                text = content
-
-            usage = response.usage
-            tokens_prompt = usage.prompt_tokens if usage else 0
-            tokens_generated = usage.completion_tokens if usage else 0
-            tokens_per_second = (tokens_generated / inference_time) if inference_time > 0 else 0
-
-            return LLMResponse(
-                text=text,
-                tokens_prompt=tokens_prompt,
-                tokens_generated=tokens_generated,
-                tokens_per_second=tokens_per_second,
-                inference_time=inference_time,
-                model=model
-            )
-
-        except Exception as e:
-            error_str = str(e)
-            if "model" in error_str.lower() and "not found" in error_str.lower():
-                raise BackendModelNotFoundError(f"Model '{model}' not found in llama-swap")
-            else:
-                raise BackendInferenceError(f"llama.cpp inference failed: {e}")
-
-    async def chat_stream(
-        self,
-        model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None
-    ) -> AsyncIterator[Dict]:
-        """Streaming chat with llama.cpp via llama-swap"""
-        if options is None:
-            options = LLMOptions()
-
-        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
-
-        kwargs: Dict[str, Any] = {
-            "model": model,
-            "messages": openai_messages,
-            "temperature": options.temperature,
-            "top_p": options.top_p,
-            "stream": True,
-            "stream_options": {"include_usage": True}
-        }
-
-        if options.num_predict:
-            kwargs["max_tokens"] = options.num_predict
-
-        # Always send all params to override server CLI defaults with user values
-        extra_body: Dict[str, Any] = {
-            "repetition_penalty": options.repeat_penalty,
-            "top_k": options.top_k,
-            "min_p": options.min_p,
-        }
-
-        # Thinking control: pass enable_thinking to Jinja chat template (PR #13196)
-        if options.enable_thinking is not None:
-            extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
-
-        kwargs["extra_body"] = extra_body
-
-        try:
-            timer = Timer()
-            stream = await self.client.chat.completions.create(**kwargs)
-
-            total_tokens = 0
-            prompt_tokens = 0
-            thinking_started = False
-
-            async for chunk in stream:
-                if chunk.choices:
-                    delta = chunk.choices[0].delta
-
-                    # llama-server puts thinking in reasoning_content (OpenAI format)
-                    # Convert to <think> tags for unified handling (same as Ollama)
-                    delta_dict = delta.model_dump() if hasattr(delta, 'model_dump') else {}
-                    reasoning = delta_dict.get("reasoning_content") or ""
-
-                    if reasoning:
-                        if not thinking_started:
-                            yield {"type": "content", "text": "<think>"}
-                            thinking_started = True
-                        yield {"type": "content", "text": reasoning}
-                        total_tokens += 1
-
-                    if delta.content:
-                        if thinking_started:
-                            yield {"type": "content", "text": "</think>\n\n"}
-                            thinking_started = False
-                        yield {"type": "content", "text": delta.content}
-                        total_tokens += 1
-
-                if hasattr(chunk, 'usage') and chunk.usage:
-                    prompt_tokens = chunk.usage.prompt_tokens
-                    completion_tokens = chunk.usage.completion_tokens
-                    total_tokens = completion_tokens
-
-            # Close think tag if stream ends during thinking (edge case)
-            if thinking_started:
-                yield {"type": "content", "text": "</think>\n\n"}
-
-            inference_time = timer.elapsed()
-            tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
-
-            yield {
-                "type": "done",
-                "metrics": {
-                    "tokens_prompt": prompt_tokens,
-                    "tokens_generated": total_tokens,
-                    "tokens_per_second": tokens_per_second,
-                    "inference_time": inference_time,
-                    "model": model
-                }
-            }
-
-        except Exception as e:
-            error_str = str(e)
-            if "model" in error_str.lower() and "not found" in error_str.lower():
-                raise BackendModelNotFoundError(f"Model '{model}' not found")
-            else:
-                raise BackendInferenceError(f"llama.cpp streaming failed: {e}")
 
     async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
         """

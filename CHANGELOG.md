@@ -5,6 +5,36 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.48.0] - 2026-02-24 🔧 Backend SSOT + 9 Bugfixes
+
+### Changed
+
+- **Backend SSOT Refactoring** — Neue `OpenAICompatibleBackend` Basisklasse in `base.py` mit Template-Method-Pattern. `chat()` und `chat_stream()` als SSOT, 5 überschreibbare Hooks (`_build_extra_body`, `_process_response_text`, `_process_stream_delta`, `_finalize_stream`, `_classify_error`).
+- **vLLM** — Erbt komplett von Basisklasse, Default-Hooks passen exakt (430 → 243 LOC, **-187**)
+- **TabbyAPI** — Override `_build_extra_body()` ohne Thinking-Support (414 → 250 LOC, **-164**)
+- **CloudAPI** — Override `_build_extra_body()` (leer) + `_classify_error()` Auth-Check (386 → 242 LOC, **-144**)
+- **llamacpp** — Override alle 4 Hooks: always-send params, reasoning_content→`<think>`-Tags, Streaming-State-Machine (452 → 327 LOC, **-125**)
+
+### Fixed
+
+- **CSS `rgba()` fehlende Klammer** — `_chat_mixin.py`: `rgba(255, 255, 255, 0.6;` → `rgba(255, 255, 255, 0.6);`
+- **`_on_load_running` nie zurückgesetzt** — `_backend_mixin.py`: Guard-Flag wird jetzt am Ende von `on_load()` zurückgesetzt
+- **`list_sessions(owner=None)` gab `[]`** — `session_storage.py`: Gibt jetzt alle Sessions zurück wenn kein Owner angegeben
+- **`chat_history` Format-Mismatch** — `api.py`: Tuple-basierte Konvertierung → Dict-basierte Paarung
+- **`detected_language` nicht weitergereicht** — `orchestrator.py`: Parameter an `handle_cache_hit()` durchgereicht + Type-Guard
+- **Uninitialisierte Variablen** — `cache_handler.py`: `tokens_generated`, `tokens_prompt`, `ttft` vor Stream-Schleife initialisiert
+- **Redundante `'all_failed' in dir()`** — `_chat_mixin.py`: Variable ist immer initialisiert, Check entfernt
+- **Division by Zero** — `model_vram_cache.py`: Guard `if x2 == x1: return int(y1)` bei Interpolation
+- **Backward-Compat Alias** — `prompt_loader.py`: `get_sokrates_refinement_prompt` Alias entfernt, `multi_agent.py` auf `get_aifred_refinement_prompt` umgestellt
+
+### Technical Details
+
+- 14 Dateien geändert (343 Insertions, 765 Deletions, netto **-422 LOC**)
+- Backend-Gesamtbilanz: 2.000 → 1.563 LOC (**-437 LOC**, -22%)
+- Architektur: `LLMBackend → OpenAICompatibleBackend → {vLLM, TabbyAPI, CloudAPI, llamacpp}`
+- Ollama bleibt eigenständig (httpx, nicht OpenAI SDK)
+- Mypy: 0 Errors, Ruff: All checks passed
+
 ## [2.47.0] - 2026-02-24 🧹 Deep Cleanup: 60-Punkte Projekt-Analyse abgearbeitet
 
 ### Changed

@@ -712,6 +712,8 @@ class BackendMixin(rx.State, mixin=True):
                     callback=AIState.handle_username_loaded
                 )
 
+        self._on_load_running = False
+
     # ================================================================
     # INITIALIZE BACKEND
     # ================================================================

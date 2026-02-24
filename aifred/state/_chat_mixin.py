@@ -144,7 +144,7 @@ class ChatMixin(rx.State, mixin=True):
         # Color: rgba(255, 255, 255, 1.0) = 100% opacity white (fully opaque)
         # Style: italic, smaller font
         # Spacing: 2 newlines after (converted to <br><br> in HTML export)
-        return f"<span style='color: rgba(255, 255, 255, 0.6; font-style: italic; font-size: 12px;'>[{mode_prefix}{label}{round_suffix}]</span>\n\n"
+        return f"<span style='color: rgba(255, 255, 255, 0.6); font-style: italic; font-size: 12px;'>[{mode_prefix}{label}{round_suffix}]</span>\n\n"
 
     def _format_panel_metadata(self, metadata: dict | None) -> str:
         """Format metadata footer for agent panels.
@@ -1133,7 +1133,7 @@ class ChatMixin(rx.State, mixin=True):
 
                     # Update State for UI
                     self.used_sources = used_sources or []  # type: ignore[attr-defined]
-                    self.failed_sources = all_failed if 'all_failed' in dir() else []  # type: ignore[attr-defined]
+                    self.failed_sources = all_failed  # type: ignore[attr-defined]
                     self._pending_failed_sources: list[dict[str, str]] = []  # type: ignore[attr-defined, var-annotated]
                     self._pending_used_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
 
@@ -1146,7 +1146,7 @@ class ChatMixin(rx.State, mixin=True):
                             "rank_index": src.get("rank_index", 999),
                             "success": True,
                         })
-                    for src in (all_failed if 'all_failed' in dir() else []):
+                    for src in all_failed:
                         combined.append({
                             "url": src.get("url", ""),
                             "error": src.get("error", "Unknown"),

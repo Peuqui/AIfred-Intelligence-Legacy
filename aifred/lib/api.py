@@ -576,15 +576,23 @@ async def get_chat_history(session_id: Optional[str] = None):
                 session_id = ""
 
         if session_data and "data" in session_data:
-            # Convert chat_history format (stored as lists, need dicts)
+            # Convert chat_history from internal format (role/content dicts) to API format
             chat_history = []
             stored_history = session_data["data"].get("chat_history", [])
-            for msg in stored_history:
-                if isinstance(msg, (list, tuple)) and len(msg) >= 2:
-                    chat_history.append({
-                        "user": msg[0],
-                        "assistant": msg[1]
-                    })
+            # Pair consecutive user/assistant messages
+            i = 0
+            while i < len(stored_history):
+                msg = stored_history[i]
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    user_text = msg.get("content", "")
+                    assistant_text = ""
+                    if i + 1 < len(stored_history):
+                        next_msg = stored_history[i + 1]
+                        if isinstance(next_msg, dict) and next_msg.get("role") == "assistant":
+                            assistant_text = next_msg.get("content", "")
+                            i += 1
+                    chat_history.append({"user": user_text, "assistant": assistant_text})
+                i += 1
 
             return ChatHistoryResponse(
                 chat_history=chat_history,

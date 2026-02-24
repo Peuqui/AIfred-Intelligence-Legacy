@@ -724,6 +724,8 @@ def interpolate_vllm_context(model_id: str, current_vram_mb: int, tolerance_mb: 
         if len(sorted_cal) >= 2:
             x1, y1 = sorted_cal[0]["free_vram_mb"], sorted_cal[0]["max_context"]
             x2, y2 = sorted_cal[1]["free_vram_mb"], sorted_cal[1]["max_context"]
+            if x2 == x1:
+                return int(y1)
             slope = (y2 - y1) / (x2 - x1)
             interpolated = int(y1 + slope * (current_vram_mb - x1))
             return max(interpolated, 1024)  # Minimum 1K tokens
@@ -741,6 +743,8 @@ def interpolate_vllm_context(model_id: str, current_vram_mb: int, tolerance_mb: 
             x2, y2 = sorted_cal[i + 1]["free_vram_mb"], sorted_cal[i + 1]["max_context"]
 
             if x1 <= current_vram_mb <= x2:
+                if x2 == x1:
+                    return int(y1)
                 slope = (y2 - y1) / (x2 - x1)
                 interpolated = int(y1 + slope * (current_vram_mb - x1))
                 logger.info(f"Interpolated: {current_vram_mb} MB → {interpolated} tokens (between {x1} and {x2} MB)")

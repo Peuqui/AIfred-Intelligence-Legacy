@@ -33,7 +33,7 @@ from .prompt_loader import (
     get_sokrates_direct_prompt,
     get_sokrates_critic_prompt,
     get_sokrates_devils_advocate_prompt,
-    get_sokrates_refinement_prompt,
+    get_aifred_refinement_prompt,
     get_sokrates_tribunal_prompt,
     get_aifred_defense_prompt,
     get_salomo_system_minimal,
@@ -934,7 +934,7 @@ async def run_sokrates_analysis(
                     # Build refinement prompt FIRST (needed for accurate token estimation)
                     # IMPORTANT: Clean <think> tags from Salomo's response before embedding in prompt!
                     cleaned_salomo_text = strip_thinking_blocks(salomo_response_text)
-                    refinement_prompt = get_sokrates_refinement_prompt(
+                    refinement_prompt = get_aifred_refinement_prompt(
                         critique=cleaned_salomo_text,  # Use Salomo's synthesis as guidance (cleaned)
                         user_interjection="",
                         lang=detected_lang,

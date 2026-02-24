@@ -672,11 +672,7 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     _ensure_session_dir()
 
-    # No owner = no sessions (must be logged in)
-    if not owner:
-        return []
-
-    owner_lower = owner.lower()
+    owner_lower = owner.lower() if owner else None
     sessions = []
 
     for session_file in SESSION_DIR.glob("*.json"):
@@ -684,9 +680,9 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
             with open(session_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            # Filter by owner
+            # Filter by owner (if specified)
             session_owner = data.get("owner", "").lower()
-            if session_owner != owner_lower:
+            if owner_lower and session_owner != owner_lower:
                 continue
 
             chat_history = data.get("data", {}).get("chat_history", [])

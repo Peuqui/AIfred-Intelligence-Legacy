@@ -842,9 +842,6 @@ def get_aifred_refinement_prompt(
     )
 
 
-# Backwards compatibility alias
-get_sokrates_refinement_prompt = get_aifred_refinement_prompt
-
 
 # ============================================================
 # Tribunal Mode Prompts (Adversarial Debate)

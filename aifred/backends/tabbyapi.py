@@ -3,38 +3,46 @@ TabbyAPI Backend Adapter (ExLlamaV2/V3)
 
 TabbyAPI is the official API server for ExLlamaV2/V3 inference.
 It provides an OpenAI-compatible API endpoint.
+chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 """
 
 import logging
-from typing import List, Optional, AsyncIterator, Dict
-from openai import AsyncOpenAI
-from ..lib.timer import Timer
+from typing import List, Optional, Dict, Any
 from .base import (
-    LLMBackend,
-    LLMMessage,
+    OpenAICompatibleBackend,
     LLMOptions,
-    LLMResponse,
     BackendConnectionError,
-    BackendModelNotFoundError,
-    BackendInferenceError
 )
 
 logger = logging.getLogger(__name__)
 
 
-class TabbyAPIBackend(LLMBackend):
-    """TabbyAPI backend implementation (ExLlamaV2/V3 with OpenAI-compatible API)"""
+class TabbyAPIBackend(OpenAICompatibleBackend):
+    """TabbyAPI backend implementation (ExLlamaV2/V3 with OpenAI-compatible API)
+
+    Inherits chat() and chat_stream() from OpenAICompatibleBackend.
+    Overrides _build_extra_body() to exclude thinking support (not available in ExLlama).
+    """
+
+    BACKEND_NAME = "TabbyAPI"
+    DEFAULT_TIMEOUT = 120.0
 
     def __init__(self, base_url: str = "http://localhost:5000/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
-        self.client = AsyncOpenAI(
-            base_url=base_url,
-            api_key=api_key,  # TabbyAPI doesn't need real API key by default
-            timeout=120.0  # TabbyAPI may need more time for model loading (ExLlama quantization)
-        )
         # Cache for startup context (set at server start)
         self._startup_context: Optional[int] = None
         self._startup_context_debug: List[str] = []
+
+    def _build_extra_body(self, options: LLMOptions) -> Dict[str, Any]:
+        """TabbyAPI: conditional sampling params, NO thinking support."""
+        extra_body: Dict[str, Any] = {}
+        if options.repeat_penalty and options.repeat_penalty != 1.0:
+            extra_body["repetition_penalty"] = options.repeat_penalty
+        if options.top_k and options.top_k != 40:
+            extra_body["top_k"] = options.top_k
+        if options.min_p > 0:
+            extra_body["min_p"] = options.min_p
+        return extra_body
 
     async def list_models(self) -> List[str]:
         """Get list of available models from TabbyAPI"""
@@ -44,177 +52,6 @@ class TabbyAPIBackend(LLMBackend):
             return self._available_models
         except Exception as e:
             raise BackendConnectionError(f"Failed to list TabbyAPI models: {e}")
-
-    async def chat(
-        self,
-        model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
-        stream: bool = False
-    ) -> LLMResponse:
-        """
-        Non-streaming chat with TabbyAPI
-
-        Args:
-            model: Model name
-            messages: List of LLMMessage
-            options: Generation options
-            stream: Ignored
-
-        Returns:
-            LLMResponse
-        """
-        if options is None:
-            options = LLMOptions()
-
-        # Convert LLMMessage to OpenAI format
-        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
-
-        # Build kwargs
-        kwargs = {
-            "model": model,
-            "messages": openai_messages,
-            "temperature": options.temperature,
-            "top_p": options.top_p,
-            "stream": False
-        }
-
-        # TabbyAPI-specific parameters (via extra_body)
-        # ExLlamaV2/V3 supports advanced sampling parameters
-        extra_body = {}
-        if options.repeat_penalty and options.repeat_penalty != 1.0:
-            extra_body["repetition_penalty"] = options.repeat_penalty
-        if options.top_k and options.top_k != 40:
-            extra_body["top_k"] = options.top_k
-        if options.min_p > 0:
-            extra_body["min_p"] = options.min_p
-        if options.num_predict:
-            kwargs["max_tokens"] = options.num_predict
-
-        if extra_body:
-            kwargs["extra_body"] = extra_body
-
-        try:
-            timer = Timer()
-            response = await self.client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
-            inference_time = timer.elapsed()
-
-            choice = response.choices[0]
-            text = choice.message.content or ""
-
-            # Extract usage info
-            usage = response.usage
-            tokens_prompt = usage.prompt_tokens if usage else 0
-            tokens_generated = usage.completion_tokens if usage else 0
-
-            tokens_per_second = (tokens_generated / inference_time) if inference_time > 0 else 0
-
-            return LLMResponse(
-                text=text,
-                tokens_prompt=tokens_prompt,
-                tokens_generated=tokens_generated,
-                tokens_per_second=tokens_per_second,
-                inference_time=inference_time,
-                model=model
-            )
-
-        except Exception as e:
-            error_str = str(e)
-            if "model" in error_str.lower() and "not found" in error_str.lower():
-                raise BackendModelNotFoundError(f"Model '{model}' not found in TabbyAPI")
-            else:
-                raise BackendInferenceError(f"TabbyAPI inference failed: {e}")
-
-    async def chat_stream(
-        self,
-        model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None
-    ) -> AsyncIterator[Dict]:
-        """
-        Streaming chat with TabbyAPI
-
-        Args:
-            model: Model name
-            messages: List of LLMMessage
-            options: Generation options
-
-        Yields:
-            Dict with either:
-            - {"type": "content", "text": str} for content chunks
-            - {"type": "done", "metrics": {...}} for final metrics
-        """
-        if options is None:
-            options = LLMOptions()
-
-        # Convert messages
-        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
-
-        # Build kwargs
-        kwargs = {
-            "model": model,
-            "messages": openai_messages,
-            "temperature": options.temperature,
-            "top_p": options.top_p,
-            "stream": True,
-            "stream_options": {"include_usage": True}  # Request usage stats in stream
-        }
-
-        # TabbyAPI-specific parameters
-        extra_body = {}
-        if options.repeat_penalty and options.repeat_penalty != 1.0:
-            extra_body["repetition_penalty"] = options.repeat_penalty
-        if options.top_k and options.top_k != 40:
-            extra_body["top_k"] = options.top_k
-        if options.min_p > 0:
-            extra_body["min_p"] = options.min_p
-        if options.num_predict:
-            kwargs["max_tokens"] = options.num_predict
-
-        if extra_body:
-            kwargs["extra_body"] = extra_body
-
-        try:
-            timer = Timer()
-            stream = await self.client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
-
-            total_tokens = 0
-            prompt_tokens = 0
-
-            async for chunk in stream:
-                if chunk.choices:
-                    delta = chunk.choices[0].delta
-                    if delta.content:
-                        yield {"type": "content", "text": delta.content}
-                        total_tokens += 1  # Rough estimate
-
-                # Check for usage info (sent at the end by OpenAI-compatible APIs)
-                if hasattr(chunk, 'usage') and chunk.usage:
-                    prompt_tokens = chunk.usage.prompt_tokens
-                    completion_tokens = chunk.usage.completion_tokens
-                    total_tokens = completion_tokens
-
-            # Send final metrics
-            inference_time = timer.elapsed()
-            tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
-
-            yield {
-                "type": "done",
-                "metrics": {
-                    "tokens_prompt": prompt_tokens,
-                    "tokens_generated": total_tokens,
-                    "tokens_per_second": tokens_per_second,
-                    "inference_time": inference_time,
-                    "model": model
-                }
-            }
-
-        except Exception as e:
-            error_str = str(e)
-            if "model" in error_str.lower() and "not found" in error_str.lower():
-                raise BackendModelNotFoundError(f"Model '{model}' not found")
-            else:
-                raise BackendInferenceError(f"TabbyAPI streaming failed: {e}")
 
     async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
         """

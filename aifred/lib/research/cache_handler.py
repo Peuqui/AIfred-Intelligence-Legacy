@@ -224,6 +224,9 @@ async def handle_cache_hit(
     metrics = {}
     llm_time = 0.0
     tokens_per_sec = 0.0
+    tokens_generated = 0
+    tokens_prompt = 0
+    ttft = None
 
     async for chunk in stream_llm_response(
         llm_client, model_choice, messages, cache_llm_options,

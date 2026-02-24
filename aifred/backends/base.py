@@ -316,3 +316,186 @@ class BackendModelNotFoundError(BackendError):
 class BackendInferenceError(BackendError):
     """Error during inference"""
     pass
+
+
+class OpenAICompatibleBackend(LLMBackend):
+    """Shared implementation for OpenAI SDK-compatible backends (vLLM, TabbyAPI, CloudAPI, llamacpp).
+
+    Subclasses override hooks to customize behavior:
+    - _build_extra_body(): sampling params in extra_body
+    - _process_response_text(): extract text from non-streaming response
+    - _process_stream_delta(): handle streaming chunks
+    - _finalize_stream(): cleanup after stream ends
+    - _classify_error(): map exceptions to BackendError types
+    """
+
+    BACKEND_NAME: str = "OpenAI-Compatible"
+    DEFAULT_TIMEOUT: float = 60.0
+
+    def __init__(self, base_url: str, api_key: str = "dummy"):
+        super().__init__(base_url=base_url, api_key=api_key)
+        from openai import AsyncOpenAI
+        self.client = AsyncOpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            timeout=self.DEFAULT_TIMEOUT,
+        )
+
+    # === Hooks (override in subclasses as needed) ===
+
+    def _build_extra_body(self, options: LLMOptions) -> Dict[str, Any]:
+        """Build extra_body for API call. Default: conditional sampling params + thinking."""
+        extra_body: Dict[str, Any] = {}
+        if options.repeat_penalty and options.repeat_penalty != 1.0:
+            extra_body["repetition_penalty"] = options.repeat_penalty
+        if options.top_k and options.top_k != 40:
+            extra_body["top_k"] = options.top_k
+        if options.min_p > 0:
+            extra_body["min_p"] = options.min_p
+        if options.enable_thinking is not None:
+            extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
+        return extra_body
+
+    def _process_response_text(self, choice: Any) -> str:
+        """Extract text from non-streaming response choice."""
+        return choice.message.content or ""
+
+    def _process_stream_delta(self, delta: Any, delta_dict: Dict, stream_state: Dict) -> List[Dict]:
+        """Process a streaming delta. Returns list of chunks to yield."""
+        chunks: List[Dict] = []
+        if delta.content:
+            chunks.append({"type": "content", "text": delta.content})
+        return chunks
+
+    def _finalize_stream(self, stream_state: Dict) -> List[Dict]:
+        """Called after stream loop ends. Return extra chunks if needed."""
+        return []
+
+    def _classify_error(self, error: Exception, model: str) -> BackendError:
+        """Map exception to a specific BackendError subtype."""
+        error_str = str(error)
+        if "model" in error_str.lower() and "not found" in error_str.lower():
+            return BackendModelNotFoundError(f"Model '{model}' not found in {self.BACKEND_NAME}")
+        return BackendInferenceError(f"{self.BACKEND_NAME} inference failed: {error}")
+
+    # === Concrete implementations ===
+
+    async def chat(
+        self,
+        model: str,
+        messages: List[LLMMessage],
+        options: Optional[LLMOptions] = None,
+        stream: bool = False,
+    ) -> LLMResponse:
+        if options is None:
+            options = LLMOptions()
+
+        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": openai_messages,
+            "temperature": options.temperature,
+            "top_p": options.top_p,
+            "stream": False,
+        }
+        if options.num_predict:
+            kwargs["max_tokens"] = options.num_predict
+
+        extra_body = self._build_extra_body(options)
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+
+        try:
+            from ..lib.timer import Timer
+            timer = Timer()
+            response = await self.client.chat.completions.create(**kwargs)
+            inference_time = timer.elapsed()
+
+            choice = response.choices[0]
+            text = self._process_response_text(choice)
+
+            usage = response.usage
+            tokens_prompt = usage.prompt_tokens if usage else 0
+            tokens_generated = usage.completion_tokens if usage else 0
+            tokens_per_second = (tokens_generated / inference_time) if inference_time > 0 else 0
+
+            return LLMResponse(
+                text=text,
+                tokens_prompt=tokens_prompt,
+                tokens_generated=tokens_generated,
+                tokens_per_second=tokens_per_second,
+                inference_time=inference_time,
+                model=model,
+            )
+
+        except Exception as e:
+            raise self._classify_error(e, model)
+
+    async def chat_stream(
+        self,
+        model: str,
+        messages: List[LLMMessage],
+        options: Optional[LLMOptions] = None,
+    ) -> AsyncIterator[Dict]:
+        if options is None:
+            options = LLMOptions()
+
+        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": openai_messages,
+            "temperature": options.temperature,
+            "top_p": options.top_p,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if options.num_predict:
+            kwargs["max_tokens"] = options.num_predict
+
+        extra_body = self._build_extra_body(options)
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+
+        try:
+            from ..lib.timer import Timer
+            timer = Timer()
+            stream = await self.client.chat.completions.create(**kwargs)
+
+            total_tokens = 0
+            prompt_tokens = 0
+            stream_state: Dict[str, Any] = {}
+
+            async for chunk in stream:
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
+                    for item in self._process_stream_delta(delta, delta_dict, stream_state):
+                        yield item
+                        if item.get("type") == "content":
+                            total_tokens += 1
+
+                if hasattr(chunk, "usage") and chunk.usage:
+                    prompt_tokens = chunk.usage.prompt_tokens
+                    total_tokens = chunk.usage.completion_tokens
+
+            for item in self._finalize_stream(stream_state):
+                yield item
+
+            inference_time = timer.elapsed()
+            tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
+
+            yield {
+                "type": "done",
+                "metrics": {
+                    "tokens_prompt": prompt_tokens,
+                    "tokens_generated": total_tokens,
+                    "tokens_per_second": tokens_per_second,
+                    "inference_time": inference_time,
+                    "model": model,
+                },
+            }
+
+        except Exception as e:
+            raise self._classify_error(e, model)

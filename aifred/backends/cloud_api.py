@@ -3,29 +3,36 @@ Cloud API Backend Adapter
 
 Supports Claude (Anthropic), Qwen (DashScope), and Kimi (Moonshot) APIs.
 All providers use OpenAI-compatible endpoints.
+chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 """
 
 import os
 import logging
-from typing import List, Optional, AsyncIterator, Dict, Any
-from openai import AsyncOpenAI
-from ..lib.timer import Timer
+from typing import List, Optional, Dict, Any
 from .base import (
-    LLMBackend,
-    LLMMessage,
+    OpenAICompatibleBackend,
     LLMOptions,
-    LLMResponse,
+    BackendError,
     BackendConnectionError,
     BackendModelNotFoundError,
-    BackendInferenceError
+    BackendInferenceError,
 )
 from ..lib.config import CLOUD_API_PROVIDERS
 
 logger = logging.getLogger(__name__)
 
 
-class CloudAPIBackend(LLMBackend):
-    """Cloud API backend implementation (OpenAI-compatible)"""
+class CloudAPIBackend(OpenAICompatibleBackend):
+    """Cloud API backend implementation (OpenAI-compatible)
+
+    Inherits chat() and chat_stream() from OpenAICompatibleBackend.
+    Overrides:
+    - _build_extra_body(): returns empty dict (cloud APIs don't use extra params)
+    - _classify_error(): additional auth error detection
+    """
+
+    BACKEND_NAME = "Cloud API"
+    DEFAULT_TIMEOUT = 120.0
 
     def __init__(self, base_url: str, api_key: str, provider: str = "qwen"):
         """
@@ -36,20 +43,28 @@ class CloudAPIBackend(LLMBackend):
             api_key: API key for authentication
             provider: Provider ID ("claude", "qwen", or "kimi")
         """
-        super().__init__(base_url=base_url, api_key=api_key)
         self.provider = provider
         self.provider_config = CLOUD_API_PROVIDERS.get(provider, CLOUD_API_PROVIDERS["qwen"])
 
         # Use provided base_url or fall back to provider default
         effective_url = base_url if base_url else self.provider_config["base_url"]
 
-        self.client = AsyncOpenAI(
-            base_url=effective_url,
-            api_key=api_key,
-            timeout=120.0  # Cloud APIs can be slow
-        )
+        super().__init__(base_url=effective_url, api_key=api_key)
 
         logger.info(f"☁️ CloudAPIBackend initialized: {self.provider_config['name']}")
+
+    def _build_extra_body(self, options: LLMOptions) -> Dict[str, Any]:
+        """Cloud APIs: no extra_body params needed."""
+        return {}
+
+    def _classify_error(self, error: Exception, model: str) -> BackendError:
+        """Cloud APIs: additional auth error detection."""
+        error_str = str(error)
+        if "model" in error_str.lower() and "not found" in error_str.lower():
+            return BackendModelNotFoundError(f"Model '{model}' not found on {self.provider_config['name']}")
+        if "api key" in error_str.lower() or "authentication" in error_str.lower() or "401" in error_str:
+            return BackendConnectionError(f"Invalid API key for {self.provider_config['name']}: {error}")
+        return BackendInferenceError(f"{self.provider_config['name']} inference failed: {error}")
 
     async def list_models(self) -> List[str]:
         """
@@ -68,164 +83,6 @@ class CloudAPIBackend(LLMBackend):
             # Return empty list on failure - don't use hardcoded fallback
             self._available_models = []
             return self._available_models
-
-    async def chat(
-        self,
-        model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
-        stream: bool = False
-    ) -> LLMResponse:
-        """
-        Non-streaming chat with Cloud API.
-
-        Args:
-            model: Model name (e.g., "qwen-plus", "moonshot-v1-32k")
-            messages: List of LLMMessage
-            options: Generation options
-            stream: Ignored (always False for this method)
-
-        Returns:
-            LLMResponse with full text and metrics
-        """
-        if options is None:
-            options = LLMOptions()
-
-        # Convert LLMMessage to OpenAI format
-        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
-
-        # Build kwargs
-        kwargs: Dict[str, Any] = {
-            "model": model,
-            "messages": openai_messages,
-            "temperature": options.temperature,
-            "top_p": options.top_p,
-            "stream": False
-        }
-
-        # Max tokens (if specified)
-        if options.num_predict:
-            kwargs["max_tokens"] = options.num_predict
-
-        try:
-            timer = Timer()
-            response = await self.client.chat.completions.create(**kwargs)
-            inference_time = timer.elapsed()
-
-            choice = response.choices[0]
-            text = choice.message.content or ""
-
-            # Extract usage info
-            usage = response.usage
-            tokens_prompt = usage.prompt_tokens if usage else 0
-            tokens_generated = usage.completion_tokens if usage else 0
-
-            tokens_per_second = (tokens_generated / inference_time) if inference_time > 0 else 0
-
-            return LLMResponse(
-                text=text,
-                tokens_prompt=tokens_prompt,
-                tokens_generated=tokens_generated,
-                tokens_per_second=tokens_per_second,
-                inference_time=inference_time,
-                model=model
-            )
-
-        except Exception as e:
-            error_str = str(e)
-            if "model" in error_str.lower() and "not found" in error_str.lower():
-                raise BackendModelNotFoundError(f"Model '{model}' not found on {self.provider_config['name']}")
-            elif "api key" in error_str.lower() or "authentication" in error_str.lower() or "401" in error_str:
-                raise BackendConnectionError(f"Invalid API key for {self.provider_config['name']}: {e}")
-            else:
-                raise BackendInferenceError(f"{self.provider_config['name']} inference failed: {e}")
-
-    async def chat_stream(
-        self,
-        model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None
-    ) -> AsyncIterator[Dict]:
-        """
-        Streaming chat with Cloud API.
-
-        Args:
-            model: Model name
-            messages: List of LLMMessage
-            options: Generation options
-
-        Yields:
-            Dict with either:
-            - {"type": "content", "text": str} for content chunks
-            - {"type": "done", "metrics": {...}} for final metrics
-        """
-        if options is None:
-            options = LLMOptions()
-
-        # Convert messages
-        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
-
-        # Build kwargs
-        kwargs: Dict[str, Any] = {
-            "model": model,
-            "messages": openai_messages,
-            "temperature": options.temperature,
-            "top_p": options.top_p,
-            "stream": True,
-            "stream_options": {"include_usage": True}  # Request usage stats in stream
-        }
-
-        # Max tokens (if specified)
-        if options.num_predict:
-            kwargs["max_tokens"] = options.num_predict
-
-        try:
-            # Debug: Log request details
-            logger.info(f"☁️ Vision request: model={model}, base_url={self.client.base_url}")
-            logger.info(f"☁️ Message structure: {[{k: type(v).__name__ if k == 'content' else v for k, v in m.items()} for m in openai_messages]}")
-
-            timer = Timer()
-            stream = await self.client.chat.completions.create(**kwargs)
-
-            total_tokens = 0
-            prompt_tokens = 0
-
-            async for chunk in stream:
-                if chunk.choices:
-                    delta = chunk.choices[0].delta
-                    if delta.content:
-                        yield {"type": "content", "text": delta.content}
-                        total_tokens += 1  # Rough estimate until final usage
-
-                # Check for usage info (sent at the end by OpenAI-compatible APIs)
-                if hasattr(chunk, 'usage') and chunk.usage:
-                    prompt_tokens = chunk.usage.prompt_tokens
-                    completion_tokens = chunk.usage.completion_tokens
-                    total_tokens = completion_tokens
-
-            # Send final metrics
-            inference_time = timer.elapsed()
-            tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
-
-            yield {
-                "type": "done",
-                "metrics": {
-                    "tokens_prompt": prompt_tokens,
-                    "tokens_generated": total_tokens,
-                    "tokens_per_second": tokens_per_second,
-                    "inference_time": inference_time,
-                    "model": model
-                }
-            }
-
-        except Exception as e:
-            error_str = str(e)
-            if "model" in error_str.lower() and "not found" in error_str.lower():
-                raise BackendModelNotFoundError(f"Model '{model}' not found")
-            elif "api key" in error_str.lower() or "authentication" in error_str.lower() or "401" in error_str:
-                raise BackendConnectionError(f"Invalid API key for {self.provider_config['name']}")
-            else:
-                raise BackendInferenceError(f"{self.provider_config['name']} streaming failed: {e}")
 
     async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
         """
