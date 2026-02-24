@@ -10,7 +10,6 @@ from .logging_utils import (
     debug_print_prompt,
     debug_print_messages,
     console_separator,
-    clear_console
 )
 
 from .prompt_loader import (
@@ -40,9 +39,8 @@ from .conversation_handler import chat_interactive_mode
 from .vector_cache import VectorCache
 
 from .intent_detector import (
-    detect_query_intent,
     detect_query_intent_and_addressee,
-    get_temperature_label
+    get_temperature_label,
 )
 
 from .multi_agent import (
@@ -60,7 +58,6 @@ __all__ = [
     "debug_print_prompt",
     "debug_print_messages",
     "console_separator",
-    "clear_console",
     # Prompts
     "load_prompt",
     "set_language",
@@ -81,7 +78,6 @@ __all__ = [
     # Vector Cache (NEW - replaces old cache system)
     "VectorCache",
     # Intent Detector
-    "detect_query_intent",
     "detect_query_intent_and_addressee",
     "get_temperature_label",
     # Multi-Agent

@@ -195,26 +195,6 @@ async def detect_query_intent_and_addressee(
         return ("FAKTISCH", None, fallback_lang, "")
 
 
-async def detect_query_intent(
-    user_query: str,
-    automatik_model: str,
-    llm_client,
-    llm_options: Optional[Dict] = None
-) -> str:
-    """
-    Detect intent of user query (legacy wrapper).
-
-    For backwards compatibility. Use detect_query_intent_and_addressee() instead.
-
-    Returns:
-        str: "FAKTISCH", "KREATIV" or "GEMISCHT"
-    """
-    intent, _, _, _ = await detect_query_intent_and_addressee(
-        user_query, automatik_model, llm_client, llm_options
-    )
-    return intent
-
-
 async def detect_cache_followup_intent(
     original_query: str,
     followup_query: str,

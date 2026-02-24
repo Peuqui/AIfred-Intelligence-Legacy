@@ -1,0 +1,1882 @@
+"""Settings accordion UI component for AIfred Intelligence.
+
+Extracted from aifred.py - contains the settings panel with all configuration
+options (backend, models, TTS/STT, sampling parameters, etc.).
+"""
+
+from __future__ import annotations
+
+import reflex as rx
+
+from ..state import AIState
+from ..theme import COLORS
+from .helpers import (
+    t,
+    native_select_backend,
+    native_select_model,
+    native_select_tts,
+    native_select_stt,
+)
+
+
+# ============================================================
+# SAMPLING PARAMETER HELPERS
+# ============================================================
+
+def _sampling_input(agent: str, param: str, width: str = "55px") -> rx.Component:
+    """Helper: Input field for a sampling parameter (always editable)."""
+    attr_name = f"{agent}_{param}"
+    return rx.input(
+        default_value=getattr(AIState, attr_name).to(str),
+        on_blur=lambda v, a=agent, p=param: getattr(AIState, f"set_{a}_sampling")(p, v),
+        key=AIState.sampling_reset_key.to(str) + f"_{agent}_{param}",
+        type="number",
+        width=width,
+        size="1",
+        height="28px",
+    )
+
+
+def _temp_input(agent: str, width: str = "50px") -> rx.Component:
+    """Helper: Temperature input field for an agent (disabled in Auto mode)."""
+    is_auto = AIState.temperature_mode == "auto"
+    # AIfred uses self.temperature, others use self.{agent}_temperature
+    if agent == "aifred":
+        attr = AIState.temperature
+    else:
+        attr = getattr(AIState, f"{agent}_temperature")
+    handler = getattr(AIState, f"set_{agent}_temperature_input")
+    return rx.input(
+        default_value=attr.to(str),
+        on_blur=handler,
+        key=AIState.sampling_reset_key.to(str) + f"_{agent}_temp",
+        type="number",
+        width=width,
+        size="1",
+        height="28px",
+        disabled=is_auto,
+        opacity=rx.cond(is_auto, "0.5", "1.0"),
+    )
+
+
+def _sampling_agent_row(agent: str, emoji: str, label: str, reset_handler) -> rx.Component:
+    """Helper: One agent row with temp + 4 sampling inputs + reset button."""
+    return rx.hstack(
+        rx.text(f"{emoji} {label}", font_size="10px", font_weight="bold", width="75px",
+                color=COLORS["text_primary"]),
+        _temp_input(agent),
+        _sampling_input(agent, "top_k"),
+        _sampling_input(agent, "top_p"),
+        _sampling_input(agent, "min_p"),
+        _sampling_input(agent, "repeat_penalty"),
+        rx.tooltip(
+            rx.icon(
+                "rotate-ccw",
+                size=13,
+                color=COLORS["primary"],
+                cursor="pointer",
+                on_click=reset_handler,
+                style={
+                    "transition": "all 0.2s ease",
+                    "&:hover": {"color": COLORS["primary_hover"], "transform": "scale(1.15)"},
+                },
+            ),
+            content=t("sampling_reset_tooltip"),
+        ),
+        spacing="2",
+        align="center",
+    )
+
+
+# ============================================================
+# SAMPLING CONTROL SECTION
+# ============================================================
+
+def sampling_control_section() -> rx.Component:
+    """Sampling parameters with Auto/Manual toggle and per-agent controls."""
+    return rx.vstack(
+        # Title row with Auto/Manual toggle
+        rx.hstack(
+            rx.text(t("sampling_section_label"), font_weight="bold", font_size="12px"),
+            rx.spacer(),
+            rx.tooltip(
+                rx.hstack(
+                    rx.text(t("sampling_temp_label"), font_size="10px", font_weight="bold",
+                            color=COLORS["text_primary"]),
+                    rx.text("Auto", font_size="10px", color=COLORS["text_secondary"]),
+                    rx.switch(
+                        checked=AIState.temperature_mode == "manual",
+                        on_change=AIState.set_temperature_mode,
+                        size="1",
+                    ),
+                    rx.text("Manual", font_size="10px", color=COLORS["text_secondary"]),
+                    spacing="1",
+                    align="center",
+                ),
+                content=t("sampling_temp_toggle_tooltip"),
+                max_width="280px",
+            ),
+            width="100%",
+            align="center",
+        ),
+        # Header row: label + param columns
+        rx.hstack(
+            rx.text("", width="75px"),
+            rx.text("Temp", font_size="9px", font_weight="bold", width="50px", text_align="center",
+                     color=COLORS["text_primary"]),
+            rx.text("Top-K", font_size="9px", font_weight="bold", width="55px", text_align="center",
+                     color=COLORS["text_primary"]),
+            rx.text("Top-P", font_size="9px", font_weight="bold", width="55px", text_align="center",
+                     color=COLORS["text_primary"]),
+            rx.text("Min-P", font_size="9px", font_weight="bold", width="55px", text_align="center",
+                     color=COLORS["text_primary"]),
+            rx.text("Rep.P", font_size="9px", font_weight="bold", width="55px", text_align="center",
+                     color=COLORS["text_primary"]),
+            rx.text("", width="13px"),
+            spacing="2",
+            align="center",
+        ),
+        # Agent rows
+        _sampling_agent_row("aifred", "\U0001f3a9", "AIfred", AIState.reset_aifred_sampling),
+        _sampling_agent_row("sokrates", "\U0001f3db\ufe0f", "Sokrates", AIState.reset_sokrates_sampling),
+        _sampling_agent_row("salomo", "\U0001f451", "Salomo", AIState.reset_salomo_sampling),
+        width="100%",
+        spacing="1",
+    )
+
+
+# ============================================================
+# LLM PARAMETERS ACCORDION
+# ============================================================
+
+def llm_parameters_accordion() -> rx.Component:
+    """LLM Parameters in collapsible accordion - styled like select dropdown"""
+    return rx.accordion.root(
+        rx.accordion.item(
+            header=rx.hstack(
+                rx.text(
+                    rx.cond(
+                        AIState.ui_language == "de",
+                        "\u2699\ufe0f LLM-Parameter (Erweitert)",
+                        "\u2699\ufe0f LLM Parameters (Advanced)"
+                    ),
+                    font_weight="400",
+                    font_size="13px",
+                    color=COLORS["text_primary"]
+                ),
+                align="center",
+                padding_x="6px",
+                padding_y="0",
+                height="28px",
+            ),
+            content=rx.vstack(
+                # Sampling Parameters (includes Temperature)
+                sampling_control_section(),
+
+                # Context Window Control
+                rx.vstack(
+                    rx.text(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "\U0001f4e6 Context Window",
+                            "\U0001f4e6 Context Window"
+                        ),
+                        font_weight="bold",
+                        font_size="12px"
+                    ),
+
+                    # Per-LLM Context Control - Three columns with toggle + input
+                    rx.hstack(
+                        # AIfred num_ctx
+                        rx.vstack(
+                            rx.hstack(
+                                rx.text(
+                                    "\U0001f3a9 AIfred",
+                                    font_size="11px",
+                                    font_weight="bold",
+                                    color=COLORS["text_secondary"],
+                                ),
+                                rx.switch(
+                                    checked=AIState.num_ctx_manual_aifred_enabled,
+                                    on_change=AIState.toggle_num_ctx_manual_aifred,
+                                    size="1",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            rx.input(
+                                placeholder="16384",
+                                default_value=AIState.num_ctx_manual_aifred.to(str),
+                                on_blur=AIState.set_num_ctx_manual_aifred,
+                                type="number",
+                                width="78px",
+                                disabled=~AIState.num_ctx_manual_aifred_enabled,  # type: ignore[arg-type]
+                                opacity=rx.cond(
+                                    AIState.num_ctx_manual_aifred_enabled,
+                                    "1.0",
+                                    "0.5"
+                                ),
+                            ),
+                            spacing="1",
+                        ),
+                        # Sokrates num_ctx
+                        rx.vstack(
+                            rx.hstack(
+                                rx.text(
+                                    "\U0001f3db\ufe0f Sokrates",
+                                    font_size="11px",
+                                    font_weight="bold",
+                                    color=COLORS["text_secondary"],
+                                ),
+                                rx.switch(
+                                    checked=AIState.num_ctx_manual_sokrates_enabled,
+                                    on_change=AIState.toggle_num_ctx_manual_sokrates,
+                                    size="1",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            rx.input(
+                                placeholder="16384",
+                                default_value=AIState.num_ctx_manual_sokrates.to(str),
+                                on_blur=AIState.set_num_ctx_manual_sokrates,
+                                type="number",
+                                width="78px",
+                                disabled=~AIState.num_ctx_manual_sokrates_enabled,  # type: ignore[arg-type]
+                                opacity=rx.cond(
+                                    AIState.num_ctx_manual_sokrates_enabled,
+                                    "1.0",
+                                    "0.5"
+                                ),
+                            ),
+                            spacing="1",
+                        ),
+                        # Salomo num_ctx
+                        rx.vstack(
+                            rx.hstack(
+                                rx.text(
+                                    "\U0001f451 Salomo",
+                                    font_size="11px",
+                                    font_weight="bold",
+                                    color=COLORS["text_secondary"],
+                                ),
+                                rx.switch(
+                                    checked=AIState.num_ctx_manual_salomo_enabled,
+                                    on_change=AIState.toggle_num_ctx_manual_salomo,
+                                    size="1",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            rx.input(
+                                placeholder="16384",
+                                default_value=AIState.num_ctx_manual_salomo.to(str),
+                                on_blur=AIState.set_num_ctx_manual_salomo,
+                                type="number",
+                                width="78px",
+                                disabled=~AIState.num_ctx_manual_salomo_enabled,  # type: ignore[arg-type]
+                                opacity=rx.cond(
+                                    AIState.num_ctx_manual_salomo_enabled,
+                                    "1.0",
+                                    "0.5"
+                                ),
+                            ),
+                            spacing="1",
+                        ),
+                        # Vision num_ctx (PERSISTENT - saved to settings.json)
+                        # Note: num_predict removed - doesn't work with thinking models (Ollama ignores it)
+                        rx.vstack(
+                            rx.hstack(
+                                rx.text(
+                                    "\U0001f441\ufe0f Vision",
+                                    font_size="11px",
+                                    font_weight="bold",
+                                    color=COLORS["text_secondary"],
+                                ),
+                                rx.switch(
+                                    checked=AIState.vision_num_ctx_enabled,
+                                    on_change=AIState.toggle_vision_num_ctx,
+                                    size="1",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            rx.input(
+                                placeholder="32768",
+                                default_value=AIState.vision_num_ctx.to(str),  # type: ignore[union-attr]  # Uncontrolled: user can type freely
+                                on_blur=AIState.set_vision_num_ctx,  # Save only when leaving field (Tab/Enter/click away)
+                                type="number",
+                                width="78px",
+                                disabled=~AIState.vision_num_ctx_enabled,  # type: ignore[arg-type]
+                                opacity=rx.cond(
+                                    AIState.vision_num_ctx_enabled,
+                                    "1.0",
+                                    "0.5"
+                                ),
+                            ),
+                            spacing="1",
+                            margin_left="8px",  # Extra spacing from Salomo
+                        ),
+                        spacing="3",
+                    ),
+
+                    # Show Calculation Button (styled like "Text senden" button)
+                    rx.button(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "\U0001f4ca Berechnung anzeigen",
+                            "\U0001f4ca Show Calculation"
+                        ),
+                        on_click=AIState.calculate_manual_context,
+                        size="1",
+                        variant="solid",
+                        margin_top="8px",
+                        style={
+                            "background": "#3d2a00 !important",
+                            "color": COLORS["accent_warning"] + " !important",
+                            "border": f"1px solid {COLORS['accent_warning']}",
+                            "font_weight": "600",
+                            "&:hover": {
+                                "background": "#4d3500 !important",
+                                "color": "#ffb84d !important",
+                            },
+                        },
+                    ),
+
+                    # Info Text (Chat context resets, Vision is saved)
+                    rx.text(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "AIfred/Sokrates/Salomo: Neustart setzt zur\u00fcck | Vision: wird gespeichert",
+                            "AIfred/Sokrates/Salomo: resets on restart | Vision: saved"
+                        ),
+                        font_size="11px",
+                        color=COLORS["warning_text"],
+                        font_style="italic",
+                    ),
+
+                    width="100%",
+                    spacing="2",
+                ),
+
+                spacing="4",
+                width="100%",
+            ),
+        ),
+        collapsible=True,
+        variant="ghost",  # Weniger visueller Overhead
+        style={
+            "border": "1px solid var(--gray-6)",
+            "border_radius": "6px",
+            "background": "var(--gray-3)",  # Gleiche Helligkeit wie Select-Dropdowns
+            "min_height": "32px",
+        },
+    )
+
+
+# ============================================================
+# MAIN SETTINGS ACCORDION
+# ============================================================
+
+def settings_accordion() -> rx.Component:
+    """Settings accordion at bottom - Kompakt"""
+    return rx.accordion.root(
+        rx.accordion.item(
+            value="settings",  # Eindeutige ID f\u00fcr das Accordion Item
+            header=rx.box(
+                rx.text(t("settings"), font_size="12px", font_weight="500", color=COLORS["text_primary"]),
+                padding_y="2",  # Kompakter Header
+            ),
+            content=rx.vstack(
+                # UI Language + User Name Row
+                rx.hstack(
+                    # UI Language Selection
+                    rx.hstack(
+                        rx.text(t("ui_language"), font_weight="bold", font_size="12px"),
+                        rx.cond(
+                            AIState.is_mobile,
+                            # MOBILE: Native HTML <select> (static options, no rx.foreach)
+                            rx.el.select(
+                                rx.el.option("de", value="de"),
+                                rx.el.option("en", value="en"),
+                                value=AIState.ui_language,
+                                on_change=AIState.set_ui_language,
+                                style={
+                                    "padding": "8px 12px",
+                                    "font_size": "12px",
+                                    "color": COLORS["text_primary"],
+                                    "background": COLORS["input_bg"],
+                                    "border": f"1px solid {COLORS['border']}",
+                                    "border_radius": "6px",
+                                    "min_height": "48px",
+                                    "cursor": "pointer",
+                                },
+                            ),
+                            # DESKTOP: Radix UI Select
+                            rx.select(
+                                ["de", "en"],
+                                value=AIState.ui_language,
+                                on_change=AIState.set_ui_language,
+                                size="2",
+                            ),
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
+                    # User Name Input + Gender Toggle (Subtle Orange style)
+                    rx.box(
+                        rx.icon("user", size=16, color="#B8860B"),
+                        rx.input(
+                            placeholder=t("your_name"),
+                            value=AIState.user_name,
+                            on_change=AIState.set_user_name,
+                            on_blur=AIState.save_user_name,
+                            size="2",
+                            width="140px",
+                            class_name="username-input-subtle",
+                        ),
+                        # Gender Toggle (\u2642/\u2640)
+                        rx.segmented_control.root(
+                            rx.segmented_control.item("\u2642", value="male"),
+                            rx.segmented_control.item("\u2640", value="female"),
+                            value=AIState.user_gender,
+                            on_change=AIState.set_user_gender,
+                            size="1",
+                        ),
+                        display="flex",
+                        align_items="center",
+                        gap="6px",
+                        background_color="rgba(204, 136, 0, 0.15)",
+                        border_radius="8px",
+                        padding_left="8px",
+                        padding_right="4px",
+                        padding_y="4px",
+                    ),
+                    spacing="4",
+                    align="center",
+                    width="100%",
+                ),
+
+                # Backend Selection - Mobile: Native select, Desktop: Radix UI
+                rx.hstack(
+                    rx.text(t("backend"), font_weight="bold", font_size="12px"),
+                    # Conditional rendering: Native select for mobile, Radix UI for desktop
+                    rx.cond(
+                        AIState.is_mobile,
+                        # MOBILE: Native HTML <select>
+                        native_select_backend(
+                            AIState.current_backend_label,
+                            AIState.switch_backend_by_label,
+                            AIState.backend_switching,
+                            AIState.available_backends_list,
+                        ),
+                        # DESKTOP: Radix UI Select with grouped headers
+                        rx.select.root(
+                            rx.select.trigger(),
+                            rx.select.content(
+                                rx.cond(
+                                    AIState.available_backends.contains("llamacpp"),
+                                    rx.select.item("llama.cpp", value="llamacpp"),
+                                ),
+                                rx.cond(
+                                    AIState.available_backends.contains("ollama"),
+                                    rx.select.item("Ollama", value="ollama"),
+                                ),
+                                rx.cond(
+                                    AIState.available_backends.contains("vllm"),
+                                    rx.select.item("vLLM", value="vllm"),
+                                ),
+                                rx.cond(
+                                    AIState.available_backends.contains("tabbyapi"),
+                                    rx.select.item("TabbyAPI", value="tabbyapi"),
+                                ),
+                                rx.select.item("Cloud APIs", value="cloud_api"),
+                            ),
+                            value=AIState.backend_type,
+                            on_change=AIState.switch_backend,
+                            size="2",
+                            disabled=AIState.backend_switching,
+                        ),
+                    ),
+
+                    # Backend Switching Status Badge
+                    rx.cond(
+                        AIState.backend_switching,
+                        rx.hstack(
+                            rx.spinner(size="1", color="orange"),
+                            rx.badge(
+                                rx.cond(
+                                    AIState.ui_language == "de",
+                                    "Wechsle...",
+                                    "Switching...",
+                                ),
+                                color_scheme="orange"
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                    ),
+
+                    # GPU Details Collapsible (next to Backend dropdown)
+                    rx.cond(
+                        AIState.gpu_detected,
+                        rx.accordion.root(
+                            rx.accordion.item(
+                                value="gpu-details",
+                                header=rx.box(
+                                    rx.text(
+                                        rx.cond(
+                                            AIState.ui_language == "de",
+                                            "\U0001f5a5\ufe0f GPU-Details",
+                                            "\U0001f5a5\ufe0f GPU Details"
+                                        ),
+                                        font_size="11px",
+                                        font_weight="500",
+                                        color="#2a9d8f",
+                                    ),
+                                    padding_y="2",
+                                ),
+                                content=rx.vstack(
+                                    # GPU Hardware Info
+                                    rx.text(
+                                        f"\U0001f3ae {AIState.gpu_display_text}",
+                                        font_size="10px",
+                                        color="#2a9d8f",
+                                    ),
+                                    # Backend Compatibility (only if Compute < 7.0)
+                                    rx.cond(
+                                        AIState.gpu_compute_cap < 7.0,
+                                        rx.box(
+                                            rx.text(
+                                                rx.cond(
+                                                    AIState.ui_language == "de",
+                                                    "vLLM & TabbyAPI ben\u00f6tigen Compute 7.0+",
+                                                    "vLLM & TabbyAPI require Compute 7.0+"
+                                                ),
+                                                font_size="10px",
+                                                color="#aaa",
+                                            ),
+                                            rx.text(
+                                                rx.cond(
+                                                    AIState.ui_language == "de",
+                                                    "Verf\u00fcgbar: " + AIState.gpu_compatible_text,
+                                                    "Available: " + AIState.gpu_compatible_text,
+                                                ),
+                                                font_size="10px",
+                                                color="#aaa",
+                                                margin_top="2px",
+                                            ),
+                                            rx.text(
+                                                rx.cond(
+                                                    AIState.ui_language == "de",
+                                                    "\U0001f4a1 Ollama & llama.cpp nutzen GGUF (Q4-Q8) - optimal f\u00fcr \u00e4ltere GPUs",
+                                                    "\U0001f4a1 Ollama & llama.cpp use GGUF (Q4-Q8) - optimal for older GPUs"
+                                                ),
+                                                font_size="10px",
+                                                color="#2a9d8f",
+                                                margin_top="4px",
+                                                font_style="italic",
+                                            ),
+                                            margin_top="4px",
+                                        ),
+                                    ),
+                                    spacing="1",
+                                    width="100%",
+                                    align_items="start",
+                                ),
+                            ),
+                            collapsible=True,
+                            color_scheme="gray",
+                            variant="ghost",
+                        ),
+                    ),
+
+                    spacing="3",
+                    align="center",
+                ),
+
+                # Single Model Warning (for backends that can't switch models)
+                rx.cond(
+                    ~AIState.backend_supports_dynamic_models,
+                    rx.text(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            f"\u2139\ufe0f {AIState.backend_type.upper()} kann nur EIN Modell gleichzeitig laden (Haupt- und Automatik-LLM nutzen dasselbe Modell)",
+                            f"\u2139\ufe0f {AIState.backend_type.upper()} can only load ONE model at a time (Main and Automatik LLM use the same model)"
+                        ),
+                        font_size="11px",
+                        color="#d4913d",  # Dunkles Orange - gut lesbar
+                        line_height="1.5",
+                        margin_top="8px",
+                    ),
+                ),
+
+                # Context Calibration Row (Ollama + llama.cpp)
+                rx.cond(
+                    (AIState.backend_id == "ollama") | (AIState.backend_id == "llamacpp"),
+                    rx.hstack(
+                        rx.button(
+                            rx.cond(
+                                AIState.is_calibrating,
+                                rx.hstack(
+                                    rx.spinner(size="1"),
+                                    rx.text(t("calibrating"), font_size="11px"),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                rx.hstack(
+                                    rx.icon("gauge", size=14),
+                                    rx.text(t("calibrate_context"), font_size="11px"),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                            ),
+                            on_click=AIState.calibrate_context,
+                            disabled=AIState.is_calibrating | AIState.backend_switching,
+                            size="1",
+                            variant="outline",
+                            color_scheme="orange",
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
+                ),
+
+                # Cloud API Provider Selection (only visible for cloud_api backend)
+                rx.cond(
+                    AIState.backend_type == "cloud_api",
+                    rx.hstack(
+                        rx.text(t("cloud_api_provider"), font_weight="bold", font_size="12px"),
+                        rx.select(
+                            ["Claude (Anthropic)", "Qwen (DashScope)", "DeepSeek", "Kimi (Moonshot)"],
+                            value=AIState.cloud_api_provider_label,
+                            on_change=AIState.set_cloud_api_provider_by_label,
+                            size="2",
+                        ),
+                        # API Key Status Badge
+                        rx.cond(
+                            AIState.cloud_api_key_configured,
+                            rx.badge(t("cloud_api_key_configured"), color_scheme="green", size="1"),
+                            rx.badge(t("cloud_api_key_missing"), color_scheme="red", size="1"),
+                        ),
+                        spacing="3",
+                        align="center",
+                        width="100%",
+                    ),
+                ),
+
+                # AIfred-LLM Selection
+                rx.hstack(
+                    rx.text(t("main_llm"), font_weight="bold", font_size="12px"),
+                    rx.cond(
+                        AIState.is_mobile,
+                        # MOBILE: Native HTML <select> (simple list)
+                        native_select_model(
+                            AIState.aifred_model,  # Display name with size
+                            AIState.set_aifred_model,  # Original handler
+                            AIState.backend_switching,
+                            AIState.available_models,  # Simple list of display names
+                        ),
+                        # DESKTOP: Radix UI Select
+                        rx.select(
+                            AIState.available_models,
+                            value=AIState.aifred_model,
+                            on_change=AIState.set_aifred_model,
+                            size="2",
+                            position="popper",  # Better mobile positioning (adapts to viewport)
+                            disabled=AIState.backend_switching,  # Disable during backend switch
+                        ),
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+
+                # AIfred RoPE + Personality + Reasoning (Ollama: all in one row, others: toggles only)
+                rx.cond(
+                    AIState.backend_id == "ollama",
+                    # Ollama: RoPE + Personality + Reasoning in one row
+                    rx.hstack(
+                        rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
+                        rx.select.root(
+                            rx.select.trigger(placeholder=AIState.rope_factor_display),
+                            rx.select.content(
+                                rx.select.item("1.0x", value="1.0x"),
+                                rx.select.item("1.5x", value="1.5x"),
+                                rx.select.item("2.0x", value="2.0x"),
+                            ),
+                            value=AIState.rope_factor_display,
+                            on_change=AIState.set_aifred_rope_factor,
+                            size="1",
+                        ),
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("\U0001f3a9", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_personality,
+                                    on_change=AIState.toggle_aifred_personality,
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="surface",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            content=t("personality_aifred_tooltip"),
+                        ),
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("\U0001f4ad", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_reasoning,
+                                    on_change=AIState.toggle_aifred_reasoning,
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="surface",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            content=t("reasoning_tooltip"),
+                        ),
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("\U0001f9e0", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_thinking,
+                                    on_change=AIState.toggle_aifred_thinking,
+                                    size="1",
+                                    color_scheme="blue",
+                                    variant="surface",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            content=t("thinking_tooltip"),
+                        ),
+                        rx.tooltip(
+                            rx.icon(
+                                "lightbulb",
+                                size=14,
+                                color="#FFD700",
+                                cursor="pointer",
+                                on_click=AIState.open_reasoning_thinking_help,
+                                style={
+                                    "transition": "transform 0.2s ease",
+                                    "&:hover": {"transform": "scale(1.15)"},
+                                },
+                            ),
+                            content=t("reasoning_thinking_help_lightbulb_tooltip"),
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
+                    # Other backends: Personality + Reasoning + Thinking + Info + optional Speed toggle
+                    rx.hstack(
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("\U0001f3a9", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_personality,
+                                    on_change=AIState.toggle_aifred_personality,
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="surface",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            content=t("personality_aifred_tooltip"),
+                        ),
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("\U0001f4ad", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_reasoning,
+                                    on_change=AIState.toggle_aifred_reasoning,
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="surface",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            content=t("reasoning_tooltip"),
+                        ),
+                        rx.tooltip(
+                            rx.hstack(
+                                rx.text("\U0001f9e0", font_size="14px"),
+                                rx.checkbox(
+                                    checked=AIState.aifred_thinking,
+                                    on_change=AIState.toggle_aifred_thinking,
+                                    size="1",
+                                    color_scheme="blue",
+                                    variant="surface",
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            content=t("thinking_tooltip"),
+                        ),
+                        rx.tooltip(
+                            rx.icon(
+                                "lightbulb",
+                                size=14,
+                                color="#FFD700",
+                                cursor="pointer",
+                                on_click=AIState.open_reasoning_thinking_help,
+                                style={
+                                    "transition": "transform 0.2s ease",
+                                    "&:hover": {"transform": "scale(1.15)"},
+                                },
+                            ),
+                            content=t("reasoning_thinking_help_lightbulb_tooltip"),
+                        ),
+                        rx.cond(
+                            AIState.aifred_has_speed_variant,
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text(
+                                        "Ctx",
+                                        font_size="10px",
+                                        color=rx.cond(AIState.aifred_speed_mode, "#666", "#4CAF50"),
+                                    ),
+                                    rx.switch(
+                                        checked=AIState.aifred_speed_mode,
+                                        on_change=AIState.toggle_aifred_speed_mode,
+                                        size="1",
+                                    ),
+                                    rx.text(
+                                        "\u26a1",
+                                        font_size="10px",
+                                        color=rx.cond(AIState.aifred_speed_mode, "#FFA500", "#666"),
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=AIState.speed_switch_tooltip,
+                            ),
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
+                ),
+
+                # Sokrates LLM Selection - Only visible when multi-agent mode is not "standard"
+                rx.cond(
+                    (AIState.multi_agent_mode != "standard") & AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text(
+                            t("sokrates_llm"),
+                            font_weight="bold",
+                            font_size="12px",
+                        ),
+                        rx.cond(
+                            AIState.is_mobile,
+                            # MOBILE: Native HTML <select> (simple list)
+                            native_select_model(
+                                AIState.sokrates_model_select_value,
+                                AIState.set_sokrates_model,
+                                AIState.backend_switching,
+                                AIState.sokrates_available_models,
+                            ),
+                            # DESKTOP: Radix UI Select with "(wie AIfred-LLM)" as first option
+                            rx.select(
+                                AIState.sokrates_available_models,
+                                value=AIState.sokrates_model_select_value,
+                                on_change=AIState.set_sokrates_model,
+                                size="2",
+                                position="popper",
+                                disabled=AIState.backend_switching,
+                            ),
+                        ),
+                        spacing="3",
+                        align="center",
+                    ),
+                ),
+
+                # Sokrates RoPE + Personality + Reasoning (multi-agent only)
+                rx.cond(
+                    (AIState.multi_agent_mode != "standard") & AIState.backend_supports_dynamic_models,
+                    rx.cond(
+                        AIState.backend_id == "ollama",
+                        # Ollama: RoPE + Personality + Reasoning in one row
+                        rx.hstack(
+                            rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
+                            rx.select.root(
+                                rx.select.trigger(placeholder=AIState.sokrates_rope_display),
+                                rx.select.content(
+                                    rx.select.item("1.0x", value="1.0x"),
+                                    rx.select.item("1.5x", value="1.5x"),
+                                    rx.select.item("2.0x", value="2.0x"),
+                                ),
+                                value=AIState.sokrates_rope_display,
+                                on_change=AIState.set_sokrates_rope_factor,
+                                size="1",
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f3db\ufe0f", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_personality,
+                                        on_change=AIState.toggle_sokrates_personality,
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("personality_sokrates_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f4ad", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_reasoning,
+                                        on_change=AIState.toggle_sokrates_reasoning,
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("reasoning_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f9e0", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_thinking,
+                                        on_change=AIState.toggle_sokrates_thinking,
+                                        size="1",
+                                        color_scheme="blue",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("thinking_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.icon(
+                                    "lightbulb",
+                                    size=14,
+                                    color="#FFD700",
+                                    cursor="pointer",
+                                    on_click=AIState.open_reasoning_thinking_help,
+                                    style={
+                                        "transition": "transform 0.2s ease",
+                                        "&:hover": {"transform": "scale(1.15)"},
+                                    },
+                                ),
+                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        # Other backends: Personality + Reasoning + Thinking + Info + optional Speed toggle
+                        rx.hstack(
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f3db\ufe0f", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_personality,
+                                        on_change=AIState.toggle_sokrates_personality,
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("personality_sokrates_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f4ad", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_reasoning,
+                                        on_change=AIState.toggle_sokrates_reasoning,
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("reasoning_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f9e0", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.sokrates_thinking,
+                                        on_change=AIState.toggle_sokrates_thinking,
+                                        size="1",
+                                        color_scheme="blue",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("thinking_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.icon(
+                                    "lightbulb",
+                                    size=14,
+                                    color="#FFD700",
+                                    cursor="pointer",
+                                    on_click=AIState.open_reasoning_thinking_help,
+                                    style={
+                                        "transition": "transform 0.2s ease",
+                                        "&:hover": {"transform": "scale(1.15)"},
+                                    },
+                                ),
+                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
+                            ),
+                            rx.cond(
+                                AIState.sokrates_has_speed_variant,
+                                rx.tooltip(
+                                    rx.hstack(
+                                        rx.text(
+                                            "Ctx",
+                                            font_size="10px",
+                                            color=rx.cond(AIState.sokrates_speed_mode, "#666", "#4CAF50"),
+                                        ),
+                                        rx.switch(
+                                            checked=AIState.sokrates_speed_mode,
+                                            on_change=AIState.toggle_sokrates_speed_mode,
+                                            size="1",
+                                            disabled=AIState.sokrates_model == "",
+                                        ),
+                                        rx.text(
+                                            "\u26a1",
+                                            font_size="10px",
+                                            color=rx.cond(AIState.sokrates_speed_mode, "#FFA500", "#666"),
+                                        ),
+                                        spacing="1",
+                                        align="center",
+                                    ),
+                                    content=AIState.speed_switch_tooltip,
+                                ),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                    ),
+                ),
+
+                # Salomo LLM Selection - Only visible for auto_consensus or tribunal modes
+                rx.cond(
+                    ((AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal")) & AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text(
+                            t("salomo_llm"),
+                            font_weight="bold",
+                            font_size="12px",
+                        ),
+                        rx.cond(
+                            AIState.is_mobile,
+                            # MOBILE: Native HTML <select> (simple list)
+                            native_select_model(
+                                AIState.salomo_model_select_value,
+                                AIState.set_salomo_model,
+                                AIState.backend_switching,
+                                AIState.salomo_available_models,
+                            ),
+                            # DESKTOP: Radix UI Select with "(wie AIfred-LLM)" as first option
+                            rx.select(
+                                AIState.salomo_available_models,
+                                value=AIState.salomo_model_select_value,
+                                on_change=AIState.set_salomo_model,
+                                size="2",
+                                position="popper",
+                                disabled=AIState.backend_switching,
+                            ),
+                        ),
+                        spacing="3",
+                        align="center",
+                    ),
+                ),
+
+                # Salomo RoPE + Personality + Reasoning (consensus/tribunal only)
+                rx.cond(
+                    ((AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal")) & AIState.backend_supports_dynamic_models,
+                    rx.cond(
+                        AIState.backend_id == "ollama",
+                        # Ollama: RoPE + Personality + Reasoning in one row
+                        rx.hstack(
+                            rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
+                            rx.select.root(
+                                rx.select.trigger(placeholder=AIState.salomo_rope_display),
+                                rx.select.content(
+                                    rx.select.item("1.0x", value="1.0x"),
+                                    rx.select.item("1.5x", value="1.5x"),
+                                    rx.select.item("2.0x", value="2.0x"),
+                                ),
+                                value=AIState.salomo_rope_display,
+                                on_change=AIState.set_salomo_rope_factor,
+                                size="1",
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f451", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_personality,
+                                        on_change=AIState.toggle_salomo_personality,
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("personality_salomo_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f4ad", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_reasoning,
+                                        on_change=AIState.toggle_salomo_reasoning,
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("reasoning_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f9e0", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_thinking,
+                                        on_change=AIState.toggle_salomo_thinking,
+                                        size="1",
+                                        color_scheme="blue",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("thinking_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.icon(
+                                    "lightbulb",
+                                    size=14,
+                                    color="#FFD700",
+                                    cursor="pointer",
+                                    on_click=AIState.open_reasoning_thinking_help,
+                                    style={
+                                        "transition": "transform 0.2s ease",
+                                        "&:hover": {"transform": "scale(1.15)"},
+                                    },
+                                ),
+                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        # Other backends: Personality + Reasoning + Thinking + Info
+                        rx.hstack(
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f451", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_personality,
+                                        on_change=AIState.toggle_salomo_personality,
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("personality_salomo_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f4ad", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_reasoning,
+                                        on_change=AIState.toggle_salomo_reasoning,
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("reasoning_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.text("\U0001f9e0", font_size="14px"),
+                                    rx.checkbox(
+                                        checked=AIState.salomo_thinking,
+                                        on_change=AIState.toggle_salomo_thinking,
+                                        size="1",
+                                        color_scheme="blue",
+                                        variant="surface",
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                ),
+                                content=t("thinking_tooltip"),
+                            ),
+                            rx.tooltip(
+                                rx.icon(
+                                    "lightbulb",
+                                    size=14,
+                                    color="#FFD700",
+                                    cursor="pointer",
+                                    on_click=AIState.open_reasoning_thinking_help,
+                                    style={
+                                        "transition": "transform 0.2s ease",
+                                        "&:hover": {"transform": "scale(1.15)"},
+                                    },
+                                ),
+                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
+                            ),
+                            rx.cond(
+                                AIState.salomo_has_speed_variant,
+                                rx.tooltip(
+                                    rx.hstack(
+                                        rx.text(
+                                            "Ctx",
+                                            font_size="10px",
+                                            color=rx.cond(AIState.salomo_speed_mode, "#666", "#4CAF50"),
+                                        ),
+                                        rx.switch(
+                                            checked=AIState.salomo_speed_mode,
+                                            on_change=AIState.toggle_salomo_speed_mode,
+                                            size="1",
+                                            disabled=AIState.salomo_model == "",
+                                        ),
+                                        rx.text(
+                                            "\u26a1",
+                                            font_size="10px",
+                                            color=rx.cond(AIState.salomo_speed_mode, "#FFA500", "#666"),
+                                        ),
+                                        spacing="1",
+                                        align="center",
+                                    ),
+                                    content=AIState.speed_switch_tooltip,
+                                ),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                    ),
+                ),
+
+                # Automatik LLM Selection - Hidden for backends without dynamic model support
+                rx.cond(
+                    AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text(
+                            t("automatic_llm"),
+                            font_weight="bold",
+                            font_size="12px",
+                        ),
+                        rx.cond(
+                            AIState.is_mobile,
+                            # MOBILE: Native HTML <select> (simple list)
+                            native_select_model(
+                                AIState.automatik_model_select_value,
+                                AIState.set_automatik_model,
+                                AIState.backend_switching,
+                                AIState.automatik_available_models,
+                            ),
+                            # DESKTOP: Radix UI Select with "(wie AIfred-LLM)" as first option
+                            rx.select(
+                                AIState.automatik_available_models,
+                                value=AIState.automatik_model_select_value,
+                                on_change=AIState.set_automatik_model,
+                                size="2",
+                                position="popper",
+                                disabled=AIState.backend_switching,
+                            ),
+                        ),
+                        spacing="3",
+                        align="center",
+                    ),
+                ),
+
+                # Automatik RoPE Scaling - Only visible for Ollama
+                rx.cond(
+                    (AIState.backend_id == "ollama") & AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
+                        rx.select.root(
+                            rx.select.trigger(placeholder=AIState.automatik_rope_display),
+                            rx.select.content(
+                                rx.select.item("1.0x", value="1.0x"),
+                                rx.select.item("1.5x", value="1.5x"),
+                                rx.select.item("2.0x", value="2.0x"),
+                            ),
+                            value=AIState.automatik_rope_display,
+                            on_change=AIState.set_automatik_rope_factor,
+                            size="1",
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
+                ),
+
+                # Vision LLM Selection - Hidden for backends without dynamic model support
+                rx.cond(
+                    AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text(
+                            t("vision_llm"),
+                            font_weight="bold",
+                            font_size="12px",
+                        ),
+                        rx.cond(
+                            AIState.is_mobile,
+                            # MOBILE: Native HTML <select> (simple list)
+                            native_select_model(
+                                AIState.vision_model,  # Display name with size
+                                AIState.set_vision_model,  # Original handler
+                                AIState.backend_switching,
+                                AIState.available_vision_models_list,  # Vision models list (state var, not computed)
+                            ),
+                            # DESKTOP: Radix UI Select
+                            rx.select(
+                                AIState.available_vision_models_list,  # State var instead of computed property
+                                value=AIState.vision_model,
+                                on_change=AIState.set_vision_model,
+                                size="2",
+                                position="popper",  # Better mobile positioning (adapts to viewport)
+                                disabled=AIState.backend_switching,  # Disable during backend switch
+                                placeholder="Select vision model..."
+                            ),
+                        ),
+                        spacing="3",
+                        align="center",
+                    ),
+                ),
+
+                # Vision RoPE Scaling - Only visible for Ollama
+                rx.cond(
+                    (AIState.backend_id == "ollama") & AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
+                        rx.select.root(
+                            rx.select.trigger(placeholder=AIState.vision_rope_display),
+                            rx.select.content(
+                                rx.select.item("1.0x", value="1.0x"),
+                                rx.select.item("1.5x", value="1.5x"),
+                                rx.select.item("2.0x", value="2.0x"),
+                            ),
+                            value=AIState.vision_rope_display,
+                            on_change=AIState.set_vision_rope_factor,
+                            size="1",
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
+                ),
+
+                # NOTE: Global "Thinking Mode" toggle removed in v2.23.0
+                # Reasoning is now controlled per-agent via aifred_reasoning, sokrates_reasoning, salomo_reasoning
+                # which control BOTH the reasoning prompt AND the enable_thinking flag
+
+                # vLLM YaRN Context Extension (nur sichtbar bei vLLM)
+                rx.cond(
+                    AIState.backend_type == "vllm",
+                    rx.vstack(
+                        rx.divider(margin="0px 0px 12px 0px"),
+                        rx.hstack(
+                            rx.text(t("yarn_heading"), font_weight="bold", font_size="12px"),
+                            rx.switch(
+                                checked=AIState.enable_yarn,
+                                on_change=AIState.toggle_yarn,
+                                size="1",
+                            ),
+                            rx.text(
+                                rx.cond(
+                                    AIState.enable_yarn,
+                                    f"ON ({AIState.yarn_factor}x)",
+                                    "OFF"
+                                ),
+                                font_size="11px",
+                                color=rx.cond(
+                                    AIState.enable_yarn,
+                                    "#4CAF50",
+                                    "#999"
+                                ),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.cond(
+                            AIState.enable_yarn,
+                            rx.vstack(
+                                rx.hstack(
+                                    rx.text(t("yarn_factor_label"), font_size="11px", font_weight="500"),
+                                    rx.input(
+                                        default_value=AIState.yarn_factor_input,
+                                        on_blur=AIState.set_yarn_factor_input,
+                                        type="number",
+                                        step="0.1",
+                                        min="1.0",
+                                        max="8.0",  # No hard limit - let user experiment
+                                        size="1",
+                                        width="80px",
+                                    ),
+                                    rx.text(
+                                        rx.cond(
+                                            AIState.vllm_max_tokens > 0,
+                                            f"(~{(AIState.vllm_max_tokens * AIState.yarn_factor).to(int)} tokens)",
+                                            t("yarn_autodetect_hint")
+                                        ),
+                                        font_size="10px",
+                                        color="#999",
+                                    ),
+                                    rx.button(
+                                        t("yarn_apply_button"),
+                                        on_click=AIState.apply_yarn_factor,
+                                        size="1",
+                                        variant="soft",
+                                        color_scheme="blue",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                # Show maximum YaRN factor info (dynamic based on testing)
+                                rx.cond(
+                                    AIState.yarn_max_tested,
+                                    # Maximum was tested (from VRAM crash)
+                                    rx.text(
+                                        "\U0001f4cf Maximum: ~" + AIState.yarn_max_factor.to(str) + "x",
+                                        font_size="10px",
+                                        color="#ff9800",  # Orange for better visibility
+                                        font_weight="500",
+                                        margin_top="2px",
+                                    ),
+                                    # Maximum unknown (not tested yet)
+                                    rx.text(
+                                        t("yarn_max_unknown"),
+                                        font_size="10px",
+                                        color="#999",  # Gray for unknown
+                                        font_weight="400",
+                                        margin_top="2px",
+                                    ),
+                                ),
+                                spacing="2",
+                            ),
+                            rx.box(),
+                        ),
+                        rx.cond(
+                            AIState.vllm_max_tokens > 0,
+                            rx.text(
+                                "\u2139\ufe0f " + (AIState.vllm_native_context / 1000).to(int).to(str) + "K nativ | HW: " + (AIState.vllm_max_tokens / 1000).to(int).to(str) + "K",
+                                font_size="10px",
+                                color="#999",
+                                line_height="1.3",
+                            ),
+                            rx.text(
+                                t("yarn_context_info"),
+                                font_size="10px",
+                                color="#999",
+                                line_height="1.3",
+                            ),
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    rx.box(),  # Empty box when not vLLM
+                ),
+
+                # TTS/STT Settings
+                rx.divider(margin_top="12px", margin_bottom="12px"),
+
+                # TTS (Text-to-Speech) Section
+                rx.vstack(
+                    # Row 1: Label + AutoPlay + Streaming toggles
+                    rx.hstack(
+                        rx.text(t("tts_heading"), font_weight="bold", font_size="12px"),
+                        # Spacer
+                        rx.box(flex="1"),
+                        # Autoplay Toggle Group (only show when TTS enabled)
+                        rx.cond(
+                            AIState.enable_tts,
+                            rx.hstack(
+                                rx.text(t("tts_autoplay_label"), font_size="11px", color="#d4a14a"),
+                                rx.switch(
+                                    checked=AIState.tts_autoplay,
+                                    on_change=AIState.toggle_tts_autoplay,
+                                    size="1",
+                                ),
+                                rx.text(
+                                    rx.cond(AIState.tts_autoplay, "ON", "OFF"),
+                                    font_size="10px",
+                                    color=rx.cond(AIState.tts_autoplay, "#d4a14a", "#666"),
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            rx.box(),
+                        ),
+                        # Streaming TTS Toggle Group
+                        rx.hstack(
+                            rx.text("Streaming", font_size="11px", color="#d4a14a"),
+                            rx.switch(
+                                checked=AIState.tts_streaming_enabled,
+                                on_change=AIState.toggle_tts_streaming,
+                                size="1",
+                                disabled=~(AIState.enable_tts & AIState.tts_autoplay),
+                            ),
+                            rx.text(
+                                rx.cond(AIState.tts_streaming_enabled, "ON", "OFF"),
+                                font_size="10px",
+                                color=rx.cond(AIState.tts_streaming_enabled, "#d4a14a", "#666"),
+                            ),
+                            spacing="1",
+                            align="center",
+                            opacity=rx.cond(AIState.enable_tts & AIState.tts_autoplay, "1", "0"),
+                            pointer_events=rx.cond(AIState.enable_tts & AIState.tts_autoplay, "auto", "none"),
+                        ),
+                        spacing="2",
+                        align="center",
+                        width="100%",
+                    ),
+                    # Row 2: Engine/Off dropdown + XTTS GPU toggle
+                    rx.hstack(
+                        rx.cond(
+                            AIState.is_mobile,
+                            native_select_tts(
+                                AIState.tts_engine_or_off,
+                                AIState.set_tts_engine_or_off,
+                                AIState.tts_engines,
+                            ),
+                            rx.select(
+                                AIState.tts_engines,
+                                value=AIState.tts_engine_or_off,
+                                on_change=AIState.set_tts_engine_or_off,
+                                size="2",
+                                width="100%",
+                            ),
+                        ),
+                        # XTTS CPU Mode Toggle (only when XTTS active)
+                        rx.cond(
+                            AIState.enable_tts & (AIState.tts_engine == "xtts"),
+                            rx.tooltip(
+                              rx.hstack(
+                                rx.switch(
+                                    checked=AIState.xtts_gpu_enabled,
+                                    on_change=AIState.toggle_xtts_gpu,
+                                    size="1",
+                                ),
+                                rx.text(
+                                    rx.cond(
+                                        AIState.xtts_force_cpu,
+                                        rx.cond(AIState.ui_language == "de", "CPU (langsamer)", "CPU (slower)"),
+                                        rx.cond(AIState.ui_language == "de", "GPU (schneller)", "GPU (faster)"),
+                                    ),
+                                    font_size="10px",
+                                    color="#d4a14a",
+                                ),
+                                spacing="1",
+                                align="center",
+                              ),
+                              content=rx.cond(
+                                  AIState.ui_language == "de",
+                                  "Container-Neustart dauert einige Sekunden",
+                                  "Container restart takes a few seconds",
+                              ),
+                            ),
+                            rx.fragment(),
+                        ),
+                        spacing="2",
+                        align="center",
+                        width="100%",
+                    ),
+                    rx.cond(
+                        AIState.enable_tts,
+                        rx.vstack(
+                            # Per-Agent Voice Settings (generic for all TTS engines)
+                            rx.vstack(
+                                rx.divider(margin_top="8px", margin_bottom="8px"),
+                                rx.text("\U0001f3ad Agentenstimmen", font_weight="bold", font_size="11px", color="#888"),
+                                # Header row with labels
+                                rx.hstack(
+                                    rx.text("", width="70px"),  # Spacer for agent name
+                                    rx.box(rx.text("Voice", font_size="9px", color="#d4a14a"), flex="1"),
+                                    rx.text("Pitch", font_size="9px", color="#d4a14a", width="65px", text_align="center"),
+                                    rx.text("Speed", font_size="9px", color="#d4a14a", width="65px", text_align="center"),
+                                    spacing="2",
+                                    width="100%",
+                                ),
+                                # AIfred Voice Settings
+                                rx.hstack(
+                                    rx.text("\U0001f3a9 AIfred", font_size="10px", width="70px"),
+                                    rx.box(
+                                        rx.select(
+                                            AIState.available_tts_voices,
+                                            value=AIState.aifred_voice,
+                                            on_change=AIState.set_aifred_voice,
+                                            placeholder="Default",
+                                            size="1",
+                                        ),
+                                        flex="1",
+                                    ),
+                                    rx.select(
+                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
+                                        value=AIState.aifred_pitch,
+                                        on_change=AIState.set_aifred_pitch,
+                                        size="1",
+                                        width="65px",
+                                    ),
+                                    rx.select(
+                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"],
+                                        value=AIState.aifred_speed,
+                                        on_change=AIState.set_aifred_speed,
+                                        size="1",
+                                        width="65px",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                    width="100%",
+                                ),
+                                # Sokrates Voice Settings
+                                rx.hstack(
+                                    rx.text("\U0001f3db\ufe0f Sokrates", font_size="10px", width="70px"),
+                                    rx.box(
+                                        rx.select(
+                                            AIState.available_tts_voices,
+                                            value=AIState.sokrates_voice,
+                                            on_change=AIState.set_sokrates_voice,
+                                            placeholder="Default",
+                                            size="1",
+                                        ),
+                                        flex="1",
+                                    ),
+                                    rx.select(
+                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
+                                        value=AIState.sokrates_pitch,
+                                        on_change=AIState.set_sokrates_pitch,
+                                        size="1",
+                                        width="65px",
+                                    ),
+                                    rx.select(
+                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"],
+                                        value=AIState.sokrates_speed,
+                                        on_change=AIState.set_sokrates_speed,
+                                        size="1",
+                                        width="65px",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                    width="100%",
+                                ),
+                                # Salomo Voice Settings
+                                rx.hstack(
+                                    rx.text("\U0001f451 Salomo", font_size="10px", width="70px"),
+                                    rx.box(
+                                        rx.select(
+                                            AIState.available_tts_voices,
+                                            value=AIState.salomo_voice,
+                                            on_change=AIState.set_salomo_voice,
+                                            placeholder="Default",
+                                            size="1",
+                                        ),
+                                        flex="1",
+                                    ),
+                                    rx.select(
+                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
+                                        value=AIState.salomo_pitch,
+                                        on_change=AIState.set_salomo_pitch,
+                                        size="1",
+                                        width="65px",
+                                    ),
+                                    rx.select(
+                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"],
+                                        value=AIState.salomo_speed,
+                                        on_change=AIState.set_salomo_speed,
+                                        size="1",
+                                        width="65px",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                    width="100%",
+                                ),
+                                spacing="2",
+                                width="100%",
+                            ),
+                            spacing="3",
+                            width="100%",
+                        ),
+                        rx.box(),  # Empty when TTS disabled
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+
+                # STT (Speech-to-Text) Section
+                rx.divider(margin_top="12px", margin_bottom="12px"),
+                rx.vstack(
+                    rx.text(t("stt_heading"), font_weight="bold", font_size="12px"),
+                    # Whisper Model Selection
+                    rx.hstack(
+                        rx.text(t("stt_model_label"), font_size="11px", font_weight="500", width="80px"),
+                        rx.cond(
+                            AIState.is_mobile,
+                            # Mobile: Native select
+                            native_select_stt(
+                                AIState.whisper_model_display,
+                                AIState.set_whisper_model,
+                                [t("stt_model_tiny"), t("stt_model_base"), t("stt_model_small"), t("stt_model_medium"), t("stt_model_large")],
+                            ),
+                            # Desktop: Radix UI select
+                            rx.select(
+                                [t("stt_model_tiny"), t("stt_model_base"), t("stt_model_small"), t("stt_model_medium"), t("stt_model_large")],
+                                value=AIState.whisper_model_display,
+                                on_change=AIState.set_whisper_model,
+                                size="2",
+                            ),
+                        ),
+                        spacing="2",
+                        align="center",
+                        width="100%",
+                    ),
+                    # Device is now fixed to CPU (configured in config.py)
+                    # GPU would use precious VRAM needed for LLM inference
+                    # REMOVED: Show Transcription Toggle (moved to top, near recording buttons)
+                    spacing="3",
+                    width="100%",
+                ),
+
+                # Restart Buttons
+                rx.divider(),
+                rx.text(t("system_control"), font_weight="bold", font_size="12px"),
+                rx.vstack(
+                    # Row 1: Backend and AIfred restart buttons (side by side, each 50%)
+                    rx.hstack(
+                        rx.button(
+                            rx.cond(
+                                AIState.backend_type == "ollama",
+                                t("restart_ollama"),
+                                rx.cond(
+                                    AIState.backend_type == "vllm",
+                                    t("restart_vllm"),
+                                    rx.text(f"\U0001f504 {AIState.backend_type.upper()} Neustart")
+                                )
+                            ),
+                            on_click=AIState.restart_backend,
+                            size="2",
+                            variant="soft",
+                            color_scheme="blue",
+                            disabled=AIState.backend_switching,
+                            flex="1",
+                            style={
+                                "&:hover:not([disabled])": {
+                                    "background": "var(--blue-a6) !important",
+                                    "transform": "scale(1.02)",
+                                },
+                                "&:active:not([disabled])": {
+                                    "background": "var(--blue-a8) !important",
+                                    "transform": "scale(0.98)",
+                                },
+                            },
+                        ),
+                        rx.button(
+                            t("restart_aifred"),
+                            on_click=AIState.restart_aifred,
+                            size="2",
+                            variant="soft",
+                            color_scheme="orange",
+                            disabled=AIState.backend_switching,
+                            flex="1",
+                            style={
+                                "&:hover:not([disabled])": {
+                                    "background": "var(--orange-a6) !important",
+                                    "transform": "scale(1.02)",
+                                },
+                                "&:active:not([disabled])": {
+                                    "background": "var(--orange-a8) !important",
+                                    "transform": "scale(0.98)",
+                                },
+                            },
+                        ),
+                        spacing="3",
+                        width="100%",
+                    ),
+                    # Row 2: Vector DB clear button (full width, same style as chat clear)
+                    rx.button(
+                        "\U0001f5d1\ufe0f Vector-DB leeren",
+                        on_click=AIState.clear_vector_cache,
+                        size="2",
+                        variant="outline",
+                        color_scheme="orange",
+                        disabled=AIState.backend_switching,
+                        width="100%",
+                        style={
+                            "background": "rgba(100, 10, 0, 0.4)",  # Same as chat clear button
+                            "&:hover:not([disabled])": {
+                                "background": "rgba(150, 15, 0, 0.6) !important",
+                                "border_color": "#ff6600 !important",
+                                "transform": "scale(1.02)",
+                            },
+                            "&:active:not([disabled])": {
+                                "background": "rgba(80, 5, 0, 0.7) !important",
+                                "transform": "scale(0.98)",
+                            },
+                        },
+                    ),
+                    # Row 3: Load Default Settings button
+                    rx.button(
+                        "\U0001f4be Grundeinstellungen laden",
+                        on_click=AIState.load_default_settings,
+                        size="2",
+                        variant="solid",
+                        color_scheme="blue",
+                        disabled=AIState.backend_switching,
+                        width="100%",
+                        style={
+                            "&:hover:not([disabled])": {
+                                "background": "var(--blue-a9) !important",
+                                "transform": "scale(1.02)",
+                            },
+                            "&:active:not([disabled])": {
+                                "background": "var(--blue-a11) !important",
+                                "transform": "scale(0.98)",
+                            },
+                        },
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+                # Neustart-Info Texte
+                rx.vstack(
+                    rx.text(
+                        t("backend_restart_info"),
+                        font_size="10px",
+                        color=COLORS["text_secondary"],
+                    ),
+                    rx.text(
+                        t("aifred_restart_info"),
+                        font_size="10px",
+                        color=COLORS["text_secondary"],
+                    ),
+                    spacing="1",
+                    width="100%",
+                ),
+
+                spacing="4",
+                width="100%",
+            ),
+        ),
+        id="settings-accordion",  # ID for JavaScript height sync
+        collapsible=True,  # WICHTIG: Macht Accordion schlie\u00dfbar!
+        default_value="settings",  # Standardm\u00e4\u00dfig ge\u00f6ffnet
+        color_scheme="gray",
+        variant="soft",
+    )

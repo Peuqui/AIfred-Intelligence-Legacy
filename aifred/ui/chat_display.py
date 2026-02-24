@@ -1,0 +1,774 @@
+"""Chat display components for AIfred UI.
+
+Contains the main chat history display, session list, progress banner,
+Sokrates debate panel, and right column placeholder.
+"""
+
+from __future__ import annotations
+
+import reflex as rx
+
+from ..state import AIState
+from ..theme import COLORS
+from .helpers import (
+    MARKDOWN_COMPONENT_MAP,
+    MARKDOWN_COMPONENT_MAP_WITH_LISTS,
+    t,
+)
+from .message_renderer import render_message_standalone
+
+
+# ============================================================
+# PROCESSING PROGRESS BANNER
+# ============================================================
+
+def processing_progress_banner() -> rx.Component:
+    """Progress banner for all processing phases (Automatik, Scraping, LLM) - Always visible"""
+
+    # Berechne Fortschritt in Prozent (nur für Scraping relevant)
+    progress_pct = rx.cond(
+        AIState.progress_total > 0,
+        (AIState.progress_current / AIState.progress_total) * 100,
+        0
+    )
+
+    # Icon und Text basierend auf Phase
+    phase_icon = rx.cond(
+        AIState.is_uploading_image,
+        "\U0001f4e4",  # Upload icon
+        rx.cond(
+            AIState.progress_active,
+            rx.cond(
+                AIState.progress_phase == "automatik",
+                "\U0001f916",
+                rx.cond(
+                    AIState.progress_phase == "scraping",
+                    "\U0001f50d",
+                    rx.cond(
+                        AIState.progress_phase == "compress",
+                        "\U0001f5dc\ufe0f",
+                        "\U0001f9e0"  # llm
+                    )
+                )
+            ),
+            "\U0001f4a4"  # Idle icon - sleeping/waiting
+        )
+    )
+
+    phase_text = rx.cond(
+        AIState.is_uploading_image,
+        # Upload state - highest priority
+        rx.cond(
+            AIState.ui_language == "de",
+            "Bild wird hochgeladen ...",
+            "Uploading image ..."
+        ),
+        rx.cond(
+            AIState.progress_active,
+            rx.cond(
+                AIState.progress_phase == "automatik",
+                rx.cond(
+                    AIState.ui_language == "de",
+                    "Automatik-Entscheidung ...",
+                    "Automatic decision ..."
+                ),
+                rx.cond(
+                    AIState.progress_phase == "scraping",
+                    rx.cond(
+                        AIState.ui_language == "de",
+                        "Web-Scraping",
+                        "Web Scraping"
+                    ),
+                    rx.cond(
+                        AIState.progress_phase == "compress",
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "Komprimiere Kontext ...",
+                            "Compressing Context ..."
+                        ),
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "Generiere Antwort ...",
+                            "Generating Answer ..."
+                        )
+                    )
+                )
+            ),
+            # Idle state text - aber zeige "Generiere Antwort" wenn is_generating=True
+            rx.cond(
+                AIState.is_generating,
+                # Während Generierung (ohne Research)
+                rx.cond(
+                    AIState.ui_language == "de",
+                    "Generiere Antwort ...",
+                    "Generating Answer ..."
+                ),
+                # Wirklich idle
+                rx.cond(
+                    AIState.ui_language == "de",
+                    "Warte auf Eingabe ...",
+                    "Waiting for input ..."
+                )
+            )
+        )
+    )
+
+    # Fortschrittsanzeige basierend auf Phase
+    progress_content = rx.cond(
+        # Progress-Bar nur für Scraping (wenn aktiv)
+        (AIState.progress_active) & (AIState.progress_phase == "scraping"),
+        rx.hstack(
+            rx.text(phase_icon, font_size="14px"),
+            rx.text(phase_text, font_weight="bold", font_size="13px", color=COLORS["primary"]),
+            rx.box(
+                rx.box(
+                    width=f"{progress_pct}%",
+                    height="100%",
+                    background_color=COLORS["primary"],
+                    border_radius="2px",
+                    transition="width 0.3s ease",
+                ),
+                width="120px",
+                height="14px",
+                background_color="rgba(255, 255, 255, 0.1)",
+                border_radius="4px",
+                border=f"1px solid {COLORS['border']}",
+                overflow="hidden",
+            ),
+            rx.text(
+                f"{AIState.progress_current}/{AIState.progress_total}",
+                font_size="12px",
+                color=COLORS["primary"],  # Orange statt Grau - besser lesbar
+                font_weight="600",
+            ),
+            rx.cond(
+                AIState.progress_failed > 0,
+                rx.text(
+                    rx.cond(
+                        AIState.progress_failed == 1,
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "(1 Website nicht erreichbar)",
+                            "(1 Website unreachable)"
+                        ),
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            f"({AIState.progress_failed} Websites nicht erreichbar)",
+                            f"({AIState.progress_failed} Websites unreachable)"
+                        )
+                    ),
+                    font_size="11px",
+                    color=COLORS["accent_warning"],  # Orange statt Grau - besser sichtbar
+                    font_weight="500",
+                ),
+                rx.box(),
+            ),
+            spacing="2",
+            align="center",
+        ),
+        # Nur Text für Automatik, LLM und Idle (mit Pulsier-Animation nur wenn aktiv)
+        rx.hstack(
+            rx.text(
+                phase_icon,
+                font_size="14px",
+                style=rx.cond(
+                    AIState.progress_active | AIState.is_generating,  # Pulse if progress OR generating
+                    {
+                        "animation": "pulse 2s ease-in-out infinite",
+                        "@keyframes pulse": {
+                            "0%, 100%": {"opacity": "1"},
+                            "50%": {"opacity": "0.5"},
+                        }
+                    },
+                    {}  # No animation when idle
+                )
+            ),
+            rx.text(
+                phase_text,
+                font_weight=rx.cond(AIState.progress_active | AIState.is_generating, "bold", "500"),  # Bold if active OR generating
+                font_size="13px",
+                color=COLORS["primary"],  # Always orange text
+                style=rx.cond(
+                    AIState.progress_active | AIState.is_generating,  # Pulse if progress OR generating
+                    {
+                        "animation": "pulse 2s ease-in-out infinite",
+                        "@keyframes pulse": {
+                            "0%, 100%": {"opacity": "1"},
+                            "50%": {"opacity": "0.5"},
+                        }
+                    },
+                    {}  # No animation when idle
+                )
+            ),
+            spacing="2",
+            align="center",
+        )
+    )
+
+    # Always return the banner (no conditional rendering)
+    return rx.box(
+        progress_content,
+        padding="2",
+        background_color=COLORS["primary_bg"],  # Always orange/yellow background
+        border_radius="6px",
+        border=f"1px solid {COLORS['primary']}",  # Always orange border
+        width="100%",
+    )
+
+
+# ============================================================
+# SESSION LIST DISPLAY
+# ============================================================
+
+def session_list_display() -> rx.Component:
+    """Session picker - Collapsible list of saved chats above chat history."""
+
+    def render_session_item(session) -> rx.Component:
+        """Render a single session item in the list."""
+        # Format date from ISO string
+        # session has: session_id, title, last_seen, created_at, message_count
+        return rx.box(
+            rx.hstack(
+                # Session title or placeholder
+                rx.text(
+                    rx.cond(
+                        session["title"],
+                        session["title"],
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "Unbenannter Chat",
+                            "Untitled Chat"
+                        ),
+                    ),
+                    font_size="13px",
+                    font_weight=rx.cond(
+                        session["session_id"] == AIState.session_id,
+                        "600",  # Bold for current session
+                        "400",
+                    ),
+                    color=rx.cond(
+                        session["session_id"] == AIState.session_id,
+                        COLORS["primary"],  # Orange for current
+                        COLORS["text_primary"],
+                    ),
+                    flex="1",
+                    word_break="break-word",  # Allow line breaks for long titles
+                ),
+                # Message count badge
+                rx.badge(
+                    f"{session['message_count']}",
+                    color_scheme=rx.cond(
+                        session["session_id"] == AIState.session_id,
+                        "orange",
+                        "gray",
+                    ),
+                    size="1",
+                ),
+                # Delete button (only for non-current sessions)
+                rx.cond(
+                    session["session_id"] != AIState.session_id,
+                    rx.icon_button(
+                        rx.icon("trash-2", size=12),
+                        size="1",
+                        variant="ghost",
+                        color_scheme="red",
+                        on_click=AIState.delete_session(session["session_id"]),  # type: ignore[call-arg]
+                        cursor="pointer",
+                    ),
+                    rx.fragment(),
+                ),
+                spacing="2",
+                align="center",
+                width="100%",
+            ),
+            padding="2",
+            padding_x="3",
+            border_radius="4px",
+            background_color=rx.cond(
+                session["session_id"] == AIState.session_id,
+                COLORS["primary_bg"],  # Highlight current session
+                "transparent",
+            ),
+            _hover={
+                "background_color": COLORS["card_bg"],
+            },
+            cursor="pointer",
+            on_click=AIState.switch_session(session["session_id"]),  # type: ignore[call-arg]
+            width="100%",
+        )
+
+    session_list_content = rx.vstack(
+        # New Chat + Refresh buttons
+        rx.hstack(
+            rx.button(
+                rx.hstack(
+                    rx.icon("plus", size=14),
+                    rx.cond(
+                        AIState.ui_language == "de",
+                        rx.text("Neuer Chat", font_size="12px"),
+                        rx.text("New Chat", font_size="12px"),
+                    ),
+                    spacing="2",
+                    align="center",
+                ),
+                size="1",
+                variant="solid",
+                on_click=AIState.new_session,
+                flex="1",
+                style={
+                    "background": "#3d2a00",
+                    "color": COLORS["accent_warning"],
+                    "border": f"1px solid {COLORS['accent_warning']}",
+                    "font_weight": "600",
+                    "&:hover": {
+                        "background": "#4d3500",
+                        "color": "#ffb84d",
+                    },
+                },
+            ),
+            rx.button(
+                rx.icon("refresh-cw", size=14),
+                size="1",
+                variant="solid",
+                on_click=AIState.refresh_session_list,
+                padding_x="4",
+                style={
+                    "background": "rgba(180, 60, 60, 0.3)",
+                    "color": COLORS["accent_warning"],
+                    "border": "1px solid rgba(220, 80, 80, 0.6)",
+                    "minWidth": "42px",
+                    "&:hover": {
+                        "background": "rgba(200, 70, 70, 0.4)",
+                        "color": "#ffb84d",
+                    },
+                },
+            ),
+            spacing="2",
+            width="100%",
+            margin_bottom="2",
+        ),
+        # Session list (scrollable area separate from button)
+        rx.cond(
+            AIState.available_sessions.length() > 0,
+            rx.box(
+                rx.vstack(
+                    rx.foreach(
+                        AIState.available_sessions,
+                        render_session_item,
+                    ),
+                    spacing="1",
+                    width="100%",
+                ),
+                style={
+                    "minHeight": "70px",  # Fits 3 sessions without scroll
+                    "maxHeight": "168px",
+                    "overflowY": "auto",
+                    "overflowX": "hidden",
+                    "scrollbarGutter": "stable",  # Prevent UI jump when scrollbar appears/disappears
+                },
+                width="100%",
+            ),
+            rx.text(
+                rx.cond(
+                    AIState.ui_language == "de",
+                    "Keine gespeicherten Chats",
+                    "No saved chats",
+                ),
+                font_size="12px",
+                color=COLORS["text_muted"],
+                text_align="center",
+                padding="3",
+            ),
+        ),
+        spacing="1",
+        width="100%",
+        padding="2",
+    )
+
+    return rx.accordion.root(
+        rx.accordion.item(
+            value="session_list",
+            header=rx.box(
+                rx.hstack(
+                    rx.text(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "\U0001f4c1 Gespeicherte Chats",
+                            "\U0001f4c1 Saved Chats"
+                        ),
+                        font_size="14px",
+                        font_weight="500",
+                        color=COLORS["text_primary"]
+                    ),
+                    rx.badge(
+                        f"{AIState.available_sessions.length()}",
+                        color_scheme="gray",
+                        size="1",
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+                padding_y="2",
+                background_color=COLORS["card_bg"],
+                _hover={
+                    "background_color": COLORS["primary_bg"],
+                },
+                border_radius="6px",
+                padding_x="3",
+                cursor="pointer",
+                transition="background-color 0.2s ease",
+            ),
+            content=session_list_content,
+        ),
+        default_value="",  # Collapsed by default
+        collapsible=True,
+        width="100%",
+        variant="soft",
+        color_scheme="gray",
+    )
+
+
+# ============================================================
+# CHAT HISTORY DISPLAY
+# ============================================================
+
+def chat_history_display() -> rx.Component:
+    """Full chat history (like Gradio chatbot) - Collapsible"""
+    # Loading spinner während Initialisierung, Backend-Wechsel oder Bild-Upload
+    loading_spinner = rx.vstack(
+        rx.spinner(size="3", color="orange"),
+        rx.cond(
+            AIState.is_uploading_image,
+            rx.text(
+                rx.cond(
+                    AIState.ui_language == "de",
+                    "Bild wird hochgeladen...",
+                    "Uploading image...",
+                ),
+                font_size="14px",
+                color=COLORS["text_secondary"],
+                margin_top="3",
+            ),
+            rx.cond(
+                AIState.backend_initializing,
+                rx.text(
+                    "AIfred wird initialisiert...",
+                    font_size="14px",
+                    color=COLORS["text_secondary"],
+                    margin_top="3",
+                ),
+                rx.cond(
+                    AIState.vllm_restarting,
+                    rx.text(
+                        "vLLM wird neu gestartet...",
+                        font_size="14px",
+                        color=COLORS["text_secondary"],
+                        margin_top="3",
+                    ),
+                    rx.text(
+                        "Backend wird gewechselt...",
+                        font_size="14px",
+                        color=COLORS["text_secondary"],
+                        margin_top="3",
+                    ),
+                ),
+            ),
+        ),
+        rx.cond(
+            AIState.is_uploading_image,
+            rx.fragment(),  # No subtitle for image upload
+            rx.text(
+                "Bitte warten, Backend startet (~40-70 Sekunden)",
+                font_size="11px",
+                color=COLORS["text_muted"],
+                font_style="italic",
+                margin_top="1",
+            ),
+        ),
+        align="center",
+        justify="center",
+        width="100%",
+        min_height="360px",
+        padding="4",
+        background_color=COLORS["readonly_bg"],
+        border_radius="8px",
+        border=f"1px solid {COLORS['border']}",
+    )
+
+    # Chat History Box - JavaScript-basiertes Autoscroll (nicht rx.auto_scroll)
+    # rx.auto_scroll ignoriert den Toggle während der Inferenz, daher JavaScript-Lösung
+    # Unified Streaming Element - shows current_ai_response for ANY agent (AIfred, Sokrates, Salomo)
+    # This is a SEPARATE element from chat_history to avoid O(n) regex parsing on each token
+    # Styling adapts based on AIState.current_agent ("aifred" | "sokrates" | "salomo")
+    streaming_box = rx.cond(
+        AIState.is_generating & (AIState.current_ai_response != ""),
+        rx.cond(
+            # AIfred Streaming (Orange)
+            AIState.current_agent == "aifred",
+            rx.box(
+                rx.hstack(
+                    rx.text("\U0001f3a9", font_size="13px"),
+                    rx.box(
+                        rx.hstack(
+                            rx.text("AIfred", font_weight="bold", font_size="12px", color=COLORS["primary"]),
+                            rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
+                            spacing="1", margin_bottom="1",
+                        ),
+                        rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP),
+                        background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
+                    ),
+                    spacing="2", align="start", width="100%",
+                ),
+                background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
+                border=f"1px solid {COLORS['primary']}", width="100%",
+            ),
+            rx.cond(
+                # Sokrates Streaming (Kupfer/Bronze)
+                AIState.current_agent == "sokrates",
+                rx.box(
+                    rx.hstack(
+                        rx.text("\U0001f3db\ufe0f", font_size="13px"),
+                        rx.box(
+                            rx.hstack(
+                                rx.text("Sokrates", font_weight="bold", font_size="12px", color="#cd7f32"),
+                                rx.text("\u258c", font_size="14px", color="#cd7f32", animation="blink 1s infinite"),
+                                spacing="1", margin_bottom="1",
+                            ),
+                            rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP),
+                            background_color="rgba(205, 127, 50, 0.08)", padding="3", border_radius="6px", width="100%",
+                        ),
+                        spacing="2", align="start", width="100%",
+                    ),
+                    background_color="rgba(205, 127, 50, 0.03)", padding="2", border_radius="8px",
+                    border="1px solid rgba(205, 127, 50, 0.3)", width="100%",
+                ),
+                # Salomo Streaming (Gold)
+                rx.box(
+                    rx.hstack(
+                        rx.text("\U0001f451", font_size="13px"),
+                        rx.box(
+                            rx.hstack(
+                                rx.text("Salomo", font_weight="bold", font_size="12px", color="#daa520"),
+                                rx.text("\u258c", font_size="14px", color="#daa520", animation="blink 1s infinite"),
+                                spacing="1", margin_bottom="1",
+                            ),
+                            rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP),
+                            background_color="rgba(218, 165, 32, 0.08)", padding="3", border_radius="6px", width="100%",
+                        ),
+                        spacing="2", align="start", width="100%",
+                    ),
+                    background_color="rgba(218, 165, 32, 0.03)", padding="2", border_radius="8px",
+                    border="1px solid rgba(218, 165, 32, 0.3)", width="100%",
+                ),
+            ),
+        ),
+    )
+
+    # NOTE: Web sources collapsible is now embedded directly in the AI response HTML
+    # (like the Denkprozess collapsible), so we don't need a separate component here.
+
+    chat_history_box = rx.box(
+        rx.vstack(
+            # All chat messages including inline summaries
+            rx.foreach(
+                AIState.chat_history,
+                render_message_standalone
+            ),
+            # Unified streaming element at the end (adapts to current_agent)
+            streaming_box,
+            spacing="3",
+            width="100%",
+        ),
+        id="chat-history-box",
+        width="100%",
+        min_height="360px",
+        max_height="2400px",
+        overflow_y="auto",
+        padding="4",
+        background_color=COLORS["readonly_bg"],
+        border_radius="8px",
+        border=f"1px solid {COLORS['border']}",
+        style={
+            "transition": "all 0.4s ease-out",
+        },
+    )
+
+    chat_content = rx.cond(
+        AIState.backend_initializing | AIState.backend_switching | AIState.vllm_restarting | AIState.is_uploading_image,
+        loading_spinner,  # Show spinner during initialization, backend switch, vLLM restart, or image upload
+        chat_history_box,
+    )
+
+    return rx.accordion.root(
+        rx.accordion.item(
+            value="chat_history",  # Eindeutige ID für das Accordion Item
+            header=rx.box(
+                rx.hstack(
+                    rx.text(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            "\U0001f4ac Chat Verlauf",
+                            "\U0001f4ac Chat History"
+                        ),
+                        font_size="14px",
+                        font_weight="500",
+                        color=COLORS["text_primary"]
+                    ),
+                    rx.badge(
+                        rx.cond(
+                            AIState.ui_language == "de",
+                            f"{AIState.chat_history.length()} messages",
+                            f"{AIState.chat_history.length()} messages"
+                        ),
+                        color_scheme="orange",
+                        size="1",
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+                padding_y="2",  # Kompakter Header
+                background_color=COLORS["card_bg"],  # Dunkles Grau
+                _hover={
+                    "background_color": COLORS["primary_bg"],  # Orange beim Hover (15% Opacity)
+                },
+                border_radius="6px",
+                padding_x="3",
+                cursor="pointer",
+                transition="background-color 0.2s ease",
+            ),
+            content=chat_content,
+        ),
+        default_value="chat_history",  # Standardmäßig GEÖFFNET
+        collapsible=True,
+        width="100%",
+        variant="soft",  # Soft statt ghost für besseres Styling
+        color_scheme="gray",  # Grau statt Blau
+    )
+
+
+# ============================================================
+# SOKRATES PANEL
+# ============================================================
+
+def sokrates_panel() -> rx.Component:
+    """Sokrates live streaming panel - shown only during active debate"""
+    return rx.cond(
+        AIState.debate_in_progress,  # Only show during live streaming
+        rx.box(
+            rx.vstack(
+                # Header with Sokrates icon (Kupfer-Styling)
+                rx.hstack(
+                    rx.text("\U0001f3db\ufe0f", font_size="16px"),
+                    rx.text(
+                        "Sokrates",
+                        font_weight="bold",
+                        font_size="13px",
+                        color="#cd7f32",  # Kupfer/Bronze
+                    ),
+                    rx.text(
+                        "(live)",
+                        font_size="11px",
+                        color="rgba(205, 127, 50, 0.6)",
+                        font_style="italic",
+                    ),
+                    # Show round indicator for auto_consensus
+                    rx.cond(
+                        AIState.multi_agent_mode == "auto_consensus",
+                        rx.badge(
+                            rx.hstack(
+                                rx.text(t("debate_round_label"), font_size="10px"),
+                                rx.text(AIState.debate_round.to(str), font_weight="bold"),
+                                spacing="1",
+                            ),
+                            variant="soft",
+                            color_scheme="orange",
+                        ),
+                    ),
+                    # Show LGTM badge if consensus reached
+                    rx.cond(
+                        AIState.sokrates_critique.contains("LGTM"),
+                        rx.badge("LGTM", variant="soft", color_scheme="green"),
+                    ),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                ),
+
+                # Content based on mode
+                rx.cond(
+                    AIState.multi_agent_mode == "devils_advocate",
+                    # Devil's Advocate: Pro/Contra layout
+                    rx.vstack(
+                        # Pro section
+                        rx.box(
+                            rx.vstack(
+                                rx.text(t("sokrates_pro_label"), font_weight="bold", font_size="12px", color="#4ade80"),
+                                rx.markdown(
+                                    AIState.sokrates_pro_args,
+                                    component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
+                                ),
+                                spacing="1",
+                                width="100%",
+                            ),
+                            padding="12px",
+                            background_color="rgba(74, 222, 128, 0.1)",
+                            border_radius="8px",
+                            width="100%",
+                        ),
+                        # Contra section
+                        rx.box(
+                            rx.vstack(
+                                rx.text(t("sokrates_contra_label"), font_weight="bold", font_size="12px", color="#f87171"),
+                                rx.markdown(
+                                    AIState.sokrates_contra_args,
+                                    component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
+                                ),
+                                spacing="1",
+                                width="100%",
+                            ),
+                            padding="12px",
+                            background_color="rgba(248, 113, 113, 0.1)",
+                            border_radius="8px",
+                            width="100%",
+                        ),
+                        spacing="3",
+                        width="100%",
+                    ),
+                    # Critique layout (critical_review, auto_consensus) - Kupfer-Styling
+                    rx.box(
+                        rx.markdown(
+                            AIState.sokrates_critique,
+                            component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
+                            font_size="13px",
+                        ),
+                        padding="8px",
+                        background_color="rgba(205, 127, 50, 0.08)",  # Kupfer-Hintergrund
+                        border_radius="6px",
+                        width="100%",
+                    ),
+                ),
+
+                spacing="2",
+                width="100%",
+            ),
+            padding="8px",
+            background_color="rgba(205, 127, 50, 0.03)",  # Dezenter Kupfer-Container
+            border_radius="8px",
+            border="1px solid rgba(205, 127, 50, 0.3)",  # Kupfer-Rand
+            width="100%",
+            margin_top="4px",
+        ),
+    )
+
+
+# ============================================================
+# RIGHT COLUMN (PLACEHOLDER)
+# ============================================================
+
+def right_column() -> rx.Component:
+    """Right column removed completely"""
+    # This function is now empty as the right column is completely removed
+    return rx.vstack(
+        spacing="4",
+        width="100%",
+    )

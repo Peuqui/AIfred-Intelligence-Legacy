@@ -449,40 +449,6 @@ def get_katex_inline_assets() -> dict[str, str]:
     return _katex_inline_cache
 
 
-def cleanup_old_html_previews(max_age_hours: int = 24) -> int:
-    """
-    Deletes old HTML preview files from assets/html_preview/.
-
-    Args:
-        max_age_hours: Maximum age in hours (default: 24)
-
-    Returns:
-        Number of deleted files
-    """
-    import time
-
-    if not _HTML_PREVIEW_DIR.exists():
-        return 0
-
-    deleted = 0
-    max_age_seconds = max_age_hours * 3600
-    now = time.time()
-
-    for filepath in _HTML_PREVIEW_DIR.glob("*.html"):
-        try:
-            age = now - filepath.stat().st_mtime
-            if age > max_age_seconds:
-                filepath.unlink()
-                deleted += 1
-        except OSError:
-            pass  # Ignore errors during deletion
-
-    if deleted > 0:
-        log_message(f"🧹 HTML Preview: {deleted} old file(s) deleted")
-
-    return deleted
-
-
 def format_html_preview(text: str, lang: str | None = None) -> str:
     """
     Detect ```html code blocks, save them as files and generate preview buttons.

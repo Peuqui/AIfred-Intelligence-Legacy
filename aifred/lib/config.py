@@ -34,8 +34,6 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()  # Go up to repo r
 DATA_DIR = PROJECT_ROOT / "data"
 
 PIPER_MODEL_PATH = PROJECT_ROOT / "piper_models" / "de_DE-thorsten-medium.onnx"
-SSL_KEYFILE = PROJECT_ROOT / "ssl" / "privkey.pem"
-SSL_CERTFILE = PROJECT_ROOT / "ssl" / "fullchain.pem"
 
 # ============================================================
 # BACKEND URL FOR STATIC FILES (HTML Preview, Images)
@@ -48,7 +46,6 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "")
 # ============================================================
 # DEBUG CONFIGURATION
 # ============================================================
-DEBUG_ENABLED = True  # Set to False to disable debug output
 DEBUG_MESSAGES_MAX = 500  # Maximum number of debug messages to keep in UI console
 
 # ============================================================
@@ -243,9 +240,6 @@ BACKEND_LABELS = {
     "cloud_api": "Cloud APIs",
 }
 
-# Default backend ordering (for dropdowns)
-BACKEND_ORDER = ["llamacpp", "ollama", "vllm", "tabbyapi", "cloud_api"]
-
 # ============================================================
 # AVAILABLE VOICES (Engine-specific)
 # ============================================================
@@ -285,19 +279,6 @@ PIPER_VOICES = {
     "Deutsch (Eva K)": ("de_DE-eva_k-x_low.onnx", "de"),
     "Deutsch (MLS)": ("de_DE-mls-medium.onnx", "de"),  # Multi-speaker
 }
-
-# Legacy compatibility - defaults to Edge TTS voices
-VOICES = EDGE_TTS_VOICES
-
-# ============================================================
-# RESEARCH MODES
-# ============================================================
-RESEARCH_MODES = [
-    "🤖 Automatic (AI decides)",
-    "❌ Off (own knowledge only)",
-    "🔍 Web Search Quick (3 sources)",
-    "📚 Web Search Detailed (5 sources)"
-]
 
 # ============================================================
 # TTS ENGINES
@@ -879,10 +860,9 @@ XTTS_VRAM_MB = 2100  # MB (~2044 measured + 56 buffer)
 MOSS_TTS_VRAM_MB = 11500  # MB (~11,470 measured + 30 buffer)
 
 # Docker-Compose paths (for container start/stop)
-import os as _os
-_PROJECT_ROOT = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-XTTS_DOCKER_COMPOSE_PATH = _os.path.join(_PROJECT_ROOT, "docker", "xtts", "docker-compose.yml")
-MOSS_TTS_DOCKER_COMPOSE_PATH = _os.path.join(_PROJECT_ROOT, "docker", "moss-tts", "docker-compose.8b.yml")
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+XTTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "xtts", "docker-compose.yml")
+MOSS_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "moss-tts", "docker-compose.8b.yml")
 
 # Empirical ratio: MB of VRAM per context token
 # Based on KV cache measurements and research:
@@ -912,12 +892,6 @@ VLLM_CONTEXT_SAFETY_PERCENT = 0.02  # 2% safety buffer (iteratively applied to e
 # some layers to CPU/RAM. This "hybrid mode" requires careful RAM management
 # to avoid swapping.
 
-# Minimum context to start with in hybrid mode (fallback)
-HYBRID_MIN_CONTEXT = 2048  # 2K tokens (conservative fallback)
-
-# Minimum RAM reserve to prevent swapping
-RAM_RESERVE_MIN = 2048  # 2 GB minimum reserve
-
 # ============================================================
 # VECTOR CACHE CONFIGURATION (ChromaDB Similarity Thresholds)
 # ============================================================
@@ -943,8 +917,6 @@ TTL_HOURS = {
 # Cache cleanup configuration
 CACHE_CLEANUP_INTERVAL_HOURS = 12  # Background task runs every 12 hours
 CACHE_STARTUP_CLEANUP = True        # Delete expired entries on server startup
-
-CACHE_DISTANCE_MEDIUM = 0.5    # >= 0.5 = Trigger RAG check (not direct cache hit)
 
 # Explicit research keywords ("research", "google", etc.)
 # Semantic duplicate detection (time-independent)

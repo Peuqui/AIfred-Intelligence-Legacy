@@ -252,16 +252,3 @@ def console_separator() -> None:
     # Maintain limit
     if len(_console_messages) > MAX_CONSOLE_MESSAGES:
         _console_messages = _console_messages[-MAX_CONSOLE_MESSAGES:]
-
-
-def clear_console() -> None:
-    """Clears all console messages and queue"""
-    global _console_messages, _message_queue
-    _console_messages = []
-
-    # Clear queue (discard all messages)
-    while not _message_queue.empty():
-        try:
-            _message_queue.get_nowait()
-        except queue.Empty:
-            break

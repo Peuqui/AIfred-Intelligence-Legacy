@@ -34,7 +34,3 @@ class Timer:
     def elapsed_ms(self) -> float:
         """Return elapsed time in milliseconds since timer creation."""
         return self.elapsed() * 1000
-
-    def reset(self) -> None:
-        """Reset the timer to current time."""
-        self._start = time.monotonic()

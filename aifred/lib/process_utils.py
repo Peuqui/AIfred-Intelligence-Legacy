@@ -88,27 +88,6 @@ def stop_process_sync(pattern: str) -> bool:
         return False
 
 
-def is_process_running(pattern: str) -> bool:
-    """
-    Check if a process matching the pattern is running.
-
-    Args:
-        pattern: Process pattern for pgrep
-
-    Returns:
-        True if process is running
-    """
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", pattern],
-            capture_output=True,
-            text=True
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
-
-
 def cleanup_gpu_memory():
     """
     Force GPU memory cleanup using gc.collect() and torch.cuda.empty_cache().

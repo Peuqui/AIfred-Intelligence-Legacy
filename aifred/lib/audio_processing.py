@@ -7,7 +7,9 @@ This module handles Text-to-Speech (Edge TTS, Piper TTS) and Speech-to-Text
 
 import os
 import re
+import struct
 import time  # Keep for timestamp (used in filenames)
+import wave
 import subprocess
 import asyncio
 import atexit
@@ -44,6 +46,35 @@ _table_hint_announced: bool = False
 _formula_hint_announced: bool = False
 _code_hint_announced: bool = False
 _inside_details_block: bool = False  # Track if we're inside a <details> block (streaming)
+
+
+# ---------------------------------------------------------------------------
+# Shared audio utilities (deduplicated from multiple TTS functions)
+# ---------------------------------------------------------------------------
+
+def _write_pcm_to_wav(pcm_data: bytes, output_path: str, sample_rate: int = 24000) -> None:
+    """Write raw 16-bit mono PCM data to a WAV file."""
+    with wave.open(output_path, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_data)
+
+
+def _apply_pcm_gain(pcm_data: bytes, gain: float) -> bytes:
+    """Apply volume gain to 16-bit PCM data. Returns unchanged data if gain == 1.0."""
+    if gain == 1.0:
+        return pcm_data
+    samples = struct.unpack(f"<{len(pcm_data) // 2}h", pcm_data)
+    gained = [max(-32768, min(32767, int(s * gain))) for s in samples]
+    return struct.pack(f"<{len(gained)}h", *gained)
+
+
+def _validate_audio_output(output_path: str, min_size: int = 100) -> bool:
+    """Check that an audio file exists and is not suspiciously small."""
+    if not os.path.exists(output_path):
+        return False
+    return os.path.getsize(output_path) >= min_size
 
 
 def reset_content_hint_flags() -> None:
@@ -846,19 +877,13 @@ async def generate_speech_edge(text, voice, rate="+0%"):
             log_message("❌ Edge TTS: Thread execution failed")
             return None
 
-        # Verify file was created
-        if os.path.exists(output_file):
+        # Verify file was created and not empty
+        if _validate_audio_output(output_file):
             file_size = os.path.getsize(output_file)
             log_message(f"✅ Edge TTS: Audio saved → {output_file} ({file_size} bytes)")
-
-            if file_size < 100:
-                log_message(f"⚠️ Edge TTS: File suspiciously small ({file_size} bytes)")
-                return None
-
-            # Return relative URL - browser uses current host/port automatically
             return f"/_upload/tts_audio/{filename}"
         else:
-            log_message(f"❌ Edge TTS: File not created at {output_file}")
+            log_message(f"❌ Edge TTS: File missing or too small at {output_file}")
             return None
 
     except concurrent.futures.TimeoutError:
@@ -1039,15 +1064,13 @@ def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Cla
             with open(output_file, "wb") as f:
                 f.write(response.content)
 
-            file_size = os.path.getsize(output_file)
-            log_message(f"✅ XTTS v2: Audio saved → {output_file} ({file_size} bytes)")
-
-            if file_size < 100:
-                log_message(f"⚠️ XTTS v2: File suspiciously small ({file_size} bytes)")
+            if _validate_audio_output(output_file):
+                file_size = os.path.getsize(output_file)
+                log_message(f"✅ XTTS v2: Audio saved → {output_file} ({file_size} bytes)")
+                return f"/_upload/tts_audio/{filename}"
+            else:
+                log_message(f"⚠️ XTTS v2: File missing or too small at {output_file}")
                 return None
-
-            # Return relative URL - browser uses current host/port automatically
-            return f"/_upload/tts_audio/{filename}"
         else:
             error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
             log_message(f"❌ XTTS v2 Error: {error_msg}")
@@ -1087,14 +1110,13 @@ def generate_speech_moss(text: str, speed: float = 1.0, voice_choice: str = "AIf
             with open(output_file, "wb") as f:
                 f.write(response.content)
 
-            file_size = os.path.getsize(output_file)
-            log_message(f"✅ MOSS-TTS: Audio saved → {output_file} ({file_size} bytes)")
-
-            if file_size < 100:
-                log_message(f"⚠️ MOSS-TTS: File suspiciously small ({file_size} bytes)")
+            if _validate_audio_output(output_file):
+                file_size = os.path.getsize(output_file)
+                log_message(f"✅ MOSS-TTS: Audio saved → {output_file} ({file_size} bytes)")
+                return f"/_upload/tts_audio/{filename}"
+            else:
+                log_message(f"⚠️ MOSS-TTS: File missing or too small at {output_file}")
                 return None
-
-            return f"/_upload/tts_audio/{filename}"
         else:
             error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
             log_message(f"❌ MOSS-TTS Error: {error_msg}")
@@ -1125,7 +1147,6 @@ def generate_speech_dashscope(text: str, speed: float = 1.0, voice_choice: str =
         str: Path to generated audio file (relative URL), or None on error
     """
     import base64
-    import wave
     from .config import (
         DASHSCOPE_TTS_MODEL, DASHSCOPE_TTS_VC_MODEL,
         DASHSCOPE_TTS_BASE_URL, DASHSCOPE_LANGUAGE_MAP, DASHSCOPE_VOICES,
@@ -1177,27 +1198,17 @@ def generate_speech_dashscope(text: str, speed: float = 1.0, voice_choice: str =
             return None
 
         # Write PCM chunks as WAV file (24kHz, 16-bit mono) with gain
-        pcm_data = b"".join(pcm_chunks)
-        if DASHSCOPE_TTS_GAIN != 1.0:
-            import struct
-            samples = struct.unpack(f"<{len(pcm_data) // 2}h", pcm_data)
-            gained = [max(-32768, min(32767, int(s * DASHSCOPE_TTS_GAIN))) for s in samples]
-            pcm_data = struct.pack(f"<{len(gained)}h", *gained)
-        with wave.open(output_file, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)  # 16-bit
-            wf.setframerate(24000)
-            wf.writeframes(pcm_data)
+        pcm_data = _apply_pcm_gain(b"".join(pcm_chunks), DASHSCOPE_TTS_GAIN)
+        _write_pcm_to_wav(pcm_data, output_file)
 
-        file_size = os.path.getsize(output_file)
         duration = len(pcm_data) / (24000 * 2)
-        log_message(f"✅ DashScope TTS: Audio saved → {output_file} ({file_size:,} bytes, {duration:.1f}s)")
-
-        if file_size < 100:
-            log_message(f"⚠️ DashScope TTS: File suspiciously small ({file_size} bytes)")
+        if _validate_audio_output(output_file):
+            file_size = os.path.getsize(output_file)
+            log_message(f"✅ DashScope TTS: Audio saved → {output_file} ({file_size:,} bytes, {duration:.1f}s)")
+            return f"/_upload/tts_audio/{filename}"
+        else:
+            log_message(f"⚠️ DashScope TTS: File missing or too small at {output_file}")
             return None
-
-        return f"/_upload/tts_audio/{filename}"
 
     except ImportError:
         log_message("❌ DashScope TTS: dashscope SDK not installed. Run: pip install dashscope>=1.24.6")
@@ -1406,17 +1417,12 @@ class DashScopeRealtimeTTS:
             return None
 
         # Save collected PCM as WAV (with gain applied)
-        import wave
         set_tts_agent(self._agent)
         filename = _generate_tts_filename("wav")
         output_file = str(TTS_AUDIO_DIR / filename)
 
         pcm_data = self._apply_gain(b"".join(self._chunks))
-        with wave.open(output_file, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(24000)
-            wf.writeframes(pcm_data)
+        _write_pcm_to_wav(pcm_data, output_file)
 
         file_size = os.path.getsize(output_file)
         log_message(f"🎤 DashScope RT: Saved WAV → {output_file} ({file_size:,} bytes, {duration:.1f}s)")
@@ -1444,7 +1450,6 @@ class DashScopeRealtimeTTS:
         if not self._push_buffer:
             return
 
-        import wave
         from .api import tts_queue_push
 
         set_tts_agent(self._agent)
@@ -1455,11 +1460,7 @@ class DashScopeRealtimeTTS:
         self._push_buffer = b""
         self._push_count += 1
 
-        with wave.open(chunk_path, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(24000)
-            wf.writeframes(pcm_data)
+        _write_pcm_to_wav(pcm_data, chunk_path)
 
         duration = len(pcm_data) / (24000 * 2)
         chunk_url = f"/_upload/tts_audio/{filename}"
@@ -1469,12 +1470,7 @@ class DashScopeRealtimeTTS:
 
     def _apply_gain(self, pcm_data: bytes) -> bytes:
         """Apply volume gain to 16-bit PCM data."""
-        if self._gain == 1.0:
-            return pcm_data
-        import struct
-        samples = struct.unpack(f"<{len(pcm_data) // 2}h", pcm_data)
-        gained = [max(-32768, min(32767, int(s * self._gain))) for s in samples]
-        return struct.pack(f"<{len(gained)}h", *gained)
+        return _apply_pcm_gain(pcm_data, self._gain)
 
     def close(self) -> None:
         """Close the WebSocket connection."""
