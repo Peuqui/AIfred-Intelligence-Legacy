@@ -241,17 +241,11 @@ def native_select_generic(value_var, on_change_handler, options_pairs) -> rx.Com
 # SIMPLE COMPONENT HELPERS
 # ============================================================
 
-def audio_input_section() -> rx.Component:
-    """Placeholder - audio button is now integrated in image_upload_section"""
-    return rx.box()  # Empty - no longer needed
-
-
 def left_column() -> rx.Component:
     """Complete left column with all input controls"""
     from .input_sections import text_input_section
 
     return rx.vstack(
-        audio_input_section(),
         text_input_section(),
         spacing="4",
         width="100%",

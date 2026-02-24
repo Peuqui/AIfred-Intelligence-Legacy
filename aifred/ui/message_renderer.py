@@ -8,61 +8,8 @@ from ..state import AIState
 from ..theme import COLORS
 from .helpers import (
     MARKDOWN_COMPONENT_MAP,
-    MARKDOWN_COMPONENT_MAP_WITH_LISTS,
     t,
 )
-
-
-# ============================================================
-# THINKING PARSER
-# ============================================================
-
-def parse_thinking(ai_response: str) -> tuple[str, str]:
-    """
-    Parse AI response to separate thinking from final answer.
-
-    Returns:
-        (thinking_text, final_answer)
-    """
-    # Check for common thinking patterns
-    thinking_markers = [
-        "After considering",
-        "Let me think",
-        "First, I'll",
-        "To solve this",
-        "Breaking this down",
-        "Let's analyze",
-        "Step by step"
-    ]
-
-    # Find if response starts with thinking
-    for marker in thinking_markers:
-        if ai_response.startswith(marker):
-            # Find where thinking ends (usually before the actual answer)
-            # Look for paragraph break or colon followed by newline
-            parts = ai_response.split('\n\n', 1)
-            if len(parts) == 2:
-                return parts[0], parts[1]
-            # Try splitting at colon + newline
-            parts = ai_response.split(':\n', 1)
-            if len(parts) == 2:
-                return parts[0], parts[1]
-
-    # No thinking found
-    return "", ai_response
-
-
-# ============================================================
-# SOURCE RENDERING
-# ============================================================
-
-def render_sources_collapsible_from_msg(msg) -> rx.Component:
-    """
-    Placeholder - sources are shown only for current request via State variables.
-    For historical messages, sources are embedded in content as HTML comments
-    and rendered via HTML export.
-    """
-    return rx.fragment()
 
 
 # ============================================================
@@ -230,137 +177,69 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
 # ASSISTANT MESSAGE (with agent styling)
 # ============================================================
 
+def _agent_bubble(
+    msg: dict,
+    emoji: str,
+    name: str,
+    name_color: str,
+    inner_bg: str,
+    outer_bg: str,
+    border_color: str,
+) -> rx.Component:
+    """Helper: Render a single agent message bubble with consistent layout."""
+    return rx.box(
+        rx.hstack(
+            rx.text(emoji, font_size="13px"),
+            rx.box(
+                rx.hstack(
+                    rx.text(name, font_weight="bold", font_size="12px", color=name_color),
+                    render_bubble_audio_buttons(msg),
+                    spacing="2",
+                    align="center",
+                    margin_bottom="1",
+                ),
+                rx.markdown(
+                    msg["content"],
+                    color=COLORS["ai_text"],
+                    font_size="13px",
+                    component_map=MARKDOWN_COMPONENT_MAP,
+                ),
+                background_color=inner_bg,
+                padding="3",
+                border_radius="6px",
+                width="100%",
+            ),
+            spacing="2",
+            align="start",
+            justify="start",
+            width="100%",
+        ),
+        background_color=outer_bg,
+        padding="2",
+        border_radius="8px",
+        border=f"1px solid {border_color}",
+        width="100%",
+        margin_bottom="3",
+    )
+
+
 def render_assistant_message(msg: dict) -> rx.Component:
     """Render assistant message (left-aligned, styled per agent)"""
-    # Check agent type with nested rx.cond
     return rx.cond(
         msg["agent"] == "sokrates",
-        # SOKRATES
-        rx.box(
-            rx.hstack(
-                rx.text("\U0001f3db\ufe0f", font_size="13px"),
-                rx.box(
-                    rx.hstack(
-                        rx.text(
-                            "Sokrates",
-                            font_weight="bold",
-                            font_size="12px",
-                            color="#cd7f32",
-                        ),
-                        render_bubble_audio_buttons(msg),
-                        spacing="2",
-                        align="center",
-                        margin_bottom="1",
-                    ),
-                    rx.markdown(
-                        msg["content"],
-                        color=COLORS["ai_text"],
-                        font_size="13px",
-                        component_map=MARKDOWN_COMPONENT_MAP,
-                    ),
-                    background_color="rgba(205, 127, 50, 0.08)",
-                    padding="3",
-                    border_radius="6px",
-                    width="100%",
-                ),
-                spacing="2",
-                align="start",
-                justify="start",
-                width="100%",
-            ),
-            background_color="rgba(205, 127, 50, 0.03)",
-            padding="2",
-            border_radius="8px",
-            border="1px solid rgba(205, 127, 50, 0.3)",
-            width="100%",
-            margin_bottom="3",
+        _agent_bubble(
+            msg, "\U0001f3db\ufe0f", "Sokrates", "#cd7f32",
+            "rgba(205, 127, 50, 0.08)", "rgba(205, 127, 50, 0.03)", "rgba(205, 127, 50, 0.3)",
         ),
-        # NOT SOKRATES - check if salomo
         rx.cond(
             msg["agent"] == "salomo",
-            # SALOMO
-            rx.box(
-                rx.hstack(
-                    rx.text("\U0001f451", font_size="13px"),
-                    rx.box(
-                        rx.hstack(
-                            rx.text(
-                                "Salomo",
-                                font_weight="bold",
-                                font_size="12px",
-                                color="#daa520",
-                            ),
-                            render_bubble_audio_buttons(msg),
-                            spacing="2",
-                            align="center",
-                            margin_bottom="1",
-                        ),
-                        rx.markdown(
-                            msg["content"],
-                            color=COLORS["ai_text"],
-                            font_size="13px",
-                            component_map=MARKDOWN_COMPONENT_MAP,
-                        ),
-                        background_color="rgba(218, 165, 32, 0.08)",
-                        padding="3",
-                        border_radius="6px",
-                        width="100%",
-                    ),
-                    spacing="2",
-                    align="start",
-                    justify="start",
-                    width="100%",
-                ),
-                background_color="rgba(218, 165, 32, 0.03)",
-                padding="2",
-                border_radius="8px",
-                border="1px solid rgba(218, 165, 32, 0.3)",
-                width="100%",
-                margin_bottom="3",
+            _agent_bubble(
+                msg, "\U0001f451", "Salomo", "#daa520",
+                "rgba(218, 165, 32, 0.08)", "rgba(218, 165, 32, 0.03)", "rgba(218, 165, 32, 0.3)",
             ),
-            # AIFRED (default)
-            rx.box(
-                rx.hstack(
-                    rx.text("\U0001f3a9", font_size="13px"),
-                    rx.box(
-                        rx.hstack(
-                            rx.text(
-                                "AIfred",
-                                font_weight="bold",
-                                font_size="12px",
-                                color=COLORS["primary"],
-                            ),
-                            render_bubble_audio_buttons(msg),
-                            spacing="2",
-                            align="center",
-                            margin_bottom="1",
-                        ),
-                        # Web sources collapsible (if available)
-                        # Use msg["used_sources"] / msg["failed_sources"] directly
-                        # These are top-level fields in the message dict
-                        render_sources_collapsible_from_msg(msg),
-                        rx.markdown(
-                            msg["content"],
-                            color=COLORS["ai_text"],
-                            font_size="13px",
-                            component_map=MARKDOWN_COMPONENT_MAP,
-                        ),
-                        background_color=COLORS["ai_msg"],
-                        padding="3",
-                        border_radius="6px",
-                        width="100%",
-                    ),
-                    spacing="2",
-                    align="start",
-                    justify="start",
-                    width="100%",
-                ),
-                background_color="rgba(255, 255, 255, 0.03)",
-                padding="2",
-                border_radius="8px",
-                border="1px solid rgba(255, 255, 255, 0.1)",
-                width="100%",
-                margin_bottom="3",
+            _agent_bubble(
+                msg, "\U0001f3a9", "AIfred", COLORS["primary"],
+                COLORS["ai_msg"], "rgba(255, 255, 255, 0.03)", "rgba(255, 255, 255, 0.1)",
             ),
         ),
     )
@@ -401,131 +280,4 @@ def render_message_standalone(msg: dict) -> rx.Component:
             # system or unknown
             render_system_message(msg)
         )
-    )
-
-
-# ============================================================
-# SOKRATES INLINE PANEL
-# ============================================================
-
-def render_sokrates_inline() -> rx.Component:
-    """
-    Renders Sokrates' response inline in the chat (same style as User/AI messages).
-    Shows only when show_sokrates_panel is True.
-    """
-    return rx.cond(
-        AIState.show_sokrates_panel,
-        rx.vstack(
-            # Sokrates message (links wie AI, aber mit anderem Styling)
-            rx.box(
-                rx.hstack(
-                    rx.text("\U0001f3db\ufe0f", font_size="13px"),
-                    rx.box(
-                        # Header mit Name und Badges
-                        rx.hstack(
-                            rx.text(
-                                t("sokrates_title"),
-                                font_weight="bold",
-                                font_size="13px",
-                                color=COLORS["accent_blue"],
-                            ),
-                            # Round indicator for auto_consensus
-                            rx.cond(
-                                AIState.multi_agent_mode == "auto_consensus",
-                                rx.badge(
-                                    rx.hstack(
-                                        rx.text(t("debate_round_label"), font_size="9px"),
-                                        rx.text(AIState.debate_round.to(str), font_weight="bold"),  # type: ignore[attr-defined]
-                                        spacing="1",
-                                    ),
-                                    variant="soft",
-                                    color_scheme="blue",
-                                    size="1",
-                                ),
-                            ),
-                            # LGTM badge if consensus reached
-                            rx.cond(
-                                AIState.sokrates_critique.contains("LGTM"),  # type: ignore[attr-defined]
-                                rx.tooltip(
-                                    rx.badge("LGTM", variant="soft", color_scheme="green", size="1"),
-                                    content=t("lgtm_tooltip"),
-                                ),
-                            ),
-                            spacing="2",
-                            align="center",
-                            margin_bottom="2",
-                        ),
-                        # Content based on mode
-                        rx.cond(
-                            AIState.multi_agent_mode == "devils_advocate",
-                            # Devil's Advocate: Pro/Contra layout
-                            rx.vstack(
-                                # Pro section
-                                rx.box(
-                                    rx.vstack(
-                                        rx.text(t("sokrates_pro_label"), font_weight="bold", font_size="11px", color="#4ade80"),
-                                        rx.markdown(
-                                            AIState.sokrates_pro_args,
-                                            font_size="12px",
-                                            component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
-                                        ),
-                                        spacing="1",
-                                        width="100%",
-                                    ),
-                                    padding="10px",
-                                    background_color="rgba(74, 222, 128, 0.1)",
-                                    border_radius="6px",
-                                    width="100%",
-                                ),
-                                # Contra section
-                                rx.box(
-                                    rx.vstack(
-                                        rx.text(t("sokrates_contra_label"), font_weight="bold", font_size="11px", color="#f87171"),
-                                        rx.markdown(
-                                            AIState.sokrates_contra_args,
-                                            font_size="12px",
-                                            component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
-                                        ),
-                                        spacing="1",
-                                        width="100%",
-                                    ),
-                                    padding="10px",
-                                    background_color="rgba(248, 113, 113, 0.1)",
-                                    border_radius="6px",
-                                    width="100%",
-                                ),
-                                spacing="2",
-                                width="100%",
-                            ),
-                            # Critique layout (critical_review, auto_consensus)
-                            rx.markdown(
-                                AIState.sokrates_critique,
-                                color=COLORS["ai_text"],
-                                font_size="12px",
-                                component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
-                            ),
-                        ),
-                        # Sokrates-spezifischer Hintergrund (leicht blau)
-                        background_color="rgba(59, 130, 246, 0.15)",
-                        padding="3",
-                        border_radius="6px",
-                        width="100%",
-                    ),
-                    spacing="2",
-                    align="start",
-                    justify="start",
-                    width="100%",
-                ),
-                # Outer container with slightly different background
-                background_color="rgba(59, 130, 246, 0.05)",
-                padding="2",
-                border_radius="8px",
-                border="1px solid rgba(59, 130, 246, 0.2)",
-                width="100%",
-            ),
-            spacing="3",
-            width="100%",
-            margin_top="3",
-        ),
-        rx.fragment(),  # Nichts anzeigen wenn Panel nicht aktiv
     )

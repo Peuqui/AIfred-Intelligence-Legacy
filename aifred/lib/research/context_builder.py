@@ -13,7 +13,7 @@ import datetime
 import re
 from typing import Dict, List, Optional, AsyncIterator
 
-from ..agent_tools import build_context
+from ..tools import build_context
 from ..timer import Timer
 # Cache system removed - will be replaced with Vector DB
 from ..prompt_loader import get_system_rag_prompt
@@ -33,7 +33,6 @@ from ..streaming_utils import stream_llm_response
 
 async def build_and_generate_response(
     user_text: str,
-    scraped_results: List[Dict],
     tool_results: List[Dict],
     failed_sources: List[Dict],
     history: List,
@@ -63,7 +62,6 @@ async def build_and_generate_response(
 
     Args:
         user_text: User's question
-        scraped_results: Successfully scraped sources
         tool_results: All tool results (including failed)
         failed_sources: Failed scraping attempts (for cache storage)
         history: Chat history

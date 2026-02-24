@@ -445,19 +445,6 @@ class ExportMixin(rx.State, mixin=True):
 
         return re.sub(r'<a\s[^>]*>', add_target, html)
 
-    @staticmethod
-    def _escape_html(text: str) -> str:
-        """Escape HTML special characters in user input."""
-        return (
-            text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-            .replace("'", "&#39;")
-            .replace("\n", "<br>")
-        )
-
     # ------------------------------------------------------------------
     # Private helpers – HTML template
     # ------------------------------------------------------------------

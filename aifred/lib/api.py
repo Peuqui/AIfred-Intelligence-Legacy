@@ -30,8 +30,11 @@ import asyncio
 import subprocess
 
 from .settings import load_settings, save_settings, get_default_settings
+from .formatting import format_number
 from .logging_utils import log_message
 from .config import DEFAULT_OLLAMA_URL
+
+API_VERSION = "2.15.0"
 
 
 # ============================================================
@@ -41,7 +44,7 @@ from .config import DEFAULT_OLLAMA_URL
 class HealthResponse(BaseModel):
     """Health check response"""
     status: str = "ok"
-    version: str = "2.15.0"
+    version: str = API_VERSION
     backend_type: str = ""
     backend_healthy: bool = False
 
@@ -167,7 +170,7 @@ class SystemActionResponse(BaseModel):
 api_app = FastAPI(
     title="AIfred Intelligence API",
     description="REST API for remote control of AIfred Intelligence",
-    version="2.15.0",
+    version=API_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -222,7 +225,7 @@ async def health_check():
 
     return HealthResponse(
         status="ok",
-        version="2.15.0",
+        version=API_VERSION,
         backend_type=settings.get("backend_type", "ollama"),
         backend_healthy=global_state.get("backend_type") is not None
     )
@@ -359,7 +362,7 @@ async def get_available_models():
                     for m in data.get("models", []):
                         model_id = m['name']
                         size_gb = m['size'] / (1024**3)
-                        models_dict[model_id] = f"{model_id} ({size_gb:.1f} GB)"
+                        models_dict[model_id] = f"{model_id} ({format_number(size_gb, 1)} GB)"
                         # Check if vision model
                         if any(v in model_id.lower() for v in ['vision', 'vl', 'llava']):
                             vision_models.append(model_id)

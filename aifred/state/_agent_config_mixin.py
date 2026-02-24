@@ -607,7 +607,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             "standard": "Standard",
             "critical_review": "Critical Review",
             "auto_consensus": "Auto-Consensus",
-            "devils_advocate": "Devil's Advocate",
+            "tribunal": "Tribunal",
         }
         self.add_debug(f"\U0001f916 Discussion mode: {mode_labels.get(mode, mode)}")  # type: ignore[attr-defined]
 

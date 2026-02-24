@@ -97,6 +97,41 @@ class OllamaBackend(LLMBackend):
         timeout = httpx.Timeout(None)  # UNLIMITED - let Reflex/asyncio handle timeouts
         self.client = httpx.AsyncClient(timeout=timeout, limits=limits)
 
+    @staticmethod
+    def _convert_messages(messages: List[LLMMessage]) -> list[dict[str, Any]]:
+        """Convert LLMMessage list to Ollama format (supports multimodal content)."""
+        ollama_messages: list[dict[str, Any]] = []
+        for msg in messages:
+            if isinstance(msg.content, list):
+                text_parts: list[str] = []
+                image_base64_list: list[str] = []
+
+                for part in msg.content:
+                    if part.get("type") == "text":
+                        text_parts.append(part.get("text", ""))
+                    elif part.get("type") == "image_url":
+                        image_url = part.get("image_url", {}).get("url", "")
+                        if image_url.startswith("data:image"):
+                            base64_data = image_url.split("base64,", 1)[1] if "base64," in image_url else ""
+                            if base64_data:
+                                image_base64_list.append(base64_data)
+
+                ollama_msg: dict[str, Any] = {
+                    "role": msg.role,
+                    "content": " ".join(text_parts)
+                }
+                if image_base64_list:
+                    ollama_msg["images"] = image_base64_list
+                    logger.info(f"🖼️ Added {len(image_base64_list)} image(s) to message (base64 length: {len(image_base64_list[0])})")
+
+                ollama_messages.append(ollama_msg)
+            elif isinstance(msg.content, str):
+                ollama_messages.append({
+                    "role": msg.role,
+                    "content": msg.content
+                })
+        return ollama_messages
+
     async def list_models(self) -> List[str]:
         """Get list of available Ollama models"""
         try:
@@ -133,43 +168,7 @@ class OllamaBackend(LLMBackend):
         if options is None:
             options = LLMOptions()
 
-        # Convert LLMMessage to Ollama format (supports multimodal content)
-        ollama_messages = []
-        for msg in messages:
-            # Handle multimodal content (text + images)
-            if isinstance(msg.content, list):
-                # Extract text and images from multimodal content
-                text_parts = []
-                image_base64_list = []
-
-                for part in msg.content:
-                    if part.get("type") == "text":
-                        text_parts.append(part.get("text", ""))
-                    elif part.get("type") == "image_url":
-                        # Extract base64 from data URL (format: "data:image/jpeg;base64,...")
-                        image_url = part.get("image_url", {}).get("url", "")
-                        if image_url.startswith("data:image"):
-                            # Extract base64 part after "base64,"
-                            base64_data = image_url.split("base64,", 1)[1] if "base64," in image_url else ""
-                            if base64_data:
-                                image_base64_list.append(base64_data)
-
-                # Build Ollama message with separate images array
-                ollama_msg: dict[str, Any] = {
-                    "role": msg.role,
-                    "content": " ".join(text_parts)
-                }
-                if image_base64_list:
-                    ollama_msg["images"] = image_base64_list
-                    logger.info(f"🖼️ Added {len(image_base64_list)} image(s) to message (base64 length: {len(image_base64_list[0])})")
-
-                ollama_messages.append(ollama_msg)
-            elif isinstance(msg.content, str):
-                # Legacy text-only format
-                ollama_messages.append({
-                    "role": msg.role,
-                    "content": msg.content
-                })
+        ollama_messages = self._convert_messages(messages)
 
         # Build options dict — always send all params
         ollama_options = {
@@ -341,43 +340,7 @@ class OllamaBackend(LLMBackend):
         if options is None:
             options = LLMOptions()
         
-        # Convert LLMMessage to Ollama format (supports multimodal content)
-        ollama_messages = []
-        for msg in messages:
-            # Handle multimodal content (text + images)
-            if isinstance(msg.content, list):
-                # Extract text and images from multimodal content
-                text_parts = []
-                image_base64_list = []
-
-                for part in msg.content:
-                    if part.get("type") == "text":
-                        text_parts.append(part.get("text", ""))
-                    elif part.get("type") == "image_url":
-                        # Extract base64 from data URL (format: "data:image/jpeg;base64,...")
-                        image_url = part.get("image_url", {}).get("url", "")
-                        if image_url.startswith("data:image"):
-                            # Extract base64 part after "base64,"
-                            base64_data = image_url.split("base64,", 1)[1] if "base64," in image_url else ""
-                            if base64_data:
-                                image_base64_list.append(base64_data)
-
-                # Build Ollama message with separate images array
-                ollama_msg: dict[str, Any] = {
-                    "role": msg.role,
-                    "content": " ".join(text_parts)
-                }
-                if image_base64_list:
-                    ollama_msg["images"] = image_base64_list
-                    logger.info(f"🖼️ Added {len(image_base64_list)} image(s) to message (base64 length: {len(image_base64_list[0])})")
-
-                ollama_messages.append(ollama_msg)
-            elif isinstance(msg.content, str):
-                # Legacy text-only format
-                ollama_messages.append({
-                    "role": msg.role,
-                    "content": msg.content
-                })
+        ollama_messages = self._convert_messages(messages)
 
         # Build options
         ollama_options = {

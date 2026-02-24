@@ -202,7 +202,7 @@ def image_upload_section() -> rx.Component:
                             height="80px",
                             object_fit="cover",
                             border_radius="4px",
-                            border="1px solid #30363d",
+                            border=f"1px solid {COLORS['border']}",
                         ),
                         # Crop-Button (links oben) - größer für Touch
                         rx.icon_button(
@@ -428,7 +428,7 @@ def text_input_section() -> rx.Component:
                                 variant="soft",
                                 disabled=AIState.max_debate_rounds <= 1,
                                 style={
-                                    "background-color": "#2d1f00",
+                                    "background-color": COLORS["warning_bg"],
                                     "color": "#cc8800",
                                 },
                             ),
@@ -453,7 +453,7 @@ def text_input_section() -> rx.Component:
                                 variant="soft",
                                 disabled=AIState.max_debate_rounds >= 10,
                                 style={
-                                    "background-color": "#2d1f00",
+                                    "background-color": COLORS["warning_bg"],
                                     "color": "#cc8800",
                                 },
                             ),
@@ -502,7 +502,7 @@ def text_input_section() -> rx.Component:
                     },
                     "&:active": {
                         "background": "#331a00 !important",
-                        "color": "#ff9500 !important",
+                        "color": COLORS["primary_hover"] + " !important",
                         "transform": "scale(0.98)",
                     },
                 },

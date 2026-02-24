@@ -40,6 +40,7 @@ Structure:
 
 import json
 import logging
+import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
@@ -51,6 +52,10 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = DATA_DIR
 CACHE_FILE = CACHE_DIR / "model_vram_cache.json"
 
+# In-memory cache with mtime-based invalidation
+_cache: Dict[str, Any] | None = None
+_cache_mtime: float = 0.0
+
 
 def ensure_cache_dir() -> None:
     """Create cache directory if it doesn't exist"""
@@ -59,30 +64,48 @@ def ensure_cache_dir() -> None:
 
 def load_cache() -> Dict[str, Any]:
     """
-    Load unified model VRAM cache from JSON file
+    Load unified model VRAM cache from JSON file.
+
+    Uses an in-memory cache with mtime-based invalidation to avoid
+    redundant disk reads when the file hasn't changed.
 
     Returns:
         Dict with model_name → cache_data mappings
         Empty dict if file doesn't exist or is invalid
     """
+    global _cache, _cache_mtime
     ensure_cache_dir()
 
-    if CACHE_FILE.exists():
-        try:
-            with open(CACHE_FILE, encoding='utf-8') as f:
-                cache: Dict[str, Any] = json.load(f)
-            logger.info(f"Loaded unified model cache: {len(cache)} models")
-            return cache
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Failed to load cache file {CACHE_FILE}: {e}")
-            return {}
+    # Check if file exists and get its mtime
+    try:
+        file_mtime = os.path.getmtime(CACHE_FILE)
+    except OSError:
+        # File doesn't exist
+        return {}
 
-    return {}
+    # Return cached version if file hasn't changed
+    if _cache is not None and file_mtime <= _cache_mtime:
+        return _cache
+
+    # Load from disk
+    try:
+        with open(CACHE_FILE, encoding='utf-8') as f:
+            cache: Dict[str, Any] = json.load(f)
+        logger.info(f"Loaded unified model cache: {len(cache)} models")
+        _cache = cache
+        _cache_mtime = file_mtime
+        return cache
+    except (json.JSONDecodeError, IOError) as e:
+        logger.error(f"Failed to load cache file {CACHE_FILE}: {e}")
+        return {}
 
 
 def save_cache(cache: Dict[str, Any]) -> bool:
     """
-    Save unified model VRAM cache to JSON file
+    Save unified model VRAM cache to JSON file.
+
+    After writing, invalidates the in-memory cache so the next load_cache()
+    picks up the new data.
 
     Args:
         cache: Dict with model_name → cache_data mappings
@@ -90,12 +113,16 @@ def save_cache(cache: Dict[str, Any]) -> bool:
     Returns:
         True if successful, False otherwise
     """
+    global _cache, _cache_mtime
     ensure_cache_dir()
 
     try:
         with open(CACHE_FILE, 'w', encoding='utf-8') as f:
             json.dump(cache, f, indent=2, ensure_ascii=False)
         logger.info(f"Saved unified model cache: {len(cache)} models")
+        # Invalidate in-memory cache so next load picks up fresh data
+        _cache = None
+        _cache_mtime = 0.0
         return True
     except IOError as e:
         logger.error(f"Failed to save cache file {CACHE_FILE}: {e}")

@@ -10,9 +10,8 @@ Handles:
 
 import asyncio
 from typing import Dict, List, AsyncIterator
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from ..agent_tools import scrape_webpage
+from ..tools import scrape_webpage
 from ..logging_utils import log_message
 
 
@@ -101,57 +100,52 @@ async def orchestrate_scraping(
     # Start scraping progress
     yield {"type": "progress", "phase": "scraping", "current": 0, "total": len(urls_to_scrape), "failed": 0}
 
-    # Parallel execution - track rank_index for sorting in UI
-    with ThreadPoolExecutor(max_workers=min(5, len(urls_to_scrape))) as executor:
-        future_to_url = {
-            executor.submit(scrape_webpage, url): (url, rank_idx)
-            for rank_idx, url in enumerate(urls_to_scrape)
-        }
+    # Parallel execution using asyncio.to_thread (non-blocking for event loop)
+    all_results: list[tuple[str, int, Dict]] = []  # Track all results for failed_sources
 
-        # Collect results as they complete
-        for future in as_completed(future_to_url):
-            url, rank_idx = future_to_url[future]
-            url_short = url[:60] + '...' if len(url) > 60 else url
+    async def _scrape_one(url: str, rank_idx: int) -> tuple[str, int, Dict]:
+        """Run scrape_webpage in a thread and return result with metadata."""
+        result = await asyncio.to_thread(scrape_webpage, url)
+        result['rank_index'] = rank_idx
+        return url, rank_idx, result
 
+    tasks = [_scrape_one(url, idx) for idx, url in enumerate(urls_to_scrape)]
+    completed_count = 0
+
+    for coro in asyncio.as_completed(tasks):
+        url, rank_idx, scrape_result = await coro
+        completed_count += 1
+        all_results.append((url, rank_idx, scrape_result))
+        url_short = url[:60] + '...' if len(url) > 60 else url
+
+        if scrape_result.get('success'):
+            tool_results.append(scrape_result)
+            scraped_results.append(scrape_result)
+            log_message(f"  ✅ {url_short}: {scrape_result['word_count']} words")
+        else:
+            log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')}")
+
+        # Check if preload finished and send message immediately
+        if not preload_message_sent and preload_task and preload_task.done():
             try:
-                scrape_result = future.result(timeout=10)
-                # Add rank_index for UI sorting
-                scrape_result['rank_index'] = rank_idx
+                success, load_time, unloaded_models = preload_task.result()
 
-                if scrape_result['success']:
-                    tool_results.append(scrape_result)
-                    scraped_results.append(scrape_result)
-                    log_message(f"  ✅ {url_short}: {scrape_result['word_count']} words")
+                if unloaded_models:
+                    models_str = ", ".join(unloaded_models)
+                    yield {"type": "debug", "message": f"🗑️ Unloaded models: {models_str}"}
+
+                if success:
+                    yield {"type": "debug", "message": f"✅ AIfred-LLM preloaded ({load_time:.1f}s)"}
                 else:
-                    log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')}")
-
+                    yield {"type": "debug", "message": f"⚠️ AIfred-LLM preload failed ({load_time:.1f}s)"}
+                preload_message_sent = True
             except Exception as e:
-                log_message(f"  ❌ {url_short}: Exception: {e}")
+                log_message(f"⚠️ AIfred-LLM preload exception: {e}")
+                preload_message_sent = True
 
-            # Check if preload finished and send message immediately
-            if not preload_message_sent and preload_task and preload_task.done():
-                try:
-                    success, load_time, unloaded_models = preload_task.result()
-
-                    # Show unloaded models first (log_message via add_debug)
-                    if unloaded_models:
-                        models_str = ", ".join(unloaded_models)
-                        yield {"type": "debug", "message": f"🗑️ Unloaded models: {models_str}"}
-
-                    # Then show preload result (log_message via add_debug when yield processed)
-                    if success:
-                        yield {"type": "debug", "message": f"✅ AIfred-LLM preloaded ({load_time:.1f}s)"}
-                    else:
-                        yield {"type": "debug", "message": f"⚠️ AIfred-LLM preload failed ({load_time:.1f}s)"}
-                    preload_message_sent = True
-                except Exception as e:
-                    log_message(f"⚠️ AIfred-LLM preload exception: {e}")
-                    preload_message_sent = True
-
-            # Update progress
-            completed = len([f for f in future_to_url if f.done()])
-            failed = completed - len(scraped_results)
-            yield {"type": "progress", "phase": "scraping", "current": len(scraped_results), "total": len(urls_to_scrape), "failed": failed}
+        # Update progress
+        failed_count = completed_count - len(scraped_results)
+        yield {"type": "progress", "phase": "scraping", "current": len(scraped_results), "total": len(urls_to_scrape), "failed": failed_count}
 
     log_message(f"✅ Parallel Scraping done: {len(scraped_results)}/{len(urls_to_scrape)} successful")
 
@@ -159,19 +153,14 @@ async def orchestrate_scraping(
     # COLLECT FAILED URLs for UI Display (with rank_index for sorting)
     # ============================================================
     failed_sources = []
-    for future in future_to_url:
-        url, rank_idx = future_to_url[future]
-        try:
-            result = future.result(timeout=0)  # Already completed
-            if not result.get('success'):
-                failed_sources.append({
-                    'url': url,
-                    'error': result.get('error', 'Unknown error'),
-                    'method': result.get('method', 'unknown'),
-                    'rank_index': rank_idx  # Preserve ranking position
-                })
-        except Exception:
-            pass  # Already handled above
+    for url, rank_idx, result in all_results:
+        if not result.get('success'):
+            failed_sources.append({
+                'url': url,
+                'error': result.get('error', 'Unknown error'),
+                'method': result.get('method', 'unknown'),
+                'rank_index': rank_idx,
+            })
 
     # Emit failed_sources for UI display (before AI response)
     if failed_sources:

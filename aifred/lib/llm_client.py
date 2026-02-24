@@ -83,6 +83,36 @@ class LLMClient:
             )
         return self._backend
 
+    @staticmethod
+    def _prepare_messages(messages: List[MessageType]) -> List[LLMMessage]:
+        """Convert list of dicts to LLMMessage objects if needed."""
+        if messages and isinstance(messages[0], dict):
+            dict_messages = cast(List[Dict[str, Any]], messages)
+            return [LLMMessage(role=m["role"], content=m["content"]) for m in dict_messages]
+        return cast(List[LLMMessage], messages)
+
+    @staticmethod
+    def _prepare_options(options: Optional[Union[Dict[str, Any], LLMOptions]]) -> LLMOptions:
+        """Convert dict to LLMOptions if needed."""
+        if options is None:
+            return LLMOptions()
+        if isinstance(options, LLMOptions):
+            return options
+        if isinstance(options, dict):
+            return LLMOptions(
+                temperature=options.get("temperature", 0.2),
+                num_ctx=options.get("num_ctx"),
+                num_predict=options.get("num_predict"),
+                repeat_penalty=options.get("repeat_penalty", 1.1),
+                top_p=options.get("top_p", 0.9),
+                top_k=options.get("top_k", 40),
+                min_p=options.get("min_p", 0.0),
+                seed=options.get("seed"),
+                enable_thinking=options.get("enable_thinking"),
+                supports_thinking=options.get("supports_thinking")
+            )
+        return LLMOptions()
+
     async def __aenter__(self):
         """Async context manager entry - enables 'async with LLMClient() as client:' usage"""
         return self
@@ -110,38 +140,8 @@ class LLMClient:
             LLMResponse with complete text and metrics
         """
         backend = self._get_backend()
-
-        # Convert dicts to LLMMessage if needed
-        converted_messages: List[LLMMessage]
-        if messages and isinstance(messages[0], dict):
-            dict_messages = cast(List[Dict[str, Any]], messages)
-            converted_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in dict_messages]
-        else:
-            converted_messages = cast(List[LLMMessage], messages)
-
-        # Convert dict to LLMOptions if needed, or pass through LLMOptions directly
-        llm_options: LLMOptions
-        if options is None:
-            llm_options = LLMOptions()
-        elif isinstance(options, LLMOptions):
-            # Already an LLMOptions object - use directly (preserves num_ctx!)
-            llm_options = options
-        elif isinstance(options, dict):
-            llm_options = LLMOptions(
-                temperature=options.get("temperature", 0.2),
-                num_ctx=options.get("num_ctx"),
-                num_predict=options.get("num_predict"),
-                repeat_penalty=options.get("repeat_penalty", 1.1),
-                top_p=options.get("top_p", 0.9),
-                top_k=options.get("top_k", 40),
-                min_p=options.get("min_p", 0.0),
-                seed=options.get("seed"),
-                enable_thinking=options.get("enable_thinking"),
-                supports_thinking=options.get("supports_thinking")
-            )
-        else:
-            # Unknown type - use defaults
-            llm_options = LLMOptions()
+        converted_messages = self._prepare_messages(messages)
+        llm_options = self._prepare_options(options)
 
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
         return cast(LLMResponse, await backend.chat(model, converted_messages, llm_options))
@@ -167,38 +167,8 @@ class LLMClient:
             - {"type": "done", "metrics": {...}} for final metrics
         """
         backend = self._get_backend()
-
-        # Convert dicts to LLMMessage if needed
-        converted_messages: List[LLMMessage]
-        if messages and isinstance(messages[0], dict):
-            dict_messages = cast(List[Dict[str, Any]], messages)
-            converted_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in dict_messages]
-        else:
-            converted_messages = cast(List[LLMMessage], messages)
-
-        # Convert dict to LLMOptions if needed, or pass through LLMOptions directly
-        llm_options: LLMOptions
-        if options is None:
-            llm_options = LLMOptions()
-        elif isinstance(options, LLMOptions):
-            # Already an LLMOptions object - use directly (preserves num_ctx!)
-            llm_options = options
-        elif isinstance(options, dict):
-            llm_options = LLMOptions(
-                temperature=options.get("temperature", 0.2),
-                num_ctx=options.get("num_ctx"),
-                num_predict=options.get("num_predict"),
-                repeat_penalty=options.get("repeat_penalty", 1.1),
-                top_p=options.get("top_p", 0.9),
-                top_k=options.get("top_k", 40),
-                min_p=options.get("min_p", 0.0),
-                seed=options.get("seed"),
-                enable_thinking=options.get("enable_thinking"),
-                supports_thinking=options.get("supports_thinking")
-            )
-        else:
-            # Unknown type - use defaults
-            llm_options = LLMOptions()
+        converted_messages = self._prepare_messages(messages)
+        llm_options = self._prepare_options(options)
 
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
         async for chunk in backend.chat_stream(model, converted_messages, llm_options):

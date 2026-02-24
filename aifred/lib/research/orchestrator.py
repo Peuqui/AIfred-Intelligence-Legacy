@@ -205,7 +205,7 @@ async def perform_agent_research(
     # ==============================================================
     # PHASE 3.5: Fallback to Web-Search if Scraping Failed (0 Sources)
     # ==============================================================
-    from ..agent_tools import search_web
+    from ..tools import search_web
 
     if len(scraped_results) == 0 and related_urls:
         # All scraping attempts failed (Cloudflare, 404, Timeout, etc.)
@@ -262,7 +262,6 @@ async def perform_agent_research(
     # ==============================================================
     async for item in build_and_generate_response(
         user_text=user_text,
-        scraped_results=scraped_results,
         tool_results=tool_results,
         failed_sources=failed_sources,  # Pass failed URLs for cache storage
         history=history,

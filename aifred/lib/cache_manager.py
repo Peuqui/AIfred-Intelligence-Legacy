@@ -152,21 +152,6 @@ def save_cached_research(
         log_message(f"   Cache now contains {cache_size}/{MAX_CACHE_ENTRIES} entries: {[k[:8] + '...' for k in list(_research_cache.keys())[-5:]]}")
         log_message(f"   Saved: {len(scraped_sources)} sources, user_text: '{user_text[:50]}...'")
 
-        # DEBUG: Show COMPLETE cache contents
-        log_message("=" * 80)
-        log_message("📦 COMPLETE CACHE CONTENTS:")
-        log_message("=" * 80)
-        for cache_key, cache_value in _research_cache.items():
-            source_urls = [s.get('url', 'N/A') for s in cache_value.get('scraped_sources', [])]
-            log_message(f"Session: {cache_key}")
-            log_message(f"  User-Text: {cache_value.get('user_text', 'N/A')}")
-            log_message(f"  Timestamp: {cache_value.get('timestamp', 0)}")
-            log_message(f"  Mode: {cache_value.get('mode', 'N/A')}")
-            log_message(f"  Sources ({len(source_urls)}):")
-            for i, url in enumerate(source_urls, 1):
-                log_message(f"    {i}. {url[:80]}{'...' if len(url) > 80 else ''}")
-            log_message("-" * 80)
-        log_message("=" * 80)
 
 
 def delete_cached_research(session_id: Optional[str]) -> None:

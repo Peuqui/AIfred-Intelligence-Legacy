@@ -6,10 +6,12 @@ based on available GPU memory.
 """
 
 import logging
+import math
 import struct
 import requests
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Generator
 from .config import (
     VRAM_SAFETY_MARGIN,
     VRAM_CONTEXT_RATIO_DENSE,
@@ -20,6 +22,55 @@ from .config import (
 from .formatting import format_number
 
 logger = logging.getLogger(__name__)
+
+
+# Common GPU VRAM sizes in GB (marketing specs)
+NOMINAL_VRAM_SIZES: List[int] = [4, 6, 8, 10, 11, 12, 16, 20, 24, 32, 40, 48, 64, 80]
+
+
+def round_to_nominal_vram(vram_mb: int) -> int:
+    """
+    Round VRAM to nearest marketing spec (nominal size).
+
+    nvidia-smi reports slightly less VRAM than the marketing spec due to
+    firmware overhead. This function rounds up to the expected nominal size.
+
+    Args:
+        vram_mb: VRAM in MiB as reported by nvidia-smi
+
+    Returns:
+        Nominal VRAM size in GB (e.g., 8, 12, 24, 48)
+
+    Examples:
+        >>> round_to_nominal_vram(23040)  # RTX 3090/4090
+        24
+        >>> round_to_nominal_vram(11264)  # RTX 2080 Ti
+        12
+        >>> round_to_nominal_vram(8192)   # RTX 3070
+        8
+        >>> round_to_nominal_vram(45000)  # Tesla A40
+        48
+    """
+    vram_gb = vram_mb / 1024
+
+    # Find closest size that's >= actual VRAM
+    for size in NOMINAL_VRAM_SIZES:
+        if vram_gb <= size:
+            return size
+
+    # For future larger GPUs: round up to nearest GB
+    return math.ceil(vram_gb)
+
+
+@contextmanager
+def _nvml_session() -> Generator[None, None, None]:
+    """Context manager for pynvml init/shutdown."""
+    import pynvml
+    pynvml.nvmlInit()
+    try:
+        yield
+    finally:
+        pynvml.nvmlShutdown()
 
 
 # NOTE: is_model_loaded() was moved to backends/base.py as abstractmethod
@@ -48,20 +99,17 @@ def get_gpu_memory_info(gpu_index: int = 0) -> Optional[Dict]:
     """
     try:
         import pynvml
-        pynvml.nvmlInit()
+        with _nvml_session():
+            handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            gpu_model = pynvml.nvmlDeviceGetName(handle)
 
-        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
-        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        gpu_model = pynvml.nvmlDeviceGetName(handle)
-
-        pynvml.nvmlShutdown()
-
-        return {
-            "total_mb": int(mem_info.total / (1024 * 1024)),
-            "free_mb": int(mem_info.free / (1024 * 1024)),
-            "used_mb": int(mem_info.used / (1024 * 1024)),
-            "gpu_model": gpu_model
-        }
+            return {
+                "total_mb": int(mem_info.total / (1024 * 1024)),
+                "free_mb": int(mem_info.free / (1024 * 1024)),
+                "used_mb": int(mem_info.used / (1024 * 1024)),
+                "gpu_model": gpu_model
+            }
 
     except ImportError:
         logger.warning("pynvml not installed - install via: pip install pynvml")
@@ -87,15 +135,10 @@ def get_free_vram_for_single_gpu(gpu_index: int = 0) -> Optional[int]:
     """
     try:
         import pynvml
-        pynvml.nvmlInit()
-
-        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
-        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        free_mb = mem_info.free / (1024 * 1024)
-
-        pynvml.nvmlShutdown()
-
-        return int(free_mb)
+        with _nvml_session():
+            handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            return int(mem_info.free / (1024 * 1024))
 
     except ImportError:
         logger.warning("pynvml not installed - install via: pip install pynvml")
@@ -117,19 +160,16 @@ def get_total_used_vram_mb() -> Optional[int]:
     """
     try:
         import pynvml
-        pynvml.nvmlInit()
+        with _nvml_session():
+            device_count = pynvml.nvmlDeviceGetCount()
 
-        device_count = pynvml.nvmlDeviceGetCount()
+            total_used_mb = 0
+            for i in range(device_count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                total_used_mb += mem_info.used / (1024 * 1024)
 
-        total_used_mb = 0
-        for i in range(device_count):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            total_used_mb += mem_info.used / (1024 * 1024)
-
-        pynvml.nvmlShutdown()
-
-        return int(total_used_mb)
+            return int(total_used_mb)
 
     except ImportError:
         logger.warning("pynvml not installed - install via: pip install pynvml")
@@ -155,20 +195,18 @@ def get_process_vram_mb(pid: int) -> Optional[int]:
     """
     try:
         import pynvml
-        pynvml.nvmlInit()
+        with _nvml_session():
+            device_count = pynvml.nvmlDeviceGetCount()
+            total_mb = 0
 
-        device_count = pynvml.nvmlDeviceGetCount()
-        total_mb = 0
+            for i in range(device_count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                processes = pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
+                for proc in processes:
+                    if proc.pid == pid:
+                        total_mb += proc.usedGpuMemory / (1024 * 1024)
 
-        for i in range(device_count):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            processes = pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
-            for proc in processes:
-                if proc.pid == pid:
-                    total_mb += proc.usedGpuMemory / (1024 * 1024)
-
-        pynvml.nvmlShutdown()
-        return int(total_mb) if total_mb > 0 else None
+            return int(total_mb) if total_mb > 0 else None
 
     except ImportError:
         logger.warning("pynvml not installed - install via: pip install pynvml")
@@ -189,30 +227,25 @@ def get_free_vram_mb() -> Optional[int]:
     """
     try:
         import pynvml
-        pynvml.nvmlInit()
+        with _nvml_session():
+            device_count = pynvml.nvmlDeviceGetCount()
 
-        # Get number of GPUs
-        device_count = pynvml.nvmlDeviceGetCount()
+            total_free_mb = 0
+            for i in range(device_count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                free_mb = mem_info.free / (1024 * 1024)
+                total_free_mb += free_mb
 
-        # Sum free VRAM across all GPUs
-        total_free_mb = 0
-        for i in range(device_count):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            free_mb = mem_info.free / (1024 * 1024)
-            total_free_mb += free_mb
+                # Log per-GPU VRAM for debugging
+                if device_count > 1:
+                    gpu_name = pynvml.nvmlDeviceGetName(handle)
+                    logger.debug(f"   GPU {i} ({gpu_name}): {int(free_mb)} MB free")
 
-            # Log per-GPU VRAM for debugging
             if device_count > 1:
-                gpu_name = pynvml.nvmlDeviceGetName(handle)
-                logger.debug(f"   GPU {i} ({gpu_name}): {int(free_mb)} MB free")
+                logger.debug(f"   Total free VRAM (sum of {device_count} GPUs): {int(total_free_mb)} MB")
 
-        pynvml.nvmlShutdown()
-
-        if device_count > 1:
-            logger.debug(f"   Total free VRAM (sum of {device_count} GPUs): {int(total_free_mb)} MB")
-
-        return int(total_free_mb)
+            return int(total_free_mb)
 
     except ImportError:
         logger.warning("pynvml not installed - install via: pip install pynvml")
@@ -234,17 +267,14 @@ def get_gpu_model_name(gpu_index: int = 0) -> Optional[str]:
     """
     try:
         import pynvml
-        pynvml.nvmlInit()
+        with _nvml_session():
+            handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
+            name = pynvml.nvmlDeviceGetName(handle)
 
-        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
-        name = pynvml.nvmlDeviceGetName(handle)
+            if isinstance(name, bytes):
+                name = name.decode('utf-8')
 
-        pynvml.nvmlShutdown()
-
-        if isinstance(name, bytes):
-            name = name.decode('utf-8')
-
-        return str(name)
+            return str(name)
 
     except Exception:
         return None
@@ -268,48 +298,45 @@ def get_all_gpus_memory_info() -> Optional[Dict]:
     """
     try:
         import pynvml
-        pynvml.nvmlInit()
+        with _nvml_session():
+            gpu_count = pynvml.nvmlDeviceGetCount()
 
-        gpu_count = pynvml.nvmlDeviceGetCount()
+            total_mb = 0
+            free_mb = 0
+            used_mb = 0
+            gpu_models = []
+            per_gpu = []
 
-        total_mb = 0
-        free_mb = 0
-        used_mb = 0
-        gpu_models = []
-        per_gpu = []
+            for i in range(gpu_count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                gpu_name = pynvml.nvmlDeviceGetName(handle)
 
-        for i in range(gpu_count):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            gpu_name = pynvml.nvmlDeviceGetName(handle)
+                gpu_total = int(mem_info.total / (1024 * 1024))
+                gpu_free = int(mem_info.free / (1024 * 1024))
+                gpu_used = int(mem_info.used / (1024 * 1024))
 
-            gpu_total = int(mem_info.total / (1024 * 1024))
-            gpu_free = int(mem_info.free / (1024 * 1024))
-            gpu_used = int(mem_info.used / (1024 * 1024))
+                total_mb += gpu_total
+                free_mb += gpu_free
+                used_mb += gpu_used
+                gpu_models.append(gpu_name)
 
-            total_mb += gpu_total
-            free_mb += gpu_free
-            used_mb += gpu_used
-            gpu_models.append(gpu_name)
+                per_gpu.append({
+                    "index": i,
+                    "gpu_model": gpu_name,
+                    "total_mb": gpu_total,
+                    "free_mb": gpu_free,
+                    "used_mb": gpu_used
+                })
 
-            per_gpu.append({
-                "index": i,
-                "gpu_model": gpu_name,
-                "total_mb": gpu_total,
-                "free_mb": gpu_free,
-                "used_mb": gpu_used
-            })
-
-        pynvml.nvmlShutdown()
-
-        return {
-            "gpu_count": gpu_count,
-            "total_mb": total_mb,
-            "free_mb": free_mb,
-            "used_mb": used_mb,
-            "gpu_models": gpu_models,
-            "per_gpu": per_gpu
-        }
+            return {
+                "gpu_count": gpu_count,
+                "total_mb": total_mb,
+                "free_mb": free_mb,
+                "used_mb": used_mb,
+                "gpu_models": gpu_models,
+                "per_gpu": per_gpu
+            }
 
     except ImportError:
         logger.warning("pynvml not installed")
@@ -873,10 +900,8 @@ def detect_gpu_vendor() -> str:
         "nvidia", "amd", or "cpu"
     """
     try:
-        import pynvml
-        pynvml.nvmlInit()
-        pynvml.nvmlShutdown()
-        return "nvidia"
+        with _nvml_session():
+            return "nvidia"
     except Exception:
         pass
 
@@ -906,10 +931,9 @@ def get_gpu_count() -> int:
     """
     try:
         import pynvml
-        pynvml.nvmlInit()
-        count: int = pynvml.nvmlDeviceGetCount()
-        pynvml.nvmlShutdown()
-        return count
+        with _nvml_session():
+            count: int = pynvml.nvmlDeviceGetCount()
+            return count
     except Exception:
         return 0
 
@@ -921,18 +945,17 @@ def get_gpu_names() -> list[str]:
     Returns:
         List of GPU names (e.g., ["NVIDIA GeForce RTX 3090 Ti", "NVIDIA GeForce RTX 3090 Ti"])
     """
-    names = []
+    names: list[str] = []
     try:
         import pynvml
-        pynvml.nvmlInit()
-        count = pynvml.nvmlDeviceGetCount()
-        for i in range(count):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            name = pynvml.nvmlDeviceGetName(handle)
-            if isinstance(name, bytes):
-                name = name.decode('utf-8')
-            names.append(name)
-        pynvml.nvmlShutdown()
+        with _nvml_session():
+            count = pynvml.nvmlDeviceGetCount()
+            for i in range(count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                name = pynvml.nvmlDeviceGetName(handle)
+                if isinstance(name, bytes):
+                    name = name.decode('utf-8')
+                names.append(name)
     except Exception:
         pass
 
@@ -946,17 +969,15 @@ def get_gpu_vram_per_gpu() -> list[int]:
     Returns:
         List of VRAM sizes in MB (e.g., [24564, 24564] for dual P40)
     """
-    vram_sizes = []
+    vram_sizes: list[int] = []
     try:
         import pynvml
-        pynvml.nvmlInit()
-        count = pynvml.nvmlDeviceGetCount()
-        for i in range(count):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            vram_mb = mem_info.total / (1024 * 1024)
-            vram_sizes.append(int(vram_mb))
-        pynvml.nvmlShutdown()
+        with _nvml_session():
+            count = pynvml.nvmlDeviceGetCount()
+            for i in range(count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                vram_sizes.append(int(mem_info.total / (1024 * 1024)))
     except Exception:
         pass
 

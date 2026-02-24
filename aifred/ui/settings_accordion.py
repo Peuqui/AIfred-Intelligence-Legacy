@@ -89,6 +89,194 @@ def _sampling_agent_row(agent: str, emoji: str, label: str, reset_handler) -> rx
 
 
 # ============================================================
+# VOICE SETTINGS HELPERS
+# ============================================================
+
+_PITCH_OPTIONS = ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"]
+_SPEED_OPTIONS = ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"]
+
+
+# ============================================================
+# CONTEXT CONTROL HELPERS
+# ============================================================
+
+def _ctx_column(
+    emoji: str, label: str,
+    enabled_var, toggle_handler,
+    value_var, set_handler,
+    placeholder: str = "16384",
+    **extra_style,
+) -> rx.Component:
+    """Helper: One agent context column with toggle + input."""
+    return rx.vstack(
+        rx.hstack(
+            rx.text(
+                f"{emoji} {label}",
+                font_size="11px",
+                font_weight="bold",
+                color=COLORS["text_secondary"],
+            ),
+            rx.switch(
+                checked=enabled_var,
+                on_change=toggle_handler,
+                size="1",
+            ),
+            spacing="1",
+            align="center",
+        ),
+        rx.input(
+            placeholder=placeholder,
+            default_value=value_var.to(str),
+            on_blur=set_handler,
+            type="number",
+            width="78px",
+            disabled=~enabled_var,  # type: ignore[arg-type]
+            opacity=rx.cond(enabled_var, "1.0", "0.5"),
+        ),
+        spacing="1",
+        **extra_style,
+    )
+
+
+def _voice_agent_row(
+    emoji: str, label: str,
+    voice_var, voice_handler,
+    pitch_var, pitch_handler,
+    speed_var, speed_handler,
+) -> rx.Component:
+    """Helper: One agent row with voice, pitch and speed selects."""
+    return rx.hstack(
+        rx.text(f"{emoji} {label}", font_size="10px", width="70px"),
+        rx.box(
+            rx.select(
+                AIState.available_tts_voices,
+                value=voice_var,
+                on_change=voice_handler,
+                placeholder="Default",
+                size="1",
+            ),
+            flex="1",
+        ),
+        rx.select(
+            _PITCH_OPTIONS,
+            value=pitch_var,
+            on_change=pitch_handler,
+            size="1",
+            width="65px",
+        ),
+        rx.select(
+            _SPEED_OPTIONS,
+            value=speed_var,
+            on_change=speed_handler,
+            size="1",
+            width="65px",
+        ),
+        spacing="2",
+        align="center",
+        width="100%",
+    )
+
+
+# ============================================================
+# AGENT TOGGLE + ROPE HELPERS
+# ============================================================
+
+def _agent_toggle(
+    emoji: str,
+    checked_var,
+    on_change_handler,
+    tooltip_text: str | rx.Var,
+    color_scheme: str = "orange",
+) -> rx.Component:
+    """Single agent toggle with tooltip (Personality/Reasoning/Thinking)."""
+    return rx.tooltip(
+        rx.hstack(
+            rx.text(emoji, font_size="14px"),
+            rx.checkbox(
+                checked=checked_var,
+                on_change=on_change_handler,
+                size="1",
+                color_scheme=color_scheme,
+                variant="surface",
+            ),
+            spacing="1",
+            align="center",
+        ),
+        content=tooltip_text,
+    )
+
+
+def _lightbulb_icon() -> rx.Component:
+    """Reasoning/Thinking help lightbulb icon with tooltip."""
+    return rx.tooltip(
+        rx.icon(
+            "lightbulb",
+            size=14,
+            color="#FFD700",
+            cursor="pointer",
+            on_click=AIState.open_reasoning_thinking_help,
+            style={
+                "transition": "transform 0.2s ease",
+                "&:hover": {"transform": "scale(1.15)"},
+            },
+        ),
+        content=t("reasoning_thinking_help_lightbulb_tooltip"),
+    )
+
+
+def _speed_toggle(
+    has_speed_var,
+    speed_mode_var,
+    toggle_handler,
+    disabled_var=None,
+) -> rx.Component:
+    """Optional Ctx/Speed toggle, shown only when agent has speed variant."""
+    switch_kwargs: dict = {
+        "checked": speed_mode_var,
+        "on_change": toggle_handler,
+        "size": "1",
+    }
+    if disabled_var is not None:
+        switch_kwargs["disabled"] = disabled_var
+    return rx.cond(
+        has_speed_var,
+        rx.tooltip(
+            rx.hstack(
+                rx.text(
+                    "Ctx",
+                    font_size="10px",
+                    color=rx.cond(speed_mode_var, "#666", "#4CAF50"),
+                ),
+                rx.switch(**switch_kwargs),
+                rx.text(
+                    "\u26a1",
+                    font_size="10px",
+                    color=rx.cond(speed_mode_var, "#FFA500", "#666"),
+                ),
+                spacing="1",
+                align="center",
+            ),
+            content=AIState.speed_switch_tooltip,
+        ),
+    )
+
+
+def _rope_select(value_var, on_change_handler) -> rx.Component:
+    """RoPE factor select dropdown (1.0x / 1.5x / 2.0x)."""
+    return rx.select.root(
+        rx.select.trigger(placeholder=value_var),
+        rx.select.content(
+            rx.select.item("1.0x", value="1.0x"),
+            rx.select.item("1.5x", value="1.5x"),
+            rx.select.item("2.0x", value="2.0x"),
+        ),
+        value=value_var,
+        on_change=on_change_handler,
+        size="1",
+    )
+
+
+# ============================================================
 # SAMPLING CONTROL SECTION
 # ============================================================
 
@@ -185,137 +373,38 @@ def llm_parameters_accordion() -> rx.Component:
                         font_size="12px"
                     ),
 
-                    # Per-LLM Context Control - Three columns with toggle + input
+                    # Per-LLM Context Control - Four columns with toggle + input
                     rx.hstack(
-                        # AIfred num_ctx
-                        rx.vstack(
-                            rx.hstack(
-                                rx.text(
-                                    "\U0001f3a9 AIfred",
-                                    font_size="11px",
-                                    font_weight="bold",
-                                    color=COLORS["text_secondary"],
-                                ),
-                                rx.switch(
-                                    checked=AIState.num_ctx_manual_aifred_enabled,
-                                    on_change=AIState.toggle_num_ctx_manual_aifred,
-                                    size="1",
-                                ),
-                                spacing="1",
-                                align="center",
-                            ),
-                            rx.input(
-                                placeholder="16384",
-                                default_value=AIState.num_ctx_manual_aifred.to(str),
-                                on_blur=AIState.set_num_ctx_manual_aifred,
-                                type="number",
-                                width="78px",
-                                disabled=~AIState.num_ctx_manual_aifred_enabled,  # type: ignore[arg-type]
-                                opacity=rx.cond(
-                                    AIState.num_ctx_manual_aifred_enabled,
-                                    "1.0",
-                                    "0.5"
-                                ),
-                            ),
-                            spacing="1",
+                        _ctx_column(
+                            "\U0001f3a9", "AIfred",
+                            AIState.num_ctx_manual_aifred_enabled,
+                            AIState.toggle_num_ctx_manual_aifred,
+                            AIState.num_ctx_manual_aifred,
+                            AIState.set_num_ctx_manual_aifred,
                         ),
-                        # Sokrates num_ctx
-                        rx.vstack(
-                            rx.hstack(
-                                rx.text(
-                                    "\U0001f3db\ufe0f Sokrates",
-                                    font_size="11px",
-                                    font_weight="bold",
-                                    color=COLORS["text_secondary"],
-                                ),
-                                rx.switch(
-                                    checked=AIState.num_ctx_manual_sokrates_enabled,
-                                    on_change=AIState.toggle_num_ctx_manual_sokrates,
-                                    size="1",
-                                ),
-                                spacing="1",
-                                align="center",
-                            ),
-                            rx.input(
-                                placeholder="16384",
-                                default_value=AIState.num_ctx_manual_sokrates.to(str),
-                                on_blur=AIState.set_num_ctx_manual_sokrates,
-                                type="number",
-                                width="78px",
-                                disabled=~AIState.num_ctx_manual_sokrates_enabled,  # type: ignore[arg-type]
-                                opacity=rx.cond(
-                                    AIState.num_ctx_manual_sokrates_enabled,
-                                    "1.0",
-                                    "0.5"
-                                ),
-                            ),
-                            spacing="1",
+                        _ctx_column(
+                            "\U0001f3db\ufe0f", "Sokrates",
+                            AIState.num_ctx_manual_sokrates_enabled,
+                            AIState.toggle_num_ctx_manual_sokrates,
+                            AIState.num_ctx_manual_sokrates,
+                            AIState.set_num_ctx_manual_sokrates,
                         ),
-                        # Salomo num_ctx
-                        rx.vstack(
-                            rx.hstack(
-                                rx.text(
-                                    "\U0001f451 Salomo",
-                                    font_size="11px",
-                                    font_weight="bold",
-                                    color=COLORS["text_secondary"],
-                                ),
-                                rx.switch(
-                                    checked=AIState.num_ctx_manual_salomo_enabled,
-                                    on_change=AIState.toggle_num_ctx_manual_salomo,
-                                    size="1",
-                                ),
-                                spacing="1",
-                                align="center",
-                            ),
-                            rx.input(
-                                placeholder="16384",
-                                default_value=AIState.num_ctx_manual_salomo.to(str),
-                                on_blur=AIState.set_num_ctx_manual_salomo,
-                                type="number",
-                                width="78px",
-                                disabled=~AIState.num_ctx_manual_salomo_enabled,  # type: ignore[arg-type]
-                                opacity=rx.cond(
-                                    AIState.num_ctx_manual_salomo_enabled,
-                                    "1.0",
-                                    "0.5"
-                                ),
-                            ),
-                            spacing="1",
+                        _ctx_column(
+                            "\U0001f451", "Salomo",
+                            AIState.num_ctx_manual_salomo_enabled,
+                            AIState.toggle_num_ctx_manual_salomo,
+                            AIState.num_ctx_manual_salomo,
+                            AIState.set_num_ctx_manual_salomo,
                         ),
                         # Vision num_ctx (PERSISTENT - saved to settings.json)
-                        # Note: num_predict removed - doesn't work with thinking models (Ollama ignores it)
-                        rx.vstack(
-                            rx.hstack(
-                                rx.text(
-                                    "\U0001f441\ufe0f Vision",
-                                    font_size="11px",
-                                    font_weight="bold",
-                                    color=COLORS["text_secondary"],
-                                ),
-                                rx.switch(
-                                    checked=AIState.vision_num_ctx_enabled,
-                                    on_change=AIState.toggle_vision_num_ctx,
-                                    size="1",
-                                ),
-                                spacing="1",
-                                align="center",
-                            ),
-                            rx.input(
-                                placeholder="32768",
-                                default_value=AIState.vision_num_ctx.to(str),  # type: ignore[union-attr]  # Uncontrolled: user can type freely
-                                on_blur=AIState.set_vision_num_ctx,  # Save only when leaving field (Tab/Enter/click away)
-                                type="number",
-                                width="78px",
-                                disabled=~AIState.vision_num_ctx_enabled,  # type: ignore[arg-type]
-                                opacity=rx.cond(
-                                    AIState.vision_num_ctx_enabled,
-                                    "1.0",
-                                    "0.5"
-                                ),
-                            ),
-                            spacing="1",
-                            margin_left="8px",  # Extra spacing from Salomo
+                        _ctx_column(
+                            "\U0001f441\ufe0f", "Vision",
+                            AIState.vision_num_ctx_enabled,
+                            AIState.toggle_vision_num_ctx,
+                            AIState.vision_num_ctx,  # type: ignore[arg-type]
+                            AIState.set_vision_num_ctx,
+                            placeholder="32768",
+                            margin_left="8px",
                         ),
                         spacing="3",
                     ),
@@ -697,165 +786,21 @@ def settings_accordion() -> rx.Component:
                     # Ollama: RoPE + Personality + Reasoning in one row
                     rx.hstack(
                         rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
-                        rx.select.root(
-                            rx.select.trigger(placeholder=AIState.rope_factor_display),
-                            rx.select.content(
-                                rx.select.item("1.0x", value="1.0x"),
-                                rx.select.item("1.5x", value="1.5x"),
-                                rx.select.item("2.0x", value="2.0x"),
-                            ),
-                            value=AIState.rope_factor_display,
-                            on_change=AIState.set_aifred_rope_factor,
-                            size="1",
-                        ),
-                        rx.tooltip(
-                            rx.hstack(
-                                rx.text("\U0001f3a9", font_size="14px"),
-                                rx.checkbox(
-                                    checked=AIState.aifred_personality,
-                                    on_change=AIState.toggle_aifred_personality,
-                                    size="1",
-                                    color_scheme="orange",
-                                    variant="surface",
-                                ),
-                                spacing="1",
-                                align="center",
-                            ),
-                            content=t("personality_aifred_tooltip"),
-                        ),
-                        rx.tooltip(
-                            rx.hstack(
-                                rx.text("\U0001f4ad", font_size="14px"),
-                                rx.checkbox(
-                                    checked=AIState.aifred_reasoning,
-                                    on_change=AIState.toggle_aifred_reasoning,
-                                    size="1",
-                                    color_scheme="orange",
-                                    variant="surface",
-                                ),
-                                spacing="1",
-                                align="center",
-                            ),
-                            content=t("reasoning_tooltip"),
-                        ),
-                        rx.tooltip(
-                            rx.hstack(
-                                rx.text("\U0001f9e0", font_size="14px"),
-                                rx.checkbox(
-                                    checked=AIState.aifred_thinking,
-                                    on_change=AIState.toggle_aifred_thinking,
-                                    size="1",
-                                    color_scheme="blue",
-                                    variant="surface",
-                                ),
-                                spacing="1",
-                                align="center",
-                            ),
-                            content=t("thinking_tooltip"),
-                        ),
-                        rx.tooltip(
-                            rx.icon(
-                                "lightbulb",
-                                size=14,
-                                color="#FFD700",
-                                cursor="pointer",
-                                on_click=AIState.open_reasoning_thinking_help,
-                                style={
-                                    "transition": "transform 0.2s ease",
-                                    "&:hover": {"transform": "scale(1.15)"},
-                                },
-                            ),
-                            content=t("reasoning_thinking_help_lightbulb_tooltip"),
-                        ),
+                        _rope_select(AIState.rope_factor_display, AIState.set_aifred_rope_factor),
+                        _agent_toggle("\U0001f3a9", AIState.aifred_personality, AIState.toggle_aifred_personality, t("personality_aifred_tooltip")),
+                        _agent_toggle("\U0001f4ad", AIState.aifred_reasoning, AIState.toggle_aifred_reasoning, t("reasoning_tooltip")),
+                        _agent_toggle("\U0001f9e0", AIState.aifred_thinking, AIState.toggle_aifred_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                        _lightbulb_icon(),
                         spacing="2",
                         align="center",
                     ),
                     # Other backends: Personality + Reasoning + Thinking + Info + optional Speed toggle
                     rx.hstack(
-                        rx.tooltip(
-                            rx.hstack(
-                                rx.text("\U0001f3a9", font_size="14px"),
-                                rx.checkbox(
-                                    checked=AIState.aifred_personality,
-                                    on_change=AIState.toggle_aifred_personality,
-                                    size="1",
-                                    color_scheme="orange",
-                                    variant="surface",
-                                ),
-                                spacing="1",
-                                align="center",
-                            ),
-                            content=t("personality_aifred_tooltip"),
-                        ),
-                        rx.tooltip(
-                            rx.hstack(
-                                rx.text("\U0001f4ad", font_size="14px"),
-                                rx.checkbox(
-                                    checked=AIState.aifred_reasoning,
-                                    on_change=AIState.toggle_aifred_reasoning,
-                                    size="1",
-                                    color_scheme="orange",
-                                    variant="surface",
-                                ),
-                                spacing="1",
-                                align="center",
-                            ),
-                            content=t("reasoning_tooltip"),
-                        ),
-                        rx.tooltip(
-                            rx.hstack(
-                                rx.text("\U0001f9e0", font_size="14px"),
-                                rx.checkbox(
-                                    checked=AIState.aifred_thinking,
-                                    on_change=AIState.toggle_aifred_thinking,
-                                    size="1",
-                                    color_scheme="blue",
-                                    variant="surface",
-                                ),
-                                spacing="1",
-                                align="center",
-                            ),
-                            content=t("thinking_tooltip"),
-                        ),
-                        rx.tooltip(
-                            rx.icon(
-                                "lightbulb",
-                                size=14,
-                                color="#FFD700",
-                                cursor="pointer",
-                                on_click=AIState.open_reasoning_thinking_help,
-                                style={
-                                    "transition": "transform 0.2s ease",
-                                    "&:hover": {"transform": "scale(1.15)"},
-                                },
-                            ),
-                            content=t("reasoning_thinking_help_lightbulb_tooltip"),
-                        ),
-                        rx.cond(
-                            AIState.aifred_has_speed_variant,
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text(
-                                        "Ctx",
-                                        font_size="10px",
-                                        color=rx.cond(AIState.aifred_speed_mode, "#666", "#4CAF50"),
-                                    ),
-                                    rx.switch(
-                                        checked=AIState.aifred_speed_mode,
-                                        on_change=AIState.toggle_aifred_speed_mode,
-                                        size="1",
-                                    ),
-                                    rx.text(
-                                        "\u26a1",
-                                        font_size="10px",
-                                        color=rx.cond(AIState.aifred_speed_mode, "#FFA500", "#666"),
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=AIState.speed_switch_tooltip,
-                            ),
-                        ),
+                        _agent_toggle("\U0001f3a9", AIState.aifred_personality, AIState.toggle_aifred_personality, t("personality_aifred_tooltip")),
+                        _agent_toggle("\U0001f4ad", AIState.aifred_reasoning, AIState.toggle_aifred_reasoning, t("reasoning_tooltip")),
+                        _agent_toggle("\U0001f9e0", AIState.aifred_thinking, AIState.toggle_aifred_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                        _lightbulb_icon(),
+                        _speed_toggle(AIState.aifred_has_speed_variant, AIState.aifred_speed_mode, AIState.toggle_aifred_speed_mode),
                         spacing="2",
                         align="center",
                     ),
@@ -902,166 +847,21 @@ def settings_accordion() -> rx.Component:
                         # Ollama: RoPE + Personality + Reasoning in one row
                         rx.hstack(
                             rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
-                            rx.select.root(
-                                rx.select.trigger(placeholder=AIState.sokrates_rope_display),
-                                rx.select.content(
-                                    rx.select.item("1.0x", value="1.0x"),
-                                    rx.select.item("1.5x", value="1.5x"),
-                                    rx.select.item("2.0x", value="2.0x"),
-                                ),
-                                value=AIState.sokrates_rope_display,
-                                on_change=AIState.set_sokrates_rope_factor,
-                                size="1",
-                            ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f3db\ufe0f", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.sokrates_personality,
-                                        on_change=AIState.toggle_sokrates_personality,
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("personality_sokrates_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f4ad", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.sokrates_reasoning,
-                                        on_change=AIState.toggle_sokrates_reasoning,
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("reasoning_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f9e0", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.sokrates_thinking,
-                                        on_change=AIState.toggle_sokrates_thinking,
-                                        size="1",
-                                        color_scheme="blue",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("thinking_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.icon(
-                                    "lightbulb",
-                                    size=14,
-                                    color="#FFD700",
-                                    cursor="pointer",
-                                    on_click=AIState.open_reasoning_thinking_help,
-                                    style={
-                                        "transition": "transform 0.2s ease",
-                                        "&:hover": {"transform": "scale(1.15)"},
-                                    },
-                                ),
-                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
-                            ),
+                            _rope_select(AIState.sokrates_rope_display, AIState.set_sokrates_rope_factor),
+                            _agent_toggle("\U0001f3db\ufe0f", AIState.sokrates_personality, AIState.toggle_sokrates_personality, t("personality_sokrates_tooltip")),
+                            _agent_toggle("\U0001f4ad", AIState.sokrates_reasoning, AIState.toggle_sokrates_reasoning, t("reasoning_tooltip")),
+                            _agent_toggle("\U0001f9e0", AIState.sokrates_thinking, AIState.toggle_sokrates_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                            _lightbulb_icon(),
                             spacing="2",
                             align="center",
                         ),
                         # Other backends: Personality + Reasoning + Thinking + Info + optional Speed toggle
                         rx.hstack(
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f3db\ufe0f", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.sokrates_personality,
-                                        on_change=AIState.toggle_sokrates_personality,
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("personality_sokrates_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f4ad", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.sokrates_reasoning,
-                                        on_change=AIState.toggle_sokrates_reasoning,
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("reasoning_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f9e0", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.sokrates_thinking,
-                                        on_change=AIState.toggle_sokrates_thinking,
-                                        size="1",
-                                        color_scheme="blue",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("thinking_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.icon(
-                                    "lightbulb",
-                                    size=14,
-                                    color="#FFD700",
-                                    cursor="pointer",
-                                    on_click=AIState.open_reasoning_thinking_help,
-                                    style={
-                                        "transition": "transform 0.2s ease",
-                                        "&:hover": {"transform": "scale(1.15)"},
-                                    },
-                                ),
-                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
-                            ),
-                            rx.cond(
-                                AIState.sokrates_has_speed_variant,
-                                rx.tooltip(
-                                    rx.hstack(
-                                        rx.text(
-                                            "Ctx",
-                                            font_size="10px",
-                                            color=rx.cond(AIState.sokrates_speed_mode, "#666", "#4CAF50"),
-                                        ),
-                                        rx.switch(
-                                            checked=AIState.sokrates_speed_mode,
-                                            on_change=AIState.toggle_sokrates_speed_mode,
-                                            size="1",
-                                            disabled=AIState.sokrates_model == "",
-                                        ),
-                                        rx.text(
-                                            "\u26a1",
-                                            font_size="10px",
-                                            color=rx.cond(AIState.sokrates_speed_mode, "#FFA500", "#666"),
-                                        ),
-                                        spacing="1",
-                                        align="center",
-                                    ),
-                                    content=AIState.speed_switch_tooltip,
-                                ),
-                            ),
+                            _agent_toggle("\U0001f3db\ufe0f", AIState.sokrates_personality, AIState.toggle_sokrates_personality, t("personality_sokrates_tooltip")),
+                            _agent_toggle("\U0001f4ad", AIState.sokrates_reasoning, AIState.toggle_sokrates_reasoning, t("reasoning_tooltip")),
+                            _agent_toggle("\U0001f9e0", AIState.sokrates_thinking, AIState.toggle_sokrates_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                            _lightbulb_icon(),
+                            _speed_toggle(AIState.sokrates_has_speed_variant, AIState.sokrates_speed_mode, AIState.toggle_sokrates_speed_mode, disabled_var=AIState.sokrates_model == ""),
                             spacing="2",
                             align="center",
                         ),
@@ -1109,166 +909,21 @@ def settings_accordion() -> rx.Component:
                         # Ollama: RoPE + Personality + Reasoning in one row
                         rx.hstack(
                             rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
-                            rx.select.root(
-                                rx.select.trigger(placeholder=AIState.salomo_rope_display),
-                                rx.select.content(
-                                    rx.select.item("1.0x", value="1.0x"),
-                                    rx.select.item("1.5x", value="1.5x"),
-                                    rx.select.item("2.0x", value="2.0x"),
-                                ),
-                                value=AIState.salomo_rope_display,
-                                on_change=AIState.set_salomo_rope_factor,
-                                size="1",
-                            ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f451", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.salomo_personality,
-                                        on_change=AIState.toggle_salomo_personality,
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("personality_salomo_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f4ad", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.salomo_reasoning,
-                                        on_change=AIState.toggle_salomo_reasoning,
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("reasoning_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f9e0", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.salomo_thinking,
-                                        on_change=AIState.toggle_salomo_thinking,
-                                        size="1",
-                                        color_scheme="blue",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("thinking_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.icon(
-                                    "lightbulb",
-                                    size=14,
-                                    color="#FFD700",
-                                    cursor="pointer",
-                                    on_click=AIState.open_reasoning_thinking_help,
-                                    style={
-                                        "transition": "transform 0.2s ease",
-                                        "&:hover": {"transform": "scale(1.15)"},
-                                    },
-                                ),
-                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
-                            ),
+                            _rope_select(AIState.salomo_rope_display, AIState.set_salomo_rope_factor),
+                            _agent_toggle("\U0001f451", AIState.salomo_personality, AIState.toggle_salomo_personality, t("personality_salomo_tooltip")),
+                            _agent_toggle("\U0001f4ad", AIState.salomo_reasoning, AIState.toggle_salomo_reasoning, t("reasoning_tooltip")),
+                            _agent_toggle("\U0001f9e0", AIState.salomo_thinking, AIState.toggle_salomo_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                            _lightbulb_icon(),
                             spacing="2",
                             align="center",
                         ),
                         # Other backends: Personality + Reasoning + Thinking + Info
                         rx.hstack(
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f451", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.salomo_personality,
-                                        on_change=AIState.toggle_salomo_personality,
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("personality_salomo_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f4ad", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.salomo_reasoning,
-                                        on_change=AIState.toggle_salomo_reasoning,
-                                        size="1",
-                                        color_scheme="orange",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("reasoning_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.hstack(
-                                    rx.text("\U0001f9e0", font_size="14px"),
-                                    rx.checkbox(
-                                        checked=AIState.salomo_thinking,
-                                        on_change=AIState.toggle_salomo_thinking,
-                                        size="1",
-                                        color_scheme="blue",
-                                        variant="surface",
-                                    ),
-                                    spacing="1",
-                                    align="center",
-                                ),
-                                content=t("thinking_tooltip"),
-                            ),
-                            rx.tooltip(
-                                rx.icon(
-                                    "lightbulb",
-                                    size=14,
-                                    color="#FFD700",
-                                    cursor="pointer",
-                                    on_click=AIState.open_reasoning_thinking_help,
-                                    style={
-                                        "transition": "transform 0.2s ease",
-                                        "&:hover": {"transform": "scale(1.15)"},
-                                    },
-                                ),
-                                content=t("reasoning_thinking_help_lightbulb_tooltip"),
-                            ),
-                            rx.cond(
-                                AIState.salomo_has_speed_variant,
-                                rx.tooltip(
-                                    rx.hstack(
-                                        rx.text(
-                                            "Ctx",
-                                            font_size="10px",
-                                            color=rx.cond(AIState.salomo_speed_mode, "#666", "#4CAF50"),
-                                        ),
-                                        rx.switch(
-                                            checked=AIState.salomo_speed_mode,
-                                            on_change=AIState.toggle_salomo_speed_mode,
-                                            size="1",
-                                            disabled=AIState.salomo_model == "",
-                                        ),
-                                        rx.text(
-                                            "\u26a1",
-                                            font_size="10px",
-                                            color=rx.cond(AIState.salomo_speed_mode, "#FFA500", "#666"),
-                                        ),
-                                        spacing="1",
-                                        align="center",
-                                    ),
-                                    content=AIState.speed_switch_tooltip,
-                                ),
-                            ),
+                            _agent_toggle("\U0001f451", AIState.salomo_personality, AIState.toggle_salomo_personality, t("personality_salomo_tooltip")),
+                            _agent_toggle("\U0001f4ad", AIState.salomo_reasoning, AIState.toggle_salomo_reasoning, t("reasoning_tooltip")),
+                            _agent_toggle("\U0001f9e0", AIState.salomo_thinking, AIState.toggle_salomo_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                            _lightbulb_icon(),
+                            _speed_toggle(AIState.salomo_has_speed_variant, AIState.salomo_speed_mode, AIState.toggle_salomo_speed_mode, disabled_var=AIState.salomo_model == ""),
                             spacing="2",
                             align="center",
                         ),
@@ -1313,17 +968,7 @@ def settings_accordion() -> rx.Component:
                     (AIState.backend_id == "ollama") & AIState.backend_supports_dynamic_models,
                     rx.hstack(
                         rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
-                        rx.select.root(
-                            rx.select.trigger(placeholder=AIState.automatik_rope_display),
-                            rx.select.content(
-                                rx.select.item("1.0x", value="1.0x"),
-                                rx.select.item("1.5x", value="1.5x"),
-                                rx.select.item("2.0x", value="2.0x"),
-                            ),
-                            value=AIState.automatik_rope_display,
-                            on_change=AIState.set_automatik_rope_factor,
-                            size="1",
-                        ),
+                        _rope_select(AIState.automatik_rope_display, AIState.set_automatik_rope_factor),
                         spacing="2",
                         align="center",
                     ),
@@ -1368,17 +1013,7 @@ def settings_accordion() -> rx.Component:
                     (AIState.backend_id == "ollama") & AIState.backend_supports_dynamic_models,
                     rx.hstack(
                         rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
-                        rx.select.root(
-                            rx.select.trigger(placeholder=AIState.vision_rope_display),
-                            rx.select.content(
-                                rx.select.item("1.0x", value="1.0x"),
-                                rx.select.item("1.5x", value="1.5x"),
-                                rx.select.item("2.0x", value="2.0x"),
-                            ),
-                            value=AIState.vision_rope_display,
-                            on_change=AIState.set_vision_rope_factor,
-                            size="1",
-                        ),
+                        _rope_select(AIState.vision_rope_display, AIState.set_vision_rope_factor),
                         spacing="2",
                         align="center",
                     ),
@@ -1615,98 +1250,24 @@ def settings_accordion() -> rx.Component:
                                     spacing="2",
                                     width="100%",
                                 ),
-                                # AIfred Voice Settings
-                                rx.hstack(
-                                    rx.text("\U0001f3a9 AIfred", font_size="10px", width="70px"),
-                                    rx.box(
-                                        rx.select(
-                                            AIState.available_tts_voices,
-                                            value=AIState.aifred_voice,
-                                            on_change=AIState.set_aifred_voice,
-                                            placeholder="Default",
-                                            size="1",
-                                        ),
-                                        flex="1",
-                                    ),
-                                    rx.select(
-                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
-                                        value=AIState.aifred_pitch,
-                                        on_change=AIState.set_aifred_pitch,
-                                        size="1",
-                                        width="65px",
-                                    ),
-                                    rx.select(
-                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"],
-                                        value=AIState.aifred_speed,
-                                        on_change=AIState.set_aifred_speed,
-                                        size="1",
-                                        width="65px",
-                                    ),
-                                    spacing="2",
-                                    align="center",
-                                    width="100%",
+                                # Per-Agent Voice Rows
+                                _voice_agent_row(
+                                    "\U0001f3a9", "AIfred",
+                                    AIState.aifred_voice, AIState.set_aifred_voice,
+                                    AIState.aifred_pitch, AIState.set_aifred_pitch,
+                                    AIState.aifred_speed, AIState.set_aifred_speed,
                                 ),
-                                # Sokrates Voice Settings
-                                rx.hstack(
-                                    rx.text("\U0001f3db\ufe0f Sokrates", font_size="10px", width="70px"),
-                                    rx.box(
-                                        rx.select(
-                                            AIState.available_tts_voices,
-                                            value=AIState.sokrates_voice,
-                                            on_change=AIState.set_sokrates_voice,
-                                            placeholder="Default",
-                                            size="1",
-                                        ),
-                                        flex="1",
-                                    ),
-                                    rx.select(
-                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
-                                        value=AIState.sokrates_pitch,
-                                        on_change=AIState.set_sokrates_pitch,
-                                        size="1",
-                                        width="65px",
-                                    ),
-                                    rx.select(
-                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"],
-                                        value=AIState.sokrates_speed,
-                                        on_change=AIState.set_sokrates_speed,
-                                        size="1",
-                                        width="65px",
-                                    ),
-                                    spacing="2",
-                                    align="center",
-                                    width="100%",
+                                _voice_agent_row(
+                                    "\U0001f3db\ufe0f", "Sokrates",
+                                    AIState.sokrates_voice, AIState.set_sokrates_voice,
+                                    AIState.sokrates_pitch, AIState.set_sokrates_pitch,
+                                    AIState.sokrates_speed, AIState.set_sokrates_speed,
                                 ),
-                                # Salomo Voice Settings
-                                rx.hstack(
-                                    rx.text("\U0001f451 Salomo", font_size="10px", width="70px"),
-                                    rx.box(
-                                        rx.select(
-                                            AIState.available_tts_voices,
-                                            value=AIState.salomo_voice,
-                                            on_change=AIState.set_salomo_voice,
-                                            placeholder="Default",
-                                            size="1",
-                                        ),
-                                        flex="1",
-                                    ),
-                                    rx.select(
-                                        ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
-                                        value=AIState.salomo_pitch,
-                                        on_change=AIState.set_salomo_pitch,
-                                        size="1",
-                                        width="65px",
-                                    ),
-                                    rx.select(
-                                        ["0.8x", "0.9x", "1.0x", "1.1x", "1.2x", "1.25x", "1.5x", "2.0x"],
-                                        value=AIState.salomo_speed,
-                                        on_change=AIState.set_salomo_speed,
-                                        size="1",
-                                        width="65px",
-                                    ),
-                                    spacing="2",
-                                    align="center",
-                                    width="100%",
+                                _voice_agent_row(
+                                    "\U0001f451", "Salomo",
+                                    AIState.salomo_voice, AIState.set_salomo_voice,
+                                    AIState.salomo_pitch, AIState.set_salomo_pitch,
+                                    AIState.salomo_speed, AIState.set_salomo_speed,
                                 ),
                                 spacing="2",
                                 width="100%",

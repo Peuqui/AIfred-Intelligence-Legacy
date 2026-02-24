@@ -1,7 +1,6 @@
 """Chat display components for AIfred UI.
 
-Contains the main chat history display, session list, progress banner,
-Sokrates debate panel, and right column placeholder.
+Contains the main chat history display, session list, and progress banner.
 """
 
 from __future__ import annotations
@@ -10,12 +9,17 @@ import reflex as rx
 
 from ..state import AIState
 from ..theme import COLORS
-from .helpers import (
-    MARKDOWN_COMPONENT_MAP,
-    MARKDOWN_COMPONENT_MAP_WITH_LISTS,
-    t,
-)
+from .helpers import MARKDOWN_COMPONENT_MAP
 from .message_renderer import render_message_standalone
+
+# Pulse animation style (reused for progress icon and text)
+_PULSE_STYLE: dict = {
+    "animation": "pulse 2s ease-in-out infinite",
+    "@keyframes pulse": {
+        "0%, 100%": {"opacity": "1"},
+        "50%": {"opacity": "0.5"},
+    },
+}
 
 
 # ============================================================
@@ -172,32 +176,20 @@ def processing_progress_banner() -> rx.Component:
                 phase_icon,
                 font_size="14px",
                 style=rx.cond(
-                    AIState.progress_active | AIState.is_generating,  # Pulse if progress OR generating
-                    {
-                        "animation": "pulse 2s ease-in-out infinite",
-                        "@keyframes pulse": {
-                            "0%, 100%": {"opacity": "1"},
-                            "50%": {"opacity": "0.5"},
-                        }
-                    },
-                    {}  # No animation when idle
+                    AIState.progress_active | AIState.is_generating,
+                    _PULSE_STYLE,
+                    {}
                 )
             ),
             rx.text(
                 phase_text,
-                font_weight=rx.cond(AIState.progress_active | AIState.is_generating, "bold", "500"),  # Bold if active OR generating
+                font_weight=rx.cond(AIState.progress_active | AIState.is_generating, "bold", "500"),
                 font_size="13px",
-                color=COLORS["primary"],  # Always orange text
+                color=COLORS["primary"],
                 style=rx.cond(
-                    AIState.progress_active | AIState.is_generating,  # Pulse if progress OR generating
-                    {
-                        "animation": "pulse 2s ease-in-out infinite",
-                        "@keyframes pulse": {
-                            "0%, 100%": {"opacity": "1"},
-                            "50%": {"opacity": "0.5"},
-                        }
-                    },
-                    {}  # No animation when idle
+                    AIState.progress_active | AIState.is_generating,
+                    _PULSE_STYLE,
+                    {}
                 )
             ),
             spacing="2",
@@ -617,7 +609,7 @@ def chat_history_display() -> rx.Component:
                     rx.badge(
                         rx.cond(
                             AIState.ui_language == "de",
-                            f"{AIState.chat_history.length()} messages",
+                            f"{AIState.chat_history.length()} Nachrichten",
                             f"{AIState.chat_history.length()} messages"
                         ),
                         color_scheme="orange",
@@ -643,132 +635,4 @@ def chat_history_display() -> rx.Component:
         width="100%",
         variant="soft",  # Soft statt ghost für besseres Styling
         color_scheme="gray",  # Grau statt Blau
-    )
-
-
-# ============================================================
-# SOKRATES PANEL
-# ============================================================
-
-def sokrates_panel() -> rx.Component:
-    """Sokrates live streaming panel - shown only during active debate"""
-    return rx.cond(
-        AIState.debate_in_progress,  # Only show during live streaming
-        rx.box(
-            rx.vstack(
-                # Header with Sokrates icon (Kupfer-Styling)
-                rx.hstack(
-                    rx.text("\U0001f3db\ufe0f", font_size="16px"),
-                    rx.text(
-                        "Sokrates",
-                        font_weight="bold",
-                        font_size="13px",
-                        color="#cd7f32",  # Kupfer/Bronze
-                    ),
-                    rx.text(
-                        "(live)",
-                        font_size="11px",
-                        color="rgba(205, 127, 50, 0.6)",
-                        font_style="italic",
-                    ),
-                    # Show round indicator for auto_consensus
-                    rx.cond(
-                        AIState.multi_agent_mode == "auto_consensus",
-                        rx.badge(
-                            rx.hstack(
-                                rx.text(t("debate_round_label"), font_size="10px"),
-                                rx.text(AIState.debate_round.to(str), font_weight="bold"),
-                                spacing="1",
-                            ),
-                            variant="soft",
-                            color_scheme="orange",
-                        ),
-                    ),
-                    # Show LGTM badge if consensus reached
-                    rx.cond(
-                        AIState.sokrates_critique.contains("LGTM"),
-                        rx.badge("LGTM", variant="soft", color_scheme="green"),
-                    ),
-                    spacing="2",
-                    align="center",
-                    width="100%",
-                ),
-
-                # Content based on mode
-                rx.cond(
-                    AIState.multi_agent_mode == "devils_advocate",
-                    # Devil's Advocate: Pro/Contra layout
-                    rx.vstack(
-                        # Pro section
-                        rx.box(
-                            rx.vstack(
-                                rx.text(t("sokrates_pro_label"), font_weight="bold", font_size="12px", color="#4ade80"),
-                                rx.markdown(
-                                    AIState.sokrates_pro_args,
-                                    component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
-                                ),
-                                spacing="1",
-                                width="100%",
-                            ),
-                            padding="12px",
-                            background_color="rgba(74, 222, 128, 0.1)",
-                            border_radius="8px",
-                            width="100%",
-                        ),
-                        # Contra section
-                        rx.box(
-                            rx.vstack(
-                                rx.text(t("sokrates_contra_label"), font_weight="bold", font_size="12px", color="#f87171"),
-                                rx.markdown(
-                                    AIState.sokrates_contra_args,
-                                    component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
-                                ),
-                                spacing="1",
-                                width="100%",
-                            ),
-                            padding="12px",
-                            background_color="rgba(248, 113, 113, 0.1)",
-                            border_radius="8px",
-                            width="100%",
-                        ),
-                        spacing="3",
-                        width="100%",
-                    ),
-                    # Critique layout (critical_review, auto_consensus) - Kupfer-Styling
-                    rx.box(
-                        rx.markdown(
-                            AIState.sokrates_critique,
-                            component_map=MARKDOWN_COMPONENT_MAP_WITH_LISTS,
-                            font_size="13px",
-                        ),
-                        padding="8px",
-                        background_color="rgba(205, 127, 50, 0.08)",  # Kupfer-Hintergrund
-                        border_radius="6px",
-                        width="100%",
-                    ),
-                ),
-
-                spacing="2",
-                width="100%",
-            ),
-            padding="8px",
-            background_color="rgba(205, 127, 50, 0.03)",  # Dezenter Kupfer-Container
-            border_radius="8px",
-            border="1px solid rgba(205, 127, 50, 0.3)",  # Kupfer-Rand
-            width="100%",
-            margin_top="4px",
-        ),
-    )
-
-
-# ============================================================
-# RIGHT COLUMN (PLACEHOLDER)
-# ============================================================
-
-def right_column() -> rx.Component:
-    """Right column removed completely"""
-    # This function is now empty as the right column is completely removed
-    return rx.vstack(
-        spacing="4",
-        width="100%",
     )

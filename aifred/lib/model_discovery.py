@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable, Dict, Optional
 import httpx
 
+from .formatting import format_number
 from .logging_utils import log_message
 from .model_manager import sort_models_grouped
 
@@ -53,7 +54,7 @@ def discover_huggingface_models(
                 from .vllm_manager import get_model_size_bytes
                 total_size = get_model_size_bytes(model_id)
                 size_gb = total_size / (1024**3)
-                result[model_id] = f"{model_id} ({size_gb:.1f} GB)"
+                result[model_id] = f"{model_id} ({format_number(size_gb, 1)} GB)"
             except Exception:
                 # Fallback: show without size if calculation fails
                 result[model_id] = model_id
@@ -80,7 +81,7 @@ def discover_ollama_models(backend_url: str, timeout: float = 5.0) -> Dict[str, 
         if response.status_code == 200:
             data = response.json()
             result = {
-                m['name']: f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
+                m['name']: f"{m['name']} ({format_number(m['size'] / (1024**3), 1)} GB)"
                 for m in data.get("models", [])
             }
             log_message(f"📂 Found {len(result)} Ollama models")
@@ -128,7 +129,7 @@ def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[st
                 continue  # Speed variants are internal; exposed via Ctx/Speed toggle only
             size_gb = model_sizes.get(mid)
             if size_gb is not None:
-                result[mid] = f"{mid} ({size_gb:.1f} GB)"
+                result[mid] = f"{mid} ({format_number(size_gb, 1)} GB)"
             else:
                 result[mid] = mid
 

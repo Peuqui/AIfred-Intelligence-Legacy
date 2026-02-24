@@ -58,36 +58,6 @@ async def stop_process(
         return False
 
 
-def stop_process_sync(pattern: str) -> bool:
-    """
-    Synchronous version of stop_process (no VRAM wait).
-
-    Use this in non-async contexts where waiting isn't needed.
-
-    Args:
-        pattern: Process pattern for pgrep/pkill
-
-    Returns:
-        True if process was stopped, False if not running
-    """
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", pattern],
-            capture_output=True,
-            text=True
-        )
-
-        if result.returncode == 0:
-            subprocess.run(["pkill", "-f", pattern])
-            log_message(f"Stopped process: {pattern}")
-            return True
-        return False
-
-    except Exception as e:
-        log_message(f"Error stopping process '{pattern}': {e}")
-        return False
-
-
 def cleanup_gpu_memory():
     """
     Force GPU memory cleanup using gc.collect() and torch.cuda.empty_cache().
@@ -259,66 +229,60 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
     return False, message
 
 
-def start_xtts_container() -> tuple[bool, str]:
+def _docker_compose_action(
+    compose_file: str,
+    action: str,
+    service_label: str,
+) -> tuple[bool, str]:
     """
-    Start the XTTS Docker container.
+    Run a docker compose action (up -d / down) on a compose file.
+
+    Args:
+        compose_file: Path to docker-compose.yml
+        action: "up" or "down"
+        service_label: Human-readable name for log messages (e.g. "XTTS")
 
     Returns:
         tuple[bool, str]: (success, message)
     """
-    from .config import XTTS_DOCKER_COMPOSE_PATH
     from pathlib import Path
 
-    compose_path = Path(XTTS_DOCKER_COMPOSE_PATH)
+    compose_path = Path(compose_file)
     if not compose_path.exists():
-        return False, f"docker-compose.yml not found: {XTTS_DOCKER_COMPOSE_PATH}"
+        return False, f"docker-compose.yml not found: {compose_file}"
 
-    compose_dir = compose_path.parent
+    cmd = ["docker", "compose", "-f", str(compose_file)]
+    if action == "up":
+        cmd.extend(["up", "-d"])
+    else:
+        cmd.append("down")
 
     try:
         result = subprocess.run(
-            ["docker", "compose", "-f", str(XTTS_DOCKER_COMPOSE_PATH), "up", "-d"],
+            cmd,
             capture_output=True,
             text=True,
-            cwd=str(compose_dir)
+            cwd=str(compose_path.parent),
         )
         if result.returncode != 0:
-            return False, f"docker compose up failed: {result.stderr}"
-        log_message("XTTS container started")
-        return True, "XTTS container started"
+            return False, f"docker compose {action} failed: {result.stderr}"
+        verb = "started" if action == "up" else "stopped"
+        log_message(f"{service_label} container {verb}")
+        return True, f"{service_label} container {verb}"
     except Exception as e:
-        return False, f"docker compose up error: {e}"
+        return False, f"docker compose {action} error: {e}"
+
+
+def start_xtts_container() -> tuple[bool, str]:
+    """Start the XTTS Docker container."""
+    from .config import XTTS_DOCKER_COMPOSE_PATH
+    return _docker_compose_action(XTTS_DOCKER_COMPOSE_PATH, "up", "XTTS")
 
 
 def stop_xtts_container() -> tuple[bool, str]:
-    """
-    Stop the XTTS Docker container to free VRAM.
-
-    Returns:
-        tuple[bool, str]: (success, message)
-    """
+    """Stop the XTTS Docker container to free VRAM."""
     from .config import XTTS_DOCKER_COMPOSE_PATH
-    from pathlib import Path
-
-    compose_path = Path(XTTS_DOCKER_COMPOSE_PATH)
-    if not compose_path.exists():
-        return False, f"docker-compose.yml not found: {XTTS_DOCKER_COMPOSE_PATH}"
-
-    compose_dir = compose_path.parent
-
-    try:
-        result = subprocess.run(
-            ["docker", "compose", "-f", str(XTTS_DOCKER_COMPOSE_PATH), "down"],
-            capture_output=True,
-            text=True,
-            cwd=str(compose_dir)
-        )
-        if result.returncode != 0:
-            return False, f"docker compose down failed: {result.stderr}"
-        log_message("XTTS container stopped")
-        return True, "XTTS container stopped"
-    except Exception as e:
-        return False, f"docker compose down error: {e}"
+    return _docker_compose_action(XTTS_DOCKER_COMPOSE_PATH, "down", "XTTS")
 
 
 def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
@@ -371,45 +335,13 @@ def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
 def start_moss_container() -> tuple[bool, str]:
     """Start the MOSS-TTS Docker container."""
     from .config import MOSS_TTS_DOCKER_COMPOSE_PATH
-    from pathlib import Path
-
-    compose_path = Path(MOSS_TTS_DOCKER_COMPOSE_PATH)
-    if not compose_path.exists():
-        return False, f"docker-compose.yml not found: {MOSS_TTS_DOCKER_COMPOSE_PATH}"
-
-    try:
-        result = subprocess.run(
-            ["docker", "compose", "-f", str(MOSS_TTS_DOCKER_COMPOSE_PATH), "up", "-d"],
-            capture_output=True, text=True, cwd=str(compose_path.parent)
-        )
-        if result.returncode != 0:
-            return False, f"docker compose up failed: {result.stderr}"
-        log_message("MOSS-TTS container started")
-        return True, "MOSS-TTS container started"
-    except Exception as e:
-        return False, f"docker compose up error: {e}"
+    return _docker_compose_action(MOSS_TTS_DOCKER_COMPOSE_PATH, "up", "MOSS-TTS")
 
 
 def stop_moss_container() -> tuple[bool, str]:
     """Stop the MOSS-TTS Docker container to free VRAM."""
     from .config import MOSS_TTS_DOCKER_COMPOSE_PATH
-    from pathlib import Path
-
-    compose_path = Path(MOSS_TTS_DOCKER_COMPOSE_PATH)
-    if not compose_path.exists():
-        return False, f"docker-compose.yml not found: {MOSS_TTS_DOCKER_COMPOSE_PATH}"
-
-    try:
-        result = subprocess.run(
-            ["docker", "compose", "-f", str(MOSS_TTS_DOCKER_COMPOSE_PATH), "down"],
-            capture_output=True, text=True, cwd=str(compose_path.parent)
-        )
-        if result.returncode != 0:
-            return False, f"docker compose down failed: {result.stderr}"
-        log_message("MOSS-TTS container stopped")
-        return True, "MOSS-TTS container stopped"
-    except Exception as e:
-        return False, f"docker compose down error: {e}"
+    return _docker_compose_action(MOSS_TTS_DOCKER_COMPOSE_PATH, "down", "MOSS-TTS")
 
 
 def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:

@@ -100,7 +100,7 @@ class TabbyAPIBackend(LLMBackend):
             inference_time = timer.elapsed()
 
             choice = response.choices[0]
-            text = choice.message.content
+            text = choice.message.content or ""
 
             # Extract usage info
             usage = response.usage

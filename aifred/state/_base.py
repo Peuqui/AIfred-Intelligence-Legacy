@@ -76,10 +76,6 @@ from ..lib.audio_processing import (  # noqa: E402
     get_whisper_model
 )
 
-# Module-level storage for DashScope WebSocket TTS instances (keyed by session_id).
-# Cannot be stored in Reflex state because WebSocket/SSLSocket objects are not serializable.
-_dashscope_rt_instances: dict[str, Any] = {}
-
 # Mixins
 from ._auth_mixin import AuthMixin  # noqa: E402
 from ._image_mixin import ImageMixin  # noqa: E402

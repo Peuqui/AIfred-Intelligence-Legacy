@@ -26,7 +26,7 @@ from .i18n import (
     t
 )
 
-from .agent_tools import (
+from .tools import (
     search_web,
     scrape_webpage,
     build_context

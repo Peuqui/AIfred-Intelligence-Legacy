@@ -20,19 +20,10 @@ from ..lib import (
 from ..lib import config
 from ..lib.config import (
     CLOUD_API_PROVIDERS,
-    DEFAULT_TOP_K,
-    DEFAULT_TOP_P,
-    DEFAULT_MIN_P,
-    DEFAULT_REPEAT_PENALTY,
-    LLAMASERVER_DEFAULT_TEMPERATURE,
-    LLAMASERVER_DEFAULT_TOP_K,
-    LLAMASERVER_DEFAULT_TOP_P,
-    LLAMASERVER_DEFAULT_MIN_P,
-    LLAMASERVER_DEFAULT_REPEAT_PENALTY,
 )
 from ..backends.cloud_api import is_cloud_api_configured
 from ..lib.model_manager import sort_models_grouped, is_backend_compatible
-from ..lib.gpu_monitor import round_to_nominal_vram
+from ..lib.gpu_utils import round_to_nominal_vram
 from ..lib.vector_cache import initialize_vector_cache
 from ..lib.audio_processing import initialize_whisper_model
 from ..lib.vllm_manager import vLLMProcessManager
@@ -169,9 +160,7 @@ class BackendMixin(rx.State, mixin=True):
     @rx.var
     def backend_supports_dynamic_models(self) -> bool:
         """Check if current backend supports dynamic model switching."""
-        if self.backend_type not in ["vllm", "tabbyapi"]:
-            return True
-        return self.backend_type not in ["vllm"]
+        return self.backend_type != "vllm"
 
     @rx.var
     def available_vision_models(self) -> List[str]:
@@ -219,47 +208,12 @@ class BackendMixin(rx.State, mixin=True):
         """Get display label for vision model."""
         return self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
 
-    @rx.var
-    def sokrates_model_label(self) -> str:
-        """Get display label for Sokrates model."""
-        if not self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-            return ""
-        return self.available_models_dict.get(self.sokrates_model_id, self.sokrates_model_id)  # type: ignore[attr-defined, has-type, return-value]
-
-    @rx.var(deps=["available_models", "ui_language"], auto_deps=False)
-    def sokrates_available_models(self) -> list[str]:
-        """Model list with localized '(wie AIfred-LLM)' as first selectable option."""
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined, has-type]
-        return [t("sokrates_llm_same", lang=lang)] + list(self.available_models)
-
-    @rx.var(deps=["available_models", "ui_language"], auto_deps=False)
-    def salomo_available_models(self) -> list[str]:
-        """Model list with localized '(wie AIfred-LLM)' as first selectable option."""
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined, has-type]
-        return [t("sokrates_llm_same", lang=lang)] + list(self.available_models)
-
     @rx.var(deps=["available_models", "ui_language"], auto_deps=False)
     def automatik_available_models(self) -> list[str]:
         """Model list with localized '(wie AIfred-LLM)' as first selectable option."""
         from ..lib.i18n import t
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined, has-type]
         return [t("sokrates_llm_same", lang=lang)] + list(self.available_models)
-
-    @rx.var(deps=["sokrates_model", "ui_language"], auto_deps=False)
-    def sokrates_model_select_value(self) -> str:
-        """Maps empty string (auto) to the localized sentinel label for the select."""
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined, has-type]
-        return t("sokrates_llm_same", lang=lang) if self.sokrates_model == "" else self.sokrates_model  # type: ignore[attr-defined, has-type]
-
-    @rx.var(deps=["salomo_model", "ui_language"], auto_deps=False)
-    def salomo_model_select_value(self) -> str:
-        """Maps empty string (auto) to the localized sentinel label for the select."""
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined, has-type]
-        return t("sokrates_llm_same", lang=lang) if self.salomo_model == "" else self.salomo_model  # type: ignore[attr-defined, has-type]
 
     @rx.var(deps=["automatik_model", "ui_language"], auto_deps=False)
     def automatik_model_select_value(self) -> str:
@@ -306,95 +260,6 @@ class BackendMixin(rx.State, mixin=True):
             return display_label
         return display_label
 
-    def _show_model_calibration_info(self, model_id: str) -> None:
-        """Show calibration info in debug console."""
-        if not model_id:
-            return
-
-        from ..lib.formatting import format_number
-
-        if self.backend_type == "llamacpp":
-            from ..lib.model_vram_cache import get_llamacpp_calibration
-            calibrated = get_llamacpp_calibration(model_id)
-            if calibrated:
-                self.add_debug(f"   🎯 Calibrated: {format_number(calibrated)} tokens")  # type: ignore[attr-defined, has-type]
-            else:
-                self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")  # type: ignore[attr-defined, has-type]
-            return
-
-        if self.backend_type != "ollama":
-            return
-
-        from ..lib.model_vram_cache import get_ollama_calibrated_max_context
-
-        native_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=1.0)
-        rope_1_5x_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=1.5)
-        rope_2x_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=2.0)
-
-        if native_ctx is not None or rope_1_5x_ctx is not None or rope_2x_ctx is not None:
-            parts = []
-            if native_ctx is not None:
-                parts.append(f"Native: {format_number(native_ctx)}")
-            if rope_1_5x_ctx is not None:
-                parts.append(f"RoPE 1.5x: {format_number(rope_1_5x_ctx)}")
-            if rope_2x_ctx is not None:
-                parts.append(f"RoPE 2x: {format_number(rope_2x_ctx)}")
-            self.add_debug(f"   🎯 Calibrated: {', '.join(parts)}")  # type: ignore[attr-defined, has-type]
-        else:
-            self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")  # type: ignore[attr-defined, has-type]
-
-    def _reset_agent_sampling(self, agent: str, include_temperature: bool = True) -> None:
-        """Reset sampling parameters for an agent to model/backend defaults.
-
-        Args:
-            agent: "aifred", "sokrates", or "salomo"
-            include_temperature: If True, reset temperature too (model change / reset button).
-                If False, keep current temperature (app restart -- temperature is persisted).
-        """
-        defaults: dict[str, float] = {
-            "temperature": LLAMASERVER_DEFAULT_TEMPERATURE,
-            "top_k": DEFAULT_TOP_K,
-            "top_p": DEFAULT_TOP_P,
-            "min_p": DEFAULT_MIN_P,
-            "repeat_penalty": DEFAULT_REPEAT_PENALTY,
-        }
-
-        if self.backend_type == "llamacpp":
-            model_id = getattr(self, f"{agent}_model_id", "") or self.aifred_model_id
-            if model_id:
-                from ..lib.llamacpp_calibration import parse_llamaswap_config, parse_sampling_from_cmd
-                from ..lib.config import LLAMASWAP_CONFIG_PATH
-                llama_config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-                if model_id in llama_config:
-                    yaml_sampling = parse_sampling_from_cmd(llama_config[model_id]["full_cmd"])
-                    defaults = {
-                        "temperature": yaml_sampling.get("temperature", LLAMASERVER_DEFAULT_TEMPERATURE),
-                        "top_k": yaml_sampling.get("top_k", LLAMASERVER_DEFAULT_TOP_K),
-                        "top_p": yaml_sampling.get("top_p", LLAMASERVER_DEFAULT_TOP_P),
-                        "min_p": yaml_sampling.get("min_p", LLAMASERVER_DEFAULT_MIN_P),
-                        "repeat_penalty": yaml_sampling.get("repeat_penalty", LLAMASERVER_DEFAULT_REPEAT_PENALTY),
-                    }
-
-        if include_temperature:
-            if agent == "aifred":
-                self.temperature = defaults["temperature"]  # type: ignore[attr-defined, has-type]
-            else:
-                setattr(self, f"{agent}_temperature", defaults["temperature"])
-        setattr(self, f"{agent}_top_k", int(defaults["top_k"]))
-        setattr(self, f"{agent}_top_p", defaults["top_p"])
-        setattr(self, f"{agent}_min_p", defaults["min_p"])
-        setattr(self, f"{agent}_repeat_penalty", defaults["repeat_penalty"])
-
-        temp_info = f"temp={defaults['temperature']}, " if include_temperature else ""
-        self.add_debug(  # type: ignore[attr-defined, has-type]
-            f"🎲 {agent.capitalize()} sampling reset: "
-            f"{temp_info}top_k={int(defaults['top_k'])}, "
-            f"top_p={defaults['top_p']}, min_p={defaults['min_p']}, "
-            f"rep={defaults['repeat_penalty']}"
-        )
-
-        self.sampling_reset_key += 1  # type: ignore[attr-defined, has-type]
-
     # ================================================================
     # ON_LOAD
     # ================================================================
@@ -410,7 +275,7 @@ class BackendMixin(rx.State, mixin=True):
         # Use a mutable reference for the module-level flag
         import aifred.state._base as _base_module
 
-        print(f"🔥 on_load() CALLED - Global init: {_global_backend_initialized}, Session init: {self._backend_initialized}")
+        log_message(f"🔥 on_load() CALLED - Global init: {_global_backend_initialized}, Session init: {self._backend_initialized}")
 
         # FIRST-TIME GLOBAL INITIALIZATION (once per server start)
         if not _global_backend_initialized:
@@ -493,7 +358,7 @@ class BackendMixin(rx.State, mixin=True):
 
         # PER-SESSION INITIALIZATION (every user/tab/reload)
         if self._on_load_running:
-            print("⏭️ on_load already running, skipping duplicate call")
+            log_message("⏭️ on_load already running, skipping duplicate call")
             return
         self._on_load_running = True
 
@@ -501,7 +366,7 @@ class BackendMixin(rx.State, mixin=True):
         self.refresh_session_list()  # type: ignore[attr-defined, has-type]
 
         if not self._backend_initialized:
-            print("📱 Initializing session...")
+            log_message("📱 Initializing session...")
 
             from ..lib.formatting import set_ui_locale
             set_ui_locale(self.ui_language)  # type: ignore[attr-defined, has-type]
@@ -834,12 +699,12 @@ class BackendMixin(rx.State, mixin=True):
                 self.debug_messages.append("────────────────────")  # type: ignore[attr-defined, has-type]
 
             self._backend_initialized = True
-            print("✅ Session initialization complete")
+            log_message("✅ Session initialization complete")
 
             # Authentication: Read username from cookie
             if not self._session_initialized:  # type: ignore[attr-defined, has-type]
                 from ..lib.browser_storage import get_username_script
-                print("🔐 Requesting username cookie from browser...")
+                log_message("🔐 Requesting username cookie from browser...")
                 # Import AIState at usage site to avoid circular import
                 from ._base import AIState
                 yield rx.call_script(
@@ -864,7 +729,7 @@ class BackendMixin(rx.State, mixin=True):
 
         if is_same_backend and _global_backend_state["available_models"] and init_complete:
             # FAST PATH: Restore from global state
-            print(f"⚡ Backend '{self.backend_type}' already initialized, restoring from global state...")
+            log_message(f"⚡ Backend '{self.backend_type}' already initialized, restoring from global state...")
 
             self.backend_url = _global_backend_state["backend_url"]
             self.available_models = _global_backend_state["available_models"]
@@ -943,7 +808,7 @@ class BackendMixin(rx.State, mixin=True):
 
             # Reset sampling parameters to YAML defaults
             for agent in ["aifred", "sokrates", "salomo"]:
-                self._reset_agent_sampling(agent, include_temperature=False)
+                self._reset_agent_sampling(agent, include_temperature=False)  # type: ignore[attr-defined]
 
             self.backend_healthy = True
             self.model_count = len(self.available_models)
@@ -954,7 +819,7 @@ class BackendMixin(rx.State, mixin=True):
             return True  # FAST PATH
 
         # SLOW PATH: Full initialization
-        print(f"🔧 Full backend initialization for '{self.backend_type}'...")
+        log_message(f"🔧 Full backend initialization for '{self.backend_type}'...")
 
         try:
             self.backend_url = config.BACKEND_URLS.get(self.backend_type, config.DEFAULT_OLLAMA_URL)
@@ -1202,7 +1067,7 @@ class BackendMixin(rx.State, mixin=True):
 
             # Reset sampling parameters
             for agent in ["aifred", "sokrates", "salomo"]:
-                self._reset_agent_sampling(agent, include_temperature=False)
+                self._reset_agent_sampling(agent, include_temperature=False)  # type: ignore[attr-defined]
 
             # Detect vision models
             self.add_debug("🔍 Detecting vision-capable models...")  # type: ignore[attr-defined, has-type]
@@ -1213,7 +1078,7 @@ class BackendMixin(rx.State, mixin=True):
                 await self._start_vllm_server()
 
             _global_backend_state["_init_complete"] = True
-            print(f"✅ Backend '{self.backend_type}' fully initialized and stored in global state")
+            log_message(f"✅ Backend '{self.backend_type}' fully initialized and stored in global state")
 
             self.backend_initializing = False
             return False  # SLOW PATH
@@ -1670,7 +1535,7 @@ class BackendMixin(rx.State, mixin=True):
             if not self.aifred_has_speed_variant:  # type: ignore[attr-defined, has-type]
                 self.aifred_speed_mode = False  # type: ignore[attr-defined, has-type]
 
-        self._show_model_calibration_info(self.aifred_model_id)
+        self._show_model_calibration_info(self.aifred_model_id)  # type: ignore[attr-defined]
 
         # Check if switching to non-vision model with pending images
         if len(self.pending_images) > 0:  # type: ignore[attr-defined, has-type]
@@ -1680,11 +1545,11 @@ class BackendMixin(rx.State, mixin=True):
                 self.image_upload_warning = ""  # type: ignore[attr-defined, has-type]
 
         # Reset sampling params to model defaults for all affected agents
-        self._reset_agent_sampling("aifred")
+        self._reset_agent_sampling("aifred")  # type: ignore[attr-defined]
         if not self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-            self._reset_agent_sampling("sokrates")
+            self._reset_agent_sampling("sokrates")  # type: ignore[attr-defined]
         if not self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-            self._reset_agent_sampling("salomo")
+            self._reset_agent_sampling("salomo")  # type: ignore[attr-defined]
 
         self._save_settings()  # type: ignore[attr-defined, has-type]
 
@@ -1746,7 +1611,7 @@ class BackendMixin(rx.State, mixin=True):
 
         if model:
             self.add_debug(f"⚡ Automatic-LLM: {model}")  # type: ignore[attr-defined, has-type]
-            self._show_model_calibration_info(self.automatik_model_id)
+            self._show_model_calibration_info(self.automatik_model_id)  # type: ignore[attr-defined]
         else:
             self.add_debug("⚡ Automatic-LLM: (same as Main-LLM)")  # type: ignore[attr-defined, has-type]
 
@@ -1776,7 +1641,7 @@ class BackendMixin(rx.State, mixin=True):
         self.vision_model = model
         self.vision_model_id = self._resolve_model_id(model)
         self.add_debug(f"👁️ Vision-LLM: {model}")  # type: ignore[attr-defined, has-type]
-        self._show_model_calibration_info(self.vision_model_id)
+        self._show_model_calibration_info(self.vision_model_id)  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined, has-type]
 
     async def set_vision_model_by_id(self, model_id: str):
@@ -1794,94 +1659,6 @@ class BackendMixin(rx.State, mixin=True):
 
         await self.set_vision_model(display_label)
 
-    def set_sokrates_model(self, model: str) -> None:
-        """Set Sokrates LLM model for multi-agent debate."""
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined, has-type]
-        if model == t("sokrates_llm_same", lang=lang):
-            model = ""
-        self.sokrates_model = model  # type: ignore[attr-defined, has-type]
-        self.sokrates_model_id = self._resolve_model_id(model)  # type: ignore[attr-defined, has-type]
-
-        if not self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-            self.sokrates_has_speed_variant = False  # type: ignore[attr-defined, has-type]
-            self.sokrates_speed_mode = False  # type: ignore[attr-defined, has-type]
-
-        # Load model parameters from cache
-        if self.backend_id == "ollama" and self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-            from ..lib.model_vram_cache import get_model_parameters
-            params = get_model_parameters(self.sokrates_model_id)  # type: ignore[attr-defined, has-type]
-            self.sokrates_rope_factor = params["rope_factor"]  # type: ignore[attr-defined, has-type]
-            self.sokrates_max_context = params["max_context"]  # type: ignore[attr-defined, has-type]
-            self.sokrates_is_hybrid = params["is_hybrid"]  # type: ignore[attr-defined, has-type]
-            self.sokrates_supports_thinking = params["supports_thinking"]  # type: ignore[attr-defined, has-type]
-        elif self.backend_type == "llamacpp" and self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-            from ..lib.model_vram_cache import (
-                get_llamacpp_calibration,
-                get_thinking_support_for_model,
-                get_llamacpp_speed_split,
-            )
-            self.sokrates_rope_factor = 1.0  # type: ignore[attr-defined, has-type]
-            self.sokrates_max_context = get_llamacpp_calibration(self.sokrates_model_id) or 0  # type: ignore[attr-defined, has-type]
-            self.sokrates_is_hybrid = False  # type: ignore[attr-defined, has-type]
-            self.sokrates_supports_thinking = get_thinking_support_for_model(self.sokrates_model_id)  # type: ignore[attr-defined, has-type]
-            self.sokrates_has_speed_variant = get_llamacpp_speed_split(self.sokrates_model_id) > 0  # type: ignore[attr-defined, has-type]
-            if not self.sokrates_has_speed_variant:  # type: ignore[attr-defined, has-type]
-                self.sokrates_speed_mode = False  # type: ignore[attr-defined, has-type]
-
-        self._reset_agent_sampling("sokrates")
-
-        self._save_settings()  # type: ignore[attr-defined, has-type]
-        if model:
-            self.add_debug(f"🧠 Sokrates-LLM: {model}")  # type: ignore[attr-defined, has-type]
-            self._show_model_calibration_info(self.sokrates_model_id)  # type: ignore[attr-defined, has-type]
-        else:
-            self.add_debug("🧠 Sokrates-LLM: (same as Main-LLM)")  # type: ignore[attr-defined, has-type]
-
-    def set_salomo_model(self, model: str) -> None:
-        """Set Salomo LLM model for multi-agent debate."""
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined, has-type]
-        if model == t("sokrates_llm_same", lang=lang):
-            model = ""
-        self.salomo_model = model  # type: ignore[attr-defined, has-type]
-        self.salomo_model_id = self._resolve_model_id(model)  # type: ignore[attr-defined, has-type]
-
-        if not self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-            self.salomo_has_speed_variant = False  # type: ignore[attr-defined, has-type]
-            self.salomo_speed_mode = False  # type: ignore[attr-defined, has-type]
-
-        # Load model parameters from cache
-        if self.backend_id == "ollama" and self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-            from ..lib.model_vram_cache import get_model_parameters
-            params = get_model_parameters(self.salomo_model_id)  # type: ignore[attr-defined, has-type]
-            self.salomo_rope_factor = params["rope_factor"]  # type: ignore[attr-defined, has-type]
-            self.salomo_max_context = params["max_context"]  # type: ignore[attr-defined, has-type]
-            self.salomo_is_hybrid = params["is_hybrid"]  # type: ignore[attr-defined, has-type]
-            self.salomo_supports_thinking = params["supports_thinking"]  # type: ignore[attr-defined, has-type]
-        elif self.backend_type == "llamacpp" and self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-            from ..lib.model_vram_cache import (
-                get_llamacpp_calibration,
-                get_thinking_support_for_model,
-                get_llamacpp_speed_split,
-            )
-            self.salomo_rope_factor = 1.0  # type: ignore[attr-defined, has-type]
-            self.salomo_max_context = get_llamacpp_calibration(self.salomo_model_id) or 0  # type: ignore[attr-defined, has-type]
-            self.salomo_is_hybrid = False  # type: ignore[attr-defined, has-type]
-            self.salomo_supports_thinking = get_thinking_support_for_model(self.salomo_model_id)  # type: ignore[attr-defined, has-type]
-            self.salomo_has_speed_variant = get_llamacpp_speed_split(self.salomo_model_id) > 0  # type: ignore[attr-defined, has-type]
-            if not self.salomo_has_speed_variant:  # type: ignore[attr-defined, has-type]
-                self.salomo_speed_mode = False  # type: ignore[attr-defined, has-type]
-
-        self._reset_agent_sampling("salomo")
-
-        self._save_settings()  # type: ignore[attr-defined, has-type]
-        if model:
-            self.add_debug(f"👑 Salomo-LLM: {model}")  # type: ignore[attr-defined, has-type]
-            self._show_model_calibration_info(self.salomo_model_id)  # type: ignore[attr-defined, has-type]
-        else:
-            self.add_debug("👑 Salomo-LLM: (same as Main-LLM)")  # type: ignore[attr-defined, has-type]
-
     # ================================================================
     # BACKEND GUARD
     # ================================================================
@@ -1891,5 +1668,5 @@ class BackendMixin(rx.State, mixin=True):
         if self._backend_initialized:
             return
 
-        print("⚠️ Fallback initialization (on_load didn't run)")
+        log_message("⚠️ Fallback initialization (on_load didn't run)")
         await self.on_load()

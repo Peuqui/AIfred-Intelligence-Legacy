@@ -1,21 +1,16 @@
 """UI configuration mixin for AIfred state.
 
 Handles temperature, context settings, research mode, web search,
-debug console, STT configuration, and general UI state.
+STT configuration, and general UI state.
 """
 
 from __future__ import annotations
 
-from typing import List
-
 import reflex as rx
-
-from ..lib.config import DEBUG_MESSAGES_MAX
-from ..lib.logging_utils import log_message
 
 
 class UIConfigMixin(rx.State, mixin=True):
-    """Mixin for UI configuration, research mode, debug, and STT."""
+    """Mixin for UI configuration, research mode, and STT."""
 
     # ── Temperature ───────────────────────────────────────────────
     temperature: float = 0.3  # Default: low temperature for factual responses
@@ -37,74 +32,22 @@ class UIConfigMixin(rx.State, mixin=True):
     vision_num_ctx_enabled: bool = False  # True = use manual value, False = use calibrated
     vision_num_ctx: int = 32768  # Manual context value (default: 32K)
 
-    # Cached Model Metadata (to avoid repeated API calls)
-    _automatik_model_context_limit: int = 0  # Cached context limit for automatik model
-    _min_agent_context_limit: int = 0  # Cached min context limit of AIfred/Sokrates/Salomo
-
     # ── Research Settings ─────────────────────────────────────────
     research_mode: str = "automatik"  # "quick", "deep", "automatik", "none"
     research_mode_display: str = "\u2728 Automatik (KI entscheidet)"  # UI display value
-
-    # ── Debug Console ─────────────────────────────────────────────
-    debug_messages: List[str] = []
-    auto_refresh_enabled: bool = True  # For Debug Console + Chat History + AI Response Area
-
-    # ── Processing Progress ───────────────────────────────────────
-    progress_active: bool = False
-    progress_phase: str = ""  # "automatik", "scraping", "llm"
-    progress_current: int = 0
-    progress_total: int = 0
-    progress_failed: int = 0  # Number of failed URLs
 
     # ── STT (Whisper) Settings ────────────────────────────────────
     whisper_model_key: str = "small"  # Whisper model key (tiny/base/small/medium/large)
     show_transcription: bool = False  # Show transcribed text for editing before sending
 
     # ================================================================
-    # DEBUG CONSOLE
+    # AUTO-REFRESH TOGGLE
     # ================================================================
-
-    def add_debug(self, message: str) -> None:
-        """Add message to debug console."""
-        import datetime
-
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        formatted_msg = f"{timestamp} | {message}"
-
-        # Add to Reflex State
-        self.debug_messages.append(formatted_msg)
-
-        # Also add to lib console (for agent_core logging)
-        log_message(message)
-
-        # Keep only last N messages (configurable in config.py)
-        if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
-            self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
 
     def toggle_auto_refresh(self) -> None:
         """Toggle auto-scroll for all areas (Debug Console, Chat History, AI Response)."""
-        self.auto_refresh_enabled = not self.auto_refresh_enabled
+        self.auto_refresh_enabled = not self.auto_refresh_enabled  # type: ignore[has-type]
         self._save_settings()  # type: ignore[attr-defined]
-
-    # ================================================================
-    # PROGRESS
-    # ================================================================
-
-    def set_progress(self, phase: str, current: int = 0, total: int = 0, failed: int = 0) -> None:
-        """Update processing progress."""
-        self.progress_active = True
-        self.progress_phase = phase
-        self.progress_current = current
-        self.progress_total = total
-        self.progress_failed = failed
-
-    def clear_progress(self) -> None:
-        """Clear processing progress."""
-        self.progress_active = False
-        self.progress_phase = ""
-        self.progress_current = 0
-        self.progress_total = 0
-        self.progress_failed = 0
 
     # ================================================================
     # TEMPERATURE
@@ -124,7 +67,7 @@ class UIConfigMixin(rx.State, mixin=True):
         self.temperature_mode = "manual" if checked else "auto"
         self._save_settings()  # type: ignore[attr-defined]
         mode_label = "Manual" if checked else "Auto"
-        self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {mode_label}")
+        self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {mode_label}")  # type: ignore[attr-defined]
 
     def set_temperature_mode_radio(self, value: str) -> None:
         """Set temperature mode from radio group (returns string directly).
@@ -134,7 +77,7 @@ class UIConfigMixin(rx.State, mixin=True):
         """
         self.temperature_mode = value
         self._save_settings()  # type: ignore[attr-defined]
-        self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {value.title()}")
+        self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {value.title()}")  # type: ignore[attr-defined]
 
     def set_temperature_mode_from_display(self, display_value: str) -> None:
         """Set temperature mode from radio display value.
@@ -148,16 +91,7 @@ class UIConfigMixin(rx.State, mixin=True):
         else:
             self.temperature_mode = "manual"
         self._save_settings()  # type: ignore[attr-defined]
-        self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {self.temperature_mode.title()}")
-
-    def set_aifred_temperature_input(self, value: str) -> None:
-        """Set AIfred temperature from text input field."""
-        try:
-            self.temperature = max(0.0, min(2.0, float(value)))
-            self.add_debug(f"\U0001f321\ufe0f AIfred temperature={self.temperature}")
-            self._save_settings()  # type: ignore[attr-defined]
-        except (ValueError, TypeError):
-            pass
+        self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {self.temperature_mode.title()}")  # type: ignore[attr-defined]
 
     # ================================================================
     # CONTEXT WINDOW CONTROL
@@ -179,10 +113,10 @@ class UIConfigMixin(rx.State, mixin=True):
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             self.num_ctx_manual_aifred = num_value
-            self.add_debug(f"\U0001f527 Manual Context (AIfred): {format_number(num_value)}")
+            self.add_debug(f"\U0001f527 Manual Context (AIfred): {format_number(num_value)}")  # type: ignore[attr-defined]
             # IMPORTANT: Not saved in settings.json!
         except (ValueError, TypeError):
-            self.add_debug(f"\u274c Invalid Context value: {value}")
+            self.add_debug(f"\u274c Invalid Context value: {value}")  # type: ignore[attr-defined]
 
     def set_num_ctx_manual_sokrates(self, value: str) -> None:
         """Set manual num_ctx value for Sokrates (only used when mode=manual)."""
@@ -199,9 +133,9 @@ class UIConfigMixin(rx.State, mixin=True):
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             self.num_ctx_manual_sokrates = num_value
-            self.add_debug(f"\U0001f527 Manual Context (Sokrates): {format_number(num_value)}")
+            self.add_debug(f"\U0001f527 Manual Context (Sokrates): {format_number(num_value)}")  # type: ignore[attr-defined]
         except (ValueError, TypeError):
-            self.add_debug(f"\u274c Invalid Context value: {value}")
+            self.add_debug(f"\u274c Invalid Context value: {value}")  # type: ignore[attr-defined]
 
     def set_num_ctx_manual_salomo(self, value: str) -> None:
         """Set manual num_ctx value for Salomo (only used when mode=manual)."""
@@ -218,33 +152,33 @@ class UIConfigMixin(rx.State, mixin=True):
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             self.num_ctx_manual_salomo = num_value
-            self.add_debug(f"\U0001f527 Manual Context (Salomo): {format_number(num_value)}")
+            self.add_debug(f"\U0001f527 Manual Context (Salomo): {format_number(num_value)}")  # type: ignore[attr-defined]
         except (ValueError, TypeError):
-            self.add_debug(f"\u274c Invalid Context value: {value}")
+            self.add_debug(f"\u274c Invalid Context value: {value}")  # type: ignore[attr-defined]
 
     def toggle_num_ctx_manual_aifred(self, enabled: bool) -> None:
         """Toggle manual context for AIfred."""
         self.num_ctx_manual_aifred_enabled = enabled
         status = "Manual" if enabled else "Auto"
-        self.add_debug(f"\U0001f3a9 AIfred Context: {status}")
+        self.add_debug(f"\U0001f3a9 AIfred Context: {status}")  # type: ignore[attr-defined]
 
     def toggle_num_ctx_manual_sokrates(self, enabled: bool) -> None:
         """Toggle manual context for Sokrates."""
         self.num_ctx_manual_sokrates_enabled = enabled
         status = "Manual" if enabled else "Auto"
-        self.add_debug(f"\U0001f3db\ufe0f Sokrates Context: {status}")
+        self.add_debug(f"\U0001f3db\ufe0f Sokrates Context: {status}")  # type: ignore[attr-defined]
 
     def toggle_num_ctx_manual_salomo(self, enabled: bool) -> None:
         """Toggle manual context for Salomo."""
         self.num_ctx_manual_salomo_enabled = enabled
         status = "Manual" if enabled else "Auto"
-        self.add_debug(f"\U0001f451 Salomo Context: {status}")
+        self.add_debug(f"\U0001f451 Salomo Context: {status}")  # type: ignore[attr-defined]
 
     def toggle_vision_num_ctx(self, enabled: bool) -> None:
         """Toggle manual context for Vision-LLM (PERSISTENT)."""
         self.vision_num_ctx_enabled = enabled
         status = "Manual" if enabled else "Auto (calibrated)"
-        self.add_debug(f"\U0001f441\ufe0f Vision Context: {status}")
+        self.add_debug(f"\U0001f441\ufe0f Vision Context: {status}")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
 
     def set_vision_num_ctx(self, value: str) -> None:
@@ -259,10 +193,10 @@ class UIConfigMixin(rx.State, mixin=True):
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             self.vision_num_ctx = num_value
-            self.add_debug(f"\U0001f441\ufe0f Manual Context (Vision): {format_number(num_value)}")
+            self.add_debug(f"\U0001f441\ufe0f Manual Context (Vision): {format_number(num_value)}")  # type: ignore[attr-defined]
             self._save_settings()  # type: ignore[attr-defined]
         except (ValueError, TypeError):
-            self.add_debug(f"\u274c Invalid Vision Context value: {value}")
+            self.add_debug(f"\u274c Invalid Vision Context value: {value}")  # type: ignore[attr-defined]
 
     def calculate_manual_context(self) -> None:
         """Calculate and display context limits.
@@ -291,7 +225,7 @@ class UIConfigMixin(rx.State, mixin=True):
                 return model_display[:-1] + f", {ctx_str} ctx, {mode_str})"
             return f"{model_display} ({ctx_str} ctx, {mode_str})"
 
-        self.add_debug("\U0001f4ca Context configuration:")
+        self.add_debug("\U0001f4ca Context configuration:")  # type: ignore[attr-defined]
 
         # AIfred - get auto value from persistent cache if not manual
         if self.num_ctx_manual_aifred_enabled:
@@ -347,27 +281,27 @@ class UIConfigMixin(rx.State, mixin=True):
         effective_limit = min(effective_limits) if effective_limits else 0
 
         # Update cached min context limit
-        self._min_agent_context_limit = effective_limit
+        self._min_agent_context_limit = effective_limit  # type: ignore[has-type]
 
         # Show history utilization and warn if compression will trigger
         if self.chat_history and effective_limit > 0:  # type: ignore[attr-defined]
             estimated_tokens = estimate_tokens_from_history(self.chat_history)  # type: ignore[attr-defined]
             utilization = (estimated_tokens / effective_limit) * 100
-            self.add_debug(
+            self.add_debug(  # type: ignore[attr-defined]
                 f"   \u2514\u2500 History: {format_number(estimated_tokens)} / "
                 f"{format_number(effective_limit)} tok ({int(utilization)}%)"
             )
 
             # Warn if compression will trigger on next message
             if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
-                self.add_debug(
+                self.add_debug(  # type: ignore[attr-defined]
                     f"\u26a0\ufe0f History compression will trigger on next message "
                     f"(>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)"
                 )
         elif not self.chat_history:  # type: ignore[attr-defined]
-            self.add_debug("   \u2514\u2500 History: empty")
+            self.add_debug("   \u2514\u2500 History: empty")  # type: ignore[attr-defined]
         else:
-            self.add_debug(f"   \u2514\u2500 Effective limit: {format_number(effective_limit)} tokens")
+            self.add_debug(f"   \u2514\u2500 Effective limit: {format_number(effective_limit)} tokens")  # type: ignore[attr-defined]
 
     # ================================================================
     # RESEARCH MODE
@@ -376,7 +310,7 @@ class UIConfigMixin(rx.State, mixin=True):
     def set_research_mode(self, mode: str) -> None:
         """Set research mode."""
         self.research_mode = mode
-        self.add_debug(f"\U0001f50d Research mode: {mode}")
+        self.add_debug(f"\U0001f50d Research mode: {mode}")  # type: ignore[attr-defined]
 
     def set_research_mode_display(self, display_value: str) -> None:
         """Set research mode from UI display value."""
@@ -387,7 +321,7 @@ class UIConfigMixin(rx.State, mixin=True):
         self.research_mode = TranslationManager.get_research_mode_value(
             display_value, self.ui_language  # type: ignore[attr-defined]
         )
-        self.add_debug(f"\U0001f50d Research mode: {self.research_mode} (from: '{display_value}')")
+        self.add_debug(f"\U0001f50d Research mode: {self.research_mode} (from: '{display_value}')")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
 
     # ================================================================
@@ -426,7 +360,7 @@ class UIConfigMixin(rx.State, mixin=True):
         # Extract key from display name (e.g., "small (466MB, ...)" -> "small")
         model_key = model_display_name.split("(")[0].strip() if "(" in model_display_name else model_display_name
         self.whisper_model_key = model_key
-        self.add_debug(f"\U0001f3a4 Whisper Model: {model_key} (reload required)")
+        self.add_debug(f"\U0001f3a4 Whisper Model: {model_key} (reload required)")  # type: ignore[attr-defined]
         # Reload Whisper model with new selection
         unload_whisper_model()  # Clear old model from memory
         initialize_whisper_model(model_key)
@@ -436,7 +370,7 @@ class UIConfigMixin(rx.State, mixin=True):
         """Toggle show transcription mode."""
         self.show_transcription = not self.show_transcription
         mode = "Edit text" if self.show_transcription else "Send directly"
-        self.add_debug(f"\U0001f3a4 Transcription: {mode}")
+        self.add_debug(f"\U0001f3a4 Transcription: {mode}")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
 
     def toggle_audio_recording(self):  # type: ignore[no-untyped-def]

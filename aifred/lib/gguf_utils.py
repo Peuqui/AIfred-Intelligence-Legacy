@@ -5,10 +5,9 @@ Finds GGUF models on the filesystem and extracts metadata
 for llama.cpp backend integration.
 """
 
-import struct
 import logging
 from pathlib import Path
-from typing import Any, List, Dict, Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -249,42 +248,6 @@ def extract_quantization_from_filename(filename: str) -> str:
             return match.group(0)
 
     return "unknown"
-
-
-def parse_gguf_metadata(file_path: Path) -> Dict[str, Any]:
-    """
-    Parse GGUF file metadata (simplified version)
-
-    Full GGUF parsing requires gguf-py library.
-    This is a lightweight implementation that extracts basic info.
-
-    Args:
-        file_path: Path to GGUF file
-
-    Returns:
-        Dict with metadata (context_length, architecture, etc.)
-    """
-    metadata: Dict[str, Any] = {}
-
-    try:
-        with open(file_path, 'rb') as f:
-            # Read GGUF header
-            magic = f.read(4)
-            if magic != b'GGUF':
-                return metadata
-
-            # Read version (uint32)
-            version = struct.unpack('<I', f.read(4))[0]
-            metadata['gguf_version'] = version
-
-            # GGUF v3 format (skip detailed parsing for now)
-            # Full parsing would require reading key-value pairs
-            # For now, we'll use filename-based detection
-
-    except Exception:
-        pass
-
-    return metadata
 
 
 def find_gguf_in_huggingface_cache() -> List[GGUFModelInfo]:

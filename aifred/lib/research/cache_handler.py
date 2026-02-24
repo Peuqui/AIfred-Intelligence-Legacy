@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, AsyncIterator
 
 from ..cache_manager import get_cached_research
 from ..timer import Timer
-from ..agent_tools import build_context
+from ..tools import build_context
 from ..prompt_loader import load_prompt, load_identity, load_personality, load_reasoning
 from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx, strip_thinking_blocks
 from ..intent_detector import detect_cache_followup_intent, get_temperature_for_intent, get_temperature_label
@@ -129,13 +129,12 @@ async def handle_cache_hit(
     messages = []
 
     # Add history (if available) - LLM sees previous conversation
+    # History entries are dicts with "role" and "content" keys
     for h in history:
-        user_msg = h[0].split(" (STT:")[0].split(" (Agent:")[0] if " (STT:" in h[0] or " (Agent:" in h[0] else h[0]
-        ai_msg = h[1].split(" (Inferenz:")[0] if " (Inferenz:" in h[1] else h[1]
-        messages.extend([
-            {'role': 'user', 'content': user_msg},
-            {'role': 'assistant', 'content': ai_msg}
-        ])
+        role = h.get("role", "")
+        content = h.get("content", "")
+        if role in ("user", "assistant") and content:
+            messages.append({'role': role, 'content': content})
 
     # System prompt + current user question
     messages.insert(0, {'role': 'system', 'content': system_prompt})

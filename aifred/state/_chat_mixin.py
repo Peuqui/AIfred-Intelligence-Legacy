@@ -352,22 +352,6 @@ class ChatMixin(rx.State, mixin=True):
                     # but we handle it gracefully
                     self.add_debug(f"⚠️ TTS: No event loop for {agent}")
 
-    # ── Streaming ────────────────────────────────────────────────────
-
-    def stream_text_to_ui(self, chunk: str) -> None:
-        """Zentrale Funktion für ALLE gestreamten Text-Ausgaben.
-
-        Schreibt Text in den UI-Buffer und leitet ihn an den TTS-Satz-Detektor weiter.
-        Wird von allen Streaming-Stellen aufgerufen (state.py + multi_agent.py).
-
-        Args:
-            chunk: Text chunk from LLM streaming
-        """
-        self.current_ai_response += chunk
-
-        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
-            self._process_streaming_tts_chunk(chunk)  # type: ignore[attr-defined]
-
     # ── Multi-Agent Dispatch ─────────────────────────────────────────
 
     async def _maybe_run_multi_agent(
@@ -854,7 +838,7 @@ class ChatMixin(rx.State, mixin=True):
                         # Stream to UI WITHOUT <think> tags (will be shown as collapsible later)
                         # This prevents raw <think>...</think> from appearing during streaming
                         content_for_stream = strip_thinking_blocks(content)
-                        self.stream_text_to_ui(content_for_stream)
+                        self.stream_text_to_ui(content_for_stream)  # type: ignore[attr-defined]
                         yield
 
                     elif item["type"] == "done":
@@ -991,7 +975,7 @@ class ChatMixin(rx.State, mixin=True):
                         elif item["type"] == "content":
                             # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
                             # History is updated only at the end via "result" to avoid O(n) regex parsing on each token
-                            self.stream_text_to_ui(item["text"])
+                            self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
                             yield
 
                         elif item["type"] == "result":
@@ -1111,7 +1095,7 @@ class ChatMixin(rx.State, mixin=True):
                     yield
 
                 elif item["type"] == "content":
-                    self.stream_text_to_ui(item["text"])
+                    self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
                     yield
 
                 elif item["type"] == "result":

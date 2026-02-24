@@ -1,28 +1,14 @@
 """
 AIfred Type Definitions - Central location for type aliases and TypedDicts.
 
-This module provides type definitions for:
-1. Streaming chunks (content, debug, done)
-2. Re-exports of LLM types from backends.base
-
 Usage:
     from aifred.lib.types import StreamChunk, ContentChunk, DoneChunk
-    from aifred.lib.types import LLMMessage, LLMOptions, LLMResponse
 """
 
 from typing import TypedDict, Literal, Union, Dict, Any
 from typing_extensions import NotRequired
 
-# Re-export LLM types from backends.base for convenience
-# This allows importing from lib.types instead of backends.base
-from ..backends.base import LLMMessage, LLMOptions, LLMResponse
-
 __all__ = [
-    # LLM Types (re-exported from backends.base)
-    "LLMMessage",
-    "LLMOptions",
-    "LLMResponse",
-    # Streaming Chunk Types
     "ContentChunk",
     "DebugChunk",
     "ThinkingWarningChunk",

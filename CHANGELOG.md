@@ -5,6 +5,46 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.47.0] - 2026-02-24 🧹 Deep Cleanup: 60-Punkte Projekt-Analyse abgearbeitet
+
+### Changed
+
+- **State-Mixins bereinigt** - 9 duplizierte Methoden/Properties + 9 duplizierte State-Variablen aus Mixins entfernt (Überbleibsel der state.py-Aufteilung). Verhindert Reflex `@rx.var`-Doppelregistrierung.
+- **`settings_accordion.py` (-356 → -~700 LOC)** - 5 Helper-Funktionen extrahiert: `_agent_toggle()`, `_lightbulb_icon()`, `_speed_toggle()`, `_rope_select()`, `_voice_agent_row()`, `_ctx_column()`. 18 Agent-Toggles, 5 RoPE-Selects, 3 Voice-Blöcke, 4 Context-Blöcke dedupliziert.
+- **`message_renderer.py` (-~200 LOC)** - `_agent_bubble()` Helper extrahiert, 3 identische Agent-Bubble-Strukturen (Sokrates/Salomo/AIfred) zu kompakten Einzeilern.
+- **`gpu_utils.py` refactored** - `_nvml_session()` Context-Manager für pynvml init/shutdown, 10 Funktionen nutzen ihn. `gpu_monitor.py` (50 LOC) hierher gemerged.
+- **`llm_client.py`** - `_prepare_messages()` und `_prepare_options()` extrahiert (~52 LOC Dedup).
+- **`ollama.py`** - `_convert_messages()` extrahiert (~35 LOC Dedup).
+- **`process_utils.py`** - `_docker_compose_action()` generischer Helper, 4 Docker-Funktionen zu Einzeilern.
+- **`scraper_orchestrator.py`** - Blocking `ThreadPoolExecutor` → `asyncio.to_thread` + `asyncio.as_completed`.
+- **`model_vram_cache.py`** - mtime-basierter In-Memory-Cache statt Disk-Read bei jedem Aufruf.
+- **`chat_display.py`** - Duplizierte `@keyframes pulse` CSS in `_PULSE_STYLE` Konstante extrahiert.
+
+### Fixed
+
+- **Backend None-Bug** - `choice.message.content or ""` in tabbyapi.py und vllm.py (konnte `None` zurückgeben).
+- **vLLM `enable_thinking`** - Wurde auch bei `None` gesetzt, jetzt nur wenn explizit konfiguriert.
+- **`cache_handler.py`** - Tuple-Index `h[0]/h[1]` → Dict-Access `h.get("role")/h.get("content")`.
+- **`_agent_config_mixin.py`** - mode_labels: fehlender `tribunal`-Eintrag, toter `devils_advocate`.
+- **`logging_utils.py` Race Condition** - List-Swap → In-place `del _console_messages[:]` Mutation.
+- **Chat-Badge Lokalisierung** - Hardcoded "messages" → `rx.cond`-basiert ("Nachrichten"/"messages").
+- **`format_number()`** - 4 Stellen in api.py, model_discovery.py, calibration_mixin.py nachgerüstet.
+- **Hardcoded Colors** - 3 Stellen in input_sections.py durch `COLORS`-Dict-Referenzen ersetzt.
+- **9 `print()` → `log_message()`** in _backend_mixin.py.
+
+### Removed
+
+- **3 Dateien gelöscht** - `gguf_utils_vision.py` (212 LOC, nie importiert), `agent_tools.py` (70 LOC, Backward-Compat-Layer), `gpu_monitor.py` (50 LOC, nach gpu_utils.py gemerged)
+- **~500 LOC toter Code** aus 12 Dateien: `right_column()`, `sokrates_panel()`, `audio_input_section()`, `parse_thinking()`, `render_sources_collapsible_from_msg()`, `render_sokrates_inline()`, `CUSTOM_CSS`, `parse_gguf_metadata()`, `stop_process_sync()`, `list_available_backends()`, unused imports
+- **15-Zeilen Debug-Dump** aus cache_manager.py entfernt
+
+### Technical Details
+
+- 39 Dateien geändert (790 Insertions, 2.544 Deletions, netto **-1.754 LOC**)
+- 3 Dateien gelöscht
+- 60 Findings analysiert: 44 umgesetzt, 16 begründet übersprungen
+- Mypy: 0 Errors (82 Dateien), Ruff: All checks passed
+
 ## [2.46.0] - 2026-02-24 🏗️ Major Refactoring: Monolithen aufgelöst, Code dedupliziert
 
 ### Changed

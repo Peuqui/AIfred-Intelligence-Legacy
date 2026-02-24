@@ -19,7 +19,6 @@ class TTSConfigMixin(rx.State, mixin=True):
     # ── TTS Settings ──────────────────────────────────────────────
     enable_tts: bool = False
     tts_voice: str = "AIfred"  # Default voice - XTTS custom voice
-    tts_speed: float = 1.0  # Speed multiplier (1.0 = normal, browser playback handles tempo)
     tts_engine: str = "xtts"  # TTS engine key (default: XTTS)
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
     tts_playback_rate: str = "1.0x"  # Browser playback rate (1.0 = neutral, speed via Agent Settings)

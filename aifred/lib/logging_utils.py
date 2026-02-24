@@ -118,9 +118,9 @@ def log_message(message: str, category: str = "info") -> None:
         # Append to console state
         _console_messages.append(formatted_msg)
 
-        # Maintain limit (FIFO)
+        # Maintain limit (FIFO) — in-place mutation to avoid race with concurrent appends
         if len(_console_messages) > MAX_CONSOLE_MESSAGES:
-            _console_messages = _console_messages[-MAX_CONSOLE_MESSAGES:]
+            del _console_messages[:len(_console_messages) - MAX_CONSOLE_MESSAGES]
 
         # Write to queue (for state polling!)
         try:
@@ -249,6 +249,6 @@ def console_separator() -> None:
     except queue.Full:
         pass  # Queue full, ignore
 
-    # Maintain limit
+    # Maintain limit — in-place mutation to avoid race with concurrent appends
     if len(_console_messages) > MAX_CONSOLE_MESSAGES:
-        _console_messages = _console_messages[-MAX_CONSOLE_MESSAGES:]
+        del _console_messages[:len(_console_messages) - MAX_CONSOLE_MESSAGES]

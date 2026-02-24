@@ -69,14 +69,6 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """
         return json.dumps(self.tts_audio_queue)
 
-    @rx.var(deps=["enable_tts"], auto_deps=False)
-    def tts_player_visible(self) -> bool:
-        """Returns True if TTS audio player should be visible.
-
-        Player is visible when TTS is enabled (always shows player controls).
-        """
-        return self.enable_tts  # type: ignore[attr-defined, no-any-return]
-
     # ── TTS Callback ──────────────────────────────────────────────────
 
     def handle_tts_callback(self, result: str):

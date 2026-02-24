@@ -461,6 +461,7 @@ class CalibrationMixin(rx.State, mixin=True):
         import httpx
         import asyncio
 
+        from ..lib.formatting import format_number
         from ..lib.model_manager import sort_models_grouped
 
         # Prevent concurrent restarts
@@ -499,7 +500,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             data = response.json()
                             # Build dict: {model_id: display_label}
                             unsorted_dict = {
-                                m['name']: f"{m['name']} ({m['size'] / (1024**3):.1f} GB)"
+                                m['name']: f"{m['name']} ({format_number(m['size'] / (1024**3), 1)} GB)"
                                 for m in data.get("models", [])
                             }
                             # Sort by model family, then by size

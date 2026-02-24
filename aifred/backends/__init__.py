@@ -107,10 +107,6 @@ class BackendFactory:
             instance = backend_class(base_url=base_url)
         return instance
 
-    @classmethod
-    def list_available_backends(cls) -> list[str]:
-        """Get list of available backend types"""
-        return list(cls._backends.keys())
 
 
 __all__ = [

@@ -12,7 +12,7 @@ import re
 from typing import Dict, List, AsyncIterator, Optional
 from urllib.parse import urlparse
 
-from ..agent_tools import search_web_multi
+from ..tools import search_web_multi
 from ..logging_utils import log_message
 from ..tools.url_utils import deduplicate_urls, deduplicate_urls_with_metadata
 
