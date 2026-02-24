@@ -1,0 +1,1338 @@
+"""Chat mixin for AIfred state.
+
+Handles message sending, AI response streaming, agent panel display,
+and chat clearing.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import AsyncGenerator
+from datetime import datetime
+from typing import Any, Dict, List
+
+import reflex as rx
+
+from ..lib import log_message
+from ..lib.config import DEBUG_MESSAGES_MAX
+from ..lib.context_manager import strip_thinking_blocks
+
+
+class ChatMixin(rx.State, mixin=True):
+    """Mixin for chat message sending and AI response streaming."""
+
+    # ── State Variables ──────────────────────────────────────────────
+    current_user_input: str = ""
+    current_user_message: str = ""  # The message currently being processed
+    current_ai_response: str = ""  # Shared streaming buffer for all agents
+    current_agent: str = ""  # Current streaming agent: "aifred" | "sokrates" | "salomo" | ""
+    is_generating: bool = False
+    is_compressing: bool = False  # Shows if history compression is running
+
+    # Debug Console
+    debug_messages: List[str] = []
+    auto_refresh_enabled: bool = True  # For Debug Console + Chat History + AI Response Area
+
+    # Processing Progress (Automatik, Scraping, LLM)
+    progress_active: bool = False
+    progress_phase: str = ""  # "automatik", "scraping", "llm"
+    progress_current: int = 0
+    progress_total: int = 0
+    progress_failed: int = 0  # Number of failed URLs
+
+    # ── Debug / Progress ─────────────────────────────────────────────
+
+    def add_debug(self, message: str) -> None:
+        """Add message to debug console."""
+        import datetime as _dt
+
+        timestamp = _dt.datetime.now().strftime("%H:%M:%S")
+        formatted_msg = f"{timestamp} | {message}"
+
+        # Add to Reflex State
+        self.debug_messages.append(formatted_msg)
+
+        # Also add to lib console (for agent_core logging)
+        log_message(message)
+
+        # Keep only last N messages (configurable in config.py)
+        if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
+            self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
+
+    def set_progress(self, phase: str, current: int = 0, total: int = 0, failed: int = 0) -> None:
+        """Update processing progress."""
+        self.progress_active = True
+        self.progress_phase = phase
+        self.progress_current = current
+        self.progress_total = total
+        self.progress_failed = failed
+
+    def clear_progress(self) -> None:
+        """Clear processing progress."""
+        self.progress_active = False
+        self.progress_phase = ""
+        self.progress_current = 0
+        self.progress_total = 0
+        self.progress_failed = 0
+
+    def set_user_input(self, text: str) -> None:
+        """Update user input."""
+        self.current_user_input = text
+
+    # ── Agent Panel Helpers ──────────────────────────────────────────
+
+    def _get_mode_label(self, mode: str, round_num: int | None) -> str:
+        """Generate mode label based on mode and UI language.
+
+        Args:
+            mode: Mode identifier (e.g., "auto_consensus", "tribunal", "direct")
+            round_num: Optional round number for multi-round debates
+
+        Returns:
+            Localized label string (e.g., "Auto-Konsens", "Tribunal", "Direkte Antwort")
+        """
+        from ..lib.i18n import t
+
+        # Mode label mapping (without round number)
+        mode_labels = {
+            "auto_consensus": t("auto_consensus_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
+            "tribunal": "Tribunal",  # Same in both languages
+            "direct": t("direct_response_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
+            "refinement": t("refinement_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
+            "synthesis": t("salomo_synthesis_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
+            "verdict": t("salomo_verdict_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
+            "critical_review": t("critical_review_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
+            "advocatus_diaboli": t("advocatus_diaboli_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
+            "error": "Error",  # Same in both languages
+            "standard": "",  # No label for standard mode
+        }
+
+        return mode_labels.get(mode, "")
+
+    def _build_marker(self, agent: str, mode: str, round_num: int | None) -> str:
+        """Build marker string for agent panels.
+
+        Args:
+            agent: Agent identifier ("aifred", "sokrates", "salomo")
+            mode: Mode identifier (e.g., "refinement", "critical_review", "verdict")
+            round_num: Optional round number
+
+        Returns:
+            Formatted marker like "<span style='...'>Auto-Konsens: Überarbeitung R2</span>\\n\\n"
+            (includes multi_agent_mode prefix if active, no emoji - already shown left of bubble)
+        """
+        label = self._get_mode_label(mode, round_num)
+
+        if not label:
+            return ""  # No marker for standard mode
+
+        # Prepend multi-agent mode prefix (e.g., "Auto-Konsens:", "Tribunal:")
+        # Skip for "standard" mode, when mode already includes the prefix,
+        # or when mode equals multi_agent_mode (prevents "[Critical Review: Critical Review R1]")
+        mode_prefix = ""
+        if self.multi_agent_mode != "standard" and mode not in ["auto_consensus", "tribunal", "devils_advocate"] and mode != self.multi_agent_mode:  # type: ignore[attr-defined]
+            # Get localized multi-agent mode label
+            multi_mode_label = self._get_mode_label(self.multi_agent_mode, None)  # type: ignore[attr-defined]
+            if multi_mode_label:
+                mode_prefix = f"{multi_mode_label}: "
+
+        # Add round suffix if present
+        round_suffix = f" R{round_num}" if round_num else ""
+
+        # Format with HTML span for styling (no emoji - already in UI)
+        # Color: rgba(255, 255, 255, 1.0) = 100% opacity white (fully opaque)
+        # Style: italic, smaller font
+        # Spacing: 2 newlines after (converted to <br><br> in HTML export)
+        return f"<span style='color: rgba(255, 255, 255, 0.6; font-style: italic; font-size: 12px;'>[{mode_prefix}{label}{round_suffix}]</span>\n\n"
+
+    def _format_panel_metadata(self, metadata: dict | None) -> str:
+        """Format metadata footer for agent panels.
+
+        Args:
+            metadata: Dict with keys like ttft, inference_time, tokens_per_sec, source
+
+        Returns:
+            Formatted metadata string like "*( TTFT: 0,41s    Inference: 9,1s )*"
+        """
+        if not metadata:
+            return ""
+
+        from ..lib.formatting import format_metadata, format_number
+
+        # Split into speed metrics (no wrap) and info (wrap allowed before)
+        perf_parts: list[str] = []
+        info_parts: list[str] = []
+
+        # TTFT (Time To First Token)
+        if "ttft" in metadata and metadata["ttft"]:
+            perf_parts.append(f"TTFT:\u00A0{format_number(metadata['ttft'], 2)}s")
+
+        # PP speed (prompt processing)
+        prompt_per_sec = metadata.get("prompt_per_sec", 0)
+        if prompt_per_sec:
+            perf_parts.append(f"PP:\u00A0{format_number(prompt_per_sec, 1)}\u00A0tok/s")
+
+        # Tokens per second (generation)
+        if "tokens_per_sec" in metadata and metadata["tokens_per_sec"]:
+            perf_parts.append(f"{format_number(metadata['tokens_per_sec'], 1)}\u00A0tok/s")
+
+        # Inference time
+        if "inference_time" in metadata and metadata["inference_time"]:
+            perf_parts.append(f"Inference:\u00A0{format_number(metadata['inference_time'], 1)}s")
+
+        # Source (with backend label if available)
+        if "source" in metadata and metadata["source"]:
+            source = metadata["source"]
+            backend = metadata.get("backend_type", "")
+            source_display = f"{source}\u00A0[{backend}]" if backend else source
+            # Replace all spaces within source so it stays as one unbreakable unit
+            info_parts.append(f"Source:\u00A0{source_display.replace(' ', chr(0xA0))}")
+
+        if not perf_parts and not info_parts:
+            return ""
+
+        # Within groups: "    " → non-breaking spaces (no wrap)
+        # Between groups: 3 nbsp + regular space → allows line break on mobile
+        groups: list[str] = []
+        if perf_parts:
+            groups.append("    ".join(perf_parts))
+        if info_parts:
+            groups.append("    ".join(info_parts))
+        metadata_text = "\u00A0\u00A0\u00A0 ".join(groups)
+        return format_metadata(metadata_text)
+
+    # ── LLM History Sync ─────────────────────────────────────────────
+
+    def _sync_to_llm_history(self, agent: str, content: str) -> None:
+        """Sync agent response to llm_history with speaker label.
+
+        Strips only thinking blocks (<think>, Harmony analysis).
+        Code tags (<python>, <code>, etc.) are preserved because they
+        provide important context for the LLM.
+
+        IMPORTANT: Callers should pass RAW content (before format_thinking_process),
+        not formatted content with <details> collapsibles. If the caller already
+        formats before calling add_agent_panel(), use sync_llm_history=False and
+        sync manually with raw content.
+
+        Args:
+            agent: Agent identifier ("aifred", "sokrates", "salomo")
+            content: Agent response content (should be RAW, not formatted)
+        """
+        label = agent.upper()
+        clean_content = strip_thinking_blocks(content)
+
+        if clean_content:
+            self.llm_history.append({  # type: ignore[attr-defined, has-type]
+                "role": "assistant",
+                "content": f"[{label}]: {clean_content}"
+            })
+
+    # ── Central Agent Panel ──────────────────────────────────────────
+
+    def add_agent_panel(
+        self,
+        agent: str,  # "aifred", "sokrates", "salomo"
+        content: str,
+        mode: str = "standard",
+        round_num: int | None = None,
+        metadata: dict | None = None,
+        sync_llm_history: bool = True,
+        generate_tts: bool | None = None,
+    ) -> None:
+        """Add an agent response as a new message to chat_history.
+
+        This is the ONLY function that should be used to add agent panels to chat_history.
+        It handles:
+        - Emoji marker generation
+        - Mode labeling (Auto-Consensus, Tribunal, etc.)
+        - Round numbering (R1, R2, ...)
+        - Metadata formatting (TTFT, Inference time, tok/s, Source)
+        - LLM history synchronization
+        - Session persistence
+        - TTS generation (queued for sequential playback)
+
+        With the new dict-based chat_history, each message is standalone.
+        No more replace_last logic - just append new messages.
+
+        Args:
+            agent: Agent identifier ("aifred", "sokrates", "salomo")
+            content: Agent response content (WITHOUT marker, WITHOUT metadata)
+            mode: Mode identifier (e.g., "auto_consensus", "tribunal", "direct", "standard")
+            round_num: Round number for multi-round debates (None/0 = no round, 1+ = round number)
+            metadata: Optional dict with TTFT, inference_time, tokens_per_sec, source
+            sync_llm_history: If True, syncs to llm_history (set False if caller already did)
+            generate_tts: If True, generate TTS and add to queue. If None, uses self.enable_tts.
+                         If False, skip TTS. For multi-agent modes, this enables per-response TTS.
+        """
+        import asyncio
+
+        from ..lib.i18n import t
+        from ..lib.prompt_loader import get_language
+
+        # 1. Build marker (emoji + mode label + round number)
+        marker = self._build_marker(agent, mode, round_num if round_num and round_num > 0 else None)
+
+        # 2. Format metadata footer
+        meta_footer = self._format_panel_metadata(metadata)
+
+        # 3. Translate consensus tags to natural language for UI display
+        # These are trigger words for the Multi-Agent system, already parsed by count_lgtm_votes()
+        # Now we make them human-readable in the UI (and TTS will speak what's displayed)
+        # Uses detected language (from Intent Detection) for correct localization
+        lang = self._last_detected_language or get_language()  # type: ignore[attr-defined, has-type]
+        content = re.sub(r'\[LGTM\]', t("consensus_agreed", lang=lang), content, flags=re.IGNORECASE)
+        content = re.sub(r'\[WEITER\]', t("consensus_continue", lang=lang), content, flags=re.IGNORECASE)
+
+        # 4. Remove thinking blocks from content before storing (for History/Token estimation)
+        clean_content = strip_thinking_blocks(content)
+
+        # 5. Assemble final content for display
+        if marker:
+            final_content = f"{marker}{clean_content}\n\n{meta_footer}"
+        else:
+            # Standard mode: no marker, just content + metadata
+            final_content = f"{clean_content}\n\n{meta_footer}" if meta_footer else clean_content
+
+        # 5. Create new message entry (dict-based format)
+        # Include audio URLs if streaming TTS generated them
+        msg_metadata = metadata.copy() if metadata else {}
+        if self._pending_audio_urls:  # type: ignore[attr-defined, has-type]
+            msg_metadata["audio_urls"] = self._pending_audio_urls.copy()  # type: ignore[attr-defined, has-type]
+            log_message(f"🔊 add_agent_panel: Stored {len(self._pending_audio_urls)} audio URLs in message metadata")  # type: ignore[attr-defined, has-type]
+            self._pending_audio_urls: list[str] = []  # type: ignore[attr-defined, var-annotated]
+
+        # Store agent's playback rate for HTML export (browser speed setting, per-agent)
+        # Always set when audio_urls are present, regardless of source
+        audio_urls = msg_metadata.get("audio_urls", [])
+        if audio_urls:
+            msg_metadata["playback_rate"] = self.tts_agent_voices[agent]["speed"]  # type: ignore[attr-defined]
+        new_message: Dict[str, Any] = {
+            "role": "assistant",
+            "content": final_content,
+            "agent": agent,
+            "mode": mode,
+            "round_num": round_num,
+            "metadata": msg_metadata,
+            "timestamp": datetime.now().isoformat(),
+            "used_sources": [],
+            "failed_sources": [],
+            "has_audio": bool(audio_urls),
+            "audio_urls_json": json.dumps(audio_urls) if audio_urls else "[]",
+        }
+
+        # 5. Append to chat_history (no more replace_last!)
+        self.chat_history.append(new_message)  # type: ignore[attr-defined, has-type]
+
+        # 6. Sync to llm_history (with speaker label)
+        # Note: Some callers (streaming functions) already sync to llm_history,
+        # so they should pass sync_llm_history=False to avoid duplicates
+        if sync_llm_history:
+            self._sync_to_llm_history(agent, content)
+
+        # 7. Save session (async, non-blocking)
+        self._save_current_session()  # type: ignore[attr-defined]
+
+        # 8. Generate TTS and add to queue (if enabled)
+        # Determine if TTS should be generated
+        # SKIP if streaming TTS is enabled - text was already sent sentence-by-sentence
+        should_generate_tts = generate_tts if generate_tts is not None else self.enable_tts  # type: ignore[attr-defined]
+        if should_generate_tts and not self.tts_streaming_enabled:  # type: ignore[attr-defined]
+            # Check per-agent TTS enabled setting
+            agent_tts_enabled = self.tts_agent_voices.get(agent, {}).get("enabled", True)  # type: ignore[attr-defined]
+            if agent_tts_enabled:
+                # Schedule TTS generation as background task
+                # This runs async without blocking add_agent_panel()
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._queue_tts_for_agent(content, agent))  # type: ignore[attr-defined]
+                except RuntimeError:
+                    # No running loop - this shouldn't happen in normal operation
+                    # but we handle it gracefully
+                    self.add_debug(f"⚠️ TTS: No event loop for {agent}")
+
+    # ── Streaming ────────────────────────────────────────────────────
+
+    def stream_text_to_ui(self, chunk: str) -> None:
+        """Zentrale Funktion für ALLE gestreamten Text-Ausgaben.
+
+        Schreibt Text in den UI-Buffer und leitet ihn an den TTS-Satz-Detektor weiter.
+        Wird von allen Streaming-Stellen aufgerufen (state.py + multi_agent.py).
+
+        Args:
+            chunk: Text chunk from LLM streaming
+        """
+        self.current_ai_response += chunk
+
+        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
+            self._process_streaming_tts_chunk(chunk)  # type: ignore[attr-defined]
+
+    # ── Multi-Agent Dispatch ─────────────────────────────────────────
+
+    async def _maybe_run_multi_agent(
+        self,
+        user_msg: str,
+        ai_text: str,
+        detected_language: str,
+        skip_analysis: bool,
+    ) -> AsyncGenerator[None, None]:
+        """Run Multi-Agent analysis if activated and not skipped.
+
+        Args:
+            user_msg: The user message
+            ai_text: The AI response (AIfred R1)
+            detected_language: Language ("de" or "en")
+            skip_analysis: True to skip Multi-Agent (e.g. user addressed AIfred directly)
+
+        Yields:
+            Nothing directly, but updates state via run_tribunal/run_sokrates_analysis
+        """
+        from ..lib.multi_agent import run_sokrates_analysis, run_tribunal
+
+        # Skip if standard mode, no AI text, or explicitly skipped
+        if self.multi_agent_mode == "standard" or not ai_text or skip_analysis:  # type: ignore[attr-defined]
+            return
+
+        # Generate TTS for AIfred's initial response BEFORE Multi-Agent starts
+        # This ensures AIfred's voice is heard first, then Sokrates/Salomo follow
+        # (Sokrates/Salomo TTS is generated via add_agent_panel() in multi_agent.py)
+        # SKIP if streaming TTS is enabled - text was already sent sentence-by-sentence
+        if self.enable_tts and not self.tts_streaming_enabled:  # type: ignore[attr-defined]
+            agent_tts_enabled = self.tts_agent_voices.get("aifred", {}).get("enabled", True)  # type: ignore[attr-defined]
+            if agent_tts_enabled:
+                # Wait for TTS to complete so we can update message metadata with audio URL
+                await self._queue_tts_for_agent(ai_text, agent="aifred")  # type: ignore[attr-defined]
+                yield  # Update UI with audio button (chat_history was reassigned in _queue_tts_for_agent)
+
+        if self.multi_agent_mode == "tribunal":  # type: ignore[attr-defined]
+            self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
+            yield
+            async for _ in run_tribunal(self, user_msg, ai_text, detected_language):  # type: ignore[arg-type]
+                yield
+        else:
+            self.add_debug("🏛️ Multi-Agent: Sokrates-Analyse startet...")
+            yield
+            async for _ in run_sokrates_analysis(self, user_msg, ai_text, detected_language):  # type: ignore[arg-type]
+                yield
+
+    # ── Main Send Message ────────────────────────────────────────────
+
+    async def send_message(self) -> AsyncGenerator[None, None]:  # type: ignore[misc]
+        """Send message to LLM with optional web research.
+
+        Portiert von Gradio chat_interactive_mode() mit Research-Integration.
+        """
+        # Must be logged in to send messages
+        if not self.logged_in_user:  # type: ignore[attr-defined]
+            self.add_debug("⚠️ Please log in first")
+            return
+
+        # If no text but images present, use default prompt
+        has_pending_images = len(self.pending_images) > 0  # type: ignore[attr-defined]
+        user_text = self.current_user_input.strip()
+
+        if not user_text and not has_pending_images:
+            return  # Nothing to send
+
+        # Leerer user_text ist erlaubt für reine OCR-Extraktion (ohne Interpretation)
+
+        if self.is_generating:
+            self.add_debug("⚠️ Already generating, please wait...")
+            return
+
+        # Ensure backend is initialized (should already be done by on_load)
+        await self._ensure_backend_initialized()  # type: ignore[attr-defined]
+
+        user_msg = user_text
+        self.current_user_input = ""  # Clear input
+        self.current_user_message = user_msg  # Zeige sofort die Eingabe an
+        self.is_generating = True
+        self.current_ai_response = ""
+        self.current_agent = "aifred"  # Set current agent for unified streaming UI
+        self.used_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
+        self.failed_sources: list[dict[str, str]] = []  # type: ignore[attr-defined, var-annotated]
+        self.all_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
+        # Clear TTS queue for new message (multi-agent responses will add to it)
+        self.clear_tts_queue()  # type: ignore[attr-defined]
+
+        # Initialize streaming TTS if enabled (sentences are sent to TTS as they're detected)
+        # Works for all modes - Multi-Agent also streams and benefits from sentence-by-sentence TTS
+        # Streaming requires AutoPlay - without autoplay, streaming makes no sense (generates but doesn't play)
+        tts_stream_script = None
+        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
+            self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
+            # Clear API queue for this session (new message = new queue)
+            from ..lib.api import tts_queue_clear
+            tts_queue_clear(self.session_id)  # type: ignore[attr-defined]
+            # IMPORTANT: Ensure SSE stream is active BEFORE generating audio
+            # This guarantees the browser is listening when audio events are pushed
+            # The startTtsStream() function is idempotent - it checks ttsStreamActive
+            tts_stream_script = rx.call_script(f"if(window.startTtsStream) startTtsStream('{self.session_id}');")  # type: ignore[attr-defined]
+
+        # IMPORTANT: Yield immediately so UI shows spinner right away
+        # Also starts TTS SSE stream if TTS is enabled (must be before audio generation!)
+        if tts_stream_script:
+            yield tts_stream_script  # type: ignore[misc]
+        else:
+            yield
+
+        # ============================================================
+        # ADD USER MESSAGE TO CHAT IMMEDIATELY (before any backend operations)
+        # ============================================================
+        # This ensures the user sees their message right away, even during XTTS startup
+        # Prepare display message (may include image markers for Vision)
+        display_user_msg = user_msg
+        if has_pending_images:
+            # Generate clickable image thumbnails as HTML
+            image_html_parts: list[str] = []
+            for img in self.pending_images:  # type: ignore[attr-defined]
+                url = img.get('url', '')
+                if url:
+                    image_html_parts.append(
+                        f'<a href="{url}" target="_blank" rel="noopener noreferrer">'
+                        f'<img src="{url}" style="width:50px;height:50px;object-fit:cover;'
+                        f'border-radius:4px;cursor:pointer;margin-right:4px;"></a>'
+                    )
+            image_html = "".join(image_html_parts)
+
+            if not user_msg or user_msg.strip() == "":
+                # Image-only upload
+                if len(self.pending_images) == 1:  # type: ignore[attr-defined]
+                    display_user_msg = f"{image_html}\n\n📷 {self.pending_images[0].get('name', 'Image')}"  # type: ignore[attr-defined]
+                else:
+                    img_names = ", ".join([img.get("name", "unknown") for img in self.pending_images])  # type: ignore[attr-defined]
+                    display_user_msg = f"{image_html}\n\n📷 {len(self.pending_images)} images: {img_names}"  # type: ignore[attr-defined]
+            else:
+                # Text + images
+                display_user_msg = f"{image_html}\n\n{user_msg}" if image_html else user_msg
+
+        # Add to chat_history so user sees their message IMMEDIATELY
+        self.chat_history.append({  # type: ignore[attr-defined, has-type]
+            "role": "user",
+            "content": display_user_msg,
+            "agent": "",
+            "mode": "",
+            "round_num": 0,
+            "metadata": {
+                "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []  # type: ignore[attr-defined]
+            },
+            "timestamp": datetime.now().isoformat(),
+            "used_sources": [],
+            "failed_sources": [],
+            "has_audio": False,
+            "audio_urls_json": "[]",
+        })
+        # Sync to llm_history (for LLM context - use ORIGINAL user_msg, not display variant)
+        self.llm_history.append({"role": "user", "content": user_msg})  # type: ignore[attr-defined, has-type]
+        self.add_debug("📨 User request received")
+
+        yield  # Update UI - user sees their message + debug confirmation NOW
+
+        # TTS: Ensure Docker container is running BEFORE Ollama loads models (reserves VRAM)
+        # This runs on every message, not just at startup - handles container restart scenarios
+        if self.enable_tts and self.tts_engine == "xtts" and not self.xtts_force_cpu:  # type: ignore[attr-defined]
+            from ..lib.process_utils import ensure_xtts_ready
+
+            self.add_debug("🔊 XTTS: Checking container...")
+            yield  # Show debug message
+            success, msg = ensure_xtts_ready(timeout=60)
+            if success:
+                self.add_debug(f"✅ {msg}")
+            else:
+                self.add_debug(f"⚠️ {msg}")
+            yield  # Update UI
+        elif self.enable_tts and self.tts_engine == "moss":  # type: ignore[attr-defined]
+            from ..lib.process_utils import ensure_moss_ready
+
+            self.add_debug("🔊 MOSS-TTS: Checking container...")
+            yield
+            success, msg, device = ensure_moss_ready(timeout=120)
+            self.moss_tts_device = device if success else ""  # type: ignore[attr-defined]
+            if success:
+                self.add_debug(f"✅ {msg}")
+            else:
+                self.add_debug(f"⚠️ {msg}")
+            yield
+
+        try:
+            # ============================================================
+            # MAIN TRY BLOCK: Covers ALL stages from LLM client creation
+            # through inference. Ensures is_generating is ALWAYS reset in finally,
+            # even if intent detection hangs, compression fails, or the generator
+            # is cancelled by WebSocket disconnect (GeneratorExit).
+            # ============================================================
+
+            # Create LLM client once - used for ALL LLM operations
+            from ..lib.llm_client import LLMClient
+            llm_client = LLMClient(
+                backend_type=self.backend_type,  # type: ignore[attr-defined]
+                base_url=self.backend_url,  # type: ignore[attr-defined]
+            )
+
+            # ============================================================
+            # AUTOMATIK NUM_CTX CALCULATION (once, used for all Automatik calls)
+            # ============================================================
+            # When Automatik = AIfred (same model): don't set num_ctx → no model reload
+            # When different models: use AUTOMATIK_LLM_NUM_CTX from config.py
+            from ..lib.config import AUTOMATIK_LLM_NUM_CTX
+            from ..lib.formatting import format_number
+            effective_auto = self._effective_automatik_id  # type: ignore[attr-defined]
+            if effective_auto == self.aifred_model_id:  # type: ignore[attr-defined]
+                # Same model: MUST send same num_ctx as preload to prevent Ollama reload!
+                # Ollama uses MODEL DEFAULT (not currently loaded context) when num_ctx is omitted.
+                # Omitting num_ctx causes Ollama to reload with default → then main inference
+                # sends calibrated num_ctx → Ollama reloads AGAIN. Two unnecessary reloads!
+                auto_num_ctx: int | None = self.aifred_max_context if self.aifred_max_context else None  # type: ignore[attr-defined]
+                log_message(f"🔧 Automatik = AIfred ({effective_auto}) → num_ctx={auto_num_ctx} (match preload)")
+
+                # Warning if AIfred context is below recommended Automatik threshold
+                effective_ctx = self.aifred_max_context or 0  # type: ignore[attr-defined]
+                if effective_ctx > 0 and effective_ctx < AUTOMATIK_LLM_NUM_CTX:
+                    self.add_debug(
+                        f"⚠️ Automatik Context ({format_number(effective_ctx)}) < recommended ({format_number(AUTOMATIK_LLM_NUM_CTX)}) - Automatik tasks may be less reliable"
+                    )
+                    log_message(f"⚠️ Automatik Context warning: {effective_ctx} < {AUTOMATIK_LLM_NUM_CTX}")
+            else:
+                # Different model: use config constant
+                auto_num_ctx = AUTOMATIK_LLM_NUM_CTX
+                log_message(f"🔧 Automatik ≠ AIfred → Context: {auto_num_ctx}")
+
+            # ============================================================
+            # COLD START DETECTION (llama.cpp only)
+            # llama-swap loads models on-demand — first request triggers cold start.
+            # Check /running BEFORE the first LLM call so the user knows why it's slow.
+            # ============================================================
+            if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+                try:
+                    import httpx
+                    swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
+                    async with httpx.AsyncClient(timeout=5.0) as http_client:
+                        resp = await http_client.get(f"{swap_base}/running")
+                        running_models = [m.get("model") for m in resp.json().get("running", [])]
+                        if effective_auto not in running_models:
+                            # Extract model details from llama-swap config
+                            details = ""
+                            try:
+                                from ..lib.llamacpp_calibration import parse_llamaswap_config
+                                from ..lib.config import LLAMASWAP_CONFIG_PATH
+                                model_info = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(effective_auto, {})
+                                parts: list[str] = []
+                                if model_info.get("current_context"):
+                                    parts.append(f"Context: {format_number(model_info['current_context'])}")
+                                if model_info.get("kv_cache_quant"):
+                                    parts.append(f"KV-Cache: {model_info['kv_cache_quant']}")
+                                if parts:
+                                    details = f" ({', '.join(parts)})"
+                            except Exception:
+                                pass
+                            self.add_debug(f"🔄 Model Cold Start ({effective_auto}){details} — loading into VRAM, this may take a while")
+                            log_message(f"🔄 Cold Start: {effective_auto}{details}")
+                            yield
+                except Exception:
+                    pass  # Can't check — proceed normally, don't show false warnings
+
+            # ============================================================
+            # INTENT + ADDRESSEE + LANGUAGE DETECTION (first LLM call)
+            # ============================================================
+            # Must run BEFORE compression check to get detected_language
+            from ..lib.intent_detector import detect_query_intent_and_addressee
+
+            # If user_msg is empty (image-only), skip Intent Detection and use UI language
+            if not user_msg.strip():
+                from ..lib.prompt_loader import get_language
+                detected_intent = "FAKTISCH"
+                addressed_to = None
+                detected_language = get_language()
+                intent_raw = ""
+                self.add_debug(f"🎯 Intent: {detected_intent} (image-only), Lang: {detected_language.upper()} (UI)")
+                self._last_detected_language = detected_language  # type: ignore[attr-defined]
+            else:
+                detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(
+                    user_msg,
+                    effective_auto,
+                    llm_client,
+                    automatik_num_ctx=auto_num_ctx,
+                )
+                # Log Intent Detection result to UI debug console (always visible)
+                addressee_display = addressed_to.capitalize() if addressed_to else "–"
+                self.add_debug(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}, Lang: {detected_language.upper()}")
+                self._last_detected_language = detected_language  # type: ignore[attr-defined]
+
+            # ============================================================
+            # PRE-MESSAGE: History Compression Check
+            # ============================================================
+            # Check BEFORE adding new message - handles session restore, model changes, etc.
+
+            if self.chat_history:  # type: ignore[attr-defined, has-type]
+                from ..lib.context_manager import summarize_history_if_needed, get_largest_compression_model
+                from ..lib.research.context_utils import get_agent_num_ctx
+
+                # Determine effective context limit using per-agent settings
+                # Uses get_agent_num_ctx() which is the SINGLE SOURCE OF TRUTH
+                context_limits: list[int] = []
+
+                # AIfred context
+                aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.aifred_model_id)  # type: ignore[attr-defined, arg-type]
+                context_limits.append(aifred_ctx)
+
+                # Multi-agent contexts (if not standard mode)
+                if self.multi_agent_mode != "standard":  # type: ignore[attr-defined]
+                    if self.sokrates_model_id:  # type: ignore[attr-defined]
+                        sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.sokrates_model_id)  # type: ignore[attr-defined, arg-type]
+                        context_limits.append(sokrates_ctx)
+                    if self.salomo_model_id:  # type: ignore[attr-defined]
+                        salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.salomo_model_id)  # type: ignore[attr-defined, arg-type]
+                        context_limits.append(salomo_ctx)
+
+                # Use minimum of all agent limits
+                context_limit = min(context_limits) if context_limits else 4096
+
+                # Get system prompt tokens from cache (v2.14.0+)
+                # Cache is populated at startup in on_load()
+                from ..lib.prompt_loader import get_max_system_prompt_tokens
+                system_prompt_tokens = get_max_system_prompt_tokens(self.multi_agent_mode, detected_language)  # type: ignore[attr-defined]
+
+                # Select largest model for compression (AIfred/Sokrates/Salomo)
+                compression_model = get_largest_compression_model(
+                    aifred_model=self.aifred_model_id,  # type: ignore[attr-defined]
+                    sokrates_model=self.sokrates_model_id,  # type: ignore[attr-defined]
+                    salomo_model=self.salomo_model_id,  # type: ignore[attr-defined]
+                )
+
+                # Check and compress if needed (DUAL-HISTORY)
+                async for event in summarize_history_if_needed(
+                    history=self.chat_history,  # type: ignore[attr-defined, has-type]
+                    llm_client=llm_client,
+                    model_name=compression_model,  # Use largest available model for quality
+                    context_limit=context_limit,
+                    llm_history=self.llm_history,  # type: ignore[attr-defined, has-type]
+                    system_prompt_tokens=system_prompt_tokens,
+                    detected_language=detected_language,  # From Intent Detection
+                ):
+                    if event["type"] == "history_update":
+                        # DUAL-HISTORY: Update both histories
+                        self.chat_history = event["chat_history"]  # type: ignore[attr-defined]
+                        if event.get("llm_history") is not None:
+                            self.llm_history = event["llm_history"]  # type: ignore[attr-defined]
+                        self.add_debug(f"✅ Pre-Message Compression: {len(self.chat_history)} UI / {len(self.llm_history)} LLM messages")  # type: ignore[attr-defined]
+                        yield
+                    elif event["type"] == "debug":
+                        self.add_debug(event["message"])
+                        yield
+
+            # NOTE: User message was already added to chat_history at the start of send_message()
+            # (before XTTS check) so user sees their message immediately
+            # ============================================================
+            # DIALOG ROUTING (uses intent/addressee from above)
+            # ============================================================
+
+            # Track if Sokrates should be skipped (AIfred direct addressing)
+            skip_sokrates_analysis = False
+
+            if addressed_to == "sokrates":
+                # User directly addresses Sokrates → Sokrates responds directly
+                from ..lib.multi_agent import run_sokrates_direct_response
+                self.add_debug("🏛️ Direct addressing: Sokrates")
+                yield  # Update UI immediately to show debug message
+                async for _ in run_sokrates_direct_response(self, user_msg, detected_language):  # type: ignore[arg-type]
+                    yield
+                # Clean up and return - Sokrates handled everything
+                self.current_ai_response = ""
+                self.current_user_message = ""
+                self.is_generating = False
+                self._save_current_session()  # type: ignore[attr-defined]
+                yield
+                return
+
+            elif addressed_to == "aifred":
+                # User directly addresses AIfred → Skip Sokrates analysis
+                self.add_debug("🎩 Direct addressing: AIfred")
+                yield  # Update UI immediately to show debug message
+                skip_sokrates_analysis = True
+
+            elif addressed_to == "salomo":
+                # User directly addresses Salomo → Salomo responds directly
+                from ..lib.multi_agent import run_salomo_direct_response
+                self.add_debug("👑 Direct addressing: Salomo")
+                yield  # Update UI immediately to show debug message
+                async for _ in run_salomo_direct_response(self, user_msg, detected_language):  # type: ignore[arg-type]
+                    yield
+                # Clean up and return - Salomo handled everything
+                self.current_ai_response = ""
+                self.current_user_message = ""
+                self.is_generating = False
+                self._save_current_session()  # type: ignore[attr-defined]
+                yield
+                return
+
+            # ============================================================
+            # VISION PIPELINE: Route to Vision-LLM if images present
+            # ============================================================
+            if has_pending_images:
+                # CRITICAL FIX: Copy images to LOCAL variable BEFORE any yield!
+                # Reflex State can be modified between yields, causing race conditions.
+                # Deep copy ensures we keep the image data even if self.pending_images gets cleared.
+                import copy
+                local_images = copy.deepcopy(self.pending_images)  # type: ignore[attr-defined]
+
+                # Clear pending images UI immediately (they're already in chat_history as HTML thumbnails)
+                # This removes the editable thumbnails above the text input right away
+                self.clear_pending_images()  # type: ignore[attr-defined]
+
+                # Log Vision-LLM header + each image on separate line
+                self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analyzing:")  # type: ignore[attr-defined]
+                for img in local_images:
+                    self.add_debug(f"   • {img.get('name', 'unknown')}")
+                yield  # Update UI immediately to show Vision Pipeline start
+
+                # Save original user text (for Vision pipeline - may be empty!)
+                original_user_text = user_msg
+
+                # Import vision pipeline
+                from ..lib.conversation_handler import chat_with_vision_pipeline
+
+                # NOTE: display_user_msg was already prepared and added to chat_history above
+                # No need to update it here - user panel is already correct
+
+                # Build LLM options - use per-agent thinking toggle for enable_thinking
+                from ..lib.prompt_loader import get_thinking_enabled
+                llm_options = {
+                    'enable_thinking': get_thinking_enabled("aifred"),
+                    'top_k': self.aifred_top_k,  # type: ignore[attr-defined]
+                    'top_p': self.aifred_top_p,  # type: ignore[attr-defined]
+                    'min_p': self.aifred_min_p,  # type: ignore[attr-defined]
+                    'repeat_penalty': self.aifred_repeat_penalty,  # type: ignore[attr-defined]
+                }
+
+                # Storage für Vision-JSON (wird in history gespeichert statt readable text)
+                vision_json_response = ""
+                vision_readable_text = ""
+                vision_metrics: dict[str, Any] | None = None
+                extracted_vision_json: dict[str, Any] = {}  # Store for passing to chat_interactive_mode
+                has_user_text_for_automatik = False  # Flag from vision_complete
+
+                # ==============================================================================
+                # PHASE 1: VISION EXTRACTION (Process Vision-LLM items only)
+                # ==============================================================================
+                async for item in chat_with_vision_pipeline(
+                    user_text=original_user_text,  # CRITICAL: Use original (may be empty!), not display_user_msg
+                    images=local_images,  # CRITICAL: Use local copy, NOT self.pending_images!
+                    vision_model=self.vision_model_id,  # type: ignore[attr-defined]
+                    main_model=self.aifred_model_id,  # type: ignore[attr-defined]
+                    backend_type=self.backend_type,  # type: ignore[attr-defined]
+                    backend_url=self.backend_url,  # type: ignore[attr-defined]
+                    llm_options=llm_options,
+                    state=self,  # Pass entire state object (for per-agent num_ctx lookup)
+                    detected_language=detected_language,  # From Intent Detection
+                    provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
+                ):
+
+                    # Route Vision-LLM items only (NOT Automatik items!)
+                    if item["type"] == "status":
+                        self.add_debug(item.get("content", ""))
+
+                    elif item["type"] == "debug":
+                        msg = item.get("content") or item.get("message", "")
+                        if msg:
+                            self.add_debug(msg)
+                        yield  # Update UI immediately for each debug message
+
+                    elif item["type"] == "thinking":
+                        # Vision-LLM structured data → sammle für Collapsible
+                        # <think> tags bleiben jetzt in vision_readable_text!
+                        vision_json_response = item["content"]
+
+                    elif item["type"] == "response":
+                        # Readable text (Markdown table) → sammle und zeige im Stream
+                        content = item["content"]
+                        if not isinstance(content, str):
+                            self.add_debug(f"⚠️ WARNING: Vision response content is {type(content)}, expected str. Converting...")
+                            content = str(content) if content is not None else ""
+                        # Collect FULL response (with <think> tags) for later formatting
+                        vision_readable_text += content
+                        # Stream to UI WITHOUT <think> tags (will be shown as collapsible later)
+                        # This prevents raw <think>...</think> from appearing during streaming
+                        content_for_stream = strip_thinking_blocks(content)
+                        self.stream_text_to_ui(content_for_stream)
+                        yield
+
+                    elif item["type"] == "done":
+                        # Metrics vom Backend sammeln
+                        vision_metrics = item.get("metrics", {})
+
+                    elif item["type"] == "error":
+                        self.add_debug(item.get("content", "Unknown error"))
+
+                    elif item["type"] == "vision_complete":
+                        # ======================================================================
+                        # CRITICAL: Vision extraction complete - finalize and break!
+                        # ======================================================================
+
+                        # Extract data from signal
+                        final_vision_metrics = item.get("metrics", vision_metrics or {})
+                        extracted_vision_json = item.get("vision_json", {})
+                        has_user_text_for_automatik = item.get("has_user_text", False)
+
+                        # Finalize Vision response (with or without JSON)
+                        from ..lib.formatting import format_thinking_process, build_inference_metadata
+
+                        vision_time = final_vision_metrics.get("inference_time", 0) if final_vision_metrics else 0
+                        tokens_generated = final_vision_metrics.get("tokens_generated", 0) if final_vision_metrics else 0
+                        tokens_per_sec = final_vision_metrics.get("tokens_per_second", 0) if final_vision_metrics else 0
+                        tokens_prompt = final_vision_metrics.get("tokens_prompt", 0) if final_vision_metrics else 0
+                        vision_ttft = final_vision_metrics.get("ttft") if final_vision_metrics else None
+
+                        if vision_json_response:
+                            # JSON vorhanden → Build <data> Block
+                            data_block = f"<data>\n{vision_json_response}\n</data>"
+                            full_response = f"{data_block}\n\n{vision_readable_text}"
+                        else:
+                            # Kein JSON → vision_readable_text enthält ggf. <think> tags!
+                            full_response = vision_readable_text
+
+                        # Prepare Vision response content
+                        if full_response:
+                            # format_thinking_process() verarbeitet ALLE XML-Tags automatisch!
+                            vision_content = format_thinking_process(
+                                full_response,
+                                model_name=self.vision_model_id,  # type: ignore[attr-defined]
+                                inference_time=vision_time,
+                                tokens_per_sec=tokens_per_sec,
+                            )
+                        elif vision_readable_text:
+                            # Kein JSON, aber readable text vorhanden
+                            vision_content = vision_readable_text
+                        else:
+                            # Neither JSON nor text - error
+                            vision_content = "⚠️ Vision-LLM could not produce a result. See debug log."
+
+                        # Build unified metadata (same format as Main-LLM)
+                        metadata_dict, _, debug_msg = build_inference_metadata(
+                            ttft=vision_ttft,
+                            inference_time=vision_time,
+                            tokens_generated=tokens_generated,
+                            tokens_per_sec=tokens_per_sec,
+                            source=f"Vision ({self.vision_model_id})",  # type: ignore[attr-defined]
+                            backend_metrics=final_vision_metrics,
+                            tokens_prompt=tokens_prompt,
+                            backend_type=self.backend_type,  # type: ignore[attr-defined]
+                            agent_label="Vision-LLM",
+                        )
+
+                        # APPEND Vision response as separate panel
+                        # Note: User panel was already created above with display_user_msg
+                        self.add_agent_panel(
+                            agent="aifred",  # Vision uses AIfred agent
+                            content=vision_content,
+                            mode="vision",
+                            round_num=None,
+                            metadata=metadata_dict,
+                            sync_llm_history=False,  # Sync manually below for proper formatting
+                        )
+
+                        # Sync to llm_history via SSoT (strips thinking blocks internally)
+                        self._sync_to_llm_history("aifred", full_response)
+
+                        self.add_debug(debug_msg)
+                        self.add_debug("────────────────────")
+                        yield
+
+                        # BREAK out of Vision loop - Phase 1 complete!
+                        break
+
+                    else:
+                        # Unknown type - log warning
+                        self.add_debug(f"⚠️ Unknown item type from Vision pipeline: {item.get('type', 'MISSING')}")
+
+                # ==============================================================================
+                # PHASE 2: AUTOMATIK/RESEARCH FLOW (if user text present)
+                # ==============================================================================
+                if has_user_text_for_automatik:
+                    self.add_debug("🎩 AIfred-LLM phase starting...")
+                    yield
+
+                    # Import here to avoid circular dependency
+                    from ..lib.conversation_handler import chat_interactive_mode
+
+                    # Note: User message was already added to chat_history at the start of send_message()
+                    # with the image thumbnail. No need to add it again here.
+                    self.current_ai_response = ""  # Reset for Main-LLM streaming
+
+                    # Call chat_interactive_mode with Vision JSON context
+                    # (EXACT same pattern as normal flow)
+                    async for item in chat_interactive_mode(
+                        user_text=original_user_text,
+                        stt_time=0.0,
+                        model_choice=self.aifred_model_id,  # type: ignore[attr-defined]
+                        automatik_model=effective_auto,
+                        history=self.chat_history,  # type: ignore[attr-defined]
+                        llm_history=self.llm_history,  # type: ignore[attr-defined]
+                        session_id=self.session_id,  # type: ignore[attr-defined]
+                        temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
+                        temperature=self.temperature,  # type: ignore[attr-defined]
+                        llm_options=llm_options,
+                        backend_type=self.backend_type,  # type: ignore[attr-defined]
+                        backend_url=self.backend_url,  # type: ignore[attr-defined]
+                        state=self,
+                        pending_images=None,
+                        vision_json_context=extracted_vision_json,
+                        user_name=self.user_name,  # type: ignore[attr-defined]
+                        detected_intent=detected_intent,
+                        detected_language=detected_language,
+                        cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
+                        automatik_num_ctx=auto_num_ctx,
+                    ):
+                        # Handle Main-LLM items using NORMAL FLOW logic
+                        if item["type"] == "debug":
+                            self.add_debug(item["message"])
+                            yield  # Update UI immediately for each debug message
+
+                        elif item["type"] == "content":
+                            # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
+                            # History is updated only at the end via "result" to avoid O(n) regex parsing on each token
+                            self.stream_text_to_ui(item["text"])
+                            yield
+
+                        elif item["type"] == "result":
+                            result_data = item["data"]
+                            # Unified Dict format - history always included
+                            self.chat_history = result_data["history"]  # type: ignore[attr-defined]
+
+                            # Clear AI response and user message windows - yield IMMEDIATELY
+                            self.current_ai_response = ""
+                            self.current_user_message = ""
+                            self.is_generating = False
+                            yield
+
+                            # Finalize streaming TTS and store audio URLs in message metadata
+                            # (after yield so bubble is visible while waiting for TTS)
+                            if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
+                                # Wait for TTS completion and get combined audio URL
+                                # (TTS tasks run in parallel via create_task, finalize waits for them)
+                                audio_urls = await self._finalize_streaming_tts()  # type: ignore[attr-defined]
+                                if audio_urls and self.chat_history:  # type: ignore[attr-defined]
+                                    for i in range(len(self.chat_history) - 1, -1, -1):  # type: ignore[attr-defined]
+                                        if self.chat_history[i].get("role") == "assistant":  # type: ignore[attr-defined]
+                                            if "metadata" not in self.chat_history[i]:  # type: ignore[attr-defined]
+                                                self.chat_history[i]["metadata"] = {}  # type: ignore[attr-defined]
+                                            self.chat_history[i]["metadata"]["audio_urls"] = audio_urls  # type: ignore[attr-defined]
+                                            self.chat_history[i]["has_audio"] = True  # type: ignore[attr-defined]
+                                            self.chat_history[i]["audio_urls_json"] = json.dumps(audio_urls)  # type: ignore[attr-defined]
+                                            log_message(f"🔊 TTS: Added {len(audio_urls)} audio URLs to message metadata (vision-mode)")
+                                            break
+                                    # Force Reflex to recognize the change by reassigning the list
+                                    self.chat_history = list(self.chat_history)  # type: ignore[attr-defined]
+                                    yield  # Update UI with audio button
+
+                        elif item["type"] == "progress":
+                            # Update processing progress
+                            if item.get("clear", False):
+                                self.clear_progress()
+                            else:
+                                self.set_progress(
+                                    phase=item.get("phase", ""),
+                                    current=item.get("current", 0),
+                                    total=item.get("total", 0),
+                                    failed=item.get("failed", 0),
+                                )
+
+                        # Note: Update UI after each item (including unknown types)
+                        yield
+
+                else:
+                    # No user text - just Vision extraction, finalize normally
+                    # Note: pending_images already cleared at start of vision pipeline
+
+                    # Clear both windows and stop generating
+                    # (Response is already in chat_history, UI will show history)
+                    self.current_ai_response = ""
+                    self.current_user_message = ""
+                    self.is_generating = False
+                    yield  # Force UI update to show chat history
+
+                # CRITICAL: Generate title and save session before early return
+                # (finally block may not execute for async generators)
+                # Use vision model for title if available — it's still loaded in llama-swap,
+                # avoids cold-starting the main model just for a title.
+                vision_title_model = self.vision_model_id if self.vision_model_id else ""  # type: ignore[attr-defined]
+                async for _ in self._generate_session_title(title_model_override=vision_title_model):  # type: ignore[attr-defined]
+                    yield  # Forward UI updates from title generation
+                self._save_current_session()  # type: ignore[attr-defined]
+                self.refresh_session_list()  # type: ignore[attr-defined]
+                yield
+
+                return  # Exit send_message - vision pipeline complete
+
+            # ============================================================
+            # UNIFIED CHAT HANDLER (Single Source of Truth)
+            # All modes (automatik, quick, deep, none) use chat_interactive_mode()
+            # ============================================================
+
+            from ..lib.conversation_handler import chat_interactive_mode
+            from ..lib.prompt_loader import get_thinking_enabled
+
+            llm_options = {
+                'enable_thinking': get_thinking_enabled("aifred"),
+                'top_k': self.aifred_top_k,  # type: ignore[attr-defined]
+                'top_p': self.aifred_top_p,  # type: ignore[attr-defined]
+                'min_p': self.aifred_min_p,  # type: ignore[attr-defined]
+                'repeat_penalty': self.aifred_repeat_penalty,  # type: ignore[attr-defined]
+            }
+            result_data = None
+            ai_text = ""
+
+            # Single unified call - research_mode determines the path internally
+            async for item in chat_interactive_mode(
+                user_text=user_msg,
+                stt_time=0.0,
+                model_choice=self.aifred_model_id,  # type: ignore[attr-defined]
+                automatik_model=effective_auto,
+                history=self.chat_history,  # type: ignore[attr-defined]
+                llm_history=self.llm_history,  # type: ignore[attr-defined]
+                session_id=self.session_id,  # type: ignore[attr-defined]
+                temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
+                temperature=self.temperature,  # type: ignore[attr-defined]
+                llm_options=llm_options,
+                backend_type=self.backend_type,  # type: ignore[attr-defined]
+                backend_url=self.backend_url,  # type: ignore[attr-defined]
+                state=self,
+                pending_images=self.pending_images if len(self.pending_images) > 0 else None,  # type: ignore[attr-defined]
+                user_name=self.user_name,  # type: ignore[attr-defined]
+                detected_intent=detected_intent,
+                detected_language=detected_language,
+                cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
+                research_mode=self.research_mode,  # type: ignore[attr-defined]
+                automatik_num_ctx=auto_num_ctx,
+            ):
+                # Route messages based on type
+                if item["type"] == "debug":
+                    self.add_debug(item["message"])
+                    yield
+
+                elif item["type"] == "content":
+                    self.stream_text_to_ui(item["text"])
+                    yield
+
+                elif item["type"] == "result":
+                    result_data = item["data"]
+                    ai_text = result_data["response_clean"]
+                    updated_history = result_data["history"]
+
+                    # Extract sources
+                    failed_sources = result_data.get("failed_sources", [])
+                    used_sources = result_data.get("used_sources", [])
+
+                    # Embed sources in last message for persistence
+                    if updated_history:
+                        import json as json_module
+                        last_msg = updated_history[-1]
+                        if last_msg.get("role") == "assistant":
+                            if "metadata" not in last_msg:
+                                last_msg["metadata"] = {}
+
+                            all_failed: list[dict[str, Any]] = []
+                            if failed_sources or self._pending_failed_sources:  # type: ignore[attr-defined, has-type]
+                                all_failed = (self._pending_failed_sources or []) + (failed_sources or [])  # type: ignore[attr-defined, has-type]
+                                if all_failed:
+                                    failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(all_failed)}-->\n"
+                                    last_msg["content"] = failed_markup + last_msg.get("content", "")
+                                    last_msg["metadata"]["failed_sources"] = all_failed
+
+                            if used_sources:
+                                used_markup = f"<!--USED_SOURCES:{json_module.dumps(used_sources)}-->\n"
+                                last_msg["content"] = used_markup + last_msg.get("content", "")
+                                last_msg["metadata"]["used_sources"] = used_sources
+
+                            last_msg["used_sources"] = used_sources or []
+                            last_msg["failed_sources"] = all_failed or []
+
+                    # Update State for UI
+                    self.used_sources = used_sources or []  # type: ignore[attr-defined]
+                    self.failed_sources = all_failed if 'all_failed' in dir() else []  # type: ignore[attr-defined]
+                    self._pending_failed_sources: list[dict[str, str]] = []  # type: ignore[attr-defined, var-annotated]
+                    self._pending_used_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
+
+                    # Combine sources for UI display
+                    combined: list[dict[str, Any]] = []
+                    for src in (used_sources or []):
+                        combined.append({
+                            "url": src.get("url", ""),
+                            "word_count": src.get("word_count", 0),
+                            "rank_index": src.get("rank_index", 999),
+                            "success": True,
+                        })
+                    for src in (all_failed if 'all_failed' in dir() else []):
+                        combined.append({
+                            "url": src.get("url", ""),
+                            "error": src.get("error", "Unknown"),
+                            "rank_index": src.get("rank_index", 999),
+                            "success": False,
+                        })
+                    self.all_sources = sorted(combined, key=lambda x: x.get("rank_index", 999))  # type: ignore[attr-defined]
+
+                    # Update history
+                    self.chat_history = updated_history  # type: ignore[attr-defined]
+                    if "llm_history" in result_data:
+                        self.llm_history = result_data["llm_history"]  # type: ignore[attr-defined]
+
+                    self.current_ai_response = ""
+                    self.current_user_message = ""
+                    yield
+
+                    # Finalize streaming TTS
+                    if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
+                        audio_urls = await self._finalize_streaming_tts()  # type: ignore[attr-defined]
+                        if audio_urls and self.chat_history:  # type: ignore[attr-defined]
+                            for i in range(len(self.chat_history) - 1, -1, -1):  # type: ignore[attr-defined]
+                                if self.chat_history[i].get("role") == "assistant":  # type: ignore[attr-defined]
+                                    if "metadata" not in self.chat_history[i]:  # type: ignore[attr-defined]
+                                        self.chat_history[i]["metadata"] = {}  # type: ignore[attr-defined]
+                                    self.chat_history[i]["metadata"]["audio_urls"] = audio_urls  # type: ignore[attr-defined]
+                                    self.chat_history[i]["has_audio"] = True  # type: ignore[attr-defined]
+                                    self.chat_history[i]["audio_urls_json"] = json.dumps(audio_urls)  # type: ignore[attr-defined]
+                                    log_message(f"🔊 TTS: Added {len(audio_urls)} audio URLs to message metadata")
+                                    break
+                            self.chat_history = list(self.chat_history)  # type: ignore[attr-defined]
+                            yield
+
+                    # Multi-Agent analysis
+                    async for _ in self._maybe_run_multi_agent(
+                        user_msg, ai_text, detected_language, skip_sokrates_analysis,
+                    ):
+                        yield
+
+                    self.is_generating = False
+                    yield
+
+                elif item["type"] == "progress":
+                    if item.get("clear", False):
+                        self.clear_progress()
+                    else:
+                        self.set_progress(
+                            phase=item.get("phase", ""),
+                            current=item.get("current", 0),
+                            total=item.get("total", 0),
+                            failed=item.get("failed", 0),
+                        )
+
+                elif item["type"] == "history_update":
+                    self.chat_history = item["data"]  # type: ignore[attr-defined]
+                    self.add_debug(f"📊 History updated: {len(item['data'])} messages")
+
+                elif item["type"] == "thinking_warning":
+                    self.thinking_mode_warning = item["model"]  # type: ignore[attr-defined]
+
+                elif item["type"] == "failed_sources":
+                    self.failed_sources = item["data"]  # type: ignore[attr-defined]
+                    self._pending_failed_sources = item["data"]  # type: ignore[attr-defined]
+                    from ..lib.i18n import t
+                    self.add_debug(f"⚠️ {t('sources_unavailable', count=len(item['data']))}")
+
+                elif item["type"] == "error":
+                    self.add_debug(f"❌ Error: {item.get('message', 'Unknown error')}")
+                    self.is_generating = False
+                    self.clear_progress()
+                    self.current_user_message = ""
+                    self.current_ai_response = ""
+
+                yield
+
+            # Final cleanup
+            self.current_ai_response = ""
+            yield
+
+        except Exception as e:
+            error_msg = f"Error: {e!s}"
+            self.current_ai_response = error_msg
+
+            # APPEND error as separate panel
+            # Note: User panel was already created above with user_msg/display_user_msg
+            self.add_agent_panel(
+                agent="aifred",
+                content=error_msg,
+                mode="error",
+                round_num=None,
+                metadata=None,  # No metrics for errors
+                sync_llm_history=True,  # Sync error to llm_history
+            )
+
+            self.add_debug(f"❌ Generation failed: {e}")
+            import traceback
+            self.add_debug(f"Traceback: {traceback.format_exc()}")
+
+        finally:
+            self.is_generating = False
+            # NOTE: TTS polling stops automatically via data-polling attribute (MutationObserver)
+            # Clear pending images after sending
+            if len(self.pending_images) > 0:  # type: ignore[attr-defined]
+                self.clear_pending_images()  # type: ignore[attr-defined]
+
+            # TTS: Generate audio for AI response if enabled (BEFORE title generation for faster feedback)
+            # IMPORTANT: Only for Standard mode! Multi-Agent modes generate TTS via add_agent_panel()
+            # which adds to tts_audio_queue. This prevents duplicate TTS generation.
+            # SKIP if streaming TTS is enabled - text was already sent sentence-by-sentence
+            if self.enable_tts and self.multi_agent_mode == "standard" and not self.tts_streaming_enabled:  # type: ignore[attr-defined]
+                try:
+                    self.add_debug("🔊 TTS: Starting TTS generation...")
+                    # Get AI response from llm_history (clean text without HTML formatting)
+                    # Format: {"role": "assistant", "content": "[AGENT]: text"}
+                    if len(self.llm_history) > 0:  # type: ignore[attr-defined]
+                        last_msg = self.llm_history[-1]  # type: ignore[attr-defined]
+                        if last_msg.get("role") == "assistant":
+                            ai_response = last_msg.get("content", "")
+                            # Extract agent from label prefix like "[AIFRED]: " or "[SOKRATES]: "
+                            tts_agent = "aifred"  # Default
+                            agent_match = re.match(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', ai_response)
+                            if agent_match:
+                                tts_agent = agent_match.group(1).lower()
+                                ai_response = ai_response[agent_match.end():]
+                            if ai_response and ai_response.strip():
+                                # Generate TTS and wait for completion
+                                # This allows audio URL to be added to message metadata
+                                await self._generate_tts_for_response(ai_response, agent=tts_agent)  # type: ignore[attr-defined]
+                                yield  # Update UI with audio button
+                            else:
+                                from ..lib.logging_utils import console_separator
+                                self.add_debug("⚠️ TTS: Enabled but no AI response to convert")
+                                console_separator()
+                                self.add_debug("────────────────────")
+                        else:
+                            from ..lib.logging_utils import console_separator
+                            self.add_debug("⚠️ TTS: Last message is not from assistant")
+                            console_separator()
+                            self.add_debug("────────────────────")
+                    else:
+                        from ..lib.logging_utils import console_separator
+                        self.add_debug("⚠️ TTS: Enabled but LLM history is empty")
+                        console_separator()
+                        self.add_debug("────────────────────")
+                except Exception as tts_error:
+                    self.add_debug(f"⚠️ TTS generation failed: {tts_error}")
+                    log_message(f"❌ TTS error in finally block: {tts_error}")
+
+            # Generate session title at end of flow (uses small Automatik model)
+            # Only runs on first Q&A pair, skipped if title already exists
+            async for _ in self._generate_session_title():  # type: ignore[attr-defined]
+                yield  # Forward UI updates from title generation
+
+            # Auto-Save: Session nach jeder Chat-Nachricht speichern
+            # IMPORTANT: Save BEFORE refresh so message_count is up-to-date
+            self._save_current_session()  # type: ignore[attr-defined]
+
+            # Refresh session list to update sorting (last_seen changed) and message count
+            self.refresh_session_list()  # type: ignore[attr-defined]
+            yield
+
+            # Final cleanup: Clear streaming state
+            self.current_agent = ""
+            self.current_ai_response = ""
+
+    # ── Clear Chat ───────────────────────────────────────────────────
+
+    def clear_chat(self) -> None:
+        """UI Event Handler: Clear chat history (shows debug message)."""
+        if not self.logged_in_user:  # type: ignore[attr-defined]
+            self.add_debug("⚠️ Bitte zuerst anmelden")
+            return
+        self._clear_chat_internal(silent=False)  # type: ignore[attr-defined]

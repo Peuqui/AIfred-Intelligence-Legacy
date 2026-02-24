@@ -569,7 +569,7 @@ async def run_sokrates_direct_response(
 
         # Determine Sokrates model
         sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.aifred_model_id
-        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model
+        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model  # type: ignore[has-type]
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
 
         # Calculate context limit (uses SINGLE SOURCE OF TRUTH with XTTS reservation)
@@ -594,7 +594,7 @@ async def run_sokrates_direct_response(
         messages.insert(0, {"role": "system", "content": system_prompt})
 
         # Calculate Sokrates temperature based on mode
-        if state.temperature_mode == "manual":
+        if state.temperature_mode == "manual":  # type: ignore[has-type]
             sokrates_direct_temp = state.sokrates_temperature
         else:
             # Auto mode: AIfred's temperature + offset (capped at 1.0)
@@ -757,7 +757,7 @@ async def run_salomo_direct_response(
 
         # Determine Salomo model
         salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
-        salomo_display = state.salomo_model if state.salomo_model else state.aifred_model
+        salomo_display = state.salomo_model if state.salomo_model else state.aifred_model  # type: ignore[has-type]
         state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
         # Calculate context limit (uses SINGLE SOURCE OF TRUTH with XTTS reservation)
@@ -782,7 +782,7 @@ async def run_salomo_direct_response(
         messages.insert(0, {"role": "system", "content": system_prompt})
 
         # Calculate Salomo temperature based on mode
-        if state.temperature_mode == "manual":
+        if state.temperature_mode == "manual":  # type: ignore[has-type]
             salomo_direct_temp = state.salomo_temperature
         else:
             # Auto mode: AIfred's temperature + offset (capped at 1.0)
@@ -958,7 +958,7 @@ async def run_sokrates_analysis(
 
         # Determine models
         sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.aifred_model_id
-        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model
+        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model  # type: ignore[has-type]
         alfred_model = state.aifred_model_id
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
 
@@ -1004,7 +1004,7 @@ async def run_sokrates_analysis(
         )
 
         # Calculate temperatures based on mode
-        if state.temperature_mode == "manual":
+        if state.temperature_mode == "manual":  # type: ignore[has-type]
             alfred_temp = state.temperature
             sokrates_temp = state.sokrates_temperature
             salomo_temp = state.salomo_temperature
@@ -1149,7 +1149,7 @@ async def run_sokrates_analysis(
             if state.multi_agent_mode == "auto_consensus":
                 # Determine Salomo model
                 salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
-                salomo_display = state.salomo_model if state.salomo_model else state.aifred_model
+                salomo_display = state.salomo_model if state.salomo_model else state.aifred_model  # type: ignore[has-type]
 
                 if round_num == 1:
                     state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
@@ -1434,9 +1434,9 @@ async def run_tribunal(
 
         # Determine models
         sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.aifred_model_id
-        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model
+        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model  # type: ignore[has-type]
         salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
-        salomo_display = state.salomo_model if state.salomo_model else state.aifred_model
+        salomo_display = state.salomo_model if state.salomo_model else state.aifred_model  # type: ignore[has-type]
         alfred_model = state.aifred_model_id
 
         state.add_debug("⚖️ Tribunal mode started")
@@ -1466,7 +1466,7 @@ async def run_tribunal(
         _last_vram_limit_cache["limit"] = min_ctx
 
         # Calculate temperatures
-        if state.temperature_mode == "manual":
+        if state.temperature_mode == "manual":  # type: ignore[has-type]
             alfred_temp = state.temperature
             sokrates_temp = state.sokrates_temperature
             salomo_temp = state.salomo_temperature

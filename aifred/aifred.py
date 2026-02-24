@@ -446,7 +446,7 @@ def image_upload_section() -> rx.Component:
                             position="absolute",
                             top="4px",
                             left="4px",
-                            on_click=AIState.open_crop_modal(idx),  # type: ignore[call-arg]
+                            on_click=AIState.open_crop_modal(idx),  # type: ignore[call-arg, func-returns-value]
                             title=t("crop_tooltip"),
                         ),
                         # Remove-Button (rechts oben) - größer für Touch
@@ -458,7 +458,7 @@ def image_upload_section() -> rx.Component:
                             position="absolute",
                             top="4px",
                             right="4px",
-                            on_click=AIState.remove_pending_image(idx),  # type: ignore[call-arg]
+                            on_click=AIState.remove_pending_image(idx),  # type: ignore[call-arg, func-returns-value]
                         ),
                         position="relative",
                     )
@@ -1060,7 +1060,7 @@ def llm_parameters_accordion() -> rx.Component:
                             ),
                             rx.input(
                                 placeholder="32768",
-                                default_value=AIState.vision_num_ctx.to(str),  # Uncontrolled: user can type freely
+                                default_value=AIState.vision_num_ctx.to(str),  # type: ignore[union-attr]  # Uncontrolled: user can type freely
                                 on_blur=AIState.set_vision_num_ctx,  # Save only when leaving field (Tab/Enter/click away)
                                 type="number",
                                 width="78px",
@@ -1406,7 +1406,7 @@ def render_history_thumbnail(img_data) -> rx.Component:
         border_radius="4px",
         cursor="pointer",
         border=f"1px solid {COLORS['border']}",
-        on_click=AIState.open_lightbox(img_url),  # type: ignore[call-arg]
+        on_click=AIState.open_lightbox(img_url),  # type: ignore[call-arg, func-returns-value]
         style={
             "transition": "transform 0.2s ease, box-shadow 0.2s ease",
             # Mobile touch handling - prevent native context menu

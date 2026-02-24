@@ -1,0 +1,700 @@
+"""TTS configuration mixin for AIfred state.
+
+Handles TTS engine selection, voice settings, per-agent voice configuration,
+and engine-specific preferences (XTTS GPU/CPU mode, voice caching, etc.).
+
+Does NOT contain TTS streaming/generation logic (see _tts_streaming_mixin.py).
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
+import reflex as rx
+
+
+class TTSConfigMixin(rx.State, mixin=True):
+    """Mixin for TTS configuration, voice settings, and engine management."""
+
+    # ── TTS Settings ──────────────────────────────────────────────
+    enable_tts: bool = False
+    tts_voice: str = "AIfred"  # Default voice - XTTS custom voice
+    tts_speed: float = 1.0  # Speed multiplier (1.0 = normal, browser playback handles tempo)
+    tts_engine: str = "xtts"  # TTS engine key (default: XTTS)
+    tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
+    tts_playback_rate: str = "1.0x"  # Browser playback rate (1.0 = neutral, speed via Agent Settings)
+    tts_pitch: str = "1.0"  # Pitch adjustment (0.8 = lower, 1.0 = normal, 1.2 = higher)
+    # Per-Agent TTS Voice Settings (for Multi-Agent mode with distinct voices)
+    # Format: agent_id -> {"voice": str, "speed": str, "pitch": str, "enabled": bool}
+    # Agents: aifred (default), sokrates, salomo
+    tts_agent_voices: Dict[str, Dict[str, Any]] = {
+        "aifred": {"voice": "\u2605 AIfred", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+        "sokrates": {"voice": "\u2605 Sokrates", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+        "salomo": {"voice": "Baldur Sanjin", "speed": "1.0x", "pitch": "1.0", "enabled": True},
+    }
+    # XTTS voices cache - refreshed when engine changes to XTTS
+    xtts_voices_cache: List[str] = []
+    # XTTS CPU Mode - Force CPU inference (slower but saves GPU VRAM for LLM)
+    xtts_force_cpu: bool = False
+    # MOSS-TTS device ("cuda", "cpu", or "" if not running)
+    # Used by context_manager/context_utils for VRAM reservation
+    moss_tts_device: str = ""
+    # Streaming TTS toggle (config only — streaming logic is elsewhere)
+    tts_streaming_enabled: bool = True  # Enable streaming TTS (vs waiting for full response)
+
+    # ── Computed Vars ─────────────────────────────────────────────
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def tts_engines(self) -> List[str]:
+        """Available TTS engines for dropdown selection (translated labels)."""
+        from ..lib.config import TTS_ENGINE_KEYS
+        from ..lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        return [t(f"tts_engine_{key}", lang=lang) for key in TTS_ENGINE_KEYS]
+
+    @rx.var
+    def xtts_gpu_enabled(self) -> bool:
+        """Computed: True when GPU mode, False when CPU mode."""
+        return not self.xtts_force_cpu
+
+    @rx.var(deps=["tts_engine", "xtts_voices_cache"], auto_deps=False)
+    def available_tts_voices(self) -> List[str]:
+        """
+        Returns list of available TTS voices for the current engine.
+        Edge TTS, XTTS v2, Piper and eSpeak have different voice sets.
+
+        Note: Uses auto_deps=False with explicit deps to disable automatic
+        dependency detection (Reflex cannot introspect module-level imports).
+        XTTS voices come from xtts_voices_cache (refreshed via _refresh_xtts_voices).
+        """
+        from ..lib.config import EDGE_TTS_VOICES, ESPEAK_VOICES, PIPER_VOICES
+
+        if self.tts_engine == "xtts":
+            # Use cached voices (refreshed when engine changes to XTTS)
+            if self.xtts_voices_cache:
+                return self.xtts_voices_cache  # Already sorted by _refresh_xtts_voices
+            # Fallback when service unavailable
+            from ..lib.config import XTTS_VOICES_FALLBACK, sort_voices_custom_first
+            return sort_voices_custom_first(list(XTTS_VOICES_FALLBACK.keys()))
+        elif self.tts_engine == "moss":  # MOSS-TTS (batch)
+            from ..lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
+            voices = get_moss_voices()
+            if voices:
+                return sorted(list(voices.keys()))
+            return sorted(list(MOSS_TTS_VOICES_FALLBACK.keys()))
+        elif self.tts_engine == "dashscope":
+            from ..lib.config import DASHSCOPE_VOICES, sort_voices_custom_first
+            return sort_voices_custom_first(list(DASHSCOPE_VOICES.keys()))
+        elif self.tts_engine == "piper":
+            return sorted(list(PIPER_VOICES.keys()))
+        elif self.tts_engine == "espeak":
+            return sorted(list(ESPEAK_VOICES.keys()))
+        else:
+            return sorted(list(EDGE_TTS_VOICES.keys()))
+
+    @rx.var(deps=["enable_tts"], auto_deps=False)
+    def tts_player_visible(self) -> bool:
+        """Returns True if TTS audio player should be visible.
+
+        Player is visible when TTS is enabled (always shows player controls).
+        """
+        return self.enable_tts
+
+    @rx.var(deps=["enable_tts", "tts_engine", "ui_language"], auto_deps=False)
+    def tts_engine_or_off(self) -> str:
+        """Dropdown value: translated engine label when TTS enabled, translated 'Off' when disabled."""
+        from ..lib.i18n import tts_key_to_label
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        return tts_key_to_label(self.tts_engine, lang=lang) if self.enable_tts else tts_key_to_label("off", lang=lang)
+
+    # ── Per-Agent Computed Vars ───────────────────────────────────
+
+    @rx.var
+    def aifred_voice(self) -> str:
+        """Get AIfred's current voice"""
+        return str(self.tts_agent_voices.get("aifred", {}).get("voice", ""))
+
+    @rx.var
+    def sokrates_voice(self) -> str:
+        """Get Sokrates' current voice"""
+        return str(self.tts_agent_voices.get("sokrates", {}).get("voice", ""))
+
+    @rx.var
+    def salomo_voice(self) -> str:
+        """Get Salomo's current voice"""
+        return str(self.tts_agent_voices.get("salomo", {}).get("voice", ""))
+
+    @rx.var
+    def aifred_speed(self) -> str:
+        """Get AIfred's current speed"""
+        return str(self.tts_agent_voices.get("aifred", {}).get("speed", "1.0x"))
+
+    @rx.var
+    def sokrates_speed(self) -> str:
+        """Get Sokrates' current speed"""
+        return str(self.tts_agent_voices.get("sokrates", {}).get("speed", "1.0x"))
+
+    @rx.var
+    def salomo_speed(self) -> str:
+        """Get Salomo's current speed"""
+        return str(self.tts_agent_voices.get("salomo", {}).get("speed", "1.0x"))
+
+    @rx.var
+    def aifred_pitch(self) -> str:
+        """Get AIfred's current pitch"""
+        return str(self.tts_agent_voices.get("aifred", {}).get("pitch", "1.0"))
+
+    @rx.var
+    def sokrates_pitch(self) -> str:
+        """Get Sokrates' current pitch"""
+        return str(self.tts_agent_voices.get("sokrates", {}).get("pitch", "1.0"))
+
+    @rx.var
+    def salomo_pitch(self) -> str:
+        """Get Salomo's current pitch"""
+        return str(self.tts_agent_voices.get("salomo", {}).get("pitch", "1.0"))
+
+    @rx.var
+    def aifred_tts_enabled(self) -> bool:
+        """Check if AIfred's TTS is enabled"""
+        return bool(self.tts_agent_voices.get("aifred", {}).get("enabled", True))
+
+    @rx.var
+    def sokrates_tts_enabled(self) -> bool:
+        """Check if Sokrates' TTS is enabled"""
+        return bool(self.tts_agent_voices.get("sokrates", {}).get("enabled", True))
+
+    @rx.var
+    def salomo_tts_enabled(self) -> bool:
+        """Check if Salomo's TTS is enabled"""
+        return bool(self.tts_agent_voices.get("salomo", {}).get("enabled", True))
+
+    # ── TTS Toggle / Engine Selection ─────────────────────────────
+
+    def toggle_tts(self):
+        """Toggle TTS on/off.
+
+        When XTTS is selected:
+        - TTS OFF: Stop XTTS container (free VRAM)
+        - TTS ON: Start XTTS container with current CPU/GPU setting
+        """
+        self.enable_tts = not self.enable_tts
+        self.add_debug(f"🔊 TTS: {'enabled' if self.enable_tts else 'disabled'}")  # type: ignore[attr-defined]
+
+        # Handle Docker TTS container start/stop
+        if self.tts_engine == "xtts":
+            from ..lib.process_utils import set_xtts_cpu_mode, stop_xtts_container
+
+            if self.enable_tts:
+                success, message = set_xtts_cpu_mode(self.xtts_force_cpu)
+                if success:
+                    self.add_debug("✅ XTTS container started")  # type: ignore[attr-defined]
+                    self._refresh_xtts_voices()
+                else:
+                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
+            else:
+                success, message = stop_xtts_container()
+                if success:
+                    self.add_debug("✅ XTTS container stopped")  # type: ignore[attr-defined]
+                else:
+                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
+        elif self.tts_engine == "moss":  # MOSS-TTS (batch)
+            from ..lib.process_utils import ensure_moss_ready, stop_moss_container
+
+            if self.enable_tts:
+                success, message, device = ensure_moss_ready(timeout=120)
+                self.moss_tts_device = device if success else ""
+                if success:
+                    self.add_debug(f"✅ {message}")  # type: ignore[attr-defined]
+                else:
+                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
+            else:
+                success, message = stop_moss_container()
+                self.moss_tts_device = ""
+                if success:
+                    self.add_debug("✅ MOSS-TTS container stopped")  # type: ignore[attr-defined]
+                else:
+                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
+
+        self._save_settings()  # type: ignore[attr-defined]
+
+    def set_tts_engine_or_off(self, selection: str):
+        """Combined TTS on/off + engine selection from single dropdown.
+
+        Receives translated label from dropdown, maps to internal key.
+        "Off"/"Aus" disables TTS, any engine label enables TTS.
+        """
+        from ..lib.i18n import tts_label_to_key
+        key = tts_label_to_key(selection)
+        if key == "off":
+            if not self.enable_tts:
+                return
+
+            # Save per-engine settings before disabling
+            self._save_agent_voices_for_engine(self.tts_engine)
+            self._save_tts_toggles_for_engine(self.tts_engine)
+
+            self.enable_tts = False
+            self.add_debug("🔊 TTS: disabled")  # type: ignore[attr-defined]
+
+            # Stop running Docker containers
+            if self.tts_engine == "xtts":
+                from ..lib.process_utils import stop_xtts_container
+
+                success, message = stop_xtts_container()
+                if success:
+                    self.add_debug("✅ XTTS container stopped")  # type: ignore[attr-defined]
+                else:
+                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
+            elif self.tts_engine == "moss":
+                from ..lib.process_utils import stop_moss_container
+
+                success, message = stop_moss_container()
+                self.moss_tts_device = ""
+                if success:
+                    self.add_debug("✅ MOSS-TTS container stopped")  # type: ignore[attr-defined]
+                else:
+                    self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
+
+            self._save_settings()  # type: ignore[attr-defined]
+            return
+
+        # Engine selected — no-op if already active with same engine
+        if self.enable_tts and key == self.tts_engine:
+            return
+
+        was_enabled = self.enable_tts
+        old_key = self.tts_engine
+
+        # Save current per-engine settings BEFORE switching
+        if was_enabled:
+            self._save_agent_voices_for_engine(old_key)
+            self._save_tts_toggles_for_engine(old_key)
+
+        # Enable TTS + set engine key, update UI immediately
+        self.enable_tts = True
+        self.tts_engine = key
+        self.add_debug(f"🔊 TTS Engine: {key}")  # type: ignore[attr-defined]
+        yield
+
+        # Stop OLD Docker TTS container to free VRAM
+        if was_enabled:
+            if old_key == "xtts":
+                from ..lib.process_utils import stop_xtts_container
+
+                stop_xtts_container()
+                self.add_debug("🔊 XTTS container stopped (engine switch)")  # type: ignore[attr-defined]
+                yield
+            elif old_key == "moss":
+                from ..lib.process_utils import stop_moss_container
+
+                stop_moss_container()
+                self.moss_tts_device = ""
+                self.add_debug("🔊 MOSS-TTS container stopped (engine switch)")  # type: ignore[attr-defined]
+                yield
+
+        # Start NEW Docker TTS container
+        if key == "xtts":
+            from ..lib.process_utils import set_xtts_cpu_mode
+
+            success, msg = set_xtts_cpu_mode(self.xtts_force_cpu)
+            if success:
+                self.add_debug(f"✅ {msg}")  # type: ignore[attr-defined]
+            else:
+                self.add_debug(f"⚠️ {msg}")  # type: ignore[attr-defined]
+            self._refresh_xtts_voices()
+        elif key == "moss":
+            self.add_debug("🔊 MOSS-TTS: Loading model...")  # type: ignore[attr-defined]
+            yield
+            from ..lib.process_utils import ensure_moss_ready
+
+            success, msg, device = ensure_moss_ready(timeout=120)
+            self.moss_tts_device = device if success else ""
+            if success:
+                self.add_debug(f"✅ {msg}")  # type: ignore[attr-defined]
+            else:
+                self.add_debug(f"⚠️ {msg}")  # type: ignore[attr-defined]
+
+        # Restore per-engine settings for new engine
+        self._restore_agent_voices_for_engine(key)
+        self._restore_tts_toggles_for_engine(key)
+
+        # Restore user's saved voice preference for this engine
+        self._switch_tts_voice_for_language(self.ui_language)  # type: ignore[attr-defined]
+
+        self._save_settings()  # type: ignore[attr-defined]
+
+    # ── Voice / Speed / Pitch / Autoplay ──────────────────────────
+
+    def set_tts_voice(self, voice: str):
+        """Set TTS voice"""
+        self.tts_voice = voice
+        self.add_debug(f"🔊 TTS Voice: {voice}")  # type: ignore[attr-defined]
+        self._save_settings()  # type: ignore[attr-defined]
+
+    def toggle_xtts_gpu(self, use_gpu: bool):
+        """Toggle XTTS GPU mode with immediate UI feedback."""
+        import os
+        from ..lib.process_utils import set_xtts_cpu_mode
+        from ..lib.settings import SETTINGS_FILE
+
+        force_cpu = not use_gpu
+        self.xtts_force_cpu = force_cpu
+        mode_str = "GPU (auto)" if use_gpu else "CPU (forced)"
+        self.add_debug(f"🔊 XTTS: Wechsle zu {mode_str}...")  # type: ignore[attr-defined]
+        self._save_settings()  # type: ignore[attr-defined]
+        # Update mtime tracker so periodic poll doesn't re-trigger "Settings reloaded"
+        try:
+            self._last_settings_mtime = os.path.getmtime(SETTINGS_FILE)  # type: ignore[attr-defined]
+        except OSError:
+            pass
+        yield
+
+        success, message = set_xtts_cpu_mode(force_cpu)
+        if success:
+            self.add_debug(f"✅ {message}")  # type: ignore[attr-defined]
+        else:
+            self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
+
+    def set_xtts_force_cpu(self, force_cpu: bool):
+        """Set XTTS CPU mode and restart container.
+
+        When force_cpu=True:
+        - XTTS runs on CPU (slower, but saves GPU VRAM for LLM)
+        - No VRAM reservation needed for context calculation
+
+        When force_cpu=False:
+        - XTTS auto-detects GPU/CPU based on available VRAM
+        - VRAM reservation applied to context calculation
+        """
+        from ..lib.process_utils import set_xtts_cpu_mode
+
+        self.xtts_force_cpu = force_cpu
+        mode_str = "CPU (forced)" if force_cpu else "GPU (auto)"
+        self.add_debug(f"🔊 XTTS Mode: {mode_str} - restarting container...")  # type: ignore[attr-defined]
+
+        # Restart XTTS container with new setting
+        success, message = set_xtts_cpu_mode(force_cpu)
+
+        if success:
+            self.add_debug(f"✅ {message}")  # type: ignore[attr-defined]
+        else:
+            self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
+
+        self._save_settings()  # type: ignore[attr-defined]
+
+    async def unload_xtts_model(self):
+        """Unload XTTS model from memory to free VRAM."""
+        import httpx
+        from ..lib.config import XTTS_SERVICE_URL
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(f"{XTTS_SERVICE_URL}/unload")
+                response.raise_for_status()
+                data = response.json()
+
+                if data.get("success"):
+                    freed_device = data.get("freed_device", "unknown")
+                    self.add_debug(f"✅ XTTS model unloaded from {freed_device}")  # type: ignore[attr-defined]
+                    yield rx.toast.success(f"XTTS model unloaded from {freed_device}", duration=3000)
+                else:
+                    self.add_debug("⚠️ XTTS unload failed")  # type: ignore[attr-defined]
+                    yield rx.toast.error("Failed to unload XTTS model", duration=3000)
+
+        except Exception as e:
+            self.add_debug(f"❌ XTTS unload error: {e}")  # type: ignore[attr-defined]
+            yield rx.toast.error(f"Error: {e}", duration=3000)
+
+    # Note: set_tts_speed removed - generation always at 1.0, tempo via browser playback rate
+
+    def toggle_tts_autoplay(self):
+        """Toggle TTS auto-play"""
+        self.tts_autoplay = not self.tts_autoplay
+        self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")  # type: ignore[attr-defined]
+        self._save_settings()  # type: ignore[attr-defined]
+
+    def toggle_tts_streaming(self):
+        """Toggle streaming TTS (sentence-by-sentence vs complete response)"""
+        self.tts_streaming_enabled = not self.tts_streaming_enabled
+        mode = "Streaming (realtime)" if self.tts_streaming_enabled else "Standard (after response)"
+        self.add_debug(f"🔊 TTS Mode: {mode}")  # type: ignore[attr-defined]
+        self._save_settings()  # type: ignore[attr-defined]
+
+    def set_tts_playback_rate(self, rate: str):
+        """Set TTS playback rate (browser-side only, TTS generation stays at 1.0)"""
+        self.tts_playback_rate = rate
+        self.add_debug(f"🔊 TTS Tempo: {rate}")  # type: ignore[attr-defined]
+        self._save_settings()  # type: ignore[attr-defined]
+        # Apply rate to current audio player via JavaScript
+        rate_value = rate.replace("x", "")
+        return rx.call_script(f"setTtsPlaybackRate({rate_value})")
+
+    def set_tts_pitch(self, pitch: str):
+        """Set TTS pitch adjustment (applied via ffmpeg post-processing)"""
+        self.tts_pitch = pitch
+        self.add_debug(f"🔊 TTS Pitch: {pitch}")  # type: ignore[attr-defined]
+        self._save_settings()  # type: ignore[attr-defined]
+
+    # ── Per-Agent Voice Settings ──────────────────────────────────
+
+    def set_agent_voice(self, agent: str, voice: str):
+        """Set voice for a specific agent (aifred, sokrates, salomo)"""
+        if agent in self.tts_agent_voices:
+            self.tts_agent_voices[agent]["voice"] = voice
+            self.add_debug(f"🔊 {agent.capitalize()} Voice: {voice}")  # type: ignore[attr-defined]
+            self._save_settings()  # type: ignore[attr-defined]
+
+    def set_agent_speed(self, agent: str, speed: str):
+        """Set playback speed for a specific agent"""
+        if agent in self.tts_agent_voices:
+            self.tts_agent_voices[agent]["speed"] = speed
+            self.add_debug(f"🔊 {agent.capitalize()} Speed: {speed}")  # type: ignore[attr-defined]
+            self._save_settings()  # type: ignore[attr-defined]
+
+    def set_agent_pitch(self, agent: str, pitch: str):
+        """Set pitch for a specific agent"""
+        if agent in self.tts_agent_voices:
+            self.tts_agent_voices[agent]["pitch"] = pitch
+            self.add_debug(f"🔊 {agent.capitalize()} Pitch: {pitch}")  # type: ignore[attr-defined]
+            self._save_settings()  # type: ignore[attr-defined]
+
+    def toggle_agent_tts(self, agent: str):
+        """Toggle TTS enabled for a specific agent"""
+        if agent in self.tts_agent_voices:
+            self.tts_agent_voices[agent]["enabled"] = not self.tts_agent_voices[agent]["enabled"]
+            status = "enabled" if self.tts_agent_voices[agent]["enabled"] else "disabled"
+            self.add_debug(f"🔊 {agent.capitalize()} TTS: {status}")  # type: ignore[attr-defined]
+            self._save_settings()  # type: ignore[attr-defined]
+
+    # Helper methods to create bound event handlers for UI
+    def set_aifred_voice(self, voice: str):
+        """Set AIfred's voice"""
+        self.set_agent_voice("aifred", voice)
+
+    def set_sokrates_voice(self, voice: str):
+        """Set Sokrates' voice"""
+        self.set_agent_voice("sokrates", voice)
+
+    def set_salomo_voice(self, voice: str):
+        """Set Salomo's voice"""
+        self.set_agent_voice("salomo", voice)
+
+    def set_aifred_speed(self, speed: str):
+        """Set AIfred's playback speed"""
+        self.set_agent_speed("aifred", speed)
+        # Also update browser playback rate immediately (so currently playing audio changes speed)
+        self.tts_playback_rate = speed
+
+    def set_sokrates_speed(self, speed: str):
+        """Set Sokrates' playback speed"""
+        self.set_agent_speed("sokrates", speed)
+        # Also update browser playback rate immediately (so currently playing audio changes speed)
+        self.tts_playback_rate = speed
+
+    def set_salomo_speed(self, speed: str):
+        """Set Salomo's playback speed"""
+        self.set_agent_speed("salomo", speed)
+        # Also update browser playback rate immediately (so currently playing audio changes speed)
+        self.tts_playback_rate = speed
+
+    def set_aifred_pitch(self, pitch: str):
+        """Set AIfred's pitch"""
+        self.set_agent_pitch("aifred", pitch)
+
+    def set_sokrates_pitch(self, pitch: str):
+        """Set Sokrates' pitch"""
+        self.set_agent_pitch("sokrates", pitch)
+
+    def set_salomo_pitch(self, pitch: str):
+        """Set Salomo's pitch"""
+        self.set_agent_pitch("salomo", pitch)
+
+    def toggle_aifred_tts(self):
+        """Toggle AIfred's TTS"""
+        self.toggle_agent_tts("aifred")
+
+    def toggle_sokrates_tts(self):
+        """Toggle Sokrates' TTS"""
+        self.toggle_agent_tts("sokrates")
+
+    def toggle_salomo_tts(self):
+        """Toggle Salomo's TTS"""
+        self.toggle_agent_tts("salomo")
+
+    # ── Engine Key Helper ─────────────────────────────────────────
+
+    def _get_engine_key(self) -> str:
+        """Get engine key for config lookup (xtts, moss, dashscope, piper, espeak, edge).
+
+        Since tts_engine now stores keys directly, this just returns self.tts_engine.
+        """
+        return self.tts_engine
+
+    # ── XTTS Voice Refresh ────────────────────────────────────────
+
+    def _refresh_xtts_voices(self):
+        """Refresh XTTS voices from Docker service.
+
+        Also validates that agent voices are in the available list.
+        If a saved voice is not found, it resets to the default.
+        """
+        from ..lib.config import get_xtts_voices, TTS_AGENT_VOICE_DEFAULTS
+        voices = get_xtts_voices()
+        if voices:
+            from ..lib.config import sort_voices_custom_first
+            self.xtts_voices_cache = sort_voices_custom_first(list(voices.keys()))
+            self.add_debug(f"🎤 XTTS: {len(voices)} voices loaded")  # type: ignore[attr-defined]
+
+            # Validate agent voices - reset if not in available list
+            xtts_defaults = TTS_AGENT_VOICE_DEFAULTS.get("xtts", {})
+            for agent in ["aifred", "sokrates", "salomo"]:
+                current_voice = self.tts_agent_voices.get(agent, {}).get("voice", "")
+                if current_voice and current_voice not in self.xtts_voices_cache:
+                    # Voice not found - use default
+                    default_voice = xtts_defaults.get(agent, {}).get("voice", "")
+                    if default_voice:
+                        self.tts_agent_voices[agent]["voice"] = default_voice
+                        self.add_debug(f"⚠️ XTTS: Reset {agent} voice to {default_voice}")  # type: ignore[attr-defined]
+
+    # ── Per-Engine Settings Persistence ───────────────────────────
+
+    def _save_agent_voices_for_engine(self, engine_key: str):
+        """Save current agent voices to settings for the specified engine.
+
+        Called before switching to a different TTS engine to preserve
+        the user's agent voice preferences for that engine.
+        """
+        import copy
+        from ..lib.settings import load_settings, save_settings
+
+        settings = load_settings() or {}
+        if "tts_agent_voices_per_engine" not in settings:
+            settings["tts_agent_voices_per_engine"] = {}
+
+        # Deep copy current agent voices
+        settings["tts_agent_voices_per_engine"][engine_key] = copy.deepcopy(self.tts_agent_voices)
+        save_settings(settings)
+
+    def _restore_agent_voices_for_engine(self, engine_key: str):
+        """Restore agent voices from settings for the specified engine.
+
+        Called after switching to a different TTS engine to restore
+        the user's previously saved agent voice preferences for that engine.
+        Falls back to engine-specific defaults if no saved preferences exist.
+        """
+        from ..lib.settings import load_settings
+        from ..lib.config import TTS_AGENT_VOICE_DEFAULTS
+
+        settings = load_settings() or {}
+        saved_agent_voices = settings.get("tts_agent_voices_per_engine", {}).get(engine_key)
+
+        if saved_agent_voices:
+            # Restore from saved preferences
+            for agent in self.tts_agent_voices:
+                if agent in saved_agent_voices:
+                    self.tts_agent_voices[agent].update(saved_agent_voices[agent])
+            source = "Restored"
+        else:
+            # Use engine-specific defaults
+            defaults = TTS_AGENT_VOICE_DEFAULTS.get(engine_key, {})
+            for agent, settings_dict in defaults.items():
+                if agent in self.tts_agent_voices:
+                    self.tts_agent_voices[agent].update(settings_dict)
+            source = "Default"
+
+        # Log actual agent voices
+        voice_list = ", ".join(
+            f"{a.capitalize()}={self.tts_agent_voices[a].get('voice', '?')}"
+            for a in self.tts_agent_voices
+        )
+        self.add_debug(f"🔊 {source} agent voices for {engine_key}: {voice_list}")  # type: ignore[attr-defined]
+
+    def _save_tts_toggles_for_engine(self, engine_key: str):
+        """Save current TTS toggles (autoplay, streaming) for the specified engine."""
+        from ..lib.settings import load_settings, save_settings
+
+        settings = load_settings() or {}
+        if "tts_toggles_per_engine" not in settings:
+            settings["tts_toggles_per_engine"] = {}
+
+        settings["tts_toggles_per_engine"][engine_key] = {
+            "autoplay": self.tts_autoplay,
+            "streaming": self.tts_streaming_enabled,
+        }
+        save_settings(settings)
+
+    def _restore_tts_toggles_for_engine(self, engine_key: str):
+        """Restore TTS toggles from settings for the specified engine.
+
+        Falls back to engine-specific defaults if no saved preferences exist.
+        """
+        from ..lib.settings import load_settings
+        from ..lib.config import TTS_TOGGLE_DEFAULTS
+
+        settings = load_settings() or {}
+        saved_toggles = settings.get("tts_toggles_per_engine", {}).get(engine_key)
+
+        if saved_toggles:
+            self.tts_autoplay = saved_toggles.get("autoplay", True)
+            self.tts_streaming_enabled = saved_toggles.get("streaming", True)
+            self.add_debug(f"🔊 Restored TTS toggles for {engine_key}: autoplay={self.tts_autoplay}, streaming={self.tts_streaming_enabled}")  # type: ignore[attr-defined]
+        else:
+            defaults = TTS_TOGGLE_DEFAULTS.get(engine_key, {"autoplay": True, "streaming": True})
+            self.tts_autoplay = defaults["autoplay"]
+            self.tts_streaming_enabled = defaults["streaming"]
+            self.add_debug(f"🔊 Default TTS toggles for {engine_key}: autoplay={self.tts_autoplay}, streaming={self.tts_streaming_enabled}")  # type: ignore[attr-defined]
+
+    # ── Language-based Voice Switching ─────────────────────────────
+
+    def _switch_tts_voice_for_language(self, lang: str):
+        """Switch TTS voice to appropriate language voice for current engine.
+
+        Priority:
+        1. User's saved preference for this engine/language (from assistant_settings.json)
+        2. Default voice from TTS_DEFAULT_VOICES config
+        """
+        from ..lib.config import TTS_DEFAULT_VOICES, EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
+        from ..lib.settings import load_settings
+
+        engine_key = self._get_engine_key()
+
+        # Get voice dictionary for current engine
+        # Values: str (Edge/XTTS/MOSS/DashScope) or tuple[str, str] (Piper/eSpeak)
+        voice_dict: dict[str, Any] = {}
+        if engine_key == "piper":
+            voice_dict = PIPER_VOICES
+        elif engine_key == "espeak":
+            voice_dict = ESPEAK_VOICES
+        elif engine_key == "xtts":
+            # XTTS voices are loaded dynamically - use cached list or fallback
+            from ..lib.config import XTTS_VOICES_FALLBACK
+            if self.xtts_voices_cache:
+                voice_dict = {voice: voice for voice in self.xtts_voices_cache}
+            else:
+                voice_dict = XTTS_VOICES_FALLBACK
+        elif engine_key == "moss":
+            # MOSS voices are loaded dynamically - fetch fresh or use fallback
+            from ..lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
+            moss_voices = get_moss_voices()
+            voice_dict = moss_voices if moss_voices else MOSS_TTS_VOICES_FALLBACK
+        elif engine_key == "dashscope":
+            from ..lib.config import DASHSCOPE_VOICES
+            voice_dict = DASHSCOPE_VOICES
+        else:
+            voice_dict = EDGE_TTS_VOICES
+
+        # Priority 1: Check for user's saved preference
+        saved_settings = load_settings() or {}
+        user_voices = saved_settings.get("tts_voices_per_language", {})
+        user_voice = user_voices.get(engine_key, {}).get(lang)
+
+        if user_voice and user_voice in voice_dict:
+            self.tts_voice = user_voice
+            return
+
+        # Priority 2: Use default voice from config
+        default_voice = TTS_DEFAULT_VOICES.get(engine_key, {}).get(lang)
+
+        if default_voice and default_voice in voice_dict:
+            self.tts_voice = default_voice
