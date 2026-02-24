@@ -213,39 +213,47 @@ def parse_pro_contra(analysis: str) -> tuple[str, str]:
 # STREAMING HELPERS
 # ============================================================
 
-async def _stream_sokrates_to_history(
+async def _stream_agent_to_history(
     state: 'AIState',
+    agent: str,
+    agent_label: str,
     llm_client: LLMClient,
     model: str,
     messages: list,
     options: LLMOptions,
 ) -> AsyncGenerator[dict[str, Any] | None, None]:
-    """
-    Stream Sokrates response into current_ai_response (unified streaming).
+    """Stream an agent's response into current_ai_response (unified streaming).
+
+    Generic streaming function used by all agents (Sokrates, AIfred, Salomo).
 
     Performance-optimized: Does NOT update chat_history during streaming.
     Only updates state.current_ai_response which is shown in unified streaming_box.
     Caller is responsible for appending final result to chat_history.
+
+    Args:
+        agent: Agent key for state/TTS ("sokrates", "aifred", "salomo")
+        agent_label: Display label for logs ("Sokrates", "AIfred Refinement", "Salomo")
     """
     full_response = ""
     token_count = 0
     timer = Timer()
     ttft = 0.0
     first_token = False
+    metrics: dict[str, Any] = {}
 
     # Set current agent for UI styling
-    state.current_agent = "sokrates"
+    state.current_agent = agent
     state.current_ai_response = ""
 
-    # Initialize streaming TTS for Sokrates
+    # Initialize streaming TTS
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-        state._init_streaming_tts(agent="sokrates")
+        state._init_streaming_tts(agent=agent)
 
-    async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "Sokrates", state):
+    async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, agent_label, state):
         if chunk["type"] == "content":
             if not first_token:
                 ttft = timer.elapsed()
-                log_message(f"⚡ Sokrates TTFT: {format_number(ttft, 2)}s")
+                log_message(f"⚡ {agent_label} TTFT: {format_number(ttft, 2)}s")
                 state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
                 first_token = True
 
@@ -273,201 +281,30 @@ async def _stream_sokrates_to_history(
         inference_time=inference_time,
         tokens_generated=token_count,
         tokens_per_sec=tokens_per_sec,
-        source=f"Sokrates ({model})",
+        source=f"{agent_label} ({model})",
         backend_metrics=metrics,
         tokens_prompt=metrics.get("tokens_prompt", 0),
-        agent_label="Sokrates",
+        agent_label=agent_label,
         response_chars=len(full_response),
     )
     state.add_debug(debug_msg)
     if audio_urls:
-        log_message(f"🔊 Sokrates: {len(audio_urls)} audio URLs collected for message")
+        log_message(f"🔊 {agent_label}: {len(audio_urls)} audio URLs collected for message")
 
-    # DUAL-HISTORY: Sync Sokrates response to llm_history (SSoT)
-    state._sync_to_llm_history("sokrates", full_response)
+    # Sync to llm_history BEFORE clearing state (SSoT)
+    state._sync_to_llm_history(agent, full_response)
 
-    # Clear streaming state (cleanup)
+    # Clear streaming state (cleanup BEFORE yield)
     state.current_ai_response = ""
     state.current_agent = ""
 
-    # RETURN result as final yield (dict = result, None = UI update)
+    # Return result as final yield (dict = result, None = UI update)
     yield {
         "text": full_response,
         "metadata_display": metadata_display,
         "metadata_dict": metadata_dict,
-        "audio_urls": audio_urls
+        "audio_urls": audio_urls,
     }
-
-
-async def _stream_alfred_refinement(
-    state: 'AIState',
-    llm_client: LLMClient,
-    model: str,
-    messages: list,
-    options: LLMOptions,
-) -> AsyncGenerator[dict[str, Any] | None, None]:
-    """
-    Stream AIfred's refined answer into current_ai_response (unified streaming).
-
-    Performance-optimized: Does NOT update chat_history during streaming.
-    Only updates state.current_ai_response which is shown in unified streaming_box.
-    Caller is responsible for appending final result to chat_history.
-    """
-    # Set current agent for UI styling
-    state.current_agent = "aifred"
-    state.current_ai_response = ""
-
-    # Initialize streaming TTS for AIfred Refinement
-    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-        state._init_streaming_tts(agent="aifred")
-
-    full_response = ""
-    token_count = 0
-    timer = Timer()
-    ttft = 0.0
-    first_token = False
-
-    async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "AIfred Refinement", state):
-        if chunk["type"] == "content":
-            if not first_token:
-                ttft = timer.elapsed()
-                log_message(f"⚡ AIfred Refinement TTFT: {format_number(ttft, 2)}s")
-                state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
-                first_token = True
-            full_response += chunk["text"]
-            token_count += 1
-
-            state.stream_text_to_ui(chunk["text"])
-            yield None
-
-        elif chunk["type"] == "done":
-            metrics = chunk.get("metrics", {})
-            token_count = metrics.get("tokens_generated", token_count)
-
-    # Finalize streaming TTS: send any remaining text in buffer
-    audio_urls: list[str] = []
-    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-        audio_urls = await state._finalize_streaming_tts()
-
-    # Centralized metadata (PP speed, debug log, chat bubble)
-    inference_time = timer.elapsed()
-    tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
-
-    metadata_dict, metadata_display, debug_msg = build_inference_metadata(
-        ttft=ttft,
-        inference_time=inference_time,
-        tokens_generated=token_count,
-        tokens_per_sec=tokens_per_sec,
-        source=f"AIfred ({model})",
-        backend_metrics=metrics,
-        tokens_prompt=metrics.get("tokens_prompt", 0),
-        agent_label="AIfred Refinement",
-        response_chars=len(full_response),
-    )
-    state.add_debug(debug_msg)
-    if audio_urls:
-        log_message(f"🔊 AIfred Refinement: {len(audio_urls)} audio URLs collected for message")
-
-    # DUAL-HISTORY: Sync AIfred refinement to llm_history (SSoT)
-    state._sync_to_llm_history("aifred", full_response)
-
-    # RETURN result as final yield (dict = result, None = UI update)
-    yield {
-        "text": full_response,
-        "metadata_display": metadata_display,
-        "metadata_dict": metadata_dict,
-        "audio_urls": audio_urls
-    }
-
-    # Clear streaming state (cleanup)
-    state.current_ai_response = ""
-    state.current_agent = ""
-
-
-async def _stream_salomo_to_history(
-    state: 'AIState',
-    llm_client: LLMClient,
-    model: str,
-    messages: list,
-    options: LLMOptions,
-) -> AsyncGenerator[dict[str, Any] | None, None]:
-    """
-    Stream Salomo response into current_ai_response (unified streaming).
-
-    Performance-optimized: Does NOT update chat_history during streaming.
-    Only updates state.current_ai_response which is shown in unified streaming_box.
-    Caller is responsible for appending final result to chat_history.
-    """
-    full_response = ""
-    token_count = 0
-    timer = Timer()
-    ttft = 0.0
-    first_token = False
-
-    # Set current agent for UI styling
-    state.current_agent = "salomo"
-    state.current_ai_response = ""
-
-    # Initialize streaming TTS for Salomo
-    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-        state._init_streaming_tts(agent="salomo")
-
-    async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, "Salomo", state):
-        if chunk["type"] == "content":
-            if not first_token:
-                ttft = timer.elapsed()
-                log_message(f"⚡ Salomo TTFT: {format_number(ttft, 2)}s")
-                state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
-                first_token = True
-
-            full_response += chunk["text"]
-            token_count += 1
-
-            state.stream_text_to_ui(chunk["text"])
-            yield None
-
-        elif chunk["type"] == "done":
-            metrics = chunk.get("metrics", {})
-            token_count = metrics.get("tokens_generated", token_count)
-
-    # Finalize streaming TTS: send any remaining text in buffer
-    audio_urls: list[str] = []
-    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-        audio_urls = await state._finalize_streaming_tts()
-
-    # Centralized metadata (PP speed, debug log, chat bubble)
-    inference_time = timer.elapsed()
-    tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
-
-    metadata_dict, metadata_display, debug_msg = build_inference_metadata(
-        ttft=ttft,
-        inference_time=inference_time,
-        tokens_generated=token_count,
-        tokens_per_sec=tokens_per_sec,
-        source=f"Salomo ({model})",
-        backend_metrics=metrics,
-        tokens_prompt=metrics.get("tokens_prompt", 0),
-        agent_label="Salomo",
-        response_chars=len(full_response),
-    )
-    state.add_debug(debug_msg)
-    if audio_urls:
-        log_message(f"🔊 Salomo: {len(audio_urls)} audio URLs collected for message")
-
-    # RETURN result as final yield (dict = result, None = UI update)
-    yield {
-        "text": full_response,
-        "metadata_display": metadata_display,
-        "metadata_dict": metadata_dict,
-        "audio_urls": audio_urls
-    }
-
-    # DUAL-HISTORY: Sync Salomo response to llm_history (SSoT)
-    state._sync_to_llm_history("salomo", full_response)
-
-    # Clear streaming state (cleanup)
-    state.current_ai_response = ""
-    state.current_agent = ""
 
 
 async def _check_compression_if_needed(
@@ -537,113 +374,106 @@ async def _check_compression_if_needed(
 # SOKRATES DIRECT RESPONSE (when user addresses Sokrates directly)
 # ============================================================
 
-async def run_sokrates_direct_response(
+async def _run_agent_direct_response(
     state: 'AIState',
+    agent: str,
+    agent_label: str,
+    emoji: str,
+    get_prompt_func: Any,
     user_query: str,
-    detected_lang: Optional[str] = None
+    detected_lang: Optional[str] = None,
 ) -> AsyncGenerator[None, None]:
-    """
-    Sokrates responds directly to user (without AIfred's answer first).
+    """Generic direct response handler for secondary agents (Sokrates/Salomo).
 
-    This is called when user directly addresses Sokrates:
-    - "Sokrates, warum denkst du..."
-    - "@Sokrates erkläre mir..."
-    - "Hey Sokrates, ..."
+    Agent responds directly to user without AIfred answering first.
 
     Args:
-        state: The AIState object for accessing chat_history, add_debug, etc.
-        user_query: The user's question (with or without addressing prefix)
-        detected_lang: Language detected by LLM intent detection ("de" or "en")
-                      Defaults to UI-Language if not provided.
+        agent: Agent key ("sokrates" or "salomo")
+        agent_label: Display label ("Sokrates" or "Salomo")
+        emoji: Agent emoji for debug ("🏛️" or "👑")
+        get_prompt_func: Prompt loader function (get_sokrates_direct_prompt or get_salomo_direct_prompt)
+        user_query: The user's question
+        detected_lang: Language from intent detection, defaults to UI language
     """
-    # Fallback to UI language if not provided
     if detected_lang is None:
         from .prompt_loader import get_language
         detected_lang = get_language()
+
     try:
-        # Create LLM client
         llm_client = LLMClient(
             backend_type=state.backend_type,
             base_url=state.backend_url
         )
 
-        # Determine Sokrates model
-        sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.aifred_model_id
-        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model  # type: ignore[has-type]
-        state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
+        # Determine agent model (fallback to AIfred's model)
+        agent_model_id = getattr(state, f"{agent}_model_id") or state.aifred_model_id
+        agent_model_display = getattr(state, f"{agent}_model") or state.aifred_model  # type: ignore[has-type]
+        state.add_debug(f"{emoji} {agent_label}-LLM: {agent_model_display}")
 
-        # Calculate context limit (uses SINGLE SOURCE OF TRUTH with XTTS reservation)
+        # Context limit
         from .research.context_utils import get_agent_num_ctx
-        sokrates_num_ctx, ctx_source = get_agent_num_ctx("sokrates", state, sokrates_model)
-        state.add_debug(f"   🎯 Context: {sokrates_num_ctx:,} ({ctx_source})")
+        agent_num_ctx, ctx_source = get_agent_num_ctx(agent, state, agent_model_id)
+        state.add_debug(f"   🎯 Context: {agent_num_ctx:,} ({ctx_source})")
 
-        # Load system prompt from file (no hardcoded prompts!)
-        # detected_lang comes from LLM-based intent detection (passed from state.py)
-        system_prompt = get_sokrates_direct_prompt(lang=detected_lang)
+        # System prompt
+        system_prompt = get_prompt_func(lang=detected_lang)
 
-        # Build messages from LLM history with Sokrates perspective
-        # Sokrates sees his own messages as 'assistant', others as 'user'
+        # Build messages with agent's perspective
         messages: list[dict[str, Any]] = build_messages_from_llm_history(
             state.llm_history[:-1],
             user_query,
-            perspective="sokrates",
+            perspective=agent,
             detected_language=detected_lang
         )
-
-        # Prepend system message
         messages.insert(0, {"role": "system", "content": system_prompt})
 
-        # Calculate Sokrates temperature based on mode
+        # Temperature (manual or auto with offset)
+        agent_temp_attr = f"{agent}_temperature"
+        agent_offset_attr = f"{agent}_temperature_offset"
         if state.temperature_mode == "manual":  # type: ignore[has-type]
-            sokrates_direct_temp = state.sokrates_temperature
+            agent_temp = getattr(state, agent_temp_attr)
         else:
-            # Auto mode: AIfred's temperature + offset (capped at 1.0)
-            sokrates_direct_temp = min(1.0, state.temperature + state.sokrates_temperature_offset)
+            agent_temp = min(1.0, state.temperature + getattr(state, agent_offset_attr))
 
-        # Debug: Show context and temperature
-        state.add_debug(f"📊 Context: {format_number(sokrates_num_ctx/1000, 3)}k")
-        state.add_debug(f"🌡️ Temperature: {format_number(sokrates_direct_temp, 1)}")
+        state.add_debug(f"📊 Context: {format_number(agent_num_ctx/1000, 3)}k")
+        state.add_debug(f"🌡️ Temperature: {format_number(agent_temp, 1)}")
 
-        # LLM options - use per-agent reasoning toggle for enable_thinking
-        sokrates_options = build_llm_options(state, "sokrates", sokrates_direct_temp, sokrates_num_ctx)
+        agent_options = build_llm_options(state, agent, agent_temp, agent_num_ctx)
 
-        # Set current agent for unified streaming UI
-        state.current_agent = "sokrates"
+        # Unified streaming UI
+        state.current_agent = agent
         state.current_ai_response = ""
 
-        # Initialize streaming TTS for Sokrates direct response
+        # TTS init
         if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-            state._init_streaming_tts(agent="sokrates")
+            state._init_streaming_tts(agent=agent)
 
         # Streaming response
         full_response = ""
         token_count = 0
         timer = Timer()
         first_token = False
-        sokrates_ttft = 0.0
+        agent_ttft = 0.0
+        metrics: dict[str, Any] = {}
 
-        async for chunk in llm_client.chat_stream(sokrates_model, messages, sokrates_options):  # type: ignore[arg-type]
+        async for chunk in llm_client.chat_stream(agent_model_id, messages, agent_options):  # type: ignore[arg-type]
             chunk_type = chunk.get("type", "")
 
             if chunk_type == "content":
                 if not first_token:
-                    ttft = timer.elapsed()
-                    log_message(f"⚡ Sokrates TTFT: {format_number(ttft, 2)}s")
-                    state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
+                    agent_ttft = timer.elapsed()
+                    log_message(f"⚡ {agent_label} TTFT: {format_number(agent_ttft, 2)}s")
+                    state.add_debug(f"⚡ TTFT: {format_number(agent_ttft, 2)}s")
                     first_token = True
-                    sokrates_ttft = ttft  # Save for metadata
 
-                content = chunk.get("text", "")  # Key is "text", not "content"
+                content = chunk.get("text", "")
                 full_response += content
                 token_count += 1
-
-                # REAL-TIME streaming to UI (includes TTS chunk processing)
                 state.stream_text_to_ui(content)
                 yield
 
             elif chunk_type == "thinking":
-                # Handle thinking chunks (Qwen3 thinking mode)
-                thinking_content = chunk.get("text", "")  # Also "text" for thinking
+                thinking_content = chunk.get("text", "")
                 if thinking_content:
                     full_response += f"<think>{thinking_content}</think>"
 
@@ -651,260 +481,93 @@ async def run_sokrates_direct_response(
                 metrics = chunk.get("metrics", {})
                 token_count = metrics.get("tokens_generated", token_count)
 
-        # Finalize streaming TTS: send any remaining text in buffer
+        # Finalize streaming TTS
         audio_urls: list[str] = []
         if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
             audio_urls = await state._finalize_streaming_tts()
 
-        # Centralized metadata (PP speed, debug log, chat bubble)
+        # Metadata
         inference_time = timer.elapsed()
         tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
 
         metadata_dict, metadata_display, debug_msg = build_inference_metadata(
-            ttft=sokrates_ttft,
+            ttft=agent_ttft,
             inference_time=inference_time,
             tokens_generated=token_count,
             tokens_per_sec=tokens_per_sec,
-            source=f"Sokrates ({sokrates_model})",
+            source=f"{agent_label} ({agent_model_id})",
             backend_metrics=metrics,
             tokens_prompt=metrics.get("tokens_prompt", 0),
-            agent_label="Sokrates",
+            agent_label=agent_label,
             response_chars=len(full_response),
         )
         state.add_debug(debug_msg)
         if audio_urls:
-            log_message(f"🔊 Sokrates Direct: {len(audio_urls)} audio URLs collected for message")
+            log_message(f"🔊 {agent_label} Direct: {len(audio_urls)} audio URLs collected for message")
 
-        # Sync to llm_history with RAW content (SSoT — before formatting removes code context)
-        state._sync_to_llm_history("sokrates", full_response)
+        # Sync to llm_history with RAW content (SSoT)
+        state._sync_to_llm_history(agent, full_response)
 
-        # Format thinking blocks as collapsibles for UI display
+        # Format thinking blocks for UI
         formatted_response = format_thinking_process(
             full_response,
-            model_name=f"Sokrates ({sokrates_model})",
+            model_name=f"{agent_label} ({agent_model_id})",
             inference_time=inference_time
         )
 
-        # Use centralized panel management (Dict-based chat_history - no index manipulation)
+        # Add to chat history
         panel_meta = {**metadata_dict, "audio_urls": audio_urls}
         state.add_agent_panel(
-            agent="sokrates",
+            agent=agent,
             content=formatted_response,
             mode="direct",
             metadata=panel_meta,
-            sync_llm_history=False  # Already synced above with raw content
+            sync_llm_history=False
         )
 
-        # Clear streaming state (cleanup)
+        # Cleanup
         state.current_ai_response = ""
         state.current_agent = ""
-
-        # INCREMENTAL SAVE: Persist after response to survive browser refresh
         state._save_current_session()
-
-        # Separator nach Sokrates Direct Response
-        console_separator()  # Log-File
-        state.add_debug("────────────────────")  # Debug-Console
+        console_separator()
+        state.add_debug("────────────────────")
 
         await llm_client.close()
         yield
 
     except Exception as e:
-        state.add_debug(f"❌ Sokrates Direct Response Error: {e}")
-        # Add error as Sokrates panel entry (Dict-based - simply append)
+        state.add_debug(f"❌ {agent_label} Direct Response Error: {e}")
         state.add_agent_panel(
-            agent="sokrates",
+            agent=agent,
             content=f"Error: {str(e)}",
             mode="error"
         )
         yield
 
 
-# ============================================================
-# SALOMO DIRECT RESPONSE
-# ============================================================
+async def run_sokrates_direct_response(
+    state: 'AIState',
+    user_query: str,
+    detected_lang: Optional[str] = None
+) -> AsyncGenerator[None, None]:
+    """Sokrates responds directly to user."""
+    async for _ in _run_agent_direct_response(
+        state, "sokrates", "Sokrates", "🏛️",
+        get_sokrates_direct_prompt, user_query, detected_lang,
+    ):
+        yield
+
 
 async def run_salomo_direct_response(
     state: 'AIState',
     user_query: str,
     detected_lang: Optional[str] = None
 ) -> AsyncGenerator[None, None]:
-    """
-    Salomo responds directly to user (without AIfred or Sokrates first).
-
-    This is called when user directly addresses Salomo:
-    - "Salomo, urteile du..."
-    - "@Salomo was meinst du..."
-    - "Hey Salomo, ..."
-
-    Args:
-        state: The AIState object for accessing chat_history, add_debug, etc.
-        user_query: The user's question (with or without addressing prefix)
-        detected_lang: Language detected by LLM intent detection ("de" or "en")
-                      Defaults to UI-Language if not provided.
-    """
-    # Fallback to UI language if not provided
-    if detected_lang is None:
-        from .prompt_loader import get_language
-        detected_lang = get_language()
-
-    try:
-        # Create LLM client
-        llm_client = LLMClient(
-            backend_type=state.backend_type,
-            base_url=state.backend_url
-        )
-
-        # Determine Salomo model
-        salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
-        salomo_display = state.salomo_model if state.salomo_model else state.aifred_model  # type: ignore[has-type]
-        state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
-
-        # Calculate context limit (uses SINGLE SOURCE OF TRUTH with XTTS reservation)
-        from .research.context_utils import get_agent_num_ctx
-        salomo_num_ctx, ctx_source = get_agent_num_ctx("salomo", state, salomo_model)
-        state.add_debug(f"   🎯 Context: {salomo_num_ctx:,} ({ctx_source})")
-
-        # Load system prompt from file (no hardcoded prompts!)
-        # detected_lang comes from LLM-based intent detection (passed from state.py)
-        system_prompt = get_salomo_direct_prompt(lang=detected_lang)
-
-        # Build messages from LLM history with Salomo perspective
-        # Salomo sees his own messages as 'assistant', others as 'user'
-        messages: list[dict[str, Any]] = build_messages_from_llm_history(
-            state.llm_history[:-1],
-            user_query,
-            perspective="salomo",
-            detected_language=detected_lang
-        )
-
-        # Prepend system message
-        messages.insert(0, {"role": "system", "content": system_prompt})
-
-        # Calculate Salomo temperature based on mode
-        if state.temperature_mode == "manual":  # type: ignore[has-type]
-            salomo_direct_temp = state.salomo_temperature
-        else:
-            # Auto mode: AIfred's temperature + offset (capped at 1.0)
-            salomo_direct_temp = min(1.0, state.temperature + state.salomo_temperature_offset)
-
-        # Debug: Show context and temperature
-        state.add_debug(f"📊 Context: {format_number(salomo_num_ctx/1000, 3)}k")
-        state.add_debug(f"🌡️ Temperature: {format_number(salomo_direct_temp, 1)}")
-
-        # LLM options - use per-agent reasoning toggle for enable_thinking
-        salomo_options = build_llm_options(state, "salomo", salomo_direct_temp, salomo_num_ctx)
-
-        # Set current agent for unified streaming UI
-        state.current_agent = "salomo"
-        state.current_ai_response = ""
-
-        # Initialize streaming TTS for Salomo direct response
-        if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-            state._init_streaming_tts(agent="salomo")
-
-        # Streaming response
-        full_response = ""
-        token_count = 0
-        timer = Timer()
-        first_token = False
-        salomo_ttft = 0.0
-
-        async for chunk in llm_client.chat_stream(salomo_model, messages, salomo_options):  # type: ignore[arg-type]
-            chunk_type = chunk.get("type", "")
-
-            if chunk_type == "content":
-                if not first_token:
-                    ttft = timer.elapsed()
-                    log_message(f"⚡ Salomo TTFT: {format_number(ttft, 2)}s")
-                    state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
-                    first_token = True
-                    salomo_ttft = ttft  # Save for metadata
-
-                content = chunk.get("text", "")  # Key is "text", not "content"
-                full_response += content
-                token_count += 1
-
-                # REAL-TIME streaming to UI (includes TTS chunk processing)
-                state.stream_text_to_ui(content)
-                yield
-
-            elif chunk_type == "thinking":
-                # Handle thinking chunks (Qwen3 thinking mode)
-                thinking_content = chunk.get("text", "")  # Also "text" for thinking
-                if thinking_content:
-                    full_response += f"<think>{thinking_content}</think>"
-
-            elif chunk_type == "done":
-                metrics = chunk.get("metrics", {})
-                token_count = metrics.get("tokens_generated", token_count)
-
-        # Finalize streaming TTS: send any remaining text in buffer
-        audio_urls: list[str] = []
-        if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-            audio_urls = await state._finalize_streaming_tts()
-
-        # Centralized metadata (PP speed, debug log, chat bubble)
-        inference_time = timer.elapsed()
-        tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
-
-        metadata_dict, metadata_display, debug_msg = build_inference_metadata(
-            ttft=salomo_ttft,
-            inference_time=inference_time,
-            tokens_generated=token_count,
-            tokens_per_sec=tokens_per_sec,
-            source=f"Salomo ({salomo_model})",
-            backend_metrics=metrics,
-            tokens_prompt=metrics.get("tokens_prompt", 0),
-            agent_label="Salomo",
-            response_chars=len(full_response),
-        )
-        state.add_debug(debug_msg)
-        if audio_urls:
-            log_message(f"🔊 Salomo Direct: {len(audio_urls)} audio URLs collected for message")
-
-        # Sync to llm_history with RAW content (SSoT — before formatting removes code context)
-        state._sync_to_llm_history("salomo", full_response)
-
-        # Format thinking blocks as collapsibles for UI display
-        formatted_response = format_thinking_process(
-            full_response,
-            model_name=f"Salomo ({salomo_model})",
-            inference_time=inference_time
-        )
-
-        # Use centralized panel management (Dict-based chat_history - no index manipulation)
-        panel_meta = {**metadata_dict, "audio_urls": audio_urls}
-        state.add_agent_panel(
-            agent="salomo",
-            content=formatted_response,
-            mode="direct",
-            metadata=panel_meta,
-            sync_llm_history=False  # Already synced above with raw content
-        )
-
-        # Clear streaming state (cleanup)
-        state.current_ai_response = ""
-        state.current_agent = ""
-
-        # INCREMENTAL SAVE: Persist after response to survive browser refresh
-        state._save_current_session()
-
-        # Separator nach Salomo Direct Response
-        console_separator()  # Log-File
-        state.add_debug("────────────────────")  # Debug-Console
-
-        await llm_client.close()
-        yield
-
-    except Exception as e:
-        state.add_debug(f"❌ Salomo Direct Response Error: {e}")
-        # Add error as Salomo panel entry (Dict-based - simply append)
-        state.add_agent_panel(
-            agent="salomo",
-            content=f"Error: {str(e)}",
-            mode="error"
-        )
+    """Salomo responds directly to user."""
+    async for _ in _run_agent_direct_response(
+        state, "salomo", "Salomo", "👑",
+        get_salomo_direct_prompt, user_query, detected_lang,
+    ):
         yield
 
 
@@ -1085,8 +748,10 @@ async def run_sokrates_analysis(
 
             # Stream Sokrates response (unified streaming box shows content)
             result = None
-            async for item in _stream_sokrates_to_history(
+            async for item in _stream_agent_to_history(
                 state=state,
+                agent="sokrates",
+                agent_label="Sokrates",
                 llm_client=llm_client,
                 model=sokrates_model,
                 messages=sokrates_messages,
@@ -1115,7 +780,7 @@ async def run_sokrates_analysis(
             )
 
             # Add Sokrates critique panel (centralized)
-            # Note: _stream_sokrates_to_history already synced to llm_history (Line 259)
+            # Note: _stream_agent_to_history already synced to llm_history (Line 259)
             # Mode: Use specific mode for devils_advocate, else generic critical_review
             sokrates_mode = "advocatus_diaboli" if state.multi_agent_mode == "devils_advocate" else "critical_review"
             panel_meta = {**metadata_dict, "audio_urls": audio_urls}
@@ -1125,7 +790,7 @@ async def run_sokrates_analysis(
                 mode=sokrates_mode,
                 round_num=round_num,  # Always show round number for consistency
                 metadata=panel_meta,
-                sync_llm_history=False  # Already done by _stream_sokrates_to_history
+                sync_llm_history=False  # Already done by _stream_agent_to_history
             )
             state.sokrates_critique = sokrates_response_text  # Keep raw text for logic checks
             yield
@@ -1196,8 +861,10 @@ async def run_sokrates_analysis(
 
                 # Stream Salomo response (unified streaming box shows content)
                 salomo_result = None
-                async for item in _stream_salomo_to_history(
+                async for item in _stream_agent_to_history(
                     state=state,
+                    agent="salomo",
+                    agent_label="Salomo",
                     llm_client=llm_client,
                     model=salomo_model,
                     messages=salomo_messages,
@@ -1224,7 +891,7 @@ async def run_sokrates_analysis(
                 )
 
                 # Add Salomo synthesis panel (centralized)
-                # Note: _stream_salomo_to_history already synced to llm_history
+                # Note: _stream_agent_to_history already synced to llm_history
                 salomo_panel_meta = {**salomo_metadata_dict, "audio_urls": salomo_audio_urls}
                 state.add_agent_panel(
                     agent="salomo",
@@ -1232,7 +899,7 @@ async def run_sokrates_analysis(
                     mode="synthesis",  # Uses salomo_synthesis_label via _get_mode_label
                     round_num=round_num,
                     metadata=salomo_panel_meta,
-                    sync_llm_history=False  # Already done by _stream_salomo_to_history
+                    sync_llm_history=False  # Already done by _stream_agent_to_history
                 )
                 state.salomo_synthesis = salomo_response_text
                 yield
@@ -1312,8 +979,10 @@ async def run_sokrates_analysis(
 
                     # Stream AIfred refinement (unified streaming box shows content)
                     alfred_result = None
-                    async for item in _stream_alfred_refinement(
+                    async for item in _stream_agent_to_history(
                         state=state,
+                        agent="aifred",
+                        agent_label="AIfred Refinement",
                         llm_client=llm_client,
                         model=alfred_model,
                         messages=alfred_messages,
@@ -1340,7 +1009,7 @@ async def run_sokrates_analysis(
                     )
 
                     # Add Alfred refinement panel (centralized)
-                    # Note: _stream_alfred_refinement already synced to llm_history
+                    # Note: _stream_agent_to_history already synced to llm_history
                     # IMPORTANT: AIfred Refinement happens AFTER Salomo R{n}, so it's part of R{n+1}
                     alfred_panel_meta = {**alfred_metadata_dict, "audio_urls": alfred_audio_urls}
                     state.add_agent_panel(
@@ -1349,7 +1018,7 @@ async def run_sokrates_analysis(
                         mode="refinement",
                         round_num=round_num + 1,
                         metadata=alfred_panel_meta,
-                        sync_llm_history=False  # Already done by _stream_alfred_refinement
+                        sync_llm_history=False  # Already done by _stream_agent_to_history
                     )
                     yield
 
@@ -1524,8 +1193,10 @@ async def run_tribunal(
                     sokrates_messages.append(msg)
 
             result = None
-            async for item in _stream_sokrates_to_history(
+            async for item in _stream_agent_to_history(
                 state=state,
+                agent="sokrates",
+                agent_label="Sokrates",
                 llm_client=llm_client,
                 model=sokrates_model,
                 messages=sokrates_messages,
@@ -1550,7 +1221,7 @@ async def run_tribunal(
                 inference_time=metadata_dict.get("inference_time", 0)
             )
             # Add Sokrates tribunal panel (centralized)
-            # Note: _stream_sokrates_to_history already synced to llm_history
+            # Note: _stream_agent_to_history already synced to llm_history
             panel_meta = {**metadata_dict, "audio_urls": audio_urls}
             state.add_agent_panel(
                 agent="sokrates",
@@ -1558,7 +1229,7 @@ async def run_tribunal(
                 mode="tribunal",
                 round_num=round_num,
                 metadata=panel_meta,
-                sync_llm_history=False  # Already done by _stream_sokrates_to_history
+                sync_llm_history=False  # Already done by _stream_agent_to_history
             )
             state.sokrates_critique = sokrates_response_text
             yield
@@ -1606,8 +1277,10 @@ async def run_tribunal(
                         alfred_messages.append(msg)
 
                 alfred_result = None
-                async for item in _stream_alfred_refinement(
+                async for item in _stream_agent_to_history(
                     state=state,
+                    agent="aifred",
+                    agent_label="AIfred Refinement",
                     llm_client=llm_client,
                     model=alfred_model,
                     messages=alfred_messages,
@@ -1633,7 +1306,7 @@ async def run_tribunal(
                 )
 
                 # Add Alfred tribunal panel (centralized)
-                # Note: _stream_alfred_refinement already synced to llm_history
+                # Note: _stream_agent_to_history already synced to llm_history
                 # IMPORTANT: AIfred responds AFTER Sokrates R{n}, so it's part of R{n+1}
                 alfred_panel_meta = {**alfred_metadata_dict, "audio_urls": alfred_audio_urls}
                 state.add_agent_panel(
@@ -1642,7 +1315,7 @@ async def run_tribunal(
                     mode="tribunal",
                     round_num=round_num + 1,
                     metadata=alfred_panel_meta,
-                    sync_llm_history=False  # Already done by _stream_alfred_refinement
+                    sync_llm_history=False  # Already done by _stream_agent_to_history
                 )
                 yield
 
@@ -1682,8 +1355,10 @@ async def run_tribunal(
         )
 
         salomo_result = None
-        async for item in _stream_salomo_to_history(
+        async for item in _stream_agent_to_history(
             state=state,
+            agent="salomo",
+            agent_label="Salomo",
             llm_client=llm_client,
             model=salomo_model,
             messages=salomo_messages,
@@ -1712,7 +1387,7 @@ async def run_tribunal(
             inference_time=salomo_metadata_dict.get("inference_time", 0)
         )
         # Add Salomo verdict panel (centralized)
-        # Note: _stream_salomo_to_history already synced to llm_history
+        # Note: _stream_agent_to_history already synced to llm_history
         salomo_panel_meta = {**salomo_metadata_dict, "audio_urls": salomo_audio_urls}
         state.add_agent_panel(
             agent="salomo",
@@ -1720,7 +1395,7 @@ async def run_tribunal(
             mode="verdict",  # Uses salomo_verdict_label via _get_mode_label
             round_num=max_rounds,  # Verdict belongs to final debate round
             metadata=salomo_panel_meta,
-            sync_llm_history=False  # Already done by _stream_salomo_to_history
+            sync_llm_history=False  # Already done by _stream_agent_to_history
         )
         state.salomo_synthesis = salomo_response_text
         yield
