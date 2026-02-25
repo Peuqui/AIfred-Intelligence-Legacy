@@ -547,6 +547,129 @@ class ChatMixin(rx.State, mixin=True):
             # is cancelled by WebSocket disconnect (GeneratorExit).
             # ============================================================
 
+            # ============================================================
+            # VISION FAST PATH: Images present → VL model handles everything
+            # Skip Intent Detection, Automatik and AIfred entirely.
+            # VL model receives: AIfred system prompt + user text + image(s).
+            # ============================================================
+            if has_pending_images:
+                import copy
+                local_images = copy.deepcopy(self.pending_images)  # type: ignore[attr-defined]
+                self.clear_pending_images()  # type: ignore[attr-defined]
+
+                # Use UI language (no Intent Detection)
+                from ..lib.prompt_loader import get_language, get_thinking_enabled
+                detected_language = get_language()
+                self._last_detected_language = detected_language  # type: ignore[attr-defined]
+
+                # Cold start warning for llama.cpp
+                if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+                    try:
+                        import httpx
+                        swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
+                        async with httpx.AsyncClient(timeout=5.0) as _http:
+                            resp = await _http.get(f"{swap_base}/running")
+                            running = [m.get("model") for m in resp.json().get("running", [])]
+                            if self.vision_model_id not in running:  # type: ignore[attr-defined]
+                                self.add_debug(f"🔄 VL Model Cold Start ({self.vision_model_id}) — loading...")  # type: ignore[attr-defined]
+                                yield
+                    except Exception:
+                        pass
+
+                img_count = len(local_images)
+                self.add_debug(f"📷 VL Direct ({img_count} image(s)) → {self.vision_model}")  # type: ignore[attr-defined]
+                yield
+
+                # Build multimodal content (images + text) for handle_own_knowledge()
+                from ..lib.vision_utils import load_image_as_base64
+                from pathlib import Path
+
+                content_parts: list[dict] = []
+
+                # Qwen3-VL respects /no_think prefix (Ollama ignores API think param for VL)
+                if not get_thinking_enabled("aifred"):
+                    content_parts.append({"type": "text", "text": "/no_think"})
+
+                # Images first (VL models handle it best this way)
+                for img in local_images:
+                    img_path = Path(img["path"])
+                    base64_data = load_image_as_base64(img_path)
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
+                    })
+
+                # User text after images (fallback description if empty)
+                prompt_text = user_msg.strip() if user_msg.strip() else (
+                    "Beschreibe und analysiere dieses Bild." if detected_language == "de"
+                    else "Describe and analyze this image."
+                )
+                content_parts.append({"type": "text", "text": prompt_text})
+
+                # VL model handles everything via SSOT handle_own_knowledge().
+                # llm_history[:-1]: exclude the current user entry (added at line 511)
+                # because multimodal_content IS the user message (text + images combined).
+                from ..lib.own_knowledge_handler import handle_own_knowledge
+
+                result_data = None
+                async for item in handle_own_knowledge(
+                    user_text=user_msg,
+                    model_choice=self.vision_model_id,  # type: ignore[attr-defined]
+                    history=self.chat_history,  # type: ignore[attr-defined, has-type]
+                    llm_history=self.llm_history[:-1],  # type: ignore[attr-defined, has-type]
+                    detected_intent="GEMISCHT",  # no intent detection; mixed temperature
+                    detected_language=detected_language,
+                    temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
+                    temperature=self.temperature,  # type: ignore[attr-defined]
+                    backend_type=self.backend_type,  # type: ignore[attr-defined]
+                    backend_url=self.backend_url,  # type: ignore[attr-defined]
+                    enable_thinking=get_thinking_enabled("aifred"),
+                    state=self,
+                    multimodal_content=content_parts,
+                    num_ctx_manual_enabled=bool(getattr(self, "vision_num_ctx_enabled", False)),
+                    num_ctx_manual_value=getattr(self, "vision_num_ctx", None) if getattr(self, "vision_num_ctx_enabled", False) else None,
+                    provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
+                ):
+                    if item["type"] == "debug":
+                        self.add_debug(item["message"])
+                        yield
+                    elif item["type"] == "content":
+                        self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
+                        yield
+                    elif item["type"] == "progress":
+                        if item.get("clear", False):
+                            self.clear_progress()  # type: ignore[attr-defined]
+                        else:
+                            self.set_progress(  # type: ignore[attr-defined]
+                                phase=item.get("phase", ""),
+                                current=item.get("current", 0),
+                                total=item.get("total", 0),
+                            )
+                        yield
+                    elif item["type"] == "result":
+                        result_data = item["data"]
+
+                if result_data:
+                    # handle_own_knowledge() appended the AI response to the llm_history slice
+                    # (llm_history[:-1]). self.llm_history still has the user entry (line 511)
+                    # but no AI response yet. Append the AI response entry.
+                    returned_llm = result_data["llm_history"]
+                    if returned_llm and returned_llm[-1].get("role") == "assistant":
+                        self.llm_history = list(self.llm_history) + [returned_llm[-1]]  # type: ignore[attr-defined, has-type]
+                    self.chat_history = result_data["history"]  # type: ignore[attr-defined]
+
+                self.current_ai_response = ""
+                self.current_user_message = ""
+                self.is_generating = False
+                yield
+
+                async for _ in self._generate_session_title(title_model_override=self.vision_model_id):  # type: ignore[attr-defined]
+                    yield
+                self._save_current_session()  # type: ignore[attr-defined]
+                self.refresh_session_list()  # type: ignore[attr-defined]
+                yield
+                return  # Vision fast path complete
+
             # Create LLM client once - used for ALL LLM operations
             from ..lib.llm_client import LLMClient
             llm_client = LLMClient(
@@ -751,304 +874,6 @@ class ChatMixin(rx.State, mixin=True):
                 return
 
             # ============================================================
-            # VISION PIPELINE: Route to Vision-LLM if images present
-            # ============================================================
-            if has_pending_images:
-                # CRITICAL FIX: Copy images to LOCAL variable BEFORE any yield!
-                # Reflex State can be modified between yields, causing race conditions.
-                # Deep copy ensures we keep the image data even if self.pending_images gets cleared.
-                import copy
-                local_images = copy.deepcopy(self.pending_images)  # type: ignore[attr-defined]
-
-                # Clear pending images UI immediately (they're already in chat_history as HTML thumbnails)
-                # This removes the editable thumbnails above the text input right away
-                self.clear_pending_images()  # type: ignore[attr-defined]
-
-                # Log Vision-LLM header + each image on separate line
-                self.add_debug(f"📷 Vision-LLM ({self.vision_model}) analyzing:")  # type: ignore[attr-defined]
-                for img in local_images:
-                    self.add_debug(f"   • {img.get('name', 'unknown')}")
-                yield  # Update UI immediately to show Vision Pipeline start
-
-                # Save original user text (for Vision pipeline - may be empty!)
-                original_user_text = user_msg
-
-                # Import vision pipeline
-                from ..lib.conversation_handler import chat_with_vision_pipeline
-
-                # NOTE: display_user_msg was already prepared and added to chat_history above
-                # No need to update it here - user panel is already correct
-
-                # Build LLM options - use per-agent thinking toggle for enable_thinking
-                from ..lib.prompt_loader import get_thinking_enabled
-                llm_options = {
-                    'enable_thinking': get_thinking_enabled("aifred"),
-                    'top_k': self.aifred_top_k,  # type: ignore[attr-defined]
-                    'top_p': self.aifred_top_p,  # type: ignore[attr-defined]
-                    'min_p': self.aifred_min_p,  # type: ignore[attr-defined]
-                    'repeat_penalty': self.aifred_repeat_penalty,  # type: ignore[attr-defined]
-                }
-
-                # Storage für Vision-JSON (wird in history gespeichert statt readable text)
-                vision_json_response = ""
-                vision_readable_text = ""
-                vision_metrics: dict[str, Any] | None = None
-                extracted_vision_json: dict[str, Any] = {}  # Store for passing to chat_interactive_mode
-                has_user_text_for_automatik = False  # Flag from vision_complete
-
-                # ==============================================================================
-                # PHASE 1: VISION EXTRACTION (Process Vision-LLM items only)
-                # ==============================================================================
-                async for item in chat_with_vision_pipeline(
-                    user_text=original_user_text,  # CRITICAL: Use original (may be empty!), not display_user_msg
-                    images=local_images,  # CRITICAL: Use local copy, NOT self.pending_images!
-                    vision_model=self.vision_model_id,  # type: ignore[attr-defined]
-                    main_model=self.aifred_model_id,  # type: ignore[attr-defined]
-                    backend_type=self.backend_type,  # type: ignore[attr-defined]
-                    backend_url=self.backend_url,  # type: ignore[attr-defined]
-                    llm_options=llm_options,
-                    state=self,  # Pass entire state object (for per-agent num_ctx lookup)
-                    detected_language=detected_language,  # From Intent Detection
-                    provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
-                ):
-
-                    # Route Vision-LLM items only (NOT Automatik items!)
-                    if item["type"] == "status":
-                        self.add_debug(item.get("content", ""))
-
-                    elif item["type"] == "debug":
-                        msg = item.get("content") or item.get("message", "")
-                        if msg:
-                            self.add_debug(msg)
-                        yield  # Update UI immediately for each debug message
-
-                    elif item["type"] == "thinking":
-                        # Vision-LLM structured data → sammle für Collapsible
-                        # <think> tags bleiben jetzt in vision_readable_text!
-                        vision_json_response = item["content"]
-
-                    elif item["type"] == "response":
-                        # Readable text (Markdown table) → sammle und zeige im Stream
-                        content = item["content"]
-                        if not isinstance(content, str):
-                            self.add_debug(f"⚠️ WARNING: Vision response content is {type(content)}, expected str. Converting...")
-                            content = str(content) if content is not None else ""
-                        # Collect FULL response (with <think> tags) for later formatting
-                        vision_readable_text += content
-                        # Stream to UI WITHOUT <think> tags (will be shown as collapsible later)
-                        # This prevents raw <think>...</think> from appearing during streaming
-                        content_for_stream = strip_thinking_blocks(content)
-                        self.stream_text_to_ui(content_for_stream)  # type: ignore[attr-defined]
-                        yield
-
-                    elif item["type"] == "done":
-                        # Metrics vom Backend sammeln
-                        vision_metrics = item.get("metrics", {})
-
-                    elif item["type"] == "error":
-                        self.add_debug(item.get("content", "Unknown error"))
-
-                    elif item["type"] == "vision_complete":
-                        # ======================================================================
-                        # CRITICAL: Vision extraction complete - finalize and break!
-                        # ======================================================================
-
-                        # Extract data from signal
-                        final_vision_metrics = item.get("metrics", vision_metrics or {})
-                        extracted_vision_json = item.get("vision_json", {})
-                        has_user_text_for_automatik = item.get("has_user_text", False)
-
-                        # Finalize Vision response (with or without JSON)
-                        from ..lib.formatting import format_thinking_process, build_inference_metadata
-
-                        vision_time = final_vision_metrics.get("inference_time", 0) if final_vision_metrics else 0
-                        tokens_generated = final_vision_metrics.get("tokens_generated", 0) if final_vision_metrics else 0
-                        tokens_per_sec = final_vision_metrics.get("tokens_per_second", 0) if final_vision_metrics else 0
-                        tokens_prompt = final_vision_metrics.get("tokens_prompt", 0) if final_vision_metrics else 0
-                        vision_ttft = final_vision_metrics.get("ttft") if final_vision_metrics else None
-
-                        if vision_json_response:
-                            # JSON vorhanden → Build <data> Block
-                            data_block = f"<data>\n{vision_json_response}\n</data>"
-                            full_response = f"{data_block}\n\n{vision_readable_text}"
-                        else:
-                            # Kein JSON → vision_readable_text enthält ggf. <think> tags!
-                            full_response = vision_readable_text
-
-                        # Prepare Vision response content
-                        if full_response:
-                            # format_thinking_process() verarbeitet ALLE XML-Tags automatisch!
-                            vision_content = format_thinking_process(
-                                full_response,
-                                model_name=self.vision_model_id,  # type: ignore[attr-defined]
-                                inference_time=vision_time,
-                                tokens_per_sec=tokens_per_sec,
-                            )
-                        elif vision_readable_text:
-                            # Kein JSON, aber readable text vorhanden
-                            vision_content = vision_readable_text
-                        else:
-                            # Neither JSON nor text - error
-                            vision_content = "⚠️ Vision-LLM could not produce a result. See debug log."
-
-                        # Build unified metadata (same format as Main-LLM)
-                        metadata_dict, _, debug_msg = build_inference_metadata(
-                            ttft=vision_ttft,
-                            inference_time=vision_time,
-                            tokens_generated=tokens_generated,
-                            tokens_per_sec=tokens_per_sec,
-                            source=f"Vision ({self.vision_model_id})",  # type: ignore[attr-defined]
-                            backend_metrics=final_vision_metrics,
-                            tokens_prompt=tokens_prompt,
-                            backend_type=self.backend_type,  # type: ignore[attr-defined]
-                            agent_label="Vision-LLM",
-                        )
-
-                        # APPEND Vision response as separate panel
-                        # Note: User panel was already created above with display_user_msg
-                        self.add_agent_panel(
-                            agent="aifred",  # Vision uses AIfred agent
-                            content=vision_content,
-                            mode="vision",
-                            round_num=None,
-                            metadata=metadata_dict,
-                            sync_llm_history=False,  # Sync manually below for proper formatting
-                        )
-
-                        # Sync to llm_history via SSoT (strips thinking blocks internally)
-                        self._sync_to_llm_history("aifred", full_response)
-
-                        self.add_debug(debug_msg)
-                        self.add_debug("────────────────────")
-                        yield
-
-                        # BREAK out of Vision loop - Phase 1 complete!
-                        break
-
-                    else:
-                        # Unknown type - log warning
-                        self.add_debug(f"⚠️ Unknown item type from Vision pipeline: {item.get('type', 'MISSING')}")
-
-                # ==============================================================================
-                # PHASE 2: AUTOMATIK/RESEARCH FLOW (if user text present)
-                # ==============================================================================
-                if has_user_text_for_automatik:
-                    self.add_debug("🎩 AIfred-LLM phase starting...")
-                    yield
-
-                    # Import here to avoid circular dependency
-                    from ..lib.conversation_handler import chat_interactive_mode
-
-                    # Note: User message was already added to chat_history at the start of send_message()
-                    # with the image thumbnail. No need to add it again here.
-                    self.current_ai_response = ""  # Reset for Main-LLM streaming
-
-                    # Call chat_interactive_mode with Vision JSON context
-                    # (EXACT same pattern as normal flow)
-                    async for item in chat_interactive_mode(
-                        user_text=original_user_text,
-                        stt_time=0.0,
-                        model_choice=self.aifred_model_id,  # type: ignore[attr-defined]
-                        automatik_model=effective_auto,
-                        history=self.chat_history,  # type: ignore[attr-defined]
-                        llm_history=self.llm_history,  # type: ignore[attr-defined]
-                        session_id=self.session_id,  # type: ignore[attr-defined]
-                        temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
-                        temperature=self.temperature,  # type: ignore[attr-defined]
-                        llm_options=llm_options,
-                        backend_type=self.backend_type,  # type: ignore[attr-defined]
-                        backend_url=self.backend_url,  # type: ignore[attr-defined]
-                        state=self,
-                        pending_images=None,
-                        vision_json_context=extracted_vision_json,
-                        user_name=self.user_name,  # type: ignore[attr-defined]
-                        detected_intent=detected_intent,
-                        detected_language=detected_language,
-                        cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
-                        automatik_num_ctx=auto_num_ctx,
-                    ):
-                        # Handle Main-LLM items using NORMAL FLOW logic
-                        if item["type"] == "debug":
-                            self.add_debug(item["message"])
-                            yield  # Update UI immediately for each debug message
-
-                        elif item["type"] == "content":
-                            # REAL-TIME streaming to UI via current_ai_response (NOT chat_history!)
-                            # History is updated only at the end via "result" to avoid O(n) regex parsing on each token
-                            self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
-                            yield
-
-                        elif item["type"] == "result":
-                            result_data = item["data"]
-                            # Unified Dict format - history always included
-                            self.chat_history = result_data["history"]  # type: ignore[attr-defined]
-
-                            # Clear AI response and user message windows - yield IMMEDIATELY
-                            self.current_ai_response = ""
-                            self.current_user_message = ""
-                            self.is_generating = False
-                            yield
-
-                            # Finalize streaming TTS and store audio URLs in message metadata
-                            # (after yield so bubble is visible while waiting for TTS)
-                            if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
-                                # Wait for TTS completion and get combined audio URL
-                                # (TTS tasks run in parallel via create_task, finalize waits for them)
-                                audio_urls = await self._finalize_streaming_tts()  # type: ignore[attr-defined]
-                                if audio_urls and self.chat_history:  # type: ignore[attr-defined]
-                                    for i in range(len(self.chat_history) - 1, -1, -1):  # type: ignore[attr-defined]
-                                        if self.chat_history[i].get("role") == "assistant":  # type: ignore[attr-defined]
-                                            if "metadata" not in self.chat_history[i]:  # type: ignore[attr-defined]
-                                                self.chat_history[i]["metadata"] = {}  # type: ignore[attr-defined]
-                                            self.chat_history[i]["metadata"]["audio_urls"] = audio_urls  # type: ignore[attr-defined]
-                                            self.chat_history[i]["has_audio"] = True  # type: ignore[attr-defined]
-                                            self.chat_history[i]["audio_urls_json"] = json.dumps(audio_urls)  # type: ignore[attr-defined]
-                                            log_message(f"🔊 TTS: Added {len(audio_urls)} audio URLs to message metadata (vision-mode)")
-                                            break
-                                    # Force Reflex to recognize the change by reassigning the list
-                                    self.chat_history = list(self.chat_history)  # type: ignore[attr-defined]
-                                    yield  # Update UI with audio button
-
-                        elif item["type"] == "progress":
-                            # Update processing progress
-                            if item.get("clear", False):
-                                self.clear_progress()
-                            else:
-                                self.set_progress(
-                                    phase=item.get("phase", ""),
-                                    current=item.get("current", 0),
-                                    total=item.get("total", 0),
-                                    failed=item.get("failed", 0),
-                                )
-
-                        # Note: Update UI after each item (including unknown types)
-                        yield
-
-                else:
-                    # No user text - just Vision extraction, finalize normally
-                    # Note: pending_images already cleared at start of vision pipeline
-
-                    # Clear both windows and stop generating
-                    # (Response is already in chat_history, UI will show history)
-                    self.current_ai_response = ""
-                    self.current_user_message = ""
-                    self.is_generating = False
-                    yield  # Force UI update to show chat history
-
-                # CRITICAL: Generate title and save session before early return
-                # (finally block may not execute for async generators)
-                # Use vision model for title if available — it's still loaded in llama-swap,
-                # avoids cold-starting the main model just for a title.
-                vision_title_model = self.vision_model_id if self.vision_model_id else ""  # type: ignore[attr-defined]
-                async for _ in self._generate_session_title(title_model_override=vision_title_model):  # type: ignore[attr-defined]
-                    yield  # Forward UI updates from title generation
-                self._save_current_session()  # type: ignore[attr-defined]
-                self.refresh_session_list()  # type: ignore[attr-defined]
-                yield
-
-                return  # Exit send_message - vision pipeline complete
-
-            # ============================================================
             # UNIFIED CHAT HANDLER (Single Source of Truth)
             # All modes (automatik, quick, deep, none) use chat_interactive_mode()
             # ============================================================
@@ -1081,7 +906,7 @@ class ChatMixin(rx.State, mixin=True):
                 backend_type=self.backend_type,  # type: ignore[attr-defined]
                 backend_url=self.backend_url,  # type: ignore[attr-defined]
                 state=self,
-                pending_images=self.pending_images if len(self.pending_images) > 0 else None,  # type: ignore[attr-defined]
+                pending_images=None,  # images handled by VL fast path above
                 user_name=self.user_name,  # type: ignore[attr-defined]
                 detected_intent=detected_intent,
                 detected_language=detected_language,

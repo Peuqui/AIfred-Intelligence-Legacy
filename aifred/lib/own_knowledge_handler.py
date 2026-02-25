@@ -49,6 +49,7 @@ async def handle_own_knowledge(
     cloud_provider_label: Optional[str] = None,
     num_ctx_manual_enabled: bool = False,
     num_ctx_manual_value: Optional[int] = None,
+    provider: Optional[str] = None,
 ) -> AsyncIterator[Dict]:
     """
     Generiert eine LLM-Antwort basierend auf eigenem Wissen (ohne Web-Recherche).
@@ -128,7 +129,7 @@ async def handle_own_knowledge(
         log_message(f"📷 Vision JSON injected ({len(str(vision_json_context))} chars)")
 
     # Create LLM client
-    llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
+    llm_client = LLMClient(backend_type=backend_type, base_url=backend_url, provider=provider)
 
     try:
         # Temperature decision
