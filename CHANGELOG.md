@@ -5,6 +5,29 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.49.0] - 2026-02-25 🔬 VL SSOT + Kalibrierungs-Bugfixes
+
+### Changed
+
+- **VL Fast Path als SSOT** — `chat_vl_direct()` aus `conversation_handler.py` entfernt. VL-Pfad in `_chat_mixin.py` nutzt jetzt `handle_own_knowledge()` direkt mit `agent="vision"` — kein duplizierter Inference-Code mehr.
+- **`get_agent_num_ctx()` unterstützt "vision"** — `context_utils.py`: `"vision"` als gültiger Agent hinzugefügt, liest `vision_num_ctx_enabled`/`vision_num_ctx` für Manual-Mode, XTTS-Reservation greift auch für VL.
+
+### Fixed
+
+- **VL nutzte AIfred's Context statt Vision-Context** — Wenn `vision_num_ctx_enabled=False` UND `num_ctx_manual_aifred_enabled=True`, wurde AIfred's manuelle Kontextgröße für das VL-Modell verwendet. Behoben durch `agent="vision"` Routing.
+- **Toter `state=None`-Zweig in `handle_own_knowledge()`** — Unerreichbarer Fallback-Code mit veralteten Imports (`calculate_dynamic_num_ctx`, `get_ollama_calibration`, `get_rope_factor_for_model`) entfernt.
+- **llm_history Duplikat-Eintrag bei VL ohne Response** — `_chat_mixin.py`: Längenvergleich statt Role-Check verhindert dass ein vorheriger Assistant-Eintrag fälschlich als neuer AI-Response gewertet wird.
+- **`title_num_ctx` hardcoded 32768 bei VL** — `_session_mixin.py`: Titelgenerierung nutzt jetzt `get_agent_num_ctx("vision", ...)`, vermeidet Ollama-Modell-Reload durch Context-Mismatch.
+- **Debug-Labels zeigten "AIFRED" für VL** — `own_knowledge_handler.py`: `agent_label` dynamisch (`AIFRED`/`VISION`), `source_label` zeigt `VL (model)` statt `Own Knowledge (model)`.
+- **`cleanup_vram_cache` in autoscan löschte Ollama/vLLM-Kalibrierungen** — Kritischer Bug: die Funktion entfernte ALLE Cache-Einträge die nicht im llama-swap YAML standen — auch Ollama/vLLM/TabbyAPI-Kalibrierungen. Jetzt nur noch `backend == "llamacpp"` Einträge bereinigt.
+- **`update_vram_cache` Schema-Mismatch** — `llama-swap-autoscan.py`: falsches `kv_quant`-Feld aus Calibration-Entry entfernt, fehlende Model-Level-Felder `quantization`, `model_size_gb`, `gguf_path` ergänzt (passend zu `add_llamacpp_calibration()`).
+- **KV-Cache Anzeige `?` statt `f16`** — `llamacpp_calibration.py`: Wenn kein `-ctk` in YAML (f16-Modus), stand `KV-Cache: ?`. Zeigt jetzt `KV-Cache: f16`.
+
+### Technical Details
+
+- 6 Dateien geändert: `context_utils.py`, `own_knowledge_handler.py`, `_chat_mixin.py`, `_session_mixin.py`, `llamacpp_calibration.py`, `llama-swap-autoscan.py`
+- Mypy: 0 Errors, Ruff: All checks passed
+
 ## [2.48.0] - 2026-02-24 🔧 Backend SSOT + 9 Bugfixes
 
 ### Changed
