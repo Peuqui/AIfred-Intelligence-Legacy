@@ -992,13 +992,17 @@ def update_vram_cache(new_models: list[dict]) -> int:
         native_context = get_native_context(model["path"])
         ngl = model.get("calibrated_ngl", DEFAULT_NGL)
         cal_context = model.get("calibrated_context", native_context)
-        kv_quant = model.get("calibrated_kv_quant")
         mode = "hybrid" if ngl != DEFAULT_NGL else "gpu"
+
+        # Extract quantization from GGUF stem (e.g. "Qwen3-8B-Q4_K_M" → "Q4_K_M")
+        quant_match = re.search(r'[_-]([QqBbFf]\d[0-9_A-Za-z]*)$', name, re.IGNORECASE)
+        quantization = quant_match.group(1).upper() if quant_match else ""
+
+        gguf_resolved = model["path"].resolve()
 
         calibration_entry = {
             "max_context": cal_context,
             "ngl": ngl,
-            "kv_quant": kv_quant,
             "mode": mode,
             "measured_at": datetime.now().isoformat(),
         }
@@ -1006,7 +1010,10 @@ def update_vram_cache(new_models: list[dict]) -> int:
         cache[name] = {
             "backend": "llamacpp",
             "native_context": native_context,
+            "quantization": quantization,
+            "model_size_gb": round(get_gguf_total_size(gguf_resolved) / (1024 ** 3), 3),
             "gpu_model": "",
+            "gguf_path": str(gguf_resolved),
             "llamacpp_calibrations": [calibration_entry],
         }
 
@@ -1290,7 +1297,12 @@ def cleanup_vram_cache(active_models: set[str]) -> int:
         return 0
 
     active_lower = {name.lower() for name in active_models}
-    to_remove = [name for name in cache if name.lower() not in active_lower]
+    # Only clean up llamacpp entries — Ollama/vLLM/TabbyAPI calibrations
+    # live in the same file but are unrelated to the llama-swap YAML config.
+    to_remove = [
+        name for name, entry in cache.items()
+        if entry.get("backend") == "llamacpp" and name.lower() not in active_lower
+    ]
 
     if not to_remove:
         print(f"  {len(cache)} VRAM cache entry/entries checked — all match active config")

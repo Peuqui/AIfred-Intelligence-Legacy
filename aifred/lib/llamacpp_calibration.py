@@ -1332,10 +1332,12 @@ async def calibrate_llamacpp_model(
     recommended_kv = "q4_0" if vram_ratio > 0.60 else "q8_0"
 
     total_vram_gb = total_vram_mb / 1024
+    # If no -ctk flag in YAML, the model runs at f16 KV quality (autoscan verified it fits)
+    kv_display = current_kv if current_kv else "f16"
     yield (
         f"Model: {model_id} ({format_number(model_size_gb, 1)} GB), "
         f"native context: {format_number(native_context)}, "
-        f"KV-Cache: {current_kv or '?'} "
+        f"KV-Cache: {kv_display} "
         f"(model = {vram_ratio:.0%} of {format_number(total_vram_gb, 1)} GB VRAM)"
     )
 
