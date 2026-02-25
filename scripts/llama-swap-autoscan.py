@@ -1101,11 +1101,18 @@ def cleanup_dead_symlinks() -> list[str]:
         return []
 
     removed = []
+    symlink_count = 0
     for gguf_file in sorted(MODELS_DIR.glob("*.gguf")):
-        if gguf_file.is_symlink() and not gguf_file.exists():
-            gguf_file.unlink()
-            print(f"  - Removed dead symlink: {gguf_file.name}")
-            removed.append(gguf_file.stem)
+        if gguf_file.is_symlink():
+            symlink_count += 1
+            if not gguf_file.exists():
+                target = gguf_file.readlink()
+                gguf_file.unlink()
+                print(f"  ✗ {gguf_file.name} → {target} (target missing, removed)")
+                removed.append(gguf_file.stem)
+
+    if symlink_count and not removed:
+        print(f"  {symlink_count} symlink(s) checked — all targets valid")
 
     return removed
 
@@ -1223,20 +1230,21 @@ def cleanup_stale_config(config_path: Path) -> list[str]:
     for name, cmd in model_cmds.items():
         model_path = _extract_model_path(cmd)
         if model_path and not model_path.exists():
-            stale.append(name)
+            stale.append((name, model_path))
 
     if not stale:
+        print(f"  {len(model_cmds)} config entry/entries checked — all GGUF files present")
         return []
 
     content = config_path.read_text()
-    for name in stale:
+    for name, missing_path in stale:
         content = _remove_model_block(content, name)
-        print(f"  - Removed: {name}")
+        print(f"  ✗ {name} — GGUF missing: {missing_path}")
 
     content = re.sub(r'\n{3,}', '\n\n', content)
     config_path.write_text(content)
 
-    return stale
+    return [name for name, _ in stale]
 
 
 def cleanup_skip_list() -> int:
@@ -1251,12 +1259,15 @@ def cleanup_skip_list() -> int:
         and not (MODELS_DIR / f"{name}.gguf").is_symlink()
     ]
 
+    if not to_remove:
+        print(f"  {len(skip)} skip-list entry/entries checked — all still relevant")
+        return 0
+
     for name in to_remove:
         del skip[name]
-        print(f"  - Skip list: removed {name}")
+        print(f"  ✗ Skip list: {name} (GGUF removed, entry cleaned)")
 
-    if to_remove:
-        save_skip_list(skip)
+    save_skip_list(skip)
 
     return len(to_remove)
 
@@ -1281,12 +1292,15 @@ def cleanup_vram_cache(active_models: set[str]) -> int:
     active_lower = {name.lower() for name in active_models}
     to_remove = [name for name in cache if name.lower() not in active_lower]
 
+    if not to_remove:
+        print(f"  {len(cache)} VRAM cache entry/entries checked — all match active config")
+        return 0
+
     for name in to_remove:
         del cache[name]
-        print(f"  - VRAM cache: removed {name}")
+        print(f"  ✗ VRAM cache: {name} (no longer in config, removed)")
 
-    if to_remove:
-        VRAM_CACHE_FILE.write_text(json.dumps(cache, indent=2, ensure_ascii=False) + "\n")
+    VRAM_CACHE_FILE.write_text(json.dumps(cache, indent=2, ensure_ascii=False) + "\n")
 
     return len(to_remove)
 
@@ -1418,15 +1432,10 @@ def main() -> None:
     stale_models = cleanup_stale_config(LLAMASWAP_CONFIG)
     stale_skip = cleanup_skip_list()
     if removed_symlinks or stale_models or stale_skip:
-        if removed_symlinks:
-            print(f"  {len(removed_symlinks)} dead symlink(s) removed")
+        total = len(removed_symlinks) + len(stale_models) + stale_skip
+        print(f"  → {total} item(s) cleaned up")
         if stale_models:
-            print(f"  {len(stale_models)} stale model(s) removed from config")
             config_changed = True
-        if stale_skip:
-            print(f"  {stale_skip} stale skip-list entry/entries removed")
-    else:
-        print("  Nothing to clean up")
 
     print()
 
