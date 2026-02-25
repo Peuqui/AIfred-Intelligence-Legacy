@@ -495,8 +495,11 @@ class SessionMixin(rx.State, mixin=True):
             # Ollama uses model DEFAULT (not currently loaded ctx) when num_ctx is omitted.
             # -> omitting num_ctx after main inference would cause a full reload (5-28s penalty).
             if title_model_override == self.vision_model_id and self.vision_model_id:  # type: ignore[attr-defined]
-                # Vision model override -> reuse vision context to avoid reload
-                title_num_ctx = self.vision_num_ctx if self.vision_num_ctx_enabled else 32768  # type: ignore[attr-defined]
+                # Vision model override -> reuse vision context to avoid Ollama reload.
+                # Use get_agent_num_ctx("vision", ...) so VRAM calibration is used when
+                # manual mode is off (same context as VL inference).
+                from ..lib.research.context_utils import get_agent_num_ctx
+                title_num_ctx, _ = get_agent_num_ctx("vision", self, self.vision_model_id)  # type: ignore[attr-defined, arg-type]
             elif title_model == self.aifred_model_id and self.aifred_max_context:  # type: ignore[attr-defined]
                 # Same model as main LLM -> reuse calibrated context, no reload
                 title_num_ctx = self.aifred_max_context  # type: ignore[attr-defined]

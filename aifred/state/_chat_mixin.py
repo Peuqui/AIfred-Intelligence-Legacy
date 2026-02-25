@@ -626,9 +626,8 @@ class ChatMixin(rx.State, mixin=True):
                     enable_thinking=get_thinking_enabled("aifred"),
                     state=self,
                     multimodal_content=content_parts,
-                    num_ctx_manual_enabled=bool(getattr(self, "vision_num_ctx_enabled", False)),
-                    num_ctx_manual_value=getattr(self, "vision_num_ctx", None) if getattr(self, "vision_num_ctx_enabled", False) else None,
                     provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
+                    agent="vision",
                 ):
                     if item["type"] == "debug":
                         self.add_debug(item["message"])
@@ -650,11 +649,14 @@ class ChatMixin(rx.State, mixin=True):
                         result_data = item["data"]
 
                 if result_data:
-                    # handle_own_knowledge() appended the AI response to the llm_history slice
-                    # (llm_history[:-1]). self.llm_history still has the user entry (line 511)
-                    # but no AI response yet. Append the AI response entry.
+                    # handle_own_knowledge() got llm_history[:-1] (N-1 entries) and appended
+                    # the AI response → returned slice has N entries when successful.
+                    # self.llm_history still has N entries (prior + user_msg from line 511).
+                    # Length equality means exactly one AI entry was added → append it.
+                    # This avoids duplicating the last prior assistant entry when VL returns nothing.
                     returned_llm = result_data["llm_history"]
-                    if returned_llm and returned_llm[-1].get("role") == "assistant":
+                    if (len(returned_llm) == len(self.llm_history)  # type: ignore[attr-defined, has-type]
+                            and returned_llm[-1].get("role") == "assistant"):
                         self.llm_history = list(self.llm_history) + [returned_llm[-1]]  # type: ignore[attr-defined, has-type]
                     self.chat_history = result_data["history"]  # type: ignore[attr-defined]
 

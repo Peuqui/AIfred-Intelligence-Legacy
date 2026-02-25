@@ -19,8 +19,7 @@ from .llm_client import LLMClient, build_llm_options, MessageType
 from .timer import Timer
 from .formatting import format_number, format_thinking_process, build_inference_metadata
 from .prompt_loader import get_aifred_direct_prompt, get_aifred_system_minimal
-from .context_manager import estimate_tokens, calculate_dynamic_num_ctx, strip_thinking_blocks
-from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+from .context_manager import estimate_tokens, strip_thinking_blocks
 from .intent_detector import get_temperature_for_intent, get_temperature_label
 from .logging_utils import log_message
 from .message_builder import inject_rag_context
@@ -50,6 +49,7 @@ async def handle_own_knowledge(
     num_ctx_manual_enabled: bool = False,
     num_ctx_manual_value: Optional[int] = None,
     provider: Optional[str] = None,
+    agent: str = "aifred",
 ) -> AsyncIterator[Dict]:
     """
     Generiert eine LLM-Antwort basierend auf eigenem Wissen (ohne Web-Recherche).
@@ -145,24 +145,12 @@ async def handle_own_knowledge(
         if num_ctx_manual_enabled and num_ctx_manual_value:
             final_num_ctx = num_ctx_manual_value
             yield {"type": "debug", "message": f"🔧 Context: {final_num_ctx:,} (manual)"}
-        elif state:
-            # Use centralized function with state
-            final_num_ctx, ctx_source = get_agent_num_ctx("aifred", state, model_choice)
-            yield {"type": "debug", "message": f"🎯 Context: {format_number(final_num_ctx)} ({ctx_source})"}
         else:
-            # Calculate from VRAM cache
-            rope_factor = get_rope_factor_for_model(model_choice)
-            final_num_ctx_cached = get_ollama_calibration(model_choice, rope_factor)
-            if final_num_ctx_cached:
-                final_num_ctx = final_num_ctx_cached
-                yield {"type": "debug", "message": f"🎯 Context: {final_num_ctx:,} (from VRAM cache)"}
-            else:
-                # Dynamic calculation
-                final_num_ctx, _ = await calculate_dynamic_num_ctx(
-                    llm_client, model_choice, [], None,
-                    enable_vram_limit=True
-                )
-                yield {"type": "debug", "message": f"🎯 Context: {final_num_ctx:,} (calculated)"}
+            # Use centralized SSOT: get_agent_num_ctx handles vision_num_ctx_enabled,
+            # VRAM calibration cache, XTTS reservation and backend-specific logic.
+            assert state is not None, "state required for num_ctx lookup"
+            final_num_ctx, ctx_source = get_agent_num_ctx(agent, state, model_choice)
+            yield {"type": "debug", "message": f"🎯 Context: {format_number(final_num_ctx)} ({ctx_source})"}
 
         # Count input tokens
         input_tokens = estimate_tokens(messages, model_name=model_choice)
@@ -172,21 +160,23 @@ async def handle_own_knowledge(
         model_limit = get_model_native_context(model_choice, backend_type)
 
         # Show context info
-        yield {"type": "debug", "message": f"📊 AIfred: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})"}
+        agent_label = agent.upper()
+        yield {"type": "debug", "message": f"📊 {agent_label}: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})"}
 
-        # Build LLM options via central builder (all sampling params from state)
-        assert state is not None, "state required for build_llm_options"
-        llm_options = build_llm_options(state, "aifred", final_temperature, final_num_ctx)
+        # Build LLM options via central builder (all sampling params from state).
+        # VL ("vision" agent) uses AIfred's sampling params — no separate vision params in state.
+        llm_agent = "aifred" if agent == "vision" else agent
+        llm_options = build_llm_options(state, llm_agent, final_temperature, final_num_ctx)  # type: ignore[arg-type]
 
         # Console: LLM starts (with MoE/Dense architecture info)
         from .gpu_utils import is_moe_model
         is_moe = is_moe_model(model_choice) if backend_type in ("ollama", "llamacpp") else False
         arch_label = "MoE" if is_moe else "Dense"
-        yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} ({arch_label})"}
+        yield {"type": "debug", "message": f"🎩 {agent_label}-LLM starting: {model_choice} ({arch_label})"}
 
         # Log RAW messages for debugging (v2.16.0+)
         from .logging_utils import log_raw_messages
-        log_raw_messages("AIfred (Own Knowledge)", messages, estimate_tokens)
+        log_raw_messages(f"{agent_label} (Own Knowledge)", messages, estimate_tokens)
 
         # Stream response
         timer = Timer()
@@ -239,7 +229,7 @@ async def handle_own_knowledge(
         # Centralized metadata (PP speed, debug log, chat bubble)
         from .context_manager import estimate_tokens_from_llm_history
         history_tokens = estimate_tokens_from_llm_history(llm_history)
-        source_label = f"Own Knowledge ({model_choice})"
+        source_label = f"VL ({model_choice})" if agent == "vision" else f"Own Knowledge ({model_choice})"
 
         metadata_dict, metadata_display, debug_msg = build_inference_metadata(
             ttft=ttft,

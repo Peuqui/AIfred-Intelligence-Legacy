@@ -103,17 +103,22 @@ def get_agent_num_ctx(
         Using 4096 tokens (manual)
     """
     # Validate agent name
-    if agent not in ("aifred", "sokrates", "salomo"):
-        raise ValueError(f"Unknown agent: {agent}. Must be 'aifred', 'sokrates', or 'salomo'.")
+    if agent not in ("aifred", "sokrates", "salomo", "vision"):
+        raise ValueError(f"Unknown agent: {agent}. Must be 'aifred', 'sokrates', 'salomo', or 'vision'.")
 
     # Check if manual mode is enabled for this agent
-    enabled_attr = f"num_ctx_manual_{agent}_enabled"
-    value_attr = f"num_ctx_manual_{agent}"
-
-    if getattr(state, enabled_attr, False):
-        # Manual mode: use user-configured value (no XTTS adjustment for manual)
-        manual_value = getattr(state, value_attr, fallback)
-        return (manual_value if manual_value else fallback, "manual")
+    if agent == "vision":
+        # Vision uses separate state attributes (not the per-agent num_ctx_manual_* pattern)
+        if getattr(state, "vision_num_ctx_enabled", False):
+            manual_value = getattr(state, "vision_num_ctx", fallback)
+            return (manual_value if manual_value else fallback, "manual")
+    else:
+        enabled_attr = f"num_ctx_manual_{agent}_enabled"
+        value_attr = f"num_ctx_manual_{agent}"
+        if getattr(state, enabled_attr, False):
+            # Manual mode: use user-configured value (no XTTS adjustment for manual)
+            manual_value = getattr(state, value_attr, fallback)
+            return (manual_value if manual_value else fallback, "manual")
 
     # Auto mode: try VRAM calibration cache (backend-aware)
     backend_type = getattr(state, 'backend_type', 'ollama')
