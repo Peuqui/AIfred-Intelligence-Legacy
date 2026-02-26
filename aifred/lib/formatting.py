@@ -449,52 +449,36 @@ def get_katex_inline_assets() -> dict[str, str]:
     return _katex_inline_cache
 
 
-def format_html_preview(text: str, lang: str | None = None) -> str:
+def extract_html_previews(text: str, lang: str | None = None) -> tuple[list[str], str]:
     """
-    Detect ```html code blocks, save them as files and generate preview buttons.
+    Extract ```html code blocks, save as files, return collapsibles + cleaned text.
 
-    HTML files are saved in assets/html_preview/ and can be opened
-    via link in a new browser tab.
+    HTML files are saved in data/html_preview/ and can be opened
+    via link in a new browser tab. The collapsibles are returned separately
+    so the caller can place them at the top of the chat bubble.
 
     Args:
         text: Text with optional ```html code blocks
         lang: Language for collapsible labels (de/en). If None, uses get_ui_locale()
 
     Returns:
-        Text with HTML preview buttons and collapsible code
-
-    Example:
-        Input:  "Here is HTML:\n```html\n<h1>Hello</h1>\n```\nDone!"
-        Output: "Here is HTML:\n[🌐 Open in Browser](/html_preview/abc123.html)\n<details>...</details>\nDone!"
+        Tuple of (collapsibles, cleaned_text):
+        - collapsibles: List of HTML preview collapsible strings
+        - cleaned_text: Text with ```html blocks removed
     """
-    # Import i18n for labels
-    from .i18n import t
-
-    # Use current UI locale if no lang specified
     if lang is None:
         lang = get_ui_locale()
 
-    # Get translated label
-    show_html_label = t("collapsible_show_html", lang=lang)
-
-    # Pattern for ```html code blocks (with optional whitespace/newline)
-    # Made robust: \s* allows any whitespace (including none) after "html"
     html_block_pattern = r'```html\s*([\s\S]*?)```'
 
-    def replace_html_block(match):
-        html_code = match.group(1).strip()
+    collapsibles: list[str] = []
 
-        # Save HTML code and get URL
+    for match in re.finditer(html_block_pattern, text):
+        html_code = match.group(1).strip()
         preview_url = _save_html_to_assets(html_code)
 
-        # Button link with target="_blank" directly in HTML (not Markdown!)
-        # + Collapsible with code for viewing/copying
-        code_collapsible = f"""<div style="margin-bottom: 1em; margin-top: 0.5em;">
-
-<a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="font-weight: bold; color: #58a6ff; text-decoration: none;">🌐 Open in Browser</a> <em>(New Tab)</em>
-
-<details style="font-size: 0.9em; border: 1px solid #30363d; border-radius: 6px;">
-<summary style="cursor: pointer; font-weight: bold; color: #58a6ff; padding: 0.5em;">{show_html_label}</summary>
+        collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
+<summary style="cursor: pointer; font-weight: bold; color: #aaa;">🌐 HTML Preview — <a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;" onclick="event.stopPropagation()">Open in Browser</a></summary>
 <div style="padding: 0.5em;">
 
 ```html
@@ -502,19 +486,16 @@ def format_html_preview(text: str, lang: str | None = None) -> str:
 ```
 
 </div>
-</details>
-</div>"""
+</details>"""
+        collapsibles.append(collapsible)
 
-        return code_collapsible
+    # Remove ```html blocks from text
+    cleaned = re.sub(html_block_pattern, '', text).strip()
 
-    # Replace all ```html blocks
-    result = re.sub(html_block_pattern, replace_html_block, text)
+    if collapsibles:
+        log_message(f"🌐 HTML Code: {len(collapsibles)} preview(s) extracted")
 
-    # Log when HTML blocks were found
-    if result != text:
-        log_message("🌐 HTML Code: Preview button(s) generated")
-
-    return result
+    return collapsibles, cleaned
 
 
 def fix_orphan_closing_think_tag(text: str) -> str:
@@ -734,6 +715,10 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
             clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
     clean_response = clean_response.strip()
 
+    # Extract HTML previews from clean response → collapsibles at top
+    html_previews, clean_response = extract_html_previews(clean_response, lang=lang)
+    collapsibles.extend(html_previews)
+
     # Return: Collapsibles + Clean Response
     if collapsibles:
         result = "\n\n".join(collapsibles) + "\n\n" + clean_response
@@ -742,9 +727,6 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
 
     # STEP: Convert LaTeX delimiters for rx.markdown compatibility
     result = convert_latex_delimiters(result)
-
-    # FINAL STEP: HTML Preview für ```html Code-Blöcke
-    result = format_html_preview(result)
 
     return result
 
@@ -825,17 +807,23 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
             clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
     clean_response = clean_response.strip()
 
-    # Return: Debug Accordion + Clean Response
+    # Extract HTML previews from clean response
+    html_previews, clean_response = extract_html_previews(clean_response, lang=lang)
+
+    # Collect all top-level collapsibles
+    top_parts: list[str] = []
     if debug_accordion:
-        result = f"{debug_accordion}\n\n{clean_response}"
+        top_parts.append(debug_accordion)
+    top_parts.extend(html_previews)
+
+    # Return: Top collapsibles + Clean Response
+    if top_parts:
+        result = "\n\n".join(top_parts) + "\n\n" + clean_response
     else:
         result = clean_response
 
     # STEP: Convert LaTeX delimiters for rx.markdown compatibility
     result = convert_latex_delimiters(result)
-
-    # FINAL STEP: HTML Preview für ```html Code-Blöcke
-    result = format_html_preview(result)
 
     return result
 

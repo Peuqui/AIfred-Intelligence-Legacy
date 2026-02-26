@@ -49,8 +49,17 @@ class SettingsMixin(rx.State, mixin=True):
                     "salomo_model": self.salomo_model_id,  # type: ignore[attr-defined, has-type]
                 }
 
+        # Only save self.backend_type if backend is fully initialized.
+        # Prevents the class default "ollama" from overwriting the persisted
+        # backend_type when _save_settings() fires during startup
+        # (e.g., vision model auto-select, capabilities check).
+        if self._backend_initialized:  # type: ignore[attr-defined, has-type]
+            saved_backend_type = self.backend_type  # type: ignore[attr-defined, has-type]
+        else:
+            saved_backend_type = existing.get("backend_type", self.backend_type)  # type: ignore[attr-defined, has-type]
+
         settings: Dict[str, Any] = {
-            "backend_type": self.backend_type,  # type: ignore[attr-defined, has-type]
+            "backend_type": saved_backend_type,
             "cloud_api_provider": self.cloud_api_provider,  # type: ignore[attr-defined, has-type]
             "research_mode": self.research_mode,  # type: ignore[attr-defined, has-type]
             "temperature": self.temperature,  # type: ignore[attr-defined, has-type]

@@ -5,6 +5,26 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.50.1] - 2026-02-26 🔧 VL Routing Fix + Backend Persistence + Auto-Scroll Streaming
+
+### Fixed
+
+- **VL Follow-up False Positives** — `detect_vl_relevance()` erhielt keinen Konversationskontext, nur die aktuelle Frage und den Bild-Kontext. Dadurch wurden reine Text-Fragen (z.B. HTML-Coding) fälschlich ans VL-Modell geroutet, wenn vorher ein Bild hochgeladen wurde. Fix: Neuer Parameter `recent_context` (letzte 4 Messages) + überarbeiteter Prompt mit strikteren Regeln (Default → NONE statt IMAGE:1).
+- **Backend-Persistence Bug** — `_save_settings()` schrieb bei jedem Speichervorgang `self.backend_type`, auch wenn der Reflex State noch den Klassen-Default "ollama" hatte (z.B. während Startup bei Vision-Model Auto-Select). Fix: `backend_type` wird nur geschrieben wenn `_backend_initialized == True`, sonst wird der Wert aus der bestehenden `settings.json` preserviert.
+- **Auto-Scroll während Streaming** — MutationObserver fehlte `characterData: true` für rx.markdown Text-Node-Updates. Zusätzlich 200ms setInterval-Backup für den Fall dass React Virtual DOM Batching Observer-Events verschluckt. Auto-Scroll-Toggle wird respektiert.
+- **mypy: `content_parts` no-redef** — Doppelte Type-Annotation in `_chat_mixin.py` (VL Direct + VL Follow-up Pfad, selber Scope). Zweite Annotation entfernt.
+- **mypy: `agent_editor.py`** — 29 vorbestehende Reflex-UI-Typing-Fehler (Var-Indexing, rx.icon Module-Callable, Event-Handler-Binding) mit File-Level `# mypy: disable-error-code` behoben.
+
+### Changed
+
+- **HTML Previews an Bubble-Top** — `format_html_preview()` → `extract_html_previews()` refactored. HTML-Code-Collapsibles werden jetzt am Anfang der Chat-Bubble angezeigt (wie Thinking-Collapsibles), nicht mehr inline. Kompakteres Design mit "Open in Browser" Link direkt im Summary.
+
+### Technical Details
+
+- 9 Dateien geändert (+125, -54 LOC)
+- Neue Funktion: `build_recent_context_string()` in `vision_utils.py`
+- Ruff + mypy: All checks passed
+
 ## [2.50.0] - 2026-02-26 🏗️ Agent-Config-System + VL Follow-Up + Auto-Scroll Fix
 
 ### Added

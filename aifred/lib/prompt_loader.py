@@ -524,6 +524,7 @@ def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> 
 def get_vl_relevance_check_prompt(
     user_query: str,
     image_context: str,
+    recent_context: str = "",
     lang: Optional[str] = None,
 ) -> str:
     """Load VL relevance check prompt for image follow-up detection."""
@@ -532,6 +533,7 @@ def get_vl_relevance_check_prompt(
         lang=lang,
         user_query=user_query,
         image_context=image_context,
+        recent_context=recent_context if recent_context else "(no prior messages)",
     )
 
 

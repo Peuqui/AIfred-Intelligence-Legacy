@@ -793,6 +793,50 @@ def build_image_context_string(image_list: list[dict]) -> str:
     return "\n".join(parts)
 
 
+def build_recent_context_string(
+    chat_history: list[dict],
+    max_messages: int = 4,
+) -> str:
+    """
+    Build a brief summary of recent conversation for VL relevance check.
+
+    Extracts the last N messages (before the current user message) so the
+    relevance check can detect topic changes.
+
+    Args:
+        chat_history: Full chat history from session
+        max_messages: Number of recent messages to include (default: 4 = 2 exchanges)
+
+    Returns:
+        Formatted string with recent messages, latest first
+    """
+    import re as _re
+    from .context_manager import strip_thinking_blocks
+
+    # Exclude the last message (current user query — already in user_query param)
+    history = chat_history[:-1] if chat_history else []
+
+    # Take the last N messages
+    recent = history[-max_messages:]
+
+    if not recent:
+        return ""
+
+    lines: list[str] = []
+    for msg in reversed(recent):
+        role = msg.get("role", "?").capitalize()
+        raw = msg.get("content", "")
+        # Strip HTML and thinking blocks
+        clean = strip_thinking_blocks(raw)
+        clean = _re.sub(r'<[^>]+>', '', clean).strip()
+        # Truncate
+        if len(clean) > 150:
+            clean = clean[:150] + "..."
+        lines.append(f"- {role}: {clean}")
+
+    return "\n".join(lines)
+
+
 def resolve_image_path_by_index(
     image_list: list[dict],
     image_index: int,

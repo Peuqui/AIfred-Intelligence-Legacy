@@ -266,6 +266,7 @@ async def detect_vl_relevance(
     automatik_model: str,
     llm_client,
     automatik_num_ctx: Optional[int] = None,
+    recent_context: str = "",
 ) -> Optional[int]:
     """
     Detect if a follow-up question relates to a previously uploaded image.
@@ -278,6 +279,7 @@ async def detect_vl_relevance(
         automatik_model: LLM for classification (already loaded)
         llm_client: LLMClient instance
         automatik_num_ctx: Context size for Automatik call
+        recent_context: Recent conversation messages for topic-change detection
 
     Returns:
         1-based image index if relevant, None if not image-related
@@ -288,6 +290,7 @@ async def detect_vl_relevance(
     prompt = get_vl_relevance_check_prompt(
         user_query=user_query,
         image_context=image_context,
+        recent_context=recent_context,
         lang="en",
     )
 

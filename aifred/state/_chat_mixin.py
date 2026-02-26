@@ -695,6 +695,7 @@ class ChatMixin(rx.State, mixin=True):
                 from ..lib.vision_utils import (
                     collect_image_context_from_history,
                     build_image_context_string,
+                    build_recent_context_string,
                     resolve_image_path_by_index,
                     load_image_as_base64,
                 )
@@ -716,6 +717,7 @@ class ChatMixin(rx.State, mixin=True):
                     if _vl_model_loaded:
                         log_message("📷 VL Shortcut: VL model still loaded, checking relevance directly")
                         _vl_ctx_str = build_image_context_string(_vl_image_list)
+                        _vl_recent_ctx = build_recent_context_string(self.chat_history)  # type: ignore[attr-defined, has-type]
 
                         from ..lib.intent_detector import detect_vl_relevance
                         _vl_idx = await detect_vl_relevance(
@@ -723,6 +725,7 @@ class ChatMixin(rx.State, mixin=True):
                             image_context=_vl_ctx_str,
                             automatik_model=self.vision_model_id,  # type: ignore[attr-defined]
                             llm_client=llm_client,
+                            recent_context=_vl_recent_ctx,
                         )
 
                         if _vl_idx is not None:
@@ -973,6 +976,7 @@ class ChatMixin(rx.State, mixin=True):
                 from ..lib.vision_utils import (
                     collect_image_context_from_history,
                     build_image_context_string,
+                    build_recent_context_string,
                     resolve_image_path_by_index,
                     load_image_as_base64,
                 )
@@ -981,6 +985,7 @@ class ChatMixin(rx.State, mixin=True):
 
                 if image_list:
                     image_context_str = build_image_context_string(image_list)
+                    recent_ctx = build_recent_context_string(self.chat_history)  # type: ignore[attr-defined, has-type]
 
                     from ..lib.intent_detector import detect_vl_relevance
                     vl_image_idx = await detect_vl_relevance(
@@ -989,6 +994,7 @@ class ChatMixin(rx.State, mixin=True):
                         automatik_model=effective_auto,
                         llm_client=llm_client,
                         automatik_num_ctx=auto_num_ctx,
+                        recent_context=recent_ctx,
                     )
 
                     if vl_image_idx is not None:
@@ -1013,7 +1019,7 @@ class ChatMixin(rx.State, mixin=True):
                                     pass
 
                             # Build multimodal content
-                            content_parts: list[dict] = []
+                            content_parts = []
 
                             if not self.vision_thinking:  # type: ignore[attr-defined]
                                 content_parts.append({"type": "text", "text": "/no_think"})

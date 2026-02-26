@@ -97,7 +97,8 @@ function attachScrollTracker(element) {
 }
 
 // Observer für Debug-Console und Chat-History Updates
-const observerConfig = { childList: true, subtree: true };
+// characterData: true catches text node updates from rx.markdown streaming
+const observerConfig = { childList: true, subtree: true, characterData: true };
 
 // Track if chat-history-box observer is already running
 let chatObserverAttached = false;
@@ -204,6 +205,17 @@ function initialize() {
         makeLinksOpenInNewTab();
     }, 1500);
 }
+
+// Periodic scroll backup for streaming — MutationObserver may miss
+// some rx.markdown updates (React virtual DOM batching).
+// Runs every 200ms, checks toggle + wasAtBottom, very lightweight.
+setInterval(() => {
+    if (!isAutoScrollEnabled()) return;
+    const chatBox = document.getElementById('chat-history-box');
+    if (chatBox) autoScrollElement(chatBox);
+    const debugBox = document.getElementById('debug-console-box');
+    if (debugBox) autoScrollElement(debugBox);
+}, 200);
 
 // Check if DOM is already loaded (script loaded late)
 if (document.readyState === 'loading') {
