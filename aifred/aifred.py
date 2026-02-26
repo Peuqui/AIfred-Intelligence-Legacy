@@ -97,8 +97,9 @@ function attachScrollTracker(element) {
 }
 
 // Observer für Debug-Console und Chat-History Updates
-// characterData: true catches text node updates from rx.markdown streaming
-const observerConfig = { childList: true, subtree: true, characterData: true };
+// Note: characterData intentionally NOT set — fires per-character during streaming
+// causing layout thrashing + horizontal jitter. The 200ms setInterval handles streaming.
+const observerConfig = { childList: true, subtree: true };
 
 // Track if chat-history-box observer is already running
 let chatObserverAttached = false;
@@ -206,16 +207,10 @@ function initialize() {
     }, 1500);
 }
 
-// Periodic scroll backup for streaming — MutationObserver may miss
-// some rx.markdown updates (React virtual DOM batching).
-// Runs every 200ms, checks toggle + wasAtBottom, very lightweight.
-setInterval(() => {
-    if (!isAutoScrollEnabled()) return;
-    const chatBox = document.getElementById('chat-history-box');
-    if (chatBox) autoScrollElement(chatBox);
-    const debugBox = document.getElementById('debug-console-box');
-    if (debugBox) autoScrollElement(debugBox);
-}, 200);
+// Note: NO periodic setInterval for auto-scroll. The MutationObserver
+// (childList + subtree) fires when React/Reflex replaces DOM subtrees
+// during streaming. A permanent interval would prevent manual scroll-up
+// because it re-enforces scrollTop every 200ms.
 
 // Check if DOM is already loaded (script loaded late)
 if (document.readyState === 'loading') {
