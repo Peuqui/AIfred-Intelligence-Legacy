@@ -690,7 +690,8 @@ class CalibrationMixin(rx.State, mixin=True):
 
     async def restart_ollama(self):
         """Legacy method - calls restart_backend()"""
-        await self.restart_backend()
+        async for _ in self.restart_backend():
+            pass
 
     # ------------------------------------------------------------------
     # AIfred service restart

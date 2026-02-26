@@ -26,13 +26,14 @@ from ..lib.config import (
 )
 
 # Agent names used throughout this mixin
-_AGENTS = ("aifred", "sokrates", "salomo")
+_AGENTS = ("aifred", "sokrates", "salomo", "vision")
 
 # Feature -> (emoji, prompt_loader setter name)
+# Note: thinking has no prompt_loader sync — read directly from State at runtime.
 _FEATURE_META: dict[str, tuple[str, str]] = {
     "personality": ("", "set_personality_enabled"),
     "reasoning": ("", "set_reasoning_enabled"),
-    "thinking": ("", "set_thinking_enabled"),
+    "thinking": ("", ""),
 }
 
 # Per-agent emoji for personality toggles
@@ -40,6 +41,7 @@ _PERSONALITY_EMOJI: dict[str, str] = {
     "aifred": "\U0001f3a9",      # top hat
     "sokrates": "\U0001f3db\ufe0f",  # classical building
     "salomo": "\U0001f451",      # crown
+    "vision": "\U0001f4f7",      # camera
 }
 
 # Per-feature emoji (same for all agents)
@@ -57,16 +59,19 @@ class AgentConfigMixin(rx.State, mixin=True):
     aifred_personality: bool = True
     sokrates_personality: bool = True
     salomo_personality: bool = True
+    vision_personality: bool = True
 
     # ── Per-Agent Reasoning Toggles ───────────────────────────────
     aifred_reasoning: bool = True
     sokrates_reasoning: bool = True
     salomo_reasoning: bool = True
+    vision_reasoning: bool = False
 
     # ── Per-Agent Thinking Toggles (enable_thinking to backend) ───
     aifred_thinking: bool = True
     sokrates_thinking: bool = True
     salomo_thinking: bool = True
+    vision_thinking: bool = True
 
     # ── Per-Agent Sampling Parameters ─────────────────────────────
     aifred_top_k: int = DEFAULT_TOP_K
@@ -165,10 +170,11 @@ class AgentConfigMixin(rx.State, mixin=True):
         save_method = f"_save_{feature}_settings"
         getattr(self, save_method)()
 
-        # Sync to prompt_loader
+        # Sync to prompt_loader (if setter exists — thinking has none)
         setter_name = _FEATURE_META[feature][1]
-        from ..lib import prompt_loader
-        getattr(prompt_loader, setter_name)(agent, new_val)
+        if setter_name:
+            from ..lib import prompt_loader
+            getattr(prompt_loader, setter_name)(agent, new_val)
 
     # ── Personality Toggles ───────────────────────────────────────
 
@@ -184,6 +190,10 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Toggle Salomo judge personality style on/off."""
         self._toggle_agent_feature("salomo", "personality")
 
+    def toggle_vision_personality(self, _value: bool | None = None) -> None:
+        """Toggle Vision agent personality style on/off."""
+        self._toggle_agent_feature("vision", "personality")
+
     def _save_personality_settings(self) -> None:
         """Save personality toggle states to settings.json."""
         from ..lib.settings import load_settings, save_settings
@@ -191,6 +201,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         settings["aifred_personality"] = self.aifred_personality
         settings["sokrates_personality"] = self.sokrates_personality
         settings["salomo_personality"] = self.salomo_personality
+        settings["vision_personality"] = self.vision_personality
         save_settings(settings)
 
     # ── Reasoning Toggles ─────────────────────────────────────────
@@ -207,6 +218,10 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Toggle Salomo chain-of-thought reasoning on/off."""
         self._toggle_agent_feature("salomo", "reasoning")
 
+    def toggle_vision_reasoning(self, _value: bool | None = None) -> None:
+        """Toggle Vision agent chain-of-thought reasoning on/off."""
+        self._toggle_agent_feature("vision", "reasoning")
+
     def _save_reasoning_settings(self) -> None:
         """Save reasoning toggle states to settings.json."""
         from ..lib.settings import load_settings, save_settings
@@ -214,6 +229,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         settings["aifred_reasoning"] = self.aifred_reasoning
         settings["sokrates_reasoning"] = self.sokrates_reasoning
         settings["salomo_reasoning"] = self.salomo_reasoning
+        settings["vision_reasoning"] = self.vision_reasoning
         save_settings(settings)
 
     # ── Thinking Toggles ──────────────────────────────────────────
@@ -230,6 +246,10 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Toggle Salomo model thinking on/off."""
         self._toggle_agent_feature("salomo", "thinking")
 
+    def toggle_vision_thinking(self, _value: bool | None = None) -> None:
+        """Toggle Vision agent model thinking on/off."""
+        self._toggle_agent_feature("vision", "thinking")
+
     def _save_thinking_settings(self) -> None:
         """Save thinking toggle states to settings.json."""
         from ..lib.settings import load_settings, save_settings
@@ -237,6 +257,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         settings["aifred_thinking"] = self.aifred_thinking
         settings["sokrates_thinking"] = self.sokrates_thinking
         settings["salomo_thinking"] = self.salomo_thinking
+        settings["vision_thinking"] = self.vision_thinking
         save_settings(settings)
 
     # ── Thinking Mode (global) ────────────────────────────────────
@@ -852,3 +873,227 @@ class AgentConfigMixin(rx.State, mixin=True):
             self._show_model_calibration_info(self.salomo_model_id)  # type: ignore[attr-defined]
         else:
             self.add_debug("\U0001f451 Salomo-LLM: (same as Main-LLM)")  # type: ignore[attr-defined]
+
+    # ================================================================
+    # AGENT EDITOR STATE & HANDLERS
+    # ================================================================
+
+    # Editor modal visibility
+    agent_editor_open: bool = False
+
+    # Editor view mode: "list" or "edit"
+    agent_editor_mode: str = "list"
+
+    # Agent list for UI rendering (serializable dicts)
+    agent_list: List[dict] = []
+
+    # Currently editing agent (empty = creating new)
+    editor_agent_id: str = ""
+    editor_display_name: str = ""
+    editor_emoji: str = ""
+    editor_description: str = ""
+    editor_role: str = "custom"
+
+    # Prompt layer editor state
+    editor_prompt_tab: str = "identity"
+    editor_prompt_content: str = ""
+    # Available prompt keys for current agent (for tab rendering)
+    editor_prompt_keys: List[str] = []
+
+    # New agent creation fields
+    editor_new_agent_id: str = ""
+
+    # Delete confirmation
+    editor_delete_confirm: str = ""
+
+    def open_agent_editor(self) -> None:
+        """Open the agent editor modal and load agent list."""
+        self._refresh_agent_list()
+        self.agent_editor_mode = "list"
+        self.agent_editor_open = True
+        self.editor_agent_id = ""
+        self.editor_delete_confirm = ""
+
+    def close_agent_editor(self) -> None:
+        """Close the agent editor modal."""
+        self.agent_editor_open = False
+        self.agent_editor_mode = "list"
+        self.editor_agent_id = ""
+        self.editor_delete_confirm = ""
+
+    def back_to_agent_list(self) -> None:
+        """Go back to agent list from edit view."""
+        self.agent_editor_mode = "list"
+        self.editor_agent_id = ""
+        self._refresh_agent_list()
+
+    def _refresh_agent_list(self) -> None:
+        """Refresh the agent list from config for UI rendering."""
+        from ..lib.agent_config import load_agents_raw
+        raw = load_agents_raw()
+        self.agent_list = [
+            {"id": aid, **adata}
+            for aid, adata in raw.items()
+        ]
+
+    def edit_agent(self, agent_id: str) -> None:
+        """Open edit view for a specific agent."""
+        from ..lib.agent_config import get_agent_config
+        config = get_agent_config(agent_id)
+        if config is None:
+            return
+
+        self.editor_agent_id = agent_id
+        self.editor_display_name = config.display_name
+        self.editor_emoji = config.emoji
+        self.editor_description = config.description
+        self.editor_role = config.role
+        self.editor_prompt_tab = "identity"
+        self.editor_prompt_keys = list(config.prompts.keys())
+        self.editor_delete_confirm = ""
+        self.agent_editor_mode = "edit"
+
+        # Load the identity prompt content
+        self._load_editor_prompt("identity")
+
+    def _load_editor_prompt(self, prompt_key: str) -> None:
+        """Load a prompt file's content into the editor."""
+        from ..lib.agent_config import get_agent_config
+        from ..lib.prompt_loader import PROMPTS_DIR, get_language
+
+        config = get_agent_config(self.editor_agent_id)
+        if config is None:
+            return
+
+        prompt_path = config.prompts.get(prompt_key, "")
+        if not prompt_path:
+            self.editor_prompt_content = ""
+            return
+
+        lang = get_language()
+        full_path = PROMPTS_DIR / lang / prompt_path
+        if full_path.exists():
+            self.editor_prompt_content = full_path.read_text(encoding="utf-8")
+        else:
+            self.editor_prompt_content = ""
+
+    def set_editor_prompt_tab(self, tab: str) -> None:
+        """Switch prompt layer tab and load content."""
+        self.editor_prompt_tab = tab
+        self._load_editor_prompt(tab)
+
+    def set_editor_prompt_content(self, content: str) -> None:
+        """Update prompt content in editor (live typing)."""
+        self.editor_prompt_content = content
+
+    def set_editor_display_name(self, value: str) -> None:
+        """Update editor display name field."""
+        self.editor_display_name = value
+
+    def set_editor_emoji(self, value: str) -> None:
+        """Update editor emoji field."""
+        self.editor_emoji = value
+
+    def set_editor_description(self, value: str) -> None:
+        """Update editor description field."""
+        self.editor_description = value
+
+    def set_editor_role(self, value: str) -> None:
+        """Update editor role field."""
+        self.editor_role = value
+
+    def set_editor_new_agent_id(self, value: str) -> None:
+        """Update new agent ID field."""
+        self.editor_new_agent_id = value
+
+    def save_agent_editor(self) -> None:
+        """Save the current editor state to agent config and prompt files."""
+        from ..lib.agent_config import update_agent, create_agent, get_agent_config
+        from ..lib.prompt_loader import PROMPTS_DIR, get_language, register_agent_toggles
+
+        if self.editor_agent_id:
+            # Update existing agent metadata
+            update_agent(self.editor_agent_id, {
+                "display_name": self.editor_display_name,
+                "emoji": self.editor_emoji,
+                "description": self.editor_description,
+                "role": self.editor_role,
+            })
+
+            # Save current prompt tab content to file
+            config = get_agent_config(self.editor_agent_id)
+            if config:
+                prompt_path = config.prompts.get(self.editor_prompt_tab, "")
+                if prompt_path:
+                    lang = get_language()
+                    full_path = PROMPTS_DIR / lang / prompt_path
+                    full_path.parent.mkdir(parents=True, exist_ok=True)
+                    full_path.write_text(self.editor_prompt_content, encoding="utf-8")
+
+            self.add_debug(  # type: ignore[attr-defined]
+                f"\u2705 Agent '{self.editor_display_name}' saved"
+            )
+        else:
+            # Create new agent
+            agent_id = self.editor_new_agent_id.strip().lower().replace(" ", "_")
+            if not agent_id:
+                self.add_debug("\u26a0\ufe0f Agent-ID is required")  # type: ignore[attr-defined]
+                return
+
+            new_config = create_agent(
+                agent_id=agent_id,
+                display_name=self.editor_display_name,
+                emoji=self.editor_emoji,
+                description=self.editor_description,
+                role=self.editor_role,
+            )
+            register_agent_toggles(agent_id, new_config.toggles)
+            self.add_debug(  # type: ignore[attr-defined]
+                f"\u2705 Agent '{self.editor_display_name}' created"
+            )
+            # Switch to editing the newly created agent
+            self.editor_agent_id = agent_id
+            self.editor_prompt_keys = list(new_config.prompts.keys())
+            self._load_editor_prompt("identity")
+
+        self._refresh_agent_list()
+
+    def delete_agent_editor(self, agent_id: str) -> None:
+        """Delete an agent (with confirmation)."""
+        if self.editor_delete_confirm != agent_id:
+            # First click: ask for confirmation
+            self.editor_delete_confirm = agent_id
+            return
+
+        # Second click: actually delete
+        from ..lib.agent_config import delete_agent
+        from ..lib.prompt_loader import unregister_agent_toggles
+
+        try:
+            delete_agent(agent_id)
+            unregister_agent_toggles(agent_id)
+            self.add_debug(f"\U0001f5d1\ufe0f Agent '{agent_id}' deleted")  # type: ignore[attr-defined]
+        except ValueError as e:
+            self.add_debug(f"\u26a0\ufe0f {e}")  # type: ignore[attr-defined]
+
+        self.editor_delete_confirm = ""
+        if self.editor_agent_id == agent_id:
+            self.editor_agent_id = ""
+        self._refresh_agent_list()
+
+    def reset_editor_prompt(self) -> None:
+        """Reset current prompt tab to the file on disk (discard unsaved changes)."""
+        self._load_editor_prompt(self.editor_prompt_tab)
+
+    def start_new_agent(self) -> None:
+        """Switch editor to 'create new agent' mode."""
+        self.editor_agent_id = ""
+        self.editor_display_name = ""
+        self.editor_emoji = "\U0001f916"
+        self.editor_description = ""
+        self.editor_role = "custom"
+        self.editor_new_agent_id = ""
+        self.editor_prompt_tab = "identity"
+        self.editor_prompt_content = ""
+        self.editor_prompt_keys = []
+        self.agent_editor_mode = "edit"

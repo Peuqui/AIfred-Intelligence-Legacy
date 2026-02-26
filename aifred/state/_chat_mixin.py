@@ -558,7 +558,7 @@ class ChatMixin(rx.State, mixin=True):
                 self.clear_pending_images()  # type: ignore[attr-defined]
 
                 # Use UI language (no Intent Detection)
-                from ..lib.prompt_loader import get_language, get_thinking_enabled
+                from ..lib.prompt_loader import get_language
                 detected_language = get_language()
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
 
@@ -587,7 +587,7 @@ class ChatMixin(rx.State, mixin=True):
                 content_parts: list[dict] = []
 
                 # Qwen3-VL respects /no_think prefix (Ollama ignores API think param for VL)
-                if not get_thinking_enabled("aifred"):
+                if not self.vision_thinking:  # type: ignore[attr-defined]
                     content_parts.append({"type": "text", "text": "/no_think"})
 
                 # Images first (VL models handle it best this way)
@@ -600,11 +600,14 @@ class ChatMixin(rx.State, mixin=True):
                     })
 
                 # User text after images (fallback description if empty)
-                prompt_text = user_msg.strip() if user_msg.strip() else (
+                # Task-adaptive prompt: user text → Q&A, no text → OCR
+                has_user_text = bool(user_msg.strip())
+                prompt_text = user_msg.strip() if has_user_text else (
                     "Beschreibe und analysiere dieses Bild." if detected_language == "de"
                     else "Describe and analyze this image."
                 )
                 content_parts.append({"type": "text", "text": prompt_text})
+                vision_prompt_key = "task_qa" if has_user_text else "task"
 
                 # VL model handles everything via SSOT handle_own_knowledge().
                 # llm_history[:-1]: exclude the current user entry (added at line 511)
@@ -623,9 +626,10 @@ class ChatMixin(rx.State, mixin=True):
                     temperature=self.temperature,  # type: ignore[attr-defined]
                     backend_type=self.backend_type,  # type: ignore[attr-defined]
                     backend_url=self.backend_url,  # type: ignore[attr-defined]
-                    enable_thinking=get_thinking_enabled("aifred"),
+                    enable_thinking=self.vision_thinking,  # type: ignore[attr-defined]
                     state=self,
                     multimodal_content=content_parts,
+                    vision_prompt_key=vision_prompt_key,
                     provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
                     agent="vision",
                 ):
@@ -678,6 +682,134 @@ class ChatMixin(rx.State, mixin=True):
                 backend_type=self.backend_type,  # type: ignore[attr-defined]
                 base_url=self.backend_url,  # type: ignore[attr-defined]
             )
+
+            # ============================================================
+            # VL SHORTCUT: If VL model is still loaded AND images in history,
+            # do relevance check with VL model directly → avoid double swap.
+            # Only for llamacpp (model swapping), only when user has text input.
+            # ============================================================
+            if (not has_pending_images
+                    and user_msg.strip()
+                    and self.backend_type == "llamacpp"  # type: ignore[attr-defined]
+                    and self.vision_model_id):  # type: ignore[attr-defined]
+                from ..lib.vision_utils import (
+                    collect_image_context_from_history,
+                    build_image_context_string,
+                    resolve_image_path_by_index,
+                    load_image_as_base64,
+                )
+                _vl_image_list = collect_image_context_from_history(self.chat_history)  # type: ignore[attr-defined, has-type]
+
+                if _vl_image_list:
+                    # Check if VL model is currently loaded
+                    _vl_model_loaded = False
+                    try:
+                        import httpx
+                        _swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
+                        async with httpx.AsyncClient(timeout=5.0) as _http:
+                            _resp = await _http.get(f"{_swap_base}/running")
+                            _running = [m.get("model") for m in _resp.json().get("running", [])]
+                            _vl_model_loaded = self.vision_model_id in _running  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+
+                    if _vl_model_loaded:
+                        log_message("📷 VL Shortcut: VL model still loaded, checking relevance directly")
+                        _vl_ctx_str = build_image_context_string(_vl_image_list)
+
+                        from ..lib.intent_detector import detect_vl_relevance
+                        _vl_idx = await detect_vl_relevance(
+                            user_query=user_msg,
+                            image_context=_vl_ctx_str,
+                            automatik_model=self.vision_model_id,  # type: ignore[attr-defined]
+                            llm_client=llm_client,
+                        )
+
+                        if _vl_idx is not None:
+                            _vl_path = resolve_image_path_by_index(_vl_image_list, _vl_idx)
+                            if _vl_path:
+                                self.add_debug(f"📷 VL Follow-up (shortcut): Image {_vl_idx} → {_vl_path.name}")
+                                yield
+
+                                # Use UI language (no Intent Detection needed)
+                                from ..lib.prompt_loader import get_language
+                                detected_language = get_language()
+                                self._last_detected_language = detected_language  # type: ignore[attr-defined]
+
+                                # Build multimodal content
+                                content_parts_sc: list[dict] = []
+                                if not self.vision_thinking:  # type: ignore[attr-defined]
+                                    content_parts_sc.append({"type": "text", "text": "/no_think"})
+
+                                base64_data = load_image_as_base64(_vl_path)
+                                content_parts_sc.append({
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
+                                })
+                                content_parts_sc.append({"type": "text", "text": user_msg})
+
+                                # Call handle_own_knowledge
+                                from ..lib.own_knowledge_handler import handle_own_knowledge
+
+                                result_data_sc = None
+                                async for item in handle_own_knowledge(
+                                    user_text=user_msg,
+                                    model_choice=self.vision_model_id,  # type: ignore[attr-defined]
+                                    history=self.chat_history,  # type: ignore[attr-defined, has-type]
+                                    llm_history=self.llm_history[:-1],  # type: ignore[attr-defined, has-type]
+                                    detected_intent="FAKTISCH",
+                                    detected_language=detected_language,
+                                    temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
+                                    temperature=self.temperature,  # type: ignore[attr-defined]
+                                    backend_type=self.backend_type,  # type: ignore[attr-defined]
+                                    backend_url=self.backend_url,  # type: ignore[attr-defined]
+                                    enable_thinking=self.vision_thinking,  # type: ignore[attr-defined]
+                                    state=self,
+                                    multimodal_content=content_parts_sc,
+                                    vision_prompt_key="task_qa",
+                                    provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
+                                    agent="vision",
+                                ):
+                                    if item["type"] == "debug":
+                                        self.add_debug(item["message"])
+                                        yield
+                                    elif item["type"] == "content":
+                                        self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
+                                        yield
+                                    elif item["type"] == "progress":
+                                        if item.get("clear", False):
+                                            self.clear_progress()  # type: ignore[attr-defined]
+                                        else:
+                                            self.set_progress(  # type: ignore[attr-defined]
+                                                phase=item.get("phase", ""),
+                                                current=item.get("current", 0),
+                                                total=item.get("total", 0),
+                                            )
+                                        yield
+                                    elif item["type"] == "result":
+                                        result_data_sc = item["data"]
+
+                                if result_data_sc:
+                                    returned_llm = result_data_sc["llm_history"]
+                                    if (len(returned_llm) == len(self.llm_history)  # type: ignore[attr-defined, has-type]
+                                            and returned_llm[-1].get("role") == "assistant"):
+                                        self.llm_history = list(self.llm_history) + [returned_llm[-1]]  # type: ignore[attr-defined, has-type]
+                                    self.chat_history = result_data_sc["history"]  # type: ignore[attr-defined]
+
+                                self.current_ai_response = ""
+                                self.current_user_message = ""
+                                self.is_generating = False
+                                yield
+
+                                async for _ in self._generate_session_title(title_model_override=self.vision_model_id):  # type: ignore[attr-defined]
+                                    yield
+                                self._save_current_session()  # type: ignore[attr-defined]
+                                self.refresh_session_list()  # type: ignore[attr-defined]
+                                yield
+                                return  # VL shortcut complete — no Automatik swap needed
+
+                        # VL model loaded but question not image-related → normal flow
+                        log_message("📷 VL Shortcut: NONE — proceeding to normal flow")
 
             # ============================================================
             # AUTOMATIK NUM_CTX CALCULATION (once, used for all Automatik calls)
@@ -832,6 +964,127 @@ class ChatMixin(rx.State, mixin=True):
 
             # NOTE: User message was already added to chat_history at the start of send_message()
             # (before XTTS check) so user sees their message immediately
+
+            # ============================================================
+            # VL FOLLOW-UP PATH: No new images, but images in history?
+            # Check if the follow-up question relates to a previous image.
+            # ============================================================
+            if not has_pending_images:
+                from ..lib.vision_utils import (
+                    collect_image_context_from_history,
+                    build_image_context_string,
+                    resolve_image_path_by_index,
+                    load_image_as_base64,
+                )
+
+                image_list = collect_image_context_from_history(self.chat_history)  # type: ignore[attr-defined, has-type]
+
+                if image_list:
+                    image_context_str = build_image_context_string(image_list)
+
+                    from ..lib.intent_detector import detect_vl_relevance
+                    vl_image_idx = await detect_vl_relevance(
+                        user_query=user_msg,
+                        image_context=image_context_str,
+                        automatik_model=effective_auto,
+                        llm_client=llm_client,
+                        automatik_num_ctx=auto_num_ctx,
+                    )
+
+                    if vl_image_idx is not None:
+                        image_path = resolve_image_path_by_index(image_list, vl_image_idx)
+
+                        if image_path:
+                            self.add_debug(f"📷 VL Follow-up: Image {vl_image_idx} → {image_path.name}")
+                            yield
+
+                            # Cold start check for VL model
+                            if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+                                try:
+                                    import httpx
+                                    swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
+                                    async with httpx.AsyncClient(timeout=5.0) as _http:
+                                        resp = await _http.get(f"{swap_base}/running")
+                                        running = [m.get("model") for m in resp.json().get("running", [])]
+                                        if self.vision_model_id not in running:  # type: ignore[attr-defined]
+                                            self.add_debug(f"🔄 VL Model Cold Start ({self.vision_model_id}) — loading...")  # type: ignore[attr-defined]
+                                            yield
+                                except Exception:
+                                    pass
+
+                            # Build multimodal content
+                            content_parts: list[dict] = []
+
+                            if not self.vision_thinking:  # type: ignore[attr-defined]
+                                content_parts.append({"type": "text", "text": "/no_think"})
+
+                            base64_data = load_image_as_base64(image_path)
+                            content_parts.append({
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
+                            })
+                            content_parts.append({"type": "text", "text": user_msg})
+
+                            # Call handle_own_knowledge() — same as VL fast path
+                            from ..lib.own_knowledge_handler import handle_own_knowledge
+
+                            result_data = None
+                            async for item in handle_own_knowledge(
+                                user_text=user_msg,
+                                model_choice=self.vision_model_id,  # type: ignore[attr-defined]
+                                history=self.chat_history,  # type: ignore[attr-defined, has-type]
+                                llm_history=self.llm_history[:-1],  # type: ignore[attr-defined, has-type]
+                                detected_intent=detected_intent,
+                                detected_language=detected_language,
+                                temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
+                                temperature=self.temperature,  # type: ignore[attr-defined]
+                                backend_type=self.backend_type,  # type: ignore[attr-defined]
+                                backend_url=self.backend_url,  # type: ignore[attr-defined]
+                                enable_thinking=self.vision_thinking,  # type: ignore[attr-defined]
+                                state=self,
+                                multimodal_content=content_parts,
+                                vision_prompt_key="task_qa",
+                                provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
+                                agent="vision",
+                            ):
+                                if item["type"] == "debug":
+                                    self.add_debug(item["message"])
+                                    yield
+                                elif item["type"] == "content":
+                                    self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
+                                    yield
+                                elif item["type"] == "progress":
+                                    if item.get("clear", False):
+                                        self.clear_progress()  # type: ignore[attr-defined]
+                                    else:
+                                        self.set_progress(  # type: ignore[attr-defined]
+                                            phase=item.get("phase", ""),
+                                            current=item.get("current", 0),
+                                            total=item.get("total", 0),
+                                        )
+                                    yield
+                                elif item["type"] == "result":
+                                    result_data = item["data"]
+
+                            if result_data:
+                                returned_llm = result_data["llm_history"]
+                                if (len(returned_llm) == len(self.llm_history)  # type: ignore[attr-defined, has-type]
+                                        and returned_llm[-1].get("role") == "assistant"):
+                                    self.llm_history = list(self.llm_history) + [returned_llm[-1]]  # type: ignore[attr-defined, has-type]
+                                self.chat_history = result_data["history"]  # type: ignore[attr-defined]
+
+                            self.current_ai_response = ""
+                            self.current_user_message = ""
+                            self.is_generating = False
+                            yield
+
+                            async for _ in self._generate_session_title(title_model_override=self.vision_model_id):  # type: ignore[attr-defined]
+                                yield
+                            self._save_current_session()  # type: ignore[attr-defined]
+                            self.refresh_session_list()  # type: ignore[attr-defined]
+                            yield
+                            return  # VL follow-up complete
+
             # ============================================================
             # DIALOG ROUTING (uses intent/addressee from above)
             # ============================================================
@@ -881,10 +1134,9 @@ class ChatMixin(rx.State, mixin=True):
             # ============================================================
 
             from ..lib.conversation_handler import chat_interactive_mode
-            from ..lib.prompt_loader import get_thinking_enabled
 
             llm_options = {
-                'enable_thinking': get_thinking_enabled("aifred"),
+                'enable_thinking': self.aifred_thinking,  # type: ignore[attr-defined]
                 'top_k': self.aifred_top_k,  # type: ignore[attr-defined]
                 'top_p': self.aifred_top_p,  # type: ignore[attr-defined]
                 'min_p': self.aifred_min_p,  # type: ignore[attr-defined]

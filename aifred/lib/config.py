@@ -752,7 +752,7 @@ MAX_SWAP_INCREASE_MB = 512  # Max swap increase per test iteration
 # Playwright (headless browser) is tried as fallback
 PLAYWRIGHT_FALLBACK_THRESHOLD = 800  # words - below this value Playwright is tried
 
-# Non-scrapable domains are loaded from data/blocked_domains.txt
+# Non-scrapable domains are loaded from data/non_scrapable_domains.txt
 # (Single Source of Truth - one domain per line, easy to maintain)
 
 # ============================================================

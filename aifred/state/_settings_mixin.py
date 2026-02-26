@@ -82,12 +82,15 @@ class SettingsMixin(rx.State, mixin=True):
             "aifred_personality": self.aifred_personality,  # type: ignore[attr-defined, has-type]
             "sokrates_personality": self.sokrates_personality,  # type: ignore[attr-defined, has-type]
             "salomo_personality": self.salomo_personality,  # type: ignore[attr-defined, has-type]
+            "vision_personality": self.vision_personality,  # type: ignore[attr-defined, has-type]
             "aifred_reasoning": self.aifred_reasoning,  # type: ignore[attr-defined, has-type]
             "sokrates_reasoning": self.sokrates_reasoning,  # type: ignore[attr-defined, has-type]
             "salomo_reasoning": self.salomo_reasoning,  # type: ignore[attr-defined, has-type]
+            "vision_reasoning": self.vision_reasoning,  # type: ignore[attr-defined, has-type]
             "aifred_thinking": self.aifred_thinking,  # type: ignore[attr-defined, has-type]
             "sokrates_thinking": self.sokrates_thinking,  # type: ignore[attr-defined, has-type]
             "salomo_thinking": self.salomo_thinking,  # type: ignore[attr-defined, has-type]
+            "vision_thinking": self.vision_thinking,  # type: ignore[attr-defined, has-type]
             # Note: Sampling params (top_k, top_p, min_p, repeat_penalty) NOT saved
             # They reset to YAML defaults on restart. Temperature IS saved (see below).
             "aifred_speed_mode": self.aifred_speed_mode,  # type: ignore[attr-defined, has-type]
@@ -230,11 +233,13 @@ class SettingsMixin(rx.State, mixin=True):
         self.aifred_personality = settings.get("aifred_personality", self.aifred_personality)  # type: ignore[attr-defined, has-type]
         self.sokrates_personality = settings.get("sokrates_personality", self.sokrates_personality)  # type: ignore[attr-defined, has-type]
         self.salomo_personality = settings.get("salomo_personality", self.salomo_personality)  # type: ignore[attr-defined, has-type]
+        self.vision_personality = settings.get("vision_personality", self.vision_personality)  # type: ignore[attr-defined, has-type]
         # Sync to prompt_loader
         from ..lib.prompt_loader import set_personality_enabled
         set_personality_enabled("aifred", self.aifred_personality)  # type: ignore[attr-defined, has-type, arg-type]
         set_personality_enabled("sokrates", self.sokrates_personality)  # type: ignore[attr-defined, has-type, arg-type]
         set_personality_enabled("salomo", self.salomo_personality)  # type: ignore[attr-defined, has-type, arg-type]
+        set_personality_enabled("vision", self.vision_personality)  # type: ignore[attr-defined, has-type, arg-type]
 
         # TTS settings
         self.enable_tts = settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]

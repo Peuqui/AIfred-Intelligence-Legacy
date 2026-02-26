@@ -61,26 +61,6 @@ FORBIDDEN:
 
 ===============================================================
 
-EXAMPLE OUTPUT:
-
-# Ismael & Esau: The Ancient Alliance Against Israel
-
-Why does the biblical story of Ishmael still resonate in world politics today? What connects an Esau with left-wing NGOs, UN resolutions and street protests in Berlin?
-
-[IMAGE: top right | Map of the Middle East with countries in various shades of blue]
-> Caption: Conflicts in the Middle East are not merely political disputes
-> Source: Adobe Stock
-
-The conflicts in the Middle East are not merely political or territorial disputes. They are rooted deep in the spiritual history of mankind.
-
-## Patriarch Ishmael
-
-The Bible portrays Ishmael, the patriarch of the Arab peoples, in four key moments...
-
-**Birth with Condition.** Ishmael's birth is announced by an angel...
-
-===============================================================
-
 FOR TABLES - Markdown table format:
 
 | Column 1 | Column 2 | Column 3 |

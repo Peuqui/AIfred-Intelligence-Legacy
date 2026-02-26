@@ -10,6 +10,8 @@ AIfred Intelligence is an advanced AI assistant with automatic web research, mul
 
 For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 
+> **Upgrading from v2.49 or earlier?** Run `rm -f data/agents.json data/blocked_domains.txt` before `git pull` — these files are now git-tracked with a new format. See [CHANGELOG v2.50.0](CHANGELOG.md) for details.
+
 **📺 [View Example Showcases](https://peuqui.github.io/AIfred-Intelligence/)** - Exported chats (via Share Chat button) showcasing Multi-Agent debates, Chemistry, Math, Coding, and Web Research.
 
 ---
@@ -17,12 +19,12 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 ## ✨ Features
 
 ### 🎯 Core Features
-- **Multi-Agent Debate System**: AIfred + Sokrates as critical discussion partner for improved answer quality
+- **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision — configurable agents with personality toggles
 - **Multi-Backend Support**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), **Cloud APIs** (Qwen, DeepSeek, Claude)
 - **Automatic Model Lifecycle**: Zero-config model management — new models auto-discovered from Ollama/HuggingFace on service start, removed models auto-cleaned from config
-- **Vision/OCR Support**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
+- **Vision/OCR Support**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), **VL Follow-Up** for image-related follow-up questions
 - **Image Crop Tool**: Interactive crop before OCR/analysis (8-point handles, 4K auto-resize)
-- **3-Model Architecture**: Specialized Vision-LLM for OCR, Main-LLM for interpretation
+- **2-Model Architecture**: Specialized Vision-LLM for OCR/analysis, Main-LLM for text tasks
 - **Thinking Mode**: Chain-of-Thought reasoning for complex tasks (Qwen3, NemoTron, QwQ - llama.cpp, Ollama, vLLM)
 - **Harmony-Template Support**: GPT-OSS-120B with official Harmony format (`<|channel|>analysis<|message|>`)
 - **Automatic Web Research**: AI decides autonomously when research is needed
@@ -55,9 +57,11 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 - 🎩 **AIfred** - Butler & Scholar - answers questions (British butler style with subtle elegance)
 - 🏛️ **Sokrates** - Critical Philosopher - questions & challenges using the Socratic method
 - 👑 **Salomo** - Wise Judge - synthesizes arguments and makes final decisions
+- 📷 **Vision** - Image Analyst - OCR and visual Q&A (inherits AIfred's personality)
 
 **Customizable Personalities:**
 - All agent prompts are plain text files in `prompts/de/` and `prompts/en/`
+- Agent configuration in `data/agents.json` — prompt paths, toggles, roles
 - Personality can be toggled on/off in UI settings (keeps identity, removes style)
 - 3-layer prompt system: Identity (who) + Personality (how, optional) + Task (what)
 - Easily create your own agents or modify existing personalities

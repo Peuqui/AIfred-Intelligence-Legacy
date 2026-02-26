@@ -727,6 +727,94 @@ def load_image_url_as_base64(image_url: str) -> Optional[str]:
         return None
 
 
+def collect_image_context_from_history(chat_history: list[dict]) -> list[dict]:
+    """
+    Collect all images from chat_history with their AI descriptions.
+
+    Scans for user messages with metadata.images and pairs each with
+    the subsequent assistant response (truncated to ~150 chars).
+
+    Args:
+        chat_history: Full chat history from session
+
+    Returns:
+        List of dicts with keys: index, url, name, description, turn
+    """
+    import re as _re
+    from .context_manager import strip_thinking_blocks
+
+    images: list[dict] = []
+    image_counter = 0
+
+    for i, msg in enumerate(chat_history):
+        if msg.get("role") != "user":
+            continue
+
+        msg_images = msg.get("metadata", {}).get("images", [])
+        if not msg_images:
+            continue
+
+        # Find the next assistant response for the description
+        description = ""
+        for j in range(i + 1, len(chat_history)):
+            if chat_history[j].get("role") == "assistant":
+                raw = strip_thinking_blocks(chat_history[j].get("content", ""))
+                clean = _re.sub(r'<[^>]+>', '', raw).strip()
+                description = clean[:150] + ("..." if len(clean) > 150 else "")
+                break
+
+        for img in msg_images:
+            image_counter += 1
+            images.append({
+                "index": image_counter,
+                "url": img.get("url", ""),
+                "name": img.get("name", ""),
+                "description": description,
+                "turn": i,
+            })
+
+    return images
+
+
+def build_image_context_string(image_list: list[dict]) -> str:
+    """
+    Build a concise text summary of images for the VL relevance check prompt.
+
+    Args:
+        image_list: Output from collect_image_context_from_history()
+
+    Returns:
+        Formatted string for prompt injection
+    """
+    parts: list[str] = []
+    for img in image_list:
+        desc = img["description"] or img["name"] or "No description"
+        parts.append(f"- Image {img['index']}: \"{desc}\"")
+    return "\n".join(parts)
+
+
+def resolve_image_path_by_index(
+    image_list: list[dict],
+    image_index: int,
+) -> Optional[Path]:
+    """
+    Resolve a 1-based image index to a filesystem path.
+
+    Args:
+        image_list: Output from collect_image_context_from_history()
+        image_index: 1-based index from VL relevance check
+
+    Returns:
+        Path to image file, or None if not found/doesn't exist
+    """
+    for img in image_list:
+        if img["index"] == image_index:
+            file_path = url_to_file_path(img["url"])
+            if file_path and file_path.exists():
+                return file_path
+    return None
+
+
 def cleanup_session_images(session_id: str) -> int:
     """
     Delete all images for a session.

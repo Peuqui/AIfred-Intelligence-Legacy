@@ -61,26 +61,6 @@ VERBOTEN:
 
 ═══════════════════════════════════════════════════════════════
 
-BEISPIEL AUSGABE:
-
-# Ismael & Esau: Die uralte Allianz gegen Israel
-
-Warum wirkt die biblische Geschichte Ismaels bis heute in der Weltpolitik nach? Was verbindet einen Esau mit linken NGOs, UN-Resolutionen und Straßenprotesten in Berlin?
-
-[BILD: rechts oben | Karte des Nahen Ostens mit Ländern in verschiedenen Blautönen]
-> Bildunterschrift: Konflikte im Nahen Osten sind nicht bloß politische Auseinandersetzungen
-> Quelle: Adobe Stock
-
-Die Konflikte im Nahen Osten sind nicht bloß politische oder territoriale Auseinandersetzungen. Sie wurzeln tief in der geistlichen Geschichte der Menschheit.
-
-## Stammvater Ismael
-
-Die Bibel schildert Ismael, den Stammvater der arabischen Völker, in vier Schlüsselmomenten...
-
-**Geburt mit Bedingung.** Ismaels Geburt wird durch einen Engel angekündigt...
-
-═══════════════════════════════════════════════════════════════
-
 BEI TABELLEN - Markdown-Tabellen-Format:
 
 | Spalte 1 | Spalte 2 | Spalte 3 |

@@ -10,6 +10,8 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md).
 
+> **Update von v2.49 oder früher?** Vor `git pull` ausführen: `rm -f data/agents.json data/blocked_domains.txt` — diese Dateien werden jetzt im neuen Format aus Git getrackt. Details im [CHANGELOG v2.50.0](CHANGELOG.md).
+
 **📺 [Beispiel-Showcases ansehen](https://peuqui.github.io/AIfred-Intelligence/)** - Exportierte Chats (via Share-Chat-Button): Multi-Agent-Debatten, Chemie, Mathe, Coding und Web-Recherche.
 
 ---
@@ -17,12 +19,12 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 ## ✨ Features
 
 ### 🎯 Kern-Features
-- **Multi-Agent Debate System**: AIfred + Sokrates als kritischer Diskussionspartner für verbesserte Antwortqualität
+- **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision — konfigurierbare Agenten mit Persönlichkeits-Toggles
 - **Multi-Backend-Unterstützung**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), **Cloud APIs** (Qwen, DeepSeek, Claude)
 - **Automatisches Modell-Lifecycle**: Zero-Config Modellverwaltung — neue Modelle werden beim Dienststart automatisch aus Ollama/HuggingFace erkannt, entfernte Modelle automatisch aus der Config bereinigt
-- **Vision/OCR-Unterstützung**: Bildanalyse mit multimodalen LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3)
+- **Vision/OCR-Unterstützung**: Bildanalyse mit multimodalen LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), **VL Follow-Up** für bildbezogene Nachfragen
 - **Bild-Zuschnitt-Tool**: Interaktiver Crop vor OCR/Analyse (8-Punkt-Handles, 4K Auto-Resize)
-- **3-Modell-Architektur**: Spezialisiertes Vision-LLM für OCR, Haupt-LLM für Interpretation
+- **2-Modell-Architektur**: Spezialisiertes Vision-LLM für OCR/Analyse, Haupt-LLM für Text-Aufgaben
 - **Denkmodus**: Chain-of-Thought-Reasoning für komplexe Aufgaben (Qwen3, NemoTron, QwQ - llama.cpp, Ollama, vLLM)
 - **Harmony-Template Support**: GPT-OSS-120B mit offiziellem Harmony-Format (`<|channel|>analysis<|message|>`)
 - **Automatische Web-Recherche**: KI entscheidet selbst, wann Recherche nötig ist
@@ -54,9 +56,11 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 - 🎩 **AIfred** - Butler & Gelehrter - beantwortet Fragen (britischer Butler-Stil mit dezenter Noblesse)
 - 🏛️ **Sokrates** - Kritischer Philosoph - hinterfragt & liefert Alternativen mit sokratischer Methode
 - 👑 **Salomo** - Weiser Richter - synthetisiert Argumente und fällt finale Entscheidungen
+- 📷 **Vision** - Bildanalyst - OCR und visuelle Q&A (erbt AIfred's Persönlichkeit)
 
 **Anpassbare Persönlichkeiten:**
 - Alle Agenten-Prompts sind Textdateien in `prompts/de/` und `prompts/en/`
+- Agenten-Konfiguration in `data/agents.json` — Prompt-Pfade, Toggles, Rollen
 - Persönlichkeit kann in den UI-Einstellungen ein-/ausgeschaltet werden (behält Identität, entfernt Stil)
 - 3-Schichten Prompt-System: Identität (wer) + Persönlichkeit (wie, optional) + Aufgabe (was)
 - Eigene Agenten erstellen oder bestehende Persönlichkeiten anpassen

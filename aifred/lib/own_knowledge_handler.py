@@ -50,6 +50,7 @@ async def handle_own_knowledge(
     num_ctx_manual_value: Optional[int] = None,
     provider: Optional[str] = None,
     agent: str = "aifred",
+    vision_prompt_key: str = "task",
 ) -> AsyncIterator[Dict]:
     """
     Generiert eine LLM-Antwort basierend auf eigenem Wissen (ohne Web-Recherche).
@@ -109,8 +110,11 @@ async def handle_own_knowledge(
             detected_language=detected_language
         ))
 
-    # Inject system prompt (direct or minimal based on addressing)
-    if use_direct_prompt:
+    # Inject system prompt (agent-aware: vision uses own prompt stack with toggles)
+    if agent == "vision":
+        from .prompt_loader import get_agent_system_prompt
+        system_prompt = get_agent_system_prompt("vision", vision_prompt_key, lang=detected_language)
+    elif use_direct_prompt:
         system_prompt = get_aifred_direct_prompt(lang=detected_language)
     else:
         system_prompt = get_aifred_system_minimal(lang=detected_language)
@@ -167,6 +171,9 @@ async def handle_own_knowledge(
         # VL ("vision" agent) uses AIfred's sampling params — no separate vision params in state.
         llm_agent = "aifred" if agent == "vision" else agent
         llm_options = build_llm_options(state, llm_agent, final_temperature, final_num_ctx)  # type: ignore[arg-type]
+        # Override thinking for vision: build_llm_options uses llm_agent="aifred"
+        # for sampling, but thinking must come from the actual agent's toggle.
+        llm_options.enable_thinking = enable_thinking
 
         # Console: LLM starts (with MoE/Dense architecture info)
         from .gpu_utils import is_moe_model

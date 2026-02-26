@@ -5,6 +5,55 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.50.0] - 2026-02-26 🏗️ Agent-Config-System + VL Follow-Up + Auto-Scroll Fix
+
+### Added
+
+- **Agent-Config-System (`data/agents.json`)** — Zentrale Konfiguration aller Agenten: Prompt-Pfade, Toggles (Personality/Reasoning/Thinking), Rollen. Cross-Agent-Referenzen möglich (z.B. Vision nutzt AIfred's Personality). Datei wird jetzt im Git getrackt.
+- **Vision als vollwertiger Agent** — Eigene Identity-Prompts, eigene Toggles, eigene Rolle (`"vision"`). Nutzt AIfred's Personality-Prompt für konsistenten Butler-Stil bei Bildanalysen.
+- **VL Follow-Up Path** — Nachfolgefragen zu Bildern werden automatisch erkannt und an das VL-Modell geroutet. Bild wird von Disk neu geladen und als Base64 mitgesendet. Zwei Varianten: Shortcut (VL-Modell noch geladen → direkte Relevanz-Prüfung) und Standard (Automatik-LLM prüft Relevanz nach Intent Detection).
+- **VL Relevance Check** — Neuer Automatik-Prompt (`vl_relevance_check.txt`) und `detect_vl_relevance()` in `intent_detector.py`. Prüft ob eine Frage sich auf ein vorheriges Bild bezieht (Output: `IMAGE:N` oder `NONE`).
+- **Task-adaptive VL-Prompts** — Bild ohne Text → OCR-Modus (`vision_ocr.txt`), Bild mit Text → Q&A-Modus (`vision_qa.txt`).
+- **Agent-Editor UI** — Neue `agent_editor.py` für die Settings-UI: Agent-Verwaltung mit Schutz für Default-Agenten.
+
+### Changed
+
+- **Prompt-Loader auf Agent-Config umgestellt** — `load_identity()`, `load_personality()`, `load_personality_reminder()` lösen Pfade jetzt über `agents.json` auf statt hardcodiert `{agent}/filename.txt`. Neue zentrale `_resolve_prompt_file()` Funktion.
+- **Sampling aus Agent-Config entfernt** — Sampling-Parameter (top_k, top_p, min_p, repeat_penalty) waren in `agents.json` gespeichert aber nie gelesen. Entfernt aus `AgentConfig` Dataclass und `agents.json`. Sampling kommt ausschließlich aus der llama-swap YAML zur Runtime.
+- **`blocked_domains.txt` → `non_scrapable_domains.txt`** — Umbenannt für klarere Semantik (technisches Scraping-Filter, keine Zensur). Alle Code-Referenzen aktualisiert.
+- **`.gitignore` erweitert** — `data/agents.json` und `data/non_scrapable_domains.txt` als Ausnahmen vom `data/*`-Ignore getrackt.
+
+### Fixed
+
+- **Auto-Scroll Chat-History auf Desktop** — MutationObserver prüfte `isNearBottom` nach der DOM-Mutation. Wenn eine einzelne Mutation >150px Content hinzufügte, erschien der User "nicht am unteren Rand" → kein Scroll. Fix: Scroll-Zustand wird jetzt via passivem `scroll`-Event-Listener VOR der Mutation getrackt.
+- **Vision-LLM ohne AIfred-Persönlichkeit** — `load_personality("vision")` suchte hardcodiert nach `prompts/de/vision/personality.txt` (existiert nicht) statt den Agent-Config-Pfad `aifred/personality.txt` zu nutzen. Behoben durch `_resolve_prompt_file()`.
+- **Thinking-Toggle wurde nach Restart ignoriert** — `build_llm_options()` und alle VL-Pfade lasen `enable_thinking` aus einem Modul-Level-Global-Dict (`_thinking_enabled`), das beim Service-Restart/Hot-Reload auf Default `True` zurückfiel. Die UI zeigte korrekt "off", aber das LLM bekam `thinking=True`. Fix: Alle Pfade lesen jetzt direkt aus dem Reflex State (`self.aifred_thinking`, `self.vision_thinking`), der zuverlässig aus `settings.json` geladen wird.
+
+### Upgrade Notes
+
+Wenn du von einer früheren Version updatest (`git pull`):
+
+```bash
+# 1. Alte agents.json entfernen (wird jetzt aus Git getrackt mit neuem Format):
+rm -f data/agents.json
+
+# 2. Alte blocked_domains.txt entfernen (umbenannt):
+rm -f data/blocked_domains.txt
+
+# 3. Pull + Neustart:
+git pull
+systemctl --user restart aifred-intelligence.service
+```
+
+`data/agents.json` wird beim ersten Start automatisch mit allen Default-Agenten neu erstellt, falls sie fehlt.
+
+### Technical Details
+
+- 22 Dateien geändert, 6 neue Dateien (+1032, -203 LOC)
+- Neue Module: `agent_config.py`, `agent_editor.py`
+- Neue Prompts: `vision/identity.txt` (DE/EN), `vision/vision_qa.txt` (DE/EN), `automatik/vl_relevance_check.txt`
+- Ruff: All checks passed
+
 ## [2.49.0] - 2026-02-25 🔬 VL SSOT + Kalibrierungs-Bugfixes
 
 ### Changed

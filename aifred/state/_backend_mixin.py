@@ -418,34 +418,35 @@ class BackendMixin(rx.State, mixin=True):
                 self.aifred_personality = saved_settings.get("aifred_personality", self.aifred_personality)  # type: ignore[attr-defined, has-type]
                 self.sokrates_personality = saved_settings.get("sokrates_personality", self.sokrates_personality)  # type: ignore[attr-defined, has-type]
                 self.salomo_personality = saved_settings.get("salomo_personality", self.salomo_personality)  # type: ignore[attr-defined, has-type]
+                self.vision_personality = saved_settings.get("vision_personality", self.vision_personality)  # type: ignore[attr-defined, has-type]
                 set_personality_enabled("aifred", self.aifred_personality)  # type: ignore[attr-defined, has-type, arg-type]
                 set_personality_enabled("sokrates", self.sokrates_personality)  # type: ignore[attr-defined, has-type, arg-type]
                 set_personality_enabled("salomo", self.salomo_personality)  # type: ignore[attr-defined, has-type, arg-type]
+                set_personality_enabled("vision", self.vision_personality)  # type: ignore[attr-defined, has-type, arg-type]
 
-                if "aifred_personality" not in saved_settings or "sokrates_personality" not in saved_settings or "salomo_personality" not in saved_settings:
+                if "aifred_personality" not in saved_settings or "vision_personality" not in saved_settings:
                     self._save_personality_settings()  # type: ignore[attr-defined, has-type]
 
                 # Load and sync reasoning toggles
                 self.aifred_reasoning = saved_settings.get("aifred_reasoning", self.aifred_reasoning)  # type: ignore[attr-defined, has-type]
                 self.sokrates_reasoning = saved_settings.get("sokrates_reasoning", self.sokrates_reasoning)  # type: ignore[attr-defined, has-type]
                 self.salomo_reasoning = saved_settings.get("salomo_reasoning", self.salomo_reasoning)  # type: ignore[attr-defined, has-type]
+                self.vision_reasoning = saved_settings.get("vision_reasoning", self.vision_reasoning)  # type: ignore[attr-defined, has-type]
                 set_reasoning_enabled("aifred", self.aifred_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
                 set_reasoning_enabled("sokrates", self.sokrates_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
                 set_reasoning_enabled("salomo", self.salomo_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
+                set_reasoning_enabled("vision", self.vision_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
 
-                if "aifred_reasoning" not in saved_settings or "sokrates_reasoning" not in saved_settings or "salomo_reasoning" not in saved_settings:
+                if "aifred_reasoning" not in saved_settings or "vision_reasoning" not in saved_settings:
                     self._save_reasoning_settings()  # type: ignore[attr-defined, has-type]
 
-                # Load and sync thinking toggles
-                from ..lib.prompt_loader import set_thinking_enabled
+                # Load thinking toggles (read directly from State at runtime, no prompt_loader sync)
                 self.aifred_thinking = saved_settings.get("aifred_thinking", self.aifred_thinking)  # type: ignore[attr-defined, has-type]
                 self.sokrates_thinking = saved_settings.get("sokrates_thinking", self.sokrates_thinking)  # type: ignore[attr-defined, has-type]
                 self.salomo_thinking = saved_settings.get("salomo_thinking", self.salomo_thinking)  # type: ignore[attr-defined, has-type]
-                set_thinking_enabled("aifred", self.aifred_thinking)  # type: ignore[attr-defined, has-type, arg-type]
-                set_thinking_enabled("sokrates", self.sokrates_thinking)  # type: ignore[attr-defined, has-type, arg-type]
-                set_thinking_enabled("salomo", self.salomo_thinking)  # type: ignore[attr-defined, has-type, arg-type]
+                self.vision_thinking = saved_settings.get("vision_thinking", self.vision_thinking)  # type: ignore[attr-defined, has-type]
 
-                if "aifred_thinking" not in saved_settings:
+                if "aifred_thinking" not in saved_settings or "vision_thinking" not in saved_settings:
                     self._save_thinking_settings()  # type: ignore[attr-defined, has-type]
 
                 # Load speed mode toggles (llamacpp only)
@@ -1597,7 +1598,8 @@ class BackendMixin(rx.State, mixin=True):
         display_label = self.available_models_dict.get(model_id, model_id)
         self.aifred_model = display_label
 
-        await self.set_aifred_model(display_label)
+        async for _ in self.set_aifred_model(display_label):
+            pass
 
     async def set_automatik_model(self, model: str):
         """Set automatik model for decision and query optimization."""
@@ -1671,4 +1673,5 @@ class BackendMixin(rx.State, mixin=True):
             return
 
         log_message("⚠️ Fallback initialization (on_load didn't run)")
-        await self.on_load()
+        async for _ in self.on_load():
+            pass

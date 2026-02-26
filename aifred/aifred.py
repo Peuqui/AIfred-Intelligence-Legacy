@@ -27,6 +27,7 @@ from .ui.chat_display import (  # noqa: F401
 )
 from .ui.input_sections import debug_console  # noqa: F401
 from .ui.settings_accordion import settings_accordion  # noqa: F401
+from .ui.agent_editor import agent_editor_modal  # noqa: F401
 
 
 # ============================================================
@@ -61,16 +62,38 @@ function isAutoScrollEnabled() {
     return button.getAttribute('data-state') === 'checked';
 }
 
+// Track scroll position BEFORE mutations happen via scroll events.
+// The MutationObserver fires AFTER DOM changes, so checking isNearBottom
+// inside the callback fails when a single mutation adds >150px of content
+// (scrollHeight grows, distance to bottom exceeds threshold → no scroll).
+const scrollState = new Map();  // element id → wasAtBottom
+
+function trackScrollState(element) {
+    if (!element || !element.id) return;
+    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+    scrollState.set(element.id, distance < 150);
+}
+
+function wasAtBottom(element) {
+    if (!element || !element.id) return true;
+    const state = scrollState.get(element.id);
+    return state !== undefined ? state : true;  // default: scroll
+}
+
 function autoScrollElement(element) {
     if (!element) return;
-
-    // Only auto-scroll if user is already at the bottom (within 150px threshold)
-    // This prevents auto-scroll when user manually scrolls up or opens collapsibles
-    const isNearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 150;
-
-    if (isNearBottom) {
+    if (wasAtBottom(element)) {
         element.scrollTop = element.scrollHeight;
+        // Update tracked state after scrolling
+        trackScrollState(element);
     }
+}
+
+function attachScrollTracker(element) {
+    if (!element || element._scrollTrackerAttached) return;
+    element.addEventListener('scroll', () => trackScrollState(element), { passive: true });
+    trackScrollState(element);  // initial state
+    element._scrollTrackerAttached = true;
 }
 
 // Observer für Debug-Console und Chat-History Updates
@@ -93,6 +116,7 @@ const callback = function(mutationsList, observer) {
     if (!chatObserverAttached && chatBox) {
         const chatObserver = new MutationObserver(callback);
         chatObserver.observe(chatBox, observerConfig);
+        attachScrollTracker(chatBox);
         chatObserverAttached = true;
     }
 
@@ -104,6 +128,7 @@ const callback = function(mutationsList, observer) {
     // Auto-scroll Debug Console
     const debugBox = document.getElementById('debug-console-box');
     if (debugBox) {
+        attachScrollTracker(debugBox);
         autoScrollElement(debugBox);
     }
 
@@ -124,6 +149,7 @@ function setupObservers() {
         console.log('✅ Found debug-console-box');
         const observer = new MutationObserver(callback);
         observer.observe(debugBox, observerConfig);
+        attachScrollTracker(debugBox);
     } else {
         console.warn('❌ debug-console-box not found');
     }
@@ -136,6 +162,7 @@ function setupObservers() {
             console.log('✅ Found chat-history-box');
             const chatObserver = new MutationObserver(callback);
             chatObserver.observe(chatBox, observerConfig);
+            attachScrollTracker(chatBox);
             chatObserverAttached = true;
         } else {
             console.warn('❌ chat-history-box not found (will attach via debug-console callback)');
@@ -485,6 +512,9 @@ console.log('✂️ Crop handler loaded');
         # Reasoning/Thinking Help Modal
         reasoning_thinking_help_modal(),
 
+        # Agent Editor Modal
+        agent_editor_modal(),
+
         # Hidden element to trigger camera detection on mount
         rx.box(
             id="camera-detector",
@@ -558,10 +588,25 @@ console.log('✂️ Crop handler loaded');
                     spacing="0",
                 ),
                 rx.spacer(),
-                # Right side: User info with logout button (only when logged in)
+                # Right side: Agent editor + User info + logout (only when logged in)
                 rx.cond(
                     AIState.logged_in_user != "",
                     rx.hstack(
+                        # Agent Editor button
+                        rx.tooltip(
+                            rx.icon(
+                                "users",
+                                size=18,
+                                color=COLORS["text_secondary"],
+                                cursor="pointer",
+                                on_click=AIState.open_agent_editor,
+                                style={
+                                    "transition": "color 0.2s ease",
+                                    "&:hover": {"color": "#FFD700"},
+                                },
+                            ),
+                            content=t("agent_editor_title"),
+                        ),
                         rx.text(
                             AIState.logged_in_user,
                             font_size="14px",

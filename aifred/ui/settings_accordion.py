@@ -1019,6 +1019,18 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
+                # Vision Personality + Reasoning + Thinking toggles
+                rx.cond(
+                    AIState.backend_supports_dynamic_models,
+                    rx.hstack(
+                        _agent_toggle("\U0001f4f7", AIState.vision_personality, AIState.toggle_vision_personality, t("personality_vision_tooltip")),
+                        _agent_toggle("\U0001f4ad", AIState.vision_reasoning, AIState.toggle_vision_reasoning, t("reasoning_tooltip")),
+                        _agent_toggle("\U0001f9e0", AIState.vision_thinking, AIState.toggle_vision_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                        spacing="2",
+                        align="center",
+                    ),
+                ),
+
                 # NOTE: Global "Thinking Mode" toggle removed in v2.23.0
                 # Reasoning is now controlled per-agent via aifred_reasoning, sokrates_reasoning, salomo_reasoning
                 # which control BOTH the reasoning prompt AND the enable_thinking flag

@@ -226,6 +226,7 @@ class TranslationManager:
             "personality_aifred_tooltip": "Butler-Persönlichkeit: Britisch-höflicher Sprachstil",
             "personality_sokrates_tooltip": "Philosophen-Persönlichkeit: Sokratische Methode mit rhetorischen Fragen",
             "personality_salomo_tooltip": "König-Persönlichkeit: Weiser Richterstil mit hebräischen Weisheiten",
+            "personality_vision_tooltip": "Vision-Persönlichkeit: AIfred-Butler-Stil bei Bildanalysen",
             # Reasoning & Thinking Tooltips
             "reasoning_tooltip": "Reasoning-Prompt – Schritt-für-Schritt Analyse im System-Prompt",
             "thinking_tooltip": "Model Thinking – Internes Chain-of-Thought des Modells (enable_thinking)",
@@ -301,6 +302,28 @@ class TranslationManager:
             # Login/Logout
             "logout": "Abmelden",
             "logged_in_as": "Angemeldet als",
+            # Agent Editor
+            "agent_editor_title": "Agenten-Verwaltung",
+            "agent_editor_new": "Neuer Agent",
+            "agent_editor_edit": "Bearbeiten",
+            "agent_editor_delete": "Loeschen",
+            "agent_editor_delete_confirm": "Agent wirklich loeschen?",
+            "agent_editor_save": "Speichern",
+            "agent_editor_cancel": "Abbrechen",
+            "agent_editor_reset": "Zuruecksetzen",
+            "agent_editor_name": "Name",
+            "agent_editor_emoji": "Emoji",
+            "agent_editor_role": "Rolle",
+            "agent_editor_description": "Beschreibung",
+            "agent_editor_prompts": "Prompt-Layer",
+            "agent_editor_id": "Agent-ID",
+            "agent_editor_id_hint": "Kleinbuchstaben, keine Leerzeichen",
+            "agent_editor_role_main": "Hauptagent",
+            "agent_editor_role_critic": "Kritiker",
+            "agent_editor_role_judge": "Richter",
+            "agent_editor_role_custom": "Benutzerdefiniert",
+            "agent_editor_default_badge": "Standard",
+            "agent_editor_close": "Schliessen",
         },
         "en": {
             # UI Labels
@@ -484,6 +507,7 @@ class TranslationManager:
             "personality_aifred_tooltip": "Butler personality: Polite British speech style",
             "personality_sokrates_tooltip": "Philosopher personality: Socratic method with rhetorical questions",
             "personality_salomo_tooltip": "King personality: Wise arbiter style with Hebrew proverbs",
+            "personality_vision_tooltip": "Vision personality: AIfred butler style for image analysis",
             # Reasoning & Thinking Tooltips
             "reasoning_tooltip": "Reasoning prompt – Step-by-step analysis in system prompt",
             "thinking_tooltip": "Model Thinking – Internal chain-of-thought (enable_thinking)",
@@ -559,6 +583,28 @@ class TranslationManager:
             # Login/Logout
             "logout": "Logout",
             "logged_in_as": "Logged in as",
+            # Agent Editor
+            "agent_editor_title": "Agent Management",
+            "agent_editor_new": "New Agent",
+            "agent_editor_edit": "Edit",
+            "agent_editor_delete": "Delete",
+            "agent_editor_delete_confirm": "Really delete agent?",
+            "agent_editor_save": "Save",
+            "agent_editor_cancel": "Cancel",
+            "agent_editor_reset": "Reset",
+            "agent_editor_name": "Name",
+            "agent_editor_emoji": "Emoji",
+            "agent_editor_role": "Role",
+            "agent_editor_description": "Description",
+            "agent_editor_prompts": "Prompt Layers",
+            "agent_editor_id": "Agent ID",
+            "agent_editor_id_hint": "Lowercase, no spaces",
+            "agent_editor_role_main": "Main Agent",
+            "agent_editor_role_critic": "Critic",
+            "agent_editor_role_judge": "Judge",
+            "agent_editor_role_custom": "Custom",
+            "agent_editor_default_badge": "Default",
+            "agent_editor_close": "Close",
         }
     }
 

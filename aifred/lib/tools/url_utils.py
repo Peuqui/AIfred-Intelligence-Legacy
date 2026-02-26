@@ -16,16 +16,19 @@ from ..logging_utils import log_message
 # NON-SCRAPABLE DOMAIN FILTER
 # ============================================================
 
-# Path to blocked domains file (relative to project root)
-_BLOCKED_DOMAINS_FILE = Path(__file__).parent.parent.parent.parent / 'data' / 'blocked_domains.txt'
+# Path to non-scrapable domains file (relative to project root)
+_NON_SCRAPABLE_DOMAINS_FILE = Path(__file__).parent.parent.parent.parent / 'data' / 'non_scrapable_domains.txt'
 
-# Cached set of blocked domains (loaded once at module import)
-_blocked_domains_cache: Set[str] | None = None
+# Cached set of non-scrapable domains (loaded once at first access)
+_non_scrapable_domains_cache: Set[str] | None = None
 
 
-def _load_blocked_domains() -> Set[str]:
+def _load_non_scrapable_domains() -> Set[str]:
     """
-    Load blocked domains from data/blocked_domains.txt.
+    Load non-scrapable domains from data/non_scrapable_domains.txt.
+
+    These are domains that don't yield useful text when scraped
+    (video platforms, JS-heavy social media, login walls).
 
     File format:
     - One domain per line
@@ -33,28 +36,27 @@ def _load_blocked_domains() -> Set[str]:
     - Empty lines are ignored
 
     Returns:
-        Set of blocked domain strings
+        Set of domain strings
     """
-    global _blocked_domains_cache
+    global _non_scrapable_domains_cache
 
-    if _blocked_domains_cache is not None:
-        return _blocked_domains_cache
+    if _non_scrapable_domains_cache is not None:
+        return _non_scrapable_domains_cache
 
     domains: Set[str] = set()
 
-    if not _BLOCKED_DOMAINS_FILE.exists():
-        log_message(f"⚠️ Blocked domains file not found: {_BLOCKED_DOMAINS_FILE}")
-        _blocked_domains_cache = domains
+    if not _NON_SCRAPABLE_DOMAINS_FILE.exists():
+        log_message(f"⚠️ Non-scrapable domains file not found: {_NON_SCRAPABLE_DOMAINS_FILE}")
+        _non_scrapable_domains_cache = domains
         return domains
 
-    with open(_BLOCKED_DOMAINS_FILE, 'r', encoding='utf-8') as f:
+    with open(_NON_SCRAPABLE_DOMAINS_FILE, 'r', encoding='utf-8') as f:
         for line in f:
             line = line.strip()
-            # Skip comments and empty lines
             if line and not line.startswith('#'):
                 domains.add(line.lower())
 
-    _blocked_domains_cache = domains
+    _non_scrapable_domains_cache = domains
     return domains
 
 
@@ -72,12 +74,10 @@ def is_non_scrapable_url(url: str) -> bool:
         parsed = urlparse(url.lower().strip())
         domain = parsed.netloc.replace('www.', '')
 
-        # Load blocked domains (cached after first load)
-        blocked_domains = _load_blocked_domains()
+        non_scrapable = _load_non_scrapable_domains()
 
-        # Check if domain matches any blocked domain
-        for blocked in blocked_domains:
-            if domain == blocked or domain.endswith('.' + blocked):
+        for ns_domain in non_scrapable:
+            if domain == ns_domain or domain.endswith('.' + ns_domain):
                 return True
         return False
     except Exception:

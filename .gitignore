@@ -92,7 +92,10 @@ assets/tts_audio/
 # Centralized Data Directory (user data, not code)
 # Contains: sessions/, images/, tts_audio/, html_preview/, logs/
 # Plus: settings.json, accounts.json, allowed_users.json, model_vram_cache.json
-data/
+data/*
+# Exception: tracked config/data files that must ship with the repo
+!data/agents.json
+!data/non_scrapable_domains.txt
 
 # Local machine-specific configuration (absolute paths, never commit)
 config/

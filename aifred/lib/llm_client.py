@@ -23,10 +23,9 @@ def build_llm_options(state: "AIState", agent: str, temperature: float, num_ctx:
     Central function to ensure ALL sampling parameters are passed consistently.
     Called from multi_agent.py, own_knowledge_handler.py, etc.
     """
-    from .prompt_loader import get_thinking_enabled
     return LLMOptions(
         temperature=temperature,
-        enable_thinking=get_thinking_enabled(agent),
+        enable_thinking=getattr(state, f"{agent}_thinking", True),
         supports_thinking=getattr(state, f"{agent}_supports_thinking") if state.backend_type in ("ollama", "llamacpp") else None,
         num_ctx=num_ctx,
         top_k=getattr(state, f"{agent}_top_k"),

@@ -27,27 +27,32 @@ _current_user_name = ""
 _current_user_gender = "male"
 
 # Global personality toggle states (loaded from settings)
-_personality_enabled = {
-    "aifred": True,
-    "sokrates": True,
-    "salomo": True
-}
+# Dynamically populated from agents.json via _init_toggle_dicts()
+_personality_enabled: dict[str, bool] = {}
 
 # Global reasoning toggle states (loaded from settings)
-_reasoning_enabled = {
-    "aifred": False,
-    "sokrates": False,
-    "salomo": False
-}
+_reasoning_enabled: dict[str, bool] = {}
 
-# Global thinking toggle states (loaded from settings)
-# Separate from reasoning: thinking controls enable_thinking (backend API),
-# reasoning controls the reasoning prompt injection (system prompt)
-_thinking_enabled = {
-    "aifred": True,
-    "sokrates": True,
-    "salomo": True
-}
+def _init_toggle_dicts() -> None:
+    """Initialize toggle dicts from agents.json defaults.
+
+    Called once at module load to populate the dicts with all configured agents.
+    Afterwards, sync_*_from_settings() overrides with persisted values.
+
+    Note: thinking toggles are NOT stored here — they are read directly from
+    the Reflex State (self.{agent}_thinking) to avoid stale module-level globals.
+    """
+    global _personality_enabled, _reasoning_enabled
+    from .agent_config import load_agents
+
+    agents = load_agents()
+    for agent_id, config in agents.items():
+        _personality_enabled.setdefault(agent_id, config.toggles.get("personality", True))
+        _reasoning_enabled.setdefault(agent_id, config.toggles.get("reasoning", False))
+
+
+# Populate on module load
+_init_toggle_dicts()
 
 # Cache for system prompt token counts (populated at startup)
 # Format: {"aifred": {"de": tokens, "en": tokens}, "sokrates": {...}, ...}
@@ -91,12 +96,11 @@ def set_personality_enabled(agent: str, enabled: bool):
     Set personality toggle state for an agent.
 
     Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
+        agent: Agent ID (e.g. "aifred", "sokrates", "salomo", or any custom agent)
         enabled: True to enable personality style, False for factual responses
     """
     global _personality_enabled
-    if agent in _personality_enabled:
-        _personality_enabled[agent] = enabled
+    _personality_enabled[agent] = enabled
 
 
 def get_personality_enabled(agent: str) -> bool:
@@ -117,14 +121,17 @@ def sync_personality_from_settings():
     Sync personality toggle states from settings.json.
 
     Called at startup and when settings change.
+    Reads {agent_id}_personality keys for all configured agents.
     """
     global _personality_enabled
     from .settings import load_settings
 
     settings = load_settings() or {}
-    _personality_enabled["aifred"] = settings.get("aifred_personality", True)
-    _personality_enabled["sokrates"] = settings.get("sokrates_personality", True)
-    _personality_enabled["salomo"] = settings.get("salomo_personality", True)
+    for agent_id in list(_personality_enabled.keys()):
+        _personality_enabled[agent_id] = settings.get(
+            f"{agent_id}_personality",
+            _personality_enabled.get(agent_id, True),
+        )
 
 
 def set_reasoning_enabled(agent: str, enabled: bool):
@@ -132,12 +139,11 @@ def set_reasoning_enabled(agent: str, enabled: bool):
     Set reasoning toggle state for an agent.
 
     Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
+        agent: Agent ID (e.g. "aifred", "sokrates", "salomo", or any custom agent)
         enabled: True to enable chain-of-thought reasoning
     """
     global _reasoning_enabled
-    if agent in _reasoning_enabled:
-        _reasoning_enabled[agent] = enabled
+    _reasoning_enabled[agent] = enabled
 
 
 def get_reasoning_enabled(agent: str) -> bool:
@@ -158,66 +164,62 @@ def sync_reasoning_from_settings():
     Sync reasoning toggle states from settings.json.
 
     Called at startup and when settings change.
+    Reads {agent_id}_reasoning keys for all configured agents.
     """
     global _reasoning_enabled
     from .settings import load_settings
 
     settings = load_settings() or {}
-    _reasoning_enabled["aifred"] = settings.get("aifred_reasoning", False)
-    _reasoning_enabled["sokrates"] = settings.get("sokrates_reasoning", False)
-    _reasoning_enabled["salomo"] = settings.get("salomo_reasoning", False)
+    for agent_id in list(_reasoning_enabled.keys()):
+        _reasoning_enabled[agent_id] = settings.get(
+            f"{agent_id}_reasoning",
+            _reasoning_enabled.get(agent_id, False),
+        )
 
 
-def set_thinking_enabled(agent: str, enabled: bool):
+def _resolve_prompt_file(agent: str, prompt_key: str, lang: Optional[str] = None) -> Optional[Path]:
     """
-    Set thinking toggle state for an agent.
+    Resolve prompt file path for an agent via agent_config.
 
-    Controls enable_thinking sent to backend API (model-internal CoT).
-    Separate from reasoning which controls system prompt injection.
+    Looks up the agent's prompts dict for the given key (e.g. "identity",
+    "personality", "reminder"). This allows cross-references like Vision
+    using "aifred/personality.txt" for AIfred's personality.
 
     Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
-        enabled: True to enable model thinking (CoT)
-    """
-    global _thinking_enabled
-    if agent in _thinking_enabled:
-        _thinking_enabled[agent] = enabled
-
-
-def get_thinking_enabled(agent: str) -> bool:
-    """
-    Get thinking toggle state for an agent.
-
-    Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
+        agent: Agent identifier (e.g. "aifred", "vision", or any custom agent)
+        prompt_key: Key into the agent's prompts dict
+        lang: Language code, defaults to current language
 
     Returns:
-        True if thinking is enabled, False otherwise
+        Resolved Path if the file exists, None otherwise
     """
-    return _thinking_enabled.get(agent, True)
+    if lang is None:
+        lang = _current_language
 
+    from .agent_config import get_agent_config
+    config = get_agent_config(agent)
 
-def sync_thinking_from_settings():
-    """
-    Sync thinking toggle states from settings.json.
+    if config is None:
+        return None
 
-    Called at startup and when settings change.
-    """
-    global _thinking_enabled
-    from .settings import load_settings
+    rel_path = config.prompts.get(prompt_key)
+    if rel_path is None:
+        return None
 
-    settings = load_settings() or {}
-    _thinking_enabled["aifred"] = settings.get("aifred_thinking", True)
-    _thinking_enabled["sokrates"] = settings.get("sokrates_thinking", True)
-    _thinking_enabled["salomo"] = settings.get("salomo_thinking", True)
+    full_path = PROMPTS_DIR / lang / rel_path
+    if full_path.exists():
+        return full_path
+    return None
 
 
 def load_reasoning(agent: str, lang: Optional[str] = None) -> str:
     """
     Load reasoning prompt for an agent (if enabled).
 
+    Reasoning is a shared prompt (utility/reasoning.txt), not agent-specific.
+
     Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
+        agent: Agent identifier
         lang: Language code ("de" or "en"), defaults to current language
 
     Returns:
@@ -241,41 +243,33 @@ def load_identity(agent: str, lang: Optional[str] = None) -> str:
     """
     Load identity prompt for an agent (always loaded).
 
-    Identity defines WHO the agent is - this is always included,
-    regardless of personality toggle state.
-
-    If user name and gender are set, appends proper salutation info.
+    Identity defines WHO the agent is - resolved via agent_config,
+    so agents can use custom paths (e.g. "vision/identity.txt").
 
     Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
+        agent: Agent identifier
         lang: Language code, defaults to current language
 
     Returns:
         Identity prompt text, or empty string if not found
     """
-    if lang is None:
-        lang = _current_language
-
-    identity_file = PROMPTS_DIR / lang / agent / "identity.txt"
-
-    if not identity_file.exists():
+    identity_file = _resolve_prompt_file(agent, "identity", lang)
+    if identity_file is None:
         return ""
 
-    with open(identity_file, 'r', encoding='utf-8') as f:
-        identity = f.read().strip()
-
-    return identity
+    return identity_file.read_text(encoding="utf-8").strip()
 
 
 def load_personality(agent: str, lang: Optional[str] = None) -> str:
     """
     Load personality prompt for an agent.
 
-    Personality defines HOW the agent speaks (style) - this is optional
-    and can be toggled on/off via settings.
+    Personality defines HOW the agent speaks (style) - resolved via
+    agent_config, so agents can reference other agents' personalities
+    (e.g. Vision using "aifred/personality.txt").
 
     Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
+        agent: Agent identifier
         lang: Language code, defaults to current language
 
     Returns:
@@ -284,27 +278,22 @@ def load_personality(agent: str, lang: Optional[str] = None) -> str:
     if not get_personality_enabled(agent):
         return ""
 
-    if lang is None:
-        lang = _current_language
-
-    personality_file = PROMPTS_DIR / lang / agent / "personality.txt"
-
-    if not personality_file.exists():
+    personality_file = _resolve_prompt_file(agent, "personality", lang)
+    if personality_file is None:
         return ""
 
-    with open(personality_file, 'r', encoding='utf-8') as f:
-        return f.read().strip()
+    return personality_file.read_text(encoding="utf-8").strip()
 
 
 def load_personality_reminder(agent: str, lang: Optional[str] = None) -> str:
     """
     Load short personality reminder for user-message prefix.
 
-    Used to remind the LLM of the agent's speech style in long conversations,
-    where the system prompt is far from the current question.
+    Used to remind the LLM of the agent's speech style in long conversations.
+    Resolved via agent_config for cross-agent references.
 
     Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
+        agent: Agent identifier
         lang: Language code, defaults to current language
 
     Returns:
@@ -313,16 +302,11 @@ def load_personality_reminder(agent: str, lang: Optional[str] = None) -> str:
     if not get_personality_enabled(agent):
         return ""
 
-    if lang is None:
-        lang = _current_language
-
-    reminder_file = PROMPTS_DIR / lang / agent / "reminder.txt"
-
-    if not reminder_file.exists():
+    reminder_file = _resolve_prompt_file(agent, "reminder", lang)
+    if reminder_file is None:
         return ""
 
-    with open(reminder_file, 'r', encoding='utf-8') as f:
-        return f.read().strip()
+    return reminder_file.read_text(encoding="utf-8").strip()
 
 
 def set_language(lang: str):
@@ -466,12 +450,89 @@ def list_available_prompts() -> list:
 
 
 # ============================================================
+# Generic Agent Prompt Loader (dynamic agents)
+# ============================================================
+
+def get_agent_system_prompt(
+    agent_id: str,
+    prompt_key: str = "task",
+    lang: Optional[str] = None,
+    multi_agent: bool = False,
+    **kwargs,
+) -> str:
+    """
+    Load system prompt for any configured agent.
+
+    Uses agent_config.json to resolve prompt file paths, then merges
+    through the standard 5-layer system (Identity + Reasoning + [MultiAgent] + Task + Personality).
+
+    Args:
+        agent_id: Agent identifier (e.g. "aifred", "sokrates", or any custom agent)
+        prompt_key: Key into the agent's prompts dict (default "task" = system_minimal)
+        lang: Language code (de/en), defaults to current language
+        multi_agent: If True, include multi-agent roles explanation
+        **kwargs: Extra placeholders for the prompt template
+
+    Returns:
+        Merged system prompt string
+    """
+    from .agent_config import get_agent_config
+
+    config = get_agent_config(agent_id)
+    if config is None:
+        raise ValueError(f"Unknown agent: {agent_id}")
+
+    prompt_path = config.prompts.get(prompt_key)
+    if prompt_path is None:
+        raise ValueError(
+            f"Agent '{agent_id}' has no prompt for key '{prompt_key}'. "
+            f"Available: {list(config.prompts.keys())}"
+        )
+
+    # Strip .txt suffix if present (load_prompt adds it)
+    prompt_name = prompt_path.removesuffix(".txt")
+
+    task_prompt = load_prompt(prompt_name, lang=lang, **kwargs)
+    return _merge_prompt_layers(agent_id, task_prompt, lang, multi_agent=multi_agent)
+
+
+def register_agent_toggles(agent_id: str, toggles: dict[str, bool]) -> None:
+    """Register toggle states for a new agent in the prompt loader.
+
+    Called when a new agent is created at runtime.
+    """
+    global _personality_enabled, _reasoning_enabled
+    _personality_enabled[agent_id] = toggles.get("personality", True)
+    _reasoning_enabled[agent_id] = toggles.get("reasoning", False)
+
+
+def unregister_agent_toggles(agent_id: str) -> None:
+    """Remove toggle states for a deleted agent."""
+    _personality_enabled.pop(agent_id, None)
+    _reasoning_enabled.pop(agent_id, None)
+
+
+# ============================================================
 # Convenience functions for frequently used prompts
 # ============================================================
 
 def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> str:
     """Load intent detection prompt"""
     return load_prompt('automatik/intent_detection', lang=lang, user_query=user_query)
+
+
+def get_vl_relevance_check_prompt(
+    user_query: str,
+    image_context: str,
+    lang: Optional[str] = None,
+) -> str:
+    """Load VL relevance check prompt for image follow-up detection."""
+    return load_prompt(
+        'automatik/vl_relevance_check',
+        lang=lang,
+        user_query=user_query,
+        image_context=image_context,
+    )
 
 
 def get_research_decision_prompt(

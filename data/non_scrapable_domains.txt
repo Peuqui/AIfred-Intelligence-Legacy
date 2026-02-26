@@ -22,6 +22,6 @@ instagram.com
 linkedin.com
 threads.net
 
-# Other problematic sites
+# Other non-scrapable sites
 pinterest.com
 snapchat.com

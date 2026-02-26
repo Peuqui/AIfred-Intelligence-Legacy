@@ -1,0 +1,21 @@
+The user previously uploaded images in this conversation.
+
+Images discussed:
+{image_context}
+
+The user now asks:
+"{user_query}"
+
+Does this question relate to a previously uploaded image?
+
+**Output format - STRICT SCHEMA:**
+
+Return EXACTLY one of:
+- IMAGE:N (where N is the image number, 1-indexed)
+- NONE
+
+Rules:
+- If the question references, asks about, or continues discussion of an image → IMAGE:N
+- If the question is about a completely different topic → NONE
+- If unclear which image but clearly image-related → IMAGE:1
+- No explanations, no extra text, ONLY the result
