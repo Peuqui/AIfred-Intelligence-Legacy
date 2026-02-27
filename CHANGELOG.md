@@ -5,6 +5,28 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.51.0] - 2026-02-27 🧠 Autoscan Binary Search + Session Sync Fix + Language Enforcement
+
+### Fixed
+
+- **Session-Sync Race Condition** — `refresh_session_list()` verglich lokalen State mit Disk und überschrieb bei Unterschied. Während Model Cold Starts (50s+) ist die Disk aber absichtlich veraltet (User-Nachricht schon lokal, Session-Save erst nach LLM-Antwort). Fix: Sync-Check wird bei `is_generating=True` übersprungen.
+- **URL-only Language Detection** — Reine URLs (`https://...`) wurden durch Intent Detection gejagt, was falsche Sprach-Erkennung verursachte. Fix: URL-only Messages überspringen Intent Detection und nutzen UI-Sprache.
+
+### Changed
+
+- **Autoscan: Binary Search für Context** — Statt nur nativer Context + Fallback (32k) wird jetzt binär zwischen FALLBACK_CONTEXT und native_context gesucht. Findet den maximalen Context der mit f16 KV auf die GPUs passt (1024er-Granularität).
+- **Autoscan: VRAM Safety Margin** — Von 512 auf 1024 MB erhöht. 813 MB freier VRAM reichte nicht für 4 GB KV-Cache-Allokation (Segfault bei Qwen3.5-122B).
+- **Autoscan: `--recalibrate` Flag** — Entfernt alle `# [autoscan]`-markierten YAML-Einträge + zugehörige VRAM-Cache-Einträge, erstellt Backups von YAML und VRAM-Cache mit Timestamp.
+- **Autoscan: Split-GGUF Support** — `rglob("*.gguf")` statt `glob("*.gguf")` in `scan_hf_cache()` und `scan_gguf_models()`. Symlink-Erstellung für alle Parts eines Split-GGUF.
+- **Language Enforcement Suffix** — `[AUSGABESPRACHE: DEUTSCH]` / `[OUTPUT LANGUAGE: ENGLISH]` wird als letztes Token vor der Generation angehängt (Recency Bias überschreibt Sprachdrift durch englische Inhalte).
+- **Debug Console max-height** — CSS `max-height: 60vh` verhindert dass die Debug-Konsole den gesamten Viewport einnimmt.
+
+### Technical Details
+
+- 6 Dateien geändert (+215, -53 LOC)
+- Autoscan: `# [autoscan]` Marker für generierte YAML-Einträge (selektives Cleanup)
+- Ruff + mypy: All checks passed
+
 ## [2.50.1] - 2026-02-26 🔧 VL Routing Fix + Backend Persistence + Auto-Scroll Streaming
 
 ### Fixed

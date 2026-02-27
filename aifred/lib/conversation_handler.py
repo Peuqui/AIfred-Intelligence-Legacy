@@ -2018,6 +2018,7 @@ async def _handle_automatik_mode(
                 vision_json_context=vision_json_context,
                 user_name=user_name,
                 detected_intent=detected_intent,
+                detected_language=detected_user_language,
                 pre_generated_queries=pre_generated_queries,
                 volatility=research_volatility,
                 automatik_num_ctx=automatik_num_ctx

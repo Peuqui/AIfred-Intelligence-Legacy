@@ -287,15 +287,18 @@ class SessionMixin(rx.State, mixin=True):
 
             # Sync check: Compare local state with server state
             # If message counts differ, reload session from server
-            session = load_session(self.session_id)
-            if session and session.get("data"):
-                server_count = len(session["data"].get("chat_history", []))
-                local_count = len(self.chat_history)  # type: ignore[attr-defined]
+            # SKIP during generation: local state is ahead of disk (user message
+            # added before LLM call, session saved only after response).
+            if not self.is_generating:  # type: ignore[attr-defined]
+                session = load_session(self.session_id)
+                if session and session.get("data"):
+                    server_count = len(session["data"].get("chat_history", []))
+                    local_count = len(self.chat_history)  # type: ignore[attr-defined]
 
-                if server_count != local_count:
-                    self.add_debug(f"Session changed externally ({local_count} -> {server_count}), reloading...")  # type: ignore[attr-defined]
-                    self._restore_session(session)
-                    self.session_restored = True
+                    if server_count != local_count:
+                        self.add_debug(f"Session changed externally ({local_count} -> {server_count}), reloading...")  # type: ignore[attr-defined]
+                        self._restore_session(session)
+                        self.session_restored = True
 
         # Reconnect TTS SSE stream for this device (multi-device support)
         # When user clicks reload button, they signal "I want to work here now"

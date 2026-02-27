@@ -882,14 +882,17 @@ class ChatMixin(rx.State, mixin=True):
             # Must run BEFORE compression check to get detected_language
             from ..lib.intent_detector import detect_query_intent_and_addressee
 
-            # If user_msg is empty (image-only), skip Intent Detection and use UI language
-            if not user_msg.strip():
+            # If user_msg is empty (image-only) or URL-only, skip Intent Detection and use UI language
+            _msg_stripped = user_msg.strip()
+            _is_url_only = bool(_msg_stripped) and bool(re.match(r'^https?://\S+$', _msg_stripped))
+            if not _msg_stripped or _is_url_only:
                 from ..lib.prompt_loader import get_language
                 detected_intent = "FAKTISCH"
                 addressed_to = None
                 detected_language = get_language()
                 intent_raw = ""
-                self.add_debug(f"🎯 Intent: {detected_intent} (image-only), Lang: {detected_language.upper()} (UI)")
+                _reason = "URL-only" if _is_url_only else "image-only"
+                self.add_debug(f"🎯 Intent: {detected_intent} ({_reason}), Lang: {detected_language.upper()} (UI)")
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
             else:
                 detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(

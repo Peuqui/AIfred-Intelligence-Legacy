@@ -242,6 +242,16 @@ def build_messages_from_llm_history(
         if reminder:
             current_user_text = f"{reminder}\n\n{current_user_text}"
 
+        # Language enforcement suffix (Recency Bias: last tokens before generation
+        # have strongest influence → overrides language drift from English content)
+        lang_suffixes = {
+            "de": "\n\n[AUSGABESPRACHE: DEUTSCH]",
+            "en": "\n\n[OUTPUT LANGUAGE: ENGLISH]",
+        }
+        lang_suffix = lang_suffixes.get(reminder_lang, "")
+        if lang_suffix:
+            current_user_text = f"{current_user_text}{lang_suffix}"
+
         messages.append({"role": "user", "content": current_user_text})
 
     return messages

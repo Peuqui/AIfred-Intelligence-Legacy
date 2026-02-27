@@ -54,8 +54,8 @@ FALLBACK_CONTEXT = 32768  # Reduced context when native context doesn't fit
 # If GGUF file size exceeds this fraction of the largest GPU's VRAM → use tensor-split
 MULTI_GPU_VRAM_THRESHOLD = 0.80
 
-# Minimum free VRAM per GPU after model load (MiB) — Linux without WDDM
-VRAM_SAFETY_MARGIN_MB = 512
+# Minimum free VRAM per GPU after model load (MiB) — must cover KV cache allocation blocks
+VRAM_SAFETY_MARGIN_MB = 1024
 
 # No size filter - even tiny LLMs (135M edge models) should be loadable
 
@@ -298,41 +298,53 @@ def calibrate_model_fit_params(
         return True
 
     # Try KV quant levels: f16 (best quality), q8_0, q4_0 (most VRAM-efficient)
+    # Strategy: prefer f16 with reduced context over quantized KV at full context
     for kv in [None, "q8_0", "q4_0"]:
         kv_label = kv or "f16"
 
-        # Try native context first, then reduced
-        contexts = [native_context]
-        if native_context > FALLBACK_CONTEXT:
-            contexts.append(FALLBACK_CONTEXT)
+        # Binary search for highest context that fits (between FALLBACK and native)
+        ctx_low = FALLBACK_CONTEXT
+        ctx_high = native_context
+        best_ctx = 0
+        best_ctx_ngl = 0
+        best_ctx_gpus: dict[str, dict[str, int]] = {}
 
-        for context in contexts:
+        while ctx_low <= ctx_high:
+            ctx_mid = ((ctx_low + ctx_high) // 2 + 1023) & ~1023  # round up to 1024
+
             if needs_ngl_search:
-                best_ngl, gpus = _find_best_ngl(
-                    gguf_path, context, gpu_flags, kv, mmproj,
+                ngl_result, gpus = _find_best_ngl(
+                    gguf_path, ctx_mid, gpu_flags, kv, mmproj,
                 )
             else:
-                # Single GPU, model fits — just check with ngl=99
                 gpus = _fit_params_per_gpu(
-                    gguf_path, context, DEFAULT_NGL, gpu_flags, kv, mmproj,
+                    gguf_path, ctx_mid, DEFAULT_NGL, gpu_flags, kv, mmproj,
                 )
                 if gpus:
                     min_free = min(g["free"] for g in gpus.values())
-                    best_ngl = DEFAULT_NGL if min_free >= VRAM_SAFETY_MARGIN_MB else 0
+                    ngl_result = DEFAULT_NGL if min_free >= VRAM_SAFETY_MARGIN_MB else 0
                 else:
-                    best_ngl = 0
+                    ngl_result = 0
 
-            if best_ngl > 0:
-                min_free = min(g["free"] for g in gpus.values())
-                ngl_info = f", ngl={best_ngl}" if best_ngl != DEFAULT_NGL else ""
-                print(f"    ✓ KV={kv_label}, context={context:,}{ngl_info} (min free: {min_free} MB)")
-                model["calibrated_context"] = context
-                model["calibrated_kv_quant"] = kv
-                model["calibrated_gpu_flags"] = gpu_flags
-                model["calibrated_ngl"] = best_ngl
-                return True
+            if ngl_result > 0:
+                best_ctx = ctx_mid
+                best_ctx_ngl = ngl_result
+                best_ctx_gpus = gpus
+                ctx_low = ctx_mid + 1024
             else:
-                print(f"    ✗ KV={kv_label}, context={context:,} — doesn't fit")
+                ctx_high = ctx_mid - 1024
+
+        if best_ctx > 0:
+            min_free = min(g["free"] for g in best_ctx_gpus.values())
+            ngl_info = f", ngl={best_ctx_ngl}" if best_ctx_ngl != DEFAULT_NGL else ""
+            print(f"    ✓ KV={kv_label}, context={best_ctx:,}{ngl_info} (min free: {min_free} MB)")
+            model["calibrated_context"] = best_ctx
+            model["calibrated_kv_quant"] = kv
+            model["calibrated_gpu_flags"] = gpu_flags
+            model["calibrated_ngl"] = best_ctx_ngl
+            return True
+        else:
+            print(f"    ✗ KV={kv_label} — doesn't fit even at context {FALLBACK_CONTEXT:,}")
 
     print("    ✗ Cannot fit on available hardware")
     return False
@@ -614,9 +626,18 @@ def scan_hf_cache() -> list[dict]:
         snapshot = _hf_latest_snapshot(repo_dir)
         if not snapshot:
             continue
-        for gguf_file in sorted(snapshot.glob("*.gguf")):
+        # Scan top-level AND subdirectories (split GGUFs in quant-named subdirs)
+        for gguf_file in sorted(snapshot.rglob("*.gguf")):
+            # Skip split-GGUF parts (only count the first part or single files)
+            if re.match(r'.*-\d{5}-of-\d{5}\.gguf$', gguf_file.name):
+                if not gguf_file.name.endswith("-00001-of-" + gguf_file.name.split("-of-")[-1]):
+                    continue
+            stem = gguf_file.stem
+            split_match = re.match(r'^(.+)-\d{5}-of-\d{5}$', stem)
+            if split_match:
+                stem = split_match.group(1)
             results.append({
-                "name": gguf_file.stem,
+                "name": stem,
                 "hf_path": gguf_file,
             })
 
@@ -641,23 +662,60 @@ def create_hf_symlinks(hf_models: list[dict]) -> list[dict]:
 
     new_symlinks = []
     for model in hf_models:
-        symlink_path = MODELS_DIR / (model["name"] + ".gguf")
+        hf_path = model["hf_path"]
 
-        if symlink_path.exists() or symlink_path.is_symlink():
-            print(f"  = Exists:  {symlink_path.name}")
-            continue
+        # Detect split GGUF: hf_path points to the first part
+        split_match = re.match(
+            r'^(.+)-(\d{5})-of-(\d{5})\.gguf$', hf_path.name
+        )
 
-        # Resolve through HF's own symlinks (snapshots → blobs) for dedup
-        hf_resolved = str(model["hf_path"].resolve())
-        existing_name = existing_targets.get(hf_resolved)
-        if existing_name:
-            print(f"  = Covered: {symlink_path.name} (already via {existing_name})")
-            continue
+        if split_match:
+            # Split GGUF: create symlinks for ALL parts so llama-server
+            # can find siblings relative to the symlink directory.
+            base, _, total = split_match.groups()
+            first_symlink = MODELS_DIR / hf_path.name
 
-        symlink_path.symlink_to(model["hf_path"])
-        print(f"  + Symlink: {symlink_path.name} → HuggingFace cache")
-        existing_targets[hf_resolved] = symlink_path.name
-        new_symlinks.append(model)
+            if first_symlink.exists() or first_symlink.is_symlink():
+                print(f"  = Exists:  {first_symlink.name}")
+                continue
+
+            # Resolve through HF's own symlinks for dedup
+            hf_resolved = str(hf_path.resolve())
+            existing_name = existing_targets.get(hf_resolved)
+            if existing_name:
+                print(f"  = Covered: {first_symlink.name} (already via {existing_name})")
+                continue
+
+            for i in range(1, int(total) + 1):
+                part_name = f"{base}-{i:05d}-of-{total}.gguf"
+                part_hf = hf_path.parent / part_name
+                part_symlink = MODELS_DIR / part_name
+                if part_symlink.exists() or part_symlink.is_symlink():
+                    continue
+                if part_hf.exists():
+                    part_symlink.symlink_to(part_hf)
+
+            print(f"  + Symlink: {first_symlink.name} (+{int(total)-1} parts) → HuggingFace cache")
+            existing_targets[hf_resolved] = first_symlink.name
+            new_symlinks.append(model)
+        else:
+            # Single-file GGUF: create one symlink with clean name
+            symlink_path = MODELS_DIR / (model["name"] + ".gguf")
+
+            if symlink_path.exists() or symlink_path.is_symlink():
+                print(f"  = Exists:  {symlink_path.name}")
+                continue
+
+            hf_resolved = str(hf_path.resolve())
+            existing_name = existing_targets.get(hf_resolved)
+            if existing_name:
+                print(f"  = Covered: {symlink_path.name} (already via {existing_name})")
+                continue
+
+            symlink_path.symlink_to(hf_path)
+            print(f"  + Symlink: {symlink_path.name} → HuggingFace cache")
+            existing_targets[hf_resolved] = symlink_path.name
+            new_symlinks.append(model)
 
     return new_symlinks
 
@@ -709,7 +767,8 @@ def scan_gguf_models() -> list[dict]:
         mmproj_files[mmp.stem[len("mmproj-"):]] = mmp
 
     models = []
-    for gguf_file in sorted(MODELS_DIR.glob("*.gguf")):
+    # Scan top-level AND subdirectories (hf download --local-dir creates nested dirs)
+    for gguf_file in sorted(MODELS_DIR.rglob("*.gguf")):
         # mmproj files are not standalone models
         if gguf_file.name.startswith("mmproj-"):
             continue
@@ -942,6 +1001,7 @@ def append_models_to_yaml(
             )
             print(f"  + Added: {name} (context: {context:,}{kv_label}{ngl_label}{sampling_label})")
 
+        new_blocks += f"  # [autoscan]\n"
         new_blocks += f"  {name}:\n"
         new_blocks += f"    cmd: {cmd_line}\n"
         new_blocks += f"    ttl: {DEFAULT_TTL}\n"
@@ -1406,6 +1466,81 @@ def test_model_compatibility(
 
 
 # ---------------------------------------------------------------------------
+# Recalibrate
+# ---------------------------------------------------------------------------
+
+def _recalibrate_reset() -> None:
+    """Remove autoscan-generated YAML entries and VRAM cache so main() re-calibrates.
+
+    Creates a timestamped backup of the YAML before any changes.
+    Autoscan entries are marked with '# [autoscan]' comment above the model block.
+    """
+    print("=== Recalibrate Mode ===")
+    if not LLAMASWAP_CONFIG.exists():
+        print("  No config found, nothing to reset.")
+        return
+
+    # Backup YAML
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup = LLAMASWAP_CONFIG.with_suffix(f".yaml.bak-{ts}")
+    backup.write_text(LLAMASWAP_CONFIG.read_text())
+    print(f"  Backup: {backup.name}")
+
+    # Backup VRAM cache
+    if VRAM_CACHE_FILE.exists():
+        cache_backup = VRAM_CACHE_FILE.with_suffix(f".json.bak-{ts}")
+        cache_backup.write_text(VRAM_CACHE_FILE.read_text())
+        print(f"  Backup: {cache_backup.name}")
+
+    # Remove lines between '# [autoscan]' markers and their model blocks
+    content = LLAMASWAP_CONFIG.read_text()
+    lines = content.splitlines(keepends=True)
+    removed: list[str] = []
+    result_lines: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        if line.strip() == "# [autoscan]":
+            # Next non-empty line should be the model entry
+            i += 1
+            if i < len(lines):
+                name_match = re.match(r'^  ([A-Za-z0-9][A-Za-z0-9._-]*):[ \t]*$', lines[i])
+                if name_match:
+                    removed.append(name_match.group(1))
+                    i += 1
+                    # Skip indented children (cmd, ttl, etc.)
+                    while i < len(lines) and lines[i].startswith("    "):
+                        i += 1
+                    continue
+            # Marker without valid model entry — skip just the marker
+            continue
+
+        result_lines.append(line)
+        i += 1
+
+    LLAMASWAP_CONFIG.write_text("".join(result_lines))
+
+    # Remove only autoscan entries from VRAM cache (keep AIfred calibration data)
+    if removed and VRAM_CACHE_FILE.exists():
+        try:
+            cache = json.loads(VRAM_CACHE_FILE.read_text())
+            removed_lower = {n.lower() for n in removed}
+            pruned = {k: v for k, v in cache.items() if k.lower() not in removed_lower}
+            VRAM_CACHE_FILE.write_text(json.dumps(pruned, indent=2))
+            print(f"  VRAM cache: {len(cache) - len(pruned)} entries removed, {len(pruned)} kept")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if removed:
+        print(f"  Removed {len(removed)} autoscan entries: {', '.join(removed)}")
+    else:
+        print("  No autoscan entries found to remove")
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1548,4 +1683,13 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="llama-swap autoscan")
+    parser.add_argument(
+        "--recalibrate", action="store_true",
+        help="Remove all autoscan-generated entries and VRAM cache, then re-scan and re-calibrate everything",
+    )
+    args = parser.parse_args()
+    if args.recalibrate:
+        _recalibrate_reset()
     main()

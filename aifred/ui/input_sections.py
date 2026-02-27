@@ -589,6 +589,7 @@ def debug_console() -> rx.Component:
         border=f"2px solid {COLORS['debug_border']}",
         style={
             "scroll-behavior": "smooth",
+            "max-height": "var(--debug-max-height, 60vh)",
         },
     )
 
