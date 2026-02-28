@@ -5,6 +5,26 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.53.0] - 2026-02-28 🔧 Layer-Based Multi-GPU Balance + Speed Skip
+
+### Changed
+
+- **Layer-Based VRAM Balance** — After first physical test detects VRAM imbalance (>1 GB diff), balance check now works with discrete layer counts instead of fumbling with tensor-split ratios. Calculates current layer distribution from GGUF metadata, moves 1 layer from bottleneck GPU, tests if min_free improved. If worse: reverts. Eliminates ratio oscillation caused by layer granularity.
+- **Balance Before Binary Search** — VRAM balance check moved from after Phase 1 into `_physical_context_search()`, directly after the first physical test. Binary search runs with the balanced split from the start — no more double work.
+- **Speed Variant Skip** — If the dominant GPU (highest ratio) is already the VRAM bottleneck and layer shift didn't help, Phase 2 speed calibration is skipped automatically. Saves ~5-10s per calibration for models where the faster GPU is maxed out.
+- **Unified CUDA Ordering** — All user-facing output uses consistent CUDA numbering (CUDA0, CUDA1) and fixed order. New `_format_cuda_detail()` helper remaps pynvml GPU indices to CUDA order throughout calibration and binary search.
+- **VRAM Safety Margin Reduced** — Linux margin lowered from 512 MB to 256 MB. Production testing confirmed >900 MB free on bottleneck GPU under inference load. Yields ~8K more context tokens.
+- **`_balance_tensor_split()` Removed** — Old post-Phase-1 balance function deleted. Logic replaced by inline layer-based approach in `_physical_context_search()`.
+
+### Technical Details
+
+- 2 files changed: `llamacpp_calibration.py` (+434, -185), `config.py` (margin 512→256)
+- New: `_format_cuda_detail()` for consistent CUDA-ordered GPU display
+- New: `get_gguf_layer_count()` + `get_gguf_total_size()` used for MB/layer calculation
+- `_physical_context_search()` yields dict with `skip_speed` flag
+- `_binary_search_context()` accepts `cuda_gpu_names` for consistent formatting
+- Ruff + mypy: All checks passed
+
 ## [2.52.0] - 2026-02-28 🎯 Per-GPU Calibration + Narrow Binary Search + NGL Fix
 
 ### Fixed

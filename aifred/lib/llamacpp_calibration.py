@@ -20,7 +20,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict, Optional
 
 import httpx
 import yaml
@@ -45,6 +45,41 @@ from .gpu_utils import get_all_gpus_memory_info
 from .model_vram_cache import add_llamacpp_calibration
 
 logger = logging.getLogger(__name__)
+
+_GPU_NAME_PREFIXES = ("NVIDIA GeForce ", "NVIDIA ", "Quadro ", "Tesla ")
+
+
+def _short_gpu_name(name: str) -> str:
+    """Shorten GPU name by stripping common prefixes."""
+    for prefix in _GPU_NAME_PREFIXES:
+        if name.startswith(prefix):
+            return name[len(prefix):]
+    return name
+
+
+def _format_cuda_detail(
+    gpu_list: list[dict[str, Any]],
+    cuda_gpu_names: list[str] | None = None,
+) -> str:
+    """Format GPU detail string in CUDA order.
+
+    If cuda_gpu_names is provided, reorder gpu_list to match CUDA order
+    and label as CUDA0, CUDA1, etc. Otherwise use gpu_list as-is.
+    """
+    if cuda_gpu_names:
+        parts: list[str] = []
+        for i, name in enumerate(cuda_gpu_names):
+            matched = next((g for g in gpu_list if g["name"] == name), None)
+            if matched:
+                parts.append(f"{name}(CUDA{i}): {matched['free_mb']} MB free")
+        if parts:
+            return ", ".join(parts)
+    # Fallback: use cuda_id if available, else index
+    parts = []
+    for i, g in enumerate(gpu_list):
+        cuda_label = g.get("cuda_id", f"CUDA{g.get('index', i)}")
+        parts.append(f"{g['name']}({cuda_label}): {g['free_mb']} MB free")
+    return ", ".join(parts)
 
 
 def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
@@ -614,22 +649,24 @@ def _fit_params_per_gpu_projection(
     Runs fit-params (~0.5s) and parses per-GPU memory lines like:
         CUDA0 (Quadro RTX 8000):  45355 total,  43710 used,   1478 free vs. target of   1024
 
-    Returns: {"CUDA0": {"total": 45355, "used": 43710, "free": 1478}, ...}
+    Returns: {"CUDA0": {"name": "Quadro RTX 8000", "total": 45355, "used": 43710, "free": 1478}, ...}
     Raises RuntimeError if no GPU projections found in output.
     """
     cmd = _build_fit_params_cmd(full_cmd, gguf_path, context, ngl=ngl)
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
     output = result.stdout + result.stderr
 
-    per_gpu: dict[str, dict[str, int]] = {}
+    per_gpu: dict[str, dict[str, Any]] = {}
     for match in re.finditer(
-        r'(CUDA\d+)\s+\([^)]+\)\s*:\s*(\d+)\s+total\s*,\s*(\d+)\s+used\s*,\s*(-?\d+)\s+free',
+        r'(CUDA\d+)\s+\(([^)]+)\)\s*:\s*(\d+)\s+total\s*,\s*(\d+)\s+used\s*,\s*(-?\d+)\s+free',
         output,
     ):
-        per_gpu[match.group(1)] = {
-            "total": int(match.group(2)),
-            "used": int(match.group(3)),
-            "free": int(match.group(4)),
+        gpu_id = match.group(1)
+        per_gpu[gpu_id] = {
+            "name": match.group(2).strip(),
+            "total": int(match.group(3)),
+            "used": int(match.group(4)),
+            "free": int(match.group(5)),
         }
 
     if not per_gpu:
@@ -710,6 +747,11 @@ async def _start_llama_server(
         cmd_str = cmd_str.replace(' --port', ' -fit off --port')
 
     args = shlex.split(cmd_str)
+    ts_in_cmd = _parse_tensor_split_ratios(cmd_str)
+    log_message(
+        f"Starting llama-server: ts={ts_in_cmd}, ctx={context}, ngl={ngl}",
+        category="stats",
+    )
 
     try:
         # Write stdout to tempfile (parseable for VRAM info, readable after crash)
@@ -916,17 +958,12 @@ async def _calibration_test(
 
 async def _test_context_physical(
     full_cmd: str, context: int, port: int,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, list[dict[str, Any]]]:
     """Test if a context size fits in physical VRAM.
 
-    Starts server, verifies health, measures free VRAM via pynvml (nvidia-smi).
-    Checks the MINIMUM free VRAM across ALL GPUs (multi-GPU tensor-split).
-    Breakdown from server exit is logged for diagnostics but not used for
-    the decision (breakdown 'free' is always 0 — it measures llama.cpp's
-    internal allocator, not GPU-wide free VRAM).
-
+    Starts server, verifies health, measures free VRAM via pynvml.
     Returns:
-        (fits, detail) — fits=True if server starts AND min free VRAM >= LLAMACPP_VRAM_SAFETY_MARGIN.
+        (fits, detail_str, per_gpu_list) — per_gpu_list has {index, name, free_mb} per GPU.
     """
     process = await _start_and_verify(full_cmd, context, port)
     if not process:
@@ -934,23 +971,32 @@ async def _test_context_physical(
             f"VRAM ctx={format_number(context)}: OOM (server failed to start)",
             category="stats",
         )
-        return (False, "OOM")
+        return (False, "OOM", [])
 
     # pynvml = GPU-wide free VRAM per GPU (multi-GPU: check ALL GPUs)
     all_gpus = get_all_gpus_memory_info()
+    gpu_list: list[dict[str, Any]] = []
+    min_free_mb: Optional[int] = None
+
     if all_gpus and all_gpus["per_gpu"]:
-        min_free_gpu = min(all_gpus["per_gpu"], key=lambda g: g["free_mb"])
-        min_free_mb = min_free_gpu["free_mb"]
+        for g in all_gpus["per_gpu"]:
+            gpu_list.append({
+                "index": g["index"],
+                "name": _short_gpu_name(g.get("gpu_model", f"GPU{g['index']}")),
+                "total_mb": g["total_mb"],
+                "free_mb": g["free_mb"],
+            })
+        min_free_mb = min(g["free_mb"] for g in gpu_list)
         per_gpu_detail = ", ".join(
-            f"GPU{g['index']}: {g['free_mb']} MB free"
-            for g in all_gpus["per_gpu"]
+            f"{g['name']}(GPU{g['index']}): {g['free_mb']} MB free"
+            for g in gpu_list
         )
         log_message(
             f"VRAM ctx={format_number(context)}: pynvml {per_gpu_detail}",
             category="stats",
         )
     else:
-        min_free_mb = None
+        per_gpu_detail = "VRAM unknown"
         log_message(
             f"VRAM ctx={format_number(context)}: pynvml unavailable",
             category="stats",
@@ -960,7 +1006,7 @@ async def _test_context_physical(
     _kill_process(process, keep_log=True)
     await asyncio.sleep(1.5)
 
-    # Breakdown: only for diagnostics (free is always 0, self = model allocation)
+    # Breakdown: only for diagnostics
     log_path = getattr(process, '_server_log', None)
     if log_path:
         breakdown = _parse_memory_breakdown(log_path)
@@ -978,22 +1024,17 @@ async def _test_context_physical(
 
     # Decision: min free VRAM across ALL GPUs vs safety margin
     if min_free_mb is not None and min_free_mb < LLAMACPP_VRAM_SAFETY_MARGIN:
-        worst_gpu = f"GPU{min_free_gpu['index']}" if all_gpus else "GPU?"
         log_message(
-            f"VRAM ctx={format_number(context)}: FAIL — "
-            f"{worst_gpu}: {min_free_mb} MB free < {LLAMACPP_VRAM_SAFETY_MARGIN} MB margin",
+            f"VRAM ctx={format_number(context)}: FAIL — {per_gpu_detail}",
             category="stats",
         )
-        return (
-            False,
-            f"{worst_gpu}: {min_free_mb} MB free < {LLAMACPP_VRAM_SAFETY_MARGIN} MB minimum",
-        )
-    detail = f"min {min_free_mb} MB free" if min_free_mb is not None else "VRAM unknown"
+        return (False, per_gpu_detail, gpu_list)
+    detail = per_gpu_detail if min_free_mb is not None else "VRAM unknown"
     log_message(
         f"VRAM ctx={format_number(context)}: OK — {detail}",
         category="stats",
     )
-    return (True, detail)
+    return (True, detail, gpu_list)
 
 
 async def _binary_search_context(
@@ -1002,11 +1043,13 @@ async def _binary_search_context(
     low: int,
     high: int,
     precision: int = 512,
+    cuda_gpu_names: list[str] | None = None,
 ) -> AsyncIterator[str | int]:
     """Binary search for max fitting context between low and high.
 
     Yields status strings during search. Final yield is the integer result
     (best fitting context found, or 0 if nothing fits).
+    cuda_gpu_names: if provided, reformat detail in CUDA order.
     """
     result = 0
     iteration = 0
@@ -1015,17 +1058,283 @@ async def _binary_search_context(
         mid = (low + high) // 2
         iteration += 1
         yield f"[{iteration}] Testing {format_number(mid)}..."
-        mid_fits, mid_detail = await _test_context_physical(full_cmd, mid, port)
+        mid_fits, _, mid_gpus = await _test_context_physical(full_cmd, mid, port)
+        mid_detail = _format_cuda_detail(mid_gpus, cuda_gpu_names) if mid_gpus else "VRAM unknown"
         if mid_fits:
             low = mid
             result = mid
-            yield f"✓ {format_number(mid)} fits"
+            yield f"✓ {format_number(mid)} fits ({mid_detail})"
         else:
             high = mid
-            if "VMM" in mid_detail:
-                yield f"✗ {format_number(mid)} VMM overallocation"
+            yield f"✗ {format_number(mid)} doesn't fit ({mid_detail})"
+
+    yield result
+
+
+async def _physical_context_search(
+    full_cmd: str,
+    gguf_path: Path,
+    native_context: int,
+    ngl: int,
+    port: int,
+) -> AsyncIterator[str | int | dict]:
+    """Fit-params projection + physical binary search for max context.
+
+    Generic core used by both GPU-only (Phase 1) and hybrid calibration.
+    If multi-GPU: detects VRAM asymmetry after first test and adjusts tensor-split
+    before binary search (avoids searching with unbalanced split).
+
+    Yields: progress strings, metadata dict, final int result.
+    Dict: {"gpu_list": [...], "balanced_cmd": str | None}
+    """
+    # 1. Fit-params projection (2 calls, ~1s total)
+    try:
+        per_gpu_low = _fit_params_per_gpu_projection(
+            full_cmd, gguf_path, CALIBRATION_MIN_CONTEXT, ngl=ngl,
+        )
+        per_gpu_high = _fit_params_per_gpu_projection(
+            full_cmd, gguf_path, native_context, ngl=ngl,
+        )
+        projected, rate = _calculate_max_context_per_gpu(
+            per_gpu_low, per_gpu_high, CALIBRATION_MIN_CONTEXT, native_context,
+        )
+        projected = min(projected, native_context)
+        yield (
+            f"Projection: {format_number(rate, 4)} MiB/tok, "
+            f"max ~{format_number(projected)} tokens"
+        )
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        yield "VRAM projection failed"
+        yield 0
+        return
+
+    # 2. Physical test at projected context
+    label = "native" if projected == native_context else "projected"
+    yield f"[1] Testing {label}: {format_number(projected)}..."
+
+    fits, detail, gpu_list = await _test_context_physical(full_cmd, projected, port)
+
+    # Build CUDA-ordered gpu_list by matching fit-params GPU names with pynvml
+    cuda_gpu_list: list[dict[str, Any]] = []
+    if gpu_list and per_gpu_low:
+        for cuda_id in sorted(per_gpu_low.keys()):  # CUDA0, CUDA1, ...
+            cuda_name = _short_gpu_name(str(per_gpu_low[cuda_id].get("name", "")))
+            matched = next((g for g in gpu_list if g["name"] == cuda_name), None)
+            if matched:
+                cuda_gpu_list.append({
+                    "cuda_id": cuda_id,
+                    "name": cuda_name,
+                    "total_mb": matched["total_mb"],
+                    "free_mb": matched["free_mb"],
+                })
+        if len(cuda_gpu_list) != len(gpu_list):
+            # Name matching failed (e.g. same-model GPUs) — pynvml order
+            cuda_gpu_list = gpu_list
+    else:
+        cuda_gpu_list = gpu_list
+
+    # CUDA-ordered GPU names for consistent formatting everywhere
+    cuda_gpu_names = [g["name"] for g in cuda_gpu_list]
+    detail = _format_cuda_detail(cuda_gpu_list)
+
+    # Show first test result
+    if fits:
+        yield f"✓ {format_number(projected)} fits ({detail})"
+    else:
+        yield f"✗ {format_number(projected)} doesn't fit ({detail})"
+
+    # 3. Layer-based balance: move layers between GPUs to equalize free VRAM.
+    # Tensor-split ratios map to discrete layer counts — small ratio changes
+    # often move zero layers. Work with layer counts directly instead.
+    balance_adjusted = False
+    skip_speed = False
+    current_ratios = _parse_tensor_split_ratios(full_cmd)
+
+    if (
+        len(cuda_gpu_list) >= 2
+        and current_ratios
+        and len(current_ratios) == len(cuda_gpu_list)
+    ):
+        free_values = [g["free_mb"] for g in cuda_gpu_list]
+        diff = max(free_values) - min(free_values)
+
+        if diff >= 1024:
+            total_layers = get_gguf_layer_count(gguf_path)
+            if total_layers:
+                from aifred.backends.ollama import wait_for_vram_stable
+                from .gguf_utils import get_gguf_total_size
+
+                model_size_mb = get_gguf_total_size(gguf_path) / (1024 ** 2)
+                mb_per_layer = int(model_size_mb / total_layers)
+
+                # Current layer distribution from ratios
+                sum_ratios = sum(current_ratios)
+                layers = [
+                    round(total_layers * r / sum_ratios)
+                    for r in current_ratios
+                ]
+                # Fix rounding errors so sum == total_layers
+                layers[-1] = total_layers - sum(layers[:-1])
+
+                bottleneck_idx = free_values.index(min(free_values))
+                most_free_idx = free_values.index(max(free_values))
+
+                old_layers_fmt = ":".join(str(n) for n in layers)
+                yield (
+                    f"VRAM imbalance: {_format_cuda_detail(cuda_gpu_list)} "
+                    f"(diff {format_number(diff)} MB) — "
+                    f"layers {old_layers_fmt} (~{format_number(mb_per_layer)} MB/layer)"
+                )
+
+                # Move 1 layer away from bottleneck
+                new_layers = list(layers)
+                new_layers[bottleneck_idx] -= 1
+                new_layers[most_free_idx] += 1
+                new_ratios = [float(n) for n in new_layers]
+
+                new_layers_fmt = ":".join(str(n) for n in new_layers)
+                yield (
+                    f"Moving 1 layer: {old_layers_fmt} → {new_layers_fmt}"
+                )
+
+                full_cmd = _replace_tensor_split(full_cmd, new_ratios)
+                log_message(
+                    f"Balance: layers {old_layers_fmt} → {new_layers_fmt}, "
+                    f"ts={_parse_tensor_split_ratios(full_cmd)}, "
+                    f"~{mb_per_layer} MB/layer, total={total_layers}",
+                    category="stats",
+                )
+                old_min_free = min(free_values)
+
+                await wait_for_vram_stable(max_wait_seconds=10.0)
+
+                yield f"[2] Testing balanced: {format_number(projected)}..."
+                fits, _, new_gpu_list = await _test_context_physical(
+                    full_cmd, projected, port,
+                )
+
+                # Update cuda_gpu_list with fresh VRAM measurements
+                if new_gpu_list and per_gpu_low:
+                    updated: list[dict[str, Any]] = []
+                    for cuda_id in sorted(per_gpu_low.keys()):
+                        cuda_name = _short_gpu_name(
+                            str(per_gpu_low[cuda_id].get("name", ""))
+                        )
+                        matched = next(
+                            (g for g in new_gpu_list if g["name"] == cuda_name),
+                            None,
+                        )
+                        if matched:
+                            updated.append({
+                                "cuda_id": cuda_id,
+                                "name": cuda_name,
+                                "total_mb": matched["total_mb"],
+                                "free_mb": matched["free_mb"],
+                            })
+                    if len(updated) == len(cuda_gpu_list):
+                        cuda_gpu_list = updated
+
+                new_free = [g["free_mb"] for g in cuda_gpu_list]
+                new_min_free = min(new_free)
+                new_diff = max(new_free) - new_min_free
+                detail = _format_cuda_detail(cuda_gpu_list)
+
+                if new_min_free > old_min_free:
+                    # Improved — keep new split
+                    balance_adjusted = True
+                    current_ratios = new_ratios
+                    if fits:
+                        yield f"✓ {format_number(projected)} fits ({detail})"
+                    else:
+                        yield f"✗ {format_number(projected)} doesn't fit ({detail})"
+                    if new_diff < 1024:
+                        yield f"Balance OK (diff {format_number(new_diff)} MB)"
+                else:
+                    # Worse or same — revert
+                    full_cmd = _replace_tensor_split(
+                        full_cmd, [float(n) for n in layers],
+                    )
+                    if fits:
+                        yield f"✓ {format_number(projected)} fits ({detail})"
+                    else:
+                        yield f"✗ {format_number(projected)} doesn't fit ({detail})"
+                    yield (
+                        f"Layer shift didn't improve balance "
+                        f"(min free {format_number(new_min_free)} vs "
+                        f"{format_number(old_min_free)} MB) — reverting to "
+                        f"{old_layers_fmt}"
+                    )
+                    # If the bottleneck GPU already has the highest ratio,
+                    # speed calibration (pushing even more onto it) is pointless.
+                    dominant_idx = current_ratios.index(max(current_ratios))
+                    if bottleneck_idx == dominant_idx:
+                        skip_speed = True
+
+    # Yield metadata for caller
+    yield {
+        "gpu_list": cuda_gpu_list,
+        "balanced_cmd": full_cmd if balance_adjusted else None,
+        "skip_speed": skip_speed,
+    }
+
+    # 4. Binary search with (possibly adjusted) full_cmd and projected
+    search_margin = max(projected // 7, 4096)  # ~15%, min 4K
+    result = 0
+
+    if fits:
+        result = projected
+
+        # 4a. Narrow binary search upward
+        search_high = min(projected + search_margin, native_context)
+        if result < search_high:
+            async for item in _binary_search_context(
+                full_cmd, port, result, search_high,
+                cuda_gpu_names=cuda_gpu_names,
+            ):
+                if isinstance(item, int):
+                    if item > result:
+                        result = item
+                else:
+                    yield item
+            if result > projected:
+                yield (
+                    f"Optimum: {format_number(result)} tokens "
+                    f"(+{format_number(result - projected)} vs projection)"
+                )
+    else:
+        yield "Searching downward..."
+
+        # 4b. Narrow binary search downward
+        search_low = max(projected - search_margin, CALIBRATION_MIN_CONTEXT)
+        async for item in _binary_search_context(
+            full_cmd, port, search_low, projected,
+            cuda_gpu_names=cuda_gpu_names,
+        ):
+            if isinstance(item, int):
+                result = item
             else:
-                yield f"✗ {format_number(mid)} too large"
+                yield item
+
+        # Widen if narrow window found nothing
+        if not result and search_low > CALIBRATION_MIN_CONTEXT:
+            yield (
+                f"Narrow search failed — widening to "
+                f"[{format_number(CALIBRATION_MIN_CONTEXT)}, {format_number(search_low)}]"
+            )
+            async for item in _binary_search_context(
+                full_cmd, port, CALIBRATION_MIN_CONTEXT, search_low,
+                cuda_gpu_names=cuda_gpu_names,
+            ):
+                if isinstance(item, int):
+                    result = item
+                else:
+                    yield item
+
+        if result:
+            yield (
+                f"Optimum: {format_number(result)} tokens "
+                f"({format_number(projected - result)} below projection)"
+            )
 
     yield result
 
@@ -1114,8 +1423,10 @@ def add_llamaswap_speed_variant(
         flags=re.MULTILINE,
     )
 
-    # Replace tensor-split and context in cmd
-    speed_block_text = _replace_tensor_split(speed_block_text, speed_split_n, 1)
+    # Replace tensor-split (scale first GPU) and context in cmd
+    orig_ratios = _parse_tensor_split_ratios(speed_block_text)
+    speed_ratios = [float(speed_split_n)] + orig_ratios[1:] if orig_ratios else [float(speed_split_n), 1.0]
+    speed_block_text = _replace_tensor_split(speed_block_text, speed_ratios)
     speed_block_text = re.sub(r'-c\s+\d+', f'-c {speed_context}', speed_block_text)
 
     speed_block_lines = speed_block_text.split('\n')
@@ -1165,21 +1476,21 @@ def _has_tensor_split(full_cmd: str) -> bool:
     return bool(re.search(r'(--tensor-split|-ts)\s+[\d.,]+', full_cmd))
 
 
-def _parse_tensor_split_n(cmd: str) -> int:
-    """Extract the fast-GPU part N from --tensor-split N,1 in cmd.
+def _parse_tensor_split_ratios(cmd: str) -> list[float]:
+    """Extract all tensor-split ratios from cmd.
 
-    Returns the integer part of the first value (e.g. "2,1" → 2, "11,1" → 11).
-    Returns 0 if no tensor-split found.
+    "2,1" → [2.0, 1.0], "3,1,1" → [3.0, 1.0, 1.0].
+    Returns [] if no tensor-split found.
     """
-    match = re.search(r'(?:--tensor-split|-ts)\s+([\d.]+)', cmd)
+    match = re.search(r'(?:--tensor-split|-ts)\s+([\d.,]+)', cmd)
     if not match:
-        return 0
-    return int(float(match.group(1)))
+        return []
+    return [float(v) for v in match.group(1).split(",") if v]
 
 
-def _replace_tensor_split(cmd: str, fast_n: int, slow_n: int = 1) -> str:
-    """Replace the tensor-split ratio in cmd with fast_n:slow_n."""
-    new_val = f"{fast_n},{slow_n}"
+def _replace_tensor_split(cmd: str, ratios: list[float]) -> str:
+    """Replace the tensor-split ratio in cmd."""
+    new_val = ",".join(f"{r:g}" for r in ratios)
     cmd = re.sub(r'(--tensor-split\s+)[\d.,]+', rf'\g<1>{new_val}', cmd)
     cmd = re.sub(r'(-ts\s+)[\d.,]+', rf'\g<1>{new_val}', cmd)
     return cmd
@@ -1204,14 +1515,21 @@ async def _calibrate_speed_split(
     Yields progress messages.
     Final: "__SPEED__:{N}" where N is the best ratio, or "__SPEED__:0" on failure.
     """
-    original_n = _parse_tensor_split_n(full_cmd)
-    if original_n <= 0:
+    original_ratios = _parse_tensor_split_ratios(full_cmd)
+    if not original_ratios:
         yield "Speed calibration: cannot parse original tensor-split ratio"
         yield "__SPEED__:0"
         return
 
+    # Speed split scales the fastest GPU (index 0) relative to the rest
+    original_n = int(original_ratios[0])
+    rest = original_ratios[1:]
+
+    def fmt(n: int) -> str:
+        return ",".join(f"{v:g}" for v in [n] + rest)
+
     yield (
-        f"Speed calibration: bottom-up from {original_n}:1 "
+        f"Speed calibration: bottom-up from {fmt(original_n)} "
         f"at ctx={format_number(target_context)}"
     )
 
@@ -1220,28 +1538,28 @@ async def _calibrate_speed_split(
     # Step 1: Probe original+2 — quick check for headroom
     probe_n = original_n + 2
     iteration += 1
-    cmd_probe = _replace_tensor_split(full_cmd, probe_n, 1)
-    yield f"[{iteration}] Testing split {probe_n}:1 (probe)..."
+    cmd_probe = _replace_tensor_split(full_cmd, [probe_n] + rest)
+    yield f"[{iteration}] Testing split {fmt(probe_n)} (probe)..."
     fits = await _calibration_test(cmd_probe, target_context, port)
 
     if not fits:
-        yield f"✗ {probe_n}:1 failed"
+        yield f"✗ {fmt(probe_n)} failed"
         # Step 2: Try original+1 — last chance for any improvement
         fallback_n = original_n + 1
         iteration += 1
-        cmd_fallback = _replace_tensor_split(full_cmd, fallback_n, 1)
-        yield f"[{iteration}] Testing split {fallback_n}:1..."
+        cmd_fallback = _replace_tensor_split(full_cmd, [fallback_n] + rest)
+        yield f"[{iteration}] Testing split {fmt(fallback_n)}..."
         fits = await _calibration_test(cmd_fallback, target_context, port)
         if fits:
-            yield f"✓ {fallback_n}:1 fits — small improvement over {original_n}:1"
-            yield f"Speed split found: {fallback_n}:1 ({iteration} iterations)"
+            yield f"✓ {fmt(fallback_n)} fits — small improvement over {fmt(original_n)}"
+            yield f"Speed split found: {fmt(fallback_n)} ({iteration} iterations)"
             yield f"__SPEED__:{fallback_n}"
         else:
-            yield f"✗ {fallback_n}:1 failed — no speed variant possible"
+            yield f"✗ {fmt(fallback_n)} failed — no speed variant possible"
             yield "__SPEED__:0"
         return
 
-    yield f"✓ {probe_n}:1 fits — binary search for maximum"
+    yield f"✓ {fmt(probe_n)} fits — binary search for maximum"
 
     # Step 3: Binary search [probe_n, 48] for maximum split
     best_n = probe_n
@@ -1251,21 +1569,20 @@ async def _calibrate_speed_split(
     while split_high - split_low > 1:
         iteration += 1
         split_mid = (split_low + split_high) // 2
-        cmd_mid = _replace_tensor_split(full_cmd, split_mid, 1)
-        yield f"[{iteration}] Testing split {split_mid}:1..."
+        cmd_mid = _replace_tensor_split(full_cmd, [split_mid] + rest)
+        yield f"[{iteration}] Testing split {fmt(split_mid)}..."
 
         fits = await _calibration_test(cmd_mid, target_context, port)
         if fits:
             best_n = split_mid
             split_low = split_mid
-            yield f"✓ {split_mid}:1 fits"
+            yield f"✓ {fmt(split_mid)} fits"
         else:
             split_high = split_mid
-            yield f"✗ {split_mid}:1 failed"
+            yield f"✗ {fmt(split_mid)} failed"
 
-    yield f"Speed split found: {best_n}:1 ({iteration} iterations)"
+    yield f"Speed split found: {fmt(best_n)} ({iteration} iterations)"
     yield f"__SPEED__:{best_n}"
-
 
 
 async def _calibrate_hybrid(
@@ -1275,6 +1592,7 @@ async def _calibrate_hybrid(
     native_context: int,
     model_size_gb: float,
     total_layers: int,
+    port: int = LLAMACPP_CALIBRATION_PORT,
 ) -> AsyncIterator[str]:
     """
     Hybrid NGL+context calibration using fit-params per-GPU VRAM projection.
@@ -1360,34 +1678,23 @@ async def _calibrate_hybrid(
         yield "Hybrid calibration failed: no working (ngl, context) combination found"
         return
 
-    # Phase 2: Binary search context upward via fit-params
-    if best_ctx < native_context:
-        yield (
-            f"NGL={best_ngl} found. Binary searching context upward "
-            f"from {format_number(best_ctx)} via fit-params..."
-        )
-        ctx_low = best_ctx
-        ctx_high = native_context
-        iteration = 0
+    # Phase 2: Physical context search at the found NGL
+    hybrid_cmd = re.sub(r'(-ngl\s+)\d+', rf'\g<1>{best_ngl}', full_cmd)
+    yield f"NGL={best_ngl} found. Physical context search..."
 
-        while ctx_high - ctx_low > 512:
-            ctx_mid = (ctx_low + ctx_high) // 2
-            iteration += 1
-            try:
-                per_gpu = _fit_params_per_gpu_projection(
-                    full_cmd, gguf_path, ctx_mid, best_ngl,
-                )
-                min_free = min(info["free"] for info in per_gpu.values())
-                if min_free >= LLAMACPP_VRAM_SAFETY_MARGIN:
-                    ctx_low = ctx_mid
-                    best_ctx = ctx_mid
-                    yield f"  [{iteration}] ctx={format_number(ctx_mid)}: fits ({min_free} MB free)"
-                else:
-                    ctx_high = ctx_mid
-                    yield f"  [{iteration}] ctx={format_number(ctx_mid)}: too tight ({min_free} MB free)"
-            except (RuntimeError, OSError, subprocess.TimeoutExpired):
-                ctx_high = ctx_mid
-                yield f"  [{iteration}] ctx={format_number(ctx_mid)}: projection failed"
+    search_result = 0
+    async for item in _physical_context_search(
+        hybrid_cmd, gguf_path, native_context, ngl=best_ngl, port=port,
+    ):
+        if isinstance(item, int):
+            search_result = item
+        elif isinstance(item, dict):
+            pass  # balance metadata not used in hybrid path
+        else:
+            yield item
+
+    if search_result > 0:
+        best_ctx = search_result
 
     cpu_layers = total_layers - best_ngl
     yield (
@@ -1574,6 +1881,7 @@ async def calibrate_llamacpp_model(
             native_context=native_context,
             model_size_gb=model_size_gb,
             total_layers=total_layers,
+            port=port,
         ):
             if hybrid_msg.startswith("__HYBRID__:"):
                 parts = hybrid_msg.split(":")
@@ -1602,107 +1910,41 @@ async def calibrate_llamacpp_model(
     best_kv = "f16"
 
     for kv_level in kv_levels:
-        if kv_level != "f16" and best_result >= KV_QUANT_CONTEXT_THRESHOLD:
-            # f16 already yields enough context — no need to quantize KV
+        if kv_level != "f16" and (best_result >= native_context or best_result >= KV_QUANT_CONTEXT_THRESHOLD):
             break
 
         test_cmd = _inject_kv_quant(phase1_cmd, kv_level)
         yield f"Phase 1: GPU-only (ngl=99, KV={kv_level})"
 
-        # Per-GPU VRAM projection for this KV level (ngl=99 forced for Phase 1)
-        try:
-            per_gpu_low = _fit_params_per_gpu_projection(
-                test_cmd, gguf_path, CALIBRATION_MIN_CONTEXT, ngl=99,
-            )
-            per_gpu_high = _fit_params_per_gpu_projection(
-                test_cmd, gguf_path, native_context, ngl=99,
-            )
-            kv_max, rate = _calculate_max_context_per_gpu(
-                per_gpu_low, per_gpu_high, CALIBRATION_MIN_CONTEXT, native_context,
-            )
-            kv_max = min(kv_max, native_context)
-            yield (
-                f"Projection (KV={kv_level}): {format_number(rate, 4)} MiB/tok, "
-                f"max ~{format_number(kv_max)} tokens"
-            )
-        except (RuntimeError, OSError, subprocess.TimeoutExpired):
-            yield f"VRAM projection failed for KV={kv_level} — skipping"
-            continue
-
-        # Test projection estimate, then refine in a narrow window.
-        # The per-GPU projection is typically within ~5% of the physical limit,
-        # so searching [projection, native_context] wastes time on OOM tests.
-        # Instead: search ±15% around the projection to fine-tune quickly.
-        test_ctx = kv_max
-        search_margin = max(test_ctx // 7, 4096)  # ~15% of projection, min 4K
-        label = "native" if test_ctx == native_context else "projected"
-        yield f"[1] Testing {label}: {format_number(test_ctx)}..."
-
-        fits, detail = await _test_context_physical(test_cmd, test_ctx, port)
         result = 0
-
-        if fits:
-            yield f"✓ {format_number(test_ctx)} fits"
-            result = test_ctx
-
-            # Narrow binary search upward (projection + margin, capped at native)
-            search_high = min(test_ctx + search_margin, native_context)
-            if result < search_high:
-                async for item in _binary_search_context(
-                    test_cmd, port, result, search_high,
-                ):
-                    if isinstance(item, int):
-                        if item > result:
-                            result = item
-                    else:
-                        yield item
-                if result > test_ctx:
-                    yield (
-                        f"Optimum: {format_number(result)} tokens "
-                        f"(+{format_number(result - test_ctx)} vs projection)"
-                    )
-        else:
-            if "VMM" in detail:
-                yield f"✗ {format_number(test_ctx)} VMM overallocation — searching downward"
+        skip_speed = False
+        async for item in _physical_context_search(
+            test_cmd, gguf_path, native_context, ngl=99, port=port,
+        ):
+            if isinstance(item, int):
+                result = item
+            elif isinstance(item, dict):
+                # Balance adjusted the tensor-split — propagate to base cmds
+                balanced_cmd = item.get("balanced_cmd")
+                if balanced_cmd:
+                    new_ratios = _parse_tensor_split_ratios(balanced_cmd)
+                    if new_ratios:
+                        full_cmd = _replace_tensor_split(full_cmd, new_ratios)
+                        phase1_cmd = _replace_tensor_split(phase1_cmd, new_ratios)
+                if item.get("skip_speed"):
+                    skip_speed = True
             else:
-                yield f"✗ {format_number(test_ctx)} too large — searching downward"
-
-            # Narrow binary search downward (projection - margin)
-            search_low = max(test_ctx - search_margin, CALIBRATION_MIN_CONTEXT)
-            async for item in _binary_search_context(
-                test_cmd, port, search_low, test_ctx,
-            ):
-                if isinstance(item, int):
-                    result = item
-                else:
-                    yield item
-
-            # Fallback: if narrow window found nothing, widen to full range
-            if not result and search_low > CALIBRATION_MIN_CONTEXT:
-                yield f"Narrow search failed — widening to [{format_number(CALIBRATION_MIN_CONTEXT)}, {format_number(search_low)}]"
-                async for item in _binary_search_context(
-                    test_cmd, port, CALIBRATION_MIN_CONTEXT, search_low,
-                ):
-                    if isinstance(item, int):
-                        result = item
-                    else:
-                        yield item
-
-            if result:
-                yield (
-                    f"Optimum: {format_number(result)} tokens "
-                    f"({format_number(test_ctx - result)} below projection)"
-                )
+                yield item
 
         if result > best_result:
             best_result = result
             best_kv = kv_level
 
-        # Good enough with this KV level — stop trying lower quality
-        if best_result >= KV_QUANT_CONTEXT_THRESHOLD:
+        # Already at native or above threshold — no point trying lower KV quality
+        if best_result >= native_context or best_result >= KV_QUANT_CONTEXT_THRESHOLD:
             break
 
-        if kv_level != kv_levels[-1] and best_result < KV_QUANT_CONTEXT_THRESHOLD:
+        if kv_level != kv_levels[-1]:
             yield (
                 f"KV={kv_level}: {format_number(best_result)} tokens "
                 f"< {format_number(KV_QUANT_CONTEXT_THRESHOLD)} threshold — "
@@ -1722,9 +1964,15 @@ async def calibrate_llamacpp_model(
             _remove_llamaswap_kv_cache_quant(config_path, model_id)
 
         if _has_tensor_split(full_cmd):
-            yield "Phase 2: Speed variant calibration (tensor-split optimization)"
-            async for msg in _calibrate_speed_split(full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS):
-                yield msg
+            if skip_speed:
+                yield (
+                    "Phase 2: Speed variant skipped "
+                    "(dominant GPU is already the VRAM bottleneck)"
+                )
+            else:
+                yield "Phase 2: Speed variant calibration (tensor-split optimization)"
+                async for msg in _calibrate_speed_split(full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS):
+                    yield msg
         async for msg in _finish_calibration(best_result, 99, "gpu"):
             yield msg
         return
@@ -1755,6 +2003,7 @@ async def calibrate_llamacpp_model(
         native_context=native_context,
         model_size_gb=model_size_gb,
         total_layers=total_layers,
+        port=port,
     ):
         if hybrid_msg.startswith("__HYBRID__:"):
             parts = hybrid_msg.split(":")
