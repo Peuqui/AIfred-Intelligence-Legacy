@@ -274,7 +274,7 @@ async def _stream_agent_to_history(
 
     # Centralized metadata (PP speed, debug log, chat bubble)
     inference_time = timer.elapsed()
-    tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
+    tokens_per_sec = metrics.get("tokens_per_second", 0)
 
     metadata_dict, metadata_display, debug_msg = build_inference_metadata(
         ttft=ttft,
@@ -488,7 +488,7 @@ async def _run_agent_direct_response(
 
         # Metadata
         inference_time = timer.elapsed()
-        tokens_per_sec = token_count / inference_time if inference_time > 0 else 0
+        tokens_per_sec = metrics.get("tokens_per_second", 0)
 
         metadata_dict, metadata_display, debug_msg = build_inference_metadata(
             ttft=agent_ttft,

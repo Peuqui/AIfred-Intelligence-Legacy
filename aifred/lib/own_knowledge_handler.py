@@ -222,7 +222,7 @@ async def handle_own_knowledge(
                 tokens_prompt = metrics.get("tokens_prompt", 0)
 
         inference_time = timer.elapsed()
-        tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0
+        tokens_per_sec = metrics.get("tokens_per_second", 0)
 
         # Strip thinking blocks and format for display
         response_clean = strip_thinking_blocks(full_response) if full_response else ""
