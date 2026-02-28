@@ -21,6 +21,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 ### 🎯 Core Features
 - **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision — configurable agents with personality toggles
 - **Multi-Backend Support**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), **Cloud APIs** (Qwen, DeepSeek, Claude)
+- **🌐 Distributed Inference (RPC)**: Run models across multiple machines over LAN — llama.cpp RPC connects local GPUs (RTX 8000 + P40) with remote GPUs (RTX 3090 Ti) for **96 GB combined VRAM**, enabling 235B-parameter models fully GPU-resident at **14-16 tok/s** via direct Ethernet link (4x faster than local CPU offload)
 - **Automatic Model Lifecycle**: Zero-config model management — new models auto-discovered from Ollama/HuggingFace on service start, removed models auto-cleaned from config
 - **Vision/OCR Support**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), **VL Follow-Up** for image-related follow-up questions
 - **Image Crop Tool**: Interactive crop before OCR/analysis (8-point handles, 4K auto-resize)

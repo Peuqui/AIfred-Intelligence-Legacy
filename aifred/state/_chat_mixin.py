@@ -623,6 +623,7 @@ class ChatMixin(rx.State, mixin=True):
             # even if intent detection hangs, compression fails, or the generator
             # is cancelled by WebSocket disconnect (GeneratorExit).
             # ============================================================
+            ai_text = ""  # Must be initialized here — used in finally block
 
             # ============================================================
             # VISION FAST PATH: Images present → VL model handles everything
@@ -1060,7 +1061,6 @@ class ChatMixin(rx.State, mixin=True):
                 'repeat_penalty': self.aifred_repeat_penalty,  # type: ignore[attr-defined]
             }
             result_data = None
-            ai_text = ""
 
             # Single unified call - research_mode determines the path internally
             async for item in chat_interactive_mode(
@@ -1235,8 +1235,10 @@ class ChatMixin(rx.State, mixin=True):
             )
 
             self.add_debug(f"❌ Generation failed: {e}")
-            import traceback
-            self.add_debug(f"Traceback: {traceback.format_exc()}")
+            from ..backends.base import BackendConnectionError
+            if not isinstance(e, BackendConnectionError):
+                import traceback
+                self.add_debug(f"Traceback: {traceback.format_exc()}")
 
         finally:
             self.is_generating = False
@@ -1290,8 +1292,10 @@ class ChatMixin(rx.State, mixin=True):
 
             # Generate session title at end of flow (uses small Automatik model)
             # Only runs on first Q&A pair, skipped if title already exists
-            async for _ in self._generate_session_title():  # type: ignore[attr-defined]
-                yield  # Forward UI updates from title generation
+            # Skip if no AI response was generated (e.g. RPC connection error)
+            if ai_text:
+                async for _ in self._generate_session_title():  # type: ignore[attr-defined]
+                    yield  # Forward UI updates from title generation
 
             # Auto-Save: Session nach jeder Chat-Nachricht speichern
             # IMPORTANT: Save BEFORE refresh so message_count is up-to-date

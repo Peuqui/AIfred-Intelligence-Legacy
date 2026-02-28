@@ -190,6 +190,9 @@ async def rank_urls_by_relevance(
         return ranked_urls, ranking_indices, debug_summary
 
     except Exception as e:
+        from ...backends.base import BackendConnectionError
+        if isinstance(e, BackendConnectionError):
+            raise
         log_message(f"❌ URL ranking error: {e}")
         # Return first N URLs on error
         return urls[:top_n], list(range(min(top_n, len(urls)))), f"Error: {e}"

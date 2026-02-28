@@ -542,6 +542,7 @@ Einziges Modell, das quantitative Argumente einfuehrt:
 - Deutsch vs. Englisch Qualitaetsvergleich
 - Sprachliche Unterschiede, Persona-Konsistenz ueber Sprachen hinweg
 - 📄 [Tensor Split Benchmark: Speed Variant vs. Full Context](tensor-split-benchmark.md) — Multi-GPU Tensor-Split-Optimierung (11:1 vs. 2:1), reale Performance-Daten mit Qwen3-Next-80B auf RTX 8000 + P40
+- 📄 Distributed Inference via RPC — Qwen3-235B auf 3 GPUs ueber LAN (96 GB VRAM), Setup-Anleitung, Performance-Vergleich lokal vs. RPC
 
 ### Reddit-Post
 - Kurzer, knackiger Post mit Highlights
@@ -552,6 +553,7 @@ Einziges Modell, das quantitative Argumente einfuehrt:
   - Autoscan & Kalibrierung fuer lokale Modelle
   - Hardware-Benchmarks auf Prosumer-Setup
   - Tensor-Split Speed-Benchmark (Multi-GPU Optimierung)
+  - **Distributed Inference via RPC** (235B-Modell auf 3 GPUs ueber LAN, 96 GB VRAM)
 
 ---
 
@@ -610,6 +612,223 @@ Alle 200B+ Modelle stabil mit 130-200 Tokens:
 - 📄 [docs/model-recommended-params.md](model-recommended-params.md) - Deutsch
 - 📄 [docs/model-recommended-params.en.md](model-recommended-params.en.md) - Englisch
 - 📄 [docs/tensor-split-benchmark.md](tensor-split-benchmark.md) - Tensor Split Speed Benchmark (Multi-GPU)
+
+## 🆕 Update 2026-02-28: Distributed Inference via RPC (LAN)
+
+### Konzept
+
+Verteilte Inferenz ueber Gigabit-LAN: Der Mini-PC (AOOSTAR GEM10) verbindet seine lokalen GPUs
+mit einer entfernten GPU auf einem zweiten Rechner (Windows/WSL2). Das Modell wird auf alle
+3 GPUs verteilt — kein CPU-Offload noetig, das gesamte Modell liegt im VRAM.
+
+### Hardware-Setup
+
+| Rolle | Rechner | GPU | VRAM | Anbindung |
+|-------|---------|-----|------|-----------|
+| **Master** | GEM10 (Mini-PC) | Quadro RTX 8000 | 48 GB | OCuLink (lokal) |
+| **Master** | GEM10 (Mini-PC) | Tesla P40 | 24 GB | USB4/x4 (lokal) |
+| **Worker** | Hauptrechner (Aragon) | RTX 3090 Ti | 24 GB | Gigabit LAN (RPC) |
+| | | **Total** | **96 GB** | |
+
+### Getestetes Modell
+
+| Parameter | Wert |
+|-----------|------|
+| Modell | Qwen3-235B-A22B-Instruct-2507 (MoE, 235B total, 22B aktiv) |
+| Quantisierung | UD-Q2_K_XL (~83 GB) |
+| GPU-Layers | 99 (= alle, kein CPU-Offload) |
+| KV-Cache | q8_0 (hoeher als lokal moeglich — mehr VRAM verfuegbar!) |
+| Kontext | 32.768 Tokens |
+| Tensor-Split | Automatisch ueber RPC |
+
+### Performance-Vergleich: Lokal vs. RPC (Switch) vs. RPC (Direktverbindung)
+
+| Metrik | Lokal (72 GB, CPU-Offload) | RPC via Switch (GbE) | RPC Direktverbindung (GbE) |
+|--------|---------------------------|----------------------|---------------------------|
+| GPU-Layers | 71 von ~140 (Rest auf CPU) | **99 = alle auf GPU** | **99 = alle auf GPU** |
+| KV-Cache Quant | q4_0 (kein Platz fuer mehr) | **q8_0** | **q8_0** |
+| Kontext | 17.344 Tokens | **32.768 Tokens** | **32.768 Tokens** |
+| Generation Speed | 3,3-6,4 tok/s | 7-8 tok/s (typ. 6,5-9) | **14-16 tok/s** |
+| AIfred-Anzeige | ~4,3 tok/s | ~4,3 tok/s | ~8-9 tok/s |
+| TTFT | 22,7-75,2s (wachsend) | ~60s | ~60s |
+| Ladezeit | ~2s (Direct-IO) | ~10 Min (Tensors ueber LAN) | ~10 Min (Tensors ueber LAN) |
+| TTL | 900s | 3600s | **3600s** |
+| Netzwerk-Latenz | — | ~0,5ms (via Switch) | **~1ms (USB-Ethernet)** |
+| **Faktor vs. Lokal** | **1x** | **~2x** | **~4x** |
+
+**Kernvorteil Direktverbindung:** Obwohl die gemessene Ping-Latenz der Direktverbindung (~1ms)
+hoeher ist als ueber den Switch (~0,5ms), verdoppelt sich die Inferenzgeschwindigkeit nochmals
+von 7-8 auf **14-16 tok/s**. Die Erklaerung: Der Switch-Pfad teilt sich die Bandbreite mit anderem
+LAN-Traffic und hat hoehere Jitter-Varianz. Die Direktverbindung bietet exklusive, stabile
+Bandbreite fuer den RPC-Datenstrom — bei tausenden Roundtrips pro Sekunde summiert sich
+jede eingesparte Mikrosekunde.
+
+**Gesamtergebnis:** RPC ueber Direktverbindung ist **4x schneller als lokaler CPU-Offload** —
+mit hoeherer KV-Cache-Qualitaet (q8_0 statt q4_0) und fast doppeltem Kontext (32K statt 17K).
+
+### Einrichtung (Reproduzierbar)
+
+#### 1. llama.cpp mit RPC-Support bauen (Master)
+
+```bash
+cd ~/llama.cpp
+cmake -B build -DGGML_CUDA=ON -DGGML_RPC=ON -DCMAKE_CUDA_ARCHITECTURES="61;75"
+cmake --build build --config Release -j$(nproc)
+```
+
+#### 2. RPC-Server starten (Worker / Aragon)
+
+```bash
+# Auf dem Worker-Rechner (Linux/WSL2):
+./rpc-server -H 0.0.0.0 -p 50052
+```
+
+**Bei WSL2:** Port-Forwarding und Firewall-Regel noetig:
+```powershell
+# PowerShell (Admin) auf dem Windows-Host:
+netsh interface portproxy add v4tov4 listenport=50052 listenaddress=0.0.0.0 connectport=50052 connectaddress=<WSL2-IP>
+New-NetFirewallRule -DisplayName "llama-rpc" -Direction Inbound -Protocol TCP -LocalPort 50052 -Action Allow
+```
+
+#### 3. llama-swap Config (Master)
+
+```yaml
+# Lokale Variante (CPU-Offload, ohne RPC):
+Qwen3-235B-A22B-Instruct-2507-UD-Q2_K_XL:
+  cmd: 'llama-server --model <path>.gguf
+    -ngl 71 -np 1 -ctk q4_0 -ctv q4_0 -c 17344
+    --flash-attn on --direct-io ...'
+  ttl: 900
+
+# RPC-Variante (alle GPUs, Direktverbindung, kein CPU-Offload):
+Qwen3-235B-A22B-Instruct-2507-UD-Q2_K_XL-rpc:
+  cmd: 'llama-server --model <path>.gguf
+    -ngl 99 -np 1 -ctk q8_0 -ctv q8_0 -c 32768
+    --rpc 10.0.0.2:50052
+    --flash-attn on --direct-io ...'
+  ttl: 3600
+  healthCheckTimeout: 900
+```
+
+**Wichtig:** Zwei separate Profile fuer dasselbe Modell — der User waehlt in AIfred
+zwischen lokaler Variante (schnelles Laden, CPU-Offload) und RPC-Variante (langsames Laden,
+rein GPU, hoehere Qualitaet).
+
+#### 4. Konnektivitaet testen
+
+```bash
+# Vom Master aus (RPC spricht KEIN HTTP — raw TCP testen):
+bash -c 'echo > /dev/tcp/10.0.0.2/50052' && echo "OK" || echo "FAIL"
+# "OK" = Port erreichbar, Verbindung steht
+```
+
+#### 5. Direktverbindung einrichten (optional, ~2x Speedup)
+
+Fuer maximale RPC-Performance: Master und Worker per Ethernet direkt verbinden
+(ohne Switch). Ein einfacher USB-zu-Ethernet-Adapter (1 GbE) genuegt.
+
+**Netzwerk-Topologie:**
+```
+GEM10 (enp4s0, 2.5 GbE) ←——USB-Ethernet-Adapter (1 GbE)——→ Aragon (Ethernet 2)
+        10.0.0.1/30                                              10.0.0.2/30
+```
+
+**Master (Linux) — statische IP via NetworkManager:**
+```bash
+# Vorhandene Auto-Connections auf dem Interface entfernen (verhindert DHCP-Interferenz):
+nmcli connection delete "Kabelgebundene Verbindung 1"  # oder wie sie heisst
+
+# Statische Verbindung anlegen:
+nmcli connection add type ethernet con-name "rpc-direct" ifname enp4s0 \
+  ipv4.method manual ipv4.addresses 10.0.0.1/30 ipv6.method disabled
+
+# Pruefen:
+ip addr show enp4s0  # Muss 10.0.0.1/30 zeigen
+```
+
+**Worker (Windows) — statische IP:**
+```powershell
+# PowerShell (Admin):
+# Adapter-Name ermitteln (z.B. "Ethernet 2" fuer USB-Adapter):
+Get-NetAdapter | Format-Table Name, InterfaceDescription
+
+# IP setzen:
+New-NetIPAddress -InterfaceAlias "Ethernet 2" -IPAddress 10.0.0.2 -PrefixLength 30
+# Adapter auf "Private" setzen (Firewall):
+Set-NetConnectionProfile -InterfaceAlias "Ethernet 2" -NetworkCategory Private
+```
+
+**Worker (WSL2) — Portproxy fuer Direktverbindung:**
+```powershell
+# PowerShell (Admin) — Forwarding ueber die Direkt-IP:
+netsh interface portproxy add v4tov4 listenport=50052 listenaddress=10.0.0.2 \
+  connectport=50052 connectaddress=<WSL2-IP>
+```
+
+**llama-swap Config anpassen:**
+```yaml
+# --rpc von Switch-IP auf Direkt-IP aendern:
+--rpc 10.0.0.2:50052   # statt 192.168.0.1:50052
+```
+
+**Verifizieren:**
+```bash
+ping -c 4 10.0.0.2          # 0% loss, ~1ms
+bash -c 'echo > /dev/tcp/10.0.0.2/50052' && echo "OK"  # Port erreichbar
+```
+
+**Wichtig:** NetworkManager kann bei Linux manuell gesetzte IPs ueberschreiben.
+Die `nmcli connection add`-Methode ist persistent und ueberlebt Reboots.
+`ip addr add` allein reicht NICHT — NM loescht die IP nach ~45s und versucht DHCP.
+
+### Beobachtungen
+
+1. **Ladezeit ist der Bottleneck:** ~10 Minuten fuer 83 GB ueber Gigabit-LAN (~64 MB/s).
+   Daher hoher TTL (3600s) — einmal geladen, soll das Modell lange im Speicher bleiben.
+
+2. **Kleine Modelle profitieren NICHT:** Ein Qwen3-14B ueber RPC laeuft mit ~7 tok/s —
+   lokal schafft es ~50 tok/s. RPC lohnt sich nur fuer Modelle die lokal nicht komplett
+   ins VRAM passen.
+
+3. **Schneller als CPU-Offload:** Die lokale Variante mit CPU-Offload liefert 3,3-6,4 tok/s
+   mit starker Degradation ueber den Konversationsverlauf. RPC via Switch liefert stabile
+   7-8 tok/s — Netzwerk-Inferenz schlaegt lokalen CPU-Offload bereits ueber den Switch.
+
+4. **Direktverbindung verdoppelt nochmal:** Eine simple USB-Ethernet-Direktverbindung (1 GbE,
+   ~15 EUR Adapter) steigert die RPC-Performance von 7-8 auf **14-16 tok/s** — eine nochmalige
+   Verdopplung. Der Grund: exklusive Bandbreite ohne Switch-Contention und stabilere Latenz
+   (weniger Jitter). Bei tausenden RPC-Roundtrips pro Sekunde summieren sich selbst
+   Mikrosekunden-Unterschiede dramatisch.
+
+5. **Netzwerk-Latenz dominiert, nicht Bandbreite:** Waehrend der Inferenz werden keine grossen
+   Datenmengen uebertragen — die Tensors liegen bereits auf den GPUs. Der Bottleneck ist die
+   Latenz pro RPC-Roundtrip. Die Direktverbindung zeigt hoehere Ping-Latenz (~1ms vs. ~0,5ms
+   ueber Switch), aber stabilere Werte (niedrigerer mdev). Fuer den RPC-Pipeline-Throughput
+   zaehlt Stabilitaet mehr als absolute Latenz.
+
+6. **WSL2-Einschraenkung:** Die WSL2-IP kann sich nach Windows-Neustart aendern.
+   Das `netsh portproxy`-Forwarding muss dann angepasst werden. Bei Direktverbindung:
+   Separate Portproxy-Regel fuer die Direkt-IP (10.0.0.2) noetig.
+
+### Fazit
+
+Distributed Inference via RPC ist ein Game-Changer fuer Modelle die das lokale VRAM uebersteigen.
+
+| Verbindung | tok/s (llama-stats) | Faktor vs. Lokal |
+|------------|--------------------:|:----------------:|
+| Lokal (CPU-Offload) | 3,3-6,4 | 1x |
+| RPC via Switch (GbE) | 7-8 | ~2x |
+| **RPC Direktverbindung (GbE)** | **14-16** | **~4x** |
+
+**Die guenstigste Optimierung:** Ein USB-Ethernet-Adapter fuer ~15 EUR verdoppelt die
+RPC-Performance nochmals. Dazu besserer KV-Cache (q8_0 statt q4_0) und fast doppelter
+Kontext (32K statt 17K). Der Preis: ~10 Minuten Ladezeit und ein zweiter Rechner im Netzwerk.
+
+**Ausblick:** Mit 2,5 GbE oder 5 GbE Direktverbindung (statt 1 GbE USB-Adapter) waeren
+noch hoehere tok/s denkbar. Die aktuelle Bandbreite ist bereits der limitierende Faktor
+beim Laden (~10 Min) — schnellere Links wuerden auch die Ladezeit proportional verkuerzen.
+
+---
 
 ## Datenquellen
 

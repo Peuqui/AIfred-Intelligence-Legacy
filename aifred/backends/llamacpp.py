@@ -8,7 +8,9 @@ chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 See docs/llamacpp-setup.md for hardware configuration and performance tuning.
 """
 
+import asyncio
 import logging
+import re
 from typing import List, Optional, AsyncIterator, Dict, Any
 from .base import (
     OpenAICompatibleBackend,
@@ -36,6 +38,43 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
     def __init__(self, base_url: str = "http://localhost:8080/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
+
+    # === Pre-request validation ===
+
+    async def _pre_request_check(self, model: str) -> None:
+        """Check RPC server connectivity before sending inference request."""
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.llamacpp_calibration import parse_llamaswap_config
+
+        config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+        if model not in config:
+            return
+
+        cmd = config[model].get("full_cmd", "")
+        rpc_match = re.search(r'--rpc\s+(\S+)', cmd)
+        if not rpc_match:
+            return
+
+        # --rpc kann mehrere Endpoints haben: "host1:port1,host2:port2"
+        for endpoint in rpc_match.group(1).split(","):
+            host, _, port_str = endpoint.rpartition(":")
+            if not host or not port_str:
+                continue
+            port = int(port_str)
+
+            try:
+                _, writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, port),
+                    timeout=3.0,
+                )
+                writer.close()
+                await writer.wait_closed()
+            except (asyncio.TimeoutError, OSError) as e:
+                raise BackendConnectionError(
+                    f"RPC-Server {host}:{port} nicht erreichbar ({type(e).__name__}). "
+                    f"Ist der Remote-Rechner eingeschaltet und der RPC-Server gestartet? "
+                    f"Alternativ das lokale Modell (ohne '-rpc') verwenden."
+                )
 
     # === Hook overrides ===
 

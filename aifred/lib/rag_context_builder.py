@@ -134,6 +134,9 @@ async def build_rag_context(
                 log_message(f"  ❌ NOT RELEVANT | LLM said: '{decision}' | No keyword match")
 
         except Exception as e:
+            from ..backends.base import BackendConnectionError
+            if isinstance(e, BackendConnectionError):
+                raise
             log_message(f"  ⚠️ Relevance check failed: {e}, skipping candidate")
             continue
 

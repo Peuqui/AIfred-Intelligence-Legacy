@@ -188,7 +188,11 @@ async def detect_query_intent_and_addressee(
         return (intent, addressee, detected_language, response_raw)
 
     except Exception as e:
-        # Fallback to UI language on error
+        # Connection errors must propagate — don't hide "server unreachable"
+        from ..backends.base import BackendConnectionError
+        if isinstance(e, BackendConnectionError):
+            raise
+        # Other errors (parsing, timeout, etc.): fallback to safe defaults
         from .prompt_loader import get_language
         fallback_lang = get_language()
         log_message(f"❌ Intent detection error: {e} → Fallback: FAKTISCH, no addressee, {fallback_lang.upper()}")
@@ -256,6 +260,9 @@ async def detect_cache_followup_intent(
         return intent
 
     except Exception as e:
+        from ..backends.base import BackendConnectionError
+        if isinstance(e, BackendConnectionError):
+            raise
         log_message(f"❌ Cache-Followup Intent-Detection Error: {e} → Fallback: FAKTISCH")
         return "FAKTISCH"
 
@@ -326,6 +333,9 @@ async def detect_vl_relevance(
         return None
 
     except Exception as e:
+        from ..backends.base import BackendConnectionError
+        if isinstance(e, BackendConnectionError):
+            raise
         log_message(f"❌ VL relevance check error: {e} → NONE")
         return None
 

@@ -288,6 +288,10 @@ class LLMBackend(ABC):
         """
         pass  # Default: no-op for dynamic backends like Ollama
 
+    async def _pre_request_check(self, model: str) -> None:
+        """Hook for pre-request validation (e.g. RPC connectivity). Override in subclasses."""
+        pass
+
     async def close(self) -> None:
         """
         Close any open connections or resources.
@@ -441,6 +445,8 @@ class OpenAICompatibleBackend(LLMBackend):
         if options is None:
             options = LLMOptions()
 
+        await self._pre_request_check(model)
+
         openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
         kwargs: Dict[str, Any] = {
@@ -489,6 +495,8 @@ class OpenAICompatibleBackend(LLMBackend):
     ) -> AsyncIterator[Dict]:
         if options is None:
             options = LLMOptions()
+
+        await self._pre_request_check(model)
 
         openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
