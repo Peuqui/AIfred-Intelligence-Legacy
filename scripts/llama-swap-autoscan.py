@@ -160,6 +160,263 @@ def build_gpu_flags(gguf_path: Path, per_gpu_vram: list[int]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# GPU hardware fingerprint — detect hardware changes across restarts
+# ---------------------------------------------------------------------------
+
+def get_gpu_names() -> list[str]:
+    """Query GPU model names, sorted by VRAM descending (matches FASTEST_FIRST)."""
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        gpus: list[tuple[int, str]] = []
+        for i in range(pynvml.nvmlDeviceGetCount()):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            name = pynvml.nvmlDeviceGetName(handle)
+            if isinstance(name, bytes):
+                name = name.decode()
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            gpus.append((int(mem.total / (1024 * 1024)), name))
+        pynvml.nvmlShutdown()
+        gpus.sort(key=lambda x: x[0], reverse=True)
+        return [name for _, name in gpus]
+    except Exception:
+        pass
+    # Fallback: nvidia-smi
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=memory.total,name", "--format=csv,noheader,nounits"],
+            text=True,
+        )
+        gpus_raw = []
+        for line in out.strip().splitlines():
+            parts = line.split(", ", 1)
+            if len(parts) == 2:
+                gpus_raw.append((int(parts[0].strip()), parts[1].strip()))
+        gpus_raw.sort(key=lambda x: x[0], reverse=True)
+        return [name for _, name in gpus_raw]
+    except Exception:
+        return []
+
+
+def _short_gpu_name(name: str) -> str:
+    """Shorten GPU name for fingerprint (remove vendor prefixes, collapse spaces)."""
+    for prefix in ("NVIDIA ", "GeForce ", "Quadro "):
+        name = name.replace(prefix, "")
+    return name.strip().replace(" ", "_")
+
+
+def build_gpu_fingerprint() -> str:
+    """Build hardware fingerprint string from current GPUs.
+
+    Format: "RTX_8000:48564,P40:24576" — sorted by VRAM descending.
+    """
+    names = get_gpu_names()
+    vrams = get_per_gpu_vram_mb()
+    parts = []
+    for name, vram in zip(names, vrams):
+        parts.append(f"{_short_gpu_name(name)}:{vram}")
+    return ",".join(parts)
+
+
+def read_gpu_fingerprint(config_path: Path) -> Optional[str]:
+    """Read stored GPU fingerprint from config header comment."""
+    if not config_path.exists():
+        return None
+    first_line = config_path.read_text().split("\n", 1)[0]
+    m = re.match(r'^#\s*gpu_hardware:\s*(.+)$', first_line)
+    return m.group(1).strip() if m else None
+
+
+def write_gpu_fingerprint(config_path: Path, fingerprint: str) -> None:
+    """Write or update GPU fingerprint as first line comment in config."""
+    new_line = f"# gpu_hardware: {fingerprint}\n"
+    if not config_path.exists():
+        config_path.write_text(new_line)
+        return
+    content = config_path.read_text()
+    if content.startswith("# gpu_hardware:"):
+        # Replace existing fingerprint line
+        rest = content.split("\n", 1)[1] if "\n" in content else ""
+        config_path.write_text(new_line + rest)
+    else:
+        config_path.write_text(new_line + content)
+
+
+def _parse_fingerprint_vrams(fingerprint: str) -> list[int]:
+    """Extract VRAM values from fingerprint string."""
+    vrams = []
+    for part in fingerprint.split(","):
+        if ":" in part:
+            vram_str = part.rsplit(":", 1)[1]
+            try:
+                vrams.append(int(vram_str))
+            except ValueError:
+                pass
+    return vrams
+
+
+def gpu_hardware_changed(stored: str, current: str) -> bool:
+    """Compare GPU fingerprints. Tolerant to ±512 MB VRAM fluctuation per GPU."""
+    stored_vrams = _parse_fingerprint_vrams(stored)
+    current_vrams = _parse_fingerprint_vrams(current)
+    if len(stored_vrams) != len(current_vrams):
+        return True
+    for s, c in zip(stored_vrams, current_vrams):
+        if abs(s - c) > 512:
+            return True
+    return False
+
+
+def update_all_tensor_splits(config_path: Path, per_gpu_vram: list[int]) -> int:
+    """Update tensor-split in ALL local model profiles to match current GPU layout.
+
+    Skips RPC profiles (--rpc in cmd). Does NOT touch context (-c) or NGL (-ngl).
+    Returns count of updated model profiles.
+    """
+    if not config_path.exists():
+        return 0
+
+    lines = config_path.read_text().splitlines(keepends=True)
+    updated_count = 0
+
+    # Regex patterns for parsing cmd strings
+    ts_pattern = re.compile(r'(--tensor-split|-ts)\s+[\d.,]+')
+    sm_pattern = re.compile(r'-sm\s+\w+')
+    fit_pattern = re.compile(r'-fit\s+\w+')
+    model_pattern = re.compile(r'--model\s+(\S+)')
+    rpc_pattern = re.compile(r'--rpc\s+')
+    dev_pattern = re.compile(r'-dev\s+\S+')
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        # Detect cmd lines (single-line or multi-line YAML)
+        # Match: "    cmd: '...'" or "    cmd: |" followed by indented content
+        if not re.match(r'\s+cmd:', line):
+            i += 1
+            continue
+
+        # Collect full cmd text (may span multiple lines for | or > style)
+        cmd_start = i
+        cmd_text = line
+        if "'${PORT}'" in line or '"${PORT}"' in line or '${PORT}' in line:
+            # Single-line cmd — complete on this line
+            cmd_end = i
+        elif re.search(r"cmd:\s*[|>]", line):
+            # Multi-line cmd block
+            j = i + 1
+            while j < len(lines) and lines[j].startswith("      "):
+                cmd_text += lines[j]
+                j += 1
+            cmd_end = j - 1
+        else:
+            # Single-line cmd (quoted)
+            cmd_end = i
+
+        # Skip RPC profiles
+        if rpc_pattern.search(cmd_text):
+            i = cmd_end + 1
+            continue
+
+        # Extract GGUF path
+        model_match = model_pattern.search(cmd_text)
+        if not model_match:
+            i = cmd_end + 1
+            continue
+
+        gguf_path = Path(model_match.group(1))
+
+        # Resolve symlinks and check existence
+        try:
+            resolved = gguf_path.resolve()
+            if not resolved.exists():
+                i = cmd_end + 1
+                continue
+        except Exception:
+            i = cmd_end + 1
+            continue
+
+        # Calculate what the tensor-split SHOULD be
+        new_gpu_flags = build_gpu_flags_silent(gguf_path, per_gpu_vram)
+        has_old_ts = bool(ts_pattern.search(cmd_text))
+
+        if new_gpu_flags:
+            # Model needs multi-GPU
+            new_ts_match = re.search(r'--tensor-split\s+([\d.,]+)', new_gpu_flags)
+            new_ts_val = new_ts_match.group(1) if new_ts_match else ""
+
+            if has_old_ts:
+                # Replace existing tensor-split value
+                old_ts_match = ts_pattern.search(cmd_text)
+                if old_ts_match:
+                    old_ts_text = old_ts_match.group(0)
+                    new_ts_text = f"{old_ts_match.group(1)} {new_ts_val}"
+                    for idx in range(cmd_start, cmd_end + 1):
+                        if old_ts_text in lines[idx]:
+                            lines[idx] = lines[idx].replace(old_ts_text, new_ts_text)
+                            updated_count += 1
+                            break
+            else:
+                # No tensor-split yet — need to add multi-GPU flags
+                # Remove -dev if present (was single-GPU)
+                for idx in range(cmd_start, cmd_end + 1):
+                    if dev_pattern.search(lines[idx]):
+                        lines[idx] = dev_pattern.sub("", lines[idx])
+
+                # Insert new flags before --flash-attn or at end of first cmd line
+                inserted = False
+                for idx in range(cmd_start, cmd_end + 1):
+                    if "--flash-attn" in lines[idx]:
+                        lines[idx] = lines[idx].replace(
+                            "--flash-attn",
+                            f"-sm layer --tensor-split {new_ts_val} -fit off --flash-attn",
+                        )
+                        inserted = True
+                        updated_count += 1
+                        break
+                if not inserted:
+                    # Fallback: append to last cmd line
+                    lines[cmd_end] = lines[cmd_end].rstrip("\n") + f" -sm layer --tensor-split {new_ts_val} -fit off\n"
+                    updated_count += 1
+        else:
+            # Model fits on single GPU — remove tensor-split if present
+            if has_old_ts:
+                for idx in range(cmd_start, cmd_end + 1):
+                    lines[idx] = ts_pattern.sub("", lines[idx])
+                    lines[idx] = sm_pattern.sub("", lines[idx])
+                    lines[idx] = fit_pattern.sub("", lines[idx])
+                    # Clean up double spaces
+                    lines[idx] = re.sub(r'  +', ' ', lines[idx])
+                updated_count += 1
+
+        i = cmd_end + 1
+
+    config_path.write_text("".join(lines))
+    return updated_count
+
+
+def build_gpu_flags_silent(gguf_path: Path, per_gpu_vram: list[int]) -> str:
+    """Like build_gpu_flags() but without print output. For use in update_all_tensor_splits."""
+    if len(per_gpu_vram) <= 1:
+        return ""
+
+    largest_gpu_mb = per_gpu_vram[0]
+    try:
+        gguf_size_mb = get_gguf_total_size(gguf_path) / (1024 * 1024)
+    except Exception:
+        return ""
+
+    if gguf_size_mb / largest_gpu_mb <= MULTI_GPU_VRAM_THRESHOLD:
+        return ""
+
+    min_vram = min(per_gpu_vram)
+    split_parts = [max(1, round(v / min_vram)) for v in per_gpu_vram]
+    split_str = ",".join(str(p) for p in split_parts)
+    return f"-sm layer --tensor-split {split_str} -fit off"
+
+
+# ---------------------------------------------------------------------------
 # VRAM calibration via llama-fit-params
 # ---------------------------------------------------------------------------
 
@@ -864,15 +1121,14 @@ def _read_gguf_field(gguf_path: Path, suffix: str) -> Optional[int]:
     try:
         real_path = gguf_path.resolve()
         import gguf
-        with open(real_path, "rb") as f:
-            reader = gguf.GGUFReader(f)
-            for field in reader.fields.values():
-                if field.name.lower().endswith(suffix):
-                    value_array = field.parts[-1]
-                    if len(value_array) > 0:
-                        val = int(value_array[0])
-                        if val > 0:
-                            return val
+        reader = gguf.GGUFReader(str(real_path))
+        for field in reader.fields.values():
+            if field.name.lower().endswith(suffix):
+                value_array = field.parts[-1]
+                if len(value_array) > 0:
+                    val = int(value_array[0])
+                    if val > 0:
+                        return val
     except ImportError:
         pass
     except Exception:
@@ -1163,7 +1419,8 @@ def load_skip_list() -> dict[str, str]:
     if not AUTOSCAN_SKIP_FILE.exists():
         return {}
     try:
-        return json.loads(AUTOSCAN_SKIP_FILE.read_text())
+        data: dict[str, str] = json.loads(AUTOSCAN_SKIP_FILE.read_text())
+        return data
     except (json.JSONDecodeError, OSError):
         return {}
 
@@ -1410,7 +1667,8 @@ def _free_port() -> int:
     """Return an available TCP port on localhost."""
     with socket.socket() as s:
         s.bind(('', 0))
-        return s.getsockname()[1]
+        port: int = s.getsockname()[1]
+        return port
 
 
 def test_model_compatibility(
@@ -1569,6 +1827,33 @@ def main() -> None:
 
     config_changed = False
 
+    # Step 0: GPU hardware fingerprint — detect hardware changes
+    per_gpu_vram = get_per_gpu_vram_mb()
+    current_fp = build_gpu_fingerprint()
+
+    if LLAMASWAP_CONFIG.exists():
+        stored_fp = read_gpu_fingerprint(LLAMASWAP_CONFIG)
+        if stored_fp is None:
+            # First run with fingerprint support — store current hardware
+            write_gpu_fingerprint(LLAMASWAP_CONFIG, current_fp)
+            print(f"GPU fingerprint stored: {current_fp}")
+        elif gpu_hardware_changed(stored_fp, current_fp):
+            print("⚠️  GPU HARDWARE CHANGED!")
+            print(f"   Stored:  {stored_fp}")
+            print(f"   Current: {current_fp}")
+            updated = update_all_tensor_splits(LLAMASWAP_CONFIG, per_gpu_vram)
+            write_gpu_fingerprint(LLAMASWAP_CONFIG, current_fp)
+            if updated:
+                config_changed = True
+                print(f"   Updated tensor-split in {updated} model(s)")
+            print("   → Run 'Context kalibrieren' in AIfred to optimize context sizes")
+        else:
+            print(f"GPU hardware: {current_fp}")
+    else:
+        print(f"GPU detected: {current_fp}")
+
+    print()
+
     # Step 1a: Scan Ollama and create symlinks
     ollama_base = find_ollama_base()
     if ollama_base:
@@ -1653,7 +1938,6 @@ def main() -> None:
         # Step 4: Calibrate using llama-fit-params (per-GPU VRAM projection)
         if new_models:
             print("Calibrating new models (llama-fit-params)...")
-            per_gpu_vram = get_per_gpu_vram_mb()
             calibrated_models = []
             for model in new_models:
                 if calibrate_model_fit_params(model, server_bin, per_gpu_vram):
