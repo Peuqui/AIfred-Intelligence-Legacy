@@ -398,8 +398,6 @@ class BackendMixin(rx.State, mixin=True):
                 self.sokrates_temperature_offset = saved_settings.get("sokrates_temperature_offset", self.sokrates_temperature_offset)  # type: ignore[attr-defined, has-type]
                 self.salomo_temperature = saved_settings.get("salomo_temperature", self.salomo_temperature)  # type: ignore[attr-defined, has-type]
                 self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)  # type: ignore[attr-defined, has-type]
-                self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)  # type: ignore[attr-defined, has-type]
-
                 # Load UI language and update global locale + prompt language
                 saved_ui_lang = saved_settings.get("ui_language", self.ui_language)  # type: ignore[attr-defined, has-type]
                 if saved_ui_lang in ["de", "en"]:
@@ -1513,7 +1511,6 @@ class BackendMixin(rx.State, mixin=True):
         old_model = self.aifred_model
         self.aifred_model = model
         self.aifred_model_id = self._resolve_model_id(model)
-        self.thinking_mode_warning = ""  # type: ignore[attr-defined, has-type]
         self.add_debug(f"📝 AIfred-LLM: {model}")  # type: ignore[attr-defined, has-type]
 
         # Load all model parameters from cache

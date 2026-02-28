@@ -140,10 +140,6 @@ class AgentConfigMixin(rx.State, mixin=True):
     debate_user_interjection: str = ""
     debate_in_progress: bool = False
 
-    # ── Thinking Mode (Qwen3 CoT) ────────────────────────────────
-    enable_thinking: bool = True
-    thinking_mode_warning: str = ""
-
     # ================================================================
     # GENERIC HELPERS (deduplicated triple-agent pattern)
     # ================================================================
@@ -259,15 +255,6 @@ class AgentConfigMixin(rx.State, mixin=True):
         settings["salomo_thinking"] = self.salomo_thinking
         settings["vision_thinking"] = self.vision_thinking
         save_settings(settings)
-
-    # ── Thinking Mode (global) ────────────────────────────────────
-
-    def toggle_thinking_mode(self) -> None:
-        """Toggle Qwen3 Thinking Mode."""
-        self.enable_thinking = not self.enable_thinking
-        mode_name = "Thinking Mode" if self.enable_thinking else "Non-Thinking Mode"
-        self.add_debug(f"\U0001f9e0 {mode_name} activated")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
 
     # ================================================================
     # SAMPLING PARAMETERS

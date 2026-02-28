@@ -5,6 +5,17 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.53.1] - 2026-02-28 🧹 Refactoring & Single-GPU Calibration Fix
+
+### Fixed
+
+- **Calibration on single-GPU systems:** `llama-fit-params` output parsing failed on single-GPU setups (e.g. RTX 3090 Ti) because only the multi-GPU per-line format (`CUDA0 (name): total, used, free`) was recognized. Added fallback parser for the single-GPU summary format (`projected to use X MiB vs. Y MiB`). Affects both UI calibration and autoscan service startup.
+
+### Refactored
+
+- **VL handler deduplication:** Extracted `_run_vl_inference()` helper method, replacing 3 near-identical ~55-line blocks (VL Direct, VL Shortcut, VL Follow-up) with single shared implementation. Net reduction: ~100 lines.
+- **Dead code removal:** Removed orphaned thinking-toggle infrastructure (`enable_thinking`, `thinking_mode_warning`, `toggle_thinking_mode()`, `sync_personality_from_settings()`, `sync_reasoning_from_settings()`). Leftovers from the v2.50.0 thinking-toggle fix.
+
 ## [2.53.0] - 2026-02-28 🔧 Layer-Based Multi-GPU Balance + Speed Skip
 
 ### Changed

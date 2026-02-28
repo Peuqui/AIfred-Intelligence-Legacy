@@ -400,6 +400,83 @@ class ChatMixin(rx.State, mixin=True):
             async for _ in run_sokrates_analysis(self, user_msg, ai_text, detected_language):  # type: ignore[arg-type]
                 yield
 
+    # ── VL Inference Helper ──────────────────────────────────────────
+
+    async def _run_vl_inference(
+        self,
+        user_msg: str,
+        content_parts: list[dict],
+        detected_intent: str,
+        detected_language: str,
+        vision_prompt_key: str = "task_qa",
+    ) -> AsyncGenerator[None, None]:
+        """Run VL inference via handle_own_knowledge and process results.
+
+        Shared by VL Direct, VL Shortcut, and VL Follow-up paths.
+        Handles streaming, history update, cleanup, title generation and session save.
+        """
+        from ..lib.own_knowledge_handler import handle_own_knowledge
+
+        result_data = None
+        async for item in handle_own_knowledge(
+            user_text=user_msg,
+            model_choice=self.vision_model_id,  # type: ignore[attr-defined]
+            history=self.chat_history,  # type: ignore[attr-defined, has-type]
+            llm_history=self.llm_history[:-1],  # type: ignore[attr-defined, has-type]
+            detected_intent=detected_intent,
+            detected_language=detected_language,
+            temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
+            temperature=self.temperature,  # type: ignore[attr-defined]
+            backend_type=self.backend_type,  # type: ignore[attr-defined]
+            backend_url=self.backend_url,  # type: ignore[attr-defined]
+            enable_thinking=self.vision_thinking,  # type: ignore[attr-defined]
+            state=self,
+            multimodal_content=content_parts,
+            vision_prompt_key=vision_prompt_key,
+            provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
+            agent="vision",
+        ):
+            if item["type"] == "debug":
+                self.add_debug(item["message"])
+                yield
+            elif item["type"] == "content":
+                self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
+                yield
+            elif item["type"] == "progress":
+                if item.get("clear", False):
+                    self.clear_progress()  # type: ignore[attr-defined]
+                else:
+                    self.set_progress(  # type: ignore[attr-defined]
+                        phase=item.get("phase", ""),
+                        current=item.get("current", 0),
+                        total=item.get("total", 0),
+                    )
+                yield
+            elif item["type"] == "result":
+                result_data = item["data"]
+
+        if result_data:
+            # handle_own_knowledge() got llm_history[:-1] (N-1 entries) and appended
+            # the AI response → returned slice has N entries when successful.
+            # self.llm_history still has N entries (prior + user_msg from line 511).
+            # Length equality means exactly one AI entry was added → append it.
+            returned_llm = result_data["llm_history"]
+            if (len(returned_llm) == len(self.llm_history)  # type: ignore[attr-defined, has-type]
+                    and returned_llm[-1].get("role") == "assistant"):
+                self.llm_history = list(self.llm_history) + [returned_llm[-1]]  # type: ignore[attr-defined, has-type]
+            self.chat_history = result_data["history"]  # type: ignore[attr-defined]
+
+        self.current_ai_response = ""
+        self.current_user_message = ""
+        self.is_generating = False
+        yield
+
+        async for _ in self._generate_session_title(title_model_override=self.vision_model_id):  # type: ignore[attr-defined]
+            yield
+        self._save_current_session()  # type: ignore[attr-defined]
+        self.refresh_session_list()  # type: ignore[attr-defined]
+        yield
+
     # ── Main Send Message ────────────────────────────────────────────
 
     async def send_message(self) -> AsyncGenerator[None, None]:  # type: ignore[misc]
@@ -609,71 +686,10 @@ class ChatMixin(rx.State, mixin=True):
                 content_parts.append({"type": "text", "text": prompt_text})
                 vision_prompt_key = "task_qa" if has_user_text else "task"
 
-                # VL model handles everything via SSOT handle_own_knowledge().
-                # llm_history[:-1]: exclude the current user entry (added at line 511)
-                # because multimodal_content IS the user message (text + images combined).
-                from ..lib.own_knowledge_handler import handle_own_knowledge
-
-                result_data = None
-                async for item in handle_own_knowledge(
-                    user_text=user_msg,
-                    model_choice=self.vision_model_id,  # type: ignore[attr-defined]
-                    history=self.chat_history,  # type: ignore[attr-defined, has-type]
-                    llm_history=self.llm_history[:-1],  # type: ignore[attr-defined, has-type]
-                    detected_intent="GEMISCHT",  # no intent detection; mixed temperature
-                    detected_language=detected_language,
-                    temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
-                    temperature=self.temperature,  # type: ignore[attr-defined]
-                    backend_type=self.backend_type,  # type: ignore[attr-defined]
-                    backend_url=self.backend_url,  # type: ignore[attr-defined]
-                    enable_thinking=self.vision_thinking,  # type: ignore[attr-defined]
-                    state=self,
-                    multimodal_content=content_parts,
-                    vision_prompt_key=vision_prompt_key,
-                    provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
-                    agent="vision",
+                async for _ in self._run_vl_inference(
+                    user_msg, content_parts, "GEMISCHT", detected_language, vision_prompt_key,
                 ):
-                    if item["type"] == "debug":
-                        self.add_debug(item["message"])
-                        yield
-                    elif item["type"] == "content":
-                        self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
-                        yield
-                    elif item["type"] == "progress":
-                        if item.get("clear", False):
-                            self.clear_progress()  # type: ignore[attr-defined]
-                        else:
-                            self.set_progress(  # type: ignore[attr-defined]
-                                phase=item.get("phase", ""),
-                                current=item.get("current", 0),
-                                total=item.get("total", 0),
-                            )
-                        yield
-                    elif item["type"] == "result":
-                        result_data = item["data"]
-
-                if result_data:
-                    # handle_own_knowledge() got llm_history[:-1] (N-1 entries) and appended
-                    # the AI response → returned slice has N entries when successful.
-                    # self.llm_history still has N entries (prior + user_msg from line 511).
-                    # Length equality means exactly one AI entry was added → append it.
-                    # This avoids duplicating the last prior assistant entry when VL returns nothing.
-                    returned_llm = result_data["llm_history"]
-                    if (len(returned_llm) == len(self.llm_history)  # type: ignore[attr-defined, has-type]
-                            and returned_llm[-1].get("role") == "assistant"):
-                        self.llm_history = list(self.llm_history) + [returned_llm[-1]]  # type: ignore[attr-defined, has-type]
-                    self.chat_history = result_data["history"]  # type: ignore[attr-defined]
-
-                self.current_ai_response = ""
-                self.current_user_message = ""
-                self.is_generating = False
-                yield
-
-                async for _ in self._generate_session_title(title_model_override=self.vision_model_id):  # type: ignore[attr-defined]
                     yield
-                self._save_current_session()  # type: ignore[attr-defined]
-                self.refresh_session_list()  # type: ignore[attr-defined]
-                yield
                 return  # Vision fast path complete
 
             # Create LLM client once - used for ALL LLM operations
@@ -751,64 +767,10 @@ class ChatMixin(rx.State, mixin=True):
                                 })
                                 content_parts_sc.append({"type": "text", "text": user_msg})
 
-                                # Call handle_own_knowledge
-                                from ..lib.own_knowledge_handler import handle_own_knowledge
-
-                                result_data_sc = None
-                                async for item in handle_own_knowledge(
-                                    user_text=user_msg,
-                                    model_choice=self.vision_model_id,  # type: ignore[attr-defined]
-                                    history=self.chat_history,  # type: ignore[attr-defined, has-type]
-                                    llm_history=self.llm_history[:-1],  # type: ignore[attr-defined, has-type]
-                                    detected_intent="FAKTISCH",
-                                    detected_language=detected_language,
-                                    temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
-                                    temperature=self.temperature,  # type: ignore[attr-defined]
-                                    backend_type=self.backend_type,  # type: ignore[attr-defined]
-                                    backend_url=self.backend_url,  # type: ignore[attr-defined]
-                                    enable_thinking=self.vision_thinking,  # type: ignore[attr-defined]
-                                    state=self,
-                                    multimodal_content=content_parts_sc,
-                                    vision_prompt_key="task_qa",
-                                    provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
-                                    agent="vision",
+                                async for _ in self._run_vl_inference(
+                                    user_msg, content_parts_sc, "FAKTISCH", detected_language,
                                 ):
-                                    if item["type"] == "debug":
-                                        self.add_debug(item["message"])
-                                        yield
-                                    elif item["type"] == "content":
-                                        self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
-                                        yield
-                                    elif item["type"] == "progress":
-                                        if item.get("clear", False):
-                                            self.clear_progress()  # type: ignore[attr-defined]
-                                        else:
-                                            self.set_progress(  # type: ignore[attr-defined]
-                                                phase=item.get("phase", ""),
-                                                current=item.get("current", 0),
-                                                total=item.get("total", 0),
-                                            )
-                                        yield
-                                    elif item["type"] == "result":
-                                        result_data_sc = item["data"]
-
-                                if result_data_sc:
-                                    returned_llm = result_data_sc["llm_history"]
-                                    if (len(returned_llm) == len(self.llm_history)  # type: ignore[attr-defined, has-type]
-                                            and returned_llm[-1].get("role") == "assistant"):
-                                        self.llm_history = list(self.llm_history) + [returned_llm[-1]]  # type: ignore[attr-defined, has-type]
-                                    self.chat_history = result_data_sc["history"]  # type: ignore[attr-defined]
-
-                                self.current_ai_response = ""
-                                self.current_user_message = ""
-                                self.is_generating = False
-                                yield
-
-                                async for _ in self._generate_session_title(title_model_override=self.vision_model_id):  # type: ignore[attr-defined]
                                     yield
-                                self._save_current_session()  # type: ignore[attr-defined]
-                                self.refresh_session_list()  # type: ignore[attr-defined]
-                                yield
                                 return  # VL shortcut complete — no Automatik swap needed
 
                         # VL model loaded but question not image-related → normal flow
@@ -1034,64 +996,10 @@ class ChatMixin(rx.State, mixin=True):
                             })
                             content_parts.append({"type": "text", "text": user_msg})
 
-                            # Call handle_own_knowledge() — same as VL fast path
-                            from ..lib.own_knowledge_handler import handle_own_knowledge
-
-                            result_data = None
-                            async for item in handle_own_knowledge(
-                                user_text=user_msg,
-                                model_choice=self.vision_model_id,  # type: ignore[attr-defined]
-                                history=self.chat_history,  # type: ignore[attr-defined, has-type]
-                                llm_history=self.llm_history[:-1],  # type: ignore[attr-defined, has-type]
-                                detected_intent=detected_intent,
-                                detected_language=detected_language,
-                                temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
-                                temperature=self.temperature,  # type: ignore[attr-defined]
-                                backend_type=self.backend_type,  # type: ignore[attr-defined]
-                                backend_url=self.backend_url,  # type: ignore[attr-defined]
-                                enable_thinking=self.vision_thinking,  # type: ignore[attr-defined]
-                                state=self,
-                                multimodal_content=content_parts,
-                                vision_prompt_key="task_qa",
-                                provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
-                                agent="vision",
+                            async for _ in self._run_vl_inference(
+                                user_msg, content_parts, detected_intent, detected_language,
                             ):
-                                if item["type"] == "debug":
-                                    self.add_debug(item["message"])
-                                    yield
-                                elif item["type"] == "content":
-                                    self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
-                                    yield
-                                elif item["type"] == "progress":
-                                    if item.get("clear", False):
-                                        self.clear_progress()  # type: ignore[attr-defined]
-                                    else:
-                                        self.set_progress(  # type: ignore[attr-defined]
-                                            phase=item.get("phase", ""),
-                                            current=item.get("current", 0),
-                                            total=item.get("total", 0),
-                                        )
-                                    yield
-                                elif item["type"] == "result":
-                                    result_data = item["data"]
-
-                            if result_data:
-                                returned_llm = result_data["llm_history"]
-                                if (len(returned_llm) == len(self.llm_history)  # type: ignore[attr-defined, has-type]
-                                        and returned_llm[-1].get("role") == "assistant"):
-                                    self.llm_history = list(self.llm_history) + [returned_llm[-1]]  # type: ignore[attr-defined, has-type]
-                                self.chat_history = result_data["history"]  # type: ignore[attr-defined]
-
-                            self.current_ai_response = ""
-                            self.current_user_message = ""
-                            self.is_generating = False
-                            yield
-
-                            async for _ in self._generate_session_title(title_model_override=self.vision_model_id):  # type: ignore[attr-defined]
                                 yield
-                            self._save_current_session()  # type: ignore[attr-defined]
-                            self.refresh_session_list()  # type: ignore[attr-defined]
-                            yield
                             return  # VL follow-up complete
 
             # ============================================================
@@ -1291,9 +1199,6 @@ class ChatMixin(rx.State, mixin=True):
                 elif item["type"] == "history_update":
                     self.chat_history = item["data"]  # type: ignore[attr-defined]
                     self.add_debug(f"📊 History updated: {len(item['data'])} messages")
-
-                elif item["type"] == "thinking_warning":
-                    self.thinking_mode_warning = item["model"]  # type: ignore[attr-defined]
 
                 elif item["type"] == "failed_sources":
                     self.failed_sources = item["data"]  # type: ignore[attr-defined]

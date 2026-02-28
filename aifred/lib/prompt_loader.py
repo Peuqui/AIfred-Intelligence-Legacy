@@ -116,24 +116,6 @@ def get_personality_enabled(agent: str) -> bool:
     return _personality_enabled.get(agent, True)
 
 
-def sync_personality_from_settings():
-    """
-    Sync personality toggle states from settings.json.
-
-    Called at startup and when settings change.
-    Reads {agent_id}_personality keys for all configured agents.
-    """
-    global _personality_enabled
-    from .settings import load_settings
-
-    settings = load_settings() or {}
-    for agent_id in list(_personality_enabled.keys()):
-        _personality_enabled[agent_id] = settings.get(
-            f"{agent_id}_personality",
-            _personality_enabled.get(agent_id, True),
-        )
-
-
 def set_reasoning_enabled(agent: str, enabled: bool):
     """
     Set reasoning toggle state for an agent.
@@ -157,24 +139,6 @@ def get_reasoning_enabled(agent: str) -> bool:
         True if reasoning is enabled, False otherwise
     """
     return _reasoning_enabled.get(agent, False)
-
-
-def sync_reasoning_from_settings():
-    """
-    Sync reasoning toggle states from settings.json.
-
-    Called at startup and when settings change.
-    Reads {agent_id}_reasoning keys for all configured agents.
-    """
-    global _reasoning_enabled
-    from .settings import load_settings
-
-    settings = load_settings() or {}
-    for agent_id in list(_reasoning_enabled.keys()):
-        _reasoning_enabled[agent_id] = settings.get(
-            f"{agent_id}_reasoning",
-            _reasoning_enabled.get(agent_id, False),
-        )
 
 
 def _resolve_prompt_file(agent: str, prompt_key: str, lang: Optional[str] = None) -> Optional[Path]:

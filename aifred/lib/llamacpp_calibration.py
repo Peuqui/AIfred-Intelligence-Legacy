@@ -646,10 +646,14 @@ def _fit_params_per_gpu_projection(
 ) -> dict[str, dict[str, int]]:
     """Get per-GPU VRAM projections from llama-fit-params.
 
-    Runs fit-params (~0.5s) and parses per-GPU memory lines like:
+    Multi-GPU format (parsed first):
         CUDA0 (Quadro RTX 8000):  45355 total,  43710 used,   1478 free vs. target of   1024
 
-    Returns: {"CUDA0": {"name": "Quadro RTX 8000", "total": 45355, "used": 43710, "free": 1478}, ...}
+    Single-GPU format (fallback):
+        projected to use 15011 MiB of device memory vs. 23285 MiB of free device memory
+        will leave 8273 >= 1024 MiB of free device memory
+
+    Returns: {"CUDA0": {"name": "...", "total": ..., "used": ..., "free": ...}, ...}
     Raises RuntimeError if no GPU projections found in output.
     """
     cmd = _build_fit_params_cmd(full_cmd, gguf_path, context, ngl=ngl)
@@ -657,6 +661,8 @@ def _fit_params_per_gpu_projection(
     output = result.stdout + result.stderr
 
     per_gpu: dict[str, dict[str, Any]] = {}
+
+    # Multi-GPU: per-GPU memory lines
     for match in re.finditer(
         r'(CUDA\d+)\s+\(([^)]+)\)\s*:\s*(\d+)\s+total\s*,\s*(\d+)\s+used\s*,\s*(-?\d+)\s+free',
         output,
@@ -669,9 +675,33 @@ def _fit_params_per_gpu_projection(
             "free": int(match.group(5)),
         }
 
+    # Single-GPU fallback: parse summary lines
+    if not per_gpu:
+        proj_match = re.search(
+            r'projected to use\s+(\d+)\s+MiB.*?vs\.\s+(\d+)\s+MiB',
+            output,
+        )
+        leave_match = re.search(r'will leave\s+(-?\d+)', output)
+
+        if proj_match:
+            used = int(proj_match.group(1))
+            free_before = int(proj_match.group(2))
+            free_after = int(leave_match.group(1)) if leave_match else free_before - used
+
+            # GPU name from "Device 0: NAME, compute capability"
+            dev_match = re.search(r'Device\s+0:\s+(.+?),\s+compute', output)
+            gpu_name = dev_match.group(1).strip() if dev_match else "GPU"
+
+            per_gpu["CUDA0"] = {
+                "name": gpu_name,
+                "total": used + free_after,
+                "used": used,
+                "free": free_after,
+            }
+
     if not per_gpu:
         raise RuntimeError(
-            f"llama-fit-params: no per-GPU projections in output:\n{output[:500]}"
+            f"llama-fit-params: no GPU projections in output:\n{output[:500]}"
         )
     return per_gpu
 

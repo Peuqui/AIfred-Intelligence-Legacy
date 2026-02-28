@@ -66,7 +66,6 @@ class SettingsMixin(rx.State, mixin=True):
             "temperature_mode": self.temperature_mode,  # type: ignore[attr-defined, has-type]
             "sokrates_temperature": self.sokrates_temperature,  # type: ignore[attr-defined, has-type]
             "sokrates_temperature_offset": self.sokrates_temperature_offset,  # type: ignore[attr-defined, has-type]
-            "enable_thinking": self.enable_thinking,  # type: ignore[attr-defined, has-type]
             "ui_language": self.ui_language,  # UI language (de/en)
             "user_name": self.user_name,  # User's name for personalized responses
             "user_gender": self.user_gender,  # Gender for salutation (male/female)
@@ -169,8 +168,6 @@ class SettingsMixin(rx.State, mixin=True):
         # Core settings
         self.temperature = settings.get("temperature", self.temperature)  # type: ignore[attr-defined, has-type]
         self.temperature_mode = settings.get("temperature_mode", self.temperature_mode)  # type: ignore[attr-defined, has-type]
-        self.enable_thinking = settings.get("enable_thinking", self.enable_thinking)  # type: ignore[attr-defined, has-type]
-
         # Research mode
         self.research_mode = settings.get("research_mode", self.research_mode)  # type: ignore[attr-defined, has-type]
         self.research_mode_display = TranslationManager.get_research_mode_display(  # type: ignore[attr-defined, has-type]
@@ -370,7 +367,6 @@ class SettingsMixin(rx.State, mixin=True):
 
                 self.temperature = saved_settings["temperature"]  # type: ignore[attr-defined, has-type]
                 self.temperature_mode = saved_settings["temperature_mode"]  # type: ignore[attr-defined, has-type]
-                self.enable_thinking = saved_settings["enable_thinking"]  # type: ignore[attr-defined, has-type]
                 self.enable_tts = saved_settings["enable_tts"]  # type: ignore[attr-defined, has-type]
                 self.enable_yarn = saved_settings["enable_yarn"]  # type: ignore[attr-defined, has-type]
                 self.yarn_factor = saved_settings["yarn_factor"]  # type: ignore[attr-defined, has-type]

@@ -219,6 +219,8 @@ def _fit_params_per_gpu(
 
     # Per-GPU lines appear in stderr (present even on exit code 1)
     output = result.stderr + result.stdout
+
+    # Multi-GPU: per-GPU memory lines
     pattern = re.compile(
         r'(CUDA\d+)\s+\([^)]+\)\s*:\s*(\d+)\s+total\s*,\s*(\d+)\s+used\s*,\s*(-?\d+)\s+free'
     )
@@ -229,6 +231,23 @@ def _fit_params_per_gpu(
             "used": int(m.group(3)),
             "free": int(m.group(4)),
         }
+
+    # Single-GPU fallback: parse summary lines
+    if not gpus:
+        proj_match = re.search(
+            r'projected to use\s+(\d+)\s+MiB.*?vs\.\s+(\d+)\s+MiB',
+            output,
+        )
+        leave_match = re.search(r'will leave\s+(-?\d+)', output)
+        if proj_match:
+            used = int(proj_match.group(1))
+            free_after = int(leave_match.group(1)) if leave_match else int(proj_match.group(2)) - used
+            gpus["CUDA0"] = {
+                "total": used + free_after,
+                "used": used,
+                "free": free_after,
+            }
+
     return gpus
 
 
@@ -1001,7 +1020,7 @@ def append_models_to_yaml(
             )
             print(f"  + Added: {name} (context: {context:,}{kv_label}{ngl_label}{sampling_label})")
 
-        new_blocks += f"  # [autoscan]\n"
+        new_blocks += "  # [autoscan]\n"
         new_blocks += f"  {name}:\n"
         new_blocks += f"    cmd: {cmd_line}\n"
         new_blocks += f"    ttl: {DEFAULT_TTL}\n"
