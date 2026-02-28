@@ -648,13 +648,13 @@ mit einer entfernten GPU auf einem zweiten Rechner (Windows/WSL2). Das Modell wi
 | GPU-Layers | 71 von ~140 (Rest auf CPU) | **99 = alle auf GPU** | **99 = alle auf GPU** |
 | KV-Cache Quant | q4_0 (kein Platz fuer mehr) | **q8_0** | **q8_0** |
 | Kontext | 17.344 Tokens | **32.768 Tokens** | **32.768 Tokens** |
-| Generation Speed | 3,3-6,4 tok/s | 7-8 tok/s (typ. 6,5-9) | **14-16 tok/s** |
+| Generation Speed | 3,3-6,4 tok/s | 6-7,5 tok/s | **14-16 tok/s** |
 | AIfred-Anzeige | ~4,3 tok/s | ~4,3 tok/s | ~8-9 tok/s |
 | TTFT | 22,7-75,2s (wachsend) | ~60s | ~60s |
 | Ladezeit | ~2s (Direct-IO) | ~10 Min (Tensors ueber LAN) | ~10 Min (Tensors ueber LAN) |
 | TTL | 900s | 3600s | **3600s** |
 | Netzwerk-Latenz | — | ~0,5ms (via Switch) | **~1ms (USB-Ethernet)** |
-| **Faktor vs. Lokal** | **1x** | **~2x** | **~4x** |
+| **Faktor vs. Lokal** | **1x** | **~1,5x** | **~3-4x** |
 
 **Kernvorteil Direktverbindung:** Obwohl die gemessene Ping-Latenz der Direktverbindung (~1ms)
 hoeher ist als ueber den Switch (~0,5ms), verdoppelt sich die Inferenzgeschwindigkeit nochmals
@@ -792,10 +792,10 @@ Die `nmcli connection add`-Methode ist persistent und ueberlebt Reboots.
 
 3. **Schneller als CPU-Offload:** Die lokale Variante mit CPU-Offload liefert 3,3-6,4 tok/s
    mit starker Degradation ueber den Konversationsverlauf. RPC via Switch liefert stabile
-   7-8 tok/s — Netzwerk-Inferenz schlaegt lokalen CPU-Offload bereits ueber den Switch.
+   6-7,5 tok/s — Netzwerk-Inferenz schlaegt lokalen CPU-Offload bereits ueber den Switch.
 
 4. **Direktverbindung verdoppelt nochmal:** Eine simple USB-Ethernet-Direktverbindung (1 GbE,
-   ~15 EUR Adapter) steigert die RPC-Performance von 7-8 auf **14-16 tok/s** — eine nochmalige
+   ~15 EUR Adapter) steigert die RPC-Performance von 6-7,5 auf **14-16 tok/s** — eine nochmalige
    Verdopplung. Der Grund: exklusive Bandbreite ohne Switch-Contention und stabilere Latenz
    (weniger Jitter). Bei tausenden RPC-Roundtrips pro Sekunde summieren sich selbst
    Mikrosekunden-Unterschiede dramatisch.
@@ -817,11 +817,11 @@ Distributed Inference via RPC ist ein Game-Changer fuer Modelle die das lokale V
 | Verbindung | tok/s (llama-stats) | Faktor vs. Lokal |
 |------------|--------------------:|:----------------:|
 | Lokal (CPU-Offload) | 3,3-6,4 | 1x |
-| RPC via Switch (GbE) | 7-8 | ~2x |
+| RPC via Switch (GbE) | 6-7,5 | ~1,5x |
 | **RPC Direktverbindung (GbE)** | **14-16** | **~4x** |
 
 **Die guenstigste Optimierung:** Ein USB-Ethernet-Adapter fuer ~15 EUR verdoppelt die
-RPC-Performance nochmals. Dazu besserer KV-Cache (q8_0 statt q4_0) und fast doppelter
+RPC-Performance nochmals (von 6-7,5 auf 14-16 tok/s). Dazu besserer KV-Cache (q8_0 statt q4_0) und fast doppelter
 Kontext (32K statt 17K). Der Preis: ~10 Minuten Ladezeit und ein zweiter Rechner im Netzwerk.
 
 **Ausblick:** Mit 2,5 GbE oder 5 GbE Direktverbindung (statt 1 GbE USB-Adapter) waeren
