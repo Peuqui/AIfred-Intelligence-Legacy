@@ -5,6 +5,27 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.52.0] - 2026-02-28 🎯 Per-GPU Calibration + Narrow Binary Search + NGL Fix
+
+### Fixed
+
+- **Calibration NGL/Context Mismatch** — `_calibration_mixin.py` downgraded ngl to hybrid value (e.g. 45) for "swap safety", but wrote GPU-only context (e.g. 93K calibrated for ngl=99). Result: Massive VRAM waste at runtime because only 45 of 99 layers on GPU but context sized for all layers. Fix: Write actual calibrated ngl, swap OOM is llama-swap's responsibility (exclusive groups).
+
+### Changed
+
+- **Per-GPU VRAM Calibration** — Phase 1 now uses per-GPU projections (`_calculate_max_context_per_gpu`) instead of combined VRAM. Each GPU independently: `max_ctx = ctx_low + (free - safety_margin) / gpu_rate`. Bottleneck GPU determines overall limit. Generic for N GPUs. Fixes 40K+ token overestimate on multi-GPU (P40 + RTX 8000).
+- **Phase 1 Forces ngl=99** — Calibration now overrides any stale ngl from previous hybrid runs. Ensures all layers are GPU-distributed for accurate VRAM measurement.
+- **Narrow Binary Search** — Instead of searching [8K, native_context], binary search now uses ±15% window around projection. If projection fits: search upward. If not: search downward. Reduces steps from ~9 to ~5 per KV quant. Fallback to full range if narrow window fails.
+- **KV Quantization Fallback Chain** — f16 → q8_0 → q4_0, only tries lower quants if f16 context < 64K (`KV_QUANT_CONTEXT_THRESHOLD`). Preserves KV quality when possible.
+- **Debug Console: Hybrid Mode Info** — "LLM starting" message now shows `hybrid ngl=N` when model runs in hybrid calibration mode.
+
+### Technical Details
+
+- 7 files changed (+345, -182 LOC)
+- New: `_calculate_max_context_per_gpu()` replaces `_calculate_max_context()` + `_get_vram_projection()`
+- New config: `KV_QUANT_CONTEXT_THRESHOLD = 65536`
+- Ruff + mypy: TBD
+
 ## [2.51.0] - 2026-02-27 🧠 Autoscan Binary Search + Session Sync Fix + Language Enforcement
 
 ### Fixed
