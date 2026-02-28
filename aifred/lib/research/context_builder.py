@@ -258,10 +258,14 @@ async def build_and_generate_response(
         log_message(f"🌡️ RAG Temperature: {final_temperature} (Intent: {detected_intent})")
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
-    # LLM Inference (with MoE/Dense architecture info)
+    # LLM Inference (with MoE/Dense architecture + calibration info)
     from ..gpu_utils import is_moe_model
     is_moe = is_moe_model(model_choice)
     arch_label = "MoE" if is_moe else "Dense"
+    from ..model_vram_cache import get_llamacpp_calibration_info
+    _cal = get_llamacpp_calibration_info(model_choice)
+    if _cal and _cal["mode"] == "hybrid":
+        arch_label += f", hybrid ngl={_cal['ngl']}"
     yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} ({arch_label})"}
     yield {"type": "progress", "phase": "llm"}
 

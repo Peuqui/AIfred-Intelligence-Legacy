@@ -1424,10 +1424,15 @@ async def _handle_rag_bypass(
     yield {"type": "debug", "message": f"📊 AIfred-LLM: {format_number(input_tokens)} / {format_number(final_num_ctx)} tok (Model Max: {format_number(model_limit)} tok)"}
     log_message(f"📊 AIfred-LLM ({model_choice}): Input ~{format_number(input_tokens)} tok, Context: {format_number(final_num_ctx)}, max: {format_number(model_limit)}")
 
-    # Console: LLM starts (with MoE/Dense architecture info)
+    # Console: LLM starts (with MoE/Dense architecture + calibration info)
     from aifred.lib.gpu_utils import is_moe_model
     is_moe = is_moe_model(model_choice) if backend_type in ("ollama", "llamacpp") else False
     arch_label = "MoE" if is_moe else "Dense"
+    if backend_type == "llamacpp":
+        from aifred.lib.model_vram_cache import get_llamacpp_calibration_info
+        _cal = get_llamacpp_calibration_info(model_choice)
+        if _cal and _cal["mode"] == "hybrid":
+            arch_label += f", hybrid ngl={_cal['ngl']}"
     yield {"type": "debug", "message": f"🎩 AIfred-LLM starting: {model_choice} ({arch_label})"}
 
     # Build main LLM options (include enable_thinking from user settings)

@@ -378,6 +378,57 @@ class OpenAICompatibleBackend(LLMBackend):
             return BackendModelNotFoundError(f"Model '{model}' not found in {self.BACKEND_NAME}")
         return BackendInferenceError(f"{self.BACKEND_NAME} inference failed: {error}")
 
+    def _extract_server_timings(self, response_or_chunk: Any) -> Dict[str, Any]:
+        """Extract server-side timings from response (e.g. llama-server's timings field).
+
+        Override in subclasses that have access to server-side timing data.
+        """
+        return {}
+
+    def _build_stream_metrics(
+        self,
+        prompt_tokens: int,
+        total_tokens: int,
+        inference_time: float,
+        model: str,
+        server_timings: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Build metrics dict for the streaming done chunk.
+
+        Override in subclasses to use server-side timings instead of wall-clock.
+        """
+        tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
+        return {
+            "tokens_prompt": prompt_tokens,
+            "tokens_generated": total_tokens,
+            "tokens_per_second": tokens_per_second,
+            "inference_time": inference_time,
+            "model": model,
+        }
+
+    def _build_chat_response(
+        self,
+        text: str,
+        tokens_prompt: int,
+        tokens_generated: int,
+        inference_time: float,
+        model: str,
+        server_timings: Dict[str, Any],
+    ) -> LLMResponse:
+        """Build LLMResponse for non-streaming chat.
+
+        Override in subclasses to use server-side timings instead of wall-clock.
+        """
+        tokens_per_second = (tokens_generated / inference_time) if inference_time > 0 else 0
+        return LLMResponse(
+            text=text,
+            tokens_prompt=tokens_prompt,
+            tokens_generated=tokens_generated,
+            tokens_per_second=tokens_per_second,
+            inference_time=inference_time,
+            model=model,
+        )
+
     # === Concrete implementations ===
 
     async def chat(
@@ -418,15 +469,13 @@ class OpenAICompatibleBackend(LLMBackend):
             usage = response.usage
             tokens_prompt = usage.prompt_tokens if usage else 0
             tokens_generated = usage.completion_tokens if usage else 0
-            tokens_per_second = (tokens_generated / inference_time) if inference_time > 0 else 0
 
-            return LLMResponse(
-                text=text,
-                tokens_prompt=tokens_prompt,
-                tokens_generated=tokens_generated,
-                tokens_per_second=tokens_per_second,
-                inference_time=inference_time,
-                model=model,
+            # Extract server-side timings if backend provides them
+            server_timings = self._extract_server_timings(response)
+
+            return self._build_chat_response(
+                text, tokens_prompt, tokens_generated,
+                inference_time, model, server_timings,
             )
 
         except Exception as e:
@@ -465,6 +514,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
             total_tokens = 0
             prompt_tokens = 0
+            server_timings: Dict[str, Any] = {}
             stream_state: Dict[str, Any] = {}
 
             async for chunk in stream:
@@ -479,22 +529,19 @@ class OpenAICompatibleBackend(LLMBackend):
                 if hasattr(chunk, "usage") and chunk.usage:
                     prompt_tokens = chunk.usage.prompt_tokens
                     total_tokens = chunk.usage.completion_tokens
+                    server_timings = self._extract_server_timings(chunk)
 
             for item in self._finalize_stream(stream_state):
                 yield item
 
             inference_time = timer.elapsed()
-            tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
 
             yield {
                 "type": "done",
-                "metrics": {
-                    "tokens_prompt": prompt_tokens,
-                    "tokens_generated": total_tokens,
-                    "tokens_per_second": tokens_per_second,
-                    "inference_time": inference_time,
-                    "model": model,
-                },
+                "metrics": self._build_stream_metrics(
+                    prompt_tokens, total_tokens,
+                    inference_time, model, server_timings,
+                ),
             }
 
         except Exception as e:

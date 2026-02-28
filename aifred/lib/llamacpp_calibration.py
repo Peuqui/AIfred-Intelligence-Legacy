@@ -27,6 +27,7 @@ import yaml
 
 from .config import (
     CALIBRATION_MIN_CONTEXT,
+    KV_QUANT_CONTEXT_THRESHOLD,
     LLAMACPP_CALIBRATION_PORT,
     LLAMACPP_HEALTH_TIMEOUT,
     LLAMACPP_VRAM_SAFETY_MARGIN,
@@ -40,7 +41,7 @@ from .gguf_utils import (
     get_gguf_layer_count,
     get_gguf_native_context,
 )
-from .gpu_utils import get_all_gpus_memory_info, get_gpu_memory_info
+from .gpu_utils import get_all_gpus_memory_info
 from .model_vram_cache import add_llamacpp_calibration
 
 logger = logging.getLogger(__name__)
@@ -319,9 +320,9 @@ def update_llamaswap_kv_cache_quant(
     model_id: str,
     kv_quant: str,
 ) -> bool:
-    """
-    Update -ctk/-ctv quantization in llama-swap YAML for a specific model.
+    """Update or insert -ctk/-ctv quantization in llama-swap YAML for a specific model.
 
+    Replaces existing -ctk/-ctv values or inserts them before --port if absent.
     Returns True if the config was modified.
     """
     if not config_path.exists():
@@ -340,9 +341,51 @@ def update_llamaswap_kv_cache_quant(
         elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
             in_model_block = False
 
+        if in_model_block and 'cmd:' in line:
+            if '-ctk ' in line:
+                line = re.sub(r'-ctk\s+\S+', f'-ctk {kv_quant}', line)
+                changed = True
+            else:
+                line = line.replace(' --port', f' -ctk {kv_quant} --port')
+                changed = True
+            if '-ctv ' in line:
+                line = re.sub(r'-ctv\s+\S+', f'-ctv {kv_quant}', line)
+            else:
+                line = line.replace(' --port', f' -ctv {kv_quant} --port')
+
+        result_lines.append(line)
+
+    if not changed:
+        return False
+
+    config_path.write_text('\n'.join(result_lines), encoding='utf-8')
+    logger.info(f"Updated llama-swap config: {model_id} → KV cache {kv_quant}")
+    return True
+
+
+def _remove_llamaswap_kv_cache_quant(config_path: Path, model_id: str) -> bool:
+    """Remove -ctk/-ctv flags from llama-swap YAML for a specific model.
+
+    Used when calibration determines f16 KV is optimal (no quantization needed).
+    """
+    if not config_path.exists():
+        return False
+
+    content = config_path.read_text(encoding='utf-8')
+    lines = content.split('\n')
+    in_model_block = False
+    changed = False
+    result_lines = []
+
+    for line in lines:
+        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
+            in_model_block = True
+        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
+            in_model_block = False
+
         if in_model_block:
-            new_line = re.sub(r'-ctk\s+\S+', f'-ctk {kv_quant}', line)
-            new_line = re.sub(r'-ctv\s+\S+', f'-ctv {kv_quant}', new_line)
+            new_line = re.sub(r'\s*-ctk\s+\S+', '', line)
+            new_line = re.sub(r'\s*-ctv\s+\S+', '', new_line)
             if new_line != line:
                 changed = True
             line = new_line
@@ -353,7 +396,7 @@ def update_llamaswap_kv_cache_quant(
         return False
 
     config_path.write_text('\n'.join(result_lines), encoding='utf-8')
-    logger.info(f"Updated llama-swap config: {model_id} → KV cache {kv_quant}")
+    logger.info(f"Removed KV cache quant from llama-swap config: {model_id}")
     return True
 
 
@@ -503,64 +546,64 @@ def _build_fit_params_cmd(
     return cmd
 
 
-def _get_vram_projection(
-    full_cmd: str, gguf_path: Path, context: int
-) -> tuple[int, int]:
-    """Get VRAM projection from llama-fit-params (fast, no model loading).
-
-    Runs the llama-fit-params binary which reads GGUF metadata and GPU info
-    to calculate projected VRAM usage in ~0.3 seconds.
-
-    Returns:
-        (projected_mb, free_mb) — projected VRAM usage and available GPU memory.
-
-    Raises:
-        RuntimeError: If the binary fails or output cannot be parsed.
-    """
-    cmd = _build_fit_params_cmd(full_cmd, gguf_path, context)
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=15
-    )
-    output = result.stdout + result.stderr
-
-    match = re.search(
-        r'projected to use\s+(\d+)\s*MiB of device memory vs\.\s*(\d+)\s*MiB of free device memory',
-        output,
-    )
-    if not match:
-        raise RuntimeError(
-            f"llama-fit-params: could not parse projection from output:\n{output[:500]}"
-        )
-    return int(match.group(1)), int(match.group(2))
-
-
-def _calculate_max_context(
-    proj_low: tuple[int, int],
-    proj_high: tuple[int, int],
+def _calculate_max_context_per_gpu(
+    per_gpu_low: dict[str, dict[str, int]],
+    per_gpu_high: dict[str, dict[str, int]],
     ctx_low: int,
     ctx_high: int,
 ) -> tuple[int, float]:
-    """Calculate maximum context from two VRAM projections.
+    """Calculate maximum context from per-GPU VRAM projections (multi-GPU aware).
 
-    Uses linear interpolation: VRAM = base + rate * context.
-    Two projection points give us the exact rate (MiB per context token)
-    and base (model weights + compute buffer, constant).
+    For each GPU independently:
+      gpu_rate = (used_high - used_low) / (ctx_high - ctx_low)
+      max_ctx  = ctx_low + (free_at_ctx_low - SAFETY_MARGIN) / gpu_rate
+
+    The bottleneck GPU (lowest max_ctx) determines the overall limit.
+    This avoids the overestimate of combined VRAM calculations where
+    a larger GPU masks the bottleneck of a smaller one.
 
     Returns:
-        (max_context, rate) where rate is MiB per token.
+        (max_context, combined_rate) where combined_rate is total MiB per token.
     """
-    p_low, free_mb = proj_low
-    p_high, _ = proj_high
+    gpu_limits: list[tuple[str, int, int]] = []  # (gpu_id, max_ctx, free_at_low)
+    combined_rate = 0.0
 
-    rate = (p_high - p_low) / (ctx_high - ctx_low)
-    base = p_low - ctx_low * rate
-    available = free_mb - base - LLAMACPP_VRAM_SAFETY_MARGIN
+    for gpu_id in sorted(per_gpu_low):
+        if gpu_id not in per_gpu_high:
+            continue
 
-    if available <= 0 or rate <= 0:
-        return CALIBRATION_MIN_CONTEXT, rate
+        free_low = per_gpu_low[gpu_id]["free"]
+        used_low = per_gpu_low[gpu_id]["used"]
+        used_high = per_gpu_high[gpu_id]["used"]
 
-    max_ctx = int(available / rate)
-    return max(max_ctx, CALIBRATION_MIN_CONTEXT), rate
+        gpu_rate = (used_high - used_low) / (ctx_high - ctx_low)
+        combined_rate += gpu_rate
+
+        if gpu_rate <= 0:
+            gpu_limits.append((gpu_id, CALIBRATION_MIN_CONTEXT, free_low))
+            continue
+
+        headroom = free_low - LLAMACPP_VRAM_SAFETY_MARGIN
+        if headroom <= 0:
+            gpu_limits.append((gpu_id, CALIBRATION_MIN_CONTEXT, free_low))
+            continue
+
+        gpu_max = ctx_low + int(headroom / gpu_rate)
+        gpu_limits.append((gpu_id, max(gpu_max, CALIBRATION_MIN_CONTEXT), free_low))
+
+    if not gpu_limits:
+        return CALIBRATION_MIN_CONTEXT, combined_rate
+
+    # Bottleneck GPU determines overall max
+    bottleneck_id, max_ctx, _ = min(gpu_limits, key=lambda x: x[1])
+    for gpu_id, gpu_max, free_low in gpu_limits:
+        marker = " ← bottleneck" if gpu_id == bottleneck_id else ""
+        logger.info(
+            f"Per-GPU projection: {gpu_id}: max ~{gpu_max} tokens "
+            f"(free={free_low} MiB, margin={LLAMACPP_VRAM_SAFETY_MARGIN} MiB){marker}"
+        )
+
+    return max_ctx, combined_rate
 
 
 def _fit_params_per_gpu_projection(
@@ -877,12 +920,13 @@ async def _test_context_physical(
     """Test if a context size fits in physical VRAM.
 
     Starts server, verifies health, measures free VRAM via pynvml (nvidia-smi).
+    Checks the MINIMUM free VRAM across ALL GPUs (multi-GPU tensor-split).
     Breakdown from server exit is logged for diagnostics but not used for
     the decision (breakdown 'free' is always 0 — it measures llama.cpp's
     internal allocator, not GPU-wide free VRAM).
 
     Returns:
-        (fits, detail) — fits=True if server starts AND free VRAM >= LLAMACPP_VRAM_SAFETY_MARGIN.
+        (fits, detail) — fits=True if server starts AND min free VRAM >= LLAMACPP_VRAM_SAFETY_MARGIN.
     """
     process = await _start_and_verify(full_cmd, context, port)
     if not process:
@@ -892,15 +936,25 @@ async def _test_context_physical(
         )
         return (False, "OOM")
 
-    # pynvml = GPU-wide free VRAM (reliable, matches nvidia-smi)
-    gpu_info = get_gpu_memory_info()
-    free_mb = gpu_info["free_mb"] if gpu_info else None
-    used_mb = gpu_info["used_mb"] if gpu_info else None
-    log_message(
-        f"VRAM ctx={format_number(context)}: "
-        f"pynvml free={free_mb} MB, used={used_mb} MB",
-        category="stats",
-    )
+    # pynvml = GPU-wide free VRAM per GPU (multi-GPU: check ALL GPUs)
+    all_gpus = get_all_gpus_memory_info()
+    if all_gpus and all_gpus["per_gpu"]:
+        min_free_gpu = min(all_gpus["per_gpu"], key=lambda g: g["free_mb"])
+        min_free_mb = min_free_gpu["free_mb"]
+        per_gpu_detail = ", ".join(
+            f"GPU{g['index']}: {g['free_mb']} MB free"
+            for g in all_gpus["per_gpu"]
+        )
+        log_message(
+            f"VRAM ctx={format_number(context)}: pynvml {per_gpu_detail}",
+            category="stats",
+        )
+    else:
+        min_free_mb = None
+        log_message(
+            f"VRAM ctx={format_number(context)}: pynvml unavailable",
+            category="stats",
+        )
 
     # Kill server, keep log for breakdown diagnostics
     _kill_process(process, keep_log=True)
@@ -922,23 +976,58 @@ async def _test_context_physical(
     else:
         _cleanup_server_log(process)
 
-    # Decision: pynvml free vs safety margin
-    if free_mb is not None and free_mb < LLAMACPP_VRAM_SAFETY_MARGIN:
+    # Decision: min free VRAM across ALL GPUs vs safety margin
+    if min_free_mb is not None and min_free_mb < LLAMACPP_VRAM_SAFETY_MARGIN:
+        worst_gpu = f"GPU{min_free_gpu['index']}" if all_gpus else "GPU?"
         log_message(
             f"VRAM ctx={format_number(context)}: FAIL — "
-            f"{free_mb} MB free < {LLAMACPP_VRAM_SAFETY_MARGIN} MB margin",
+            f"{worst_gpu}: {min_free_mb} MB free < {LLAMACPP_VRAM_SAFETY_MARGIN} MB margin",
             category="stats",
         )
         return (
             False,
-            f"{free_mb} MB free < {LLAMACPP_VRAM_SAFETY_MARGIN} MB minimum",
+            f"{worst_gpu}: {min_free_mb} MB free < {LLAMACPP_VRAM_SAFETY_MARGIN} MB minimum",
         )
-    detail = f"{free_mb} MB free" if free_mb is not None else "VRAM unknown"
+    detail = f"min {min_free_mb} MB free" if min_free_mb is not None else "VRAM unknown"
     log_message(
         f"VRAM ctx={format_number(context)}: OK — {detail}",
         category="stats",
     )
     return (True, detail)
+
+
+async def _binary_search_context(
+    full_cmd: str,
+    port: int,
+    low: int,
+    high: int,
+    precision: int = 512,
+) -> AsyncIterator[str | int]:
+    """Binary search for max fitting context between low and high.
+
+    Yields status strings during search. Final yield is the integer result
+    (best fitting context found, or 0 if nothing fits).
+    """
+    result = 0
+    iteration = 0
+
+    while high - low > precision:
+        mid = (low + high) // 2
+        iteration += 1
+        yield f"[{iteration}] Testing {format_number(mid)}..."
+        mid_fits, mid_detail = await _test_context_physical(full_cmd, mid, port)
+        if mid_fits:
+            low = mid
+            result = mid
+            yield f"✓ {format_number(mid)} fits"
+        else:
+            high = mid
+            if "VMM" in mid_detail:
+                yield f"✗ {format_number(mid)} VMM overallocation"
+            else:
+                yield f"✗ {format_number(mid)} too large"
+
+    yield result
 
 
 def _get_model_block_bounds(content: str, model_id: str) -> tuple[int, int]:
@@ -1044,6 +1133,31 @@ def add_llamaswap_speed_variant(
         logger.info(f"Added speed variant to llama-swap config: {speed_model_id}")
 
     return True
+
+
+def _inject_kv_quant(cmd: str, kv_quant: str) -> str:
+    """Set -ctk/-ctv quantization in a llama-server command string.
+
+    Replaces existing -ctk/-ctv values or inserts them before --port.
+    Use kv_quant="" or "f16" to remove -ctk/-ctv (restore f16 default).
+    """
+    if not kv_quant or kv_quant == "f16":
+        # Remove -ctk/-ctv to restore f16 default
+        cmd = re.sub(r'\s*-ctk\s+\S+', '', cmd)
+        cmd = re.sub(r'\s*-ctv\s+\S+', '', cmd)
+        return cmd
+
+    if '-ctk ' in cmd:
+        cmd = re.sub(r'-ctk\s+\S+', f'-ctk {kv_quant}', cmd)
+    else:
+        cmd = cmd.replace(' --port', f' -ctk {kv_quant} --port')
+
+    if '-ctv ' in cmd:
+        cmd = re.sub(r'-ctv\s+\S+', f'-ctv {kv_quant}', cmd)
+    else:
+        cmd = cmd.replace(' --port', f' -ctv {kv_quant} --port')
+
+    return cmd
 
 
 def _has_tensor_split(full_cmd: str) -> bool:
@@ -1317,39 +1431,21 @@ async def calibrate_llamacpp_model(
     model_size_gb = get_gguf_total_size(gguf_path) / (1024 ** 3)
     quantization = extract_quantization_from_filename(gguf_path.name)
 
-    # Check KV-cache quantization: large models (>60% VRAM) need q4_0
-    current_kv = ""
-    for i, part in enumerate(full_cmd.split()):
-        if part == "-ctk" and i + 1 < len(full_cmd.split()):
-            current_kv = full_cmd.split()[i + 1]
-            break
-
     gpu_info = get_all_gpus_memory_info()
     total_vram_mb = gpu_info["total_mb"] if gpu_info else 0
     model_size_mb = model_size_gb * 1024
     vram_ratio = model_size_mb / total_vram_mb if total_vram_mb > 0 else 0
-
-    recommended_kv = "q4_0" if vram_ratio > 0.60 else "q8_0"
-
     total_vram_gb = total_vram_mb / 1024
-    # If no -ctk flag in YAML, the model runs at f16 KV quality (autoscan verified it fits)
-    kv_display = current_kv if current_kv else "f16"
+
     yield (
         f"Model: {model_id} ({format_number(model_size_gb, 1)} GB), "
-        f"native context: {format_number(native_context)}, "
-        f"KV-Cache: {kv_display} "
+        f"native context: {format_number(native_context)} "
         f"(model = {vram_ratio:.0%} of {format_number(total_vram_gb, 1)} GB VRAM)"
     )
 
-    if current_kv and current_kv != recommended_kv:
-        yield (
-            f"KV-Cache mismatch: config has {current_kv}, "
-            f"recommended {recommended_kv} (model {vram_ratio:.0%} of VRAM) — updating"
-        )
-        full_cmd = re.sub(r'-ctk\s+\S+', f'-ctk {recommended_kv}', full_cmd)
-        full_cmd = re.sub(r'-ctv\s+\S+', f'-ctv {recommended_kv}', full_cmd)
-        if config_path:
-            update_llamaswap_kv_cache_quant(config_path, model_id, recommended_kv)
+    # Strip any existing -ctk/-ctv from cmd — Phase 1 starts with f16 KV
+    # and the fallback chain will inject quantization only if needed.
+    full_cmd = _inject_kv_quant(full_cmd, "f16")
 
     # Step 2: Check VRAM
     from aifred.backends.ollama import wait_for_vram_stable
@@ -1360,25 +1456,6 @@ async def calibrate_llamacpp_model(
 
     if free_vram < 1000:
         yield "Not enough VRAM (<1 GB free)"
-        yield "__RESULT__:0:0:error"
-        return
-
-    # Step 3: VRAM projection via llama-fit-params (0.6s, no model loading)
-    yield "Calculating VRAM projection..."
-    try:
-        proj_low = _get_vram_projection(full_cmd, gguf_path, CALIBRATION_MIN_CONTEXT)
-        proj_high = _get_vram_projection(full_cmd, gguf_path, native_context)
-        calculated_max, rate = _calculate_max_context(
-            proj_low, proj_high, CALIBRATION_MIN_CONTEXT, native_context,
-        )
-        calculated_max = min(calculated_max, native_context)
-        yield (
-            f"Projection: {format_number(rate, 4)} MiB/tok, "
-            f"max ~{format_number(calculated_max)} tokens "
-            f"(native: {format_number(native_context)})"
-        )
-    except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
-        yield f"VRAM projection failed: {exc}"
         yield "__RESULT__:0:0:error"
         return
 
@@ -1514,90 +1591,147 @@ async def calibrate_llamacpp_model(
         yield "__RESULT__:0:0:error"
         return
 
-    # === PHASE 1: GPU-only calibration (ngl=99) ===
-    yield "Phase 1: GPU-only calibration (ngl=99)"
+    # === PHASE 1: GPU-only calibration (ngl=99) with KV fallback chain ===
+    # Strategy: f16 KV first (best quality). If context drops below 64k,
+    # try q8_0, then q4_0 to reclaim VRAM for more context.
+    # Force ngl=99 for Phase 1 — the cmd may have a lower ngl from previous
+    # hybrid calibration, but Phase 1 always tests all layers on GPU.
+    phase1_cmd = re.sub(r'(-ngl\s+)\d+', r'\g<1>99', full_cmd)
+    kv_levels = ["f16", "q8_0", "q4_0"]
+    best_result = 0
+    best_kv = "f16"
 
-    # Step 4: Test projection-based context estimate (with VMM overallocation check)
-    test_ctx = min(calculated_max, native_context)
-    label = "native" if test_ctx == native_context else "projected"
-    yield f"[1] Testing {label}: {format_number(test_ctx)}..."
+    for kv_level in kv_levels:
+        if kv_level != "f16" and best_result >= KV_QUANT_CONTEXT_THRESHOLD:
+            # f16 already yields enough context — no need to quantize KV
+            break
 
-    fits, detail = await _test_context_physical(full_cmd, test_ctx, port)
-    result = 0
+        test_cmd = _inject_kv_quant(phase1_cmd, kv_level)
+        yield f"Phase 1: GPU-only (ngl=99, KV={kv_level})"
 
-    if fits:
-        yield f"✓ {format_number(test_ctx)} fits"
-        result = test_ctx
+        # Per-GPU VRAM projection for this KV level (ngl=99 forced for Phase 1)
+        try:
+            per_gpu_low = _fit_params_per_gpu_projection(
+                test_cmd, gguf_path, CALIBRATION_MIN_CONTEXT, ngl=99,
+            )
+            per_gpu_high = _fit_params_per_gpu_projection(
+                test_cmd, gguf_path, native_context, ngl=99,
+            )
+            kv_max, rate = _calculate_max_context_per_gpu(
+                per_gpu_low, per_gpu_high, CALIBRATION_MIN_CONTEXT, native_context,
+            )
+            kv_max = min(kv_max, native_context)
+            yield (
+                f"Projection (KV={kv_level}): {format_number(rate, 4)} MiB/tok, "
+                f"max ~{format_number(kv_max)} tokens"
+            )
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            yield f"VRAM projection failed for KV={kv_level} — skipping"
+            continue
 
-        # Step 5: Binary search upward toward native_context (512-token precision)
-        if result < native_context:
-            low = result
-            high = native_context
-            iteration = 1
-            while high - low > 512:
-                mid = (low + high) // 2
-                iteration += 1
-                yield f"[{iteration}] Testing {format_number(mid)}..."
-                mid_fits, mid_detail = await _test_context_physical(full_cmd, mid, port)
-                if mid_fits:
-                    low = mid
-                    result = mid
-                    yield f"✓ {format_number(mid)} fits"
-                else:
-                    high = mid
-                    if "VMM" in mid_detail:
-                        yield f"✗ {format_number(mid)} VMM overallocation"
+        # Test projection estimate, then refine in a narrow window.
+        # The per-GPU projection is typically within ~5% of the physical limit,
+        # so searching [projection, native_context] wastes time on OOM tests.
+        # Instead: search ±15% around the projection to fine-tune quickly.
+        test_ctx = kv_max
+        search_margin = max(test_ctx // 7, 4096)  # ~15% of projection, min 4K
+        label = "native" if test_ctx == native_context else "projected"
+        yield f"[1] Testing {label}: {format_number(test_ctx)}..."
+
+        fits, detail = await _test_context_physical(test_cmd, test_ctx, port)
+        result = 0
+
+        if fits:
+            yield f"✓ {format_number(test_ctx)} fits"
+            result = test_ctx
+
+            # Narrow binary search upward (projection + margin, capped at native)
+            search_high = min(test_ctx + search_margin, native_context)
+            if result < search_high:
+                async for item in _binary_search_context(
+                    test_cmd, port, result, search_high,
+                ):
+                    if isinstance(item, int):
+                        if item > result:
+                            result = item
                     else:
-                        yield f"✗ {format_number(mid)} too large"
-            yield (
-                f"Optimum: {format_number(result)} tokens "
-                f"(+{format_number(result - test_ctx)} vs projection)"
-            )
-    else:
-        # Projection doesn't fit — either OOM or VMM overallocation
-        if "VMM" in detail:
-            yield f"✗ {format_number(test_ctx)} VMM overallocation — searching downward"
+                        yield item
+                if result > test_ctx:
+                    yield (
+                        f"Optimum: {format_number(result)} tokens "
+                        f"(+{format_number(result - test_ctx)} vs projection)"
+                    )
         else:
-            yield f"✗ {format_number(test_ctx)} too large — searching downward"
-
-        # Step 5b: Binary search downward (512-token precision)
-        low = CALIBRATION_MIN_CONTEXT
-        high = test_ctx
-        iteration = 1
-        while high - low > 512:
-            mid = (low + high) // 2
-            iteration += 1
-            yield f"[{iteration}] Testing {format_number(mid)}..."
-            mid_fits, mid_detail = await _test_context_physical(full_cmd, mid, port)
-            if mid_fits:
-                low = mid
-                result = mid
-                yield f"✓ {format_number(mid)} fits"
+            if "VMM" in detail:
+                yield f"✗ {format_number(test_ctx)} VMM overallocation — searching downward"
             else:
-                high = mid
-                if "VMM" in mid_detail:
-                    yield f"✗ {format_number(mid)} VMM overallocation"
+                yield f"✗ {format_number(test_ctx)} too large — searching downward"
+
+            # Narrow binary search downward (projection - margin)
+            search_low = max(test_ctx - search_margin, CALIBRATION_MIN_CONTEXT)
+            async for item in _binary_search_context(
+                test_cmd, port, search_low, test_ctx,
+            ):
+                if isinstance(item, int):
+                    result = item
                 else:
-                    yield f"✗ {format_number(mid)} too large"
-        if result:
+                    yield item
+
+            # Fallback: if narrow window found nothing, widen to full range
+            if not result and search_low > CALIBRATION_MIN_CONTEXT:
+                yield f"Narrow search failed — widening to [{format_number(CALIBRATION_MIN_CONTEXT)}, {format_number(search_low)}]"
+                async for item in _binary_search_context(
+                    test_cmd, port, CALIBRATION_MIN_CONTEXT, search_low,
+                ):
+                    if isinstance(item, int):
+                        result = item
+                    else:
+                        yield item
+
+            if result:
+                yield (
+                    f"Optimum: {format_number(result)} tokens "
+                    f"({format_number(test_ctx - result)} below projection)"
+                )
+
+        if result > best_result:
+            best_result = result
+            best_kv = kv_level
+
+        # Good enough with this KV level — stop trying lower quality
+        if best_result >= KV_QUANT_CONTEXT_THRESHOLD:
+            break
+
+        if kv_level != kv_levels[-1] and best_result < KV_QUANT_CONTEXT_THRESHOLD:
             yield (
-                f"Optimum: {format_number(result)} tokens "
-                f"({format_number(test_ctx - result)} below projection)"
+                f"KV={kv_level}: {format_number(best_result)} tokens "
+                f"< {format_number(KV_QUANT_CONTEXT_THRESHOLD)} threshold — "
+                f"trying lower KV quality"
             )
+            await wait_for_vram_stable(max_wait_seconds=10.0)
 
     # GPU-only success with useful context → finish
-    if result >= MIN_USEFUL_CONTEXT_TOKENS:
+    if best_result >= MIN_USEFUL_CONTEXT_TOKENS:
+        # Apply the winning KV level to the cmd for speed calibration and finish
+        full_cmd = _inject_kv_quant(full_cmd, best_kv)
+        if best_kv != "f16" and config_path:
+            update_llamaswap_kv_cache_quant(config_path, model_id, best_kv)
+            yield f"KV-Cache quantization set to {best_kv} in llama-swap config"
+        elif best_kv == "f16" and config_path:
+            # Remove any stale -ctk/-ctv from config
+            _remove_llamaswap_kv_cache_quant(config_path, model_id)
+
         if _has_tensor_split(full_cmd):
             yield "Phase 2: Speed variant calibration (tensor-split optimization)"
             async for msg in _calibrate_speed_split(full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS):
                 yield msg
-        async for msg in _finish_calibration(result, 99, "gpu"):
+        async for msg in _finish_calibration(best_result, 99, "gpu"):
             yield msg
         return
 
     # === PHASE 3: Hybrid calibration (GPU-only context insufficient) ===
     yield (
-        f"GPU-only context ({format_number(result)}) < "
+        f"GPU-only context ({format_number(best_result)}) < "
         f"minimum useful ({format_number(MIN_USEFUL_CONTEXT_TOKENS)})"
     )
 

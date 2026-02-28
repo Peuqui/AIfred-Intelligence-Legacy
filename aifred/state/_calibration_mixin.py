@@ -331,16 +331,22 @@ class CalibrationMixin(rx.State, mixin=True):
             else:
                 self.add_debug("⚠️ Could not update -c in llama-swap config")  # type: ignore[attr-defined]
 
-            # Always write ngl: gpu-mode uses 99, hybrid uses the calculated value.
-            # Without this, a stale ngl (e.g. from a previous hybrid calibration) stays.
+            # Write the calibrated ngl to YAML.
+            # Previous logic downgraded ngl to hybrid for "swap safety", but that
+            # created a mismatch: hybrid ngl (few layers on GPU) with GPU-only context
+            # (calibrated for all layers on GPU) → massive VRAM waste.
+            # Now we write the actual calibration result. Swap OOM is llama-swap's
+            # responsibility (exclusive groups ensure old model is unloaded first).
+            yaml_ngl = calibrated_ngl
+
             updated_ngl = update_llamaswap_ngl(
                 LLAMASWAP_CONFIG_PATH,
                 self.aifred_model_id,  # type: ignore[attr-defined]
-                calibrated_ngl
+                yaml_ngl
             )
             if updated_ngl:
-                mode_label = "hybrid mode" if calibrated_mode == "hybrid" else "gpu mode"
-                self.add_debug(f"   -ngl {calibrated_ngl} written ({mode_label})")  # type: ignore[attr-defined]
+                mode_label = "hybrid mode" if yaml_ngl < 99 else "gpu mode"
+                self.add_debug(f"   -ngl {yaml_ngl} written ({mode_label})")  # type: ignore[attr-defined]
             else:
                 self.add_debug("⚠️ Could not update -ngl in llama-swap config")  # type: ignore[attr-defined]
 

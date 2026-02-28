@@ -175,10 +175,15 @@ async def handle_own_knowledge(
         # for sampling, but thinking must come from the actual agent's toggle.
         llm_options.enable_thinking = enable_thinking
 
-        # Console: LLM starts (with MoE/Dense architecture info)
+        # Console: LLM starts (with MoE/Dense architecture + calibration info)
         from .gpu_utils import is_moe_model
         is_moe = is_moe_model(model_choice) if backend_type in ("ollama", "llamacpp") else False
         arch_label = "MoE" if is_moe else "Dense"
+        if backend_type == "llamacpp":
+            from .model_vram_cache import get_llamacpp_calibration_info
+            _cal = get_llamacpp_calibration_info(model_choice)
+            if _cal and _cal["mode"] == "hybrid":
+                arch_label += f", hybrid ngl={_cal['ngl']}"
         yield {"type": "debug", "message": f"🎩 {agent_label}-LLM starting: {model_choice} ({arch_label})"}
 
         # Log RAW messages for debugging (v2.16.0+)

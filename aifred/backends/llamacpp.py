@@ -13,6 +13,7 @@ from typing import List, Optional, AsyncIterator, Dict, Any
 from .base import (
     OpenAICompatibleBackend,
     LLMOptions,
+    LLMResponse,
     BackendConnectionError,
 )
 
@@ -83,6 +84,50 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         if stream_state.get("thinking_started"):
             return [{"type": "content", "text": "</think>\n\n"}]
         return []
+
+    def _extract_server_timings(self, response_or_chunk: Any) -> Dict[str, Any]:
+        """Extract llama-server's timings from OpenAI SDK model_extra."""
+        if hasattr(response_or_chunk, "model_extra") and response_or_chunk.model_extra:
+            timings: Dict[str, Any] = response_or_chunk.model_extra.get("timings", {})
+            return timings
+        return {}
+
+    def _build_stream_metrics(
+        self,
+        prompt_tokens: int,
+        total_tokens: int,
+        inference_time: float,
+        model: str,
+        server_timings: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Use llama-server's pure inference timings."""
+        return {
+            "tokens_prompt": prompt_tokens,
+            "tokens_generated": total_tokens,
+            "tokens_per_second": server_timings["predicted_per_second"],
+            "prompt_per_second": server_timings["prompt_per_second"],
+            "inference_time": inference_time,
+            "model": model,
+        }
+
+    def _build_chat_response(
+        self,
+        text: str,
+        tokens_prompt: int,
+        tokens_generated: int,
+        inference_time: float,
+        model: str,
+        server_timings: Dict[str, Any],
+    ) -> LLMResponse:
+        """Use llama-server's pure inference timings."""
+        return LLMResponse(
+            text=text,
+            tokens_prompt=tokens_prompt,
+            tokens_generated=tokens_generated,
+            tokens_per_second=server_timings["predicted_per_second"],
+            inference_time=inference_time,
+            model=model,
+        )
 
     # === Backend-specific methods ===
 

@@ -18,13 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Narrow Binary Search** — Instead of searching [8K, native_context], binary search now uses ±15% window around projection. If projection fits: search upward. If not: search downward. Reduces steps from ~9 to ~5 per KV quant. Fallback to full range if narrow window fails.
 - **KV Quantization Fallback Chain** — f16 → q8_0 → q4_0, only tries lower quants if f16 context < 64K (`KV_QUANT_CONTEXT_THRESHOLD`). Preserves KV quality when possible.
 - **Debug Console: Hybrid Mode Info** — "LLM starting" message now shows `hybrid ngl=N` when model runs in hybrid calibration mode.
+- **Server-Side Token Speed** — llama.cpp backend now uses llama-server's pure inference timings (`predicted_per_second`, `prompt_per_second`) instead of wall-clock measurement. Eliminates network overhead and PP time from TG speed calculation. Hook-based: `_extract_server_timings()` + `_build_stream_metrics()` in `OpenAICompatibleBackend`, overridden in `LlamaCppBackend`.
 
 ### Technical Details
 
-- 7 files changed (+345, -182 LOC)
+- 9 files changed (+454, -199 LOC)
 - New: `_calculate_max_context_per_gpu()` replaces `_calculate_max_context()` + `_get_vram_projection()`
 - New config: `KV_QUANT_CONTEXT_THRESHOLD = 65536`
-- Ruff + mypy: TBD
+- New hooks in `OpenAICompatibleBackend`: `_extract_server_timings()`, `_build_stream_metrics()`, `_build_chat_response()`
+- Ruff + mypy: All checks passed
 
 ## [2.51.0] - 2026-02-27 🧠 Autoscan Binary Search + Session Sync Fix + Language Enforcement
 
