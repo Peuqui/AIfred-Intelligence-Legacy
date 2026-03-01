@@ -450,9 +450,12 @@ class CalibrationMixin(rx.State, mixin=True):
 
         from ..lib.formatting import format_number
 
+        # Calibration data is stored under base model ID (without -speed suffix)
+        base_id = model_id.removesuffix("-speed")
+
         if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
             from ..lib.model_vram_cache import get_llamacpp_calibration
-            calibrated = get_llamacpp_calibration(model_id)
+            calibrated = get_llamacpp_calibration(base_id)
             if calibrated:
                 self.add_debug(f"   🎯 Calibrated: {format_number(calibrated)} tokens")  # type: ignore[attr-defined]
             else:

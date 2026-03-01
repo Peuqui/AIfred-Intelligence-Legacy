@@ -1571,6 +1571,10 @@ class BackendMixin(rx.State, mixin=True):
             if not self.aifred_has_speed_variant:  # type: ignore[attr-defined, has-type]
                 self.aifred_speed_mode = False  # type: ignore[attr-defined, has-type]
 
+        # Re-apply speed suffix (model_id is base name after _resolve_model_id)
+        if self.aifred_speed_mode and self.aifred_has_speed_variant:  # type: ignore[attr-defined, has-type]
+            self.aifred_model_id = f"{self.aifred_model_id}-speed"
+
         self._show_model_calibration_info(self.aifred_model_id)  # type: ignore[attr-defined]
 
         # Check if switching to non-vision model with pending images
