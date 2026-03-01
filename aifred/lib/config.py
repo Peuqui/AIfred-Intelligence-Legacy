@@ -848,10 +848,12 @@ VRAM_SAFETY_MARGIN = 512  # MB
 
 # llama.cpp VRAM safety margin — platform-dependent.
 # On WSL2/Windows: WDDM silently swaps VRAM to system RAM instead of OOM → 7x slowdown.
-# On native Linux: cudaMalloc returns OOM, no silent swapping — smaller margin sufficient.
+# On native Linux: cudaMalloc returns OOM, no silent swapping — small margin sufficient.
+# 64 MB covers runtime allocations (scratch buffers, cuBLAS workspace) that fit-params
+# and server startup don't account for.
 # Measured on WSL2: 512 → 70 tok/s (VMM), 1024 → marginal, 1536 → 137 tok/s (full speed)
 _is_wddm = "microsoft" in platform.release().lower() or os.name == "nt"
-LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 0  # MB
+LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 64  # MB
 
 # XTTS VRAM reservation (MB)
 # XTTS model uses ~2044 MiB when loaded. Add small buffer for safety.

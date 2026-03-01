@@ -226,9 +226,7 @@ class SessionMixin(rx.State, mixin=True):
             if data["debug_messages"]:
                 startup_messages = self.debug_messages.copy()  # type: ignore[attr-defined]
                 self.debug_messages = data["debug_messages"] + startup_messages  # type: ignore[attr-defined]
-            else:
-                # Explizit geloescht (z.B. via API clear_chat) -> auch Startup-Messages entfernen
-                self.debug_messages = []  # type: ignore[attr-defined]
+            # Empty list = new/cleared session — keep startup messages as-is
 
         # Session title wiederherstellen
         self.current_session_title = data.get("title", "")

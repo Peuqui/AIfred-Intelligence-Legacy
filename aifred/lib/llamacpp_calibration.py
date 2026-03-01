@@ -84,7 +84,7 @@ def _format_cuda_detail(
             matched = next((g for g in gpu_list if g["name"] == name), None)
             if matched:
                 parts.append(
-                    f"{name}(CUDA{i}): {format_number(matched['free_mb'])} MB free"
+                    f"{name} (CUDA{i}): {format_number(matched['free_mb'])} MB free"
                 )
         if parts:
             return ", ".join(parts)
@@ -93,7 +93,7 @@ def _format_cuda_detail(
     for i, g in enumerate(gpu_list):
         cuda_label = g.get("cuda_id", f"GPU{g.get('index', i)}")
         parts.append(
-            f"{g['name']}({cuda_label}): {format_number(g['free_mb'])} MB free"
+            f"{g['name']} ({cuda_label}): {format_number(g['free_mb'])} MB free"
         )
     return ", ".join(parts)
 
@@ -312,6 +312,59 @@ def _replace_ngl_in_model_block(content: str, model_id: str, new_ngl: int) -> st
 
         if in_model_block:
             line = re.sub(r'-ngl\s+\d+', f'-ngl {new_ngl}', line)
+
+        result_lines.append(line)
+
+    return '\n'.join(result_lines)
+
+
+def update_llamaswap_tensor_split(
+    config_path: Path,
+    model_id: str,
+    ratios: list[float],
+) -> bool:
+    """Update --tensor-split / -ts in llama-swap YAML for a specific model.
+
+    Uses regex on raw file content to preserve YAML formatting.
+    """
+    if not config_path.exists():
+        logger.error(f"llama-swap config not found: {config_path}")
+        return False
+
+    config = parse_llamaswap_config(config_path)
+    model_info = config.get(model_id)
+    if not model_info:
+        logger.error(f"Model {model_id} not found in llama-swap config")
+        return False
+
+    new_val = ",".join(f"{r:g}" for r in ratios)
+    content = config_path.read_text(encoding='utf-8')
+    new_content = _replace_ts_in_model_block(content, model_id, new_val)
+
+    if new_content == content:
+        logger.info(f"llama-swap config already up to date: {model_id} -ts {new_val}")
+        return True
+
+    config_path.write_text(new_content, encoding='utf-8')
+    logger.info(f"Updated llama-swap config: {model_id} → -ts {new_val}")
+    return True
+
+
+def _replace_ts_in_model_block(content: str, model_id: str, new_val: str) -> str:
+    """Replace --tensor-split / -ts value in a specific model's cmd block."""
+    lines = content.split('\n')
+    in_model_block = False
+    result_lines = []
+
+    for line in lines:
+        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
+            in_model_block = True
+        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
+            in_model_block = False
+
+        if in_model_block:
+            line = re.sub(r'(--tensor-split\s+)[\d.,]+', rf'\g<1>{new_val}', line)
+            line = re.sub(r'(-ts\s+)[\d.,]+', rf'\g<1>{new_val}', line)
 
         result_lines.append(line)
 
@@ -1243,9 +1296,9 @@ async def _physical_context_search(
     else:
         yield f"✗ {format_number(projected)} doesn't fit ({detail})"
 
-    # 3. Layer-based balance: move layers between GPUs to equalize free VRAM.
-    # Tensor-split ratios map to discrete layer counts — small ratio changes
-    # often move zero layers. Work with layer counts directly instead.
+    # 3. Multi-GPU layer optimization (N-GPU compatible).
+    # A) Native context fits: speed-optimize (push layers to fastest GPU).
+    # B) Context is tight: balance (equalize VRAM across GPUs).
     balance_adjusted = False
     skip_speed = False
     current_ratios = _parse_tensor_split_ratios(full_cmd)
@@ -1256,124 +1309,173 @@ async def _physical_context_search(
         and current_ratios
         and len(current_ratios) == len(cuda_gpu_list)
     ):
-        free_values = [g["free_mb"] for g in cuda_gpu_list]
-        diff = max(free_values) - min(free_values)
+        total_layers = get_gguf_layer_count(gguf_path)
+        if total_layers:
+            from .gguf_utils import get_gguf_total_size
 
-        if diff >= 1024:
-            total_layers = get_gguf_layer_count(gguf_path)
-            if total_layers:
-                from aifred.backends.ollama import wait_for_vram_stable
-                from .gguf_utils import get_gguf_total_size
+            model_size_mb = get_gguf_total_size(gguf_path) / (1024 ** 2)
+            mb_per_layer = int(model_size_mb / total_layers)
 
-                model_size_mb = get_gguf_total_size(gguf_path) / (1024 ** 2)
-                mb_per_layer = int(model_size_mb / total_layers)
+            # Current layer distribution from ratios
+            sum_ratios = sum(current_ratios)
+            layers = [
+                round(total_layers * r / sum_ratios)
+                for r in current_ratios
+            ]
+            layers[-1] = total_layers - sum(layers[:-1])
+            old_layers_fmt = _format_layer_split([float(n) for n in layers])
 
-                # Current layer distribution from ratios
-                sum_ratios = sum(current_ratios)
-                layers = [
-                    round(total_layers * r / sum_ratios)
-                    for r in current_ratios
-                ]
-                # Fix rounding errors so sum == total_layers
-                layers[-1] = total_layers - sum(layers[:-1])
+            if fits and projected == native_context:
+                # --- 3A: Speed-optimize (native context fits with headroom) ---
+                fastest_free = cuda_gpu_list[0]["free_mb"]
+                fastest_name = cuda_gpu_list[0]["name"]
+                extra_possible = int(fastest_free / mb_per_layer)
+                estimated_max = min(layers[0] + extra_possible, total_layers)
 
-                bottleneck_idx = free_values.index(min(free_values))
-                most_free_idx = free_values.index(max(free_values))
-
-                old_layers_fmt = ":".join(str(n) for n in layers)
                 yield (
-                    f"VRAM imbalance: {_format_cuda_detail(cuda_gpu_list)} "
-                    f"(diff {format_number(diff)} MB) — "
+                    f"VRAM headroom: {_format_cuda_detail(cuda_gpu_list)} — "
                     f"layers {old_layers_fmt} (~{format_number(mb_per_layer)} MB/layer)"
                 )
 
-                # Move 1 layer away from bottleneck
-                new_layers = list(layers)
-                new_layers[bottleneck_idx] -= 1
-                new_layers[most_free_idx] += 1
-                new_ratios = [float(n) for n in new_layers]
-
-                new_layers_fmt = ":".join(str(n) for n in new_layers)
-                yield (
-                    f"Moving 1 layer: {old_layers_fmt} → {new_layers_fmt}"
-                )
-
-                full_cmd = _replace_tensor_split(full_cmd, new_ratios)
-                log_message(
-                    f"Balance: layers {old_layers_fmt} → {new_layers_fmt}, "
-                    f"ts={_parse_tensor_split_ratios(full_cmd)}, "
-                    f"~{mb_per_layer} MB/layer, total={total_layers}",
-                    category="stats",
-                )
-                old_min_free = min(free_values)
-
-                await wait_for_vram_stable(max_wait_seconds=10.0)
-
-                yield f"[2] Testing balanced: {format_number(projected)}..."
-                want_thinking = run_thinking_test and thinking_result is None
-                fits, _, new_gpu_list, bal_thinking = await _test_context_physical(
-                    full_cmd, projected, port, run_thinking_test=want_thinking,
-                )
-                if bal_thinking is not None:
-                    thinking_result = bal_thinking
-                    yield f"Reasoning: {'yes' if thinking_result else 'no'}"
-
-                # Update cuda_gpu_list with fresh VRAM measurements
-                if new_gpu_list and per_gpu_low:
-                    updated: list[dict[str, Any]] = []
-                    for cuda_id in sorted(per_gpu_low.keys()):
-                        cuda_name = _short_gpu_name(
-                            str(per_gpu_low[cuda_id].get("name", ""))
-                        )
-                        matched = next(
-                            (g for g in new_gpu_list if g["name"] == cuda_name),
-                            None,
-                        )
-                        if matched:
-                            updated.append({
-                                "cuda_id": cuda_id,
-                                "name": cuda_name,
-                                "total_mb": matched["total_mb"],
-                                "free_mb": matched["free_mb"],
-                            })
-                    if len(updated) == len(cuda_gpu_list):
-                        cuda_gpu_list = updated
-
-                new_free = [g["free_mb"] for g in cuda_gpu_list]
-                new_min_free = min(new_free)
-                new_diff = max(new_free) - new_min_free
-                detail = _format_cuda_detail(cuda_gpu_list)
-
-                if new_min_free > old_min_free:
-                    # Improved — keep new split
-                    balance_adjusted = True
-                    current_ratios = new_ratios
-                    if fits:
-                        yield f"✓ {format_number(projected)} fits ({detail})"
-                    else:
-                        yield f"✗ {format_number(projected)} doesn't fit ({detail})"
-                    if new_diff < 1024:
-                        yield f"Balance OK (diff {format_number(new_diff)} MB)"
-                else:
-                    # Worse or same — revert
-                    full_cmd = _replace_tensor_split(
-                        full_cmd, [float(n) for n in layers],
-                    )
-                    if fits:
-                        yield f"✓ {format_number(projected)} fits ({detail})"
-                    else:
-                        yield f"✗ {format_number(projected)} doesn't fit ({detail})"
+                if estimated_max > layers[0]:
                     yield (
-                        f"Layer shift didn't improve balance "
-                        f"(min free {format_number(new_min_free)} vs "
-                        f"{format_number(old_min_free)} MB) — reverting to "
-                        f"{old_layers_fmt}"
+                        f"Speed-optimizing base: pushing layers to {fastest_name} "
+                        f"at native ctx={format_number(native_context)}"
                     )
-                    # If the bottleneck GPU already has the highest ratio,
-                    # speed calibration (pushing even more onto it) is pointless.
-                    dominant_idx = current_ratios.index(max(current_ratios))
-                    if bottleneck_idx == dominant_idx:
-                        skip_speed = True
+
+                    best_cuda0 = layers[0]
+
+                    # Test estimated split first
+                    est_ratios = _build_layer_split(
+                        total_layers, estimated_max, current_ratios,
+                    )
+                    est_split = _format_layer_split(est_ratios)
+                    est_cmd = _replace_tensor_split(full_cmd, est_ratios)
+                    yield f"[2] Testing {est_split} at ctx={format_number(native_context)}..."
+                    est_fits = await _calibration_test(est_cmd, native_context, port)
+
+                    if est_fits:
+                        yield f"✓ {est_split} fits"
+                        best_cuda0 = estimated_max
+                        low, high = estimated_max + 1, total_layers
+                    else:
+                        yield f"✗ {est_split} doesn't fit"
+                        low, high = layers[0] + 1, estimated_max - 1
+
+                    # Binary search for exact boundary
+                    iteration = 2
+                    while low <= high:
+                        mid = (low + high) // 2
+                        mid_ratios = _build_layer_split(
+                            total_layers, mid, current_ratios,
+                        )
+                        mid_split = _format_layer_split(mid_ratios)
+                        mid_cmd = _replace_tensor_split(full_cmd, mid_ratios)
+                        iteration += 1
+                        yield f"[{iteration}] Testing {mid_split} at ctx={format_number(native_context)}..."
+                        mid_fits = await _calibration_test(mid_cmd, native_context, port)
+                        if mid_fits:
+                            best_cuda0 = mid
+                            yield f"✓ {mid_split} fits"
+                            low = mid + 1
+                        else:
+                            yield f"✗ {mid_split} doesn't fit"
+                            high = mid - 1
+
+                    if best_cuda0 > layers[0]:
+                        new_ratios = _build_layer_split(
+                            total_layers, best_cuda0, current_ratios,
+                        )
+                        new_split = _format_layer_split(new_ratios)
+                        full_cmd = _replace_tensor_split(full_cmd, new_ratios)
+                        balance_adjusted = True
+                        yield f"Base optimized: {old_layers_fmt} → {new_split} at native context"
+
+                        if best_cuda0 >= total_layers:
+                            skip_speed = True
+
+            else:
+                # --- 3B: Balance (context is tight, equalize VRAM) ---
+                free_values = [g["free_mb"] for g in cuda_gpu_list]
+                diff = max(free_values) - min(free_values)
+
+                if diff >= 1024:
+                    from aifred.backends.ollama import wait_for_vram_stable
+
+                    bottleneck_idx = free_values.index(min(free_values))
+                    most_free_idx = free_values.index(max(free_values))
+
+                    yield (
+                        f"VRAM imbalance: {_format_cuda_detail(cuda_gpu_list)} "
+                        f"(diff {format_number(diff)} MB) — "
+                        f"layers {old_layers_fmt} (~{format_number(mb_per_layer)} MB/layer)"
+                    )
+
+                    # Move 1 layer from bottleneck to most-free GPU
+                    new_layers = list(layers)
+                    new_layers[bottleneck_idx] -= 1
+                    new_layers[most_free_idx] += 1
+                    new_ratios = [float(n) for n in new_layers]
+                    new_layers_fmt = _format_layer_split(new_ratios)
+
+                    yield f"Moving 1 layer: {old_layers_fmt} → {new_layers_fmt}"
+
+                    full_cmd = _replace_tensor_split(full_cmd, new_ratios)
+                    old_min_free = min(free_values)
+
+                    await wait_for_vram_stable(max_wait_seconds=10.0)
+
+                    yield f"[2] Testing balanced: {format_number(projected)}..."
+                    want_thinking = run_thinking_test and thinking_result is None
+                    bal_fits, _, new_gpu_list, bal_thinking = await _test_context_physical(
+                        full_cmd, projected, port, run_thinking_test=want_thinking,
+                    )
+                    if bal_thinking is not None:
+                        thinking_result = bal_thinking
+                        yield f"Reasoning: {'yes' if thinking_result else 'no'}"
+
+                    # Update cuda_gpu_list with fresh VRAM measurements
+                    if new_gpu_list:
+                        new_gpu_list = _to_cuda_order(new_gpu_list)
+                        if len(new_gpu_list) == len(cuda_gpu_list):
+                            cuda_gpu_list = new_gpu_list
+
+                    new_free = [g["free_mb"] for g in cuda_gpu_list]
+                    new_min_free = min(new_free)
+                    new_diff = max(new_free) - new_min_free
+                    bal_detail = _format_cuda_detail(cuda_gpu_list)
+
+                    if new_min_free > old_min_free:
+                        balance_adjusted = True
+                        current_ratios = new_ratios
+                        fits = bal_fits  # Update — balance may have made it fit
+                        if bal_fits:
+                            yield f"✓ {format_number(projected)} fits ({bal_detail})"
+                        else:
+                            yield f"✗ {format_number(projected)} doesn't fit ({bal_detail})"
+                        if new_diff < 1024:
+                            yield f"Balance OK (diff {format_number(new_diff)} MB)"
+                    else:
+                        # Revert — layer shift didn't help
+                        full_cmd = _replace_tensor_split(
+                            full_cmd, [float(n) for n in layers],
+                        )
+                        fits = bal_fits  # Update — may still fit at old split
+                        if bal_fits:
+                            yield f"✓ {format_number(projected)} fits ({bal_detail})"
+                        else:
+                            yield f"✗ {format_number(projected)} doesn't fit ({bal_detail})"
+                        yield (
+                            f"Layer shift didn't improve balance "
+                            f"(min free {format_number(new_min_free)} vs "
+                            f"{format_number(old_min_free)} MB) — reverting to "
+                            f"{old_layers_fmt}"
+                        )
+                        # If bottleneck GPU already has highest ratio,
+                        # speed calibration (pushing more onto it) is pointless.
+                        dominant_idx = current_ratios.index(max(current_ratios))
+                        if bottleneck_idx == dominant_idx:
+                            skip_speed = True
 
     # Yield metadata for caller
     yield {
@@ -1554,8 +1656,10 @@ def add_llamaswap_speed_variant(
         flags=re.MULTILINE,
     )
 
-    # Replace tensor-split with calibrated layer counts
-    speed_ratios = [float(speed_split_cuda0), float(speed_split_rest)]
+    # Replace tensor-split with calibrated layer counts (N-GPU compatible)
+    original_ratios = _parse_tensor_split_ratios(speed_block_text)
+    total_layers = speed_split_cuda0 + speed_split_rest
+    speed_ratios = _build_layer_split(total_layers, speed_split_cuda0, original_ratios)
     speed_block_text = _replace_tensor_split(speed_block_text, speed_ratios)
     speed_block_text = re.sub(r'-c\s+\d+', f'-c {speed_context}', speed_block_text)
 
@@ -1626,6 +1730,47 @@ def _replace_tensor_split(cmd: str, ratios: list[float]) -> str:
     return cmd
 
 
+def _build_layer_split(
+    total_layers: int,
+    fastest_layers: int,
+    original_ratios: list[float],
+) -> list[float]:
+    """Build N-GPU tensor-split with fastest_layers on GPU0, rest proportional.
+
+    Distributes remaining layers among GPU1..N-1 based on their original
+    ratio proportions. Works for 2, 3, or more GPUs.
+
+    Example (3 GPUs, original 60:25:15, push to 80):
+      → [80.0, 13.0, 7.0]  (rest 20 split as 62.5%/37.5%)
+    """
+    rest = total_layers - fastest_layers
+    if len(original_ratios) <= 2 or rest <= 0:
+        return [float(fastest_layers), float(max(rest, 0))]
+
+    # Distribute rest among GPU1..N-1 proportionally
+    other_ratios = original_ratios[1:]
+    other_sum = sum(other_ratios)
+    if other_sum <= 0:
+        # Equal distribution if ratios are zero
+        per_gpu = rest / len(other_ratios)
+        return [float(fastest_layers)] + [per_gpu] * len(other_ratios)
+
+    result = [float(fastest_layers)]
+    assigned = 0
+    for r in other_ratios[:-1]:
+        n = round(rest * r / other_sum)
+        result.append(float(n))
+        assigned += n
+    # Last GPU gets remainder (fixes rounding)
+    result.append(float(rest - assigned))
+    return result
+
+
+def _format_layer_split(ratios: list[float]) -> str:
+    """Format layer split as 'A:B:C' string."""
+    return ":".join(str(int(r)) for r in ratios)
+
+
 async def _calibrate_speed_split(
     full_cmd: str,
     port: int,
@@ -1637,6 +1782,8 @@ async def _calibrate_speed_split(
 
     Phase A: Binary search for max layers on fastest GPU at target_context.
     Phase B: Maximize context at the found split (10% steps + binary search).
+    N-GPU compatible: uses _build_layer_split to distribute remaining layers
+    proportionally among GPU1..N-1.
 
     Yields progress messages.
     Final: "__SPEED__:{cuda0},{rest},{context}" or "__SPEED__:0" on failure.
@@ -1663,7 +1810,7 @@ async def _calibrate_speed_split(
     layers = [round(total_layers * r / sum_ratios) for r in original_ratios]
     layers[-1] = total_layers - sum(layers[:-1])
 
-    layers_fmt = ":".join(str(n) for n in layers)
+    layers_fmt = _format_layer_split([float(n) for n in layers])
 
     # Step 1: Project free VRAM via fit-params (no server needed, ~0.5s)
     try:
@@ -1697,10 +1844,13 @@ async def _calibrate_speed_split(
     extra_layers_possible = int(free_fastest / mb_per_layer)
     estimated_max = min(layers[0] + extra_layers_possible, total_layers)
 
+    est_preview = _format_layer_split(
+        _build_layer_split(total_layers, estimated_max, original_ratios),
+    )
     yield (
         f"Estimated: ~{format_number(mb_per_layer, 0)} MB/layer, "
-        f"free {fastest_name}(CUDA0): {format_number(free_fastest)} MB → "
-        f"~{estimated_max}:{total_layers - estimated_max}"
+        f"free {fastest_name}: {format_number(free_fastest)} MB → "
+        f"~{est_preview}"
     )
 
     if estimated_max <= layers[0]:
@@ -1714,34 +1864,30 @@ async def _calibrate_speed_split(
     iteration = 0
 
     # Test the estimated split first to establish search direction
-    est_rest = total_layers - estimated_max
-    est_split = f"{estimated_max}:{est_rest}"
-    est_cmd = _replace_tensor_split(
-        full_cmd, [float(estimated_max), float(est_rest)],
-    )
+    est_ratios = _build_layer_split(total_layers, estimated_max, original_ratios)
+    est_split = _format_layer_split(est_ratios)
+    est_cmd = _replace_tensor_split(full_cmd, est_ratios)
     iteration += 1
     yield f"[A{iteration}] Testing {est_split} at ctx={format_number(target_context)}..."
     est_fits = await _calibration_test(est_cmd, target_context, port)
 
     if est_fits:
         yield f"✓ {est_split} fits"
-        # Projection was conservative — try pushing higher
         low = estimated_max + 1
         high = total_layers
         best_layers_cuda0 = estimated_max
     else:
         yield f"✗ {est_split} doesn't fit"
-        # Projection was optimistic — search lower
-        low = layers[0] + 1  # at least 1 more than original
+        low = layers[0] + 1
         high = estimated_max - 1
         best_layers_cuda0 = layers[0]
 
     # Binary search for exact layer boundary
     while low <= high:
         mid = (low + high) // 2
-        mid_rest = total_layers - mid
-        mid_split = f"{mid}:{mid_rest}"
-        mid_cmd = _replace_tensor_split(full_cmd, [float(mid), float(mid_rest)])
+        mid_ratios = _build_layer_split(total_layers, mid, original_ratios)
+        mid_split = _format_layer_split(mid_ratios)
+        mid_cmd = _replace_tensor_split(full_cmd, mid_ratios)
 
         iteration += 1
         yield f"[A{iteration}] Testing {mid_split} at ctx={format_number(target_context)}..."
@@ -1755,8 +1901,8 @@ async def _calibrate_speed_split(
             yield f"✗ {mid_split} doesn't fit"
             high = mid - 1
 
-    best_rest = total_layers - best_layers_cuda0
-    best_split = f"{best_layers_cuda0}:{best_rest}"
+    best_ratios = _build_layer_split(total_layers, best_layers_cuda0, original_ratios)
+    best_split = _format_layer_split(best_ratios)
 
     if best_layers_cuda0 <= layers[0]:
         yield f"No speed improvement possible (best: {best_split}, original: {layers_fmt})"
@@ -1768,9 +1914,7 @@ async def _calibrate_speed_split(
     # ── Phase B: Maximize context at the found split ──
     yield f"Phase B: Maximizing context at {best_split}"
 
-    speed_cmd = _replace_tensor_split(
-        full_cmd, [float(best_layers_cuda0), float(best_rest)],
-    )
+    speed_cmd = _replace_tensor_split(full_cmd, best_ratios)
 
     # Project max context via fit-params
     try:
@@ -1782,10 +1926,9 @@ async def _calibrate_speed_split(
         )
 
         # Filter to GPUs that actually have layers in the speed split
-        speed_ratios = [float(best_layers_cuda0), float(best_rest)]
         active_gpus = set()
         for i, gid in enumerate(sorted(per_gpu_low.keys())):
-            if i < len(speed_ratios) and speed_ratios[i] > 0:
+            if i < len(best_ratios) and best_ratios[i] > 0:
                 active_gpus.add(gid)
         filtered_low = {k: v for k, v in per_gpu_low.items() if k in active_gpus}
         filtered_high = {k: v for k, v in per_gpu_high.items() if k in active_gpus}
@@ -1810,6 +1953,7 @@ async def _calibrate_speed_split(
             detail = _format_cuda_detail(gpu_list) if gpu_list else ""
             yield f"✓ {best_split} at ctx={format_number(target_context)} ({detail})"
             yield f"Speed split found: {best_split}, ctx={format_number(target_context)}"
+            best_rest = total_layers - best_layers_cuda0
             yield f"__SPEED__:{best_layers_cuda0},{best_rest},{target_context}"
         else:
             yield f"Speed split {best_split} can't hold minimum context"
@@ -1908,6 +2052,7 @@ async def _calibrate_speed_split(
     if best_context > target_context:
         ctx_info = f", ctx={format_number(best_context)}"
     yield f"Speed split found: {best_split}{ctx_info}"
+    best_rest = total_layers - best_layers_cuda0
     yield f"__SPEED__:{best_layers_cuda0},{best_rest},{best_context}"
 
 
@@ -2243,6 +2388,7 @@ async def calibrate_llamacpp_model(
     best_result = 0
     best_kv = "f16"
     thinking_result: Optional[bool] = None
+    optimized_ratios: Optional[list[float]] = None
 
     for kv_level in kv_levels:
         if kv_level != "f16" and (best_result >= native_context or best_result >= KV_QUANT_CONTEXT_THRESHOLD):
@@ -2270,6 +2416,7 @@ async def calibrate_llamacpp_model(
                     if new_ratios:
                         full_cmd = _replace_tensor_split(full_cmd, new_ratios)
                         phase1_cmd = _replace_tensor_split(phase1_cmd, new_ratios)
+                        optimized_ratios = new_ratios
                 if item.get("skip_speed"):
                     skip_speed = True
                 if item.get("thinking_result") is not None:
@@ -2303,6 +2450,12 @@ async def calibrate_llamacpp_model(
         elif best_kv == "f16" and config_path:
             # Remove any stale -ctk/-ctv from config
             _remove_llamaswap_kv_cache_quant(config_path, model_id)
+
+        # Write speed-optimized tensor-split to config (base variant)
+        if optimized_ratios and config_path:
+            ts_str = ",".join(f"{r:g}" for r in optimized_ratios)
+            if update_llamaswap_tensor_split(config_path, model_id, optimized_ratios):
+                yield f"Tensor-split {ts_str} written to llama-swap config"
 
         if _has_tensor_split(full_cmd):
             if skip_speed:
