@@ -269,15 +269,23 @@ def render_message_standalone(msg: dict) -> rx.Component:
     Rendert eine einzelne Message aus chat_history (dict-based).
 
     Uses rx.cond to branch on message role since msg is a Reflex Var.
+    content-visibility: auto skips rendering for off-screen messages entirely,
+    so the browser only pays layout/paint cost for visible bubbles.
     """
-    # Top-level branching with rx.cond
-    return rx.cond(
-        msg["role"] == "user",
-        render_user_message(msg),
+    return rx.box(
         rx.cond(
-            msg["role"] == "assistant",
-            render_assistant_message(msg),
-            # system or unknown
-            render_system_message(msg)
-        )
+            msg["role"] == "user",
+            render_user_message(msg),
+            rx.cond(
+                msg["role"] == "assistant",
+                render_assistant_message(msg),
+                # system or unknown
+                render_system_message(msg)
+            )
+        ),
+        style={
+            "content_visibility": "auto",
+            "contain_intrinsic_size": "auto 150px",
+        },
+        width="100%",
     )

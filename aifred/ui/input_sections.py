@@ -265,7 +265,7 @@ def text_input_section() -> rx.Component:
             value=AIState.current_user_input,
             on_change=AIState.set_user_input,
             width="100%",
-            rows="5",
+            rows="3",
             spell_check=False,
             disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
             style={

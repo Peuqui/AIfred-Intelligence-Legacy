@@ -261,7 +261,7 @@ async def _stream_agent_to_history(
             token_count += 1
 
             if state.stream_text_to_ui(chunk["text"]):
-                yield None
+                yield None  # type: ignore[misc]
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
@@ -295,6 +295,7 @@ async def _stream_agent_to_history(
     state._sync_to_llm_history(agent, full_response)
 
     # Clear streaming state (cleanup BEFORE yield)
+    state._js_chunk_buffer = ""
     state.current_ai_response = ""
     state.current_agent = ""
 
@@ -526,6 +527,7 @@ async def _run_agent_direct_response(
         )
 
         # Cleanup
+        state._js_chunk_buffer = ""
         state.current_ai_response = ""
         state.current_agent = ""
         state._save_current_session()

@@ -1238,12 +1238,14 @@ class ChatMixin(rx.State, mixin=True):
 
                 yield
 
-            # Final cleanup
+            # Final cleanup — flush remaining stream buffer and clear state
+            self._js_chunk_buffer = ""  # type: ignore[attr-defined]
             self.current_ai_response = ""
             yield
 
         except Exception as e:
             error_msg = f"Error: {e!s}"
+            self._js_chunk_buffer = ""  # type: ignore[attr-defined]
             self.current_ai_response = error_msg
 
             # APPEND error as separate panel

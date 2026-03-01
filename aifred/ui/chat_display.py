@@ -488,73 +488,75 @@ def chat_history_display() -> rx.Component:
 
     # Chat History Box - JavaScript-basiertes Autoscroll (nicht rx.auto_scroll)
     # rx.auto_scroll ignoriert den Toggle während der Inferenz, daher JavaScript-Lösung
-    # Unified Streaming Element - shows current_ai_response for ANY agent (AIfred, Sokrates, Salomo)
-    # This is a SEPARATE element from chat_history to avoid O(n) regex parsing on each token
-    # Styling adapts based on AIState.current_agent ("aifred" | "sokrates" | "salomo")
-    # Plain text during streaming — no markdown parsing per token.
-    # Full markdown rendering happens once when the message lands in chat_history.
+    # Streaming text uses rx.text bound to current_ai_response (state-driven).
+    # Tokens are batched at ~100ms intervals to reduce React re-renders (~10/s).
+
+    _stream_text_style: dict = {"white_space": "pre-wrap", "word_break": "break-word", "color": COLORS["ai_text"], "font_size": "13px"}
 
     streaming_box = rx.cond(
         AIState.is_generating & (AIState.current_ai_response != ""),
-        rx.cond(
-            # AIfred Streaming (Orange)
-            AIState.current_agent == "aifred",
-            rx.box(
-                rx.hstack(
-                    rx.text("\U0001f3a9", font_size="13px"),
+        rx.box(
+            rx.cond(
+                # AIfred Streaming (Orange)
+                AIState.current_agent == "aifred",
+                rx.box(
+                    rx.hstack(
+                        rx.text("\U0001f3a9", font_size="13px"),
+                        rx.box(
+                            rx.hstack(
+                                rx.text("AIfred", font_weight="bold", font_size="12px", color=COLORS["primary"]),
+                                rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
+                                spacing="1", margin_bottom="1",
+                            ),
+                            rx.text(AIState.current_ai_response, style=_stream_text_style),
+                            background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
+                        ),
+                        spacing="2", align="start", width="100%",
+                    ),
+                    background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
+                    border=f"1px solid {COLORS['primary']}", width="100%",
+                ),
+                rx.cond(
+                    # Sokrates Streaming (Kupfer/Bronze)
+                    AIState.current_agent == "sokrates",
                     rx.box(
                         rx.hstack(
-                            rx.text("AIfred", font_weight="bold", font_size="12px", color=COLORS["primary"]),
-                            rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
-                            spacing="1", margin_bottom="1",
-                        ),
-                        rx.text(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", style={"white_space": "pre-wrap", "word_break": "break-word"}),
-                        background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
-                    ),
-                    spacing="2", align="start", width="100%",
-                ),
-                background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
-                border=f"1px solid {COLORS['primary']}", width="100%",
-            ),
-            rx.cond(
-                # Sokrates Streaming (Kupfer/Bronze)
-                AIState.current_agent == "sokrates",
-                rx.box(
-                    rx.hstack(
-                        rx.text("\U0001f3db\ufe0f", font_size="13px"),
-                        rx.box(
-                            rx.hstack(
-                                rx.text("Sokrates", font_weight="bold", font_size="12px", color="#cd7f32"),
-                                rx.text("\u258c", font_size="14px", color="#cd7f32", animation="blink 1s infinite"),
-                                spacing="1", margin_bottom="1",
+                            rx.text("\U0001f3db\ufe0f", font_size="13px"),
+                            rx.box(
+                                rx.hstack(
+                                    rx.text("Sokrates", font_weight="bold", font_size="12px", color="#cd7f32"),
+                                    rx.text("\u258c", font_size="14px", color="#cd7f32", animation="blink 1s infinite"),
+                                    spacing="1", margin_bottom="1",
+                                ),
+                                rx.text(AIState.current_ai_response, style=_stream_text_style),
+                                background_color="rgba(205, 127, 50, 0.08)", padding="3", border_radius="6px", width="100%",
                             ),
-                            rx.text(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", style={"white_space": "pre-wrap", "word_break": "break-word"}),
-                            background_color="rgba(205, 127, 50, 0.08)", padding="3", border_radius="6px", width="100%",
+                            spacing="2", align="start", width="100%",
                         ),
-                        spacing="2", align="start", width="100%",
+                        background_color="rgba(205, 127, 50, 0.03)", padding="2", border_radius="8px",
+                        border="1px solid rgba(205, 127, 50, 0.3)", width="100%",
                     ),
-                    background_color="rgba(205, 127, 50, 0.03)", padding="2", border_radius="8px",
-                    border="1px solid rgba(205, 127, 50, 0.3)", width="100%",
-                ),
-                # Salomo Streaming (Gold)
-                rx.box(
-                    rx.hstack(
-                        rx.text("\U0001f451", font_size="13px"),
-                        rx.box(
-                            rx.hstack(
-                                rx.text("Salomo", font_weight="bold", font_size="12px", color="#daa520"),
-                                rx.text("\u258c", font_size="14px", color="#daa520", animation="blink 1s infinite"),
-                                spacing="1", margin_bottom="1",
+                    # Salomo Streaming (Gold)
+                    rx.box(
+                        rx.hstack(
+                            rx.text("\U0001f451", font_size="13px"),
+                            rx.box(
+                                rx.hstack(
+                                    rx.text("Salomo", font_weight="bold", font_size="12px", color="#daa520"),
+                                    rx.text("\u258c", font_size="14px", color="#daa520", animation="blink 1s infinite"),
+                                    spacing="1", margin_bottom="1",
+                                ),
+                                rx.text(AIState.current_ai_response, style=_stream_text_style),
+                                background_color="rgba(218, 165, 32, 0.08)", padding="3", border_radius="6px", width="100%",
                             ),
-                            rx.text(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", style={"white_space": "pre-wrap", "word_break": "break-word"}),
-                            background_color="rgba(218, 165, 32, 0.08)", padding="3", border_radius="6px", width="100%",
+                            spacing="2", align="start", width="100%",
                         ),
-                        spacing="2", align="start", width="100%",
+                        background_color="rgba(218, 165, 32, 0.03)", padding="2", border_radius="8px",
+                        border="1px solid rgba(218, 165, 32, 0.3)", width="100%",
                     ),
-                    background_color="rgba(218, 165, 32, 0.03)", padding="2", border_radius="8px",
-                    border="1px solid rgba(218, 165, 32, 0.3)", width="100%",
                 ),
             ),
+            id="streaming-box", width="100%",
         ),
     )
 

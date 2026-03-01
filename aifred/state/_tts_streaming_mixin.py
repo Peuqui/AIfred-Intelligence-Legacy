@@ -337,25 +337,27 @@ class TTSStreamingMixin(rx.State, mixin=True):
     _ui_yield_ts: float = 0.0  # Timestamp of last UI yield
 
     # Minimum interval between UI yields (seconds).
-    # Each yield triggers full Reflex state serialization + diff + WebSocket push.
-    # With large state (chat_history, settings, etc.) this is the main bottleneck.
-    _UI_YIELD_INTERVAL: float = 0.25  # ~4 updates/sec — enough for readable streaming
+    # Batches multiple tokens into a single state update to reduce
+    # React re-renders during streaming (~10/s instead of ~40/s).
+    _UI_YIELD_INTERVAL: float = 0.10  # ~10 updates/sec
+    _js_chunk_buffer: str = ""  # Accumulates chunks between yields
 
     def stream_text_to_ui(self, chunk: str) -> bool:
-        """Zentrale Funktion für ALLE gestreamten Text-Ausgaben.
+        """Accumulate streaming chunk and signal when to yield.
 
-        Schreibt Text in den UI-Buffer und leitet ihn an den TTS-Satz-Detektor weiter.
-        Wird von allen Streaming-Stellen aufgerufen (state.py + multi_agent.py).
+        Batches tokens over ``_UI_YIELD_INTERVAL`` and updates
+        ``current_ai_response`` with the accumulated batch. Callers
+        must ``yield`` when this returns True::
 
-        Returns True when enough time has passed since the last UI yield,
-        signaling the caller to ``yield`` and push the update to the browser.
-        TTS processing happens on every call regardless.
+            if self.stream_text_to_ui(chunk):
+                yield
 
-        Args:
-            chunk: Text chunk from LLM streaming
+        Returns:
+            True when it's time to yield (state was updated), False otherwise.
         """
         import time
-        self.current_ai_response += chunk  # type: ignore[attr-defined]
+
+        self._js_chunk_buffer += chunk
 
         if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
             self._process_streaming_tts_chunk(chunk)
@@ -363,6 +365,9 @@ class TTSStreamingMixin(rx.State, mixin=True):
         now = time.monotonic()
         if now - self._ui_yield_ts >= self._UI_YIELD_INTERVAL:
             self._ui_yield_ts = now
+            batch = self._js_chunk_buffer
+            self._js_chunk_buffer = ""
+            self.current_ai_response += batch  # type: ignore[attr-defined]
             return True
         return False
 

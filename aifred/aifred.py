@@ -97,12 +97,39 @@ function attachScrollTracker(element) {
 }
 
 // Observer für Debug-Console und Chat-History Updates
-// Note: characterData intentionally NOT set — fires per-character during streaming
-// causing layout thrashing + horizontal jitter. The 200ms setInterval handles streaming.
+// characterData NOT set — rx.text() streaming uses text node updates (not childList).
+// A separate polling interval handles autoscroll during streaming.
 const observerConfig = { childList: true, subtree: true };
 
 // Track if chat-history-box observer is already running
 let chatObserverAttached = false;
+
+// Streaming autoscroll: poll-based scroll during active streaming.
+// MutationObserver misses rx.text() updates (characterData only, not childList).
+// Behavior: scroll down while user is near bottom. If user scrolls up, pause.
+// If user scrolls back to bottom, resume. Same as Claude Code terminal behavior.
+let streamingScrollInterval = null;
+function startStreamingScroll() {
+    if (streamingScrollInterval) return;
+    streamingScrollInterval = setInterval(() => {
+        if (!isAutoScrollEnabled()) return;
+        const box = document.getElementById('chat-history-box');
+        if (!box) return;
+        // Only scroll if user is near the bottom (within 150px)
+        // User scrolls up → distance grows → no auto-scroll
+        // User scrolls back down → distance shrinks → auto-scroll resumes
+        const distance = box.scrollHeight - box.scrollTop - box.clientHeight;
+        if (distance < 150) {
+            box.scrollTop = box.scrollHeight;
+        }
+    }, 120);
+}
+function stopStreamingScroll() {
+    if (streamingScrollInterval) {
+        clearInterval(streamingScrollInterval);
+        streamingScrollInterval = null;
+    }
+}
 
 const callback = function(mutationsList, observer) {
     const enabled = isAutoScrollEnabled();
@@ -120,6 +147,14 @@ const callback = function(mutationsList, observer) {
         chatObserver.observe(chatBox, observerConfig);
         attachScrollTracker(chatBox);
         chatObserverAttached = true;
+    }
+
+    // Start/stop streaming scroll based on whether streaming box exists
+    const streamingBox = document.getElementById('streaming-box');
+    if (streamingBox) {
+        startStreamingScroll();
+    } else {
+        stopStreamingScroll();
     }
 
     // Only scroll if auto-scroll is enabled
