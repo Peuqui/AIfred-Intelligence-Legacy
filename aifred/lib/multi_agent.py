@@ -260,8 +260,8 @@ async def _stream_agent_to_history(
             full_response += chunk["text"]
             token_count += 1
 
-            state.stream_text_to_ui(chunk["text"])
-            yield None
+            if state.stream_text_to_ui(chunk["text"]):
+                yield None
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
@@ -469,8 +469,8 @@ async def _run_agent_direct_response(
                 content = chunk.get("text", "")
                 full_response += content
                 token_count += 1
-                state.stream_text_to_ui(content)
-                yield
+                if state.stream_text_to_ui(content):
+                    yield
 
             elif chunk_type == "thinking":
                 thinking_content = chunk.get("text", "")

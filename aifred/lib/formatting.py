@@ -478,8 +478,8 @@ def extract_html_previews(text: str, lang: str | None = None) -> tuple[list[str]
         preview_url = _save_html_to_assets(html_code)
 
         collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">🌐 HTML Preview — <a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;" onclick="event.stopPropagation()">Open in Browser</a></summary>
-<div style="padding: 0.5em;">
+<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">🌐 HTML Preview — <a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;" onclick="event.stopPropagation()">Open in Browser</a></summary>
+<div style="max-height: 60vh; overflow-y: auto; padding: 0.5em;">
 
 ```html
 {html_code}
@@ -692,8 +692,8 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
 
         # Build collapsible HTML
         collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
-<div class="{css_class}">
+<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">{summary_text}</summary>
+<div class="{css_class}" style="max-height: 60vh; overflow-y: auto;">
 
 {content}
 
@@ -769,8 +769,8 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
         time_suffix = f" • {query_time:.1f}s" if query_time else ""
         query_opt_label = t("collapsible_query_optimization", lang=lang)
         debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{query_opt_label} ({automatik_model}){time_suffix}</summary>
-<div class="thinking-compact">
+<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">{query_opt_label} ({automatik_model}){time_suffix}</summary>
+<div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">
 
 {query_reasoning}
 
@@ -786,8 +786,8 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
             time_suffix = f" • {final_time:.1f}s" if final_time else ""
             thinking_label = t("collapsible_thinking_process", lang=lang)
             debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{thinking_label} ({main_model}){time_suffix}</summary>
-<div class="thinking-compact">
+<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">{thinking_label} ({main_model}){time_suffix}</summary>
+<div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">
 
 {content}
 
@@ -927,8 +927,8 @@ def build_sources_collapsible(used_sources: list, failed_sources: list, lang: st
 
     # Build complete collapsible (matching Denkprozess styling exactly)
     collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
-<div style="padding-left: 1em; padding-top: 0.3em; line-height: 1.6;">
+<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">{summary_text}</summary>
+<div style="max-height: 60vh; overflow-y: auto; padding-left: 1em; padding-top: 0.3em; line-height: 1.6;">
 
 {sources_html}
 

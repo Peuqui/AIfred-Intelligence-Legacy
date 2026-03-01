@@ -414,13 +414,36 @@ class ChatMixin(rx.State, mixin=True):
 
         Shared by VL Direct, VL Shortcut, and VL Follow-up paths.
         Handles streaming, history update, cleanup, title generation and session save.
+
+        For llamacpp: prefers the -speed variant (single GPU, faster) unless
+        the base variant is already running (avoid unnecessary model swap).
         """
         from ..lib.own_knowledge_handler import handle_own_knowledge
+
+        # Determine effective vision model: prefer speed variant for VL agent
+        effective_vision_id = self.vision_model_id  # type: ignore[attr-defined]
+        if self.backend_type == "llamacpp" and self.vision_model_id:  # type: ignore[attr-defined]
+            from ..lib.model_vram_cache import get_llamacpp_speed_split
+            speed_cuda0, _, _ = get_llamacpp_speed_split(self.vision_model_id)  # type: ignore[attr-defined]
+            if speed_cuda0 > 0:
+                # Speed variant exists — use it unless base is already loaded
+                try:
+                    import httpx
+                    swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
+                    async with httpx.AsyncClient(timeout=5.0) as _http:
+                        resp = await _http.get(f"{swap_base}/running")
+                        running = [m.get("model") for m in resp.json().get("running", [])]
+                        if self.vision_model_id not in running:  # type: ignore[attr-defined]
+                            effective_vision_id = f"{self.vision_model_id}-speed"  # type: ignore[attr-defined]
+                            self.add_debug(f"⚡ VL Speed: {effective_vision_id}")  # type: ignore[attr-defined]
+                            yield
+                except Exception:
+                    pass
 
         result_data = None
         async for item in handle_own_knowledge(
             user_text=user_msg,
-            model_choice=self.vision_model_id,  # type: ignore[attr-defined]
+            model_choice=effective_vision_id,
             history=self.chat_history,  # type: ignore[attr-defined, has-type]
             llm_history=self.llm_history[:-1],  # type: ignore[attr-defined, has-type]
             detected_intent=detected_intent,
@@ -440,8 +463,8 @@ class ChatMixin(rx.State, mixin=True):
                 self.add_debug(item["message"])
                 yield
             elif item["type"] == "content":
-                self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
-                yield
+                if self.stream_text_to_ui(item["text"]):  # type: ignore[attr-defined]
+                    yield
             elif item["type"] == "progress":
                 if item.get("clear", False):
                     self.clear_progress()  # type: ignore[attr-defined]
@@ -471,7 +494,7 @@ class ChatMixin(rx.State, mixin=True):
         self.is_generating = False
         yield
 
-        async for _ in self._generate_session_title(title_model_override=self.vision_model_id):  # type: ignore[attr-defined]
+        async for _ in self._generate_session_title(title_model_override=effective_vision_id):  # type: ignore[attr-defined]
             yield
         self._save_current_session()  # type: ignore[attr-defined]
         self.refresh_session_list()  # type: ignore[attr-defined]
@@ -1091,8 +1114,8 @@ class ChatMixin(rx.State, mixin=True):
                     yield
 
                 elif item["type"] == "content":
-                    self.stream_text_to_ui(item["text"])  # type: ignore[attr-defined]
-                    yield
+                    if self.stream_text_to_ui(item["text"]):  # type: ignore[attr-defined]
+                        yield
 
                 elif item["type"] == "result":
                     result_data = item["data"]

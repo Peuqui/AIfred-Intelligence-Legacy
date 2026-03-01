@@ -334,19 +334,37 @@ class TTSStreamingMixin(rx.State, mixin=True):
     # STREAMING TTS - Sentence-by-Sentence Generation
     # ============================================================
 
-    def stream_text_to_ui(self, chunk: str) -> None:
+    _ui_yield_ts: float = 0.0  # Timestamp of last UI yield
+
+    # Minimum interval between UI yields (seconds).
+    # Each yield triggers full Reflex state serialization + diff + WebSocket push.
+    # With large state (chat_history, settings, etc.) this is the main bottleneck.
+    _UI_YIELD_INTERVAL: float = 0.25  # ~4 updates/sec — enough for readable streaming
+
+    def stream_text_to_ui(self, chunk: str) -> bool:
         """Zentrale Funktion für ALLE gestreamten Text-Ausgaben.
 
         Schreibt Text in den UI-Buffer und leitet ihn an den TTS-Satz-Detektor weiter.
         Wird von allen Streaming-Stellen aufgerufen (state.py + multi_agent.py).
 
+        Returns True when enough time has passed since the last UI yield,
+        signaling the caller to ``yield`` and push the update to the browser.
+        TTS processing happens on every call regardless.
+
         Args:
             chunk: Text chunk from LLM streaming
         """
+        import time
         self.current_ai_response += chunk  # type: ignore[attr-defined]
 
         if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
             self._process_streaming_tts_chunk(chunk)
+
+        now = time.monotonic()
+        if now - self._ui_yield_ts >= self._UI_YIELD_INTERVAL:
+            self._ui_yield_ts = now
+            return True
+        return False
 
     def _init_streaming_tts(self, agent: str = "aifred"):
         """Initialize streaming TTS state for a new response.

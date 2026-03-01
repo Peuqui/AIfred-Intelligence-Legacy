@@ -9,7 +9,6 @@ import reflex as rx
 
 from ..state import AIState
 from ..theme import COLORS
-from .helpers import MARKDOWN_COMPONENT_MAP
 from .message_renderer import render_message_standalone
 
 # Pulse animation style (reused for progress icon and text)
@@ -492,6 +491,9 @@ def chat_history_display() -> rx.Component:
     # Unified Streaming Element - shows current_ai_response for ANY agent (AIfred, Sokrates, Salomo)
     # This is a SEPARATE element from chat_history to avoid O(n) regex parsing on each token
     # Styling adapts based on AIState.current_agent ("aifred" | "sokrates" | "salomo")
+    # Plain text during streaming — no markdown parsing per token.
+    # Full markdown rendering happens once when the message lands in chat_history.
+
     streaming_box = rx.cond(
         AIState.is_generating & (AIState.current_ai_response != ""),
         rx.cond(
@@ -506,7 +508,7 @@ def chat_history_display() -> rx.Component:
                             rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
                             spacing="1", margin_bottom="1",
                         ),
-                        rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP),
+                        rx.text(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", style={"white_space": "pre-wrap", "word_break": "break-word"}),
                         background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
                     ),
                     spacing="2", align="start", width="100%",
@@ -526,7 +528,7 @@ def chat_history_display() -> rx.Component:
                                 rx.text("\u258c", font_size="14px", color="#cd7f32", animation="blink 1s infinite"),
                                 spacing="1", margin_bottom="1",
                             ),
-                            rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP),
+                            rx.text(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", style={"white_space": "pre-wrap", "word_break": "break-word"}),
                             background_color="rgba(205, 127, 50, 0.08)", padding="3", border_radius="6px", width="100%",
                         ),
                         spacing="2", align="start", width="100%",
@@ -544,7 +546,7 @@ def chat_history_display() -> rx.Component:
                                 rx.text("\u258c", font_size="14px", color="#daa520", animation="blink 1s infinite"),
                                 spacing="1", margin_bottom="1",
                             ),
-                            rx.markdown(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP),
+                            rx.text(AIState.current_ai_response, color=COLORS["ai_text"], font_size="13px", style={"white_space": "pre-wrap", "word_break": "break-word"}),
                             background_color="rgba(218, 165, 32, 0.08)", padding="3", border_radius="6px", width="100%",
                         ),
                         spacing="2", align="start", width="100%",

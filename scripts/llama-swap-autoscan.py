@@ -877,6 +877,12 @@ def scan_hf_cache() -> list[dict]:
             split_match = re.match(r'^(.+)-\d{5}-of-\d{5}$', stem)
             if split_match:
                 stem = split_match.group(1)
+            # Strip HF repo owner prefix from filename (e.g. "Qwen_Qwen3..." → "Qwen3...")
+            # Some uploaders (bartowski) embed the org name in the GGUF filename.
+            # Owner prefix is pure-alpha before the first underscore (vs quant Q4_K_XL).
+            prefix, sep, rest = stem.partition("_")
+            if sep and rest and prefix.isalpha():
+                stem = rest
             results.append({
                 "name": stem,
                 "hf_path": gguf_file,

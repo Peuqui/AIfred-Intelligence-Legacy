@@ -56,10 +56,11 @@ def sort_models_grouped(models_dict: Dict[str, str]) -> Dict[str, str]:
         return base
 
     def get_model_size_gb(display_label: str) -> float:
-        """Extract size in GB from display label like 'model (5.2 GB)'"""
-        match = re.search(r'\((\d+\.?\d*)\s*GB\)', display_label)
+        """Extract size in GB from display label like 'model (5.2 GB)' or 'model (5,2 GB)'"""
+        match = re.search(r'\(([\d.,]+)\s*GB\)', display_label)
         if match:
-            return float(match.group(1))
+            # Handle both locale formats: "61.2" (EN) and "61,2" (DE)
+            return float(match.group(1).replace(",", "."))
         return 0.0
 
     # Create list of (model_id, display_label, family, size)
