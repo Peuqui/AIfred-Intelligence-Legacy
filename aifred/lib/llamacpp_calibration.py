@@ -1406,6 +1406,17 @@ async def _physical_context_search(
                     yield f"Reasoning: {'yes' if thinking_result else 'no'}"
                 else:
                     yield item
+            # If close to native context, test it directly (binary search
+            # precision may skip the last few hundred tokens)
+            if result < native_context and native_context - result <= 1024:
+                yield f"[{len(cuda_gpu_names) + 1}] Testing native: {format_number(native_context)}..."
+                native_fits, _, _, _ = await _test_context_physical(
+                    full_cmd, native_context, port,
+                )
+                if native_fits:
+                    result = native_context
+                    yield f"✓ {format_number(native_context)} fits — full native context!"
+
             if result > projected:
                 yield (
                     f"Optimum: {format_number(result)} tokens "
@@ -2242,12 +2253,11 @@ async def calibrate_llamacpp_model(
 
         result = 0
         skip_speed = False
-        has_multi_gpu = _has_tensor_split(phase1_cmd)
         # Run thinking test on first KV iteration (piggyback on first successful test)
         run_thinking = thinking_result is None
         async for item in _physical_context_search(
             test_cmd, gguf_path, native_context, ngl=99, port=port,
-            skip_balance=has_multi_gpu,
+            skip_balance=False,
             run_thinking_test=run_thinking,
         ):
             if isinstance(item, int):

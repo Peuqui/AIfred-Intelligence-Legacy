@@ -363,6 +363,9 @@ class CalibrationMixin(rx.State, mixin=True):
                 self.add_debug("⚠️ Could not update -ngl in llama-swap config")  # type: ignore[attr-defined]
 
             # Write speed variant YAML entry (only for multi-GPU models with valid split)
+            if speed_split_cuda0 <= 0:
+                self.aifred_has_speed_variant = False  # type: ignore[attr-defined]
+                self.aifred_speed_mode = False  # type: ignore[attr-defined]
             if speed_split_cuda0 > 0:
                 added_speed = add_llamaswap_speed_variant(
                     LLAMASWAP_CONFIG_PATH,

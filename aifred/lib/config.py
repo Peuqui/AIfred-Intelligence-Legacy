@@ -851,7 +851,7 @@ VRAM_SAFETY_MARGIN = 512  # MB
 # On native Linux: cudaMalloc returns OOM, no silent swapping — smaller margin sufficient.
 # Measured on WSL2: 512 → 70 tok/s (VMM), 1024 → marginal, 1536 → 137 tok/s (full speed)
 _is_wddm = "microsoft" in platform.release().lower() or os.name == "nt"
-LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 256  # MB
+LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 0  # MB
 
 # XTTS VRAM reservation (MB)
 # XTTS model uses ~2044 MiB when loaded. Add small buffer for safety.

@@ -884,14 +884,8 @@ def add_llamacpp_calibration(
     if ram_cpu_mb and ram_cpu_mb > 0:
         calibration["ram_cpu_mb"] = ram_cpu_mb
 
-    # Replace existing entry with same mode, or append if first calibration for this mode
-    calibrations = cache[model_id]["llamacpp_calibrations"]
-    for i, cal in enumerate(calibrations):
-        if cal.get("mode") == mode:
-            calibrations[i] = calibration
-            break
-    else:
-        calibrations.append(calibration)
+    # Replace all previous calibrations — only the latest matters
+    cache[model_id]["llamacpp_calibrations"] = [calibration]
 
     speed_info = f", speed_split={speed_split}:1" if speed_split > 0 else ""
     logger.info(
@@ -985,14 +979,16 @@ def get_llamacpp_speed_split(model_id: str) -> tuple[int, int, int]:
     if model_id not in cache:
         return (0, 0, 0)
     calibrations = cache[model_id].get("llamacpp_calibrations", [])
-    for cal in reversed(calibrations):
-        split = cal.get("speed_split", 0)
-        if split > 0:
-            return (
-                int(split),
-                int(cal.get("speed_split_rest", 0)),
-                int(cal.get("speed_split_context", 0)),
-            )
+    if not calibrations:
+        return (0, 0, 0)
+    cal = calibrations[-1]
+    split = cal.get("speed_split", 0)
+    if split > 0:
+        return (
+            int(split),
+            int(cal.get("speed_split_rest", 0)),
+            int(cal.get("speed_split_context", 0)),
+        )
     return (0, 0, 0)
 
 
