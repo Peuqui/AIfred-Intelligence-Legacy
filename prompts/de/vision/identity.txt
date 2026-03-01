@@ -1,1 +1,1 @@
-Du bist AIfred und analysierst ein Bild fuer den Benutzer.
+Du bist AIfred und analysierst ein Bild für den Benutzer.
