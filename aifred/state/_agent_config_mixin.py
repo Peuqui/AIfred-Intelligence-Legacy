@@ -395,9 +395,9 @@ class AgentConfigMixin(rx.State, mixin=True):
         from ..lib.formatting import format_number
         from ..lib.config import MIN_USEFUL_CONTEXT_TOKENS
         if speed_on:
-            split = get_llamacpp_speed_split(base_model_id)
-            split_str = f" ({split}:1 tensor-split)" if split > 0 else ""
-            ctx = format_number(MIN_USEFUL_CONTEXT_TOKENS)
+            cuda0, rest, speed_ctx = get_llamacpp_speed_split(base_model_id)
+            split_str = f" ({cuda0}:{rest} tensor-split)" if cuda0 > 0 else ""
+            ctx = format_number(speed_ctx if speed_ctx > 0 else MIN_USEFUL_CONTEXT_TOKENS)
             return f"\u26a1 speed \u2014 {ctx} tok{split_str}"
         else:
             ctx = format_number(max_ctx) if max_ctx else "n/a"
@@ -801,7 +801,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.sokrates_max_context = get_llamacpp_calibration(self.sokrates_model_id) or 0
             self.sokrates_is_hybrid = False
             self.sokrates_supports_thinking = get_thinking_support_for_model(self.sokrates_model_id)
-            self.sokrates_has_speed_variant = get_llamacpp_speed_split(self.sokrates_model_id) > 0
+            self.sokrates_has_speed_variant = get_llamacpp_speed_split(self.sokrates_model_id)[0] > 0
             if not self.sokrates_has_speed_variant:
                 self.sokrates_speed_mode = False
 
@@ -847,7 +847,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.salomo_max_context = get_llamacpp_calibration(self.salomo_model_id) or 0
             self.salomo_is_hybrid = False
             self.salomo_supports_thinking = get_thinking_support_for_model(self.salomo_model_id)
-            self.salomo_has_speed_variant = get_llamacpp_speed_split(self.salomo_model_id) > 0
+            self.salomo_has_speed_variant = get_llamacpp_speed_split(self.salomo_model_id)[0] > 0
             if not self.salomo_has_speed_variant:
                 self.salomo_speed_mode = False
 

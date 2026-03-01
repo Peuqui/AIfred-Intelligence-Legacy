@@ -948,9 +948,14 @@ def get_llamacpp_calibration_info(model_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def update_llamacpp_speed_split(model_id: str, speed_split: int) -> bool:
+def update_llamacpp_speed_split(
+    model_id: str,
+    speed_split: int,
+    speed_split_rest: int = 0,
+    speed_split_context: int = 0,
+) -> bool:
     """
-    Update the speed_split field on the most recent llama.cpp calibration entry.
+    Update the speed_split fields on the most recent llama.cpp calibration entry.
 
     Called after speed variant calibration completes (separate from main calibration
     because the speed result arrives after the context result is already saved).
@@ -962,26 +967,33 @@ def update_llamacpp_speed_split(model_id: str, speed_split: int) -> bool:
     if not calibrations:
         return False
     calibrations[-1]["speed_split"] = speed_split
-    logger.info(f"Updated speed_split={speed_split}:1 for {model_id}")
+    calibrations[-1]["speed_split_rest"] = speed_split_rest
+    if speed_split_context > 0:
+        calibrations[-1]["speed_split_context"] = speed_split_context
+    logger.info(f"Updated speed_split={speed_split}:{speed_split_rest} for {model_id}")
     return save_cache(cache)
 
 
-def get_llamacpp_speed_split(model_id: str) -> int:
+def get_llamacpp_speed_split(model_id: str) -> tuple[int, int, int]:
     """
-    Get the speed-variant tensor-split N for a llama.cpp model.
+    Get the speed-variant tensor-split for a llama.cpp model.
 
-    Returns the N from the most recent calibration that has a speed_split.
-    A value of 0 means no speed variant was calibrated.
+    Returns (cuda0_layers, rest_layers, context) from the most recent calibration.
+    All zeros means no speed variant was calibrated.
     """
     cache = load_cache()
     if model_id not in cache:
-        return 0
+        return (0, 0, 0)
     calibrations = cache[model_id].get("llamacpp_calibrations", [])
     for cal in reversed(calibrations):
         split = cal.get("speed_split", 0)
         if split > 0:
-            return int(split)
-    return 0
+            return (
+                int(split),
+                int(cal.get("speed_split_rest", 0)),
+                int(cal.get("speed_split_context", 0)),
+            )
+    return (0, 0, 0)
 
 
 def get_llamacpp_calibrations(model_id: str) -> List[Dict[str, Any]]:

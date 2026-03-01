@@ -9,9 +9,8 @@ import logging
 import math
 import struct
 import requests
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Dict, List, Generator
+from typing import Optional, Dict, List
 from .config import (
     VRAM_SAFETY_MARGIN,
     VRAM_CONTEXT_RATIO_DENSE,
@@ -20,6 +19,7 @@ from .config import (
     DEFAULT_OLLAMA_URL
 )
 from .formatting import format_number
+from . import nvidia_smi
 
 logger = logging.getLogger(__name__)
 
@@ -62,17 +62,6 @@ def round_to_nominal_vram(vram_mb: int) -> int:
     return math.ceil(vram_gb)
 
 
-@contextmanager
-def _nvml_session() -> Generator[None, None, None]:
-    """Context manager for pynvml init/shutdown."""
-    import pynvml
-    pynvml.nvmlInit()
-    try:
-        yield
-    finally:
-        pynvml.nvmlShutdown()
-
-
 # NOTE: is_model_loaded() was moved to backends/base.py as abstractmethod
 # Each backend implements its own logic:
 # - Ollama: Query /api/ps endpoint
@@ -82,9 +71,7 @@ def _nvml_session() -> Generator[None, None, None]:
 
 def get_gpu_memory_info(gpu_index: int = 0) -> Optional[Dict]:
     """
-    Query comprehensive GPU memory info using pynvml.
-
-    Returns all memory-related info in one call to avoid repeated pynvml init/shutdown.
+    Query comprehensive GPU memory info via nvidia-smi.
 
     Args:
         gpu_index: GPU index (default: 0 for primary GPU)
@@ -97,162 +84,58 @@ def get_gpu_memory_info(gpu_index: int = 0) -> Optional[Dict]:
         - gpu_model: GPU model name (e.g., "NVIDIA GeForce RTX 3090")
         Or None if GPU unavailable
     """
-    try:
-        import pynvml
-        with _nvml_session():
-            handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
-            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            gpu_model = pynvml.nvmlDeviceGetName(handle)
-
-            return {
-                "total_mb": int(mem_info.total / (1024 * 1024)),
-                "free_mb": int(mem_info.free / (1024 * 1024)),
-                "used_mb": int(mem_info.used / (1024 * 1024)),
-                "gpu_model": gpu_model
-            }
-
-    except ImportError:
-        logger.warning("pynvml not installed - install via: pip install pynvml")
+    rows = nvidia_smi.query(gpu_index=gpu_index)
+    if not rows:
         return None
-    except Exception as e:
-        logger.debug(f"Could not query GPU {gpu_index} via pynvml: {e}")
-        return None
+    row = rows[0]
+    return {
+        "total_mb": int(row["memory.total"]),
+        "free_mb": int(row["memory.free"]),
+        "used_mb": int(row["memory.used"]),
+        "gpu_model": row["name"]
+    }
 
 
 def get_free_vram_for_single_gpu(gpu_index: int = 0) -> Optional[int]:
     """
-    Query free VRAM for a specific GPU using pynvml
+    Query free VRAM for a specific GPU via nvidia-smi.
 
     Args:
         gpu_index: GPU index (0 for first GPU, 1 for second, etc.)
 
     Returns:
         int: Free VRAM in MB for the specified GPU, or None if GPU unavailable
-
-    Example:
-        >>> vram = get_free_vram_for_single_gpu(0)  # First GPU
-        >>> print(f"GPU 0 has {vram}MB free")
     """
-    try:
-        import pynvml
-        with _nvml_session():
-            handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
-            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            return int(mem_info.free / (1024 * 1024))
-
-    except ImportError:
-        logger.warning("pynvml not installed - install via: pip install pynvml")
+    rows = nvidia_smi.query("memory.free", gpu_index=gpu_index)
+    if not rows:
         return None
-    except Exception as e:
-        logger.debug(f"Could not query GPU {gpu_index} via pynvml: {e}")
-        return None
-
-
-def get_total_used_vram_mb() -> Optional[int]:
-    """
-    Query used VRAM using pynvml (NVIDIA Management Library)
-
-    For multi-GPU systems, returns the SUM of used VRAM across ALL GPUs.
-    Useful for measuring how much VRAM a loaded model actually occupies.
-
-    Returns:
-        int: Total used VRAM in MB (summed across all GPUs), or None if GPU unavailable
-    """
-    try:
-        import pynvml
-        with _nvml_session():
-            device_count = pynvml.nvmlDeviceGetCount()
-
-            total_used_mb = 0
-            for i in range(device_count):
-                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                total_used_mb += mem_info.used / (1024 * 1024)
-
-            return int(total_used_mb)
-
-    except ImportError:
-        logger.warning("pynvml not installed - install via: pip install pynvml")
-        return None
-    except Exception as e:
-        logger.debug(f"Could not query GPU via pynvml: {e}")
-        return None
-
-
-def get_process_vram_mb(pid: int) -> Optional[int]:
-    """
-    Query VRAM used by a specific process (by PID) across all GPUs.
-
-    Uses nvmlDeviceGetComputeRunningProcesses() for per-process measurement.
-    Unlike total/delta VRAM, this is independent of desktop activity and other
-    GPU consumers — it reports exactly what the target process uses.
-
-    Args:
-        pid: Process ID to query
-
-    Returns:
-        int: VRAM in MB used by this process (summed across all GPUs), or None
-    """
-    try:
-        import pynvml
-        with _nvml_session():
-            device_count = pynvml.nvmlDeviceGetCount()
-            total_mb = 0
-
-            for i in range(device_count):
-                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                processes = pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
-                for proc in processes:
-                    if proc.pid == pid:
-                        total_mb += proc.usedGpuMemory / (1024 * 1024)
-
-            return int(total_mb) if total_mb > 0 else None
-
-    except ImportError:
-        logger.warning("pynvml not installed - install via: pip install pynvml")
-        return None
-    except Exception as e:
-        logger.debug(f"Could not query process VRAM for PID {pid}: {e}")
-        return None
+    return int(rows[0]["memory.free"])
 
 
 def get_free_vram_mb() -> Optional[int]:
     """
-    Query free VRAM using pynvml (NVIDIA Management Library)
+    Query free VRAM via nvidia-smi.
 
     For multi-GPU systems, returns the SUM of free VRAM across ALL GPUs.
 
     Returns:
         int: Total free VRAM in MB (summed across all GPUs), or None if GPU unavailable
     """
-    try:
-        import pynvml
-        with _nvml_session():
-            device_count = pynvml.nvmlDeviceGetCount()
-
-            total_free_mb = 0
-            for i in range(device_count):
-                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                free_mb = mem_info.free / (1024 * 1024)
-                total_free_mb += free_mb
-
-                # Log per-GPU VRAM for debugging
-                if device_count > 1:
-                    gpu_name = pynvml.nvmlDeviceGetName(handle)
-                    logger.debug(f"   GPU {i} ({gpu_name}): {int(free_mb)} MB free")
-
-            if device_count > 1:
-                logger.debug(f"   Total free VRAM (sum of {device_count} GPUs): {int(total_free_mb)} MB")
-
-            return int(total_free_mb)
-
-    except ImportError:
-        logger.warning("pynvml not installed - install via: pip install pynvml")
+    rows = nvidia_smi.query("index,name,memory.free")
+    if not rows:
         return None
-    except Exception as e:
-        logger.debug(f"Could not query GPU via pynvml: {e}")
-        return None
+
+    total_free = 0
+    for i, row in enumerate(rows):
+        free = int(row["memory.free"])
+        total_free += free
+        if len(rows) > 1:
+            logger.debug(f"   GPU {i} ({row['name']}): {free} MB free")
+
+    if len(rows) > 1:
+        logger.debug(f"   Total free VRAM (sum of {len(rows)} GPUs): {total_free} MB")
+
+    return total_free
 
 
 def get_gpu_model_name(gpu_index: int = 0) -> Optional[str]:
@@ -265,24 +148,15 @@ def get_gpu_model_name(gpu_index: int = 0) -> Optional[str]:
     Returns:
         GPU model name string, or None if unavailable
     """
-    try:
-        import pynvml
-        with _nvml_session():
-            handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
-            name = pynvml.nvmlDeviceGetName(handle)
-
-            if isinstance(name, bytes):
-                name = name.decode('utf-8')
-
-            return str(name)
-
-    except Exception:
+    rows = nvidia_smi.query("name", gpu_index=gpu_index)
+    if not rows:
         return None
+    return rows[0]["name"]
 
 
 def get_all_gpus_memory_info() -> Optional[Dict]:
     """
-    Query memory info for ALL GPUs in the system.
+    Query memory info for ALL GPUs in the system via nvidia-smi.
 
     Returns aggregated stats plus per-GPU details.
 
@@ -296,54 +170,40 @@ def get_all_gpus_memory_info() -> Optional[Dict]:
         - per_gpu: List of dicts with per-GPU info
         Or None if unavailable
     """
-    try:
-        import pynvml
-        with _nvml_session():
-            gpu_count = pynvml.nvmlDeviceGetCount()
-
-            total_mb = 0
-            free_mb = 0
-            used_mb = 0
-            gpu_models = []
-            per_gpu = []
-
-            for i in range(gpu_count):
-                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                gpu_name = pynvml.nvmlDeviceGetName(handle)
-
-                gpu_total = int(mem_info.total / (1024 * 1024))
-                gpu_free = int(mem_info.free / (1024 * 1024))
-                gpu_used = int(mem_info.used / (1024 * 1024))
-
-                total_mb += gpu_total
-                free_mb += gpu_free
-                used_mb += gpu_used
-                gpu_models.append(gpu_name)
-
-                per_gpu.append({
-                    "index": i,
-                    "gpu_model": gpu_name,
-                    "total_mb": gpu_total,
-                    "free_mb": gpu_free,
-                    "used_mb": gpu_used
-                })
-
-            return {
-                "gpu_count": gpu_count,
-                "total_mb": total_mb,
-                "free_mb": free_mb,
-                "used_mb": used_mb,
-                "gpu_models": gpu_models,
-                "per_gpu": per_gpu
-            }
-
-    except ImportError:
-        logger.warning("pynvml not installed")
+    rows = nvidia_smi.query()
+    if not rows:
         return None
-    except Exception as e:
-        logger.debug(f"Could not query GPUs via pynvml: {e}")
-        return None
+
+    total_mb = 0
+    free_mb = 0
+    used_mb = 0
+    gpu_models: list[str] = []
+    per_gpu: list[dict] = []
+
+    for i, row in enumerate(rows):
+        gt = int(row["memory.total"])
+        gf = int(row["memory.free"])
+        gu = int(row["memory.used"])
+        total_mb += gt
+        free_mb += gf
+        used_mb += gu
+        gpu_models.append(row["name"])
+        per_gpu.append({
+            "index": i,
+            "gpu_model": row["name"],
+            "total_mb": gt,
+            "free_mb": gf,
+            "used_mb": gu
+        })
+
+    return {
+        "gpu_count": len(rows),
+        "total_mb": total_mb,
+        "free_mb": free_mb,
+        "used_mb": used_mb,
+        "gpu_models": gpu_models,
+        "per_gpu": per_gpu
+    }
 
 
 def get_free_ram_mb() -> Optional[int]:
@@ -892,98 +752,6 @@ async def calculate_vram_based_context(
     return final_num_ctx, debug_msgs
 
 
-def detect_gpu_vendor() -> str:
-    """
-    Detect GPU vendor (NVIDIA, AMD, or CPU-only)
-
-    Returns:
-        "nvidia", "amd", or "cpu"
-    """
-    try:
-        with _nvml_session():
-            return "nvidia"
-    except Exception:
-        pass
-
-    # Try AMD ROCm detection
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["rocm-smi", "--showproductname"],
-            capture_output=True,
-            text=True,
-            timeout=2.0
-        )
-        if result.returncode == 0:
-            return "amd"
-    except Exception:
-        pass
-
-    return "cpu"
-
-
-def get_gpu_count() -> int:
-    """
-    Get number of available GPUs
-
-    Returns:
-        Number of GPUs (0 if CPU-only)
-    """
-    try:
-        import pynvml
-        with _nvml_session():
-            count: int = pynvml.nvmlDeviceGetCount()
-            return count
-    except Exception:
-        return 0
-
-
-def get_gpu_names() -> list[str]:
-    """
-    Get list of GPU names
-
-    Returns:
-        List of GPU names (e.g., ["NVIDIA GeForce RTX 3090 Ti", "NVIDIA GeForce RTX 3090 Ti"])
-    """
-    names: list[str] = []
-    try:
-        import pynvml
-        with _nvml_session():
-            count = pynvml.nvmlDeviceGetCount()
-            for i in range(count):
-                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                name = pynvml.nvmlDeviceGetName(handle)
-                if isinstance(name, bytes):
-                    name = name.decode('utf-8')
-                names.append(name)
-    except Exception:
-        pass
-
-    return names
-
-
-def get_gpu_vram_per_gpu() -> list[int]:
-    """
-    Get VRAM size for each GPU in MB
-
-    Returns:
-        List of VRAM sizes in MB (e.g., [24564, 24564] for dual P40)
-    """
-    vram_sizes: list[int] = []
-    try:
-        import pynvml
-        with _nvml_session():
-            count = pynvml.nvmlDeviceGetCount()
-            for i in range(count):
-                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                vram_sizes.append(int(mem_info.total / (1024 * 1024)))
-    except Exception:
-        pass
-
-    return vram_sizes
-
-
 def calculate_gpu_layers(model_size_gb: float, vram_mb: int) -> int:
     """
     Calculate optimal number of GPU layers based on model size and VRAM
@@ -1025,45 +793,18 @@ def calculate_gpu_layers(model_size_gb: float, vram_mb: int) -> int:
 
 def get_gpu_utilization() -> Optional[List[int]]:
     """
-    Get current GPU utilization for all GPUs via nvidia-smi
+    Get current GPU utilization for all GPUs via nvidia-smi.
 
     Returns:
         List of utilization percentages (0-100) for each GPU
         None if nvidia-smi fails or no GPUs found
-
-    Example:
-        >>> utils = get_gpu_utilization()
-        >>> print(utils)
-        [0, 0]  # 2 GPUs, both idle
     """
-    import subprocess
-
+    rows = nvidia_smi.query("utilization.gpu")
+    if not rows:
+        return None
     try:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=utilization.gpu",
-                "--format=csv,noheader,nounits"
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5.0,
-            check=False
-        )
-
-        if result.returncode != 0:
-            return None
-
-        # Parse output: "0\n15\n" -> [0, 15]
-        utilizations = [
-            int(line.strip())
-            for line in result.stdout.strip().split('\n')
-            if line.strip()
-        ]
-
-        return utilizations if utilizations else None
-
-    except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
+        return [int(row["utilization.gpu"]) for row in rows]
+    except (ValueError, KeyError):
         return None
 
 

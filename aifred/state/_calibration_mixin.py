@@ -282,14 +282,18 @@ class CalibrationMixin(rx.State, mixin=True):
             # Step 2: Run calibration (Phase 1: GPU-only, Phase 2: Hybrid if needed,
             #          Phase 3: Speed split for multi-GPU models)
             # Result format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}
-            # Speed format:  __SPEED__:{N}  (N:1 tensor-split for speed variant, 0=none)
+            # Speed format:  __SPEED__:{cuda0},{rest},{context}  (layer counts + ctx, 0=none)
             calibrated_ctx = None
             calibrated_ngl = 99
             calibrated_mode = "gpu"
             thinking_tested = False
-            speed_split_n = 0
+            speed_split_cuda0 = 0
+            speed_split_rest = 0
+            speed_split_context = MIN_USEFUL_CONTEXT_TOKENS
+            # Always calibrate the base model — speed variant is created as Phase 2
+            calibration_model_id = self.aifred_model_id.removesuffix("-speed")  # type: ignore[attr-defined]
             async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
-                self.aifred_model_id  # type: ignore[attr-defined]
+                calibration_model_id
             ):
                 if progress_msg.startswith("__RESULT__:"):
                     parts = progress_msg.split(":")
@@ -300,7 +304,15 @@ class CalibrationMixin(rx.State, mixin=True):
                         thinking_tested = True
                         supports_thinking = parts[4] == "thinks"
                 elif progress_msg.startswith("__SPEED__:"):
-                    speed_split_n = int(progress_msg.split(":")[1])
+                    speed_val = progress_msg.split(":")[1]
+                    if "," in speed_val:
+                        speed_parts = speed_val.split(",")
+                        speed_split_cuda0 = int(speed_parts[0])
+                        speed_split_rest = int(speed_parts[1])
+                        if len(speed_parts) > 2:
+                            speed_split_context = int(speed_parts[2])
+                    else:
+                        speed_split_cuda0 = int(speed_val)
                 else:
                     self.add_debug(f"📊 {progress_msg}")  # type: ignore[attr-defined]
                     yield
@@ -320,7 +332,7 @@ class CalibrationMixin(rx.State, mixin=True):
             self.add_debug("📝 Updating llama-swap config...")  # type: ignore[attr-defined]
             updated_ctx = update_llamaswap_context(
                 LLAMASWAP_CONFIG_PATH,
-                self.aifred_model_id,  # type: ignore[attr-defined]
+                calibration_model_id,
                 calibrated_ctx
             )
             if updated_ctx:
@@ -341,7 +353,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
             updated_ngl = update_llamaswap_ngl(
                 LLAMASWAP_CONFIG_PATH,
-                self.aifred_model_id,  # type: ignore[attr-defined]
+                calibration_model_id,
                 yaml_ngl
             )
             if updated_ngl:
@@ -351,21 +363,28 @@ class CalibrationMixin(rx.State, mixin=True):
                 self.add_debug("⚠️ Could not update -ngl in llama-swap config")  # type: ignore[attr-defined]
 
             # Write speed variant YAML entry (only for multi-GPU models with valid split)
-            if speed_split_n > 0:
+            if speed_split_cuda0 > 0:
                 added_speed = add_llamaswap_speed_variant(
                     LLAMASWAP_CONFIG_PATH,
-                    self.aifred_model_id,  # type: ignore[attr-defined]
-                    speed_split_n,
-                    MIN_USEFUL_CONTEXT_TOKENS,
+                    calibration_model_id,
+                    speed_split_cuda0,
+                    speed_split_rest,
+                    speed_split_context,
                 )
                 if added_speed:
                     self.add_debug(  # type: ignore[attr-defined]
-                        f"   ⚡ Speed variant: {self.aifred_model_id}-speed "  # type: ignore[attr-defined]
-                        f"(split {speed_split_n}:1, ctx {format_number(MIN_USEFUL_CONTEXT_TOKENS)})"
+                        f"   ⚡ Speed variant: {calibration_model_id}-speed "
+                        f"(split {speed_split_cuda0}:{speed_split_rest}, "
+                        f"ctx {format_number(speed_split_context)})"
                     )
                     # Patch speed_split into the latest calibration entry (already saved)
                     from ..lib.model_vram_cache import update_llamacpp_speed_split
-                    update_llamacpp_speed_split(self.aifred_model_id, speed_split_n)  # type: ignore[attr-defined]
+                    update_llamacpp_speed_split(
+                        calibration_model_id,
+                        speed_split_cuda0,
+                        speed_split_rest,
+                        speed_split_context,
+                    )
                     # Toggle immediately visible without restart
                     self.aifred_has_speed_variant = True  # type: ignore[attr-defined]
                 else:

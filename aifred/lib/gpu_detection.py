@@ -5,9 +5,9 @@ Detects GPU compute capability and provides backend compatibility info.
 Prevents users from trying to use incompatible backends with their GPU.
 """
 
-import subprocess
 from typing import Optional, List, Dict, Any, TypedDict
 from dataclasses import dataclass, field
+from . import nvidia_smi
 
 
 class GPUDict(TypedDict):
@@ -140,37 +140,22 @@ class GPUDetector:
             GPUInfo if GPU detected, None otherwise
         """
         try:
-            # Try nvidia-smi first - query ALL GPUs
-            result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=name,memory.total,compute_cap",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-
-            if result.returncode != 0:
-                return None
-
-            # Parse output - can be multiple lines for multi-GPU
-            lines = result.stdout.strip().split('\n')
-            if not lines or not lines[0]:
+            rows = nvidia_smi.query("name,memory.total,compute_cap")
+            if not rows:
                 return None
 
             # For multi-GPU: Find GPU with LOWEST compute capability
             # This ensures backend compatibility across all GPUs
             gpu_list: List[GPUDict] = []
-            for line in lines:
-                parts = [p.strip() for p in line.split(",")]
-                if len(parts) >= 3:
-                    try:
-                        gpu_list.append({
-                            "name": parts[0],
-                            "vram_mb": int(parts[1]),
-                            "compute_cap": float(parts[2])
-                        })
-                    except ValueError:
-                        continue
+            for row in rows:
+                try:
+                    gpu_list.append({
+                        "name": row["name"],
+                        "vram_mb": int(row["memory.total"]),
+                        "compute_cap": float(row["compute_cap"])
+                    })
+                except (ValueError, KeyError):
+                    continue
 
             if not gpu_list:
                 return None
@@ -218,7 +203,7 @@ class GPUDetector:
 
             return self.gpu_info
 
-        except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        except (ValueError, KeyError):
             return None
 
     def _check_fast_fp16(self, gpu_name: str, compute_cap: float) -> bool:

@@ -576,7 +576,11 @@ def debug_console() -> rx.Component:
                 msg,
                 font_family="monospace",
                 font_size="11px",
-                color=COLORS["debug_text"],  # Matrix Grün
+                color=rx.cond(
+                    msg.contains("\u2717") | msg.contains("\u274c"),  # ✗ or ❌
+                    "#ff6b6b",  # Rot für Fehler
+                    COLORS["debug_text"],  # Matrix Grün
+                ),
                 white_space="pre",
             ),
         ),

@@ -16,9 +16,14 @@ import json
 import re
 import socket
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+# Direct import of nvidia_smi module (NOT via aifred.lib — that triggers Reflex app init)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "aifred" / "lib"))
+import nvidia_smi
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -45,7 +50,7 @@ VRAM_CACHE_FILE = PROJECT_ROOT / "data" / "model_vram_cache.json"
 
 LLAMA_SERVER_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-server"
 LLAMA_FIT_PARAMS_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-fit-params"
-DEFAULT_TTL = 300
+DEFAULT_TTL = 900
 DEFAULT_NGL = 99
 DEFAULT_FLAGS_BASE = "--flash-attn on -np 1 -t 4 --mlock --direct-io --jinja --no-context-shift"
 DEFAULT_CONTEXT = 32768  # Fallback if GGUF metadata unreadable
@@ -65,47 +70,21 @@ VRAM_SAFETY_MARGIN_MB = 1024
 # ---------------------------------------------------------------------------
 
 def get_total_vram_mb() -> int:
-    """Query total VRAM across all NVIDIA GPUs via pynvml. Returns 0 if unavailable."""
-    try:
-        import pynvml
-        pynvml.nvmlInit()
-        total = 0
-        for i in range(pynvml.nvmlDeviceGetCount()):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            total += mem.total
-        pynvml.nvmlShutdown()
-        return int(total / (1024 * 1024))
-    except Exception:
+    """Query total VRAM across all NVIDIA GPUs via nvidia-smi. Returns 0 if unavailable."""
+    rows = nvidia_smi.query("memory.total")
+    if not rows:
         return 0
+    return sum(int(row["memory.total"]) for row in rows)
 
 
 def get_per_gpu_vram_mb() -> list[int]:
     """Query VRAM per GPU, sorted by size descending (matches CUDA_DEVICE_ORDER=FASTEST_FIRST)."""
-    try:
-        import pynvml
-        pynvml.nvmlInit()
-        gpus = []
-        for i in range(pynvml.nvmlDeviceGetCount()):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            gpus.append(int(mem.total / (1024 * 1024)))
-        pynvml.nvmlShutdown()
-        gpus.sort(reverse=True)
-        return gpus
-    except Exception:
-        pass
-    # Fallback: nvidia-smi
-    try:
-        out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
-            text=True,
-        )
-        gpus = [int(line.strip()) for line in out.strip().splitlines() if line.strip()]
-        gpus.sort(reverse=True)
-        return gpus
-    except Exception:
+    rows = nvidia_smi.query("memory.total")
+    if not rows:
         return []
+    gpus = [int(row["memory.total"]) for row in rows]
+    gpus.sort(reverse=True)
+    return gpus
 
 
 def get_gguf_total_size(gguf_path: Path) -> int:
@@ -165,37 +144,12 @@ def build_gpu_flags(gguf_path: Path, per_gpu_vram: list[int]) -> str:
 
 def get_gpu_names() -> list[str]:
     """Query GPU model names, sorted by VRAM descending (matches FASTEST_FIRST)."""
-    try:
-        import pynvml
-        pynvml.nvmlInit()
-        gpus: list[tuple[int, str]] = []
-        for i in range(pynvml.nvmlDeviceGetCount()):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            name = pynvml.nvmlDeviceGetName(handle)
-            if isinstance(name, bytes):
-                name = name.decode()
-            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            gpus.append((int(mem.total / (1024 * 1024)), name))
-        pynvml.nvmlShutdown()
-        gpus.sort(key=lambda x: x[0], reverse=True)
-        return [name for _, name in gpus]
-    except Exception:
-        pass
-    # Fallback: nvidia-smi
-    try:
-        out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=memory.total,name", "--format=csv,noheader,nounits"],
-            text=True,
-        )
-        gpus_raw = []
-        for line in out.strip().splitlines():
-            parts = line.split(", ", 1)
-            if len(parts) == 2:
-                gpus_raw.append((int(parts[0].strip()), parts[1].strip()))
-        gpus_raw.sort(key=lambda x: x[0], reverse=True)
-        return [name for _, name in gpus_raw]
-    except Exception:
+    rows = nvidia_smi.query("memory.total,name")
+    if not rows:
         return []
+    gpus = [(int(row["memory.total"]), row["name"]) for row in rows]
+    gpus.sort(key=lambda x: x[0], reverse=True)
+    return [name for _, name in gpus]
 
 
 def _short_gpu_name(name: str) -> str:
@@ -297,21 +251,32 @@ def update_all_tensor_splits(config_path: Path, per_gpu_vram: list[int]) -> int:
             i += 1
             continue
 
-        # Collect full cmd text (may span multiple lines for | or > style)
+        # Collect full cmd text (may span multiple lines)
         cmd_start = i
         cmd_text = line
-        if "'${PORT}'" in line or '"${PORT}"' in line or '${PORT}' in line:
-            # Single-line cmd — complete on this line
-            cmd_end = i
-        elif re.search(r"cmd:\s*[|>]", line):
-            # Multi-line cmd block
+        if re.search(r"cmd:\s*[|>]", line):
+            # YAML block scalar (| or >) — collect indented continuation lines
             j = i + 1
             while j < len(lines) and lines[j].startswith("      "):
                 cmd_text += lines[j]
                 j += 1
             cmd_end = j - 1
+        elif re.search(r"cmd:\s*'", line):
+            # Quoted string — find the closing quote
+            if line.rstrip().endswith("'") and line.count("'") >= 2:
+                # Opening and closing quote on same line
+                cmd_end = i
+            else:
+                # Multi-line quoted string — collect until closing quote
+                j = i + 1
+                while j < len(lines):
+                    cmd_text += lines[j]
+                    if lines[j].rstrip().endswith("'"):
+                        break
+                    j += 1
+                cmd_end = j
         else:
-            # Single-line cmd (quoted)
+            # Unquoted single-line cmd
             cmd_end = i
 
         # Skip RPC profiles

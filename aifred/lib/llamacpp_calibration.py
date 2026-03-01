@@ -57,28 +57,44 @@ def _short_gpu_name(name: str) -> str:
     return name
 
 
+def _to_cuda_order(gpu_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort GPU list by total VRAM descending (= CUDA_DEVICE_ORDER=FASTEST_FIRST).
+
+    Adds cuda_id labels (CUDA0, CUDA1, ...) to each GPU dict.
+    """
+    sorted_gpus = sorted(gpu_list, key=lambda g: g["total_mb"], reverse=True)
+    for i, g in enumerate(sorted_gpus):
+        g["cuda_id"] = f"CUDA{i}"
+    return sorted_gpus
+
+
 def _format_cuda_detail(
     gpu_list: list[dict[str, Any]],
     cuda_gpu_names: list[str] | None = None,
 ) -> str:
-    """Format GPU detail string in CUDA order.
+    """Format GPU VRAM detail string — generic function for all calibration phases.
 
     If cuda_gpu_names is provided, reorder gpu_list to match CUDA order
-    and label as CUDA0, CUDA1, etc. Otherwise use gpu_list as-is.
+    and label as CUDA0, CUDA1, etc. Otherwise use gpu_list as-is with
+    cuda_id field (if present) or GPU index as label.
     """
     if cuda_gpu_names:
         parts: list[str] = []
         for i, name in enumerate(cuda_gpu_names):
             matched = next((g for g in gpu_list if g["name"] == name), None)
             if matched:
-                parts.append(f"{name}(CUDA{i}): {matched['free_mb']} MB free")
+                parts.append(
+                    f"{name}(CUDA{i}): {format_number(matched['free_mb'])} MB free"
+                )
         if parts:
             return ", ".join(parts)
-    # Fallback: use cuda_id if available, else index
+    # Use cuda_id if available, else GPU index
     parts = []
     for i, g in enumerate(gpu_list):
-        cuda_label = g.get("cuda_id", f"CUDA{g.get('index', i)}")
-        parts.append(f"{g['name']}({cuda_label}): {g['free_mb']} MB free")
+        cuda_label = g.get("cuda_id", f"GPU{g.get('index', i)}")
+        parts.append(
+            f"{g['name']}({cuda_label}): {format_number(g['free_mb'])} MB free"
+        )
     return ", ".join(parts)
 
 
@@ -546,6 +562,7 @@ _GPU_FLAGS = {
     "-ngl", "--flash-attn", "-ctk", "-ctv",
     "-ts", "--tensor-split", "-sm", "--split-mode",
     "-np", "-ub", "-b",
+    "--rpc",
 }
 
 
@@ -782,6 +799,7 @@ async def _start_llama_server(
         f"Starting llama-server: ts={ts_in_cmd}, ctx={context}, ngl={ngl}",
         category="stats",
     )
+    log_message(f"llama-server cmd: {cmd_str}", category="stats")
 
     try:
         # Write stdout to tempfile (parseable for VRAM info, readable after crash)
@@ -955,12 +973,14 @@ async def _start_and_verify(
             _kill_process(process)
             if output.strip():
                 logger.error(f"llama-server failed to start. output:\n{output[:2000]}")
-            await asyncio.sleep(1.5)
+            from aifred.backends.ollama import wait_for_vram_stable
+            await wait_for_vram_stable(max_wait_seconds=10.0)
             return None
 
         if not await _test_inference(port, process):
             _kill_process(process)
-            await asyncio.sleep(1.5)
+            from aifred.backends.ollama import wait_for_vram_stable
+            await wait_for_vram_stable(max_wait_seconds=10.0)
             return None
 
         return process
@@ -978,35 +998,66 @@ async def _calibration_test(
     ngl: Optional[int] = None,
 ) -> bool:
     """Full calibration test: start → verify → cleanup. Returns True if context fits."""
+    from aifred.backends.ollama import wait_for_vram_stable
     process = await _start_and_verify(full_cmd, context, port, ngl=ngl)
     if not process:
         return False
     _kill_process(process)
-    await asyncio.sleep(1.5)
+    await wait_for_vram_stable(max_wait_seconds=10.0)
     return True
 
 
 async def _test_context_physical(
     full_cmd: str, context: int, port: int,
-) -> tuple[bool, str, list[dict[str, Any]]]:
+    run_thinking_test: bool = False,
+) -> tuple[bool, str, list[dict[str, Any]], Optional[bool]]:
     """Test if a context size fits in physical VRAM.
 
-    Starts server, verifies health, measures free VRAM via pynvml.
+    Starts server, verifies health, measures free VRAM via nvidia-smi.
+    If run_thinking_test=True, tests reasoning capability before killing
+    the server (piggyback — no extra reload needed).
+
     Returns:
-        (fits, detail_str, per_gpu_list) — per_gpu_list has {index, name, free_mb} per GPU.
+        (fits, detail, gpu_list, thinking_result)
+        thinking_result: True/False if tested, None if not tested or server failed.
     """
+    thinking_result: Optional[bool] = None
+
     process = await _start_and_verify(full_cmd, context, port)
     if not process:
         log_message(
             f"VRAM ctx={format_number(context)}: OOM (server failed to start)",
             category="stats",
         )
-        return (False, "OOM", [])
+        return (False, "OOM", [], None)
 
-    # pynvml = GPU-wide free VRAM per GPU (multi-GPU: check ALL GPUs)
+    # GPU-wide free VRAM per GPU (multi-GPU: check ALL GPUs)
     all_gpus = get_all_gpus_memory_info()
     gpu_list: list[dict[str, Any]] = []
     min_free_mb: Optional[int] = None
+
+    # Raw nvidia-smi + CUDA process list for VRAM discrepancy analysis
+    try:
+        raw = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,memory.total,memory.used,memory.free",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5.0, check=False,
+        )
+        log_message(
+            f"VRAM ctx={format_number(context)}: raw nvidia-smi: {raw.stdout.strip()}",
+            category="stats",
+        )
+        procs = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,used_gpu_memory",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5.0, check=False,
+        )
+        log_message(
+            f"VRAM ctx={format_number(context)}: CUDA procs: {procs.stdout.strip()}",
+            category="stats",
+        )
+    except Exception:
+        pass
 
     if all_gpus and all_gpus["per_gpu"]:
         for g in all_gpus["per_gpu"]:
@@ -1017,24 +1068,36 @@ async def _test_context_physical(
                 "free_mb": g["free_mb"],
             })
         min_free_mb = min(g["free_mb"] for g in gpu_list)
-        per_gpu_detail = ", ".join(
-            f"{g['name']}(GPU{g['index']}): {g['free_mb']} MB free"
-            for g in gpu_list
-        )
+        gpu_list = _to_cuda_order(gpu_list)
+        per_gpu_detail = _format_cuda_detail(gpu_list)
         log_message(
-            f"VRAM ctx={format_number(context)}: pynvml {per_gpu_detail}",
+            f"VRAM ctx={format_number(context)}: nvidia-smi {per_gpu_detail}",
             category="stats",
         )
     else:
         per_gpu_detail = "VRAM unknown"
         log_message(
-            f"VRAM ctx={format_number(context)}: pynvml unavailable",
+            f"VRAM ctx={format_number(context)}: nvidia-smi unavailable",
             category="stats",
         )
 
-    # Kill server, keep log for breakdown diagnostics
+    # Decision: min free VRAM across ALL GPUs vs safety margin
+    fits = not (min_free_mb is not None and min_free_mb < LLAMACPP_VRAM_SAFETY_MARGIN)
+    detail = per_gpu_detail if min_free_mb is not None else "VRAM unknown"
+
+    if fits:
+        log_message(f"VRAM ctx={format_number(context)}: OK — {detail}", category="stats")
+    else:
+        log_message(f"VRAM ctx={format_number(context)}: FAIL — {detail}", category="stats")
+
+    # Piggyback thinking test while server is still running
+    if run_thinking_test:
+        thinking_result = await test_thinking_on_port(port)
+
+    # Kill server, wait for VRAM to fully release
+    from aifred.backends.ollama import wait_for_vram_stable
     _kill_process(process, keep_log=True)
-    await asyncio.sleep(1.5)
+    await wait_for_vram_stable(max_wait_seconds=10.0)
 
     # Breakdown: only for diagnostics
     log_path = getattr(process, '_server_log', None)
@@ -1052,19 +1115,7 @@ async def _test_context_physical(
     else:
         _cleanup_server_log(process)
 
-    # Decision: min free VRAM across ALL GPUs vs safety margin
-    if min_free_mb is not None and min_free_mb < LLAMACPP_VRAM_SAFETY_MARGIN:
-        log_message(
-            f"VRAM ctx={format_number(context)}: FAIL — {per_gpu_detail}",
-            category="stats",
-        )
-        return (False, per_gpu_detail, gpu_list)
-    detail = per_gpu_detail if min_free_mb is not None else "VRAM unknown"
-    log_message(
-        f"VRAM ctx={format_number(context)}: OK — {detail}",
-        category="stats",
-    )
-    return (True, detail, gpu_list)
+    return (fits, detail, gpu_list, thinking_result)
 
 
 async def _binary_search_context(
@@ -1074,21 +1125,32 @@ async def _binary_search_context(
     high: int,
     precision: int = 512,
     cuda_gpu_names: list[str] | None = None,
-) -> AsyncIterator[str | int]:
+    run_thinking_test: bool = False,
+) -> AsyncIterator[str | int | dict]:
     """Binary search for max fitting context between low and high.
 
     Yields status strings during search. Final yield is the integer result
     (best fitting context found, or 0 if nothing fits).
+    If run_thinking_test=True, piggybacks the thinking test on the first
+    server start where the server comes up (regardless of fits).
+    Yields {"thinking_result": bool} once captured.
     cuda_gpu_names: if provided, reformat detail in CUDA order.
     """
     result = 0
     iteration = 0
+    thinking_done = False
 
     while high - low > precision:
         mid = (low + high) // 2
         iteration += 1
         yield f"[{iteration}] Testing {format_number(mid)}..."
-        mid_fits, _, mid_gpus = await _test_context_physical(full_cmd, mid, port)
+        want_thinking = run_thinking_test and not thinking_done
+        mid_fits, _, mid_gpus, thinking_result = await _test_context_physical(
+            full_cmd, mid, port, run_thinking_test=want_thinking,
+        )
+        if thinking_result is not None:
+            thinking_done = True
+            yield {"thinking_result": thinking_result}
         mid_detail = _format_cuda_detail(mid_gpus, cuda_gpu_names) if mid_gpus else "VRAM unknown"
         if mid_fits:
             low = mid
@@ -1107,12 +1169,15 @@ async def _physical_context_search(
     native_context: int,
     ngl: int,
     port: int,
+    skip_balance: bool = False,
+    run_thinking_test: bool = False,
 ) -> AsyncIterator[str | int | dict]:
     """Fit-params projection + physical binary search for max context.
 
     Generic core used by both GPU-only (Phase 1) and hybrid calibration.
     If multi-GPU: detects VRAM asymmetry after first test and adjusts tensor-split
     before binary search (avoids searching with unbalanced split).
+    skip_balance: skip layer balance step (when speed-split will follow anyway).
 
     Yields: progress strings, metadata dict, final int result.
     Dict: {"gpu_list": [...], "balanced_cmd": str | None}
@@ -1142,9 +1207,14 @@ async def _physical_context_search(
     label = "native" if projected == native_context else "projected"
     yield f"[1] Testing {label}: {format_number(projected)}..."
 
-    fits, detail, gpu_list = await _test_context_physical(full_cmd, projected, port)
+    thinking_result: Optional[bool] = None
+    fits, detail, gpu_list, thinking_result = await _test_context_physical(
+        full_cmd, projected, port, run_thinking_test=run_thinking_test,
+    )
+    if thinking_result is not None:
+        yield f"Reasoning: {'yes' if thinking_result else 'no'}"
 
-    # Build CUDA-ordered gpu_list by matching fit-params GPU names with pynvml
+    # Build CUDA-ordered gpu_list by matching fit-params GPU names with nvidia-smi
     cuda_gpu_list: list[dict[str, Any]] = []
     if gpu_list and per_gpu_low:
         for cuda_id in sorted(per_gpu_low.keys()):  # CUDA0, CUDA1, ...
@@ -1158,7 +1228,7 @@ async def _physical_context_search(
                     "free_mb": matched["free_mb"],
                 })
         if len(cuda_gpu_list) != len(gpu_list):
-            # Name matching failed (e.g. same-model GPUs) — pynvml order
+            # Name matching failed (e.g. same-model GPUs)
             cuda_gpu_list = gpu_list
     else:
         cuda_gpu_list = gpu_list
@@ -1181,7 +1251,8 @@ async def _physical_context_search(
     current_ratios = _parse_tensor_split_ratios(full_cmd)
 
     if (
-        len(cuda_gpu_list) >= 2
+        not skip_balance
+        and len(cuda_gpu_list) >= 2
         and current_ratios
         and len(current_ratios) == len(cuda_gpu_list)
     ):
@@ -1239,9 +1310,13 @@ async def _physical_context_search(
                 await wait_for_vram_stable(max_wait_seconds=10.0)
 
                 yield f"[2] Testing balanced: {format_number(projected)}..."
-                fits, _, new_gpu_list = await _test_context_physical(
-                    full_cmd, projected, port,
+                want_thinking = run_thinking_test and thinking_result is None
+                fits, _, new_gpu_list, bal_thinking = await _test_context_physical(
+                    full_cmd, projected, port, run_thinking_test=want_thinking,
                 )
+                if bal_thinking is not None:
+                    thinking_result = bal_thinking
+                    yield f"Reasoning: {'yes' if thinking_result else 'no'}"
 
                 # Update cuda_gpu_list with fresh VRAM measurements
                 if new_gpu_list and per_gpu_low:
@@ -1305,6 +1380,7 @@ async def _physical_context_search(
         "gpu_list": cuda_gpu_list,
         "balanced_cmd": full_cmd if balance_adjusted else None,
         "skip_speed": skip_speed,
+        "thinking_result": thinking_result,
     }
 
     # 4. Binary search with (possibly adjusted) full_cmd and projected
@@ -1320,10 +1396,14 @@ async def _physical_context_search(
             async for item in _binary_search_context(
                 full_cmd, port, result, search_high,
                 cuda_gpu_names=cuda_gpu_names,
+                run_thinking_test=run_thinking_test and thinking_result is None,
             ):
                 if isinstance(item, int):
                     if item > result:
                         result = item
+                elif isinstance(item, dict) and item.get("thinking_result") is not None:
+                    thinking_result = item["thinking_result"]
+                    yield f"Reasoning: {'yes' if thinking_result else 'no'}"
                 else:
                     yield item
             if result > projected:
@@ -1339,9 +1419,13 @@ async def _physical_context_search(
         async for item in _binary_search_context(
             full_cmd, port, search_low, projected,
             cuda_gpu_names=cuda_gpu_names,
+            run_thinking_test=run_thinking_test and thinking_result is None,
         ):
             if isinstance(item, int):
                 result = item
+            elif isinstance(item, dict) and item.get("thinking_result") is not None:
+                thinking_result = item["thinking_result"]
+                yield f"Reasoning: {'yes' if thinking_result else 'no'}"
             else:
                 yield item
 
@@ -1354,9 +1438,13 @@ async def _physical_context_search(
             async for item in _binary_search_context(
                 full_cmd, port, CALIBRATION_MIN_CONTEXT, search_low,
                 cuda_gpu_names=cuda_gpu_names,
+                run_thinking_test=run_thinking_test and thinking_result is None,
             ):
                 if isinstance(item, int):
                     result = item
+                elif isinstance(item, dict) and item.get("thinking_result") is not None:
+                    thinking_result = item["thinking_result"]
+                    yield f"Reasoning: {'yes' if thinking_result else 'no'}"
                 else:
                     yield item
 
@@ -1404,7 +1492,8 @@ def _get_model_block_bounds(content: str, model_id: str) -> tuple[int, int]:
 def add_llamaswap_speed_variant(
     config_path: Path,
     model_id: str,
-    speed_split_n: int,
+    speed_split_cuda0: int,
+    speed_split_rest: int,
     speed_context: int,
 ) -> bool:
     """
@@ -1415,7 +1504,8 @@ def add_llamaswap_speed_variant(
     Preserves all other YAML formatting from the original block.
 
     Args:
-        speed_split_n: Fast-GPU part of N:1 split (e.g. 10 → "10,1")
+        speed_split_cuda0: Layer count for fastest GPU (CUDA0)
+        speed_split_rest: Layer count for remaining GPU(s)
         speed_context: Context size for speed variant (typically MIN_USEFUL_CONTEXT_TOKENS)
     """
     if not config_path.exists():
@@ -1453,9 +1543,8 @@ def add_llamaswap_speed_variant(
         flags=re.MULTILINE,
     )
 
-    # Replace tensor-split (scale first GPU) and context in cmd
-    orig_ratios = _parse_tensor_split_ratios(speed_block_text)
-    speed_ratios = [float(speed_split_n)] + orig_ratios[1:] if orig_ratios else [float(speed_split_n), 1.0]
+    # Replace tensor-split with calibrated layer counts
+    speed_ratios = [float(speed_split_cuda0), float(speed_split_rest)]
     speed_block_text = _replace_tensor_split(speed_block_text, speed_ratios)
     speed_block_text = re.sub(r'-c\s+\d+', f'-c {speed_context}', speed_block_text)
 
@@ -1530,89 +1619,285 @@ async def _calibrate_speed_split(
     full_cmd: str,
     port: int,
     target_context: int,
+    native_context: int,
+    gguf_path: Path,
 ) -> AsyncIterator[str]:
-    """
-    Probe + binary search for the most aggressive tensor-split ratio at target_context.
+    """Speed split: maximize layers on fastest GPU, then maximize context.
 
-    Probes slightly above the original split ratio to detect whether there's
-    any headroom. No headroom = 1-2 tests, headroom = binary search upward.
-
-    Algorithm:
-    1. Parse original split N from cmd (e.g. 2 from "2,1")
-    2. Test N+2 — if fail, test N+1 — if fail, no speed variant possible
-    3. If N+2 succeeds, test 99:1 (best case), then binary search [N+2, 99]
+    Phase A: Binary search for max layers on fastest GPU at target_context.
+    Phase B: Maximize context at the found split (10% steps + binary search).
 
     Yields progress messages.
-    Final: "__SPEED__:{N}" where N is the best ratio, or "__SPEED__:0" on failure.
+    Final: "__SPEED__:{cuda0},{rest},{context}" or "__SPEED__:0" on failure.
     """
+    from .gguf_utils import get_gguf_total_size
+
     original_ratios = _parse_tensor_split_ratios(full_cmd)
     if not original_ratios:
         yield "Speed calibration: cannot parse original tensor-split ratio"
         yield "__SPEED__:0"
         return
 
-    # Speed split scales the fastest GPU (index 0) relative to the rest
-    original_n = int(original_ratios[0])
-    rest = original_ratios[1:]
+    total_layers = get_gguf_layer_count(gguf_path)
+    if not total_layers:
+        yield "Speed calibration: cannot read layer count from GGUF"
+        yield "__SPEED__:0"
+        return
 
-    def fmt(n: int) -> str:
-        return ",".join(f"{v:g}" for v in [n] + rest)
+    model_size_mb = get_gguf_total_size(gguf_path) / (1024 ** 2)
+    mb_per_layer = model_size_mb / total_layers
+
+    # Current layer distribution from ratios
+    sum_ratios = sum(original_ratios)
+    layers = [round(total_layers * r / sum_ratios) for r in original_ratios]
+    layers[-1] = total_layers - sum(layers[:-1])
+
+    layers_fmt = ":".join(str(n) for n in layers)
+
+    # Step 1: Project free VRAM via fit-params (no server needed, ~0.5s)
+    try:
+        per_gpu = _fit_params_per_gpu_projection(full_cmd, gguf_path, target_context, ngl=99)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        yield "Speed calibration: fit-params projection failed"
+        yield "__SPEED__:0"
+        return
+
+    # Map to CUDA order (FASTEST_FIRST = sorted by total VRAM descending)
+    gpu_ids = sorted(per_gpu.keys())  # CUDA0, CUDA1, ...
+    if len(gpu_ids) < 2:
+        yield "Speed calibration: need at least 2 GPUs"
+        yield "__SPEED__:0"
+        return
+
+    cuda_gpus_info: list[dict[str, Any]] = sorted(
+        [{"id": gid, "free": per_gpu[gid]["free"], "total": per_gpu[gid]["total"],
+          "name": str(per_gpu[gid].get("name", gid))} for gid in gpu_ids],
+        key=lambda g: g["total"], reverse=True,
+    )
+
+    free_fastest: int = cuda_gpus_info[0]["free"]
+    fastest_name: str = cuda_gpus_info[0]["name"]
+    free_info = ", ".join(
+        f"{g['name']}: {format_number(g['free'])} MB free" for g in cuda_gpus_info
+    )
+    yield f"Speed calibration: {layers_fmt} projected at ctx={format_number(target_context)} ({free_info})"
+
+    # Step 2: Calculate estimated max layers on fastest GPU
+    extra_layers_possible = int(free_fastest / mb_per_layer)
+    estimated_max = min(layers[0] + extra_layers_possible, total_layers)
 
     yield (
-        f"Speed calibration: bottom-up from {fmt(original_n)} "
-        f"at ctx={format_number(target_context)}"
+        f"Estimated: ~{format_number(mb_per_layer, 0)} MB/layer, "
+        f"free {fastest_name}(CUDA0): {format_number(free_fastest)} MB → "
+        f"~{estimated_max}:{total_layers - estimated_max}"
     )
+
+    if estimated_max <= layers[0]:
+        yield "No headroom for speed improvement"
+        yield "__SPEED__:0"
+        return
+
+    # ── Phase A: Binary search for max layers at target_context ──
+    yield f"Phase A: Max layers on {fastest_name} at ctx={format_number(target_context)}"
 
     iteration = 0
 
-    # Step 1: Probe original+2 — quick check for headroom
-    probe_n = original_n + 2
+    # Test the estimated split first to establish search direction
+    est_rest = total_layers - estimated_max
+    est_split = f"{estimated_max}:{est_rest}"
+    est_cmd = _replace_tensor_split(
+        full_cmd, [float(estimated_max), float(est_rest)],
+    )
     iteration += 1
-    cmd_probe = _replace_tensor_split(full_cmd, [probe_n] + rest)
-    yield f"[{iteration}] Testing split {fmt(probe_n)} (probe)..."
-    fits = await _calibration_test(cmd_probe, target_context, port)
+    yield f"[A{iteration}] Testing {est_split} at ctx={format_number(target_context)}..."
+    est_fits = await _calibration_test(est_cmd, target_context, port)
 
-    if not fits:
-        yield f"✗ {fmt(probe_n)} failed"
-        # Step 2: Try original+1 — last chance for any improvement
-        fallback_n = original_n + 1
+    if est_fits:
+        yield f"✓ {est_split} fits"
+        # Projection was conservative — try pushing higher
+        low = estimated_max + 1
+        high = total_layers
+        best_layers_cuda0 = estimated_max
+    else:
+        yield f"✗ {est_split} doesn't fit"
+        # Projection was optimistic — search lower
+        low = layers[0] + 1  # at least 1 more than original
+        high = estimated_max - 1
+        best_layers_cuda0 = layers[0]
+
+    # Binary search for exact layer boundary
+    while low <= high:
+        mid = (low + high) // 2
+        mid_rest = total_layers - mid
+        mid_split = f"{mid}:{mid_rest}"
+        mid_cmd = _replace_tensor_split(full_cmd, [float(mid), float(mid_rest)])
+
         iteration += 1
-        cmd_fallback = _replace_tensor_split(full_cmd, [fallback_n] + rest)
-        yield f"[{iteration}] Testing split {fmt(fallback_n)}..."
-        fits = await _calibration_test(cmd_fallback, target_context, port)
-        if fits:
-            yield f"✓ {fmt(fallback_n)} fits — small improvement over {fmt(original_n)}"
-            yield f"Speed split found: {fmt(fallback_n)} ({iteration} iterations)"
-            yield f"__SPEED__:{fallback_n}"
+        yield f"[A{iteration}] Testing {mid_split} at ctx={format_number(target_context)}..."
+        mid_fits = await _calibration_test(mid_cmd, target_context, port)
+
+        if mid_fits:
+            best_layers_cuda0 = mid
+            yield f"✓ {mid_split} fits"
+            low = mid + 1
         else:
-            yield f"✗ {fmt(fallback_n)} failed — no speed variant possible"
+            yield f"✗ {mid_split} doesn't fit"
+            high = mid - 1
+
+    best_rest = total_layers - best_layers_cuda0
+    best_split = f"{best_layers_cuda0}:{best_rest}"
+
+    if best_layers_cuda0 <= layers[0]:
+        yield f"No speed improvement possible (best: {best_split}, original: {layers_fmt})"
+        yield "__SPEED__:0"
+        return
+
+    yield f"Phase A result: {best_split} (max layers on {fastest_name})"
+
+    # ── Phase B: Maximize context at the found split ──
+    yield f"Phase B: Maximizing context at {best_split}"
+
+    speed_cmd = _replace_tensor_split(
+        full_cmd, [float(best_layers_cuda0), float(best_rest)],
+    )
+
+    # Project max context via fit-params
+    try:
+        per_gpu_low = _fit_params_per_gpu_projection(
+            speed_cmd, gguf_path, CALIBRATION_MIN_CONTEXT, ngl=99,
+        )
+        per_gpu_high = _fit_params_per_gpu_projection(
+            speed_cmd, gguf_path, native_context, ngl=99,
+        )
+
+        # Filter to GPUs that actually have layers in the speed split
+        speed_ratios = [float(best_layers_cuda0), float(best_rest)]
+        active_gpus = set()
+        for i, gid in enumerate(sorted(per_gpu_low.keys())):
+            if i < len(speed_ratios) and speed_ratios[i] > 0:
+                active_gpus.add(gid)
+        filtered_low = {k: v for k, v in per_gpu_low.items() if k in active_gpus}
+        filtered_high = {k: v for k, v in per_gpu_high.items() if k in active_gpus}
+
+        projected_ctx, _ = _calculate_max_context_per_gpu(
+            filtered_low, filtered_high, CALIBRATION_MIN_CONTEXT, native_context,
+        )
+        projected_ctx = min(projected_ctx, native_context)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        projected_ctx = target_context
+
+    yield f"Projected: {best_split} supports ~{format_number(projected_ctx)} context"
+
+    if projected_ctx <= target_context:
+        # Can't go beyond minimum — just verify target_context works
+        iteration += 1
+        yield f"[B{iteration}] Verifying {best_split} at ctx={format_number(target_context)}..."
+        fits, _, gpu_list, _ = await _test_context_physical(
+            speed_cmd, target_context, port,
+        )
+        if fits:
+            detail = _format_cuda_detail(gpu_list) if gpu_list else ""
+            yield f"✓ {best_split} at ctx={format_number(target_context)} ({detail})"
+            yield f"Speed split found: {best_split}, ctx={format_number(target_context)}"
+            yield f"__SPEED__:{best_layers_cuda0},{best_rest},{target_context}"
+        else:
+            yield f"Speed split {best_split} can't hold minimum context"
             yield "__SPEED__:0"
         return
 
-    yield f"✓ {fmt(probe_n)} fits — binary search for maximum"
+    # Physical test at projected context
+    iteration += 1
+    yield f"[B{iteration}] Testing {best_split} at ctx={format_number(projected_ctx)}..."
+    fits, test_detail, test_gpu_list, _ = await _test_context_physical(
+        speed_cmd, projected_ctx, port,
+    )
+    detail = _format_cuda_detail(test_gpu_list) if test_gpu_list else test_detail
 
-    # Step 3: Binary search [probe_n, 48] for maximum split
-    best_n = probe_n
-    split_low = probe_n
-    split_high = 48
+    best_context = target_context  # fallback
 
-    while split_high - split_low > 1:
-        iteration += 1
-        split_mid = (split_low + split_high) // 2
-        cmd_mid = _replace_tensor_split(full_cmd, [split_mid] + rest)
-        yield f"[{iteration}] Testing split {fmt(split_mid)}..."
+    # 10% steps + binary fine-tuning
+    step = max(projected_ctx // 10, 4096)
 
-        fits = await _calibration_test(cmd_mid, target_context, port)
-        if fits:
-            best_n = split_mid
-            split_low = split_mid
-            yield f"✓ {fmt(split_mid)} fits"
-        else:
-            split_high = split_mid
-            yield f"✗ {fmt(split_mid)} failed"
+    if fits:
+        best_context = projected_ctx
+        yield f"✓ {best_split} at ctx={format_number(projected_ctx)} ({detail})"
 
-    yield f"Speed split found: {fmt(best_n)} ({iteration} iterations)"
-    yield f"__SPEED__:{best_n}"
+        # Walk upward in 10% steps until fail or native reached
+        last_pass = projected_ctx
+        first_fail = native_context
+        probe = projected_ctx + step
+        while probe < native_context:
+            iteration += 1
+            yield f"[B{iteration}] Testing {best_split} at ctx={format_number(probe)}..."
+            probe_fits, _, probe_gpus, _ = await _test_context_physical(
+                speed_cmd, probe, port,
+            )
+            probe_detail = _format_cuda_detail(probe_gpus) if probe_gpus else "VRAM unknown"
+            if probe_fits:
+                last_pass = probe
+                best_context = probe
+                yield f"✓ {best_split} at ctx={format_number(probe)} ({probe_detail})"
+                probe += step
+            else:
+                first_fail = probe
+                yield f"✗ {best_split} at ctx={format_number(probe)} ({probe_detail})"
+                break
+
+        # Binary fine-tuning (512 precision)
+        if first_fail - last_pass > 512:
+            async for item in _binary_search_context(
+                speed_cmd, port, last_pass, first_fail,
+            ):
+                if isinstance(item, int):
+                    if item > best_context:
+                        best_context = item
+                elif isinstance(item, str):
+                    yield item
+    else:
+        yield f"✗ {best_split} at ctx={format_number(projected_ctx)} ({detail})"
+
+        # Walk downward in 10% steps until pass or target reached
+        first_pass = 0
+        probe = projected_ctx - step
+        while probe > target_context:
+            iteration += 1
+            yield f"[B{iteration}] Testing {best_split} at ctx={format_number(probe)}..."
+            probe_fits, _, probe_gpus, _ = await _test_context_physical(
+                speed_cmd, probe, port,
+            )
+            probe_detail = _format_cuda_detail(probe_gpus) if probe_gpus else "VRAM unknown"
+            if probe_fits:
+                first_pass = probe
+                best_context = probe
+                yield f"✓ {best_split} at ctx={format_number(probe)} ({probe_detail})"
+                break
+            else:
+                yield f"✗ {best_split} at ctx={format_number(probe)} ({probe_detail})"
+                probe -= step
+
+        # Binary fine-tuning (512 precision)
+        if first_pass > 0:
+            last_fail = min(probe + step, projected_ctx)
+            if last_fail - first_pass > 512:
+                async for item in _binary_search_context(
+                    speed_cmd, port, first_pass, last_fail,
+                ):
+                    if isinstance(item, int):
+                        if item > best_context:
+                            best_context = item
+                    elif isinstance(item, str):
+                        yield item
+
+    if best_context < target_context:
+        yield f"Speed split {best_split} doesn't reach minimum context"
+        yield "__SPEED__:0"
+        return
+
+    ctx_info = ""
+    if best_context > target_context:
+        ctx_info = f", ctx={format_number(best_context)}"
+    yield f"Speed split found: {best_split}{ctx_info}"
+    yield f"__SPEED__:{best_layers_cuda0},{best_rest},{best_context}"
 
 
 async def _calibrate_hybrid(
@@ -1800,30 +2085,38 @@ async def calibrate_llamacpp_model(
     async def _finish_calibration(
         ctx: int, ngl: int, mode: str,
         process: Optional[subprocess.Popen] = None,
+        thinking_result: Optional[bool] = None,
     ):
         """Test thinking on server, measure VRAM, save calibration, emit result.
 
+        If thinking_result is provided, skips the reasoning test (already done
+        during physical context search — saves one full server reload).
         If process is provided, reuses the already-running server (avoids reload).
         Otherwise starts a new server for the thinking test.
         VRAM is parsed from llama_memory_breakdown_print (written at server exit).
         """
         # Reuse existing server or start a new one
-        if not process:
+        if not process and thinking_result is None:
             process = await _start_and_verify(full_cmd, ctx, port, ngl=ngl if ngl != 99 else None)
 
         vram_per_gpu: Optional[Dict[str, int]] = None
         ram_cpu_mb: Optional[int] = None
-        thinks = False
+        if thinking_result is not None:
+            thinks = thinking_result
+            yield f"Reasoning: {'yes' if thinks else 'no'} (tested during context search)"
+        else:
+            thinks = False
         if process:
-            yield "Testing reasoning capability..."
-            thinks = await test_thinking_on_port(port)
+            if thinking_result is None:
+                yield "Testing reasoning capability..."
+                thinks = await test_thinking_on_port(port)
             # Measure CPU RAM before killing (VmRSS from /proc)
             ram_cpu_mb = _measure_process_ram_mb(process.pid)
             if ram_cpu_mb and ram_cpu_mb > 0:
                 yield f"RAM (CPU): {format_number(ram_cpu_mb)} MB"
             # Kill but keep log for breakdown parsing
             _kill_process(process, keep_log=True)
-            await asyncio.sleep(1.5)
+            await wait_for_vram_stable(max_wait_seconds=10.0)
             # Parse VRAM from breakdown (physical allocation per GPU)
             log_path = getattr(process, '_server_log', None)
             if log_path:
@@ -1938,6 +2231,7 @@ async def calibrate_llamacpp_model(
     kv_levels = ["f16", "q8_0", "q4_0"]
     best_result = 0
     best_kv = "f16"
+    thinking_result: Optional[bool] = None
 
     for kv_level in kv_levels:
         if kv_level != "f16" and (best_result >= native_context or best_result >= KV_QUANT_CONTEXT_THRESHOLD):
@@ -1948,8 +2242,13 @@ async def calibrate_llamacpp_model(
 
         result = 0
         skip_speed = False
+        has_multi_gpu = _has_tensor_split(phase1_cmd)
+        # Run thinking test on first KV iteration (piggyback on first successful test)
+        run_thinking = thinking_result is None
         async for item in _physical_context_search(
             test_cmd, gguf_path, native_context, ngl=99, port=port,
+            skip_balance=has_multi_gpu,
+            run_thinking_test=run_thinking,
         ):
             if isinstance(item, int):
                 result = item
@@ -1963,6 +2262,8 @@ async def calibrate_llamacpp_model(
                         phase1_cmd = _replace_tensor_split(phase1_cmd, new_ratios)
                 if item.get("skip_speed"):
                     skip_speed = True
+                if item.get("thinking_result") is not None:
+                    thinking_result = item["thinking_result"]
             else:
                 yield item
 
@@ -2001,9 +2302,13 @@ async def calibrate_llamacpp_model(
                 )
             else:
                 yield "Phase 2: Speed variant calibration (tensor-split optimization)"
-                async for msg in _calibrate_speed_split(full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS):
+                await wait_for_vram_stable(max_wait_seconds=10.0)
+                async for msg in _calibrate_speed_split(
+                    full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS,
+                    native_context, gguf_path,
+                ):
                     yield msg
-        async for msg in _finish_calibration(best_result, 99, "gpu"):
+        async for msg in _finish_calibration(best_result, 99, "gpu", thinking_result=thinking_result):
             yield msg
         return
 
