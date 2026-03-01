@@ -5,6 +5,42 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.54.0] - 2026-03-01 🔧 Calibration Rewrite + Speed-Suffix SSOT
+
+### Architecture
+
+- **Speed-Suffix Single Source of Truth** — `*_model_id` State-Vars enthalten ab jetzt IMMER die Base-ID. Neue zentrale Methode `_effective_model_id(agent)` liefert die ID mit `-speed` Suffix wenn Speed-Mode aktiv. Eliminiert 15x `removesuffix("-speed")` und 4 Re-Apply-Bloecke aus 6 Dateien. Behebt wiederkehrende Bugs wo neue Code-Pfade den Suffix vergessen haben.
+- **nvidia-smi Zentralisierung** — Neues `nvidia_smi` Modul ersetzt alle pynvml-Aufrufe. 6 ungenutzte pynvml-Funktionen aus `gpu_utils.py` entfernt. `gpu_detection.py` und Autoscan-Script migriert.
+
+### Changed
+
+- **Speed-Split Kalibrierung (Phase 2) komplett neu** — Zweiphasiger Ansatz: Phase A sucht per Binary Search die maximale Layer-Anzahl auf der schnellsten GPU bei `target_context`. Phase B maximiert den Kontext am gefundenen Split (10%-Schritte + Binary Search). Speed-Variante speichert Layer-Counts + Kontext statt einzelnem Ratio.
+- **N-GPU Layer-Verteilung** — `_build_layer_split()` und `_format_layer_split()` Helpers fuer generische N-GPU Tensor-Split-Berechnung. Ersetzt hartcodierte 2-GPU Splits.
+- **Zwei-Pfad-Optimierung in Phase 1** — Section 3 in `_physical_context_search`: Pfad 3A optimiert Speed bei nativem Kontext, Pfad 3B balanciert wenn Kontext knapp ist.
+- **Thinking-Test Piggyback** — Reasoning-Faehigkeit wird beim ersten physischen Kontext-Test mitgetestet (spart Server-Reload).
+- **VRAM Timing** — `wait_for_vram_stable` ersetzt alle `sleep(1.5)` fuer zuverlaessigere VRAM-Messung.
+- **CUDA-Ordering** — `_to_cuda_order` stellt konsistente CUDA0/CUDA1-Labels in der gesamten Kalibrierung sicher.
+- **Kalibrierungs-History** — Einzelner Eintrag statt History-Akkumulation (kein veraltetes Hybrid/Speed-Datum mehr).
+
+### Fixed
+
+- **Balance-Bug** — `fits` Variable wurde nach erfolgreichem Balance-Test nicht aktualisiert, Binary Search lief in die falsche Richtung (abwaerts statt aufwaerts). Ergebnis: ~300 Tokens unter Optimum.
+- **Speed-Mode nach Modellwechsel** — `set_aifred_model()` setzte Base-ID ohne `-speed` Suffix → Base-Modell statt Speed-Variante geladen. Durch SSOT-Refactor strukturell behoben.
+- **VRAM Safety Margin** — 64 MB auf nativem Linux (war 0 nach vorherigem Commit, 256 davor). 0 MB fuehrte zu OOM-Crashes durch Runtime Scratch Buffers. 64 MB bestaetigt durch nvidia-smi (75 MiB frei nach Laden).
+- **Native Context Precision** — Binary Search testet nativen Kontext direkt wenn Ergebnis innerhalb 1024 Tokens liegt (Praezisionsluecke liess VRAM ungenutzt).
+- **Startup Messages verschwinden** — Session mit `"debug_messages": []` loeschte Startup-Meldungen beim Wiederherstellen. `else`-Branch in `_restore_session` entfernt.
+- **Kalibrierungs-Cache Lookup** — `_show_model_calibration_info` suchte mit `-speed` Suffix im Cache statt mit Base-ID.
+
+### Technical Details
+
+- 12 Dateien geaendert ueber 5 Commits
+- `llamacpp_calibration.py`: +946, -322 LOC (groesste Aenderung)
+- Neue Module: `nvidia_smi.py`, N-GPU Helpers (`_build_layer_split`, `_format_layer_split`)
+- Neue Funktionen: `update_llamaswap_tensor_split()`, `_effective_model_id()`
+- Entfernt: 15x `removesuffix("-speed")`, 4 Re-Apply Bloecke, 6 pynvml Funktionen
+- `--rpc` zu `_GPU_FLAGS` hinzugefuegt (Remote-GPU Sichtbarkeit fuer fit-params)
+- Ruff + mypy: All checks passed
+
 ## [2.53.1] - 2026-02-28 🧹 Refactoring & Single-GPU Calibration Fix
 
 ### Fixed

@@ -785,7 +785,7 @@ class ChatMixin(rx.State, mixin=True):
             from ..lib.config import AUTOMATIK_LLM_NUM_CTX
             from ..lib.formatting import format_number
             effective_auto = self._effective_automatik_id  # type: ignore[attr-defined]
-            if effective_auto == self.aifred_model_id:  # type: ignore[attr-defined]
+            if effective_auto == self._effective_model_id("aifred"):  # type: ignore[attr-defined]
                 # Same model: MUST send same num_ctx as preload to prevent Ollama reload!
                 # Ollama uses MODEL DEFAULT (not currently loaded context) when num_ctx is omitted.
                 # Omitting num_ctx causes Ollama to reload with default → then main inference
@@ -883,16 +883,16 @@ class ChatMixin(rx.State, mixin=True):
                 context_limits: list[int] = []
 
                 # AIfred context
-                aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.aifred_model_id)  # type: ignore[attr-defined, arg-type]
+                aifred_ctx, _ = get_agent_num_ctx("aifred", self, self._effective_model_id("aifred"))  # type: ignore[attr-defined, arg-type]
                 context_limits.append(aifred_ctx)
 
                 # Multi-agent contexts (if not standard mode)
                 if self.multi_agent_mode != "standard":  # type: ignore[attr-defined]
                     if self.sokrates_model_id:  # type: ignore[attr-defined]
-                        sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.sokrates_model_id)  # type: ignore[attr-defined, arg-type]
+                        sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self._effective_model_id("sokrates"))  # type: ignore[attr-defined, arg-type]
                         context_limits.append(sokrates_ctx)
                     if self.salomo_model_id:  # type: ignore[attr-defined]
-                        salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.salomo_model_id)  # type: ignore[attr-defined, arg-type]
+                        salomo_ctx, _ = get_agent_num_ctx("salomo", self, self._effective_model_id("salomo"))  # type: ignore[attr-defined, arg-type]
                         context_limits.append(salomo_ctx)
 
                 # Use minimum of all agent limits
@@ -905,9 +905,9 @@ class ChatMixin(rx.State, mixin=True):
 
                 # Select largest model for compression (AIfred/Sokrates/Salomo)
                 compression_model = get_largest_compression_model(
-                    aifred_model=self.aifred_model_id,  # type: ignore[attr-defined]
-                    sokrates_model=self.sokrates_model_id,  # type: ignore[attr-defined]
-                    salomo_model=self.salomo_model_id,  # type: ignore[attr-defined]
+                    aifred_model=self._effective_model_id("aifred"),  # type: ignore[attr-defined]
+                    sokrates_model=self._effective_model_id("sokrates"),  # type: ignore[attr-defined]
+                    salomo_model=self._effective_model_id("salomo"),  # type: ignore[attr-defined]
                 )
 
                 # Check and compress if needed (DUAL-HISTORY)
@@ -1066,7 +1066,7 @@ class ChatMixin(rx.State, mixin=True):
             async for item in chat_interactive_mode(
                 user_text=user_msg,
                 stt_time=0.0,
-                model_choice=self.aifred_model_id,  # type: ignore[attr-defined]
+                model_choice=self._effective_model_id("aifred"),  # type: ignore[attr-defined]
                 automatik_model=effective_auto,
                 history=self.chat_history,  # type: ignore[attr-defined]
                 llm_history=self.llm_history,  # type: ignore[attr-defined]

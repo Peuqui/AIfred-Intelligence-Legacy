@@ -335,9 +335,9 @@ async def _check_compression_if_needed(
     try:
         # Select largest model for compression (AIfred/Sokrates/Salomo)
         compression_model = get_largest_compression_model(
-            aifred_model=state.aifred_model_id,
-            sokrates_model=state.sokrates_model_id,
-            salomo_model=state.salomo_model_id
+            aifred_model=state._effective_model_id("aifred"),
+            sokrates_model=state._effective_model_id("sokrates"),
+            salomo_model=state._effective_model_id("salomo")
         )
 
         # Run compression check (yields events if compression happens) - DUAL-HISTORY
@@ -406,7 +406,7 @@ async def _run_agent_direct_response(
         )
 
         # Determine agent model (fallback to AIfred's model)
-        agent_model_id = getattr(state, f"{agent}_model_id") or state.aifred_model_id
+        agent_model_id = state._effective_model_id(agent) or state._effective_model_id("aifred")
         agent_model_display = getattr(state, f"{agent}_model") or state.aifred_model  # type: ignore[has-type]
         state.add_debug(f"{emoji} {agent_label}-LLM: {agent_model_display}")
 
@@ -620,9 +620,9 @@ async def run_sokrates_analysis(
         )
 
         # Determine models
-        sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.aifred_model_id
+        sokrates_model = state._effective_model_id("sokrates") or state._effective_model_id("aifred")
         sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model  # type: ignore[has-type]
-        alfred_model = state.aifred_model_id
+        alfred_model = state._effective_model_id("aifred")
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
 
         # Mode labels for display (i18n)
@@ -638,7 +638,6 @@ async def run_sokrates_analysis(
         from .research.context_utils import get_agent_num_ctx
 
         # AIfred context
-        alfred_model = state.aifred_model_id
         main_llm_ctx, aifred_source = get_agent_num_ctx("aifred", state, alfred_model, fallback=32768)
         state.add_debug(f"🎯 AIfred: {format_number(main_llm_ctx)} tok ({aifred_source})")
 
@@ -647,7 +646,7 @@ async def run_sokrates_analysis(
         state.add_debug(f"🎯 Sokrates: {format_number(sokrates_num_ctx)} tok ({sokrates_source})")
 
         # Salomo context
-        salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
+        salomo_model = state._effective_model_id("salomo") or state._effective_model_id("aifred")
         salomo_num_ctx, salomo_source = get_agent_num_ctx("salomo", state, salomo_model, fallback=32768)
         state.add_debug(f"🎯 Salomo: {format_number(salomo_num_ctx)} tok ({salomo_source})")
 
@@ -813,7 +812,7 @@ async def run_sokrates_analysis(
             # === AUTO-CONSENSUS (TRIALOG): Salomo synthesizes and decides ===
             if state.multi_agent_mode == "auto_consensus":
                 # Determine Salomo model
-                salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
+                salomo_model = state._effective_model_id("salomo") or state._effective_model_id("aifred")
                 salomo_display = state.salomo_model if state.salomo_model else state.aifred_model  # type: ignore[has-type]
 
                 if round_num == 1:
@@ -967,7 +966,7 @@ async def run_sokrates_analysis(
                             alfred_messages.append(msg)
 
                     # Estimate tokens
-                    alfred_msg_tokens = estimate_tokens(alfred_messages, model_name=state.aifred_model_id)
+                    alfred_msg_tokens = estimate_tokens(alfred_messages, model_name=state._effective_model_id("aifred"))
                     alfred_ctx = alfred_options.num_ctx if alfred_options and alfred_options.num_ctx else 32768
                     state.add_debug(
                         f"📊 AIfred R{round_num + 1}: {format_number(alfred_msg_tokens)} / "
@@ -1102,11 +1101,11 @@ async def run_tribunal(
         )
 
         # Determine models
-        sokrates_model = state.sokrates_model_id if state.sokrates_model_id else state.aifred_model_id
+        sokrates_model = state._effective_model_id("sokrates") or state._effective_model_id("aifred")
         sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model  # type: ignore[has-type]
-        salomo_model = state.salomo_model_id if state.salomo_model_id else state.aifred_model_id
+        salomo_model = state._effective_model_id("salomo") or state._effective_model_id("aifred")
         salomo_display = state.salomo_model if state.salomo_model else state.aifred_model  # type: ignore[has-type]
-        alfred_model = state.aifred_model_id
+        alfred_model = state._effective_model_id("aifred")
 
         state.add_debug("⚖️ Tribunal mode started")
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")

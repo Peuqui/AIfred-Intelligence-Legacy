@@ -362,30 +362,44 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.sampling_reset_key += 1
 
     # ================================================================
+    # SPEED MODE — SINGLE SOURCE OF TRUTH
+    # ================================================================
+
+    def _effective_model_id(self, agent: str) -> str:
+        """Return model ID with -speed suffix when speed mode is active.
+
+        This is the SINGLE SOURCE OF TRUTH for speed-suffix resolution.
+        The *_model_id state vars always contain the base ID.
+        All code that sends model IDs to the backend must use this method.
+        """
+        base_id: str = getattr(self, f"{agent}_model_id")
+        speed_on: bool = getattr(self, f"{agent}_speed_mode")
+        has_speed: bool = getattr(self, f"{agent}_has_speed_variant")
+        if speed_on and has_speed and base_id:
+            return f"{base_id}-speed"
+        return base_id
+
+    # ================================================================
     # SPEED MODE TOGGLES (llamacpp only)
     # ================================================================
 
     def toggle_aifred_speed_mode(self, _value: bool | None = None) -> None:
         """Toggle AIfred between speed variant (aggressive split, 32K ctx) and context variant."""
         self.aifred_speed_mode = not self.aifred_speed_mode
-        base_id = self._resolve_model_id(self.aifred_model)  # type: ignore[attr-defined]
-        self.aifred_model_id = f"{base_id}-speed" if self.aifred_speed_mode else base_id  # type: ignore[attr-defined]
-        self.add_debug(f"\U0001f500 AIfred mode: {self._speed_mode_debug_str(self.aifred_speed_mode, base_id, self.aifred_max_context)}")  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f500 AIfred mode: {self._speed_mode_debug_str(self.aifred_speed_mode, self.aifred_model_id, self.aifred_max_context)}")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
 
     def toggle_sokrates_speed_mode(self, _value: bool | None = None) -> None:
         """Toggle Sokrates between speed variant and context variant."""
         self.sokrates_speed_mode = not self.sokrates_speed_mode
-        base_id = self._resolve_model_id(self.sokrates_model) or self._resolve_model_id(self.aifred_model)  # type: ignore[attr-defined]
-        self.sokrates_model_id = f"{base_id}-speed" if self.sokrates_speed_mode else base_id
+        base_id = self.sokrates_model_id or self.aifred_model_id  # type: ignore[attr-defined]
         self.add_debug(f"\U0001f500 Sokrates mode: {self._speed_mode_debug_str(self.sokrates_speed_mode, base_id, self.sokrates_max_context)}")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
 
     def toggle_salomo_speed_mode(self, _value: bool | None = None) -> None:
         """Toggle Salomo between speed variant and context variant."""
         self.salomo_speed_mode = not self.salomo_speed_mode
-        base_id = self._resolve_model_id(self.salomo_model) or self._resolve_model_id(self.aifred_model)  # type: ignore[attr-defined]
-        self.salomo_model_id = f"{base_id}-speed" if self.salomo_speed_mode else base_id
+        base_id = self.salomo_model_id or self.aifred_model_id  # type: ignore[attr-defined]
         self.add_debug(f"\U0001f500 Salomo mode: {self._speed_mode_debug_str(self.salomo_speed_mode, base_id, self.salomo_max_context)}")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
 

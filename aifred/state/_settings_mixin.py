@@ -40,18 +40,14 @@ class SettingsMixin(rx.State, mixin=True):
         # Prevents saving stale IDs from a different backend during transitions
         # (e.g., backend_id already switched but model_ids not yet validated).
         if self.aifred_model_id and self.backend_id and self.available_models_dict:  # type: ignore[attr-defined, has-type]
-            # Always save base model IDs (without -speed suffix).
-            # Speed mode is saved separately and applied on load.
-            base_aifred = self.aifred_model_id.removesuffix("-speed")  # type: ignore[attr-defined, has-type]
-            base_sokrates = self.sokrates_model_id.removesuffix("-speed")  # type: ignore[attr-defined, has-type]
-            base_salomo = self.salomo_model_id.removesuffix("-speed")  # type: ignore[attr-defined, has-type]
-            if base_aifred in self.available_models_dict:  # type: ignore[attr-defined, has-type]
+            # model_id vars always contain base IDs (SSOT — speed suffix is computed)
+            if self.aifred_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
                 backend_models[self.backend_id] = {  # type: ignore[attr-defined, has-type]
-                    "aifred_model": base_aifred,
+                    "aifred_model": self.aifred_model_id,  # type: ignore[attr-defined, has-type]
                     "automatik_model": self.automatik_model_id,  # type: ignore[attr-defined, has-type]
                     "vision_model": self.vision_model_id,  # type: ignore[attr-defined, has-type]
-                    "sokrates_model": base_sokrates,
-                    "salomo_model": base_salomo,
+                    "sokrates_model": self.sokrates_model_id,  # type: ignore[attr-defined, has-type]
+                    "salomo_model": self.salomo_model_id,  # type: ignore[attr-defined, has-type]
                 }
 
         # Only save self.backend_type if backend is fully initialized.

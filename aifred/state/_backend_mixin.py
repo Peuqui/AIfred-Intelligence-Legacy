@@ -226,9 +226,9 @@ class BackendMixin(rx.State, mixin=True):
     def _effective_automatik_id(self) -> str:
         """Resolve Automatik model ID: empty or same base model as AIfred = follow AIfred exactly."""
         if not self.automatik_model_id:
-            return self.aifred_model_id
-        if self.automatik_model_id == self.aifred_model_id.removesuffix("-speed"):
-            return self.aifred_model_id
+            return self._effective_model_id("aifred")  # type: ignore[attr-defined, no-any-return]
+        if self.automatik_model_id == self.aifred_model_id:
+            return self._effective_model_id("aifred")  # type: ignore[attr-defined, no-any-return]
         return self.automatik_model_id
 
     @rx.var
@@ -581,14 +581,6 @@ class BackendMixin(rx.State, mixin=True):
                     self.sokrates_model = sokrates_raw  # type: ignore[attr-defined, has-type]
                     self.salomo_model = salomo_raw  # type: ignore[attr-defined, has-type]
 
-                    # Apply speed mode suffix (loaded in settings above, after param lookup)
-                    if self.aifred_speed_mode and self.aifred_model_id:  # type: ignore[attr-defined, has-type]
-                        self.aifred_model_id = f"{self.aifred_model_id}-speed"
-                    if self.sokrates_speed_mode and self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                        self.sokrates_model_id = f"{self.sokrates_model_id}-speed"  # type: ignore[attr-defined, has-type]
-                    if self.salomo_speed_mode and self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                        self.salomo_model_id = f"{self.salomo_model_id}-speed"  # type: ignore[attr-defined, has-type]
-
                 self.add_debug(f"⚙️ Settings loaded (backend: {self.backend_type})")  # type: ignore[attr-defined, has-type]
 
                 # Send TTS playback rate to JavaScript
@@ -751,11 +743,9 @@ class BackendMixin(rx.State, mixin=True):
             self.current_backend_label = _global_backend_state.get("current_backend_label",
                 self.available_backends_dict.get(self.backend_type, self.backend_type))
 
-            # Validate and sync aifred_model (base ID, without -speed suffix)
-            base_aifred_id = self.aifred_model_id.removesuffix("-speed")
-            if base_aifred_id and base_aifred_id in self.available_models_dict:
-                self.aifred_model_id = base_aifred_id
-                self.aifred_model = self.available_models_dict[base_aifred_id]
+            # Validate and sync aifred_model (model_id is always base ID)
+            if self.aifred_model_id and self.aifred_model_id in self.available_models_dict:
+                self.aifred_model = self.available_models_dict[self.aifred_model_id]
             elif _global_backend_state.get("aifred_model_id") in self.available_models_dict:
                 self.aifred_model_id = _global_backend_state["aifred_model_id"]
                 self.aifred_model = self.available_models_dict[self.aifred_model_id]
@@ -788,30 +778,18 @@ class BackendMixin(rx.State, mixin=True):
                 self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
 
             # Validate and sync sokrates_model
-            base_sokrates_id = self.sokrates_model_id.removesuffix("-speed") if self.sokrates_model_id else ""  # type: ignore[attr-defined, has-type]
-            if base_sokrates_id and base_sokrates_id in self.available_models_dict:
-                self.sokrates_model_id = base_sokrates_id  # type: ignore[attr-defined, has-type]
-                self.sokrates_model = self.available_models_dict[base_sokrates_id]  # type: ignore[attr-defined, has-type]
+            if self.sokrates_model_id and self.sokrates_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
+                self.sokrates_model = self.available_models_dict[self.sokrates_model_id]  # type: ignore[attr-defined, has-type]
             elif self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
                 self.sokrates_model_id = ""  # type: ignore[attr-defined, has-type]
                 self.sokrates_model = ""  # type: ignore[attr-defined, has-type]
 
             # Validate and sync salomo_model
-            base_salomo_id = self.salomo_model_id.removesuffix("-speed") if self.salomo_model_id else ""  # type: ignore[attr-defined, has-type]
-            if base_salomo_id and base_salomo_id in self.available_models_dict:
-                self.salomo_model_id = base_salomo_id  # type: ignore[attr-defined, has-type]
-                self.salomo_model = self.available_models_dict[base_salomo_id]  # type: ignore[attr-defined, has-type]
+            if self.salomo_model_id and self.salomo_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
+                self.salomo_model = self.available_models_dict[self.salomo_model_id]  # type: ignore[attr-defined, has-type]
             elif self.salomo_model_id:  # type: ignore[attr-defined, has-type]
                 self.salomo_model_id = ""  # type: ignore[attr-defined, has-type]
                 self.salomo_model = ""  # type: ignore[attr-defined, has-type]
-
-            # Apply speed mode suffix after validation (model_ids are now base names)
-            if self.aifred_speed_mode and self.aifred_model_id:  # type: ignore[attr-defined, has-type]
-                self.aifred_model_id = f"{self.aifred_model_id}-speed"
-            if self.sokrates_speed_mode and self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                self.sokrates_model_id = f"{self.sokrates_model_id}-speed"  # type: ignore[attr-defined, has-type]
-            if self.salomo_speed_mode and self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                self.salomo_model_id = f"{self.salomo_model_id}-speed"  # type: ignore[attr-defined, has-type]
 
             # vLLM can only load ONE model
             if self.backend_type == "vllm" and self.automatik_model_id:
@@ -942,18 +920,16 @@ class BackendMixin(rx.State, mixin=True):
                     )
                     self.available_models = list(self.available_models_dict.values())
 
-                # Validate and sync aifred_model (base ID, without -speed suffix)
-                base_aifred_id = self.aifred_model_id.removesuffix("-speed")
-                self.add_debug(f"🔍 Checking: '{base_aifred_id}' available in {self.backend_type}?")  # type: ignore[attr-defined, has-type]
+                # Validate and sync aifred_model (model_id is always base ID)
+                self.add_debug(f"🔍 Checking: '{self.aifred_model_id}' available in {self.backend_type}?")  # type: ignore[attr-defined, has-type]
 
-                if base_aifred_id in self.available_models_dict:
-                    self.aifred_model_id = base_aifred_id
-                    self.aifred_model = self.available_models_dict[base_aifred_id]
-                    self.add_debug(f"✅ Model found: {base_aifred_id}")  # type: ignore[attr-defined, has-type]
+                if self.aifred_model_id in self.available_models_dict:
+                    self.aifred_model = self.available_models_dict[self.aifred_model_id]
+                    self.add_debug(f"✅ Model found: {self.aifred_model_id}")  # type: ignore[attr-defined, has-type]
                 elif self.available_models_dict:
                     first_id = next(iter(self.available_models_dict.keys()))
-                    self.add_debug(f"⚠️ '{base_aifred_id}' not in {self.backend_type}! Using: '{first_id}'")  # type: ignore[attr-defined, has-type]
-                    log_message(f"⚠️ Configured model '{base_aifred_id}' not found, using '{first_id}'")
+                    self.add_debug(f"⚠️ '{self.aifred_model_id}' not in {self.backend_type}! Using: '{first_id}'")  # type: ignore[attr-defined, has-type]
+                    log_message(f"⚠️ Configured model '{self.aifred_model_id}' not found, using '{first_id}'")
                     self.aifred_model_id = first_id
                     self.aifred_model = self.available_models_dict[first_id]
 
@@ -967,33 +943,21 @@ class BackendMixin(rx.State, mixin=True):
                     self.automatik_model_id = ""
                     self.automatik_model = ""
 
-                # Validate and sync sokrates_model (base ID, without -speed suffix)
-                base_sok_id = self.sokrates_model_id.removesuffix("-speed") if self.sokrates_model_id else ""  # type: ignore[attr-defined, has-type]
-                if base_sok_id and base_sok_id in self.available_models_dict:
-                    self.sokrates_model_id = base_sok_id  # type: ignore[attr-defined, has-type]
-                    self.sokrates_model = self.available_models_dict[base_sok_id]  # type: ignore[attr-defined, has-type]
+                # Validate and sync sokrates_model
+                if self.sokrates_model_id and self.sokrates_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
+                    self.sokrates_model = self.available_models_dict[self.sokrates_model_id]  # type: ignore[attr-defined, has-type]
                 elif self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
                     log_message(f"⚠️ Configured sokrates model '{self.sokrates_model_id}' not found, clearing")  # type: ignore[attr-defined, has-type]
                     self.sokrates_model_id = ""  # type: ignore[attr-defined, has-type]
                     self.sokrates_model = ""  # type: ignore[attr-defined, has-type]
 
-                # Validate and sync salomo_model (base ID, without -speed suffix)
-                base_sal_id = self.salomo_model_id.removesuffix("-speed") if self.salomo_model_id else ""  # type: ignore[attr-defined, has-type]
-                if base_sal_id and base_sal_id in self.available_models_dict:
-                    self.salomo_model_id = base_sal_id  # type: ignore[attr-defined, has-type]
-                    self.salomo_model = self.available_models_dict[base_sal_id]  # type: ignore[attr-defined, has-type]
+                # Validate and sync salomo_model
+                if self.salomo_model_id and self.salomo_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
+                    self.salomo_model = self.available_models_dict[self.salomo_model_id]  # type: ignore[attr-defined, has-type]
                 elif self.salomo_model_id:  # type: ignore[attr-defined, has-type]
                     log_message(f"⚠️ Configured salomo model '{self.salomo_model_id}' not found, clearing")  # type: ignore[attr-defined, has-type]
                     self.salomo_model_id = ""  # type: ignore[attr-defined, has-type]
                     self.salomo_model = ""  # type: ignore[attr-defined, has-type]
-
-                # Re-apply speed mode suffix after all validation (base names now confirmed)
-                if self.aifred_speed_mode and self.aifred_model_id:  # type: ignore[attr-defined, has-type]
-                    self.aifred_model_id = f"{self.aifred_model_id}-speed"
-                if self.sokrates_speed_mode and self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                    self.sokrates_model_id = f"{self.sokrates_model_id}-speed"  # type: ignore[attr-defined, has-type]
-                if self.salomo_speed_mode and self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                    self.salomo_model_id = f"{self.salomo_model_id}-speed"  # type: ignore[attr-defined, has-type]
 
                 self.model_count = len(self.available_models)
                 self.backend_info = f"{self.model_count} models"
@@ -1571,15 +1535,11 @@ class BackendMixin(rx.State, mixin=True):
             if not self.aifred_has_speed_variant:  # type: ignore[attr-defined, has-type]
                 self.aifred_speed_mode = False  # type: ignore[attr-defined, has-type]
 
-        # Re-apply speed suffix (model_id is base name after _resolve_model_id)
-        if self.aifred_speed_mode and self.aifred_has_speed_variant:  # type: ignore[attr-defined, has-type]
-            self.aifred_model_id = f"{self.aifred_model_id}-speed"
-
         self._show_model_calibration_info(self.aifred_model_id)  # type: ignore[attr-defined]
 
         # Check if switching to non-vision model with pending images
         if len(self.pending_images) > 0:  # type: ignore[attr-defined, has-type]
-            if not await is_vision_model(self, self.aifred_model_id):
+            if not await is_vision_model(self, self._effective_model_id("aifred")):  # type: ignore[attr-defined]
                 self.image_upload_warning = "⚠️ Selected model doesn't support images. Images will be ignored when sending."  # type: ignore[attr-defined, has-type]
             else:
                 self.image_upload_warning = ""  # type: ignore[attr-defined, has-type]

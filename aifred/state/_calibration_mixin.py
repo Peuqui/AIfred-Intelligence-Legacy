@@ -290,8 +290,9 @@ class CalibrationMixin(rx.State, mixin=True):
             speed_split_cuda0 = 0
             speed_split_rest = 0
             speed_split_context = MIN_USEFUL_CONTEXT_TOKENS
-            # Always calibrate the base model — speed variant is created as Phase 2
-            calibration_model_id = self.aifred_model_id.removesuffix("-speed")  # type: ignore[attr-defined]
+            # Calibrate the base model — speed variant is created as Phase 2
+            # (model_id is always base ID — SSOT, no suffix stripping needed)
+            calibration_model_id = self.aifred_model_id  # type: ignore[attr-defined]
             async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                 calibration_model_id
             ):
@@ -450,12 +451,10 @@ class CalibrationMixin(rx.State, mixin=True):
 
         from ..lib.formatting import format_number
 
-        # Calibration data is stored under base model ID (without -speed suffix)
-        base_id = model_id.removesuffix("-speed")
-
+        # model_id is always base ID (SSOT — no suffix stripping needed)
         if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
             from ..lib.model_vram_cache import get_llamacpp_calibration
-            calibrated = get_llamacpp_calibration(base_id)
+            calibrated = get_llamacpp_calibration(model_id)
             if calibrated:
                 self.add_debug(f"   🎯 Calibrated: {format_number(calibrated)} tokens")  # type: ignore[attr-defined]
             else:
