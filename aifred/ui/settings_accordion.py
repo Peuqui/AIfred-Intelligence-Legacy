@@ -808,7 +808,7 @@ def settings_accordion() -> rx.Component:
 
                 # Sokrates LLM Selection - Only visible when multi-agent mode is not "standard"
                 rx.cond(
-                    (AIState.multi_agent_mode != "standard") & AIState.backend_supports_dynamic_models,
+                    AIState.multi_agent_mode != "standard",
                     rx.hstack(
                         rx.text(
                             t("sokrates_llm"),
@@ -841,7 +841,7 @@ def settings_accordion() -> rx.Component:
 
                 # Sokrates RoPE + Personality + Reasoning (multi-agent only)
                 rx.cond(
-                    (AIState.multi_agent_mode != "standard") & AIState.backend_supports_dynamic_models,
+                    AIState.multi_agent_mode != "standard",
                     rx.cond(
                         AIState.backend_id == "ollama",
                         # Ollama: RoPE + Personality + Reasoning in one row
@@ -870,7 +870,7 @@ def settings_accordion() -> rx.Component:
 
                 # Salomo LLM Selection - Only visible for auto_consensus or tribunal modes
                 rx.cond(
-                    ((AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal")) & AIState.backend_supports_dynamic_models,
+                    (AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal"),
                     rx.hstack(
                         rx.text(
                             t("salomo_llm"),
@@ -903,7 +903,7 @@ def settings_accordion() -> rx.Component:
 
                 # Salomo RoPE + Personality + Reasoning (consensus/tribunal only)
                 rx.cond(
-                    ((AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal")) & AIState.backend_supports_dynamic_models,
+                    (AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal"),
                     rx.cond(
                         AIState.backend_id == "ollama",
                         # Ollama: RoPE + Personality + Reasoning in one row

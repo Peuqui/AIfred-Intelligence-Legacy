@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 import httpx
 from pathlib import Path
 from typing import Optional, Tuple
@@ -258,6 +259,8 @@ class vLLMProcessManager:
                 Example: {"factor": 2.0, "original_max_position_embeddings": 40960}
             gpu_indices: Restrict vLLM to these GPU indices (default: None = all GPUs)
         """
+        from .config import VLLM_IDLE_TTL_SECONDS
+
         self.port = port
         self.max_model_len = max_model_len  # 0 = auto-detect
         self.gpu_memory_utilization = gpu_memory_utilization
@@ -266,6 +269,11 @@ class vLLMProcessManager:
         self.process: Optional[subprocess.Popen] = None
         self.current_model: Optional[str] = None
         self.stderr_buffer: list[str] = []  # Buffer for stderr output
+
+        # TTL idle shutdown
+        self._ttl_seconds = VLLM_IDLE_TTL_SECONDS
+        self._last_activity: float = 0.0
+        self._ttl_timer: Optional[threading.Timer] = None
 
         # Paths
         project_root = Path(__file__).parent.parent.parent
@@ -277,6 +285,58 @@ class vLLMProcessManager:
     def is_running(self) -> bool:
         """Check if vLLM process is running"""
         return self.process is not None and self.process.poll() is None
+
+    def touch(self) -> None:
+        """Update activity timestamp and reset TTL timer."""
+        self._last_activity = time.time()
+        self._reset_ttl_timer()
+
+    def _reset_ttl_timer(self) -> None:
+        """(Re)start the idle shutdown timer."""
+        if self._ttl_timer:
+            self._ttl_timer.cancel()
+        self._ttl_timer = threading.Timer(self._ttl_seconds, self._ttl_expired)
+        self._ttl_timer.daemon = True
+        self._ttl_timer.start()
+
+    def _cancel_ttl_timer(self) -> None:
+        """Cancel the TTL timer (on explicit stop)."""
+        if self._ttl_timer:
+            self._ttl_timer.cancel()
+            self._ttl_timer = None
+
+    def _ttl_expired(self) -> None:
+        """Called by timer thread when TTL expires — stop server if still idle."""
+        if not self.is_running():
+            return
+        idle_seconds = time.time() - self._last_activity
+        if idle_seconds < self._ttl_seconds:
+            # Activity happened since timer was set — reschedule
+            self._reset_ttl_timer()
+            return
+        logger.info(f"⏰ vLLM idle for {idle_seconds / 60:.0f}min — auto-shutdown (TTL {self._ttl_seconds}s)")
+        # stop() is async but only does sync work — call sync parts directly
+        self._stop_sync()
+
+    def _stop_sync(self) -> None:
+        """Synchronous shutdown (usable from TTL timer thread)."""
+        if not self.process:
+            return
+        logger.info(f"🛑 Stopping vLLM server (model: {self.current_model})")
+        try:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=10)
+                logger.info("✅ vLLM stopped gracefully (TTL)")
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+                logger.info("✅ vLLM force-killed (TTL)")
+        except Exception as e:
+            logger.error(f"❌ Error stopping vLLM: {e}")
+        finally:
+            self.process = None
+            self.current_model = None
 
     def _read_stderr(self):
         """Read stderr in background thread"""
@@ -347,6 +407,9 @@ class vLLMProcessManager:
 
         # Environment variables
         env = os.environ.copy()
+        # gpu_detection uses nvidia-smi (PCI bus order) for GPU indices —
+        # ensure CUDA uses the same ordering so CUDA_VISIBLE_DEVICES maps correctly
+        env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
         # Restrict to compatible GPUs if specified
         if self.gpu_indices is not None:
@@ -380,6 +443,7 @@ class vLLMProcessManager:
 
             if ready:
                 logger.info(f"✅ vLLM server ready on port {self.port}")
+                self.touch()  # Start TTL timer
                 return True
             else:
                 logger.error(f"❌ vLLM server failed to become ready: {error_msg}")
@@ -429,30 +493,8 @@ class vLLMProcessManager:
 
     async def stop(self) -> None:
         """Stop vLLM server gracefully"""
-        if not self.process:
-            return
-
-        logger.info(f"🛑 Stopping vLLM server (model: {self.current_model})")
-
-        try:
-            # Send SIGTERM for graceful shutdown
-            self.process.terminate()
-
-            # Wait up to 10s
-            try:
-                self.process.wait(timeout=10)
-                logger.info("✅ vLLM stopped gracefully")
-            except subprocess.TimeoutExpired:
-                # Force kill if not responding
-                logger.warning("⚠️ vLLM not responding, force killing...")
-                self.process.kill()
-                self.process.wait()
-                logger.info("✅ vLLM force-killed")
-        except Exception as e:
-            logger.error(f"❌ Error stopping vLLM: {e}")
-        finally:
-            self.process = None
-            self.current_model = None
+        self._cancel_ttl_timer()
+        self._stop_sync()
 
     async def start_with_auto_detection(
         self,
@@ -746,7 +788,8 @@ class vLLMProcessManager:
             for i in range(30):  # Poll for up to 30 seconds
                 await asyncio.sleep(1)
 
-                gpu_poll = get_gpu_memory_info()
+                poll_idx = self.gpu_indices[0] if self.gpu_indices else 0
+                gpu_poll = get_gpu_memory_info(gpu_index=poll_idx)
                 if gpu_poll:
                     current_free_vram_mb = gpu_poll["free_mb"]
                     vram_diff = abs(current_free_vram_mb - baseline_vram_mb)
@@ -768,7 +811,8 @@ class vLLMProcessManager:
             cleanup_gpu_memory()
 
             # Re-measure VRAM before Attempt 2 (may have changed during waiting)
-            gpu_remeasure = get_gpu_memory_info()
+            remeasure_idx = self.gpu_indices[0] if self.gpu_indices else 0
+            gpu_remeasure = get_gpu_memory_info(gpu_index=remeasure_idx)
             if gpu_remeasure:
                 current_free_vram_mb_before_attempt2 = gpu_remeasure["free_mb"]
 

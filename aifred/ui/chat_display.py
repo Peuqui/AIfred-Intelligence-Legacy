@@ -493,50 +493,51 @@ def chat_history_display() -> rx.Component:
 
     _stream_text_style: dict = {"white_space": "pre-wrap", "word_break": "break-word", "color": COLORS["ai_text"], "font_size": "13px"}
 
+    # Agent streaming boxes (AIfred = default for "" or unknown current_agent)
+    _aifred_stream = rx.box(
+        rx.hstack(
+            rx.text("\U0001f3a9", font_size="13px"),
+            rx.box(
+                rx.hstack(
+                    rx.text("AIfred", font_weight="bold", font_size="12px", color=COLORS["primary"]),
+                    rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
+                    spacing="1", margin_bottom="1",
+                ),
+                streaming_text(text=StreamingState.current_ai_response, id="st-aifred", style=_stream_text_style),
+                background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
+            ),
+            spacing="2", align="start", width="100%",
+        ),
+        background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
+        border=f"1px solid {COLORS['primary']}", width="100%",
+    )
+
     streaming_box = rx.cond(
         AIState.is_generating,
         rx.box(
             rx.cond(
-                # AIfred Streaming (Orange)
-                AIState.current_agent == "aifred",
+                # Sokrates Streaming (Kupfer/Bronze)
+                AIState.current_agent == "sokrates",
                 rx.box(
                     rx.hstack(
-                        rx.text("\U0001f3a9", font_size="13px"),
+                        rx.text("\U0001f3db\ufe0f", font_size="13px"),
                         rx.box(
                             rx.hstack(
-                                rx.text("AIfred", font_weight="bold", font_size="12px", color=COLORS["primary"]),
-                                rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
+                                rx.text("Sokrates", font_weight="bold", font_size="12px", color="#cd7f32"),
+                                rx.text("\u258c", font_size="14px", color="#cd7f32", animation="blink 1s infinite"),
                                 spacing="1", margin_bottom="1",
                             ),
-                            streaming_text(text=StreamingState.current_ai_response, id="st-aifred", style=_stream_text_style),
-                            background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
+                            streaming_text(text=StreamingState.current_ai_response, id="st-sokrates", style=_stream_text_style),
+                            background_color="rgba(205, 127, 50, 0.08)", padding="3", border_radius="6px", width="100%",
                         ),
                         spacing="2", align="start", width="100%",
                     ),
-                    background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
-                    border=f"1px solid {COLORS['primary']}", width="100%",
+                    background_color="rgba(205, 127, 50, 0.03)", padding="2", border_radius="8px",
+                    border="1px solid rgba(205, 127, 50, 0.3)", width="100%",
                 ),
                 rx.cond(
-                    # Sokrates Streaming (Kupfer/Bronze)
-                    AIState.current_agent == "sokrates",
-                    rx.box(
-                        rx.hstack(
-                            rx.text("\U0001f3db\ufe0f", font_size="13px"),
-                            rx.box(
-                                rx.hstack(
-                                    rx.text("Sokrates", font_weight="bold", font_size="12px", color="#cd7f32"),
-                                    rx.text("\u258c", font_size="14px", color="#cd7f32", animation="blink 1s infinite"),
-                                    spacing="1", margin_bottom="1",
-                                ),
-                                streaming_text(text=StreamingState.current_ai_response, id="st-sokrates", style=_stream_text_style),
-                                background_color="rgba(205, 127, 50, 0.08)", padding="3", border_radius="6px", width="100%",
-                            ),
-                            spacing="2", align="start", width="100%",
-                        ),
-                        background_color="rgba(205, 127, 50, 0.03)", padding="2", border_radius="8px",
-                        border="1px solid rgba(205, 127, 50, 0.3)", width="100%",
-                    ),
                     # Salomo Streaming (Gold)
+                    AIState.current_agent == "salomo",
                     rx.box(
                         rx.hstack(
                             rx.text("\U0001f451", font_size="13px"),
@@ -554,6 +555,8 @@ def chat_history_display() -> rx.Component:
                         background_color="rgba(218, 165, 32, 0.03)", padding="2", border_radius="8px",
                         border="1px solid rgba(218, 165, 32, 0.3)", width="100%",
                     ),
+                    # Default: AIfred (covers current_agent == "aifred" AND "")
+                    _aifred_stream,
                 ),
             ),
             id="streaming-box", width="100%",

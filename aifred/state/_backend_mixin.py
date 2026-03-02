@@ -615,13 +615,15 @@ class BackendMixin(rx.State, mixin=True):
                     self.add_debug("ℹ️ No vision_model configured - will auto-detect first available vision model")  # type: ignore[attr-defined, has-type]
 
             # Multi-Agent Models (optional)
-            if not self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
+            # Only apply config.py defaults if NO per-backend settings exist.
+            # Empty string ("") is a valid saved value meaning "use AIfred-LLM".
+            if not _had_backend_settings and not self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
                 self.sokrates_model_id = backend_defaults.get("sokrates_model", "")  # type: ignore[attr-defined, has-type]
                 self.sokrates_model = self.sokrates_model_id  # type: ignore[attr-defined, has-type]
                 if self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
                     self.add_debug(f"⚙️ Using default sokrates_model from config.py: {self.sokrates_model_id}")  # type: ignore[attr-defined, has-type]
 
-            if not self.salomo_model_id:  # type: ignore[attr-defined, has-type]
+            if not _had_backend_settings and not self.salomo_model_id:  # type: ignore[attr-defined, has-type]
                 self.salomo_model_id = backend_defaults.get("salomo_model", "")  # type: ignore[attr-defined, has-type]
                 self.salomo_model = self.salomo_model_id  # type: ignore[attr-defined, has-type]
                 if self.salomo_model_id:  # type: ignore[attr-defined, has-type]
@@ -1074,9 +1076,8 @@ class BackendMixin(rx.State, mixin=True):
             self.add_debug("🔍 Detecting vision-capable models...")  # type: ignore[attr-defined, has-type]
             await self._detect_vision_models()
 
-            # Start vLLM process if needed
-            if self.backend_type == "vllm":
-                await self._start_vllm_server()
+            # vLLM: Do NOT auto-start server — user triggers calibration manually
+            # (like Ollama/llama-swap: discover models first, start on demand)
 
             _global_backend_state["_init_complete"] = True
             log_message(f"✅ Backend '{self.backend_type}' fully initialized and stored in global state")
@@ -1150,9 +1151,18 @@ class BackendMixin(rx.State, mixin=True):
     # vLLM SERVER MANAGEMENT
     # ================================================================
 
-    async def _start_vllm_server(self) -> None:
-        """Start vLLM server process with selected model."""
+    async def _start_vllm_server(self, model_id: str = "") -> None:
+        """Start vLLM server process with specified model.
+
+        Args:
+            model_id: Model to load. Empty string = use self.aifred_model_id.
+        """
         from . import _global_backend_state
+
+        startup_model = model_id or self.aifred_model_id
+        if not startup_model:
+            self.add_debug("⚠️ No model selected — cannot start vLLM")  # type: ignore[attr-defined, has-type]
+            return
 
         try:
             existing_manager = _global_backend_state.get("vllm_manager")
@@ -1160,9 +1170,7 @@ class BackendMixin(rx.State, mixin=True):
                 self.add_debug("✅ vLLM server already running (using existing process)")  # type: ignore[attr-defined, has-type]
                 return
 
-            startup_model = self.aifred_model_id
             self.add_debug(f"🚀 Starting vLLM server with {startup_model}...")  # type: ignore[attr-defined, has-type]
-            self.add_debug("   (vLLM uses AIfred-Model for all requests - model switching requires slow restart)")  # type: ignore[attr-defined, has-type]
 
             yarn_config = None
             if self.enable_yarn and self.yarn_factor > 1.0:
@@ -1263,9 +1271,9 @@ class BackendMixin(rx.State, mixin=True):
         from . import _global_backend_state
 
         try:
+            # Force stop + start (even with same model — config changed)
             await self._stop_vllm_server()
-            _global_backend_state["vllm_manager"] = None
-            await self._start_vllm_server()
+            await self._start_vllm_server(self.aifred_model_id)
 
             _global_backend_state["aifred_model"] = self.aifred_model
             _global_backend_state["automatik_model"] = self.automatik_model
@@ -1683,3 +1691,32 @@ class BackendMixin(rx.State, mixin=True):
         log_message("⚠️ Fallback initialization (on_load didn't run)")
         async for _ in self.on_load():
             pass
+
+    async def _ensure_vllm_model(self, model_id: str = "") -> None:
+        """Ensure vLLM is running with the specified model.
+
+        - Not running → start with model_id
+        - Running with same model → touch TTL
+        - Running with different model → restart with new model
+
+        Args:
+            model_id: Model to ensure. Empty string = use self.aifred_model_id.
+        """
+        from . import _global_backend_state
+
+        target_model = model_id or self.aifred_model_id
+        if not target_model:
+            self.add_debug("⚠️ No model selected — cannot start vLLM")  # type: ignore[attr-defined, has-type]
+            return
+
+        existing_manager = _global_backend_state.get("vllm_manager")
+
+        if existing_manager and existing_manager.is_running():
+            if existing_manager.current_model == target_model:
+                existing_manager.touch()  # Same model — just reset TTL
+                return
+            # Different model — stop first, then start with new model
+            self.add_debug(f"🔄 vLLM model switch: {existing_manager.current_model} → {target_model}")  # type: ignore[attr-defined, has-type]
+            await self._stop_vllm_server()
+
+        await self._start_vllm_server(target_model)

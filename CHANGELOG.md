@@ -5,6 +5,31 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.56.0] - 2026-03-02 🔄 vLLM Multi-Agent + Model Switching
+
+### Added
+
+- **vLLM Multi-Agent Support** — Sokrates/Salomo UI-Controls (Modell-Dropdowns, Toggles, Personality, Reasoning) sind jetzt fuer alle Backends sichtbar, nicht nur Ollama/llama-swap. `backend_supports_dynamic_models` Gate aus 4 UI-Conditions entfernt.
+- **vLLM Model Switching** — Neues `_ensure_vllm_model(model_id)` ersetzt `_ensure_vllm_running()`. Bei gleichem Modell: TTL-Touch. Bei anderem Modell: automatischer Restart mit neuem Modell. Zentralisiert in `_stream_agent_to_history()` und `_run_agent_direct_response()` — deckt alle Agent-Aufrufe ab.
+- **vLLM Idle Shutdown (TTL)** — Neuer konfigurierbarer `VLLM_IDLE_TTL_SECONDS` (default 15min). vLLM-Server faehrt automatisch herunter nach Inaktivitaet, startet lazy beim naechsten Request. Thread-basierter Timer mit Activity-Tracking (`touch()`).
+- **vLLM Lazy-Start** — vLLM startet nicht mehr automatisch bei `initialize_backend()`, sondern on-demand beim ersten Chat-Request (wie Ollama/llama-swap).
+- **vLLM Context in `get_agent_num_ctx()`** — Eigener Code-Pfad fuer vLLM/TabbyAPI liest `vllm_max_tokens` (Server-Startup-Limit) statt Ollama-Kalibrierungs-Cache.
+
+### Fixed
+
+- **Streaming-Indicator zeigte falschen Agenten** — `rx.cond`-Chain in `chat_display.py` hatte Salomo als Catch-All-Fallback. Bei `current_agent == ""` (zwischen Agenten, vor AIfred) wurde Salomo angezeigt. Fix: AIfred ist jetzt Default-Fallback, Salomo wird explizit geprueft.
+- **User-Message erschien erst nach vLLM-Start** — `send_message()` Phasen umstrukturiert: User-Bubble + AIfred-Indicator werden jetzt VOR dem vLLM-Laden angezeigt (Phase 1: Flags, Phase 2: User-Message, Phase 3: TTS, Phase 4: vLLM).
+- **`current_agent` war stale beim vLLM-Laden** — Wurde erst nach dem ersten `yield` auf "aifred" gesetzt. Waehrend vLLM-Startup zeigte der Indicator den Agenten vom letzten Run (z.B. "salomo"). Fix: `current_agent = "aifred"` vor dem ersten `yield`.
+- **Sokrates/Salomo "(wie AIfred-LLM)" persistierte nicht** — `on_load()` behandelte leeren String (`""`) als "nicht konfiguriert" (`not ""` = True) und ueberschrieb mit config.py Default. Fix: Config-Defaults nur anwenden wenn keine per-Backend Settings existieren (`not _had_backend_settings`).
+- **Doppeltes Debug-Logging** — `build_inference_metadata()` loggte direkt via `log_message()`, Caller loggte nochmal via `add_debug()`. Doppelten Log entfernt.
+
+### Changed
+
+- **`_start_vllm_server(model_id)`** — Akzeptiert jetzt explizites `model_id` statt immer `self.aifred_model_id`. Leerer String faellt auf AIfred-Modell zurueck.
+- **`_restart_vllm_with_new_config()`** — Vereinfacht: nutzt `_start_vllm_server(self.aifred_model_id)` statt redundante Manager-Zuweisung.
+- **CUDA_DEVICE_ORDER** — `PCI_BUS_ID` wird jetzt explizit gesetzt damit `CUDA_VISIBLE_DEVICES` konsistent mit nvidia-smi GPU-Indices ist.
+- **vLLM `stop()`** — Refactored: Async `stop()` delegiert an `_stop_sync()` (auch vom TTL-Timer-Thread nutzbar). TTL-Timer wird bei explizitem Stop gecancelt.
+
 ## [2.55.0] - 2026-03-02 🎯 Single-GPU Calibration + Bottleneck Fix
 
 ### Added

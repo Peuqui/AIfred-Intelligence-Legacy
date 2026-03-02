@@ -306,8 +306,7 @@ def build_inference_metadata(
     if suffixes:
         debug_msg += "\n   (" + " | ".join(suffixes) + ")"
 
-    log_message(debug_msg)
-
+    # NOTE: Caller logs via add_debug() which calls log_message() — no double-logging
     return metadata_dict, metadata_display, debug_msg
 
 

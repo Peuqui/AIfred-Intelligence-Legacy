@@ -245,6 +245,10 @@ async def _stream_agent_to_history(
     state.current_agent = agent
     state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
 
+    # vLLM: ensure correct model is loaded (triggers restart if model changed)
+    if state.backend_type == "vllm":
+        await state._ensure_vllm_model(model)
+
     # Initialize streaming TTS
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         state._init_streaming_tts(agent=agent)
@@ -448,6 +452,10 @@ async def _run_agent_direct_response(
         # Unified streaming UI
         state.current_agent = agent
         state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
+
+        # vLLM: ensure correct model is loaded (triggers restart if model changed)
+        if state.backend_type == "vllm":
+            await state._ensure_vllm_model(agent_model_id)
 
         # TTS init
         if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:

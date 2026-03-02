@@ -892,6 +892,11 @@ VRAM_CONTEXT_RATIO_MOE = 0.10    # ~100KB per token (MoE models, 48% more contex
 # Using percentage-based buffer to scale with context size (2% of vLLM's reported max)
 VLLM_CONTEXT_SAFETY_PERCENT = 0.02  # 2% safety buffer (iteratively applied to each vLLM-reported max)
 
+# vLLM Idle Shutdown (TTL)
+# Auto-stop vLLM server after this many seconds of inactivity to free VRAM.
+# Server restarts automatically on next chat message (lazy-start).
+VLLM_IDLE_TTL_SECONDS = 900  # 15 min (matches llama-swap default)
+
 # ============================================================
 # OLLAMA HYBRID MODE (CPU OFFLOAD) CONFIGURATION
 # ============================================================

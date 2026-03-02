@@ -531,44 +531,23 @@ class ChatMixin(rx.State, mixin=True):
         # Ensure backend is initialized (should already be done by on_load)
         await self._ensure_backend_initialized()  # type: ignore[attr-defined]
 
+        # ============================================================
+        # PHASE 1: Set all state flags BEFORE any yield
+        # ============================================================
         user_msg = user_text
         self.current_user_input = ""  # Clear input
-        self.current_user_message = user_msg  # Zeige sofort die Eingabe an
+        self.current_user_message = user_msg
         self.is_generating = True
+        self.current_agent = "aifred"  # Set BEFORE any yield (prevents stale agent indicator)
         self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-        self.current_agent = "aifred"  # Set current agent for unified streaming UI
         self.used_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
         self.failed_sources: list[dict[str, str]] = []  # type: ignore[attr-defined, var-annotated]
         self.all_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
-        # Clear TTS queue for new message (multi-agent responses will add to it)
         self.clear_tts_queue()  # type: ignore[attr-defined]
 
-        # Initialize streaming TTS if enabled (sentences are sent to TTS as they're detected)
-        # Works for all modes - Multi-Agent also streams and benefits from sentence-by-sentence TTS
-        # Streaming requires AutoPlay - without autoplay, streaming makes no sense (generates but doesn't play)
-        tts_stream_script = None
-        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
-            self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
-            # Clear API queue for this session (new message = new queue)
-            from ..lib.api import tts_queue_clear
-            tts_queue_clear(self.session_id)  # type: ignore[attr-defined]
-            # IMPORTANT: Ensure SSE stream is active BEFORE generating audio
-            # This guarantees the browser is listening when audio events are pushed
-            # The startTtsStream() function is idempotent - it checks ttsStreamActive
-            tts_stream_script = rx.call_script(f"if(window.startTtsStream) startTtsStream('{self.session_id}');")  # type: ignore[attr-defined]
-
-        # IMPORTANT: Yield immediately so UI shows spinner right away
-        # Also starts TTS SSE stream if TTS is enabled (must be before audio generation!)
-        if tts_stream_script:
-            yield tts_stream_script  # type: ignore[misc]
-        else:
-            yield
-
         # ============================================================
-        # ADD USER MESSAGE TO CHAT IMMEDIATELY (before any backend operations)
+        # PHASE 2: Add user message to chat IMMEDIATELY
         # ============================================================
-        # This ensures the user sees their message right away, even during XTTS startup
-        # Prepare display message (may include image markers for Vision)
         display_user_msg = user_msg
         if has_pending_images:
             # Generate clickable image thumbnails as HTML
@@ -594,7 +573,6 @@ class ChatMixin(rx.State, mixin=True):
                 # Text + images
                 display_user_msg = f"{image_html}\n\n{user_msg}" if image_html else user_msg
 
-        # Add to chat_history so user sees their message IMMEDIATELY
         self.chat_history.append({  # type: ignore[attr-defined, has-type]
             "role": "user",
             "content": display_user_msg,
@@ -610,11 +588,35 @@ class ChatMixin(rx.State, mixin=True):
             "has_audio": False,
             "audio_urls_json": "[]",
         })
-        # Sync to llm_history (for LLM context - use ORIGINAL user_msg, not display variant)
         self.llm_history.append({"role": "user", "content": user_msg})  # type: ignore[attr-defined, has-type]
         self.add_debug("📨 User request received")
 
-        yield  # Update UI - user sees their message + debug confirmation NOW
+        # ============================================================
+        # PHASE 3: TTS streaming init
+        # ============================================================
+        tts_stream_script = None
+        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
+            self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
+            from ..lib.api import tts_queue_clear
+            tts_queue_clear(self.session_id)  # type: ignore[attr-defined]
+            tts_stream_script = rx.call_script(f"if(window.startTtsStream) startTtsStream('{self.session_id}');")  # type: ignore[attr-defined]
+
+        # FIRST YIELD: User sees their message bubble + AIfred indicator + TTS stream starts
+        if tts_stream_script:
+            yield tts_stream_script  # type: ignore[misc]
+        else:
+            yield
+
+        # ============================================================
+        # PHASE 4: vLLM model loading (AFTER user message is visible)
+        # ============================================================
+        if self.backend_type == "vllm":  # type: ignore[attr-defined]
+            from . import _global_backend_state
+            mgr = _global_backend_state.get("vllm_manager")
+            if not (mgr and mgr.is_running()) and self.aifred_model_id:  # type: ignore[attr-defined]
+                self.add_debug(f"🚀 Starting vLLM with {self.aifred_model_id}...")  # type: ignore[attr-defined]
+                yield  # Show debug message while loading
+            await self._ensure_vllm_model()  # type: ignore[attr-defined]
 
         # TTS: Ensure Docker container is running BEFORE Ollama loads models (reserves VRAM)
         # This runs on every message, not just at startup - handles container restart scenarios

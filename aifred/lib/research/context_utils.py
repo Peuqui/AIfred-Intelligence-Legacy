@@ -136,8 +136,17 @@ def get_agent_num_ctx(
             log_message(f"⚠️ Model {model_id} not found in llama-swap YAML → fallback {fallback}")
             num_ctx = fallback
             source = "fallback"
+    elif backend_type in ("vllm", "tabbyapi"):
+        # vLLM/TabbyAPI: context is fixed at server startup (--max-model-len)
+        vllm_ctx = getattr(state, 'vllm_max_tokens', 0)
+        if vllm_ctx > 0:
+            num_ctx = vllm_ctx
+            source = "vLLM startup"
+        else:
+            num_ctx = fallback
+            source = "fallback"
     else:
-        # Ollama/vLLM/etc: VRAM calibration cache
+        # Ollama: VRAM calibration cache
         rope_factor = get_rope_factor_for_model(model_id)
         cached_ctx = get_ollama_calibration(model_id, rope_factor)
 
