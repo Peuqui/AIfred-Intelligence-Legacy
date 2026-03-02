@@ -336,24 +336,29 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
     _ui_yield_ts: float = 0.0  # Timestamp of last UI yield
 
-    # Minimum interval between UI yields (seconds).
-    # Batches multiple tokens into a single state update to reduce
-    # React re-renders during streaming (~10/s instead of ~40/s).
-    _UI_YIELD_INTERVAL: float = 0.10  # ~10 updates/sec
+    def _streaming_sub(self):  # type: ignore[override]
+        """Get StreamingState substate instance (sync, for current_ai_response)."""
+        from aifred.state._streaming_state import StreamingState
+        return self._get_state_from_cache(StreamingState)
+
+    # Batch tokens before yielding state delta to reduce React re-renders.
+    # StreamingText component uses useEffect + DOM append for O(1) updates,
+    # but each yield still triggers 363 React context re-renders.
+    # At 40 tok/s and 50ms interval → ~2 tokens per batch (word-level).
+    _UI_YIELD_INTERVAL: float = 0.05  # 50ms — word-level batching
     _js_chunk_buffer: str = ""  # Accumulates chunks between yields
 
     def stream_text_to_ui(self, chunk: str) -> bool:
-        """Accumulate streaming chunk and signal when to yield.
+        """Accumulate streaming chunk and update state var when interval elapses.
 
-        Batches tokens over ``_UI_YIELD_INTERVAL`` and updates
-        ``current_ai_response`` with the accumulated batch. Callers
-        must ``yield`` when this returns True::
+        Batches tokens to reduce the number of React state deltas.
+        Callers yield when this returns True::
 
             if self.stream_text_to_ui(chunk):
                 yield
 
         Returns:
-            True when it's time to yield (state was updated), False otherwise.
+            True when state was updated and caller should yield.
         """
         import time
 
@@ -367,7 +372,15 @@ class TTSStreamingMixin(rx.State, mixin=True):
             self._ui_yield_ts = now
             batch = self._js_chunk_buffer
             self._js_chunk_buffer = ""
-            self.current_ai_response += batch  # type: ignore[attr-defined]
+            self._streaming_sub().current_ai_response += batch  # type: ignore[attr-defined]
+            return True
+        return False
+
+    def flush_stream_to_ui(self) -> bool:
+        """Flush remaining buffer to current_ai_response. Call at end of streaming."""
+        if self._js_chunk_buffer:
+            self._streaming_sub().current_ai_response += self._js_chunk_buffer  # type: ignore[attr-defined]
+            self._js_chunk_buffer = ""
             return True
         return False
 

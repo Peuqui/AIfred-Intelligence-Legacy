@@ -191,17 +191,15 @@ path = path.removeprefix("/" + config.frontend_path)
 
 ## AIfred Systemdienst
 
-AIfred läuft als User-Systemdienst (NICHT als root!):
+AIfred läuft als PolKit Systemdienst (NICHT als root!):
 
 ```bash
 # Neustart
-systemctl --user restart aifred-intelligence.service
+systemctl restart aifred-intelligence.service
 
 # Status prüfen
-systemctl --user status aifred-intelligence.service
+systemctl status aifred-intelligence.service
 
 # Logs ansehen
 journalctl --user -u aifred-intelligence -f
 ```
-
-**WICHTIG:** NIEMALS Reflex-Prozesse manuell killen! Immer über systemctl steuern.

@@ -113,7 +113,7 @@ class SessionMixin(rx.State, mixin=True):
         self.current_session_title = data.get("title", "")
 
         # Clear streaming state
-        self.current_ai_response = ""  # type: ignore[attr-defined]
+        self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         self.current_user_message = ""  # type: ignore[attr-defined]
         self.current_agent = ""  # type: ignore[attr-defined]
 
@@ -317,7 +317,7 @@ class SessionMixin(rx.State, mixin=True):
 
         self.chat_history = []  # type: ignore[attr-defined]
         self.llm_history = []  # type: ignore[attr-defined]
-        self.current_ai_response = ""  # type: ignore[attr-defined]
+        self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         self.current_user_message = ""  # type: ignore[attr-defined]
         self.tts_audio_path = ""  # type: ignore[attr-defined]
         self.debug_messages = []  # type: ignore[attr-defined]

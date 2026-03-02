@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import reflex as rx
 
-from ..state import AIState
+from ..state import AIState, StreamingState
 from ..theme import COLORS
 from .message_renderer import render_message_standalone
+from .streaming_text import streaming_text
 
 # Pulse animation style (reused for progress icon and text)
 _PULSE_STYLE: dict = {
@@ -488,13 +489,12 @@ def chat_history_display() -> rx.Component:
 
     # Chat History Box - JavaScript-basiertes Autoscroll (nicht rx.auto_scroll)
     # rx.auto_scroll ignoriert den Toggle während der Inferenz, daher JavaScript-Lösung
-    # Streaming text uses rx.text bound to current_ai_response (state-driven).
-    # Tokens are batched at ~100ms intervals to reduce React re-renders (~10/s).
+    # StreamingText uses useEffect + DOM append for O(1) updates per state delta.
 
     _stream_text_style: dict = {"white_space": "pre-wrap", "word_break": "break-word", "color": COLORS["ai_text"], "font_size": "13px"}
 
     streaming_box = rx.cond(
-        AIState.is_generating & (AIState.current_ai_response != ""),
+        AIState.is_generating,
         rx.box(
             rx.cond(
                 # AIfred Streaming (Orange)
@@ -508,7 +508,7 @@ def chat_history_display() -> rx.Component:
                                 rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
                                 spacing="1", margin_bottom="1",
                             ),
-                            rx.text(AIState.current_ai_response, style=_stream_text_style),
+                            streaming_text(text=StreamingState.current_ai_response, id="st-aifred", style=_stream_text_style),
                             background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
                         ),
                         spacing="2", align="start", width="100%",
@@ -528,7 +528,7 @@ def chat_history_display() -> rx.Component:
                                     rx.text("\u258c", font_size="14px", color="#cd7f32", animation="blink 1s infinite"),
                                     spacing="1", margin_bottom="1",
                                 ),
-                                rx.text(AIState.current_ai_response, style=_stream_text_style),
+                                streaming_text(text=StreamingState.current_ai_response, id="st-sokrates", style=_stream_text_style),
                                 background_color="rgba(205, 127, 50, 0.08)", padding="3", border_radius="6px", width="100%",
                             ),
                             spacing="2", align="start", width="100%",
@@ -546,7 +546,7 @@ def chat_history_display() -> rx.Component:
                                     rx.text("\u258c", font_size="14px", color="#daa520", animation="blink 1s infinite"),
                                     spacing="1", margin_bottom="1",
                                 ),
-                                rx.text(AIState.current_ai_response, style=_stream_text_style),
+                                streaming_text(text=StreamingState.current_ai_response, id="st-salomo", style=_stream_text_style),
                                 background_color="rgba(218, 165, 32, 0.08)", padding="3", border_radius="6px", width="100%",
                             ),
                             spacing="2", align="start", width="100%",

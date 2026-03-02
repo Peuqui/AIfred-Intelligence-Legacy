@@ -243,7 +243,7 @@ async def _stream_agent_to_history(
 
     # Set current agent for UI styling
     state.current_agent = agent
-    state.current_ai_response = ""
+    state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
 
     # Initialize streaming TTS
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
@@ -261,11 +261,15 @@ async def _stream_agent_to_history(
             token_count += 1
 
             if state.stream_text_to_ui(chunk["text"]):
-                yield None  # type: ignore[misc]
+                yield  # type: ignore[misc]
 
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
             token_count = metrics.get("tokens_generated", token_count)
+
+    # Flush remaining buffer to state
+    if state.flush_stream_to_ui():
+        yield  # type: ignore[misc]
 
     # Finalize streaming TTS: send any remaining text in buffer
     audio_urls: list[str] = []
@@ -296,7 +300,7 @@ async def _stream_agent_to_history(
 
     # Clear streaming state (cleanup BEFORE yield)
     state._js_chunk_buffer = ""
-    state.current_ai_response = ""
+    state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
     state.current_agent = ""
 
     # Return result as final yield (dict = result, None = UI update)
@@ -443,7 +447,7 @@ async def _run_agent_direct_response(
 
         # Unified streaming UI
         state.current_agent = agent
-        state.current_ai_response = ""
+        state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
 
         # TTS init
         if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
@@ -471,7 +475,7 @@ async def _run_agent_direct_response(
                 full_response += content
                 token_count += 1
                 if state.stream_text_to_ui(content):
-                    yield
+                    yield  # type: ignore[misc]
 
             elif chunk_type == "thinking":
                 thinking_content = chunk.get("text", "")
@@ -481,6 +485,10 @@ async def _run_agent_direct_response(
             elif chunk_type == "done":
                 metrics = chunk.get("metrics", {})
                 token_count = metrics.get("tokens_generated", token_count)
+
+        # Flush remaining buffer to state
+        if state.flush_stream_to_ui():
+            yield  # type: ignore[misc]
 
         # Finalize streaming TTS
         audio_urls: list[str] = []
@@ -528,7 +536,7 @@ async def _run_agent_direct_response(
 
         # Cleanup
         state._js_chunk_buffer = ""
-        state.current_ai_response = ""
+        state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         state.current_agent = ""
         state._save_current_session()
         console_separator()
@@ -762,7 +770,7 @@ async def run_sokrates_analysis(
                     # Last yield is the result
                     result = item
                 else:
-                    yield  # Forward UI updates
+                    yield  # Forward state delta to browser
 
             # Extract Sokrates result from final yield
             if result is None:
@@ -874,7 +882,7 @@ async def run_sokrates_analysis(
                     if isinstance(item, dict):
                         salomo_result = item
                     else:
-                        yield
+                        yield  # Forward state delta
 
                 # Extract Salomo result from final yield
                 if salomo_result is None:
@@ -992,7 +1000,7 @@ async def run_sokrates_analysis(
                         if isinstance(item, dict):
                             alfred_result = item
                         else:
-                            yield
+                            yield  # Forward state delta
 
                     # Extract refined answer from final yield
                     if alfred_result is None:
@@ -1206,7 +1214,7 @@ async def run_tribunal(
                 if isinstance(item, dict):
                     result = item
                 else:
-                    yield
+                    yield  # Forward state delta
 
             # Extract Sokrates result from final yield
             if result is None:
@@ -1290,7 +1298,7 @@ async def run_tribunal(
                     if isinstance(item, dict):
                         alfred_result = item
                     else:
-                        yield
+                        yield  # Forward state delta
 
                 # Extract Alfred result from final yield
                 if alfred_result is None:
@@ -1368,7 +1376,7 @@ async def run_tribunal(
             if isinstance(item, dict):
                 salomo_result = item
             else:
-                yield
+                yield  # Forward state delta
 
         # Extract Salomo result from final yield
         if salomo_result is None:

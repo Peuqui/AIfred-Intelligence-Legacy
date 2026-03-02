@@ -25,7 +25,7 @@ class ChatMixin(rx.State, mixin=True):
     # ── State Variables ──────────────────────────────────────────────
     current_user_input: str = ""
     current_user_message: str = ""  # The message currently being processed
-    current_ai_response: str = ""  # Shared streaming buffer for all agents
+    # current_ai_response lives on StreamingState (separate React context)
     current_agent: str = ""  # Current streaming agent: "aifred" | "sokrates" | "salomo" | ""
     is_generating: bool = False
     is_compressing: bool = False  # Shows if history compression is running
@@ -476,6 +476,9 @@ class ChatMixin(rx.State, mixin=True):
                     )
                 yield
             elif item["type"] == "result":
+                # Flush remaining buffer to state
+                if self.flush_stream_to_ui():  # type: ignore[attr-defined]
+                    yield
                 result_data = item["data"]
 
         if result_data:
@@ -489,7 +492,7 @@ class ChatMixin(rx.State, mixin=True):
                 self.llm_history = list(self.llm_history) + [returned_llm[-1]]  # type: ignore[attr-defined, has-type]
             self.chat_history = result_data["history"]  # type: ignore[attr-defined]
 
-        self.current_ai_response = ""
+        self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         self.current_user_message = ""
         self.is_generating = False
         yield
@@ -532,7 +535,7 @@ class ChatMixin(rx.State, mixin=True):
         self.current_user_input = ""  # Clear input
         self.current_user_message = user_msg  # Zeige sofort die Eingabe an
         self.is_generating = True
-        self.current_ai_response = ""
+        self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         self.current_agent = "aifred"  # Set current agent for unified streaming UI
         self.used_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
         self.failed_sources: list[dict[str, str]] = []  # type: ignore[attr-defined, var-annotated]
@@ -1041,7 +1044,7 @@ class ChatMixin(rx.State, mixin=True):
                 async for _ in run_sokrates_direct_response(self, user_msg, detected_language):  # type: ignore[arg-type]
                     yield
                 # Clean up and return - Sokrates handled everything
-                self.current_ai_response = ""
+                self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
                 self.current_user_message = ""
                 self.is_generating = False
                 self._save_current_session()  # type: ignore[attr-defined]
@@ -1062,7 +1065,7 @@ class ChatMixin(rx.State, mixin=True):
                 async for _ in run_salomo_direct_response(self, user_msg, detected_language):  # type: ignore[arg-type]
                     yield
                 # Clean up and return - Salomo handled everything
-                self.current_ai_response = ""
+                self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
                 self.current_user_message = ""
                 self.is_generating = False
                 self._save_current_session()  # type: ignore[attr-defined]
@@ -1118,6 +1121,9 @@ class ChatMixin(rx.State, mixin=True):
                         yield
 
                 elif item["type"] == "result":
+                    # Flush remaining buffer to state
+                    if self.flush_stream_to_ui():  # type: ignore[attr-defined]
+                        yield
                     result_data = item["data"]
                     ai_text = result_data["response_clean"]
                     updated_history = result_data["history"]
@@ -1179,7 +1185,7 @@ class ChatMixin(rx.State, mixin=True):
                     if "llm_history" in result_data:
                         self.llm_history = result_data["llm_history"]  # type: ignore[attr-defined]
 
-                    self.current_ai_response = ""
+                    self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
                     self.current_user_message = ""
                     yield
 
@@ -1234,19 +1240,19 @@ class ChatMixin(rx.State, mixin=True):
                     self.is_generating = False
                     self.clear_progress()
                     self.current_user_message = ""
-                    self.current_ai_response = ""
+                    self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
 
                 yield
 
             # Final cleanup — flush remaining stream buffer and clear state
             self._js_chunk_buffer = ""  # type: ignore[attr-defined]
-            self.current_ai_response = ""
+            self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
             yield
 
         except Exception as e:
             error_msg = f"Error: {e!s}"
             self._js_chunk_buffer = ""  # type: ignore[attr-defined]
-            self.current_ai_response = error_msg
+            self._streaming_sub().current_ai_response = error_msg  # type: ignore[attr-defined]
 
             # APPEND error as separate panel
             # Note: User panel was already created above with user_msg/display_user_msg
@@ -1332,7 +1338,7 @@ class ChatMixin(rx.State, mixin=True):
 
             # Final cleanup: Clear streaming state
             self.current_agent = ""
-            self.current_ai_response = ""
+            self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
 
     # ── Clear Chat ───────────────────────────────────────────────────
 
