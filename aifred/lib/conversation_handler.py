@@ -2164,7 +2164,10 @@ async def chat_interactive_mode(
     vram_warning = None
     if backend_type == "vllm":
         from .vllm_utils import check_vram_change_for_vllm
-        vram_info = check_vram_change_for_vllm(model_choice)
+        from aifred.state import _global_backend_state
+        vllm_manager = _global_backend_state.get("vllm_manager")
+        vllm_gpu_indices = vllm_manager.gpu_indices if vllm_manager else None
+        vram_info = check_vram_change_for_vllm(model_choice, gpu_indices=vllm_gpu_indices)
         if vram_info:
             vram_diff, current_vram, cached_vram, potential_tokens, current_tokens = vram_info
             vram_warning = {

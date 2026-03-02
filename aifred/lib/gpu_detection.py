@@ -36,7 +36,7 @@ class KnownIssue(TypedDict):
 class GPUInfo:
     """GPU information and capabilities"""
     name: str
-    compute_capability: float
+    compute_capability: float  # Lowest CC across all GPUs (for display)
     vram_mb: int
     has_tensor_cores: bool
     supports_fast_fp16: bool
@@ -48,6 +48,9 @@ class GPUInfo:
     total_vram_mb: int = 0
     all_gpu_names: List[str] = field(default_factory=list)
     all_gpu_vram_mb: List[int] = field(default_factory=list)
+    all_gpu_compute_caps: List[float] = field(default_factory=list)
+    # Per-backend compatible GPU indices, e.g. {"vllm": [0], "llamacpp": [0, 1]}
+    backend_gpu_indices: Dict[str, List[int]] = field(default_factory=dict)
 
 
 class GPUDetector:
@@ -133,8 +136,8 @@ class GPUDetector:
         """
         Detect GPU and return GPUInfo
 
-        For multi-GPU systems, detects the GPU with the LOWEST compute capability
-        to ensure backend compatibility across all GPUs.
+        For multi-GPU systems, checks backend compatibility per GPU.
+        A backend is available if at least one GPU meets its requirements.
 
         Returns:
             GPUInfo if GPU detected, None otherwise
@@ -144,8 +147,6 @@ class GPUDetector:
             if not rows:
                 return None
 
-            # For multi-GPU: Find GPU with LOWEST compute capability
-            # This ensures backend compatibility across all GPUs
             gpu_list: List[GPUDict] = []
             for row in rows:
                 try:
@@ -160,14 +161,13 @@ class GPUDetector:
             if not gpu_list:
                 return None
 
-            # Sort by compute capability and take the lowest
-            # (ensures backends work on ALL GPUs, not just the best one)
+            # Sort by compute capability (lowest first for display)
             gpu_list.sort(key=lambda x: x["compute_cap"])
-            selected_gpu = gpu_list[0]
+            lowest_gpu = gpu_list[0]
 
-            gpu_name = selected_gpu["name"]
-            vram_mb = selected_gpu["vram_mb"]
-            compute_cap = selected_gpu["compute_cap"]
+            gpu_name = lowest_gpu["name"]
+            vram_mb = lowest_gpu["vram_mb"]
+            compute_cap = lowest_gpu["compute_cap"]  # Lowest CC (for display)
             gpu_count = len(gpu_list)
             total_vram_mb = sum(g["vram_mb"] for g in gpu_list)
 
@@ -175,15 +175,17 @@ class GPUDetector:
             if len(gpu_list) > 1:
                 gpu_names = [f"{g['name']} ({g['compute_cap']})" for g in gpu_list]
                 print(f"🎮 Multi-GPU detected: {', '.join(gpu_names)}")
-                print(f"🎯 Using lowest compute capability: {gpu_name} ({compute_cap}) for compatibility check")
 
-            # Determine capabilities
-            has_tensor_cores = compute_cap >= 7.0
-            supports_fast_fp16 = self._check_fast_fp16(gpu_name, compute_cap)
+            # Determine capabilities using BEST GPU (for backend eligibility)
+            max_compute_cap = max(g["compute_cap"] for g in gpu_list)
+            has_tensor_cores = max_compute_cap >= 7.0
+            supports_fast_fp16 = any(
+                self._check_fast_fp16(g["name"], g["compute_cap"]) for g in gpu_list
+            )
 
-            # Determine backend compatibility
-            recommended, unsupported, warnings = self._analyze_compatibility(
-                gpu_name, compute_cap, has_tensor_cores, supports_fast_fp16
+            # Determine backend compatibility per GPU
+            recommended, unsupported, warnings, backend_gpu_indices = (
+                self._analyze_compatibility(gpu_list)
             )
 
             self.gpu_info = GPUInfo(
@@ -199,6 +201,8 @@ class GPUDetector:
                 total_vram_mb=total_vram_mb,
                 all_gpu_names=[g["name"] for g in gpu_list],
                 all_gpu_vram_mb=[g["vram_mb"] for g in gpu_list],
+                all_gpu_compute_caps=[g["compute_cap"] for g in gpu_list],
+                backend_gpu_indices=backend_gpu_indices,
             )
 
             return self.gpu_info
@@ -229,56 +233,67 @@ class GPUDetector:
 
     def _analyze_compatibility(
         self,
-        gpu_name: str,
-        compute_cap: float,
-        has_tensor_cores: bool,
-        supports_fast_fp16: bool
-    ) -> tuple[List[str], List[str], List[str]]:
+        gpu_list: List[GPUDict]
+    ) -> tuple[List[str], List[str], List[str], Dict[str, List[int]]]:
         """
-        Analyze which backends are compatible
+        Analyze backend compatibility per GPU.
+
+        A backend is compatible if AT LEAST ONE GPU meets its requirements.
 
         Returns:
-            (recommended_backends, unsupported_backends, warnings)
+            (recommended_backends, unsupported_backends, warnings, backend_gpu_indices)
         """
         recommended = []
         unsupported = []
         warnings = []
+        backend_gpu_indices: Dict[str, List[int]] = {}
 
-        # Check each backend
         for backend, reqs in self.BACKEND_REQUIREMENTS.items():
             min_cap = reqs["min_compute_capability"]
-            needs_tc = reqs["requires_tensor_cores"]
             needs_fp16 = reqs["requires_fast_fp16"]
 
-            # Check requirements
-            cap_ok = compute_cap >= min_cap
-            tc_ok = not needs_tc or has_tensor_cores
-            fp16_ok = not needs_fp16 or supports_fast_fp16
+            compatible_indices = []
+            for i, gpu in enumerate(gpu_list):
+                cap_ok = gpu["compute_cap"] >= min_cap
+                fp16_ok = not needs_fp16 or self._check_fast_fp16(gpu["name"], gpu["compute_cap"])
+                if cap_ok and fp16_ok:
+                    compatible_indices.append(i)
 
-            if cap_ok and tc_ok and fp16_ok:
+            backend_gpu_indices[backend] = compatible_indices
+
+            if compatible_indices:
                 recommended.append(backend)
+
+                # Warn if not ALL GPUs are compatible (partial compatibility)
+                if len(compatible_indices) < len(gpu_list) and len(gpu_list) > 1:
+                    compatible_names = [gpu_list[i]["name"] for i in compatible_indices]
+                    incompatible = [
+                        f"{gpu_list[i]['name']} (CC {gpu_list[i]['compute_cap']})"
+                        for i in range(len(gpu_list))
+                        if i not in compatible_indices
+                    ]
+                    compatible_vram = sum(gpu_list[i]["vram_mb"] for i in compatible_indices)
+                    compatible_vram_gb = compatible_vram // 1024
+                    warnings.append(
+                        f"{backend}: uses {', '.join(compatible_names)} only "
+                        f"({compatible_vram_gb} GB) — "
+                        f"{', '.join(incompatible)} not compatible (CC < {min_cap})"
+                    )
             else:
                 unsupported.append(backend)
+                best_cc = max(gpu["compute_cap"] for gpu in gpu_list)
+                warnings.append(
+                    f"{backend}: requires compute capability {min_cap}+ "
+                    f"(best GPU has {best_cc})"
+                )
 
-                # Generate specific warning
-                reasons = []
-                if not cap_ok:
-                    reasons.append(f"requires compute capability {min_cap}+ (you have {compute_cap})")
-                if not tc_ok:
-                    reasons.append("requires Tensor Cores")
-                if not fp16_ok:
-                    reasons.append("requires fast FP16 (your GPU has slow FP16)")
+        # Add known issue warnings per GPU
+        for gpu in gpu_list:
+            for known_gpu, issue_info in self.KNOWN_ISSUES.items():
+                if known_gpu in gpu["name"]:
+                    warnings.append(f"{gpu['name']}: {str(issue_info['issue'])}")
 
-                warning = f"{backend}: " + ", ".join(reasons)
-                warnings.append(warning)
-
-        # Add known issue warnings
-        for known_gpu, issue_info in self.KNOWN_ISSUES.items():
-            if known_gpu in gpu_name:
-                warnings.append(f"{gpu_name}: {str(issue_info['issue'])}")
-                warnings.append(f"Recommendation: {str(issue_info['recommendation'])}")
-
-        return recommended, unsupported, warnings
+        return recommended, unsupported, warnings, backend_gpu_indices
 
     def is_backend_compatible(self, backend: str) -> bool:
         """

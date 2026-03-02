@@ -11,12 +11,16 @@ from typing import Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-def check_vram_change_for_vllm(model_id: str) -> Optional[Tuple[int, int, int, Optional[int], Optional[int]]]:
+def check_vram_change_for_vllm(
+    model_id: str,
+    gpu_indices: Optional[list[int]] = None
+) -> Optional[Tuple[int, int, int, Optional[int], Optional[int]]]:
     """
     Check if VRAM has changed significantly since last vLLM calibration
 
     Args:
         model_id: Model identifier (e.g., "cpatonn/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit")
+        gpu_indices: GPU indices that vLLM uses (None = GPU 0 only)
 
     Returns:
         Tuple of (vram_diff_mb, current_vram_mb, cached_vram_mb, potential_tokens, current_tokens)
@@ -34,8 +38,13 @@ def check_vram_change_for_vllm(model_id: str) -> Optional[Tuple[int, int, int, O
     # Query current free VRAM using centralized gpu_utils function
     from .gpu_utils import get_free_vram_for_single_gpu
 
-    current_vram_mb = get_free_vram_for_single_gpu(gpu_index=0)
-    if current_vram_mb is None:
+    indices = gpu_indices if gpu_indices is not None else [0]
+    current_vram_mb = 0
+    for idx in indices:
+        vram = get_free_vram_for_single_gpu(gpu_index=idx)
+        if vram is not None:
+            current_vram_mb += vram
+    if current_vram_mb == 0:
         logger.warning("Could not query GPU VRAM")
         return None
 

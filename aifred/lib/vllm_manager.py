@@ -244,7 +244,8 @@ class vLLMProcessManager:
         port: int = 8001,
         max_model_len: int = 0,
         gpu_memory_utilization: float = 0.85,
-        yarn_config: Optional[dict] = None
+        yarn_config: Optional[dict] = None,
+        gpu_indices: Optional[list[int]] = None
     ):
         """
         Initialize vLLM Process Manager
@@ -255,11 +256,13 @@ class vLLMProcessManager:
             gpu_memory_utilization: GPU memory to use (default: 0.85 = 85%)
             yarn_config: YaRN RoPE scaling config (default: None = disabled)
                 Example: {"factor": 2.0, "original_max_position_embeddings": 40960}
+            gpu_indices: Restrict vLLM to these GPU indices (default: None = all GPUs)
         """
         self.port = port
         self.max_model_len = max_model_len  # 0 = auto-detect
         self.gpu_memory_utilization = gpu_memory_utilization
         self.yarn_config = yarn_config  # YaRN configuration
+        self.gpu_indices = gpu_indices  # None = use all GPUs
         self.process: Optional[subprocess.Popen] = None
         self.current_model: Optional[str] = None
         self.stderr_buffer: list[str] = []  # Buffer for stderr output
@@ -344,6 +347,11 @@ class vLLMProcessManager:
 
         # Environment variables
         env = os.environ.copy()
+
+        # Restrict to compatible GPUs if specified
+        if self.gpu_indices is not None:
+            env["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in self.gpu_indices)
+            logger.info(f"🎯 CUDA_VISIBLE_DEVICES={env['CUDA_VISIBLE_DEVICES']}")
 
         # Start process
         try:
@@ -503,19 +511,32 @@ class vLLMProcessManager:
 
         # STRATEGY 1: Get current free VRAM and check cache for interpolation
         from aifred.lib.gpu_utils import get_gpu_memory_info
-        gpu_info = get_gpu_memory_info()
         free_vram_mb: int | float = 0
         total_vram_mb: int | float = 0
-        if gpu_info:
-            total_vram_mb = gpu_info["total_mb"]
-            free_vram_mb = gpu_info["free_mb"]
-            gpu_model = gpu_info["gpu_model"]
-            log_feedback(f"📊 VRAM: {total_vram_mb}MB total, {free_vram_mb}MB free")
+        gpu_model = "Unknown"
+
+        if self.gpu_indices is not None:
+            # Sum VRAM from compatible GPUs only
+            for idx in self.gpu_indices:
+                info = get_gpu_memory_info(gpu_index=idx)
+                if info:
+                    free_vram_mb += info["free_mb"]
+                    total_vram_mb += info["total_mb"]
+                    gpu_model = info["gpu_model"]
+            gpu_label = f"GPU {','.join(str(i) for i in self.gpu_indices)}"
+            if free_vram_mb > 0:
+                log_feedback(f"📊 VRAM ({gpu_label}): {total_vram_mb}MB total, {free_vram_mb}MB free")
+            else:
+                log_feedback(f"⚠️ Could not query {gpu_label}")
         else:
-            log_feedback("⚠️ Could not query GPU")
-            gpu_model = "Unknown"
-            total_vram_mb = 0
-            free_vram_mb = 0
+            info = get_gpu_memory_info()
+            if info:
+                total_vram_mb = info["total_mb"]
+                free_vram_mb = info["free_mb"]
+                gpu_model = info["gpu_model"]
+                log_feedback(f"📊 VRAM: {total_vram_mb}MB total, {free_vram_mb}MB free")
+            else:
+                log_feedback("⚠️ Could not query GPU")
 
         # Try interpolation from cached calibration points
         from aifred.lib.model_vram_cache import interpolate_vllm_context as interpolate_context

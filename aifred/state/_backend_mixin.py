@@ -1172,11 +1172,22 @@ class BackendMixin(rx.State, mixin=True):
                 }
                 self.add_debug(f"🔧 YaRN: {self.yarn_factor}x scaling ({self.vllm_native_context:,} → {int(self.vllm_native_context * self.yarn_factor):,} tokens)")  # type: ignore[attr-defined, has-type]
 
+            # Get compatible GPU indices for vLLM
+            gpu_info = _global_backend_state.get("gpu_info")
+            vllm_gpu_indices = None
+            if gpu_info and gpu_info.backend_gpu_indices:
+                vllm_gpu_indices = gpu_info.backend_gpu_indices.get("vllm") or None
+                if vllm_gpu_indices and len(vllm_gpu_indices) < gpu_info.gpu_count:
+                    compatible_names = [gpu_info.all_gpu_names[i] for i in vllm_gpu_indices]
+                    compatible_vram = sum(gpu_info.all_gpu_vram_mb[i] for i in vllm_gpu_indices)
+                    self.add_debug(f"🎯 vLLM restricted to GPU {','.join(str(i) for i in vllm_gpu_indices)}: {', '.join(compatible_names)} ({compatible_vram // 1024} GB)")  # type: ignore[attr-defined, has-type]
+
             vllm_manager = vLLMProcessManager(
                 port=8001,
                 max_model_len=0,
                 gpu_memory_utilization=0.90,
-                yarn_config=yarn_config
+                yarn_config=yarn_config,
+                gpu_indices=vllm_gpu_indices
             )
 
             success, context_info = await vllm_manager.start_with_auto_detection(
