@@ -5,6 +5,18 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.55.0] - 2026-03-02 🎯 Single-GPU Calibration + Bottleneck Fix
+
+### Added
+
+- **Single-GPU Calibration** — Neuer `_check_single_gpu_fit()` erkennt automatisch ob ein Modell komplett auf eine einzelne GPU passt. Probiert GPUs in CUDA-Reihenfolge (CUDA0 = schnellste bei `FASTEST_FIRST`). Wenn das Modell bei vollem nativen Kontext auf eine GPU passt, wird die Kalibrierung auf diese GPU beschraenkt (`--tensor-split 1,0`). Phase 2 (Speed-Variante) wird korrekt uebersprungen.
+- **Single-GPU Pattern Detection** — Bestehende Configs mit Single-GPU tensor-split (z.B. `1,0`) werden erkannt. Verhindert unnoetige Phase-2-Kalibrierung (~7s gespart) bei Re-Kalibrierung.
+- **Tensor-Split INSERT** — `_replace_ts_in_model_block()` kann jetzt `--tensor-split` in Config-Bloecke einfuegen (nach `-ngl`), nicht nur bestehende Werte ersetzen.
+
+### Fixed
+
+- **Bottleneck-Bug bei Single-GPU** — `_calculate_max_context_per_gpu()` behandelte GPUs mit `gpu_rate <= 0` (kein Kontext-Scaling, z.B. tensor-split 0) als Bottleneck bei 8.192 Tokens. Bei `--tensor-split 1,0` wurde CUDA1 (P40, 0 Layer) zum Bottleneck und deckelte den gesamten Kontext auf 8.192 statt der korrekten 262.144 Tokens. Fix: GPUs ohne Kontext-Scaling werden uebersprungen.
+
 ## [2.54.0] - 2026-03-01 🔧 Calibration Rewrite + Speed-Suffix SSOT
 
 ### Architecture

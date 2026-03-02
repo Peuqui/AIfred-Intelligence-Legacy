@@ -351,22 +351,51 @@ def update_llamaswap_tensor_split(
 
 
 def _replace_ts_in_model_block(content: str, model_id: str, new_val: str) -> str:
-    """Replace --tensor-split / -ts value in a specific model's cmd block."""
+    """Replace or insert --tensor-split in a specific model's cmd block.
+
+    If tensor-split already exists: replaces the value.
+    If not: inserts '-sm layer --tensor-split VALUE' after -ngl.
+    """
     lines = content.split('\n')
     in_model_block = False
-    result_lines = []
+    found_ts = False
+    ngl_line_idx = -1
+    result_lines: list[str] = []
 
     for line in lines:
         if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
             in_model_block = True
+            found_ts = False
+            ngl_line_idx = -1
         elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
+            # Leaving model block — insert if no tensor-split was found
+            if not found_ts and ngl_line_idx >= 0:
+                sm_part = "-sm layer " if "-sm " not in result_lines[ngl_line_idx] else ""
+                result_lines[ngl_line_idx] = re.sub(
+                    r'(-ngl\s+\d+)',
+                    rf'\1 {sm_part}--tensor-split {new_val}',
+                    result_lines[ngl_line_idx],
+                )
             in_model_block = False
 
         if in_model_block:
-            line = re.sub(r'(--tensor-split\s+)[\d.,]+', rf'\g<1>{new_val}', line)
-            line = re.sub(r'(-ts\s+)[\d.,]+', rf'\g<1>{new_val}', line)
+            if re.search(r'(--tensor-split|-ts)\s+[\d.,]+', line):
+                found_ts = True
+                line = re.sub(r'(--tensor-split\s+)[\d.,]+', rf'\g<1>{new_val}', line)
+                line = re.sub(r'(-ts\s+)[\d.,]+', rf'\g<1>{new_val}', line)
+            elif not found_ts and ngl_line_idx < 0 and re.search(r'-ngl\s+\d+', line):
+                ngl_line_idx = len(result_lines)
 
         result_lines.append(line)
+
+    # Handle model block at end of file
+    if in_model_block and not found_ts and ngl_line_idx >= 0:
+        sm_part = "-sm layer " if "-sm " not in result_lines[ngl_line_idx] else ""
+        result_lines[ngl_line_idx] = re.sub(
+            r'(-ngl\s+\d+)',
+            rf'\1 {sm_part}--tensor-split {new_val}',
+            result_lines[ngl_line_idx],
+        )
 
     return '\n'.join(result_lines)
 
@@ -682,11 +711,13 @@ def _calculate_max_context_per_gpu(
         used_high = per_gpu_high[gpu_id]["used"]
 
         gpu_rate = (used_high - used_low) / (ctx_high - ctx_low)
-        combined_rate += gpu_rate
 
         if gpu_rate <= 0:
-            gpu_limits.append((gpu_id, CALIBRATION_MIN_CONTEXT, free_low))
+            # GPU has no context-dependent VRAM growth (e.g. tensor-split 0)
+            # — not participating in context scaling, skip as bottleneck
             continue
+
+        combined_rate += gpu_rate
 
         headroom = free_low - LLAMACPP_VRAM_SAFETY_MARGIN
         if headroom <= 0:
@@ -1710,6 +1741,60 @@ def _has_tensor_split(full_cmd: str) -> bool:
     return bool(re.search(r'(--tensor-split|-ts)\s+[\d.,]+', full_cmd))
 
 
+def _check_single_gpu_fit(
+    full_cmd: str,
+    gguf_path: Path,
+    native_context: int,
+    num_gpus: int,
+) -> tuple[str, str, str] | None:
+    """Check if model fits entirely on a single GPU at full native context.
+
+    Tries each GPU in CUDA order (CUDA0 first = fastest with FASTEST_FIRST).
+    Uses llama-fit-params with --tensor-split 1,0,...,0 to project single-GPU
+    VRAM usage.  If the target GPU has enough free VRAM after the projection,
+    single-GPU calibration is feasible.
+
+    Returns:
+        (cuda_id, gpu_name, modified_cmd) if single-GPU fits, None otherwise.
+    """
+    for cuda_idx in range(num_gpus):
+        # Force all layers onto this GPU, 0 on all others
+        ts_parts = ["0"] * num_gpus
+        ts_parts[cuda_idx] = "1"
+        ts_str = ",".join(ts_parts)
+        test_cmd = f"{full_cmd} -sm layer --tensor-split {ts_str}"
+
+        try:
+            per_gpu = _fit_params_per_gpu_projection(
+                test_cmd, gguf_path, native_context, ngl=99,
+            )
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            continue
+
+        target_id = f"CUDA{cuda_idx}"
+        target = per_gpu.get(target_id)
+        if not target:
+            continue
+
+        gpu_name = _short_gpu_name(str(target.get("name", f"GPU {cuda_idx}")))
+
+        if target["free"] >= LLAMACPP_VRAM_SAFETY_MARGIN:
+            log_message(
+                f"Single-GPU fit: {gpu_name} ({target_id}) "
+                f"free={target['free']} MiB >= margin={LLAMACPP_VRAM_SAFETY_MARGIN} MiB",
+                category="stats",
+            )
+            return target_id, gpu_name, test_cmd
+
+        log_message(
+            f"Single-GPU check: {target_id} ({gpu_name}) insufficient "
+            f"(free={target['free']} MiB < margin={LLAMACPP_VRAM_SAFETY_MARGIN} MiB)",
+            category="stats",
+        )
+
+    return None
+
+
 def _parse_tensor_split_ratios(cmd: str) -> list[float]:
     """Extract all tensor-split ratios from cmd.
 
@@ -2237,6 +2322,28 @@ async def calibrate_llamacpp_model(
         yield "__RESULT__:0:0:error"
         return
 
+    # === Single-GPU optimization for multi-GPU systems ===
+    # If the model fits entirely on one GPU at native context, restrict
+    # calibration to that GPU (avoids unnecessary multi-GPU distribution
+    # and enables optimal single-GPU performance).
+    is_single_gpu = False
+    if gpu_info and gpu_info["gpu_count"] > 1:
+        existing_ratios = _parse_tensor_split_ratios(full_cmd)
+        # Detect existing single-GPU pattern (e.g. 1,0 or 0,1)
+        if existing_ratios and sum(1 for r in existing_ratios if r > 0) == 1:
+            is_single_gpu = True
+        elif not existing_ratios:
+            single_result = _check_single_gpu_fit(
+                full_cmd, gguf_path, native_context, gpu_info["gpu_count"],
+            )
+            if single_result:
+                cuda_id, gpu_name, full_cmd = single_result
+                is_single_gpu = True
+                yield (
+                    f"✓ Single-GPU: model fits on {gpu_name} ({cuda_id}) "
+                    f"at full {format_number(native_context)} context"
+                )
+
     # Helper: test thinking on running server (or start new one), yield result
     async def _finish_calibration(
         ctx: int, ngl: int, mode: str,
@@ -2390,6 +2497,10 @@ async def calibrate_llamacpp_model(
     thinking_result: Optional[bool] = None
     optimized_ratios: Optional[list[float]] = None
 
+    # For single-GPU: pre-set tensor-split ratios for config write-back
+    if is_single_gpu:
+        optimized_ratios = _parse_tensor_split_ratios(full_cmd)
+
     for kv_level in kv_levels:
         if kv_level != "f16" and (best_result >= native_context or best_result >= KV_QUANT_CONTEXT_THRESHOLD):
             break
@@ -2403,7 +2514,7 @@ async def calibrate_llamacpp_model(
         run_thinking = thinking_result is None
         async for item in _physical_context_search(
             test_cmd, gguf_path, native_context, ngl=99, port=port,
-            skip_balance=False,
+            skip_balance=is_single_gpu,
             run_thinking_test=run_thinking,
         ):
             if isinstance(item, int):
@@ -2458,7 +2569,9 @@ async def calibrate_llamacpp_model(
                 yield f"Tensor-split {ts_str} written to llama-swap config"
 
         if _has_tensor_split(full_cmd):
-            if skip_speed:
+            if is_single_gpu:
+                yield "Phase 2: Skipped (single-GPU, no speed variant needed)"
+            elif skip_speed:
                 yield (
                     "Phase 2: Speed variant skipped "
                     "(dominant GPU is already the VRAM bottleneck)"
