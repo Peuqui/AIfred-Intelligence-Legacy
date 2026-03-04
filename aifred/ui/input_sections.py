@@ -260,28 +260,24 @@ def text_input_section() -> rx.Component:
             t("text_input_heading"),
             size="2"
         ),
-        rx.debounce_input(
-            rx.text_area(
-                placeholder=t("text_input_placeholder"),
-                value=AIState.current_user_input,
-                on_change=AIState.set_user_input,
-                width="100%",
-                rows="3",
-                spell_check=False,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
-                style={
-                    "field_sizing": "content",
-                    "min_height": "4.5em",
-                    "max_height": "22.5em",
-                    "overflow_y": "auto",
-                    "border": f"1px solid {COLORS['border']}",
-                    "&:focus": {
-                        "border": f"1px solid {COLORS['accent_blue']}",
-                        "outline": "none",
-                    },
+        rx.text_area(
+            placeholder=t("text_input_placeholder"),
+            id="user-text-input",
+            width="100%",
+            rows="3",
+            spell_check=False,
+            disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
+            style={
+                "field_sizing": "content",
+                "min_height": "4.5em",
+                "max_height": "22.5em",
+                "overflow_y": "auto",
+                "border": f"1px solid {COLORS['border']}",
+                "&:focus": {
+                    "border": f"1px solid {COLORS['accent_blue']}",
+                    "outline": "none",
                 },
-            ),
-            debounce_timeout=300,
+            },
         ),
 
         # Research Mode Radio Buttons
@@ -491,7 +487,42 @@ def text_input_section() -> rx.Component:
         rx.hstack(
             rx.button(
                 t("send_text"),
-                on_click=AIState.send_message,
+                id="send-button",
+                on_click=rx.call_script(
+                    "(() => {"
+                    " const el = document.getElementById('user-text-input');"
+                    " const v = el.value; if (!v.trim()) return '';"
+                    " el.value = '';"
+                    " const btn = document.getElementById('send-button');"
+                    " if (btn) { btn.disabled = true; btn.style.opacity = '0.6';"
+                    "   btn.dataset.optimistic = '1';"
+                    "   btn.dataset.origHtml = btn.innerHTML;"
+                    "   if (!document.getElementById('_oss')){"
+                    "     const s = document.createElement('style'); s.id='_oss';"
+                    "     s.textContent='"
+                    "@keyframes _oss{to{transform:rotate(360deg)}}"
+                    ".opt-spinner{display:inline-block;width:16px;height:16px;"
+                    "position:relative;animation:_oss .8s steps(8) infinite}"
+                    ".opt-spinner i{position:absolute;left:7px;top:0;width:2px;"
+                    "height:5px;rx:1px;background:#ffb84d;border-radius:1px;"
+                    "transform-origin:center 8px}"
+                    ".opt-spinner i:nth-child(1){transform:rotate(0deg);opacity:.85}"
+                    ".opt-spinner i:nth-child(2){transform:rotate(45deg);opacity:.7}"
+                    ".opt-spinner i:nth-child(3){transform:rotate(90deg);opacity:.55}"
+                    ".opt-spinner i:nth-child(4){transform:rotate(135deg);opacity:.4}"
+                    ".opt-spinner i:nth-child(5){transform:rotate(180deg);opacity:.3}"
+                    ".opt-spinner i:nth-child(6){transform:rotate(225deg);opacity:.2}"
+                    ".opt-spinner i:nth-child(7){transform:rotate(270deg);opacity:.15}"
+                    ".opt-spinner i:nth-child(8){transform:rotate(315deg);opacity:.1}"
+                    "';"
+                    "     document.head.appendChild(s);}"
+                    "   btn.innerHTML = '<span class=opt-spinner>"
+                    "<i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>"
+                    "</span>'; }"
+                    " return v;"
+                    "})()",
+                    callback=AIState.send_message,
+                ),
                 size="2",
                 variant="solid",  # Explizit solid, ohne color_scheme
                 loading=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
@@ -517,7 +548,7 @@ def text_input_section() -> rx.Component:
             rx.button(
                 t("clear_chat"),
                 on_click=AIState.clear_chat,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,  # Deaktiviert während Inferenz und Kompression
+                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
                 size="2",
                 variant="outline",
                 color_scheme="orange",

@@ -76,10 +76,6 @@ class ChatMixin(rx.State, mixin=True):
         self.progress_total = 0
         self.progress_failed = 0
 
-    def set_user_input(self, text: str) -> None:
-        """Update user input."""
-        self.current_user_input = text
-
     # ── Agent Panel Helpers ──────────────────────────────────────────
 
     def _get_mode_label(self, mode: str, round_num: int | None) -> str:
@@ -505,10 +501,12 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── Main Send Message ────────────────────────────────────────────
 
-    async def send_message(self) -> AsyncGenerator[None, None]:  # type: ignore[misc]
+    async def send_message(self, text: str = "") -> AsyncGenerator[None, None]:  # type: ignore[misc]
         """Send message to LLM with optional web research.
 
-        Portiert von Gradio chat_interactive_mode() mit Research-Integration.
+        Args:
+            text: User text from UI (via call_script callback).
+                  Empty when called programmatically — reads from current_user_input.
         """
         # Must be logged in to send messages
         if not self.logged_in_user:  # type: ignore[attr-defined]
@@ -517,37 +515,49 @@ class ChatMixin(rx.State, mixin=True):
 
         # If no text but images present, use default prompt
         has_pending_images = len(self.pending_images) > 0  # type: ignore[attr-defined]
-        user_text = self.current_user_input.strip()
+        # Text from call_script callback (UI click) or current_user_input (injection/transcription)
+        user_text = (text or self.current_user_input).strip()
+
+        _reset_btn_js = ("const b = document.getElementById('send-button');"
+                         " if (b) { b.disabled = false; b.style.opacity = '';"
+                         " if (b.dataset.origHtml) { b.innerHTML = b.dataset.origHtml;"
+                         " delete b.dataset.origHtml; } }")
 
         if not user_text and not has_pending_images:
+            yield rx.call_script(_reset_btn_js)
             return  # Nothing to send
 
         # Leerer user_text ist erlaubt für reine OCR-Extraktion (ohne Interpretation)
 
         if self.is_generating:
             self.add_debug("⚠️ Already generating, please wait...")
+            yield rx.call_script(_reset_btn_js)
             return
 
         # Ensure backend is initialized (should already be done by on_load)
         await self._ensure_backend_initialized()  # type: ignore[attr-defined]
 
         # ============================================================
-        # PHASE 1: Set all state flags BEFORE any yield
+        # PHASE 1: Spinner + textarea clear — yield IMMEDIATELY
+        # ============================================================
+        # Minimal state for instant UI feedback (spinner + correct agent indicator)
+        # Textarea is already cleared client-side by the call_script in on_click
+        self.is_generating = True
+        self.current_agent = "aifred"
+        self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
+        yield  # Spinner visible immediately
+
+        # ============================================================
+        # PHASE 2: Build and add user message to chat
         # ============================================================
         user_msg = user_text
-        self.current_user_input = ""  # Clear input
+        self.current_user_input = ""  # Clear state (for injection/transcription path)
         self.current_user_message = user_msg
-        self.is_generating = True
-        self.current_agent = "aifred"  # Set BEFORE any yield (prevents stale agent indicator)
-        self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         self.used_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
         self.failed_sources: list[dict[str, str]] = []  # type: ignore[attr-defined, var-annotated]
         self.all_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
         self.clear_tts_queue()  # type: ignore[attr-defined]
 
-        # ============================================================
-        # PHASE 2: Add user message to chat IMMEDIATELY
-        # ============================================================
         display_user_msg = user_msg
         if has_pending_images:
             # Generate clickable image thumbnails as HTML
@@ -594,18 +604,13 @@ class ChatMixin(rx.State, mixin=True):
         # ============================================================
         # PHASE 3: TTS streaming init
         # ============================================================
-        tts_stream_script = None
         if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
             self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
             from ..lib.api import tts_queue_clear
             tts_queue_clear(self.session_id)  # type: ignore[attr-defined]
-            tts_stream_script = rx.call_script(f"if(window.startTtsStream) startTtsStream('{self.session_id}');")  # type: ignore[attr-defined]
-
-        # FIRST YIELD: User sees their message bubble + AIfred indicator + TTS stream starts
-        if tts_stream_script:
-            yield tts_stream_script  # type: ignore[misc]
+            yield rx.call_script(f"if(window.startTtsStream) startTtsStream('{self.session_id}');")  # type: ignore[attr-defined]
         else:
-            yield
+            yield  # Push user message bubble to browser
 
         # ============================================================
         # PHASE 4: vLLM model loading (AFTER user message is visible)
@@ -1275,6 +1280,11 @@ class ChatMixin(rx.State, mixin=True):
 
         finally:
             self.is_generating = False
+            # Reset optimistic UI styles (JS-set inline styles persist across React re-renders)
+            yield rx.call_script(
+                "const b = document.getElementById('send-button');"
+                " if (b) { b.style.opacity = ''; }"
+            )
             # NOTE: TTS polling stops automatically via data-polling attribute (MutationObserver)
             # Clear pending images after sending
             if len(self.pending_images) > 0:  # type: ignore[attr-defined]

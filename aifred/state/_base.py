@@ -284,6 +284,11 @@ class AIState(  # type: ignore[misc]
                 # Show Transcription Workflow
                 if self.show_transcription:
                     # Mode: Edit text → Send manually
+                    # Set text in uncontrolled textarea via JavaScript
+                    import json
+                    yield rx.call_script(
+                        f"document.getElementById('user-text-input').value = {json.dumps(user_text)}"
+                    )
                     self.add_debug("✏️ Text in input field → Ready for editing")
                     # Separator after STT complete (user will edit + send manually)
                     self.add_debug(CONSOLE_SEPARATOR)
