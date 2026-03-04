@@ -123,10 +123,7 @@ class AIState(  # type: ignore[misc]
     """
 
     # ── State Variables (only those NOT in any mixin) ────────────
-
-    # Chat History - New dict-based format (each message standalone)
-    chat_history: List[Dict[str, Any]] = []  # List[ChatMessage] - each message is a dict
-    llm_history: List[Dict[str, str]] = []  # [{"role": "user/assistant/system", "content": "..."}] - LLM komprimiert
+    # NOTE: chat_history and llm_history live in ChatHistoryState (separate React context)
 
     # Web Research Sources State (for current request - shown in UI)
     all_sources: List[Dict[str, Any]] = []
@@ -137,6 +134,37 @@ class AIState(  # type: ignore[misc]
 
     # Last detected language from Intent Detection (used across mixins)
     _last_detected_language: str = ""
+
+    # ── SubState Accessors ─────────────────────────────────────────
+
+    def _chat_sub(self):
+        """Get ChatHistoryState substate instance (sync, for history access)."""
+        from aifred.state._chat_history_state import ChatHistoryState
+        return self._get_state_from_cache(ChatHistoryState)
+
+    def _log_history_utilization(self, effective_limit: int) -> None:
+        """Log history token utilization and compression warning to debug console."""
+        from ..lib.context_manager import estimate_tokens_from_llm_history
+        from ..lib.config import HISTORY_COMPRESSION_TRIGGER
+        from ..lib.formatting import format_number
+
+        _llm_hist = self._chat_sub().llm_history
+        if _llm_hist and effective_limit > 0:
+            estimated_tokens = estimate_tokens_from_llm_history(_llm_hist)
+            utilization = (estimated_tokens / effective_limit) * 100
+            self.add_debug(  # type: ignore[attr-defined]
+                f"   \u2514\u2500 History: {format_number(estimated_tokens)} / "
+                f"{format_number(effective_limit)} tok ({int(utilization)}%)"
+            )
+            if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
+                self.add_debug(  # type: ignore[attr-defined]
+                    f"\u26a0\ufe0f History compression will trigger on next message "
+                    f"(>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)"
+                )
+        elif not _llm_hist:
+            self.add_debug("   \u2514\u2500 History: empty")  # type: ignore[attr-defined]
+        else:
+            self.add_debug(f"   \u2514\u2500 Effective limit: {format_number(effective_limit)} tokens")  # type: ignore[attr-defined]
 
     # ── Methods (only those NOT in any mixin) ────────────────────
 
@@ -187,7 +215,7 @@ class AIState(  # type: ignore[misc]
                 session = load_session(self.session_id)
                 if session and session.get("data"):
                     self._restore_session(session)
-                    msg_count = len(self.chat_history)
+                    msg_count = len(self._chat_sub().chat_history)
                     self.add_debug(f"🔄 API update: Session reloaded ({msg_count} messages)")
                 yield
                 return

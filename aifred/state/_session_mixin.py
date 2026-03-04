@@ -71,7 +71,7 @@ class SessionMixin(rx.State, mixin=True):
         # If already on this session but chat_history is empty, reload it
         # (can happen when session_id was set from cookie but data wasn't loaded)
         if session_id == self.session_id:
-            if self.chat_history:  # type: ignore[attr-defined, has-type]
+            if self._chat_sub().chat_history:
                 self.add_debug("Already on this session, skipping")  # type: ignore[attr-defined]
                 return
             else:
@@ -99,8 +99,9 @@ class SessionMixin(rx.State, mixin=True):
 
         # Load chat history
         chat_history = data.get("chat_history", [])
-        self.chat_history = chat_history  # type: ignore[attr-defined]
-        self.llm_history = data.get("llm_history", [])  # type: ignore[attr-defined]
+        ch = self._chat_sub()
+        ch.chat_history = chat_history
+        ch.llm_history = data.get("llm_history", [])
 
         # Normalize URLs to relative paths (fixes port-dependent image loading)
         self._normalize_upload_urls()  # type: ignore[attr-defined]
@@ -152,7 +153,7 @@ class SessionMixin(rx.State, mixin=True):
     def _load_session_by_id(self, session_id: str):
         """Load a specific session by ID (internal helper)."""
         from ..lib.session_storage import load_session, get_session_title
-        from ..lib.context_manager import estimate_tokens_from_history
+        from ..lib.context_manager import estimate_tokens_from_llm_history
         from ..lib.formatting import format_number
         from ..lib.config import HISTORY_COMPRESSION_TRIGGER
 
@@ -168,8 +169,10 @@ class SessionMixin(rx.State, mixin=True):
             self.current_session_title = title or ""
 
             # Show context utilization after session restore
-            if self.chat_history:  # type: ignore[attr-defined]
-                estimated_tokens = estimate_tokens_from_history(self.chat_history)  # type: ignore[attr-defined]
+            # Use llm_history for consistent token counting (same as during inference)
+            _llm_hist = self._chat_sub().llm_history
+            if _llm_hist:
+                estimated_tokens = estimate_tokens_from_llm_history(_llm_hist)
 
                 if self._min_agent_context_limit > 0:  # type: ignore[attr-defined]
                     utilization = (estimated_tokens / self._min_agent_context_limit) * 100  # type: ignore[attr-defined]
@@ -203,21 +206,21 @@ class SessionMixin(rx.State, mixin=True):
             # Check format: new dict-based or old tuple-based
             if stored and isinstance(stored[0], (list, tuple)):
                 # Old tuple format - Clean Break, ignore old sessions
-                self.chat_history = []  # type: ignore[attr-defined]
+                self._chat_sub().chat_history = []
                 self.add_debug("Old session format detected - starting fresh")  # type: ignore[attr-defined]
             else:
                 # New dict format - use directly
-                self.chat_history = stored if stored else []  # type: ignore[attr-defined]
+                self._chat_sub().chat_history = stored if stored else []
                 # Normalize URLs to relative paths (fixes port-dependent image loading)
                 self._normalize_upload_urls()  # type: ignore[attr-defined]
 
         # DUAL-HISTORY (v2.13.0+): llm_history laden
         # WICHTIG: Auch leere Listen setzen (fuer API-Clear)!
         if "llm_history" in data:
-            self.llm_history = data["llm_history"]  # type: ignore[attr-defined]
+            self._chat_sub().llm_history = data["llm_history"]
         else:
             # Keine llm_history -> leere Liste (alte Sessions werden nicht migriert)
-            self.llm_history = []  # type: ignore[attr-defined]
+            self._chat_sub().llm_history = []
 
         # DEBUG-PERSISTENCE (v2.14.0+): debug_messages wiederherstellen
         # Saved messages (from before restart) come first, then startup messages
@@ -254,9 +257,9 @@ class SessionMixin(rx.State, mixin=True):
 
         update_chat_data(
             session_id=self.session_id,
-            chat_history=self.chat_history,  # type: ignore[attr-defined]
+            chat_history=self._chat_sub().chat_history,
             chat_summaries=None,  # Aktuell nicht persistiert
-            llm_history=self.llm_history,  # type: ignore[attr-defined]
+            llm_history=self._chat_sub().llm_history,
             debug_messages=debug_to_save,
             is_generating=self.is_generating,  # type: ignore[attr-defined]
             owner=self.logged_in_user  # type: ignore[attr-defined]
@@ -291,7 +294,7 @@ class SessionMixin(rx.State, mixin=True):
                 session = load_session(self.session_id)
                 if session and session.get("data"):
                     server_count = len(session["data"].get("chat_history", []))
-                    local_count = len(self.chat_history)  # type: ignore[attr-defined]
+                    local_count = len(self._chat_sub().chat_history)
 
                     if server_count != local_count:
                         self.add_debug(f"Session changed externally ({local_count} -> {server_count}), reloading...")  # type: ignore[attr-defined]
@@ -315,8 +318,9 @@ class SessionMixin(rx.State, mixin=True):
         """
         from ..lib.logging_utils import CONSOLE_SEPARATOR
 
-        self.chat_history = []  # type: ignore[attr-defined]
-        self.llm_history = []  # type: ignore[attr-defined]
+        ch = self._chat_sub()
+        ch.chat_history = []
+        ch.llm_history = []
         self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         self.current_user_message = ""  # type: ignore[attr-defined]
         self.tts_audio_path = ""  # type: ignore[attr-defined]
@@ -427,14 +431,15 @@ class SessionMixin(rx.State, mixin=True):
 
         # Need at least 2 messages (user + assistant)
         # Use llm_history - it's already cleaned (no think tags, no HTML)
-        if len(self.llm_history) < 2:  # type: ignore[attr-defined]
+        _llm_hist = self._chat_sub().llm_history
+        if len(_llm_hist) < 2:
             return
 
         # Find first user message and first assistant response from llm_history
         first_user_msg = None
         first_ai_response = None
 
-        for msg in self.llm_history:  # type: ignore[attr-defined]
+        for msg in _llm_hist:
             content = msg.get("content", "")
             if msg.get("role") == "user" and first_user_msg is None:
                 first_user_msg = content

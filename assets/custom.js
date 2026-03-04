@@ -841,6 +841,9 @@ window.skipTtsQueueItem = skipTtsQueueItem;
 let ttsStreamActive = false;
 let ttsEventSource = null;
 let ttsStreamSessionId = null;
+let ttsStreamRetryCount = 0;
+let ttsStreamGaveUp = false;
+const TTS_STREAM_MAX_RETRIES = 3;
 
 /**
  * Get session ID from cookie
@@ -871,6 +874,11 @@ function startTtsStream(sessionIdParam) {
         return;
     }
 
+    // Don't retry if we already gave up (endpoint unavailable)
+    if (ttsStreamGaveUp && ttsStreamSessionId === sessionId) {
+        return;
+    }
+
     // Check if already connected AND connection is still open
     if (ttsStreamActive && ttsStreamSessionId === sessionId && ttsEventSource) {
         // EventSource.OPEN = 1, CONNECTING = 0, CLOSED = 2
@@ -889,6 +897,11 @@ function startTtsStream(sessionIdParam) {
         ttsEventSource = null;
     }
 
+    // New session = reset retry state
+    if (ttsStreamSessionId !== sessionId) {
+        ttsStreamRetryCount = 0;
+        ttsStreamGaveUp = false;
+    }
     ttsStreamSessionId = sessionId;
     ttsStreamActive = true;
     console.log(`🔊 TTS SSE: Connecting for session ${sessionId.substring(0, 8)}...`);
@@ -903,6 +916,8 @@ function startTtsStream(sessionIdParam) {
 
     ttsEventSource.onopen = () => {
         console.log('🔊 TTS SSE: Connection opened');
+        ttsStreamRetryCount = 0;
+        ttsStreamGaveUp = false;
     };
 
     ttsEventSource.onmessage = (event) => {
@@ -931,17 +946,23 @@ function startTtsStream(sessionIdParam) {
 
     ttsEventSource.onerror = (event) => {
         if (ttsEventSource.readyState === EventSource.CLOSED) {
-            console.log('🔊 TTS SSE: Connection closed by server');
-            // Reset state and attempt reconnect after delay
             ttsStreamActive = false;
             ttsEventSource = null;
-            console.log('🔊 TTS SSE: Will attempt reconnect in 2 seconds...');
+            ttsStreamRetryCount++;
+
+            if (ttsStreamRetryCount > TTS_STREAM_MAX_RETRIES) {
+                console.warn(`🔊 TTS SSE: Giving up after ${TTS_STREAM_MAX_RETRIES} retries (endpoint unavailable)`);
+                ttsStreamGaveUp = true;
+                return;
+            }
+
+            const delay = ttsStreamRetryCount * 2000;
+            console.log(`🔊 TTS SSE: Connection closed, retry ${ttsStreamRetryCount}/${TTS_STREAM_MAX_RETRIES} in ${delay}ms...`);
             setTimeout(() => {
                 if (!ttsStreamActive && ttsStreamSessionId) {
-                    console.log('🔊 TTS SSE: Attempting reconnect...');
                     startTtsStream(ttsStreamSessionId);
                 }
-            }, 2000);
+            }, delay);
         } else {
             console.warn('🔊 TTS SSE: Connection error, EventSource will auto-retry...');
         }
