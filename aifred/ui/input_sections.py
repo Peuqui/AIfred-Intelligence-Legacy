@@ -260,25 +260,28 @@ def text_input_section() -> rx.Component:
             t("text_input_heading"),
             size="2"
         ),
-        rx.text_area(
-            placeholder=t("text_input_placeholder"),
-            value=AIState.current_user_input,
-            on_change=AIState.set_user_input,
-            width="100%",
-            rows="3",
-            spell_check=False,
-            disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
-            style={
-                "field_sizing": "content",
-                "min_height": "4.5em",
-                "max_height": "22.5em",
-                "overflow_y": "auto",
-                "border": f"1px solid {COLORS['border']}",
-                "&:focus": {
-                    "border": f"1px solid {COLORS['accent_blue']}",
-                    "outline": "none",
+        rx.debounce_input(
+            rx.text_area(
+                placeholder=t("text_input_placeholder"),
+                value=AIState.current_user_input,
+                on_change=AIState.set_user_input,
+                width="100%",
+                rows="3",
+                spell_check=False,
+                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
+                style={
+                    "field_sizing": "content",
+                    "min_height": "4.5em",
+                    "max_height": "22.5em",
+                    "overflow_y": "auto",
+                    "border": f"1px solid {COLORS['border']}",
+                    "&:focus": {
+                        "border": f"1px solid {COLORS['accent_blue']}",
+                        "outline": "none",
+                    },
                 },
-            },
+            ),
+            debounce_timeout=300,
         ),
 
         # Research Mode Radio Buttons
