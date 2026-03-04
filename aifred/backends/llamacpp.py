@@ -387,10 +387,11 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         We check both formats to be safe.
         """
         try:
+            from ..lib.config import THINKING_PROBE_TEMPERATURE
             response = await self.client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "What is 2+3? Think step by step."}],
-                temperature=0.6,
+                temperature=THINKING_PROBE_TEMPERATURE,
                 max_tokens=200,
                 stream=False,
             )

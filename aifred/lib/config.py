@@ -823,6 +823,11 @@ LLAMASERVER_DEFAULT_TOP_P = 0.95
 LLAMASERVER_DEFAULT_MIN_P = 0.1
 LLAMASERVER_DEFAULT_REPEAT_PENALTY = 1.0
 
+# Thinking-mode detection probe temperature (used in calibration/testing)
+THINKING_PROBE_TEMPERATURE = 0.6
+# Vision model temperature (low for factual/deterministic output)
+VISION_MODEL_TEMPERATURE = 0.1
+
 # ============================================================
 # DEBUG LOG PERSISTENCE
 # ============================================================

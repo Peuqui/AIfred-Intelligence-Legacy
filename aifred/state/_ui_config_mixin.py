@@ -204,8 +204,6 @@ class UIConfigMixin(rx.State, mixin=True):
         Called when user clicks "Calculate" button.
         Shows all LLM context values (manual or auto-calibrated from persistent cache).
         """
-        from ..lib.config import HISTORY_COMPRESSION_TRIGGER
-        from ..lib.context_manager import estimate_tokens_from_history
         from ..lib.formatting import format_number
         from ..lib.model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
 
@@ -284,24 +282,7 @@ class UIConfigMixin(rx.State, mixin=True):
         self._min_agent_context_limit = effective_limit  # type: ignore[has-type]
 
         # Show history utilization and warn if compression will trigger
-        if self.chat_history and effective_limit > 0:  # type: ignore[attr-defined]
-            estimated_tokens = estimate_tokens_from_history(self.chat_history)  # type: ignore[attr-defined]
-            utilization = (estimated_tokens / effective_limit) * 100
-            self.add_debug(  # type: ignore[attr-defined]
-                f"   \u2514\u2500 History: {format_number(estimated_tokens)} / "
-                f"{format_number(effective_limit)} tok ({int(utilization)}%)"
-            )
-
-            # Warn if compression will trigger on next message
-            if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
-                self.add_debug(  # type: ignore[attr-defined]
-                    f"\u26a0\ufe0f History compression will trigger on next message "
-                    f"(>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)"
-                )
-        elif not self.chat_history:  # type: ignore[attr-defined]
-            self.add_debug("   \u2514\u2500 History: empty")  # type: ignore[attr-defined]
-        else:
-            self.add_debug(f"   \u2514\u2500 Effective limit: {format_number(effective_limit)} tokens")  # type: ignore[attr-defined]
+        self._log_history_utilization(effective_limit)
 
     # ================================================================
     # RESEARCH MODE

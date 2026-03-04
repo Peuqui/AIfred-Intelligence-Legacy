@@ -32,7 +32,8 @@ class ExportMixin(rx.State, mixin=True):
             plugins=["table", "strikethrough", "url"],
         )
 
-        if not self.chat_history:  # type: ignore[attr-defined]
+        _ch = self._chat_sub()
+        if not _ch.chat_history:
             self.add_debug("⚠️ No chat to share")  # type: ignore[attr-defined]
             return
 
@@ -51,7 +52,7 @@ class ExportMixin(rx.State, mixin=True):
         if current_lang == "auto":
             current_lang = "de"
 
-        for msg in self.chat_history:  # type: ignore[attr-defined]
+        for msg in _ch.chat_history:
             role = msg.get("role", "")
             content = msg.get("content", "")
             agent = msg.get("agent", "aifred")
@@ -76,7 +77,7 @@ class ExportMixin(rx.State, mixin=True):
         preview_url = _save_html_to_assets(html_content, chat_title)
 
         self.add_debug(  # type: ignore[attr-defined]
-            f"📋 Chat exported as HTML ({len(self.chat_history)} messages)",  # type: ignore[attr-defined]
+            f"📋 Chat exported as HTML ({len(_ch.chat_history)} messages)",
         )
 
         # Open in new browser tab via JavaScript

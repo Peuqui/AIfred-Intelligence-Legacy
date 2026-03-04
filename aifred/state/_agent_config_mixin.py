@@ -473,16 +473,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             self._min_agent_context_limit = min(context_limits) if context_limits else 0  # type: ignore[attr-defined]
 
             # Show history utilization and warn if compression will trigger
-            if self.chat_history and self._min_agent_context_limit > 0:  # type: ignore[attr-defined]
-                from ..lib.context_manager import estimate_tokens_from_history
-                from ..lib.config import HISTORY_COMPRESSION_TRIGGER
-                estimated_tokens = estimate_tokens_from_history(self.chat_history)  # type: ignore[attr-defined]
-                utilization = (estimated_tokens / self._min_agent_context_limit) * 100  # type: ignore[attr-defined]
-                self.add_debug(f"   \u2514\u2500 History: {format_number(estimated_tokens)} / {format_number(self._min_agent_context_limit)} tok ({int(utilization)}%)")  # type: ignore[attr-defined]
-
-                # Warn if compression will trigger on next message
-                if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
-                    self.add_debug(f"\u26a0\ufe0f History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")  # type: ignore[attr-defined]
+            self._log_history_utilization(self._min_agent_context_limit)  # type: ignore[attr-defined]
 
             # Warn if no calibration exists for this mode
             if factor >= 2.0:

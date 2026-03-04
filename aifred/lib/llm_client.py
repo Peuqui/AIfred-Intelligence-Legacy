@@ -26,12 +26,12 @@ def build_llm_options(state: "AIState", agent: str, temperature: float, num_ctx:
     return LLMOptions(
         temperature=temperature,
         enable_thinking=getattr(state, f"{agent}_thinking", True),
-        supports_thinking=getattr(state, f"{agent}_supports_thinking") if state.backend_type in ("ollama", "llamacpp") else None,
+        supports_thinking=getattr(state, f"{agent}_supports_thinking", None) if state.backend_type in ("ollama", "llamacpp") else None,
         num_ctx=num_ctx,
-        top_k=getattr(state, f"{agent}_top_k"),
-        top_p=getattr(state, f"{agent}_top_p"),
-        min_p=getattr(state, f"{agent}_min_p"),
-        repeat_penalty=getattr(state, f"{agent}_repeat_penalty"),
+        top_k=getattr(state, f"{agent}_top_k", 40),
+        top_p=getattr(state, f"{agent}_top_p", 0.9),
+        min_p=getattr(state, f"{agent}_min_p", 0.0),
+        repeat_penalty=getattr(state, f"{agent}_repeat_penalty", 1.1),
     )
 
 

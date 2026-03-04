@@ -221,8 +221,9 @@ async def _process_single_image_vision(
     # Call Vision-LLM
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url, provider=provider)
 
+    from .config import VISION_MODEL_TEMPERATURE
     vision_options = {
-        "temperature": 0.1,
+        "temperature": VISION_MODEL_TEMPERATURE,
         "num_ctx": num_ctx,
         **(llm_options or {})
     }

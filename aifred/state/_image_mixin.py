@@ -61,7 +61,7 @@ class ImageMixin(rx.State, mixin=True):
         """
         import re
 
-        for msg in self.chat_history:  # type: ignore[attr-defined]
+        for msg in self._chat_sub().chat_history:
             # Skip invalid messages
             if not isinstance(msg, dict):
                 continue

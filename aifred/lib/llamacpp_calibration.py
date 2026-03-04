@@ -979,12 +979,13 @@ async def test_thinking_on_port(port: int) -> bool:
     Used during calibration to avoid reloading the model through llama-swap.
     Checks if the model produces reasoning_content (OpenAI-compatible thinking).
     """
+    from .config import THINKING_PROBE_TEMPERATURE
     url = f"http://localhost:{port}/v1/chat/completions"
     payload = {
         "model": "test",
         "messages": [{"role": "user", "content": "What is 2+3? Think step by step."}],
         "max_tokens": 200,
-        "temperature": 0.6,
+        "temperature": THINKING_PROBE_TEMPERATURE,
     }
 
     try:

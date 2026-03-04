@@ -350,20 +350,21 @@ async def _check_compression_if_needed(
         )
 
         # Run compression check (yields events if compression happens) - DUAL-HISTORY
+        _ch = state._chat_sub()
         async for event in summarize_history_if_needed(
-            history=state.chat_history,
+            history=_ch.chat_history,
             llm_client=llm_client,
             model_name=compression_model,  # Use largest available model for quality
             context_limit=agent_context_limit,  # Use agent-specific limit, not min_ctx!
-            llm_history=state.llm_history,
+            llm_history=_ch.llm_history,
             system_prompt_tokens=system_prompt_tokens
         ):
             if event["type"] == "history_update":
                 # DUAL-HISTORY: Update both histories
-                state.chat_history = event["chat_history"]
+                _ch.chat_history = event["chat_history"]
                 if event.get("llm_history") is not None:
-                    state.llm_history = event["llm_history"]
-                state.add_debug(f"✅ History compressed: {len(state.chat_history)} UI / {len(state.llm_history)} LLM messages")
+                    _ch.llm_history = event["llm_history"]
+                state.add_debug(f"✅ History compressed: {len(_ch.chat_history)} UI / {len(_ch.llm_history)} LLM messages")
                 yield
             elif event["type"] == "debug":
                 state.add_debug(event["message"])
@@ -429,7 +430,7 @@ async def _run_agent_direct_response(
 
         # Build messages with agent's perspective
         messages: list[dict[str, Any]] = build_messages_from_llm_history(
-            state.llm_history[:-1],
+            state._chat_sub().llm_history[:-1],
             user_query,
             perspective=agent,
             detected_language=detected_lang
@@ -733,7 +734,7 @@ async def run_sokrates_analysis(
             # - No "Sokrates?" activation needed - perspective handles role assignment
             # Use llm_history (compressed) instead of chat_history (full UI)
             history_messages: list[dict[str, str]] = build_messages_from_llm_history(
-                state.llm_history,
+                state._chat_sub().llm_history,
                 perspective="sokrates",
                 detected_language=detected_lang
             )
@@ -853,7 +854,7 @@ async def run_sokrates_analysis(
                 # Build messages with observer perspective (sees everything neutrally)
                 # Use llm_history (compressed) instead of chat_history (full UI)
                 salomo_messages: list[dict[str, str]] = build_messages_from_llm_history(
-                    state.llm_history,
+                    state._chat_sub().llm_history,
                     perspective="observer",  # Neutral perspective
                     detected_language=detected_lang
                 )
@@ -969,7 +970,7 @@ async def run_sokrates_analysis(
                     # Build messages with AIfred's perspective
                     # Use llm_history (compressed) instead of chat_history (full UI)
                     aifred_history_messages: list[dict[str, str]] = build_messages_from_llm_history(
-                        state.llm_history,
+                        state._chat_sub().llm_history,
                         current_user_text=refinement_prompt,
                         perspective="aifred",
                         detected_language=detected_lang
@@ -1200,7 +1201,7 @@ async def run_tribunal(
 
             # Use llm_history (compressed) instead of chat_history (full UI)
             history_messages = build_messages_from_llm_history(
-                state.llm_history,
+                state._chat_sub().llm_history,
                 perspective="sokrates",
                 detected_language=detected_lang
             )
@@ -1279,7 +1280,7 @@ async def run_tribunal(
 
                 # Use llm_history (compressed) instead of chat_history (full UI)
                 aifred_history_messages: list[dict[str, str]] = build_messages_from_llm_history(
-                    state.llm_history,
+                    state._chat_sub().llm_history,
                     current_user_text=refinement_prompt,
                     perspective="aifred",
                     detected_language=detected_lang
@@ -1358,7 +1359,7 @@ async def run_tribunal(
 
         # Use llm_history (compressed) instead of chat_history (full UI)
         salomo_messages: list[dict[str, str]] = build_messages_from_llm_history(
-            state.llm_history,
+            state._chat_sub().llm_history,
             perspective="observer",
             detected_language=detected_lang
         )

@@ -220,7 +220,7 @@ class ChatMixin(rx.State, mixin=True):
         clean_content = strip_thinking_blocks(content)
 
         if clean_content:
-            self.llm_history.append({  # type: ignore[attr-defined, has-type]
+            self._chat_sub().llm_history.append({
                 "role": "assistant",
                 "content": f"[{label}]: {clean_content}"
             })
@@ -319,7 +319,7 @@ class ChatMixin(rx.State, mixin=True):
         }
 
         # 5. Append to chat_history (no more replace_last!)
-        self.chat_history.append(new_message)  # type: ignore[attr-defined, has-type]
+        self._chat_sub().chat_history.append(new_message)
 
         # 6. Sync to llm_history (with speaker label)
         # Note: Some callers (streaming functions) already sync to llm_history,
@@ -440,8 +440,8 @@ class ChatMixin(rx.State, mixin=True):
         async for item in handle_own_knowledge(
             user_text=user_msg,
             model_choice=effective_vision_id,
-            history=self.chat_history,  # type: ignore[attr-defined, has-type]
-            llm_history=self.llm_history[:-1],  # type: ignore[attr-defined, has-type]
+            history=self._chat_sub().chat_history,
+            llm_history=self._chat_sub().llm_history[:-1],
             detected_intent=detected_intent,
             detected_language=detected_language,
             temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
@@ -480,13 +480,14 @@ class ChatMixin(rx.State, mixin=True):
         if result_data:
             # handle_own_knowledge() got llm_history[:-1] (N-1 entries) and appended
             # the AI response → returned slice has N entries when successful.
-            # self.llm_history still has N entries (prior + user_msg from line 511).
+            # llm_history still has N entries (prior + user_msg from line 511).
             # Length equality means exactly one AI entry was added → append it.
+            ch = self._chat_sub()
             returned_llm = result_data["llm_history"]
-            if (len(returned_llm) == len(self.llm_history)  # type: ignore[attr-defined, has-type]
+            if (len(returned_llm) == len(ch.llm_history)
                     and returned_llm[-1].get("role") == "assistant"):
-                self.llm_history = list(self.llm_history) + [returned_llm[-1]]  # type: ignore[attr-defined, has-type]
-            self.chat_history = result_data["history"]  # type: ignore[attr-defined]
+                ch.llm_history = list(ch.llm_history) + [returned_llm[-1]]
+            self._chat_sub().chat_history = result_data["history"]
 
         self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         self.current_user_message = ""
@@ -583,7 +584,7 @@ class ChatMixin(rx.State, mixin=True):
                 # Text + images
                 display_user_msg = f"{image_html}\n\n{user_msg}" if image_html else user_msg
 
-        self.chat_history.append({  # type: ignore[attr-defined, has-type]
+        self._chat_sub().chat_history.append({
             "role": "user",
             "content": display_user_msg,
             "agent": "",
@@ -598,7 +599,7 @@ class ChatMixin(rx.State, mixin=True):
             "has_audio": False,
             "audio_urls_json": "[]",
         })
-        self.llm_history.append({"role": "user", "content": user_msg})  # type: ignore[attr-defined, has-type]
+        self._chat_sub().llm_history.append({"role": "user", "content": user_msg})
         self.add_debug("📨 User request received")
 
         # ============================================================
@@ -749,7 +750,7 @@ class ChatMixin(rx.State, mixin=True):
                     resolve_image_path_by_index,
                     load_image_as_base64,
                 )
-                _vl_image_list = collect_image_context_from_history(self.chat_history)  # type: ignore[attr-defined, has-type]
+                _vl_image_list = collect_image_context_from_history(self._chat_sub().chat_history)
 
                 if _vl_image_list:
                     # Check if VL model is currently loaded
@@ -767,7 +768,7 @@ class ChatMixin(rx.State, mixin=True):
                     if _vl_model_loaded:
                         log_message("📷 VL Shortcut: VL model still loaded, checking relevance directly")
                         _vl_ctx_str = build_image_context_string(_vl_image_list)
-                        _vl_recent_ctx = build_recent_context_string(self.chat_history)  # type: ignore[attr-defined, has-type]
+                        _vl_recent_ctx = build_recent_context_string(self._chat_sub().chat_history)
 
                         from ..lib.intent_detector import detect_vl_relevance
                         _vl_idx = await detect_vl_relevance(
@@ -907,7 +908,7 @@ class ChatMixin(rx.State, mixin=True):
             # ============================================================
             # Check BEFORE adding new message - handles session restore, model changes, etc.
 
-            if self.chat_history:  # type: ignore[attr-defined, has-type]
+            if self._chat_sub().chat_history:
                 from ..lib.context_manager import summarize_history_if_needed, get_largest_compression_model
                 from ..lib.research.context_utils import get_agent_num_ctx
 
@@ -945,20 +946,21 @@ class ChatMixin(rx.State, mixin=True):
 
                 # Check and compress if needed (DUAL-HISTORY)
                 async for event in summarize_history_if_needed(
-                    history=self.chat_history,  # type: ignore[attr-defined, has-type]
+                    history=self._chat_sub().chat_history,
                     llm_client=llm_client,
                     model_name=compression_model,  # Use largest available model for quality
                     context_limit=context_limit,
-                    llm_history=self.llm_history,  # type: ignore[attr-defined, has-type]
+                    llm_history=self._chat_sub().llm_history,
                     system_prompt_tokens=system_prompt_tokens,
                     detected_language=detected_language,  # From Intent Detection
                 ):
                     if event["type"] == "history_update":
                         # DUAL-HISTORY: Update both histories
-                        self.chat_history = event["chat_history"]  # type: ignore[attr-defined]
+                        self._chat_sub().chat_history = event["chat_history"]
                         if event.get("llm_history") is not None:
-                            self.llm_history = event["llm_history"]  # type: ignore[attr-defined]
-                        self.add_debug(f"✅ Pre-Message Compression: {len(self.chat_history)} UI / {len(self.llm_history)} LLM messages")  # type: ignore[attr-defined]
+                            self._chat_sub().llm_history = event["llm_history"]
+                        _ch = self._chat_sub()
+                        self.add_debug(f"✅ Pre-Message Compression: {len(_ch.chat_history)} UI / {len(_ch.llm_history)} LLM messages")
                         yield
                     elif event["type"] == "debug":
                         self.add_debug(event["message"])
@@ -980,11 +982,11 @@ class ChatMixin(rx.State, mixin=True):
                     load_image_as_base64,
                 )
 
-                image_list = collect_image_context_from_history(self.chat_history)  # type: ignore[attr-defined, has-type]
+                image_list = collect_image_context_from_history(self._chat_sub().chat_history)
 
                 if image_list:
                     image_context_str = build_image_context_string(image_list)
-                    recent_ctx = build_recent_context_string(self.chat_history)  # type: ignore[attr-defined, has-type]
+                    recent_ctx = build_recent_context_string(self._chat_sub().chat_history)
 
                     from ..lib.intent_detector import detect_vl_relevance
                     vl_image_idx = await detect_vl_relevance(
@@ -1101,8 +1103,8 @@ class ChatMixin(rx.State, mixin=True):
                 stt_time=0.0,
                 model_choice=self._effective_model_id("aifred"),  # type: ignore[attr-defined]
                 automatik_model=effective_auto,
-                history=self.chat_history,  # type: ignore[attr-defined]
-                llm_history=self.llm_history,  # type: ignore[attr-defined]
+                history=self._chat_sub().chat_history,
+                llm_history=self._chat_sub().llm_history,
                 session_id=self.session_id,  # type: ignore[attr-defined]
                 temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
                 temperature=self.temperature,  # type: ignore[attr-defined]
@@ -1188,9 +1190,9 @@ class ChatMixin(rx.State, mixin=True):
                     self.all_sources = sorted(combined, key=lambda x: x.get("rank_index", 999))  # type: ignore[attr-defined]
 
                     # Update history
-                    self.chat_history = updated_history  # type: ignore[attr-defined]
+                    self._chat_sub().chat_history = updated_history
                     if "llm_history" in result_data:
-                        self.llm_history = result_data["llm_history"]  # type: ignore[attr-defined]
+                        self._chat_sub().llm_history = result_data["llm_history"]
 
                     self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
                     self.current_user_message = ""
@@ -1199,17 +1201,18 @@ class ChatMixin(rx.State, mixin=True):
                     # Finalize streaming TTS
                     if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
                         audio_urls = await self._finalize_streaming_tts()  # type: ignore[attr-defined]
-                        if audio_urls and self.chat_history:  # type: ignore[attr-defined]
-                            for i in range(len(self.chat_history) - 1, -1, -1):  # type: ignore[attr-defined]
-                                if self.chat_history[i].get("role") == "assistant":  # type: ignore[attr-defined]
-                                    if "metadata" not in self.chat_history[i]:  # type: ignore[attr-defined]
-                                        self.chat_history[i]["metadata"] = {}  # type: ignore[attr-defined]
-                                    self.chat_history[i]["metadata"]["audio_urls"] = audio_urls  # type: ignore[attr-defined]
-                                    self.chat_history[i]["has_audio"] = True  # type: ignore[attr-defined]
-                                    self.chat_history[i]["audio_urls_json"] = json.dumps(audio_urls)  # type: ignore[attr-defined]
+                        _ch = self._chat_sub()
+                        if audio_urls and _ch.chat_history:
+                            for i in range(len(_ch.chat_history) - 1, -1, -1):
+                                if _ch.chat_history[i].get("role") == "assistant":
+                                    if "metadata" not in _ch.chat_history[i]:
+                                        _ch.chat_history[i]["metadata"] = {}
+                                    _ch.chat_history[i]["metadata"]["audio_urls"] = audio_urls
+                                    _ch.chat_history[i]["has_audio"] = True
+                                    _ch.chat_history[i]["audio_urls_json"] = json.dumps(audio_urls)
                                     log_message(f"🔊 TTS: Added {len(audio_urls)} audio URLs to message metadata")
                                     break
-                            self.chat_history = list(self.chat_history)  # type: ignore[attr-defined]
+                            _ch.chat_history = list(_ch.chat_history)
                             yield
 
                     # Multi-Agent analysis
@@ -1233,7 +1236,7 @@ class ChatMixin(rx.State, mixin=True):
                         )
 
                 elif item["type"] == "history_update":
-                    self.chat_history = item["data"]  # type: ignore[attr-defined]
+                    self._chat_sub().chat_history = item["data"]
                     self.add_debug(f"📊 History updated: {len(item['data'])} messages")
 
                 elif item["type"] == "failed_sources":
@@ -1299,8 +1302,9 @@ class ChatMixin(rx.State, mixin=True):
                     self.add_debug("🔊 TTS: Starting TTS generation...")
                     # Get AI response from llm_history (clean text without HTML formatting)
                     # Format: {"role": "assistant", "content": "[AGENT]: text"}
-                    if len(self.llm_history) > 0:  # type: ignore[attr-defined]
-                        last_msg = self.llm_history[-1]  # type: ignore[attr-defined]
+                    _ch = self._chat_sub()
+                    if len(_ch.llm_history) > 0:
+                        last_msg = _ch.llm_history[-1]
                         if last_msg.get("role") == "assistant":
                             ai_response = last_msg.get("content", "")
                             # Extract agent from label prefix like "[AIFRED]: " or "[SOKRATES]: "

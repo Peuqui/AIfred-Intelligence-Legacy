@@ -443,7 +443,7 @@ def get_katex_inline_assets() -> dict[str, str]:
     autorender_path = katex_dir / "auto-render.min.js"
     _katex_inline_cache['autorender_js'] = autorender_path.read_text(encoding='utf-8') if autorender_path.exists() else ""
 
-    log_message(f"📐 KaTeX: Loaded assets for inline embedding (CSS: {len(_katex_inline_cache['css'])/1024:.1f}KB)")
+    log_message(f"📐 KaTeX: Loaded assets for inline embedding (CSS: {format_number(len(_katex_inline_cache['css'])/1024, 1)}KB)")
 
     return _katex_inline_cache
 

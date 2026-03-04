@@ -172,18 +172,19 @@ class TTSStreamingMixin(rx.State, mixin=True):
                         log_message(f"🔊 TTS: Saved to session → {session_audio_url}")
 
                         # Update last assistant message with session audio URL (for replay button)
-                        if self.chat_history:  # type: ignore[attr-defined, has-type]
-                            for i in range(len(self.chat_history) - 1, -1, -1):  # type: ignore[attr-defined, has-type]
-                                if self.chat_history[i].get("role") == "assistant":  # type: ignore[attr-defined, has-type]
-                                    if "metadata" not in self.chat_history[i]:  # type: ignore[attr-defined, has-type]
-                                        self.chat_history[i]["metadata"] = {}  # type: ignore[attr-defined, has-type]
-                                    self.chat_history[i]["metadata"]["audio_urls"] = [session_audio_url]  # type: ignore[attr-defined, has-type]
-                                    self.chat_history[i]["has_audio"] = True  # type: ignore[attr-defined, has-type]
-                                    self.chat_history[i]["audio_urls_json"] = json.dumps([session_audio_url])  # type: ignore[attr-defined, has-type]
+                        _ch = self._chat_sub()
+                        if _ch.chat_history:
+                            for i in range(len(_ch.chat_history) - 1, -1, -1):
+                                if _ch.chat_history[i].get("role") == "assistant":
+                                    if "metadata" not in _ch.chat_history[i]:
+                                        _ch.chat_history[i]["metadata"] = {}
+                                    _ch.chat_history[i]["metadata"]["audio_urls"] = [session_audio_url]
+                                    _ch.chat_history[i]["has_audio"] = True
+                                    _ch.chat_history[i]["audio_urls_json"] = json.dumps([session_audio_url])
                                     log_message("🔊 TTS: Added audio URL to message metadata")
                                     break
                             # Force Reflex to recognize the change
-                            self.chat_history = list(self.chat_history)  # type: ignore[attr-defined, has-type]
+                            _ch.chat_history = list(_ch.chat_history)
                             self._save_current_session()  # type: ignore[attr-defined]
                     else:
                         log_message("⚠️ TTS: Failed to save audio to session")
@@ -297,9 +298,10 @@ class TTSStreamingMixin(rx.State, mixin=True):
                         # Update THIS agent's message with session audio URL (for replay button)
                         # IMPORTANT: Find message by agent name, not "last assistant-message"!
                         # Multi-Agent runs TTS async, so other agents may have added messages already.
-                        if self.chat_history:  # type: ignore[attr-defined]
-                            for i in range(len(self.chat_history) - 1, -1, -1):  # type: ignore[attr-defined]
-                                msg = self.chat_history[i]  # type: ignore[attr-defined]
+                        _ch = self._chat_sub()
+                        if _ch.chat_history:
+                            for i in range(len(_ch.chat_history) - 1, -1, -1):
+                                msg = _ch.chat_history[i]
                                 if msg.get("role") == "assistant" and msg.get("agent") == agent:
                                     if "metadata" not in msg:
                                         msg["metadata"] = {}
@@ -310,7 +312,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                                     log_message(f"🔊 TTS Queue: Added audio URL + playback_rate to {agent}'s message")
                                     break
                             # Force Reflex to recognize the change
-                            self.chat_history = list(self.chat_history)  # type: ignore[attr-defined]
+                            _ch.chat_history = list(_ch.chat_history)
                             self._save_current_session()  # type: ignore[attr-defined]
                     else:
                         log_message(f"⚠️ TTS Queue: Failed to save audio to session for {agent}")
@@ -832,20 +834,21 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """
         from ..lib.audio_processing import clean_text_for_tts, generate_tts, set_tts_agent, save_audio_to_session
 
-        msg = self.chat_history[bubble_index]  # type: ignore[attr-defined]
+        _ch = self._chat_sub()
+        msg = _ch.chat_history[bubble_index]
         agent = msg.get("agent", "aifred")
 
         # Use llm_history instead of chat_history - it's already cleaned
         # Find the corresponding entry in llm_history by counting assistant messages
         assistant_count = 0
         for i in range(bubble_index + 1):
-            if self.chat_history[i].get("role") == "assistant":  # type: ignore[attr-defined]
+            if _ch.chat_history[i].get("role") == "assistant":
                 assistant_count += 1
 
         # Find the N-th assistant message in llm_history
         llm_content = None
         llm_assistant_count = 0
-        for entry in self.llm_history:  # type: ignore[attr-defined]
+        for entry in _ch.llm_history:
             if entry.get("role") == "assistant":
                 llm_assistant_count += 1
                 if llm_assistant_count == assistant_count:
@@ -914,14 +917,14 @@ class TTSStreamingMixin(rx.State, mixin=True):
         log_message(f"🔊 TTS: Bubble {bubble_index} saved → {session_audio_url}")
 
         # Update message with new audio URL
-        if "metadata" not in self.chat_history[bubble_index]:  # type: ignore[attr-defined]
-            self.chat_history[bubble_index]["metadata"] = {}  # type: ignore[attr-defined]
-        self.chat_history[bubble_index]["metadata"]["audio_urls"] = [session_audio_url]  # type: ignore[attr-defined]
-        self.chat_history[bubble_index]["has_audio"] = True  # type: ignore[attr-defined]
-        self.chat_history[bubble_index]["audio_urls_json"] = json.dumps([session_audio_url])  # type: ignore[attr-defined]
+        if "metadata" not in _ch.chat_history[bubble_index]:
+            _ch.chat_history[bubble_index]["metadata"] = {}
+        _ch.chat_history[bubble_index]["metadata"]["audio_urls"] = [session_audio_url]
+        _ch.chat_history[bubble_index]["has_audio"] = True
+        _ch.chat_history[bubble_index]["audio_urls_json"] = json.dumps([session_audio_url])
 
         if save_session:
-            self.chat_history = list(self.chat_history)  # type: ignore[attr-defined]
+            _ch.chat_history = list(_ch.chat_history)
             self._save_current_session()  # type: ignore[attr-defined]
 
         return True
@@ -936,8 +939,9 @@ class TTSStreamingMixin(rx.State, mixin=True):
             return
 
         # Find message by timestamp
+        _ch = self._chat_sub()
         bubble_index = None
-        for i, msg in enumerate(self.chat_history):  # type: ignore[attr-defined]
+        for i, msg in enumerate(_ch.chat_history):
             if msg.get("timestamp") == timestamp:
                 bubble_index = i
                 break
@@ -946,7 +950,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             self.add_debug(f"⚠️ TTS Re-Synth: Message not found (timestamp: {timestamp})")  # type: ignore[attr-defined]
             return
 
-        if self.chat_history[bubble_index].get("role") != "assistant":  # type: ignore[attr-defined]
+        if _ch.chat_history[bubble_index].get("role") != "assistant":
             self.add_debug("⚠️ TTS Re-Synth: Message is not an assistant response")  # type: ignore[attr-defined]
             return
 
@@ -972,7 +976,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             self.tts_regenerating = False
             return
 
-        agent = self.chat_history[bubble_index].get("agent", "aifred")  # type: ignore[attr-defined]
+        agent = _ch.chat_history[bubble_index].get("agent", "aifred")
         self.add_debug(f"🔄 TTS Re-Synth: Regenerating bubble {bubble_index} ({agent})...")  # type: ignore[attr-defined]
         yield  # type: ignore[misc]
 
@@ -993,11 +997,12 @@ class TTSStreamingMixin(rx.State, mixin=True):
         if self.tts_regenerating:
             return
 
-        if not self.chat_history:  # type: ignore[attr-defined]
+        _ch = self._chat_sub()
+        if not _ch.chat_history:
             self.add_debug("⚠️ TTS Re-Synth: No chat history available")  # type: ignore[attr-defined]
             return
 
-        assistant_indices = [i for i, msg in enumerate(self.chat_history) if msg.get("role") == "assistant"]  # type: ignore[attr-defined]
+        assistant_indices = [i for i, msg in enumerate(_ch.chat_history) if msg.get("role") == "assistant"]
         if not assistant_indices:
             self.add_debug("⚠️ TTS Re-Synth: No assistant messages found")  # type: ignore[attr-defined]
             return
@@ -1043,7 +1048,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     self.add_debug(f"⚠️ Bubble {i+1}/{len(assistant_indices)} failed (chat index {bubble_idx})")  # type: ignore[attr-defined]
 
             # Save session once after all regenerations
-            self.chat_history = list(self.chat_history)  # type: ignore[attr-defined]
+            _ch.chat_history = list(_ch.chat_history)
             self._save_current_session()  # type: ignore[attr-defined]
 
             if failed_bubbles:

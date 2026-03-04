@@ -5,7 +5,7 @@ Full Gradio-Style UI with Single Column Layout
 """
 
 import reflex as rx
-from .state import AIState
+from .state import AIState, ChatHistoryState
 from .theme import COLORS
 from .lib.config import (
     UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP,
@@ -683,7 +683,7 @@ console.log('✂️ Crop handler loaded');
             # TTS Audio Player - shows when TTS enabled AND chat history exists
             # This allows "Neu generieren" after app restart (before any audio generated)
             rx.cond(
-                AIState.enable_tts & (AIState.chat_history.length() > 0),
+                AIState.enable_tts & (ChatHistoryState.chat_history.length() > 0),
                 rx.box(
                     rx.hstack(
                         rx.text("🔊", font_size="18px"),

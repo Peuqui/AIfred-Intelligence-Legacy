@@ -810,9 +810,10 @@ class OllamaBackend(LLMBackend):
                         break
 
                 if model_size_bytes > 0:
+                    from ..lib.formatting import format_number
                     log_message(
-                        f"📦 Model '{model}' size: {model_size_bytes / (1024**3):.2f}GB "
-                        f"(context limit: {context_limit:,} tokens)"
+                        f"📦 Model '{model}' size: {format_number(model_size_bytes / (1024**3), 2)}GB "
+                        f"(context limit: {format_number(context_limit)} tokens)"
                     )
                 else:
                     logger.warning(f"Model '{model}' not found in /api/tags")
@@ -1202,7 +1203,7 @@ class OllamaBackend(LLMBackend):
                 return
 
             yield f"→ Binary search range: {format_number(effective_min_context)} → {format_number(calculated_upper)} tok"
-            yield f"→ RAM reserve: {format_number(MIN_FREE_RAM_MB)} MB ({ratio:.2f} MB/token)"
+            yield f"→ RAM reserve: {format_number(MIN_FREE_RAM_MB)} MB ({format_number(ratio, 2)} MB/token)"
 
             # Test upper bound first (often fits, saves binary search)
             yield f"[1] Testing {format_number(calculated_upper)}..."
@@ -1302,7 +1303,7 @@ class OllamaBackend(LLMBackend):
 
             # === BINARY SEARCH FOR OPTIMAL CONTEXT ===
             yield f"→ Binary search range: {format_number(effective_min_context)} → {format_number(calculated_upper)} tok"
-            yield f"→ RAM reserve: {format_number(MIN_FREE_RAM_MB)} MB ({ratio:.2f} MB/token)"
+            yield f"→ RAM reserve: {format_number(MIN_FREE_RAM_MB)} MB ({format_number(ratio, 2)} MB/token)"
 
             # Test upper bound first (often fits, saves binary search)
             yield f"[1] Testing {format_number(calculated_upper)}..."
@@ -1485,7 +1486,7 @@ class OllamaBackend(LLMBackend):
 
             if hybrid_upper > final_ctx:
                 yield f"→ Hybrid range: {format_number(final_ctx)} → {format_number(hybrid_upper)} tokens"
-                yield f"→ RAM reserve: {format_number(MIN_FREE_RAM_MB)} MB ({ratio:.2f} MB/token)"
+                yield f"→ RAM reserve: {format_number(MIN_FREE_RAM_MB)} MB ({format_number(ratio, 2)} MB/token)"
 
                 # Use binary search helper (reusing the same function as force_hybrid and model>VRAM)
                 async for msg in self._binary_search_hybrid_context(

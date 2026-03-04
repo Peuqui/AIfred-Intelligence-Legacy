@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import reflex as rx
 
-from ..state import AIState, StreamingState
+from ..state import AIState, StreamingState, ChatHistoryState
 from ..theme import COLORS
 from .message_renderer import render_message_standalone
 from .streaming_text import streaming_text
@@ -570,7 +570,7 @@ def chat_history_display() -> rx.Component:
         rx.vstack(
             # All chat messages including inline summaries
             rx.foreach(
-                AIState.chat_history,
+                ChatHistoryState.chat_history,
                 render_message_standalone
             ),
             # Unified streaming element at the end (adapts to current_agent)
@@ -616,8 +616,8 @@ def chat_history_display() -> rx.Component:
                     rx.badge(
                         rx.cond(
                             AIState.ui_language == "de",
-                            f"{AIState.chat_history.length()} Nachrichten",
-                            f"{AIState.chat_history.length()} messages"
+                            f"{ChatHistoryState.chat_history.length()} Nachrichten",
+                            f"{ChatHistoryState.chat_history.length()} messages"
                         ),
                         color_scheme="orange",
                         size="1",

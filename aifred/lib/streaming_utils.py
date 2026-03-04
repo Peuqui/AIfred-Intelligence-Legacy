@@ -14,7 +14,7 @@ The pattern handles:
 5. Optional callback on first token (for VRAM monitoring)
 """
 
-from typing import AsyncIterator, Dict, Optional, Callable, Any, Tuple
+from typing import AsyncIterator, Dict, Optional, Callable, Any
 from .formatting import format_number
 from .logging_utils import log_message
 from .timer import Timer
@@ -117,26 +117,3 @@ async def stream_llm_response(
         "ttft": ttft,
         "inference_time": inference_time
     }
-
-
-def extract_stream_metrics(result_chunk: Dict[str, Any]) -> Tuple[str, Dict, float | None, float]:
-    """
-    Extract values from stream_result chunk.
-
-    Args:
-        result_chunk: The final chunk from stream_llm_response
-
-    Returns:
-        Tuple of (text, metrics, ttft, inference_time)
-
-    Example:
-        async for chunk in stream_llm_response(...):
-            if chunk["type"] == "stream_result":
-                text, metrics, ttft, time = extract_stream_metrics(chunk)
-    """
-    return (
-        result_chunk["text"],
-        result_chunk["metrics"],
-        result_chunk.get("ttft"),
-        result_chunk["inference_time"]
-    )
