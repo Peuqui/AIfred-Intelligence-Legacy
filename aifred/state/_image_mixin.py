@@ -343,7 +343,7 @@ class ImageMixin(rx.State, mixin=True):
 
             self.add_debug(f"\U0001f504 Image rotated {direction} 90\u00b0")  # type: ignore[attr-defined]
 
-        except Exception as e:
+        except (ValueError, FileNotFoundError, AttributeError) as e:
             self.add_debug(f"\u274c Rotate failed: {e}")  # type: ignore[attr-defined]
 
     def update_crop_box(self, x: float, y: float, width: float, height: float) -> None:
@@ -367,7 +367,7 @@ class ImageMixin(rx.State, mixin=True):
             width = float(coords.get("width", 100))
             height = float(coords.get("height", 100))
             await self._do_apply_crop(x, y, width, height)
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
             self.add_debug(f"\u274c Crop failed: {e}")  # type: ignore[attr-defined]
             self.cancel_crop()
 
@@ -388,7 +388,7 @@ class ImageMixin(rx.State, mixin=True):
             image_path = Path(image_data["path"])
             with open(image_path, 'rb') as f:
                 original_bytes = f.read()
-        except Exception as e:
+        except FileNotFoundError as e:
             self.add_debug(f"\u274c Crop failed: {e}")  # type: ignore[attr-defined]
             self.cancel_crop()
             return

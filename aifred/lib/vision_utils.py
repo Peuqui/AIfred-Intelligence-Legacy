@@ -173,7 +173,7 @@ async def is_vision_model(state, model_name: str) -> bool:
         # No vision capabilities detected by metadata
         return False
 
-    except Exception as e:
+    except (ImportError, KeyError) as e:
         logger.warning(f"Could not detect vision capabilities for {model_name}: {e}")
         # For Ollama: Don't fallback to name-based detection - API is authoritative
         # For other backends: Use name-based fallback
@@ -216,7 +216,7 @@ def _get_gguf_vision_metadata(gguf_path: Path) -> tuple:
                         tags = value
                     elif field.name == 'general.name':
                         name = value
-                except Exception:
+                except (ImportError, AttributeError):
                     continue
 
             return architecture, tags, name
@@ -224,7 +224,7 @@ def _get_gguf_vision_metadata(gguf_path: Path) -> tuple:
     except ImportError:
         logger.warning("gguf-py library not installed")
         return None, None, None
-    except Exception as e:
+    except (ImportError, OSError) as e:
         logger.warning(f"Error reading GGUF metadata from {gguf_path}: {e}")
         return None, None, None
 
@@ -430,7 +430,7 @@ async def get_vision_model_capabilities(backend_url: str, model_name: str) -> Tu
 
             return supports_chat_template, num_ctx
 
-    except Exception as e:
+    except (ImportError, AttributeError) as e:
         logger.warning(f"Failed to get model capabilities for {model_name}: {e}")
         # Fallback: Assume chat support, no context window
         return True, None

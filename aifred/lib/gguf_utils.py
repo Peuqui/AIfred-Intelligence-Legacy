@@ -132,14 +132,14 @@ def get_gguf_layer_count(gguf_path: Path) -> Optional[int]:
                 logger.warning("No block_count key found in GGUF metadata")
                 return None
 
-            except Exception as e:
+            except (ValueError, IndexError) as e:
                 logger.error(f"Error parsing GGUF metadata: {e}")
                 return None
 
     except ImportError:
         logger.warning("gguf-py library not installed")
         return None
-    except Exception as e:
+    except (ImportError, OSError) as e:
         logger.error(f"Error reading GGUF file {gguf_path}: {e}")
         return None
 
@@ -205,7 +205,7 @@ def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
                 logger.debug(f"All metadata keys (first 30): {all_keys[:30]}")
                 return None
 
-            except Exception as e:
+            except ValueError as e:
                 logger.error(f"Error parsing GGUF metadata: {e}")
                 return None
 
@@ -213,7 +213,7 @@ def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
         logger.warning("gguf-py library not installed - cannot read native context")
         logger.info("Install with: pip install gguf")
         return None
-    except Exception as e:
+    except (ValueError, IndexError) as e:
         logger.error(f"Error reading GGUF file {gguf_path}: {e}")
         return None
 

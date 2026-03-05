@@ -80,7 +80,7 @@ def is_non_scrapable_url(url: str) -> bool:
             if domain == ns_domain or domain.endswith('.' + ns_domain):
                 return True
         return False
-    except Exception:
+    except ValueError:
         return False
 
 
@@ -159,7 +159,7 @@ def normalize_url(url: str) -> str:
 
         return normalized
 
-    except Exception as e:
+    except ValueError as e:
         log_message(f"⚠️ URL normalization failed for {url}: {e}")
         return url  # Fallback: Original URL
 

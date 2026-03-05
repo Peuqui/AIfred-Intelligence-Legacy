@@ -7,6 +7,7 @@ chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 
 import logging
 from typing import List, Optional, Dict
+import openai
 from .base import (
     OpenAICompatibleBackend,
     BackendConnectionError,
@@ -34,7 +35,7 @@ class vLLMBackend(OpenAICompatibleBackend):
             models_response = await self.client.models.list()
             self._available_models = [model.id for model in models_response.data]
             return self._available_models
-        except Exception as e:
+        except openai.OpenAIError as e:
             raise BackendConnectionError(f"Failed to list vLLM models: {e}")
 
     async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
@@ -62,7 +63,7 @@ class vLLMBackend(OpenAICompatibleBackend):
         try:
             await self.client.models.list()
             return True
-        except Exception:
+        except openai.OpenAIError:
             return False
 
     def get_backend_name(self) -> str:
@@ -81,7 +82,7 @@ class vLLMBackend(OpenAICompatibleBackend):
                 "healthy": True,
                 "api_type": "OpenAI-compatible"
             }
-        except Exception as e:
+        except openai.OpenAIError as e:
             return {
                 "backend": "vLLM",
                 "base_url": self.base_url,
@@ -152,8 +153,7 @@ class vLLMBackend(OpenAICompatibleBackend):
             )
             return (16384, 0)  # Reasonable default for Qwen3 models
 
-        except Exception as e:
-            # Other errors are unexpected
+        except openai.OpenAIError as e:
             logger.error(f"❌ Failed to query vLLM for model '{model}': {e}")
             raise RuntimeError(f"Failed to query vLLM for model '{model}': {e}") from e
 

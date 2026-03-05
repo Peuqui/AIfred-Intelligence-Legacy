@@ -53,7 +53,7 @@ async def stop_process(
             # Process not running
             return False
 
-    except Exception as e:
+    except subprocess.CalledProcessError as e:
         log_message(f"Error stopping process '{pattern}': {e}")
         return False
 
@@ -97,7 +97,7 @@ def restart_service(service_name: str, check: bool = False) -> bool:
     except subprocess.CalledProcessError as e:
         log_message(f"Failed to restart service '{service_name}': {e}")
         return False
-    except Exception as e:
+    except subprocess.CalledProcessError as e:
         log_message(f"Error restarting service '{service_name}': {e}")
         return False
 
@@ -169,7 +169,7 @@ def restart_docker_container(
                 for key, value in env_vars.items():
                     f.write(f"{key}={value}\n")
             log_message(f"Wrote .env: {env_vars}")
-        except Exception as e:
+        except (OSError, subprocess.CalledProcessError) as e:
             return False, f"Failed to write .env: {e}"
 
     # Stop container
@@ -183,7 +183,7 @@ def restart_docker_container(
         if result.returncode != 0:
             return False, f"docker compose down failed: {result.stderr}"
         log_message(f"Docker container '{service_name}' stopped")
-    except Exception as e:
+    except OSError as e:
         return False, f"docker compose down error: {e}"
 
     # Start container
@@ -197,7 +197,7 @@ def restart_docker_container(
         if result.returncode != 0:
             return False, f"docker compose up failed: {result.stderr}"
         log_message(f"Docker container '{service_name}' started")
-    except Exception as e:
+    except OSError as e:
         return False, f"docker compose up error: {e}"
 
     return True, f"Container '{service_name}' restarted successfully"
@@ -269,7 +269,7 @@ def _docker_compose_action(
         verb = "started" if action == "up" else "stopped"
         log_message(f"{service_label} container {verb}")
         return True, f"{service_label} container {verb}"
-    except Exception as e:
+    except subprocess.CalledProcessError as e:
         return False, f"docker compose {action} error: {e}"
 
 
@@ -308,7 +308,7 @@ def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
         if r.ok and r.json().get("model_loaded"):
             device = r.json().get("device", "unknown")
             return True, f"XTTS already ready ({device})"
-    except Exception:
+    except OSError:
         pass  # Container not running or not responding
 
     # Step 2: Start container
@@ -325,7 +325,7 @@ def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
                 device = r.json().get("device", "unknown")
                 log_message(f"XTTS: Model loaded on {device}")
                 return True, f"XTTS ready ({device})"
-        except Exception:
+        except (OSError, subprocess.CalledProcessError):
             pass
         time.sleep(1)
 
@@ -364,7 +364,7 @@ def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:
         if r.ok and r.json().get("model_loaded"):
             device = r.json().get("device", "unknown")
             return True, f"MOSS-TTS already ready ({device})", device
-    except Exception:
+    except OSError:
         pass
 
     # Step 2: Start container
@@ -381,7 +381,7 @@ def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:
                 device = r.json().get("device", "unknown")
                 log_message(f"MOSS-TTS: Model loaded on {device}")
                 return True, f"MOSS-TTS ready ({device})", device
-        except Exception:
+        except OSError:
             pass
         time.sleep(1)
 

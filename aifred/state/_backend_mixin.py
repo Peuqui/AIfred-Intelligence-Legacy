@@ -7,6 +7,7 @@ vLLM, TabbyAPI, Cloud APIs), model loading, vision detection, and on_load.
 from __future__ import annotations
 
 import os
+import subprocess
 import uuid
 from typing import Dict, List
 
@@ -338,7 +339,7 @@ class BackendMixin(rx.State, mixin=True):
                             log_message(f"⚠️ {warning}")
                 else:
                     log_message("ℹ️ No GPU detected or nvidia-smi not available")
-            except Exception as e:
+            except (subprocess.CalledProcessError, ImportError, RuntimeError) as e:
                 log_message(f"⚠️ GPU detection failed: {e}")
 
             # Unload all Ollama models to ensure clean VRAM slate
@@ -351,7 +352,7 @@ class BackendMixin(rx.State, mixin=True):
                 else:
                     log_message("🧹 Startup: No models to unload (VRAM clean)")
                 await ollama.client.aclose()
-            except Exception as e:
+            except (RuntimeError, OSError) as e:
                 log_message(f"ℹ️ Ollama not available for startup cleanup: {e}")
 
             print("✅ Global initialization complete")
@@ -863,7 +864,7 @@ class BackendMixin(rx.State, mixin=True):
                             )
                             if models_dict:
                                 self.add_debug("✅ llama-swap auto-started")  # type: ignore[attr-defined, has-type]
-                        except Exception as e:
+                        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                             self.add_debug(f"⚠️ Could not start llama-swap: {e}")  # type: ignore[attr-defined, has-type]
 
                     if models_dict:
@@ -901,7 +902,7 @@ class BackendMixin(rx.State, mixin=True):
                                     self.available_models_dict = {}
                                     self.available_models = []
                                     self.add_debug(f"⚠️ No models returned from {provider_config['name']} API")  # type: ignore[attr-defined, has-type]
-                            except Exception as e:
+                            except (RuntimeError, ValueError, KeyError) as e:
                                 self.available_models_dict = {}
                                 self.available_models = []
                                 self.add_debug(f"⚠️ Failed to fetch models: {e}")  # type: ignore[attr-defined, has-type]
@@ -1112,7 +1113,7 @@ class BackendMixin(rx.State, mixin=True):
                 try:
                     if await is_vision_model(self, model_id):
                         vision_model_ids.append(model_id)
-                except Exception as e:
+                except (RuntimeError, OSError) as e:
                     log_message(f"⚠️ Vision detection failed for {model_id}: {e}")
 
         self.vision_models_cache = vision_model_ids
@@ -1278,7 +1279,7 @@ class BackendMixin(rx.State, mixin=True):
             _global_backend_state["aifred_model"] = self.aifred_model
             _global_backend_state["automatik_model"] = self.automatik_model
 
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             self.add_debug(f"❌ vLLM restart failed: {e}")  # type: ignore[attr-defined, has-type]
             raise
 
@@ -1305,7 +1306,7 @@ class BackendMixin(rx.State, mixin=True):
                         self.add_debug(f"✅ Unloaded {count} Ollama model(s)")  # type: ignore[attr-defined, has-type]
                     else:
                         self.add_debug("ℹ️ No Ollama models were loaded")  # type: ignore[attr-defined, has-type]
-            except Exception as e:
+            except (RuntimeError, AttributeError) as e:
                 self.add_debug(f"⚠️ Error unloading Ollama models: {e}")  # type: ignore[attr-defined, has-type]
 
         elif old_backend == "vllm":
@@ -1329,7 +1330,7 @@ class BackendMixin(rx.State, mixin=True):
                 import subprocess as _sp
                 _sp.run(["systemctl", "stop", "llama-swap"], check=True, timeout=15)
                 self.add_debug("✅ llama-swap service stopped")  # type: ignore[attr-defined, has-type]
-            except Exception as e:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 self.add_debug(f"⚠️ Could not stop llama-swap: {e}")  # type: ignore[attr-defined, has-type]
 
     # ================================================================

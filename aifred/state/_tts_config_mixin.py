@@ -401,7 +401,7 @@ class TTSConfigMixin(rx.State, mixin=True):
                     self.add_debug("⚠️ XTTS unload failed")  # type: ignore[attr-defined]
                     yield rx.toast.error("Failed to unload XTTS model", duration=3000)
 
-        except Exception as e:
+        except httpx.HTTPError as e:
             self.add_debug(f"❌ XTTS unload error: {e}")  # type: ignore[attr-defined]
             yield rx.toast.error(f"Error: {e}", duration=3000)
 

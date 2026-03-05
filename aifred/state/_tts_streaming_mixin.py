@@ -200,7 +200,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 self.tts_audio_path = ""
                 self.add_debug("⚠️ TTS: Audio generation failed")  # type: ignore[attr-defined]
 
-        except Exception as e:
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
             self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]
             log_message(f"❌ TTS generation error: {e}")
 
@@ -321,7 +321,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             else:
                 self.add_debug(f"⚠️ TTS Queue: Generation failed for {agent}")  # type: ignore[attr-defined]
 
-        except Exception as e:
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
             self.add_debug(f"❌ TTS Queue Error ({agent}): {e}")  # type: ignore[attr-defined]
             log_message(f"❌ TTS queue generation error for {agent}: {e}")
 
@@ -986,7 +986,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 self.add_debug(f"✅ TTS: Bubble {bubble_index} regenerated")  # type: ignore[attr-defined]
             else:
                 self.add_debug(f"⚠️ TTS: Bubble {bubble_index} regeneration failed")  # type: ignore[attr-defined]
-        except Exception as e:
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
             self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]
             log_message(f"❌ TTS regeneration error: {e}")
         finally:
@@ -1056,7 +1056,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             else:
                 self.add_debug(f"✅ TTS: {success_count}/{len(assistant_indices)} bubbles regenerated")  # type: ignore[attr-defined]
 
-        except Exception as e:
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
             self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]
             log_message(f"❌ TTS regeneration error: {e}")
         finally:

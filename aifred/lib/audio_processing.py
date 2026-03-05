@@ -13,6 +13,7 @@ import wave
 import subprocess
 import asyncio
 import atexit
+import httpx
 import edge_tts
 from .config import PIPER_MODEL_PATH, PROJECT_ROOT, DATA_DIR
 from .logging_utils import log_message
@@ -203,7 +204,7 @@ def concatenate_wav_files(wav_urls: list[str], delete_originals: bool = True) ->
             log_message(f"❌ WAV concat ffmpeg error: {error_msg}")
             return wav_urls[0] if wav_urls else None
 
-    except Exception as e:
+    except (subprocess.TimeoutExpired, OSError) as e:
         log_message(f"❌ WAV concat error: {e}")
         # Return first URL as fallback
         return wav_urls[0] if wav_urls else None
@@ -306,7 +307,7 @@ def save_audio_to_session(wav_urls: list[str], session_id: str) -> str | None:
             log_message(f"❌ Session audio ffmpeg error: {error_msg}")
             return wav_urls[0] if wav_urls else None
 
-    except Exception as e:
+    except (subprocess.TimeoutExpired, OSError) as e:
         log_message(f"❌ Session audio error: {e}")
         return wav_urls[0] if wav_urls else None
 
@@ -390,7 +391,7 @@ def load_audio_url_as_base64(audio_url: str) -> str | None:
 
         base64_data = base64.b64encode(audio_bytes).decode('utf-8')
         return f"data:{mime_type};base64,{base64_data}"
-    except Exception as e:
+    except OSError as e:
         log_message(f"⚠️ Failed to load audio: {e}")
         return None
 
@@ -498,7 +499,7 @@ def apply_audio_adjustments(input_file: str, pitch: float = 1.0, speed: float = 
             log_message(f"⚠️ Audio: ffmpeg failed: {error_msg[:200]}")
             return input_file
 
-    except Exception as e:
+    except (subprocess.TimeoutExpired, OSError) as e:
         log_message(f"⚠️ Audio: Error during adjustment: {e}")
         return input_file
 
@@ -1930,7 +1931,7 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
 
         return audio_url
 
-    except Exception as e:
+    except (OSError, httpx.HTTPError) as e:
         log_message(f"❌ TTS Error: {e}")
         import traceback
         log_message(f"Traceback: {traceback.format_exc()}")
@@ -1946,13 +1947,13 @@ def _cleanup_tts_on_exit():
     """Cleanup old TTS audio files on app exit"""
     try:
         cleanup_old_tts_audio(max_age_hours=24)
-    except Exception:
+    except (OSError, httpx.HTTPError):
         pass
 
 # Run cleanup on module import (app startup)
 try:
     cleanup_old_tts_audio(max_age_hours=24)
-except Exception:
+except (OSError, ValueError):
     pass
 
 

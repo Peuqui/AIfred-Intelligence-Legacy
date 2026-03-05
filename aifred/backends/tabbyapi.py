@@ -8,6 +8,7 @@ chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 
 import logging
 from typing import List, Optional, Dict, Any
+import openai
 from .base import (
     OpenAICompatibleBackend,
     LLMOptions,
@@ -50,7 +51,7 @@ class TabbyAPIBackend(OpenAICompatibleBackend):
             models_response = await self.client.models.list()
             self._available_models = [model.id for model in models_response.data]
             return self._available_models
-        except Exception as e:
+        except openai.OpenAIError as e:
             raise BackendConnectionError(f"Failed to list TabbyAPI models: {e}")
 
     async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
@@ -78,7 +79,7 @@ class TabbyAPIBackend(OpenAICompatibleBackend):
         try:
             await self.client.models.list()
             return True
-        except Exception:
+        except openai.OpenAIError:
             return False
 
     def get_backend_name(self) -> str:
@@ -98,7 +99,7 @@ class TabbyAPIBackend(OpenAICompatibleBackend):
                 "healthy": True,
                 "api_type": "OpenAI-compatible"
             }
-        except Exception as e:
+        except openai.OpenAIError as e:
             return {
                 "backend": "TabbyAPI",
                 "base_url": self.base_url,
@@ -168,7 +169,7 @@ class TabbyAPIBackend(OpenAICompatibleBackend):
 
                 return (context_limit, model_size_bytes)
 
-        except Exception as e:
+        except (httpx.HTTPError, ValueError, KeyError) as e:
             raise RuntimeError(f"Failed to query TabbyAPI for model '{model}': {e}") from e
 
     async def is_model_loaded(self, model: str) -> bool:

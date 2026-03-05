@@ -332,7 +332,7 @@ class SessionMixin(rx.State, mixin=True):
         from ..lib.audio_processing import cleanup_old_tts_audio
         try:
             cleanup_old_tts_audio(max_age_hours=0)  # 0 = alle loeschen
-        except Exception as e:
+        except OSError as e:
             self.add_debug(f"TTS cleanup failed: {e}")  # type: ignore[attr-defined]
 
         # Session-Bilder aufraeumen (data/images/{session_id}/)
@@ -342,7 +342,7 @@ class SessionMixin(rx.State, mixin=True):
                 deleted = cleanup_session_images(self.session_id)
                 if deleted > 0:
                     self.add_debug(f"{deleted} session image(s) deleted")  # type: ignore[attr-defined]
-            except Exception as e:
+            except OSError as e:
                 self.add_debug(f"Image cleanup failed: {e}")  # type: ignore[attr-defined]
 
         # Session-Audio aufraeumen (data/audio/{session_id}/)
@@ -352,7 +352,7 @@ class SessionMixin(rx.State, mixin=True):
                 deleted = cleanup_session_audio(self.session_id)
                 if deleted > 0:
                     self.add_debug(f"{deleted} session audio file(s) deleted")  # type: ignore[attr-defined]
-            except Exception as e:
+            except OSError as e:
                 self.add_debug(f"Audio cleanup failed: {e}")  # type: ignore[attr-defined]
 
         # Clear Web-Quellen State (Sources Collapsible)

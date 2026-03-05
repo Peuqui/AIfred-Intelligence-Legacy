@@ -149,7 +149,7 @@ def is_backend_compatible(model_dir: Path, backend: str) -> bool:
                 # TabbyAPI needs quantization - check model name for EXL format
                 return any(fmt in model_name.lower() for fmt in ["exl2", "exl3"])
 
-    except Exception:
+    except (KeyError, AttributeError):
         # Failed to read config.json
         pass
 
@@ -179,6 +179,6 @@ def backend_supports_dynamic_models(backend: Any) -> bool:
     try:
         caps = backend.get_capabilities()
         return bool(caps.get("dynamic_models", True))  # Default True for backwards compat
-    except Exception:
+    except (KeyError, AttributeError):
         # Fallback to True (assume dynamic if capabilities not available)
         return True

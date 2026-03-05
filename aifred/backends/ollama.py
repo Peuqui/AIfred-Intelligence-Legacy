@@ -140,7 +140,7 @@ class OllamaBackend(LLMBackend):
             data = response.json()
             self._available_models = [m["name"] for m in data.get("models", [])]
             return self._available_models
-        except Exception as e:
+        except httpx.HTTPError as e:
             raise BackendConnectionError(f"Failed to list Ollama models: {e}")
 
     async def chat(
@@ -295,7 +295,7 @@ class OllamaBackend(LLMBackend):
                             inference_time=inference_time,
                             model=model
                         )
-                except Exception:
+                except (ValueError, KeyError):
                     pass  # If JSON parsing fails, fall through to normal error handling
                 raise BackendInferenceError(f"Ollama HTTP error: {e}")
             elif e.response.status_code == 400:
@@ -303,7 +303,7 @@ class OllamaBackend(LLMBackend):
                 try:
                     error_data = e.response.json()
                     error_msg = error_data.get("error", e.response.text)
-                except Exception:
+                except (ValueError, KeyError):
                     error_msg = e.response.text
                 logger.error(f"Ollama 400 error: {error_msg}")
                 raise BackendInferenceError(f"Ollama HTTP error: {e} - {error_msg}")
@@ -516,7 +516,7 @@ class OllamaBackend(LLMBackend):
                     error_msg = error_data.get("error", "")
                     if "does not support thinking" in error_msg:
                         return False
-                except Exception:
+                except (ValueError, KeyError):
                     pass
             # Any other error - assume thinking not supported
             logger.warning(f"Thinking capability test failed for {model}: {e}")
@@ -560,7 +560,7 @@ class OllamaBackend(LLMBackend):
                     if model in loaded_models:
                         logger.info(f"♻️ Hybrid model ({model}) already loaded - skipping unload")
                         return
-            except Exception as e:
+            except httpx.HTTPError as e:
                 logger.warning(f"Failed to check loaded models: {e}")
                 # Continue with unload on error (safer)
 
@@ -641,7 +641,7 @@ class OllamaBackend(LLMBackend):
 
             return (True, unloaded_models)
 
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.warning(f"Failed to unload models: {e}")
             return (False, [])
 
@@ -702,7 +702,7 @@ class OllamaBackend(LLMBackend):
             log_message(f"⏱️ preload_model: Response received after {load_time:.1f}s (status={response.status_code})")
             success = response.status_code == 200
             return (success, load_time)
-        except Exception as e:
+        except httpx.HTTPError as e:
             load_time = timer.elapsed()
             logger.warning(f"Preload failed for {model}: {e}")
             return (False, load_time)
@@ -712,7 +712,7 @@ class OllamaBackend(LLMBackend):
         try:
             response = await self.client.get(f"{self.base_url}/api/tags")
             return response.status_code == 200
-        except Exception:
+        except httpx.HTTPError:
             return False
 
     def get_backend_name(self) -> str:
@@ -736,7 +736,7 @@ class OllamaBackend(LLMBackend):
                 "models": models,
                 "healthy": True
             }
-        except Exception as e:
+        except httpx.HTTPError as e:
             return {
                 "backend": "Ollama",
                 "version": "unknown",
@@ -818,7 +818,7 @@ class OllamaBackend(LLMBackend):
                 else:
                     logger.warning(f"Model '{model}' not found in /api/tags")
 
-            except Exception as e:
+            except (httpx.HTTPError, ValueError, KeyError) as e:
                 logger.warning(f"Could not get model size from /api/tags: {e}")
 
             return (context_limit, model_size_bytes)

@@ -185,7 +185,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
             self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
 
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             self.add_debug(f"❌ Calibration failed: {e}")  # type: ignore[attr-defined]
 
         finally:
@@ -225,7 +225,7 @@ class CalibrationMixin(rx.State, mixin=True):
             else:
                 self.add_debug("⚠️ Reasoning mode: Not supported")  # type: ignore[attr-defined]
 
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             self.add_debug(f"⚠️ Thinking test failed: {e}")  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
@@ -420,7 +420,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
             self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
 
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             self.add_debug(f"❌ Calibration failed: {e}")  # type: ignore[attr-defined]
 
         finally:

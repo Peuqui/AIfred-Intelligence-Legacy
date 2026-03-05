@@ -29,7 +29,7 @@ def load_settings() -> Optional[Dict[str, Any]]:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
             data: Dict[str, Any] = json.load(f)
             return data
-    except Exception as e:
+    except (OSError, json.JSONDecodeError) as e:
         print(f"⚠️ Failed to load settings: {e}")
         return None
 
@@ -54,7 +54,7 @@ def save_settings(settings: Dict[str, Any]) -> bool:
         print(f"✅ Settings saved to {SETTINGS_FILE}")
         return True
 
-    except Exception as e:
+    except (OSError, json.JSONDecodeError) as e:
         print(f"❌ Failed to save settings: {e}")
         return False
 

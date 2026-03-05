@@ -67,7 +67,7 @@ def detect_urls_in_text(text: str, max_urls: int = 7) -> List[str]:
             parsed = urlparse(url)
             if parsed.scheme and parsed.netloc:
                 validated_urls.append(url)
-        except Exception:
+        except ValueError:
             continue  # Skip invalid URLs
 
         # Limit to max_urls

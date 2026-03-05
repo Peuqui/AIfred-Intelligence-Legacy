@@ -5,6 +5,7 @@ Extracted from agent_tools.py for better modularity.
 Includes: Brave, Tavily, SearXNG, MultiAPI Search
 """
 
+import httpx
 import requests
 import logging
 import os
@@ -111,7 +112,7 @@ class BraveSearchTool(BaseTool):
         except RateLimitError:
             raise  # Re-raise for fallback
 
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.error(f"❌ Brave Search error: {e}")
             return {
                 'success': False,
@@ -208,7 +209,7 @@ class TavilySearchTool(BaseTool):
         except RateLimitError:
             raise
 
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.error(f"❌ Tavily AI error: {e}")
             return {
                 'success': False,
@@ -290,7 +291,7 @@ class SearXNGSearchTool(BaseTool):
 
             return result
 
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.error(f"❌ SearXNG error: {e}")
             return {
                 'success': False,

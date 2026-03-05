@@ -226,7 +226,7 @@ class ExportMixin(rx.State, mixin=True):
                     used_sources_data.clear()
                     used_sources_data.extend(embedded)
                 ai_msg = re.sub(used_pattern, '', ai_msg, count=1)
-            except Exception:  # noqa: BLE001
+            except json_mod.JSONDecodeError:  # noqa: BLE001
                 pass
 
         failed_pattern = r'<!--FAILED_SOURCES:(\[.*?\])-->\n?'
@@ -238,7 +238,7 @@ class ExportMixin(rx.State, mixin=True):
                     failed_sources_data.clear()
                     failed_sources_data.extend(embedded)
                 ai_msg = re.sub(failed_pattern, '', ai_msg, count=1)
-            except Exception:  # noqa: BLE001
+            except json_mod.JSONDecodeError:
                 pass
 
         return ai_msg

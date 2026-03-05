@@ -1333,7 +1333,7 @@ class ChatMixin(rx.State, mixin=True):
                         self.add_debug("⚠️ TTS: Enabled but LLM history is empty")
                         console_separator()
                         self.add_debug("────────────────────")
-                except Exception as tts_error:
+                except (RuntimeError, FileNotFoundError, ValueError) as tts_error:
                     self.add_debug(f"⚠️ TTS generation failed: {tts_error}")
                     log_message(f"❌ TTS error in finally block: {tts_error}")
 

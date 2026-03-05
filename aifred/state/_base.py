@@ -333,7 +333,7 @@ class AIState(  # type: ignore[misc]
             else:
                 self.add_debug("⚠️ Transcription returned empty text")
 
-        except Exception as e:
+        except (ImportError, RuntimeError, ValueError, OSError) as e:
             self.add_debug(f"❌ Audio transcription failed: {e}")
             log_message(f"❌ Audio transcription error: {e}")
         finally:

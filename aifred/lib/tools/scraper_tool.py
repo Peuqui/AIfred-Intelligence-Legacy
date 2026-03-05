@@ -198,7 +198,7 @@ class WebScraperTool(BaseTool):
                 'method': 'trafilatura'
             }
 
-        except Exception as e:
+        except (OSError, ValueError) as e:
             error_msg = str(e)
             logger.error(f"❌ trafilatura error at {url}: {error_msg}")
 
@@ -257,7 +257,7 @@ class WebScraperTool(BaseTool):
                 finally:
                     browser.close()  # ALWAYS executed, even on exception
 
-        except Exception as e:
+        except (OSError, ValueError) as e:
             error_msg = str(e)
             logger.error(f"❌ Playwright error at {url}: {error_msg}")
             log_message(f"❌ Playwright error: {error_msg}")
@@ -304,7 +304,7 @@ class WebScraperTool(BaseTool):
             })
             content_type = response.headers.get('Content-Type', '').lower()
             return 'application/pdf' in content_type
-        except Exception:
+        except OSError:
             # On error: Assume not PDF (trafilatura will try)
             return False
 
@@ -426,7 +426,7 @@ class WebScraperTool(BaseTool):
                 'error': error_msg
             }
 
-        except Exception as e:
+        except (OSError, ValueError) as e:
             error_msg = str(e)[:100]
             logger.error(f"❌ PDF error at {url}: {error_msg}")
             return {

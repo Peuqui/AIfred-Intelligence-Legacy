@@ -70,7 +70,7 @@ def initialize_debug_log(force_reset: bool = False) -> None:
         _debug_log_initialized = True
         print(f"✅ Debug log initialized: {DEBUG_LOG_FILE}", flush=True)
 
-    except Exception as e:
+    except OSError as e:
         print(f"⚠️ Debug log initialization failed: {e}", flush=True)
 
 
@@ -105,7 +105,7 @@ def log_message(message: str, category: str = "info") -> None:
             timestamp_file = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # HH:MM:SS.mmm
             with open(DEBUG_LOG_FILE, 'a', encoding='utf-8') as f:
                 f.write(f"{timestamp_file} | {message}\n")
-        except Exception as e:
+        except OSError as e:
             print(f"⚠️ Debug log file error: {e}", flush=True)
 
     # ============================================================

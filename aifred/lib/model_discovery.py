@@ -55,7 +55,7 @@ def discover_huggingface_models(
                 total_size = get_model_size_bytes(model_id)
                 size_gb = total_size / (1024**3)
                 result[model_id] = f"{model_id} ({format_number(size_gb, 1)} GB)"
-            except Exception:
+            except (httpx.HTTPError, ImportError):
                 # Fallback: show without size if calculation fails
                 result[model_id] = model_id
 
@@ -155,7 +155,7 @@ def _get_llamacpp_model_sizes() -> Dict[str, float]:
                 from .gguf_utils import get_gguf_total_size
                 result[model_id] = get_gguf_total_size(gguf_path) / (1024 ** 3)
         return result
-    except Exception:
+    except httpx.HTTPError:
         return {}
 
 

@@ -12,6 +12,7 @@ import asyncio
 import logging
 import re
 from typing import List, Optional, AsyncIterator, Dict, Any
+import openai
 from .base import (
     OpenAICompatibleBackend,
     LLMOptions,
@@ -176,7 +177,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             models_response = await self.client.models.list()
             self._available_models = [model.id for model in models_response.data]
             return self._available_models
-        except Exception as e:
+        except openai.OpenAIError as e:
             raise BackendConnectionError(f"Failed to list llama.cpp models: {e}")
 
     async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
@@ -200,7 +201,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             load_time = time.time() - start
             logger.info(f"llama.cpp: Preloaded {model} via llama-swap ({load_time:.1f}s)")
             return (True, load_time)
-        except Exception as e:
+        except openai.OpenAIError as e:
             load_time = time.time() - start
             logger.warning(f"llama.cpp: Preload failed for {model}: {e}")
             return (False, load_time)
@@ -210,7 +211,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         try:
             await self.client.models.list()
             return True
-        except Exception:
+        except openai.OpenAIError:
             return False
 
     def get_backend_name(self) -> str:
@@ -257,7 +258,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                     context_limit = model_dict.get("max_model_len", 0)
                     if context_limit:
                         return (int(context_limit), 0)
-        except Exception:
+        except openai.OpenAIError:
             pass
 
         # 2. Read native context from GGUF metadata
@@ -274,7 +275,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                     native_ctx = get_gguf_native_context(gguf_path)
                     if native_ctx:
                         return (native_ctx, 0)
-        except Exception as e:
+        except (FileNotFoundError, OSError, ValueError, KeyError) as e:
             logger.debug(f"llama.cpp: GGUF metadata lookup failed for '{model}': {e}")
 
         return (0, 0)
@@ -287,7 +288,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         try:
             models = await self.list_models()
             return model in models
-        except Exception:
+        except openai.OpenAIError:
             return False
 
     def get_capabilities(self) -> Dict[str, bool]:
@@ -325,7 +326,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             context_limit, _ = await self.get_model_context_limit(model)
             if context_limit > 0:
                 return (context_limit, [f"llama.cpp: Server reports {context_limit:,} tokens"])
-        except Exception:
+        except openai.OpenAIError:
             pass
 
         # Priority 3: llama-swap YAML config
@@ -403,7 +404,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             reasoning = msg_dict.get("reasoning_content") or ""
 
             return bool(reasoning) or "<think>" in text
-        except Exception as e:
+        except openai.OpenAIError as e:
             logger.warning(f"Thinking capability test failed for {model}: {e}")
             return False
 

@@ -336,7 +336,7 @@ def get_xtts_voices() -> dict:
             for name in data.get("builtin", []):
                 voices[name] = name
             return voices
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:
         print(f"⚠️ Failed to fetch XTTS voices: {e}")
     return {}
 
@@ -358,7 +358,7 @@ def get_moss_voices() -> dict:
             for name in data.get("voices", []):
                 voices[name] = name
             return voices
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:
         print(f"⚠️ Failed to fetch MOSS-TTS voices: {e}")
     return {}
 

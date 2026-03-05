@@ -9,6 +9,7 @@ chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 import os
 import logging
 from typing import List, Optional, Dict, Any
+import openai
 from .base import (
     OpenAICompatibleBackend,
     LLMOptions,
@@ -78,7 +79,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
             self._available_models = [model.id for model in response.data]
             logger.info(f"☁️ {self.provider_config['name']}: Found {len(self._available_models)} models")
             return self._available_models
-        except Exception as e:
+        except openai.OpenAIError as e:
             logger.warning(f"☁️ Failed to fetch models from {self.provider_config['name']}: {e}")
             # Return empty list on failure - don't use hardcoded fallback
             self._available_models = []
@@ -110,7 +111,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
             # Try to list models - this validates the API key
             await self.client.models.list()
             return True
-        except Exception as e:
+        except openai.OpenAIError as e:
             logger.warning(f"☁️ Cloud API health check failed: {e}")
             return False
 
@@ -134,7 +135,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
                 "healthy": healthy,
                 "api_type": "OpenAI-compatible"
             }
-        except Exception as e:
+        except openai.OpenAIError as e:
             return {
                 "backend": "Cloud API",
                 "provider": self.provider,
