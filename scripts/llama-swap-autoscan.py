@@ -1061,8 +1061,8 @@ def parse_existing_yaml_models(config_path: Path) -> set[str]:
             continue
 
         if in_models_section:
-            # Model entry: exactly 2 spaces indent, then name, then colon
-            match = re.match(r'^  ([A-Za-z0-9][A-Za-z0-9._-]*):$', line)
+            # Model entry: exactly 2 spaces indent, then name, then colon (optional trailing whitespace)
+            match = re.match(r'^  ([A-Za-z0-9][A-Za-z0-9._-]*):\s*$', line)
             if match:
                 model_names.add(match.group(1))
             # Sub-keys have 4+ spaces, skip those

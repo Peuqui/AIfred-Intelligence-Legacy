@@ -229,8 +229,8 @@ class WebScraperTool(BaseTool):
                 try:
                     page = browser.new_page()
 
-                    # Navigate to page and wait for network idle
-                    page.goto(url, wait_until='networkidle', timeout=15000)
+                    # Navigate to page and wait for DOM content
+                    page.goto(url, wait_until='domcontentloaded', timeout=15000)
 
                     # Wait 2s more for lazy-loaded content
                     page.wait_for_timeout(2000)
