@@ -2028,7 +2028,7 @@ async def _calibrate_speed_split(
         yield "No headroom for speed improvement on fastest GPU"
         # Still a valid speed variant if we reduced GPUs — skip Phase A, keep initial split
     else:
-        yield f"Phase A: Max layers on {fastest_name} at ctx={format_number(target_context)}"
+        yield f"Phase A: Max layers on {fastest_name} at ctx={format_number(target_context)} (KV=f16)"
 
         est_active = _build_layer_split(total_layers, estimated_max, active_ratios)
         est_padded = est_active + [0.0] * (total_gpus - min_gpus)
