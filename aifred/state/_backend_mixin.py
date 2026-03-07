@@ -129,7 +129,14 @@ class BackendMixin(rx.State, mixin=True):
         unique_names = list(dict.fromkeys(self.gpu_all_names))
         if len(unique_names) == 1:
             return f"{self.gpu_count}x {unique_names[0]} (Compute {self.gpu_compute_cap}, {self.gpu_vram_gb} GB total)"
-        return f"{' + '.join(unique_names)} ({self.gpu_vram_gb} GB total)"
+        # Mixed GPUs: show count per type (e.g. "2x Tesla P40 + Quadro RTX 8000")
+        from collections import Counter
+        counts = Counter(self.gpu_all_names)
+        parts = []
+        for name in unique_names:
+            count = counts[name]
+            parts.append(f"{count}x {name}" if count > 1 else name)
+        return f"{' + '.join(parts)} ({self.gpu_vram_gb} GB total)"
 
     @rx.var
     def gpu_compatible_text(self) -> str:

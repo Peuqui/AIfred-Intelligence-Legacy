@@ -48,6 +48,10 @@ logger = logging.getLogger(__name__)
 
 _GPU_NAME_PREFIXES = ("NVIDIA GeForce ", "NVIDIA ", "Quadro ", "Tesla ")
 
+# Safety margin per GPU (MiB) when checking if model weights fit.
+# Must leave room for KV cache, CUDA context, and runtime overhead.
+_MIN_GPU_SAFETY_MARGIN_MB = 1024
+
 
 def _short_gpu_name(name: str) -> str:
     """Shorten GPU name by stripping common prefixes."""
@@ -66,6 +70,26 @@ def _to_cuda_order(gpu_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for i, g in enumerate(sorted_gpus):
         g["cuda_id"] = f"CUDA{i}"
     return sorted_gpus
+
+
+def _find_min_gpus(model_size_mb: float, per_gpu_total_mb: list[int]) -> int:
+    """Find minimum number of GPUs needed to hold model weights.
+
+    Tries 1, 2, 3, ... GPUs (largest-first, matching FASTEST_FIRST order).
+    "Fits" means GGUF size + safety margin per GPU < combined total VRAM.
+
+    Args:
+        model_size_mb: Total GGUF file size in MiB.
+        per_gpu_total_mb: Total VRAM per GPU in MiB, sorted descending.
+
+    Returns:
+        Minimum GPU count (1 to len(per_gpu_total_mb)).
+    """
+    for n in range(1, len(per_gpu_total_mb) + 1):
+        available = sum(per_gpu_total_mb[:n])
+        if model_size_mb < available - (_MIN_GPU_SAFETY_MARGIN_MB * n):
+            return n
+    return len(per_gpu_total_mb)
 
 
 def _format_cuda_detail(
@@ -1640,6 +1664,7 @@ def add_llamaswap_speed_variant(
     speed_split_cuda0: int,
     speed_split_rest: int,
     speed_context: int,
+    num_gpus: int = 0,
 ) -> bool:
     """
     Add (or update) a -speed variant YAML entry in the llama-swap config.
@@ -1651,7 +1676,9 @@ def add_llamaswap_speed_variant(
     Args:
         speed_split_cuda0: Layer count for fastest GPU (CUDA0)
         speed_split_rest: Layer count for remaining GPU(s)
-        speed_context: Context size for speed variant (typically MIN_USEFUL_CONTEXT_TOKENS)
+        speed_context: Context size for speed variant
+        num_gpus: Number of active GPUs for speed variant (0 = use all,
+                  same as base). Unused GPUs get tensor-split ratio 0.
     """
     if not config_path.exists():
         logger.error(f"llama-swap config not found: {config_path}")
@@ -1691,7 +1718,15 @@ def add_llamaswap_speed_variant(
     # Replace tensor-split with calibrated layer counts (N-GPU compatible)
     original_ratios = _parse_tensor_split_ratios(speed_block_text)
     total_layers = speed_split_cuda0 + speed_split_rest
-    speed_ratios = _build_layer_split(total_layers, speed_split_cuda0, original_ratios)
+
+    if num_gpus > 0 and num_gpus < len(original_ratios):
+        # Reduced GPU count: distribute among active GPUs, zero out the rest
+        active_ratios = original_ratios[:num_gpus]
+        active_split = _build_layer_split(total_layers, speed_split_cuda0, active_ratios)
+        speed_ratios = active_split + [0.0] * (len(original_ratios) - num_gpus)
+    else:
+        speed_ratios = _build_layer_split(total_layers, speed_split_cuda0, original_ratios)
+
     speed_block_text = _replace_tensor_split(speed_block_text, speed_ratios)
     speed_block_text = re.sub(r'-c\s+\d+', f'-c {speed_context}', speed_block_text)
 
@@ -1863,18 +1898,26 @@ async def _calibrate_speed_split(
     target_context: int,
     native_context: int,
     gguf_path: Path,
+    per_gpu_total_mb: list[int],
 ) -> AsyncIterator[str]:
-    """Speed split: maximize layers on fastest GPU, then maximize context.
+    """Speed split: use minimum GPUs for fewer boundary transfers.
 
-    Phase A: Binary search for max layers on fastest GPU at target_context.
-    Phase B: Maximize context at the found split (10% steps + binary search).
-    N-GPU compatible: uses _build_layer_split to distribute remaining layers
-    proportionally among GPU1..N-1.
+    Strategy: fewer GPU boundaries = less transfer overhead per token = faster.
+    1. Find minimum GPU count needed to hold model weights.
+    2. Build tensor-split with only those GPUs active (rest get 0).
+    3. Phase A: Binary search for max layers on fastest GPU at target_context.
+    4. Phase B: Maximize context at found split (10% steps + binary search).
+
+    Args:
+        per_gpu_total_mb: Total VRAM per GPU in MiB, sorted descending
+                          (FASTEST_FIRST order).
 
     Yields progress messages.
-    Final: "__SPEED__:{cuda0},{rest},{context}" or "__SPEED__:0" on failure.
+    Final: "__SPEED__:{cuda0},{rest},{context},{num_gpus}" or "__SPEED__:0".
     """
     from .gguf_utils import get_gguf_total_size
+
+    total_gpus = len(per_gpu_total_mb)
 
     original_ratios = _parse_tensor_split_ratios(full_cmd)
     if not original_ratios:
@@ -1891,116 +1934,140 @@ async def _calibrate_speed_split(
     model_size_mb = get_gguf_total_size(gguf_path) / (1024 ** 2)
     mb_per_layer = model_size_mb / total_layers
 
-    # Current layer distribution from ratios
-    sum_ratios = sum(original_ratios)
-    layers = [round(total_layers * r / sum_ratios) for r in original_ratios]
+    # ── Step 1: Find minimum GPU count ──
+    min_gpus = _find_min_gpus(model_size_mb, per_gpu_total_mb)
+
+    if min_gpus >= total_gpus:
+        yield (
+            f"Speed calibration: model needs all {total_gpus} GPUs "
+            f"({format_number(model_size_mb, 0)} MB) — no speed variant possible"
+        )
+        yield "__SPEED__:0"
+        return
+
+    gpu_names_info = ", ".join(
+        f"GPU{i}: {format_number(v)} MB" for i, v in enumerate(per_gpu_total_mb)
+    )
+    yield (
+        f"Speed calibration: model ({format_number(model_size_mb, 0)} MB) "
+        f"fits on {min_gpus}/{total_gpus} GPUs ({gpu_names_info})"
+    )
+
+    # ── Step 2: Build tensor-split for min_gpus (inactive GPUs get 0) ──
+    # VRAM-proportional ratios for active GPUs only
+    active_vram = per_gpu_total_mb[:min_gpus]
+    min_vram = min(active_vram)
+    active_ratios = [float(max(1, round(v / min_vram))) for v in active_vram]
+
+    # Initial layer distribution from active ratios
+    sum_active = sum(active_ratios)
+    layers = [round(total_layers * r / sum_active) for r in active_ratios]
     layers[-1] = total_layers - sum(layers[:-1])
 
-    layers_fmt = _format_layer_split([float(n) for n in layers])
+    # Pad with zeros for inactive GPUs
+    padded_ratios = [float(n) for n in layers] + [0.0] * (total_gpus - min_gpus)
+    speed_cmd = _replace_tensor_split(full_cmd, padded_ratios)
 
-    # Step 1: Project free VRAM via fit-params (no server needed, ~0.5s)
+    layers_fmt = _format_layer_split(padded_ratios)
+    yield f"Initial speed split: {layers_fmt}"
+
+    # ── Step 3: Project free VRAM via fit-params ──
     try:
-        per_gpu = _fit_params_per_gpu_projection(full_cmd, gguf_path, target_context, ngl=99)
+        per_gpu = _fit_params_per_gpu_projection(
+            speed_cmd, gguf_path, target_context, ngl=99,
+        )
     except (RuntimeError, OSError, subprocess.TimeoutExpired):
         yield "Speed calibration: fit-params projection failed"
         yield "__SPEED__:0"
         return
 
-    # Map to CUDA order (FASTEST_FIRST = sorted by total VRAM descending)
-    gpu_ids = sorted(per_gpu.keys())  # CUDA0, CUDA1, ...
-    if len(gpu_ids) < 2:
-        yield "Speed calibration: need at least 2 GPUs"
+    # Get free VRAM on fastest GPU
+    gpu_ids = sorted(per_gpu.keys())
+    if not gpu_ids:
+        yield "Speed calibration: no GPU info from fit-params"
         yield "__SPEED__:0"
         return
 
-    cuda_gpus_info: list[dict[str, Any]] = sorted(
-        [{"id": gid, "free": per_gpu[gid]["free"], "total": per_gpu[gid]["total"],
-          "name": str(per_gpu[gid].get("name", gid))} for gid in gpu_ids],
-        key=lambda g: g["total"], reverse=True,
-    )
+    cuda0_info = per_gpu.get("CUDA0", {})
+    free_fastest = cuda0_info.get("free", 0)
+    fastest_name = _short_gpu_name(str(cuda0_info.get("name", "GPU0")))
 
-    free_fastest: int = cuda_gpus_info[0]["free"]
-    fastest_name: str = cuda_gpus_info[0]["name"]
     free_info = ", ".join(
-        f"{g['name']}: {format_number(g['free'])} MB free" for g in cuda_gpus_info
+        f"{_short_gpu_name(str(per_gpu[gid].get('name', gid)))}: "
+        f"{format_number(per_gpu[gid]['free'])} MB free"
+        for gid in gpu_ids[:min_gpus]
     )
-    yield f"Speed calibration: {layers_fmt} projected at ctx={format_number(target_context)} ({free_info})"
+    yield f"Projected at ctx={format_number(target_context)}: {free_info}"
 
-    # Step 2: Calculate estimated max layers on fastest GPU
+    # ── Phase A: Binary search for max layers on fastest GPU ──
     extra_layers_possible = int(free_fastest / mb_per_layer)
     estimated_max = min(layers[0] + extra_layers_possible, total_layers)
 
-    est_preview = _format_layer_split(
-        _build_layer_split(total_layers, estimated_max, original_ratios),
-    )
-    yield (
-        f"Estimated: ~{format_number(mb_per_layer, 0)} MB/layer, "
-        f"free {fastest_name}: {format_number(free_fastest)} MB → "
-        f"~{est_preview}"
-    )
-
     if estimated_max <= layers[0]:
-        yield "No headroom for speed improvement"
-        yield "__SPEED__:0"
-        return
-
-    # ── Phase A: Binary search for max layers at target_context ──
-    yield f"Phase A: Max layers on {fastest_name} at ctx={format_number(target_context)}"
-
-    iteration = 0
-
-    # Test the estimated split first to establish search direction
-    est_ratios = _build_layer_split(total_layers, estimated_max, original_ratios)
-    est_split = _format_layer_split(est_ratios)
-    est_cmd = _replace_tensor_split(full_cmd, est_ratios)
-    iteration += 1
-    yield f"[A{iteration}] Testing {est_split} at ctx={format_number(target_context)}..."
-    est_fits = await _calibration_test(est_cmd, target_context, port)
-
-    if est_fits:
-        yield f"✓ {est_split} fits"
-        low = estimated_max + 1
-        high = total_layers
-        best_layers_cuda0 = estimated_max
+        yield "No headroom for speed improvement on fastest GPU"
+        # Still a valid speed variant if we reduced GPUs — skip Phase A, keep initial split
     else:
-        yield f"✗ {est_split} doesn't fit"
-        low = layers[0] + 1
-        high = estimated_max - 1
-        best_layers_cuda0 = layers[0]
+        yield f"Phase A: Max layers on {fastest_name} at ctx={format_number(target_context)}"
 
-    # Binary search for exact layer boundary
-    while low <= high:
-        mid = (low + high) // 2
-        mid_ratios = _build_layer_split(total_layers, mid, original_ratios)
-        mid_split = _format_layer_split(mid_ratios)
-        mid_cmd = _replace_tensor_split(full_cmd, mid_ratios)
+        est_active = _build_layer_split(total_layers, estimated_max, active_ratios)
+        est_padded = est_active + [0.0] * (total_gpus - min_gpus)
+        est_split = _format_layer_split(est_padded)
+        est_cmd = _replace_tensor_split(full_cmd, est_padded)
 
+        iteration = 0
         iteration += 1
-        yield f"[A{iteration}] Testing {mid_split} at ctx={format_number(target_context)}..."
-        mid_fits = await _calibration_test(mid_cmd, target_context, port)
+        yield f"[A{iteration}] Testing {est_split} at ctx={format_number(target_context)}..."
+        est_fits, _, est_gpus, _ = await _test_context_physical(
+            est_cmd, target_context, port,
+        )
+        est_detail = _format_cuda_detail(est_gpus) if est_gpus else "OOM"
 
-        if mid_fits:
-            best_layers_cuda0 = mid
-            yield f"✓ {mid_split} fits"
-            low = mid + 1
+        if est_fits:
+            yield f"✓ {est_split} fits ({est_detail})"
+            low = estimated_max + 1
+            high = total_layers
+            best_cuda0 = estimated_max
         else:
-            yield f"✗ {mid_split} doesn't fit"
-            high = mid - 1
+            yield f"✗ {est_split} doesn't fit ({est_detail})"
+            low = layers[0] + 1
+            high = estimated_max - 1
+            best_cuda0 = layers[0]
 
-    best_ratios = _build_layer_split(total_layers, best_layers_cuda0, original_ratios)
-    best_split = _format_layer_split(best_ratios)
+        # Binary search for exact layer boundary
+        while low <= high:
+            mid = (low + high) // 2
+            mid_active = _build_layer_split(total_layers, mid, active_ratios)
+            mid_padded = mid_active + [0.0] * (total_gpus - min_gpus)
+            mid_split = _format_layer_split(mid_padded)
+            mid_cmd = _replace_tensor_split(full_cmd, mid_padded)
 
-    if best_layers_cuda0 <= layers[0]:
-        yield f"No speed improvement possible (best: {best_split}, original: {layers_fmt})"
-        yield "__SPEED__:0"
-        return
+            iteration += 1
+            yield f"[A{iteration}] Testing {mid_split} at ctx={format_number(target_context)}..."
+            mid_fits, _, mid_gpus, _ = await _test_context_physical(
+                mid_cmd, target_context, port,
+            )
+            mid_detail = _format_cuda_detail(mid_gpus) if mid_gpus else "OOM"
 
-    yield f"Phase A result: {best_split} (max layers on {fastest_name})"
+            if mid_fits:
+                best_cuda0 = mid
+                yield f"✓ {mid_split} fits ({mid_detail})"
+                low = mid + 1
+            else:
+                yield f"✗ {mid_split} doesn't fit ({mid_detail})"
+                high = mid - 1
+
+        # Update layers with Phase A result
+        layers[0] = best_cuda0
+        best_active = _build_layer_split(total_layers, best_cuda0, active_ratios)
+        padded_ratios = best_active + [0.0] * (total_gpus - min_gpus)
+
+    best_split = _format_layer_split(padded_ratios)
+    yield f"Phase A result: {best_split} ({min_gpus}/{total_gpus} GPUs)"
 
     # ── Phase B: Maximize context at the found split ──
     yield f"Phase B: Maximizing context at {best_split}"
 
-    speed_cmd = _replace_tensor_split(full_cmd, best_ratios)
+    speed_cmd = _replace_tensor_split(full_cmd, padded_ratios)
 
     # Project max context via fit-params
     try:
@@ -2011,13 +2078,12 @@ async def _calibrate_speed_split(
             speed_cmd, gguf_path, native_context, ngl=99,
         )
 
-        # Filter to GPUs that actually have layers in the speed split
-        active_gpus = set()
-        for i, gid in enumerate(sorted(per_gpu_low.keys())):
-            if i < len(best_ratios) and best_ratios[i] > 0:
-                active_gpus.add(gid)
-        filtered_low = {k: v for k, v in per_gpu_low.items() if k in active_gpus}
-        filtered_high = {k: v for k, v in per_gpu_high.items() if k in active_gpus}
+        # Filter to active GPUs only (ratio > 0)
+        active_gpu_ids = set(
+            f"CUDA{i}" for i in range(min_gpus)
+        )
+        filtered_low = {k: v for k, v in per_gpu_low.items() if k in active_gpu_ids}
+        filtered_high = {k: v for k, v in per_gpu_high.items() if k in active_gpu_ids}
 
         projected_ctx, _ = _calculate_max_context_per_gpu(
             filtered_low, filtered_high, CALIBRATION_MIN_CONTEXT, native_context,
@@ -2028,10 +2094,11 @@ async def _calibrate_speed_split(
 
     yield f"Projected: {best_split} supports ~{format_number(projected_ctx)} context"
 
+    best_layers_cuda0 = int(padded_ratios[0])
+
     if projected_ctx <= target_context:
         # Can't go beyond minimum — just verify target_context works
-        iteration += 1
-        yield f"[B{iteration}] Verifying {best_split} at ctx={format_number(target_context)}..."
+        yield f"[B1] Verifying {best_split} at ctx={format_number(target_context)}..."
         fits, _, gpu_list, _ = await _test_context_physical(
             speed_cmd, target_context, port,
         )
@@ -2040,13 +2107,14 @@ async def _calibrate_speed_split(
             yield f"✓ {best_split} at ctx={format_number(target_context)} ({detail})"
             yield f"Speed split found: {best_split}, ctx={format_number(target_context)}"
             best_rest = total_layers - best_layers_cuda0
-            yield f"__SPEED__:{best_layers_cuda0},{best_rest},{target_context}"
+            yield f"__SPEED__:{best_layers_cuda0},{best_rest},{target_context},{min_gpus}"
         else:
             yield f"Speed split {best_split} can't hold minimum context"
             yield "__SPEED__:0"
         return
 
     # Physical test at projected context
+    iteration = 0
     iteration += 1
     yield f"[B{iteration}] Testing {best_split} at ctx={format_number(projected_ctx)}..."
     fits, test_detail, test_gpu_list, _ = await _test_context_physical(
@@ -2137,9 +2205,9 @@ async def _calibrate_speed_split(
     ctx_info = ""
     if best_context > target_context:
         ctx_info = f", ctx={format_number(best_context)}"
-    yield f"Speed split found: {best_split}{ctx_info}"
+    yield f"Speed split found: {best_split}{ctx_info} ({min_gpus}/{total_gpus} GPUs)"
     best_rest = total_layers - best_layers_cuda0
-    yield f"__SPEED__:{best_layers_cuda0},{best_rest},{best_context}"
+    yield f"__SPEED__:{best_layers_cuda0},{best_rest},{best_context},{min_gpus}"
 
 
 async def _calibrate_hybrid(
@@ -2578,11 +2646,16 @@ async def calibrate_llamacpp_model(
                     "(dominant GPU is already the VRAM bottleneck)"
                 )
             else:
-                yield "Phase 2: Speed variant calibration (tensor-split optimization)"
+                yield "Phase 2: Speed variant calibration (min-GPU optimization)"
                 await wait_for_vram_stable(max_wait_seconds=10.0)
+                # Build per-GPU VRAM list sorted descending (FASTEST_FIRST)
+                per_gpu_total_mb = sorted(
+                    [g["total_mb"] for g in gpu_info["per_gpu"]],
+                    reverse=True,
+                ) if gpu_info and gpu_info.get("per_gpu") else []
                 async for msg in _calibrate_speed_split(
                     full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS,
-                    native_context, gguf_path,
+                    native_context, gguf_path, per_gpu_total_mb,
                 ):
                     yield msg
         async for msg in _finish_calibration(best_result, 99, "gpu", thinking_result=thinking_result):

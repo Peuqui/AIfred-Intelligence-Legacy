@@ -282,7 +282,7 @@ class CalibrationMixin(rx.State, mixin=True):
             # Step 2: Run calibration (Phase 1: GPU-only, Phase 2: Hybrid if needed,
             #          Phase 3: Speed split for multi-GPU models)
             # Result format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}
-            # Speed format:  __SPEED__:{cuda0},{rest},{context}  (layer counts + ctx, 0=none)
+            # Speed format:  __SPEED__:{cuda0},{rest},{context},{num_gpus}
             calibrated_ctx = None
             calibrated_ngl = 99
             calibrated_mode = "gpu"
@@ -290,6 +290,7 @@ class CalibrationMixin(rx.State, mixin=True):
             speed_split_cuda0 = 0
             speed_split_rest = 0
             speed_split_context = MIN_USEFUL_CONTEXT_TOKENS
+            speed_num_gpus = 0
             # Calibrate the base model — speed variant is created as Phase 2
             # (model_id is always base ID — SSOT, no suffix stripping needed)
             calibration_model_id = self.aifred_model_id  # type: ignore[attr-defined]
@@ -312,6 +313,8 @@ class CalibrationMixin(rx.State, mixin=True):
                         speed_split_rest = int(speed_parts[1])
                         if len(speed_parts) > 2:
                             speed_split_context = int(speed_parts[2])
+                        if len(speed_parts) > 3:
+                            speed_num_gpus = int(speed_parts[3])
                     else:
                         speed_split_cuda0 = int(speed_val)
                 else:
@@ -374,12 +377,14 @@ class CalibrationMixin(rx.State, mixin=True):
                     speed_split_cuda0,
                     speed_split_rest,
                     speed_split_context,
+                    num_gpus=speed_num_gpus,
                 )
                 if added_speed:
+                    gpu_info_str = f", {speed_num_gpus} GPUs" if speed_num_gpus else ""
                     self.add_debug(  # type: ignore[attr-defined]
                         f"   ⚡ Speed variant: {calibration_model_id}-speed "
                         f"(split {speed_split_cuda0}:{speed_split_rest}, "
-                        f"ctx {format_number(speed_split_context)})"
+                        f"ctx {format_number(speed_split_context)}{gpu_info_str})"
                     )
                     # Patch speed_split into the latest calibration entry (already saved)
                     from ..lib.model_vram_cache import update_llamacpp_speed_split
