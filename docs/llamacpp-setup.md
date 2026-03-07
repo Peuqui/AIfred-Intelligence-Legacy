@@ -380,12 +380,29 @@ split_parts = [4, 2, 1]              # proportional zum VRAM
 "Context kalibrieren" in der AIfred UI fuehrt fuer das gewaehlte Modell durch:
 
 1. **Phase 1: GPU-only Context** — Binary Search fuer maximalen Context bei `-ngl 99`
-2. **VRAM-Balance** — Erkennt Asymmetrie zwischen GPUs, verschiebt Layer (±1 pro Durchlauf)
-3. **Phase 2: Speed-Split** — Optimiert Tensor-Split fuer maximale tok/s (minimiert langsamste GPU)
-4. **Phase 3: Hybrid NGL** — Falls GPU-only nicht reicht: Sucht optimalen `-ngl` mit CPU-Offload
+   - KV-Fallback-Chain: f16 → q8_0 (wenn < nativer Kontext) → q4_0 (letzter Ausweg, nur wenn q8_0 < 32K)
+   - VRAM-Balance: Erkennt Asymmetrie zwischen GPUs, verschiebt Layer (±1 pro Durchlauf)
+2. **Phase 2: Speed-Variante** — Min-GPU-Strategie: Berechnet minimale GPU-Anzahl fuer Modell-Gewichte
+   - Weniger GPU-Grenzen = weniger Transfer-Overhead = schnellere Inferenz (Tradeoff: reduzierter max. Kontext)
+   - Phase A: Binary Search fuer max. Layer auf schnellster GPU bei 32K Kontext (f16 KV)
+   - Phase B: Kontext-Maximierung mit eigener KV-Chain (f16 → q8_0 falls f16 < 32K)
+   - Erstellt separaten `modell-speed`-Eintrag in llama-swap YAML mit eigenem KV-Quant
+3. **Phase 3: Hybrid NGL** — Falls GPU-only < 32K: Sucht optimalen `-ngl` mit CPU-Offload
+   - Erbt KV-Quantisierung von Phase 1 (keine eigene KV-Chain)
 
 Die Kalibrierung verfeinert den groben VRAM-proportionalen Split des Autoscans
 durch tatsaechliche Performance-Messungen.
+
+#### KV-Quantisierung: Entscheidungslogik
+
+| Phase | KV-Chain | Schwellenwert | Kommentar |
+|-------|----------|---------------|-----------|
+| Phase 1 (Base) | f16 → q8_0 → q4_0 | `MIN_USEFUL_CONTEXT_TOKENS` (32K) | q8_0 wenn f16 < native, q4_0 nur wenn q8_0 < 32K |
+| Phase 2 (Speed) | f16 → q8_0 | `MIN_USEFUL_CONTEXT_TOKENS` (32K) | Unabhaengig von Phase 1, eigenes KV im YAML |
+| Phase 3 (Hybrid) | Erbt von Phase 1 | — | Kein eigenes KV, maximiert GPU-Layer |
+
+**Hinweis:** f16 KV ist auf Hardware ohne Tensor Cores (z.B. Tesla P40) schneller als quantisiertes KV,
+da keine Dequantisierung noetig ist. Daher startet jede KV-Chain mit f16.
 
 ### Handlungsanleitung: Neue lokale GPU hinzufuegen
 

@@ -237,10 +237,11 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
   - **Ollama**: Binäre Suche mit automatischer VRAM/Hybrid-Modus-Erkennung (512 Token Präzision, 3 GB RAM-Reserve)
   - **llama.cpp** (3-phasige Kalibrierung für Multi-GPU-Setups):
     - **Phase 1** (GPU-only): Binäre Suche auf `-c` mit `ngl=99`, stoppt llama-swap, testet auf Temp-Port
+      - KV-Fallback-Chain: f16 → q8_0 (wenn < nativer Kontext) → q4_0 (letzter Ausweg, nur wenn q8_0 < 32K)
       - Small-Model-Shortcut: Modelle mit `native_context ≤ 8192` werden direkt getestet (keine Binärsuche)
       - flash-attn-Auto-Erkennung: Startfehler → automatischer Neuversuch ohne `--flash-attn`, aktualisiert llama-swap YAML bei Erfolg
-    - **Phase 2** (Speed-Variante): Probe + Binary Search auf `--tensor-split N:1` bei 32K Kontext → Probe ab Original-Split+2 prüft ob aggressivere GPU-Lastverteilung möglich ist (z.B. 11:1 bei Dual-72-GB-GPUs). Kein Spielraum = 1-2 Tests, Spielraum = Binary Search aufwärts bis Maximum. Erstellt separaten `modell-speed`-Eintrag in llama-swap YAML-Config
-    - **Phase 3** (Hybrid-Fallback): Wenn Phase 1 < 16K → NGL-Reduzierung um VRAM für KV-Cache freizumachen
+    - **Phase 2** (Speed-Variante): Min-GPU-Strategie — berechnet minimale GPU-Anzahl für Modell-Gewichte, weniger GPU-Grenzen = weniger Transfer-Overhead = schnellere Inferenz (Tradeoff: reduzierter max. Kontext). Eigene KV-Chain (f16 → q8_0), unabhängig von Phase 1. Erstellt separaten `modell-speed`-Eintrag in llama-swap YAML mit eigenem KV-Quant
+    - **Phase 3** (Hybrid-Fallback): Wenn Phase 1 < 32K → NGL-Reduzierung um VRAM für KV-Cache freizumachen. Erbt KV-Quantisierung von Phase 1
     - Startfehler (unbekannte Architektur, falsche CUDA-Version) werden geloggt und nie als falsche Kalibrierungsdaten gespeichert
   - Ergebnisse in einheitlichem `data/model_vram_cache.json` gespeichert
 - **llama-swap Autoscan**: Automatische Modell-Erkennung beim Service-Start (`scripts/llama-swap-autoscan.py`) — **kein manuelles YAML-Editieren nötig**

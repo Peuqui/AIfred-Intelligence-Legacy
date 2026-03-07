@@ -5,6 +5,29 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.57.0] - 2026-03-07 🎯 KV Refactor + Independent Speed KV
+
+### Changed
+
+- **KV Fallback Chain Simplified** — Removed `KV_QUANT_CONTEXT_THRESHOLD` (65K). Only one threshold remains: `MIN_USEFUL_CONTEXT_TOKENS` (32K). Phase 1 now: f16 → q8_0 if < native → q4_0 only if q8_0 < MIN_USEFUL (last resort before hybrid).
+- **Speed Variant: Independent KV** — Phase 2 (Speed) now starts fresh with f16 KV, independent of Phase 1's KV result. Own fallback chain: f16 → q8_0 if f16 < MIN_USEFUL. Speed variant can have different KV quantization than the base variant.
+- **Speed Variant: Min-GPU Strategy** — `_find_min_gpus()` calculates the minimum number of GPUs needed to hold model weights. Fewer GPU boundaries = less transfer overhead = faster inference (tradeoff: reduced max context). Inactive GPUs get tensor-split ratio 0 (e.g., `25,11,0` for 2/3 GPUs).
+- **`__SPEED__` Protocol Extended** — New 5th field `kv_quant`: `{cuda0},{rest},{context},{num_gpus},{kv_quant}`. Backward-compatible (field is optional in parser).
+- **`add_llamaswap_speed_variant()` KV Support** — New `kv_quant` parameter. Speed variant YAML block gets its own `-ctk`/`-ctv` flags via `_inject_kv_quant()`, independent from base variant.
+- **Hybrid Inherits Phase 1 KV** — Phase 3 (Hybrid) uses the KV quantization from Phase 1 without its own chain. Maximizes GPU layers instead of experimenting with KV.
+
+### Removed
+
+- **`KV_QUANT_CONTEXT_THRESHOLD`** — Removed from `config.py`. Was 65K, used as secondary threshold for KV quantization decisions. Replaced by single `MIN_USEFUL_CONTEXT_TOKENS` (32K) for all phases.
+
+### Technical Details
+
+- 3 files changed: `llamacpp_calibration.py`, `config.py`, `_calibration_mixin.py`
+- Phase 1: `f16 → q8_0` (if < native) → `q4_0` (if q8_0 < 32K, last resort)
+- Phase 2: Reset to f16, Phase A (layer optimization) at 32K, Phase B (context maximization) with own KV chain
+- Phase 3: Inherits KV from Phase 1, no own chain
+- Ruff: All checks passed, mypy: known venv issue (google module)
+
 ## [2.56.0] - 2026-03-02 🔄 vLLM Multi-Agent + Model Switching
 
 ### Added

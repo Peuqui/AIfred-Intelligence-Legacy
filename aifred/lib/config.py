@@ -720,11 +720,6 @@ CALIBRATION_MIN_CONTEXT = 8192  # 8K minimum for usable context
 # 32K is sufficient for multi-turn chat with RAG, system prompts, and reasoning.
 MIN_USEFUL_CONTEXT_TOKENS = 32768  # 32K - below this, VRAM-only is not useful
 
-# KV quantization threshold: only try q8_0/q4_0 if f16 context drops below this.
-# Rationale: f16 KV quality is strongly preferred. Only sacrifice quality when
-# context would be impractically small (< 64K).
-KV_QUANT_CONTEXT_THRESHOLD = 65536  # 64K
-
 # Minimum free RAM to maintain during Hybrid mode calibration.
 # This is a FIXED reserve (not dynamic) to ensure system stability.
 # 3 GB leaves enough headroom for OS, browser, and other processes.

@@ -242,10 +242,11 @@ Each message is displayed individually with its emoji and mode label:
     - Auto-Hybrid threshold: VRAM-only < 16k tokens → switch to Hybrid
   - **llama.cpp** (3-phase calibration for multi-GPU setups):
     - **Phase 1** (GPU-only): Binary search on `-c` with `ngl=99`, stops llama-swap, tests on temp port
+      - KV fallback chain: f16 → q8_0 (if < native context) → q4_0 (last resort, only if q8_0 < 32K)
       - Small model shortcut: models with `native_context ≤ 8192` are tested directly (no binary search)
       - flash-attn auto-detection: startup failure → automatic retry without `--flash-attn`, updates llama-swap YAML on success
-    - **Phase 2** (Speed variant): Probe + binary search on `--tensor-split N:1` at 32K context → probes from original split+2 whether a more aggressive GPU split is possible (e.g. 11:1 on dual-72GB GPUs). No headroom = 1-2 tests, headroom found = binary search upward to maximum. Creates a separate `model-speed` entry in llama-swap YAML config
-    - **Phase 3** (Hybrid fallback): If Phase 1 < 16K → NGL reduction to free VRAM for KV-cache
+    - **Phase 2** (Speed variant): Min-GPU strategy — calculates minimum GPUs needed for model weights, fewer GPU boundaries = less transfer overhead = faster inference (tradeoff: reduced max context). Own KV chain (f16 → q8_0), independent from Phase 1. Creates a separate `model-speed` entry in llama-swap YAML with its own KV quant
+    - **Phase 3** (Hybrid fallback): If Phase 1 < 32K → NGL reduction to free VRAM for KV-cache. Inherits KV quantization from Phase 1
     - Startup errors (unknown architecture, wrong CUDA version) are logged and never written as false calibration data
   - Results cached in unified `data/model_vram_cache.json`
 - **llama-swap Autoscan**: Automatic model discovery on service start (`scripts/llama-swap-autoscan.py`) — **zero manual YAML editing required**

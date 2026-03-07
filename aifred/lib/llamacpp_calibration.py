@@ -27,7 +27,6 @@ import yaml
 
 from .config import (
     CALIBRATION_MIN_CONTEXT,
-    KV_QUANT_CONTEXT_THRESHOLD,
     LLAMACPP_CALIBRATION_PORT,
     LLAMACPP_HEALTH_TIMEOUT,
     LLAMACPP_VRAM_SAFETY_MARGIN,
@@ -1581,6 +1580,18 @@ async def _physical_context_search(
                     f"(+{format_number(result - projected)} vs projection)"
                 )
     else:
+        # Early exit: projected context is already at/below minimum useful.
+        # Any downward search result would also be ≤ projected ≤ MIN_USEFUL —
+        # skip physical tests and let the caller try the next KV level instead.
+        if projected <= MIN_USEFUL_CONTEXT_TOKENS:
+            yield (
+                f"Projected ceiling {format_number(projected)} "
+                f"≤ min-useful {format_number(MIN_USEFUL_CONTEXT_TOKENS)} — "
+                f"skipping downward search"
+            )
+            yield 0
+            return
+
         yield "Searching downward..."
 
         # 4b. Narrow binary search downward
@@ -1665,6 +1676,7 @@ def add_llamaswap_speed_variant(
     speed_split_rest: int,
     speed_context: int,
     num_gpus: int = 0,
+    kv_quant: str = "f16",
 ) -> bool:
     """
     Add (or update) a -speed variant YAML entry in the llama-swap config.
@@ -1679,6 +1691,8 @@ def add_llamaswap_speed_variant(
         speed_context: Context size for speed variant
         num_gpus: Number of active GPUs for speed variant (0 = use all,
                   same as base). Unused GPUs get tensor-split ratio 0.
+        kv_quant: KV cache quantization for speed variant (independent
+                  from base). "f16" means no -ctk/-ctv flags.
     """
     if not config_path.exists():
         logger.error(f"llama-swap config not found: {config_path}")
@@ -1729,6 +1743,9 @@ def add_llamaswap_speed_variant(
 
     speed_block_text = _replace_tensor_split(speed_block_text, speed_ratios)
     speed_block_text = re.sub(r'-c\s+\d+', f'-c {speed_context}', speed_block_text)
+
+    # Set KV cache quantization (independent from base variant)
+    speed_block_text = _inject_kv_quant(speed_block_text, kv_quant)
 
     speed_block_lines = speed_block_text.split('\n')
 
@@ -1905,15 +1922,16 @@ async def _calibrate_speed_split(
     Strategy: fewer GPU boundaries = less transfer overhead per token = faster.
     1. Find minimum GPU count needed to hold model weights.
     2. Build tensor-split with only those GPUs active (rest get 0).
-    3. Phase A: Binary search for max layers on fastest GPU at target_context.
-    4. Phase B: Maximize context at found split (10% steps + binary search).
+    3. Phase A: Binary search for max layers on fastest GPU at target_context (f16).
+    4. Phase B: Maximize context at found split. Independent KV chain:
+       starts with f16, falls back to q8_0 if f16 < MIN_USEFUL.
 
     Args:
         per_gpu_total_mb: Total VRAM per GPU in MiB, sorted descending
                           (FASTEST_FIRST order).
 
     Yields progress messages.
-    Final: "__SPEED__:{cuda0},{rest},{context},{num_gpus}" or "__SPEED__:0".
+    Final: "__SPEED__:{cuda0},{rest},{context},{num_gpus},{kv_quant}" or "__SPEED__:0".
     """
     from .gguf_utils import get_gguf_total_size
 
@@ -1966,7 +1984,10 @@ async def _calibrate_speed_split(
 
     # Pad with zeros for inactive GPUs
     padded_ratios = [float(n) for n in layers] + [0.0] * (total_gpus - min_gpus)
-    speed_cmd = _replace_tensor_split(full_cmd, padded_ratios)
+
+    # Speed variant starts fresh with f16 KV (independent of Phase 1)
+    speed_base_cmd = _inject_kv_quant(full_cmd, "f16")
+    speed_cmd = _replace_tensor_split(speed_base_cmd, padded_ratios)
 
     layers_fmt = _format_layer_split(padded_ratios)
     yield f"Initial speed split: {layers_fmt}"
@@ -1999,7 +2020,7 @@ async def _calibrate_speed_split(
     )
     yield f"Projected at ctx={format_number(target_context)}: {free_info}"
 
-    # ── Phase A: Binary search for max layers on fastest GPU ──
+    # ── Phase A: Binary search for max layers on fastest GPU (f16 KV) ──
     extra_layers_possible = int(free_fastest / mb_per_layer)
     estimated_max = min(layers[0] + extra_layers_possible, total_layers)
 
@@ -2012,10 +2033,9 @@ async def _calibrate_speed_split(
         est_active = _build_layer_split(total_layers, estimated_max, active_ratios)
         est_padded = est_active + [0.0] * (total_gpus - min_gpus)
         est_split = _format_layer_split(est_padded)
-        est_cmd = _replace_tensor_split(full_cmd, est_padded)
+        est_cmd = _replace_tensor_split(speed_base_cmd, est_padded)
 
-        iteration = 0
-        iteration += 1
+        iteration = 1
         yield f"[A{iteration}] Testing {est_split} at ctx={format_number(target_context)}..."
         est_fits, _, est_gpus, _ = await _test_context_physical(
             est_cmd, target_context, port,
@@ -2039,7 +2059,7 @@ async def _calibrate_speed_split(
             mid_active = _build_layer_split(total_layers, mid, active_ratios)
             mid_padded = mid_active + [0.0] * (total_gpus - min_gpus)
             mid_split = _format_layer_split(mid_padded)
-            mid_cmd = _replace_tensor_split(full_cmd, mid_padded)
+            mid_cmd = _replace_tensor_split(speed_base_cmd, mid_padded)
 
             iteration += 1
             yield f"[A{iteration}] Testing {mid_split} at ctx={format_number(target_context)}..."
@@ -2064,138 +2084,157 @@ async def _calibrate_speed_split(
     best_split = _format_layer_split(padded_ratios)
     yield f"Phase A result: {best_split} ({min_gpus}/{total_gpus} GPUs)"
 
-    # ── Phase B: Maximize context at the found split ──
-    yield f"Phase B: Maximizing context at {best_split}"
-
-    speed_cmd = _replace_tensor_split(full_cmd, padded_ratios)
-
-    # Project max context via fit-params
-    try:
-        per_gpu_low = _fit_params_per_gpu_projection(
-            speed_cmd, gguf_path, CALIBRATION_MIN_CONTEXT, ngl=99,
-        )
-        per_gpu_high = _fit_params_per_gpu_projection(
-            speed_cmd, gguf_path, native_context, ngl=99,
-        )
-
-        # Filter to active GPUs only (ratio > 0)
-        active_gpu_ids = set(
-            f"CUDA{i}" for i in range(min_gpus)
-        )
-        filtered_low = {k: v for k, v in per_gpu_low.items() if k in active_gpu_ids}
-        filtered_high = {k: v for k, v in per_gpu_high.items() if k in active_gpu_ids}
-
-        projected_ctx, _ = _calculate_max_context_per_gpu(
-            filtered_low, filtered_high, CALIBRATION_MIN_CONTEXT, native_context,
-        )
-        projected_ctx = min(projected_ctx, native_context)
-    except (RuntimeError, OSError, subprocess.TimeoutExpired):
-        projected_ctx = target_context
-
-    yield f"Projected: {best_split} supports ~{format_number(projected_ctx)} context"
-
     best_layers_cuda0 = int(padded_ratios[0])
 
-    if projected_ctx <= target_context:
-        # Can't go beyond minimum — just verify target_context works
-        yield f"[B1] Verifying {best_split} at ctx={format_number(target_context)}..."
-        fits, _, gpu_list, _ = await _test_context_physical(
-            speed_cmd, target_context, port,
+    # ── Phase B: Maximize context with independent KV chain ──
+    # Start with f16, fall back to q8_0 if f16 < MIN_USEFUL
+    speed_kv_levels = ["f16", "q8_0"]
+    best_context = 0
+    best_speed_kv = "f16"
+
+    for kv_level in speed_kv_levels:
+        if kv_level == "q8_0" and best_context >= MIN_USEFUL_CONTEXT_TOKENS:
+            break  # f16 already sufficient
+
+        kv_cmd = _inject_kv_quant(
+            _replace_tensor_split(speed_base_cmd, padded_ratios),
+            kv_level,
         )
-        if fits:
-            detail = _format_cuda_detail(gpu_list) if gpu_list else ""
-            yield f"✓ {best_split} at ctx={format_number(target_context)} ({detail})"
-            yield f"Speed split found: {best_split}, ctx={format_number(target_context)}"
-            best_rest = total_layers - best_layers_cuda0
-            yield f"__SPEED__:{best_layers_cuda0},{best_rest},{target_context},{min_gpus}"
+        yield f"Phase B: Maximizing context at {best_split} (KV={kv_level})"
+
+        # Project max context via fit-params
+        try:
+            per_gpu_low = _fit_params_per_gpu_projection(
+                kv_cmd, gguf_path, CALIBRATION_MIN_CONTEXT, ngl=99,
+            )
+            per_gpu_high = _fit_params_per_gpu_projection(
+                kv_cmd, gguf_path, native_context, ngl=99,
+            )
+
+            # Filter to active GPUs only (ratio > 0)
+            active_gpu_ids = set(f"CUDA{i}" for i in range(min_gpus))
+            filtered_low = {k: v for k, v in per_gpu_low.items() if k in active_gpu_ids}
+            filtered_high = {k: v for k, v in per_gpu_high.items() if k in active_gpu_ids}
+
+            projected_ctx, _ = _calculate_max_context_per_gpu(
+                filtered_low, filtered_high, CALIBRATION_MIN_CONTEXT, native_context,
+            )
+            projected_ctx = min(projected_ctx, native_context)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            projected_ctx = target_context
+
+        yield f"Projected: {best_split} supports ~{format_number(projected_ctx)} context (KV={kv_level})"
+
+        kv_best = 0
+
+        if projected_ctx <= target_context:
+            # Can't go beyond minimum — just verify target_context works
+            yield f"[B1] Verifying {best_split} at ctx={format_number(target_context)}..."
+            fits, _, gpu_list, _ = await _test_context_physical(
+                kv_cmd, target_context, port,
+            )
+            if fits:
+                detail = _format_cuda_detail(gpu_list) if gpu_list else ""
+                yield f"✓ {best_split} at ctx={format_number(target_context)} ({detail})"
+                kv_best = target_context
         else:
-            yield f"Speed split {best_split} can't hold minimum context"
-            yield "__SPEED__:0"
-        return
-
-    # Physical test at projected context
-    iteration = 0
-    iteration += 1
-    yield f"[B{iteration}] Testing {best_split} at ctx={format_number(projected_ctx)}..."
-    fits, test_detail, test_gpu_list, _ = await _test_context_physical(
-        speed_cmd, projected_ctx, port,
-    )
-    detail = _format_cuda_detail(test_gpu_list) if test_gpu_list else test_detail
-
-    best_context = target_context  # fallback
-
-    # 10% steps + binary fine-tuning
-    step = max(projected_ctx // 10, 4096)
-
-    if fits:
-        best_context = projected_ctx
-        yield f"✓ {best_split} at ctx={format_number(projected_ctx)} ({detail})"
-
-        # Walk upward in 10% steps until fail or native reached
-        last_pass = projected_ctx
-        first_fail = native_context
-        probe = projected_ctx + step
-        while probe < native_context:
-            iteration += 1
-            yield f"[B{iteration}] Testing {best_split} at ctx={format_number(probe)}..."
-            probe_fits, _, probe_gpus, _ = await _test_context_physical(
-                speed_cmd, probe, port,
+            # Physical test at projected context
+            iteration = 1
+            yield f"[B{iteration}] Testing {best_split} at ctx={format_number(projected_ctx)}..."
+            fits, test_detail, test_gpu_list, _ = await _test_context_physical(
+                kv_cmd, projected_ctx, port,
             )
-            probe_detail = _format_cuda_detail(probe_gpus) if probe_gpus else "VRAM unknown"
-            if probe_fits:
-                last_pass = probe
-                best_context = probe
-                yield f"✓ {best_split} at ctx={format_number(probe)} ({probe_detail})"
-                probe += step
+            detail = _format_cuda_detail(test_gpu_list) if test_gpu_list else test_detail
+
+            # 10% steps + binary fine-tuning
+            step = max(projected_ctx // 10, 4096)
+
+            if fits:
+                kv_best = projected_ctx
+                yield f"✓ {best_split} at ctx={format_number(projected_ctx)} ({detail})"
+
+                # Walk upward in 10% steps until fail or native reached
+                last_pass = projected_ctx
+                first_fail = native_context
+                probe = projected_ctx + step
+                while probe < native_context:
+                    iteration += 1
+                    yield f"[B{iteration}] Testing {best_split} at ctx={format_number(probe)}..."
+                    probe_fits, _, probe_gpus, _ = await _test_context_physical(
+                        kv_cmd, probe, port,
+                    )
+                    probe_detail = _format_cuda_detail(probe_gpus) if probe_gpus else "VRAM unknown"
+                    if probe_fits:
+                        last_pass = probe
+                        kv_best = probe
+                        yield f"✓ {best_split} at ctx={format_number(probe)} ({probe_detail})"
+                        probe += step
+                    else:
+                        first_fail = probe
+                        yield f"✗ {best_split} at ctx={format_number(probe)} ({probe_detail})"
+                        break
+
+                # Binary fine-tuning (512 precision)
+                if first_fail - last_pass > 512:
+                    async for item in _binary_search_context(
+                        kv_cmd, port, last_pass, first_fail,
+                    ):
+                        if isinstance(item, int):
+                            if item > kv_best:
+                                kv_best = item
+                        elif isinstance(item, str):
+                            yield item
             else:
-                first_fail = probe
-                yield f"✗ {best_split} at ctx={format_number(probe)} ({probe_detail})"
-                break
+                yield f"✗ {best_split} at ctx={format_number(projected_ctx)} ({detail})"
 
-        # Binary fine-tuning (512 precision)
-        if first_fail - last_pass > 512:
-            async for item in _binary_search_context(
-                speed_cmd, port, last_pass, first_fail,
-            ):
-                if isinstance(item, int):
-                    if item > best_context:
-                        best_context = item
-                elif isinstance(item, str):
-                    yield item
-    else:
-        yield f"✗ {best_split} at ctx={format_number(projected_ctx)} ({detail})"
+                # Walk downward in 10% steps until pass or target reached
+                first_pass = 0
+                probe = projected_ctx - step
+                while probe > target_context:
+                    iteration += 1
+                    yield f"[B{iteration}] Testing {best_split} at ctx={format_number(probe)}..."
+                    probe_fits, _, probe_gpus, _ = await _test_context_physical(
+                        kv_cmd, probe, port,
+                    )
+                    probe_detail = _format_cuda_detail(probe_gpus) if probe_gpus else "VRAM unknown"
+                    if probe_fits:
+                        first_pass = probe
+                        kv_best = probe
+                        yield f"✓ {best_split} at ctx={format_number(probe)} ({probe_detail})"
+                        break
+                    else:
+                        yield f"✗ {best_split} at ctx={format_number(probe)} ({probe_detail})"
+                        probe -= step
 
-        # Walk downward in 10% steps until pass or target reached
-        first_pass = 0
-        probe = projected_ctx - step
-        while probe > target_context:
-            iteration += 1
-            yield f"[B{iteration}] Testing {best_split} at ctx={format_number(probe)}..."
-            probe_fits, _, probe_gpus, _ = await _test_context_physical(
-                speed_cmd, probe, port,
+                # Binary fine-tuning (512 precision)
+                if first_pass > 0:
+                    last_fail = min(probe + step, projected_ctx)
+                    if last_fail - first_pass > 512:
+                        async for item in _binary_search_context(
+                            kv_cmd, port, first_pass, last_fail,
+                        ):
+                            if isinstance(item, int):
+                                if item > kv_best:
+                                    kv_best = item
+                            elif isinstance(item, str):
+                                yield item
+
+        if kv_best > best_context:
+            best_context = kv_best
+            best_speed_kv = kv_level
+
+        # f16 reached native — no point trying q8_0
+        if best_context >= native_context:
+            break
+
+        if kv_level == "f16" and best_context < MIN_USEFUL_CONTEXT_TOKENS:
+            yield (
+                f"KV=f16: {format_number(best_context)} tokens "
+                f"< {format_number(MIN_USEFUL_CONTEXT_TOKENS)} minimum — "
+                f"trying q8_0"
             )
-            probe_detail = _format_cuda_detail(probe_gpus) if probe_gpus else "VRAM unknown"
-            if probe_fits:
-                first_pass = probe
-                best_context = probe
-                yield f"✓ {best_split} at ctx={format_number(probe)} ({probe_detail})"
-                break
-            else:
-                yield f"✗ {best_split} at ctx={format_number(probe)} ({probe_detail})"
-                probe -= step
-
-        # Binary fine-tuning (512 precision)
-        if first_pass > 0:
-            last_fail = min(probe + step, projected_ctx)
-            if last_fail - first_pass > 512:
-                async for item in _binary_search_context(
-                    speed_cmd, port, first_pass, last_fail,
-                ):
-                    if isinstance(item, int):
-                        if item > best_context:
-                            best_context = item
-                    elif isinstance(item, str):
-                        yield item
+            from aifred.backends.ollama import wait_for_vram_stable
+            await wait_for_vram_stable(max_wait_seconds=10.0)
 
     if best_context < target_context:
         yield f"Speed split {best_split} doesn't reach minimum context"
@@ -2205,9 +2244,10 @@ async def _calibrate_speed_split(
     ctx_info = ""
     if best_context > target_context:
         ctx_info = f", ctx={format_number(best_context)}"
-    yield f"Speed split found: {best_split}{ctx_info} ({min_gpus}/{total_gpus} GPUs)"
+    kv_info = f", KV={best_speed_kv}" if best_speed_kv != "f16" else ""
+    yield f"Speed split found: {best_split}{ctx_info}{kv_info} ({min_gpus}/{total_gpus} GPUs)"
     best_rest = total_layers - best_layers_cuda0
-    yield f"__SPEED__:{best_layers_cuda0},{best_rest},{best_context},{min_gpus}"
+    yield f"__SPEED__:{best_layers_cuda0},{best_rest},{best_context},{min_gpus},{best_speed_kv}"
 
 
 async def _calibrate_hybrid(
@@ -2555,8 +2595,10 @@ async def calibrate_llamacpp_model(
         return
 
     # === PHASE 1: GPU-only calibration (ngl=99) with KV fallback chain ===
-    # Strategy: f16 KV first (best quality). If context drops below 64k,
-    # try q8_0, then q4_0 to reclaim VRAM for more context.
+    # Strategy: f16 KV first (best quality, fastest on hardware without tensor cores).
+    # If f16 doesn't reach native context → try q8_0 (nearly lossless, smaller KV).
+    # q4_0 only as last resort when q8_0 < MIN_USEFUL — aggressive on attention
+    # quality but better than falling through to hybrid (CPU offload = much slower).
     # Force ngl=99 for Phase 1 — the cmd may have a lower ngl from previous
     # hybrid calibration, but Phase 1 always tests all layers on GPU.
     phase1_cmd = re.sub(r'(-ngl\s+)\d+', r'\g<1>99', full_cmd)
@@ -2571,7 +2613,12 @@ async def calibrate_llamacpp_model(
         optimized_ratios = _parse_tensor_split_ratios(full_cmd)
 
     for kv_level in kv_levels:
-        if kv_level != "f16" and (best_result >= native_context or best_result >= KV_QUANT_CONTEXT_THRESHOLD):
+        # Skip conditions:
+        # - q8_0: skip if f16 already reached native (no gain possible)
+        # - q4_0: skip unless q8_0 < MIN_USEFUL (last resort before hybrid)
+        if kv_level == "q8_0" and best_result >= native_context:
+            break
+        if kv_level == "q4_0" and best_result >= MIN_USEFUL_CONTEXT_TOKENS:
             break
 
         test_cmd = _inject_kv_quant(phase1_cmd, kv_level)
@@ -2608,15 +2655,22 @@ async def calibrate_llamacpp_model(
             best_result = result
             best_kv = kv_level
 
-        # Already at native or above threshold — no point trying lower KV quality
-        if best_result >= native_context or best_result >= KV_QUANT_CONTEXT_THRESHOLD:
+        # Already at native — no point trying lower KV quality
+        if best_result >= native_context:
             break
 
-        if kv_level != kv_levels[-1]:
+        if kv_level == "f16":
+            ctx_info = (
+                format_number(best_result)
+                if best_result > 0
+                else f"ceiling ≤ min-useful ({format_number(MIN_USEFUL_CONTEXT_TOKENS)})"
+            )
+            yield f"KV=f16: {ctx_info} — trying q8_0"
+        elif kv_level == "q8_0" and best_result < MIN_USEFUL_CONTEXT_TOKENS:
             yield (
-                f"KV={kv_level}: {format_number(best_result)} tokens "
-                f"< {format_number(KV_QUANT_CONTEXT_THRESHOLD)} threshold — "
-                f"trying lower KV quality"
+                f"KV=q8_0: {format_number(best_result)} tokens "
+                f"< {format_number(MIN_USEFUL_CONTEXT_TOKENS)} minimum — "
+                f"trying q4_0 (last resort)"
             )
             await wait_for_vram_stable(max_wait_seconds=10.0)
 
