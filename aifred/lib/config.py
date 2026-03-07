@@ -96,7 +96,7 @@ DEFAULT_SETTINGS = {
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
     "tts_engine": "edge",
-    "whisper_model": "small (466MB, better quality, multilingual)",
+    "whisper_model": "medium (1.5GB, high quality, multilingual)",
     "research_mode": "automatik",  # Internal value: "automatik", "quick", "deep", "none"
     "show_transcription": False,
     "enable_gpu": True,

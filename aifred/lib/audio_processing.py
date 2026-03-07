@@ -1836,7 +1836,12 @@ def transcribe_audio(audio_path, whisper_model, language="de"):
 
     timer = Timer()
     # Use specified language for better accuracy
-    segments, _ = whisper_model.transcribe(audio_path, language=language)
+    segments, _ = whisper_model.transcribe(
+        audio_path,
+        language=language,
+        vad_filter=True,               # Filter silence/noise before transcription
+        condition_on_previous_text=False,  # Prevent hallucinations from prior context
+    )
     stt_time = timer.elapsed()
 
     user_text = " ".join([s.text for s in segments])
