@@ -92,9 +92,11 @@ class AgentConfigMixin(rx.State, mixin=True):
     aifred_speed_mode: bool = False
     sokrates_speed_mode: bool = False
     salomo_speed_mode: bool = False
+    vision_speed_mode: bool = False
     aifred_has_speed_variant: bool = False
     sokrates_has_speed_variant: bool = False
     salomo_has_speed_variant: bool = False
+    vision_has_speed_variant: bool = False
 
     # ── Per-Agent RoPE Scaling Factors ────────────────────────────
     aifred_rope_factor: float = 1.0
@@ -113,6 +115,9 @@ class AgentConfigMixin(rx.State, mixin=True):
     salomo_max_context: int = 0
     salomo_is_hybrid: bool = False
     salomo_supports_thinking: bool | None = None
+    vision_max_context: int = 0
+    vision_is_hybrid: bool = False
+    vision_supports_thinking: bool | None = None
 
     # ── Temperature Settings ──────────────────────────────────────
     sokrates_temperature: float = 0.5
@@ -401,6 +406,14 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.salomo_speed_mode = not self.salomo_speed_mode
         base_id = self.salomo_model_id or self.aifred_model_id  # type: ignore[attr-defined]
         self.add_debug(f"\U0001f500 Salomo mode: {self._speed_mode_debug_str(self.salomo_speed_mode, base_id, self.salomo_max_context)}")  # type: ignore[attr-defined]
+        self._save_settings()  # type: ignore[attr-defined]
+
+    def toggle_vision_speed_mode(self, _value: bool | None = None) -> None:
+        """Toggle Vision between speed variant and context variant."""
+        self.vision_speed_mode = not self.vision_speed_mode
+        base_id = self.vision_model_id  # type: ignore[attr-defined]
+        # Vision has no max_context state var — pass 0 (debug str reads from cache)
+        self.add_debug(f"\U0001f500 Vision mode: {self._speed_mode_debug_str(self.vision_speed_mode, base_id, 0)}")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
 
     def _speed_mode_debug_str(self, speed_on: bool, base_model_id: str, max_ctx: int) -> str:

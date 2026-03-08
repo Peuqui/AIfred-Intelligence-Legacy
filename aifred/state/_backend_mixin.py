@@ -459,6 +459,7 @@ class BackendMixin(rx.State, mixin=True):
                 self.aifred_speed_mode = saved_settings.get("aifred_speed_mode", False)  # type: ignore[attr-defined, has-type]
                 self.sokrates_speed_mode = saved_settings.get("sokrates_speed_mode", False)  # type: ignore[attr-defined, has-type]
                 self.salomo_speed_mode = saved_settings.get("salomo_speed_mode", False)  # type: ignore[attr-defined, has-type]
+                self.vision_speed_mode = saved_settings.get("vision_speed_mode", False)  # type: ignore[attr-defined, has-type]
 
                 # Load Vision settings (PERSISTENT)
                 self.vision_num_ctx_enabled = saved_settings.get("vision_num_ctx_enabled", self.vision_num_ctx_enabled)  # type: ignore[attr-defined, has-type]
@@ -575,6 +576,7 @@ class BackendMixin(rx.State, mixin=True):
                             ("aifred", self.aifred_model_id),
                             ("sokrates", self.sokrates_model_id),  # type: ignore[attr-defined, has-type]
                             ("salomo", self.salomo_model_id),  # type: ignore[attr-defined, has-type]
+                            ("vision", self.vision_model_id),
                         ]:
                             if model_id:
                                 setattr(self, f"{agent}_rope_factor", 1.0)
@@ -1670,6 +1672,13 @@ class BackendMixin(rx.State, mixin=True):
         self.vision_model_id = self._resolve_model_id(model)
         self.add_debug(f"👁️ Vision-LLM: {model}")  # type: ignore[attr-defined, has-type]
         self._show_model_calibration_info(self.vision_model_id)  # type: ignore[attr-defined]
+
+        if self.backend_type == "llamacpp":
+            from ..lib.model_vram_cache import get_llamacpp_speed_split
+            self.vision_has_speed_variant = get_llamacpp_speed_split(self.vision_model_id)[0] > 0  # type: ignore[attr-defined, has-type]
+            if not self.vision_has_speed_variant:  # type: ignore[attr-defined, has-type]
+                self.vision_speed_mode = False  # type: ignore[attr-defined, has-type]
+
         self._save_settings()  # type: ignore[attr-defined, has-type]
 
     async def set_vision_model_by_id(self, model_id: str):

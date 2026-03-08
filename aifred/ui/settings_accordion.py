@@ -1019,13 +1019,14 @@ def settings_accordion() -> rx.Component:
                     ),
                 ),
 
-                # Vision Personality + Reasoning + Thinking toggles
+                # Vision Personality + Reasoning + Thinking + optional Speed toggles
                 rx.cond(
                     AIState.backend_supports_dynamic_models,
                     rx.hstack(
                         _agent_toggle("\U0001f4f7", AIState.vision_personality, AIState.toggle_vision_personality, t("personality_vision_tooltip")),
                         _agent_toggle("\U0001f4ad", AIState.vision_reasoning, AIState.toggle_vision_reasoning, t("reasoning_tooltip")),
                         _agent_toggle("\U0001f9e0", AIState.vision_thinking, AIState.toggle_vision_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                        _speed_toggle(AIState.vision_has_speed_variant, AIState.vision_speed_mode, AIState.toggle_vision_speed_mode),
                         spacing="2",
                         align="center",
                     ),

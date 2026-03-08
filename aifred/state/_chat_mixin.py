@@ -416,25 +416,17 @@ class ChatMixin(rx.State, mixin=True):
         """
         from ..lib.own_knowledge_handler import handle_own_knowledge
 
-        # Determine effective vision model: prefer speed variant for VL agent
+        # Determine effective vision model: use speed variant when toggle is on
         effective_vision_id = self.vision_model_id  # type: ignore[attr-defined]
-        if self.backend_type == "llamacpp" and self.vision_model_id:  # type: ignore[attr-defined]
-            from ..lib.model_vram_cache import get_llamacpp_speed_split
-            speed_cuda0, _, _ = get_llamacpp_speed_split(self.vision_model_id)  # type: ignore[attr-defined]
-            if speed_cuda0 > 0:
-                # Speed variant exists — use it unless base is already loaded
-                try:
-                    import httpx
-                    swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
-                    async with httpx.AsyncClient(timeout=5.0) as _http:
-                        resp = await _http.get(f"{swap_base}/running")
-                        running = [m.get("model") for m in resp.json().get("running", [])]
-                        if self.vision_model_id not in running:  # type: ignore[attr-defined]
-                            effective_vision_id = f"{self.vision_model_id}-speed"  # type: ignore[attr-defined]
-                            self.add_debug(f"⚡ VL Speed: {effective_vision_id}")  # type: ignore[attr-defined]
-                            yield
-                except Exception:
-                    pass
+        if (
+            self.backend_type == "llamacpp"
+            and self.vision_model_id  # type: ignore[attr-defined]
+            and self.vision_speed_mode  # type: ignore[attr-defined]
+            and self.vision_has_speed_variant  # type: ignore[attr-defined]
+        ):
+            effective_vision_id = f"{self.vision_model_id}-speed"  # type: ignore[attr-defined]
+            self.add_debug(f"⚡ VL Speed: {effective_vision_id}")  # type: ignore[attr-defined]
+            yield
 
         result_data = None
         async for item in handle_own_knowledge(

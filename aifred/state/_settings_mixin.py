@@ -105,6 +105,7 @@ class SettingsMixin(rx.State, mixin=True):
             "aifred_speed_mode": self.aifred_speed_mode,  # type: ignore[attr-defined, has-type]
             "sokrates_speed_mode": self.sokrates_speed_mode,  # type: ignore[attr-defined, has-type]
             "salomo_speed_mode": self.salomo_speed_mode,  # type: ignore[attr-defined, has-type]
+            "vision_speed_mode": self.vision_speed_mode,  # type: ignore[attr-defined, has-type]
             # TTS/STT Settings
             "enable_tts": self.enable_tts,  # type: ignore[attr-defined, has-type]
             "voice": self.tts_voice,  # type: ignore[attr-defined, has-type]
