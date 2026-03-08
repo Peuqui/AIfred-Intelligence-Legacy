@@ -250,13 +250,21 @@ def render_assistant_message(msg: dict) -> rx.Component:
 # ============================================================
 
 def render_system_message(msg: dict) -> rx.Component:
-    """Render system message (summary)"""
-    # Just render as markdown - summary formatting already in content
-    return rx.markdown(
-        msg["content"],
-        color=COLORS["text_primary"],
-        width="100%",
-        component_map=MARKDOWN_COMPONENT_MAP,
+    """Render system message (summary) as a centered, subtle bubble."""
+    return rx.box(
+        rx.markdown(
+            msg["content"],
+            color=COLORS["text_secondary"],
+            font_size="12px",
+            component_map=MARKDOWN_COMPONENT_MAP,
+        ),
+        background_color="rgba(125, 133, 144, 0.06)",
+        border=f"1px solid {COLORS['border']}",
+        border_radius="8px",
+        padding="2",
+        margin_y="2",
+        width="90%",
+        margin_x="auto",
     )
 
 

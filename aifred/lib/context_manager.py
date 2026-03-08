@@ -196,6 +196,9 @@ def strip_thinking_blocks(text: str) -> str:
         Text without thinking blocks
     """
     import re
+    from .formatting import fix_orphan_closing_think_tag
+    # Repair orphaned </think> (without <think>) before stripping
+    text = fix_orphan_closing_think_tag(text)
     # Remove <think>...</think> blocks (non-greedy, multi-line)
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     # Remove GPT-OSS Harmony analysis channel: <|channel|>analysis<|message|>...<|end|>
@@ -741,73 +744,41 @@ async def summarize_history_if_needed(
     if summary_count > 0:
         log_message(f"📌 Chat-History keeps {summary_count} summaries (UI display)")
 
-    # DYNAMIC: Collect messages from front until remaining fits in target
-    #
-    # CRITICAL FIX (v2.14.3+): Use llm_history for token calculation to match trigger!
-    # The trigger uses estimate_tokens_from_llm_history(llm_history), so the loop must too.
-    # Otherwise: Trigger fires at 70% but loop calculates different tokens and compresses 0 messages.
-    #
-    # IMPORTANT LOGIC:
-    # - chat_history: Summaries stay IN PLACE where they are, new summary inserted AFTER compressed messages
-    # - llm_history: Summaries extracted to front, old summaries removed via FIFO
-    messages_to_compress = []
-    remaining_messages = history[:]  # Working copy for compression (includes summaries!)
-    current_tokens = history_tokens  # Use history tokens for compression calculation (system prompt is constant)
-
-    # Build parallel llm_history lists for accurate token calculation
-    # We need to track which llm_history entries correspond to which chat_history entries
-    if llm_history is not None:
-        # Create working copies of llm_history for token calculation
-        # Skip summary entries (role=system, content starts with [Summary])
-        llm_preserved_summaries = []
-        llm_remaining = []
-        for msg in llm_history:
-            if msg.get("role") == "system" and msg.get("content", "").startswith("[Summary]"):
-                llm_preserved_summaries.append(msg)
-            else:
-                llm_remaining.append(msg)
-
-        llm_to_compress = []
-        current_tokens = estimate_tokens_from_llm_history(llm_preserved_summaries + llm_remaining)
-
-        # Compress until we're below target
-        # NOTE: We can compress ALL messages - the safety check below ensures at least 1 remains
-        while current_tokens > target_threshold and len(remaining_messages) > 0 and len(llm_remaining) > 0:
-            messages_to_compress.append(remaining_messages.pop(0))
-            llm_to_compress.append(llm_remaining.pop(0))
-            current_tokens = estimate_tokens_from_llm_history(llm_preserved_summaries + llm_remaining)
-    else:
-        # CRITICAL: llm_history should NEVER be None in v2.13.0+ (Dual-History architecture)
-        # If this happens, it's a bug that must be fixed, not silently handled!
+    # COMPRESSION LOGIC (v2.16.0+):
+    # All compression decisions are based on llm_history only.
+    # chat_history is append-only: summary bubble gets appended at the end.
+    if llm_history is None:
         raise ValueError("llm_history is None - this should never happen in Dual-History mode!")
 
-    # Safety: Must keep at least 1 message in both histories
-    if len(remaining_messages) == 0 and messages_to_compress:
-        remaining_messages = [messages_to_compress.pop()]
-        # Also restore the corresponding llm_history message
-        if llm_to_compress:
-            llm_remaining.append(llm_to_compress.pop())
+    # Split llm_history into preserved summaries and compressible messages
+    llm_preserved_summaries = []
+    llm_remaining = []
+    for msg in llm_history:
+        if msg.get("role") == "system" and msg.get("content", "").startswith("[Summary]"):
+            llm_preserved_summaries.append(msg)
+        else:
+            llm_remaining.append(msg)
 
-    # Count how many summaries will be in messages_to_compress (for logging)
-    summaries_in_compressed = sum(1 for msg in messages_to_compress if is_summary_message(msg))
-    if summaries_in_compressed > 0:
-        log_message(f"📌 {summaries_in_compressed} old summary/summaries in compressed section (will stay in chat_history)")
+    llm_to_compress = []
+    current_tokens = estimate_tokens_from_llm_history(llm_preserved_summaries + llm_remaining)
+
+    # Compress oldest llm messages until below target
+    while current_tokens > target_threshold and len(llm_remaining) > 1:
+        llm_to_compress.append(llm_remaining.pop(0))
+        current_tokens = estimate_tokens_from_llm_history(llm_preserved_summaries + llm_remaining)
 
     # Calculate tokens being compressed
-    tokens_to_compress = estimate_tokens_from_history(messages_to_compress)
+    tokens_to_compress = estimate_tokens_from_llm_history(llm_to_compress)
     summary_target_tokens = get_summary_target_tokens(tokens_to_compress)
     summary_target_words = int(summary_target_tokens * 0.75)  # ~0.75 words per token for German
 
     log_message("📝 Compression plan:")
-    log_message(f"   └─ Messages to compress: {len(messages_to_compress)}")
+    log_message(f"   └─ LLM messages to compress: {len(llm_to_compress)}")
     log_message(f"   └─ Tokens to compress: {format_number(tokens_to_compress)}")
     log_message(f"   └─ Summary target: {format_number(summary_target_tokens)} tok (~{format_number(summary_target_words)} words)")
-    log_message(f"   └─ Remaining after: {len(remaining_messages)} messages, ~{format_number(current_tokens)} tok")
+    log_message(f"   └─ LLM remaining after: {len(llm_remaining)} messages, ~{format_number(current_tokens)} tok")
 
-    # Format conversation for LLM (from llm_to_compress, NOT messages_to_compress!)
-    # CRITICAL: Use llm_to_compress because:
-    # - It contains only NEW messages (summaries are in llm_preserved_summaries)
-    # - messages_to_compress contains chat_history entries that may already be summarized
+    # Format conversation for summary LLM
     conversation_text = ""
     for i, msg in enumerate(llm_to_compress, 1):
         role = msg.get("role", "unknown")
@@ -846,7 +817,7 @@ async def summarize_history_if_needed(
         compression_num_ctx = context_limit
         log_message(f"⚠️ Compression model {model_name} not calibrated, using context_limit={context_limit}")
 
-    log_message(f"🗜️ [START {start_timestamp}] Compressing {len(messages_to_compress)} messages with {model_name}...")
+    log_message(f"🗜️ [START {start_timestamp}] Compressing {len(llm_to_compress)} messages with {model_name}...")
     log_message(f"   └─ Compression LLM: {model_name} (Context={format_number(compression_num_ctx)}, from VRAM cache)")
     yield {"type": "debug", "message": f"🗜️ Compression LLM: {model_name} (Context: {format_number(compression_num_ctx)})"}
     summary_timer = Timer()
@@ -878,6 +849,15 @@ async def summarize_history_if_needed(
         end_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
         summary_text = response.text if response else ""
+        # Repair orphaned </think> tags before any processing
+        from .formatting import fix_orphan_closing_think_tag
+        if summary_text:
+            summary_text = fix_orphan_closing_think_tag(summary_text)
+
+        # Extract thinking content BEFORE stripping (for nested collapsible)
+        think_match = re.search(r'<think>(.*?)</think>', summary_text, flags=re.DOTALL) if summary_text else None
+        thinking_content = think_match.group(1).strip() if think_match else ""
+
         # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
         summary_text = strip_thinking_blocks(summary_text).strip() if summary_text else ""
 
@@ -922,20 +902,47 @@ async def summarize_history_if_needed(
         # - Timestamp = when compression happened
         import datetime
 
-        # Count existing summaries that are NOT being compressed
-        # (summaries in messages_to_compress will be replaced, so don't count them)
-        summaries_in_compressed = count_summaries(messages_to_compress)
-        total_summaries = count_summaries(history)
-        summaries_not_being_compressed = total_summaries - summaries_in_compressed
-        summary_number = summaries_not_being_compressed + 1
+        # Summary number = existing summaries in chat_history + 1
+        summary_number = count_summaries(history) + 1
 
-        # Count only NON-SUMMARY messages that were compressed
-        non_summary_compressed = sum(1 for msg in messages_to_compress if not is_summary_message(msg))
+        # Count of LLM messages compressed
+        non_summary_compressed = len(llm_to_compress)
 
         timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
+
+        # Build collapsible HTML for chat_history (UI display)
+        # i18n labels
+        is_de = detected_language == "de"
+        thinking_label = f"\U0001f4ad Denkprozess ({model_name})" if is_de else f"\U0001f4ad Thinking Process ({model_name})"
+        messages_label = "Nachrichten" if is_de else "Messages"
+        summary_label = "Zusammenfassung" if is_de else "Summary"
+
+        inner_html = ""
+        if thinking_content:
+            inner_html += (
+                '<details style="font-size: 0.9em; margin-bottom: 0.5em;">\n'
+                '<summary style="cursor: pointer; font-weight: bold; color: #aaa;">'
+                f'{thinking_label}</summary>\n'
+                '<div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">\n\n'
+                f'{thinking_content}\n\n'
+                '</div>\n</details>\n\n'
+            )
+        inner_html += summary_text.strip()
+
+        summary_header = f"\U0001f4ca {summary_label} #{summary_number} | {non_summary_compressed} {messages_label} | {timestamp}"
+        summary_collapsible = (
+            '<details style="font-size: 0.9em; margin-bottom: 1em;">\n'
+            '<summary style="cursor: pointer; font-weight: bold; color: #aaa; '
+            'position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">'
+            f'{summary_header}</summary>\n'
+            '<div style="max-height: 60vh; overflow-y: auto; padding: 0.5em;">\n\n'
+            f'{inner_html}\n\n'
+            '</div>\n</details>'
+        )
+
         summary_entry: Dict[str, Any] = {
             "role": "system",
-            "content": f"[📊 Summary #{summary_number}|{non_summary_compressed} Messages|{timestamp}]\n{summary_text.strip()}",
+            "content": summary_collapsible,
             "agent": "",
             "mode": "summary",
             "round_num": 0,
@@ -949,23 +956,16 @@ async def summarize_history_if_needed(
         }
 
         # ============================================================
-        # DUAL-HISTORY UPDATE (v2.13.0+)
+        # DUAL-HISTORY UPDATE (v2.16.0+)
         # ============================================================
-        # chat_history (UI): ALL summaries grouped together AFTER compressed messages
-        # This ensures chronological order: older summaries first, newest summary last
-        #
-        # Extract existing summaries from remaining_messages to group them together
-        remaining_summaries = []
-        remaining_non_summaries = []
-        for msg in remaining_messages:
-            if is_summary_message(msg):
-                remaining_summaries.append(msg)
-            else:
-                remaining_non_summaries.append(msg)
-
-        # Build chat_history: compressed + old_summaries + new_summary + remaining_messages
-        # This maintains chronological order of summaries (#1, #2, #3, ...)
-        new_chat_history = messages_to_compress + remaining_summaries + [summary_entry] + remaining_non_summaries
+        # chat_history (UI): Insert summary before the last user message.
+        # The last user message triggered the compression, so the summary
+        # (which covers messages BEFORE that request) belongs before it.
+        # If the last message isn't a user message, append at end.
+        if history and history[-1].get("role") == "user":
+            new_chat_history = history[:-1] + [summary_entry] + [history[-1]]
+        else:
+            new_chat_history = history + [summary_entry]
 
         # llm_history (LLM): Replace compressed messages with summary
         # Structure: [existing summaries after FIFO] + [new summary] + [remaining messages]
