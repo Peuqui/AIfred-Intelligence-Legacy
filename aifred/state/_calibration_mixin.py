@@ -463,12 +463,32 @@ class CalibrationMixin(rx.State, mixin=True):
 
         # model_id is always base ID (SSOT — no suffix stripping needed)
         if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
-            from ..lib.model_vram_cache import get_llamacpp_calibration
+            from ..lib.model_vram_cache import (
+                get_llamacpp_calibration,
+                get_llamacpp_speed_split,
+            )
             calibrated = get_llamacpp_calibration(model_id)
             if calibrated:
                 self.add_debug(f"   🎯 Calibrated: {format_number(calibrated)} tokens")  # type: ignore[attr-defined]
             else:
                 self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")  # type: ignore[attr-defined]
+
+            # Show tensor-split (layer distribution) from llama-swap config
+            total_gpus = self._show_tensor_split_info(model_id, format_number)
+
+            # Show speed variant if available
+            cuda0, rest, ctx = get_llamacpp_speed_split(model_id)
+            if cuda0 > 0:
+                active = (1 if rest == 0 else 2)
+                # Build split string with trailing zeros for remaining GPUs
+                parts = [str(cuda0), str(rest)]
+                for _ in range(max(0, total_gpus - 2)):
+                    parts.append("0")
+                split_str = ":".join(parts)
+                self.add_debug(  # type: ignore[attr-defined]
+                    f"   ⚡ Speed split: {split_str}, "
+                    f"ctx={format_number(ctx)} ({active}/{total_gpus} GPUs)"
+                )
             return
 
         if self.backend_type != "ollama":  # type: ignore[attr-defined]
@@ -491,6 +511,35 @@ class CalibrationMixin(rx.State, mixin=True):
             self.add_debug(f"   🎯 Calibrated: {', '.join(parts)}")  # type: ignore[attr-defined]
         else:
             self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")  # type: ignore[attr-defined]
+
+    def _show_tensor_split_info(self, model_id: str, format_number) -> int:  # type: ignore[type-arg]
+        """Show base tensor-split from llama-swap config in debug console.
+
+        Returns total GPU count from tensor-split (0 if not found).
+        """
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.llamacpp_calibration import (
+            parse_llamaswap_config,
+            _parse_tensor_split_ratios,
+        )
+
+        models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+        model_info = models.get(model_id)
+        if not model_info:
+            return 0
+
+        ratios = _parse_tensor_split_ratios(model_info["full_cmd"])
+        if not ratios:
+            return 0
+
+        # Format as integer layers (ratios are already layer counts)
+        split_str = ":".join(f"{r:g}" for r in ratios)
+        active = sum(1 for r in ratios if r > 0)
+        total = len(ratios)
+        self.add_debug(  # type: ignore[attr-defined]
+            f"   📊 Layer split: {split_str} ({active}/{total} GPUs)"
+        )
+        return total
 
     # ------------------------------------------------------------------
     # Backend restart
