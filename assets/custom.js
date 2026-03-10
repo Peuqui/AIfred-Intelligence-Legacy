@@ -398,6 +398,8 @@ function playBubbleAudioFromButton(button) {
 let bubbleAudioUrls = [];
 let bubbleAudioIndex = 0;
 let bubbleAudioPlaying = false;
+let bubbleAudioActiveBtn = null;  // Button that triggered current playback
+let bubbleAudioElement = null;    // Current Audio element (for stop when player is hidden)
 
 /**
  * Play all audio URLs from a bubble sequentially
@@ -412,10 +414,10 @@ function playBubbleAudioAll(audioUrls) {
     console.log(`🔊 Bubble Audio: Playing ${audioUrls.length} chunks sequentially`);
 
     // Stop any current playback
-    const player = document.getElementById('tts-audio-player');
-    if (player) {
-        player.pause();
-        player.onended = null;
+    if (bubbleAudioElement) {
+        bubbleAudioElement.pause();
+        bubbleAudioElement.onended = null;
+        bubbleAudioElement = null;
     }
 
     // Stop TTS queue if playing
@@ -439,6 +441,10 @@ function playBubbleAudioAll(audioUrls) {
 function playNextBubbleChunk() {
     if (bubbleAudioIndex >= bubbleAudioUrls.length || !bubbleAudioPlaying) {
         bubbleAudioPlaying = false;
+        if (bubbleAudioActiveBtn) {
+            bubbleAudioActiveBtn.classList.remove('bubble-audio-playing');
+            bubbleAudioActiveBtn = null;
+        }
         console.log('🔊 Bubble Audio: Playback complete');
         return;
     }
@@ -446,38 +452,28 @@ function playNextBubbleChunk() {
     const audioUrl = bubbleAudioUrls[bubbleAudioIndex];
     console.log(`🔊 Bubble Audio: Playing chunk ${bubbleAudioIndex + 1}/${bubbleAudioUrls.length}`);
 
+    // Use visible HTML5 player if available, otherwise create Audio element
     const player = document.getElementById('tts-audio-player');
-    if (player) {
-        player.src = audioUrl;
-        player.playbackRate = ttsPlaybackRate || 1.0;
+    const usePlayer = player && player.style.display !== 'none';
+    const audio = usePlayer ? player : new Audio(audioUrl);
+    bubbleAudioElement = audio;
 
-        // Play next chunk when current finishes
-        player.onended = () => {
-            bubbleAudioIndex++;
-            // Small pause between chunks for natural rhythm
-            setTimeout(playNextBubbleChunk, 150);
-        };
-
-        player.play()
-            .then(() => console.log(`✅ Bubble Audio: Chunk ${bubbleAudioIndex + 1} started`))
-            .catch(err => {
-                console.warn('⚠️ Bubble Audio: Autoplay blocked:', err.message);
-                bubbleAudioPlaying = false;
-            });
-    } else {
-        // Fallback: Create temporary audio element
-        const audio = new Audio(audioUrl);
-        audio.playbackRate = ttsPlaybackRate || 1.0;
-        audio.onended = () => {
-            bubbleAudioIndex++;
-            setTimeout(playNextBubbleChunk, 150);
-        };
-        audio.play()
-            .catch(err => {
-                console.warn('⚠️ Bubble Audio: Autoplay blocked:', err.message);
-                bubbleAudioPlaying = false;
-            });
+    if (usePlayer) {
+        audio.src = audioUrl;
     }
+    audio.playbackRate = ttsPlaybackRate || 1.0;
+
+    audio.onended = () => {
+        bubbleAudioIndex++;
+        setTimeout(playNextBubbleChunk, 150);
+    };
+
+    audio.play()
+        .then(() => console.log(`✅ Bubble Audio: Chunk ${bubbleAudioIndex + 1} started`))
+        .catch(err => {
+            console.warn('⚠️ Bubble Audio: Autoplay blocked:', err.message);
+            bubbleAudioPlaying = false;
+        });
 }
 
 /**
@@ -487,10 +483,14 @@ function stopBubbleAudio() {
     bubbleAudioPlaying = false;
     bubbleAudioUrls = [];
     bubbleAudioIndex = 0;
-    const player = document.getElementById('tts-audio-player');
-    if (player) {
-        player.pause();
-        player.onended = null;
+    if (bubbleAudioActiveBtn) {
+        bubbleAudioActiveBtn.classList.remove('bubble-audio-playing');
+        bubbleAudioActiveBtn = null;
+    }
+    if (bubbleAudioElement) {
+        bubbleAudioElement.pause();
+        bubbleAudioElement.onended = null;
+        bubbleAudioElement = null;
     }
     console.log('🔊 Bubble Audio: Stopped');
 }
@@ -534,11 +534,19 @@ function initBubbleAudioButtons() {
                 // Attach click handler via JS (Reflex doesn't support native onclick strings)
                 // Important: Read URLs fresh on click, not from closure (URLs may change after regeneration)
                 if (!button.dataset.clickAttached) {
-                    button.addEventListener('click', () => {
-                        const freshUrlsJson = button.dataset.audioUrls;
+                    button.addEventListener('click', function() {
+                        const btn = this;
+                        // Toggle: if anything is playing, stop it
+                        if (bubbleAudioPlaying) {
+                            stopBubbleAudio();
+                            return;
+                        }
+                        const freshUrlsJson = btn.dataset.audioUrls;
                         try {
                             const freshUrls = JSON.parse(freshUrlsJson);
                             console.log(`🔊 Button clicked, playing ${freshUrls.length} URLs (fresh read)`);
+                            bubbleAudioActiveBtn = btn;
+                            btn.classList.add('bubble-audio-playing');
                             playBubbleAudioAll(freshUrls);
                         } catch (e) {
                             console.warn('🔊 Button click: Failed to parse audio URLs', e);

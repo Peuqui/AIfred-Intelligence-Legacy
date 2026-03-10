@@ -824,3 +824,14 @@ tr:hover {
     background-color: rgba(204, 136, 0, 0.15) !important;
     color: #b1bac4 !important;
 }
+
+/* Bubble audio button playing state */
+.bubble-audio-btn.bubble-audio-playing {
+    opacity: 1 !important;
+    color: #22c55e !important;
+    animation: pulse-audio 1.5s ease-in-out infinite;
+}
+@keyframes pulse-audio {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
