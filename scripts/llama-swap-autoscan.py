@@ -1382,6 +1382,55 @@ def update_groups_in_yaml(config_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# YAML indentation normalization
+# ---------------------------------------------------------------------------
+
+# Sub-keys that belong under a model entry (2-space indent) and MUST be at 4-space indent
+_MODEL_SUB_KEYS = re.compile(r'^(\s*)(cmd|ttl|healthCheckTimeout|env|proxy|aliases)\s*:')
+
+
+def normalize_yaml_indentation(config_path: Path) -> int:
+    """Fix indentation of model sub-keys (cmd, ttl, etc.) to exactly 4 spaces.
+
+    Returns count of fixed lines.
+    """
+    if not config_path.exists():
+        return 0
+
+    lines = config_path.read_text().splitlines(keepends=True)
+    fixed = 0
+    in_models = False
+
+    for i, line in enumerate(lines):
+        stripped = line.rstrip('\n')
+
+        # Track models: section
+        if stripped == "models:":
+            in_models = True
+            continue
+        if in_models and stripped and not stripped.startswith(" ") and not stripped.startswith("#"):
+            in_models = False
+
+        if not in_models:
+            continue
+
+        m = _MODEL_SUB_KEYS.match(stripped)
+        if not m:
+            continue
+
+        current_indent = m.group(1)
+        if current_indent != "    ":
+            # Fix: replace whatever indent with exactly 4 spaces
+            lines[i] = "    " + stripped.lstrip() + "\n"
+            fixed += 1
+
+    if fixed:
+        config_path.write_text("".join(lines))
+
+    return fixed
+
+
+# ---------------------------------------------------------------------------
 # Incompatibility skip list
 # ---------------------------------------------------------------------------
 
@@ -1941,6 +1990,11 @@ def main() -> None:
         if stale_vram:
             print(f"  {stale_vram} stale VRAM cache entry/entries removed")
         print()
+
+    # Always normalize indentation (fixes manually edited entries)
+    indent_fixes = normalize_yaml_indentation(LLAMASWAP_CONFIG)
+    if indent_fixes:
+        print(f"Fixed {indent_fixes} YAML indentation issue(s)")
 
     # Summary
     parts = []
