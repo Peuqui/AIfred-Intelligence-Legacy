@@ -30,6 +30,7 @@ from .config import (
     LLAMACPP_CALIBRATION_PORT,
     LLAMACPP_HEALTH_TIMEOUT,
     LLAMACPP_VRAM_SAFETY_MARGIN,
+    LLAMACPP_VISION_VRAM_RESERVE,
     MIN_FREE_RAM_MB,
     MIN_USEFUL_CONTEXT_TOKENS,
 )
@@ -708,6 +709,7 @@ def _calculate_max_context_per_gpu(
     per_gpu_high: dict[str, dict[str, int]],
     ctx_low: int,
     ctx_high: int,
+    safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
 ) -> tuple[int, float]:
     """Calculate maximum context from per-GPU VRAM projections (multi-GPU aware).
 
@@ -742,7 +744,7 @@ def _calculate_max_context_per_gpu(
 
         combined_rate += gpu_rate
 
-        headroom = free_low - LLAMACPP_VRAM_SAFETY_MARGIN
+        headroom = free_low - safety_margin
         if headroom <= 0:
             gpu_limits.append((gpu_id, CALIBRATION_MIN_CONTEXT, free_low))
             continue
@@ -759,7 +761,7 @@ def _calculate_max_context_per_gpu(
         marker = " ← bottleneck" if gpu_id == bottleneck_id else ""
         logger.info(
             f"Per-GPU projection: {gpu_id}: max ~{gpu_max} tokens "
-            f"(free={free_low} MiB, margin={LLAMACPP_VRAM_SAFETY_MARGIN} MiB){marker}"
+            f"(free={free_low} MiB, margin={safety_margin} MiB){marker}"
         )
 
     return max_ctx, combined_rate
@@ -835,6 +837,7 @@ def _find_max_ngl_for_context(
     gguf_path: Path,
     context: int,
     total_layers: int,
+    safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
 ) -> tuple[int, dict[str, dict[str, int]]]:
     """Binary search for highest NGL where all GPUs have free >= safety margin.
 
@@ -857,7 +860,7 @@ def _find_max_ngl_for_context(
             continue
 
         min_free = min(info["free"] for info in per_gpu.values())
-        if min_free >= LLAMACPP_VRAM_SAFETY_MARGIN:
+        if min_free >= safety_margin:
             best_ngl = ngl_mid
             best_info = per_gpu
             ngl_low = ngl_mid + 1
@@ -1102,6 +1105,7 @@ async def _start_and_verify(
 async def _test_context_physical(
     full_cmd: str, context: int, port: int,
     run_thinking_test: bool = False,
+    safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
 ) -> tuple[bool, str, list[dict[str, Any]], Optional[bool]]:
     """Test if a context size fits in physical VRAM.
 
@@ -1174,7 +1178,7 @@ async def _test_context_physical(
         )
 
     # Decision: min free VRAM across ALL GPUs vs safety margin
-    fits = not (min_free_mb is not None and min_free_mb < LLAMACPP_VRAM_SAFETY_MARGIN)
+    fits = not (min_free_mb is not None and min_free_mb < safety_margin)
     detail = per_gpu_detail if min_free_mb is not None else "VRAM unknown"
 
     if fits:
@@ -1218,6 +1222,7 @@ async def _binary_search_context(
     precision: int = 512,
     cuda_gpu_names: list[str] | None = None,
     run_thinking_test: bool = False,
+    safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
 ) -> AsyncIterator[str | int | dict]:
     """Binary search for max fitting context between low and high.
 
@@ -1239,6 +1244,7 @@ async def _binary_search_context(
         want_thinking = run_thinking_test and not thinking_done
         mid_fits, _, mid_gpus, thinking_result = await _test_context_physical(
             full_cmd, mid, port, run_thinking_test=want_thinking,
+            safety_margin=safety_margin,
         )
         if thinking_result is not None:
             thinking_done = True
@@ -1263,6 +1269,7 @@ async def _physical_context_search(
     port: int,
     skip_balance: bool = False,
     run_thinking_test: bool = False,
+    safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
 ) -> AsyncIterator[str | int | dict]:
     """Fit-params projection + physical binary search for max context.
 
@@ -1284,6 +1291,7 @@ async def _physical_context_search(
         )
         projected, rate = _calculate_max_context_per_gpu(
             per_gpu_low, per_gpu_high, CALIBRATION_MIN_CONTEXT, native_context,
+            safety_margin=safety_margin,
         )
         projected = min(projected, native_context)
         yield (
@@ -1302,6 +1310,7 @@ async def _physical_context_search(
     thinking_result: Optional[bool] = None
     fits, detail, gpu_list, thinking_result = await _test_context_physical(
         full_cmd, projected, port, run_thinking_test=run_thinking_test,
+        safety_margin=safety_margin,
     )
     if thinking_result is not None:
         yield f"Reasoning: {'yes' if thinking_result else 'no'}"
@@ -1393,6 +1402,7 @@ async def _physical_context_search(
                     yield f"[2] Testing {est_split} at ctx={format_number(native_context)}..."
                     est_fits, _, est_gpus, _ = await _test_context_physical(
                         est_cmd, native_context, port,
+                        safety_margin=safety_margin,
                     )
                     est_detail = _format_cuda_detail(est_gpus) if est_gpus else "OOM"
 
@@ -1417,6 +1427,7 @@ async def _physical_context_search(
                         yield f"[{iteration}] Testing {mid_split} at ctx={format_number(native_context)}..."
                         mid_fits, _, mid_gpus, _ = await _test_context_physical(
                             mid_cmd, native_context, port,
+                            safety_margin=safety_margin,
                         )
                         mid_detail = _format_cuda_detail(mid_gpus) if mid_gpus else "OOM"
                         if mid_fits:
@@ -1474,6 +1485,7 @@ async def _physical_context_search(
                     want_thinking = run_thinking_test and thinking_result is None
                     bal_fits, _, new_gpu_list, bal_thinking = await _test_context_physical(
                         full_cmd, projected, port, run_thinking_test=want_thinking,
+                        safety_margin=safety_margin,
                     )
                     if bal_thinking is not None:
                         thinking_result = bal_thinking
@@ -1544,6 +1556,7 @@ async def _physical_context_search(
                 full_cmd, port, result, search_high,
                 cuda_gpu_names=cuda_gpu_names,
                 run_thinking_test=run_thinking_test and thinking_result is None,
+                safety_margin=safety_margin,
             ):
                 if isinstance(item, int):
                     if item > result:
@@ -1559,6 +1572,7 @@ async def _physical_context_search(
                 yield f"[{len(cuda_gpu_names) + 1}] Testing native: {format_number(native_context)}..."
                 native_fits, _, _, _ = await _test_context_physical(
                     full_cmd, native_context, port,
+                    safety_margin=safety_margin,
                 )
                 if native_fits:
                     result = native_context
@@ -1590,6 +1604,7 @@ async def _physical_context_search(
             full_cmd, port, search_low, projected,
             cuda_gpu_names=cuda_gpu_names,
             run_thinking_test=run_thinking_test and thinking_result is None,
+            safety_margin=safety_margin,
         ):
             if isinstance(item, int):
                 result = item
@@ -1609,6 +1624,7 @@ async def _physical_context_search(
                 full_cmd, port, CALIBRATION_MIN_CONTEXT, search_low,
                 cuda_gpu_names=cuda_gpu_names,
                 run_thinking_test=run_thinking_test and thinking_result is None,
+                safety_margin=safety_margin,
             ):
                 if isinstance(item, int):
                     result = item
@@ -1789,6 +1805,7 @@ def _check_single_gpu_fit(
     gguf_path: Path,
     native_context: int,
     num_gpus: int,
+    safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
 ) -> tuple[str, str, str] | None:
     """Check if model fits entirely on a single GPU at full native context.
 
@@ -1821,17 +1838,17 @@ def _check_single_gpu_fit(
 
         gpu_name = _short_gpu_name(str(target.get("name", f"GPU {cuda_idx}")))
 
-        if target["free"] >= LLAMACPP_VRAM_SAFETY_MARGIN:
+        if target["free"] >= safety_margin:
             log_message(
                 f"Single-GPU fit: {gpu_name} ({target_id}) "
-                f"free={target['free']} MiB >= margin={LLAMACPP_VRAM_SAFETY_MARGIN} MiB",
+                f"free={target['free']} MiB >= margin={safety_margin} MiB",
                 category="stats",
             )
             return target_id, gpu_name, test_cmd
 
         log_message(
             f"Single-GPU check: {target_id} ({gpu_name}) insufficient "
-            f"(free={target['free']} MiB < margin={LLAMACPP_VRAM_SAFETY_MARGIN} MiB)",
+            f"(free={target['free']} MiB < margin={safety_margin} MiB)",
             category="stats",
         )
 
@@ -1919,6 +1936,7 @@ async def _optimize_gpu_layers(
     min_gpus: int,
     mb_per_layer: float,
     phase_label: str,
+    safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
 ) -> AsyncIterator[str | list[float]]:
     """Binary search for max layers on fastest GPU at fixed context.
 
@@ -1981,6 +1999,7 @@ async def _optimize_gpu_layers(
     yield f"[{phase_label}.{iteration}] Testing {est_split} at ctx={format_number(target_context)}..."
     est_fits, _, est_gpus, _ = await _test_context_physical(
         est_cmd, target_context, port,
+        safety_margin=safety_margin,
     )
     est_detail = _format_cuda_detail(est_gpus) if est_gpus else "OOM"
 
@@ -2006,6 +2025,7 @@ async def _optimize_gpu_layers(
         yield f"[{phase_label}.{iteration}] Testing {mid_split} at ctx={format_number(target_context)}..."
         mid_fits, _, mid_gpus, _ = await _test_context_physical(
             mid_cmd, target_context, port,
+            safety_margin=safety_margin,
         )
         mid_detail = _format_cuda_detail(mid_gpus) if mid_gpus else "OOM"
 
@@ -2031,6 +2051,7 @@ async def _calibrate_speed_split(
     native_context: int,
     gguf_path: Path,
     per_gpu_total_mb: list[int],
+    safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
 ) -> AsyncIterator[str]:
     """Speed split: use minimum GPUs for fewer boundary transfers.
 
@@ -2119,6 +2140,7 @@ async def _calibrate_speed_split(
         min_gpus=min_gpus,
         mb_per_layer=mb_per_layer,
         phase_label="A",
+        safety_margin=safety_margin,
     ):
         if isinstance(opt_result, list):
             padded_ratios = opt_result
@@ -2160,6 +2182,7 @@ async def _calibrate_speed_split(
 
             projected_ctx, _ = _calculate_max_context_per_gpu(
                 filtered_low, filtered_high, CALIBRATION_MIN_CONTEXT, native_context,
+                safety_margin=safety_margin,
             )
             projected_ctx = min(projected_ctx, native_context)
         except (RuntimeError, OSError, subprocess.TimeoutExpired):
@@ -2174,6 +2197,7 @@ async def _calibrate_speed_split(
             yield f"[B1] Verifying {best_split} at ctx={format_number(target_context)}..."
             fits, _, gpu_list, _ = await _test_context_physical(
                 kv_cmd, target_context, port,
+                safety_margin=safety_margin,
             )
             if fits:
                 detail = _format_cuda_detail(gpu_list) if gpu_list else ""
@@ -2185,6 +2209,7 @@ async def _calibrate_speed_split(
             yield f"[B{iteration}] Testing {best_split} at ctx={format_number(projected_ctx)}..."
             fits, test_detail, test_gpu_list, _ = await _test_context_physical(
                 kv_cmd, projected_ctx, port,
+                safety_margin=safety_margin,
             )
             detail = _format_cuda_detail(test_gpu_list) if test_gpu_list else test_detail
 
@@ -2204,6 +2229,7 @@ async def _calibrate_speed_split(
                     yield f"[B{iteration}] Testing {best_split} at ctx={format_number(probe)}..."
                     probe_fits, _, probe_gpus, _ = await _test_context_physical(
                         kv_cmd, probe, port,
+                        safety_margin=safety_margin,
                     )
                     probe_detail = _format_cuda_detail(probe_gpus) if probe_gpus else "VRAM unknown"
                     if probe_fits:
@@ -2220,6 +2246,7 @@ async def _calibrate_speed_split(
                 if first_fail - last_pass > 512:
                     async for item in _binary_search_context(
                         kv_cmd, port, last_pass, first_fail,
+                        safety_margin=safety_margin,
                     ):
                         if isinstance(item, int):
                             if item > kv_best:
@@ -2237,6 +2264,7 @@ async def _calibrate_speed_split(
                     yield f"[B{iteration}] Testing {best_split} at ctx={format_number(probe)}..."
                     probe_fits, _, probe_gpus, _ = await _test_context_physical(
                         kv_cmd, probe, port,
+                        safety_margin=safety_margin,
                     )
                     probe_detail = _format_cuda_detail(probe_gpus) if probe_gpus else "VRAM unknown"
                     if probe_fits:
@@ -2254,6 +2282,7 @@ async def _calibrate_speed_split(
                     if last_fail - first_pass > 512:
                         async for item in _binary_search_context(
                             kv_cmd, port, first_pass, last_fail,
+                            safety_margin=safety_margin,
                         ):
                             if isinstance(item, int):
                                 if item > kv_best:
@@ -2300,6 +2329,7 @@ async def _calibrate_hybrid(
     model_size_gb: float,
     total_layers: int,
     port: int = LLAMACPP_CALIBRATION_PORT,
+    safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
 ) -> AsyncIterator[str]:
     """
     Hybrid NGL+context calibration using fit-params per-GPU VRAM projection.
@@ -2347,6 +2377,7 @@ async def _calibrate_hybrid(
 
         ngl, per_gpu = _find_max_ngl_for_context(
             full_cmd, gguf_path, target_ctx, total_layers,
+            safety_margin=safety_margin,
         )
 
         if ngl < 1:
@@ -2392,6 +2423,7 @@ async def _calibrate_hybrid(
     search_result = 0
     async for item in _physical_context_search(
         hybrid_cmd, gguf_path, native_context, ngl=best_ngl, port=port,
+        safety_margin=safety_margin,
     ):
         if isinstance(item, int):
             search_result = item
@@ -2457,6 +2489,14 @@ async def calibrate_llamacpp_model(
         f"(model = {vram_ratio:.0%} of {format_number(total_vram_gb, 1)} GB VRAM)"
     )
 
+    # Vision-language models need extra VRAM for the CLIP compute buffer.
+    is_vision = "--mmproj" in full_cmd
+    safety_margin = LLAMACPP_VRAM_SAFETY_MARGIN + (
+        LLAMACPP_VISION_VRAM_RESERVE if is_vision else 0
+    )
+    if is_vision:
+        yield f"Vision model detected — VRAM reserve: {safety_margin} MB (base {LLAMACPP_VRAM_SAFETY_MARGIN} + CLIP {LLAMACPP_VISION_VRAM_RESERVE})"
+
     # Strip any existing -ctk/-ctv from cmd — Phase 1 starts with f16 KV
     # and the fallback chain will inject quantization only if needed.
     full_cmd = _inject_kv_quant(full_cmd, "f16")
@@ -2486,6 +2526,7 @@ async def calibrate_llamacpp_model(
         elif not existing_ratios:
             single_result = _check_single_gpu_fit(
                 full_cmd, gguf_path, native_context, gpu_info["gpu_count"],
+                safety_margin=safety_margin,
             )
             if single_result:
                 cuda_id, gpu_name, full_cmd = single_result
@@ -2619,6 +2660,7 @@ async def calibrate_llamacpp_model(
             model_size_gb=model_size_gb,
             total_layers=total_layers,
             port=port,
+            safety_margin=safety_margin,
         ):
             if hybrid_msg.startswith("__HYBRID__:"):
                 parts = hybrid_msg.split(":")
@@ -2674,6 +2716,7 @@ async def calibrate_llamacpp_model(
             test_cmd, gguf_path, native_context, ngl=99, port=port,
             skip_balance=is_single_gpu,
             run_thinking_test=run_thinking,
+            safety_margin=safety_margin,
         ):
             if isinstance(item, int):
                 result = item
@@ -2785,6 +2828,7 @@ async def calibrate_llamacpp_model(
 
                         fits, _, test_gpus, _ = await _test_context_physical(
                             test_cmd, best_result, port,
+                            safety_margin=safety_margin,
                         )
                         detail = (
                             _format_cuda_detail(test_gpus) if test_gpus else "OOM"
@@ -2809,6 +2853,7 @@ async def calibrate_llamacpp_model(
                                 min_gpus=n_gpus,
                                 mb_per_layer=mb_per_layer_1b,
                                 phase_label="1b",
+                                safety_margin=safety_margin,
                             ):
                                 if isinstance(opt_result, list):
                                     optimized_ratios = opt_result
@@ -2862,6 +2907,7 @@ async def calibrate_llamacpp_model(
                 async for msg in _calibrate_speed_split(
                     full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS,
                     native_context, gguf_path, per_gpu_total_mb,
+                    safety_margin=safety_margin,
                 ):
                     yield msg
         async for msg in _finish_calibration(best_result, 99, "gpu", thinking_result=thinking_result):
@@ -2895,6 +2941,7 @@ async def calibrate_llamacpp_model(
         model_size_gb=model_size_gb,
         total_layers=total_layers,
         port=port,
+        safety_margin=safety_margin,
     ):
         if hybrid_msg.startswith("__HYBRID__:"):
             parts = hybrid_msg.split(":")

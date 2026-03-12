@@ -855,6 +855,13 @@ VRAM_SAFETY_MARGIN = 512  # MB
 _is_wddm = "microsoft" in platform.release().lower() or os.name == "nt"
 LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 64  # MB
 
+# Extra VRAM reserve for vision-language models (MB)
+# VL models (--mmproj) need a CLIP compute buffer that scales with image token count.
+# Measured: Qwen3-VL with 4096 max image tokens needs ~682 MiB compute buffer on the
+# GPU holding the CLIP model. Without this reserve, large camera photos (3000+ tokens)
+# cause cudaMalloc OOM → GGML_ASSERT crash during ggml_gallocr reallocation.
+LLAMACPP_VISION_VRAM_RESERVE = 768  # MB (~682 measured + margin)
+
 # XTTS VRAM reservation (MB)
 # XTTS model uses ~2044 MiB when loaded. Add small buffer for safety.
 # This is subtracted from available context when TTS is enabled with XTTS engine.
