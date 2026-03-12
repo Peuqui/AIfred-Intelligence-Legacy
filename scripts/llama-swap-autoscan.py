@@ -1073,13 +1073,26 @@ def parse_existing_yaml_models(config_path: Path) -> set[str]:
     return model_names
 
 
-def find_new_models(all_ggufs: list[dict], existing_models: set[str]) -> list[dict]:
-    """Find GGUFs that are not yet in the llama-swap config (case-insensitive)."""
+def find_new_models(
+    all_ggufs: list[dict],
+    existing_models: set[str],
+    existing_paths: Optional[set[str]] = None,
+) -> list[dict]:
+    """Find GGUFs that are not yet in the llama-swap config.
+
+    Checks both model names (case-insensitive) and GGUF file paths to avoid
+    duplicates when a model was manually renamed in the config.
+    """
     existing_lower = {name.lower() for name in existing_models}
+    paths = existing_paths or set()
     new = []
     for gguf in all_ggufs:
-        if gguf["name"].lower() not in existing_lower:
-            new.append(gguf)
+        if gguf["name"].lower() in existing_lower:
+            continue
+        # Check if this GGUF path is already used by an existing (renamed) entry
+        if paths and str(gguf["path"].resolve()) in paths:
+            continue
+        new.append(gguf)
     return new
 
 
@@ -1927,7 +1940,18 @@ def main() -> None:
             for name in skipped:
                 print(f"    ~ {name}: {skip_list[name]}")
 
-    new_models = find_new_models(all_ggufs, existing | set(skip_list))
+    # Extract GGUF paths from existing config entries to detect renamed models
+    existing_paths: set[str] = set()
+    model_cmds = _parse_model_cmds(LLAMASWAP_CONFIG)
+    for cmd in model_cmds.values():
+        model_path = _extract_model_path(cmd)
+        if model_path:
+            try:
+                existing_paths.add(str(model_path.resolve()))
+            except OSError:
+                pass
+
+    new_models = find_new_models(all_ggufs, existing | set(skip_list), existing_paths)
     vl_models = [m for m in new_models if m.get("mmproj_path")]
     if vl_models:
         print(f"  {len(vl_models)} VL model(s) detected with mmproj:")
