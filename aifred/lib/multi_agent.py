@@ -448,7 +448,14 @@ async def _run_agent_direct_response(
         state.add_debug(f"📊 Context: {format_number(agent_num_ctx/1000, 3)}k")
         state.add_debug(f"🌡️ Temperature: {format_number(agent_temp, 1)}")
 
+        # Direct addressing: inherit AIfred's thinking toggle (user controls it there)
+        saved_thinking = getattr(state, f"{agent}_thinking", True)
+        setattr(state, f"{agent}_thinking", state.aifred_thinking)
+
         agent_options = build_llm_options(state, agent, agent_temp, agent_num_ctx)
+
+        # Restore agent's own thinking setting
+        setattr(state, f"{agent}_thinking", saved_thinking)
 
         # Unified streaming UI
         state.current_agent = agent
