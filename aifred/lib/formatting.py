@@ -689,13 +689,14 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
         # so we don't add it to the collapsible header anymore
         summary_text = " ".join(summary_parts)
 
+        # Collapse multiple consecutive blank lines (pre-wrap preserves them literally)
+        content = re.sub(r'\n{3,}', '\n\n', content.strip())
+
         # Build collapsible HTML
         collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">{summary_text}</summary>
 <div class="{css_class}" style="max-height: 60vh; overflow-y: auto;">
-
 {content}
-
 </div>
 </details>"""
         collapsibles.append(collapsible)
@@ -767,12 +768,11 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
     if query_reasoning:
         time_suffix = f" • {query_time:.1f}s" if query_time else ""
         query_opt_label = t("collapsible_query_optimization", lang=lang)
+        clean_reasoning = re.sub(r'\n{3,}', '\n\n', query_reasoning.strip())
         debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">{query_opt_label} ({automatik_model}){time_suffix}</summary>
 <div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">
-
-{query_reasoning}
-
+{clean_reasoning}
 </div>
 </details>""")
 
@@ -784,12 +784,11 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
             # <think> tag → Add as debug collapsible
             time_suffix = f" • {final_time:.1f}s" if final_time else ""
             thinking_label = t("collapsible_thinking_process", lang=lang)
+            clean_content = re.sub(r'\n{3,}', '\n\n', content.strip())
             debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">{thinking_label} ({main_model}){time_suffix}</summary>
 <div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">
-
-{content}
-
+{clean_content}
 </div>
 </details>""")
 

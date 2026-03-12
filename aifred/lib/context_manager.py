@@ -919,12 +919,14 @@ async def summarize_history_if_needed(
 
         inner_html = ""
         if thinking_content:
+            # Collapse multiple consecutive blank lines
+            clean_thinking = re.sub(r'\n{3,}', '\n\n', thinking_content.strip())
             inner_html += (
                 '<details style="font-size: 0.9em; margin-bottom: 0.5em;">\n'
                 '<summary style="cursor: pointer; font-weight: bold; color: #aaa;">'
                 f'{thinking_label}</summary>\n'
-                '<div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">\n\n'
-                f'{thinking_content}\n\n'
+                '<div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">\n'
+                f'{clean_thinking}\n'
                 '</div>\n</details>\n\n'
             )
         inner_html += summary_text.strip()
@@ -935,8 +937,8 @@ async def summarize_history_if_needed(
             '<summary style="cursor: pointer; font-weight: bold; color: #aaa; '
             'position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">'
             f'{summary_header}</summary>\n'
-            '<div style="max-height: 60vh; overflow-y: auto; padding: 0.5em;">\n\n'
-            f'{inner_html}\n\n'
+            '<div style="max-height: 60vh; overflow-y: auto; padding: 0.5em;">\n'
+            f'{inner_html}\n'
             '</div>\n</details>'
         )
 

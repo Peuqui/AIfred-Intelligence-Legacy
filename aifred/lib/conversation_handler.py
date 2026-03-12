@@ -28,7 +28,7 @@ from .message_builder import (
     inject_rag_context,
     inject_vision_json_context
 )
-from .formatting import format_thinking_process, format_number, format_age, build_inference_metadata
+from .formatting import format_thinking_process, format_number, format_age, format_metadata, build_inference_metadata
 # Cache system removed - will be replaced with Vector DB
 from .context_manager import estimate_tokens, strip_thinking_blocks
 from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
@@ -1683,7 +1683,8 @@ async def _handle_automatik_mode(
 
                 answer = cache_result['answer']
                 cache_time_ms = cache_result.get('query_time_ms', 0) / 1000
-                timing_suffix = f" (Cache-Hit: {format_number(cache_time_ms, 2)}s, Age: {age_formatted}, Source: Vector Cache)"
+                timing_text = f"Cache-Hit:\u00A0{format_number(cache_time_ms, 2)}s    Age:\u00A0{age_formatted}    Source:\u00A0Vector\u00A0Cache"
+                timing_suffix = f"\n\n{format_metadata(timing_text)}"
 
                 # Emit failed_sources from cache for UI display (if any)
                 cached_failed_sources = cache_result.get('failed_sources', [])
@@ -1833,7 +1834,8 @@ async def _handle_automatik_mode(
 
             # Return cached answer with timing info
             cache_time = cache_result.get('query_time_ms', 0) / 1000  # Convert to seconds
-            timing_suffix = f" (Cache-Hit: {format_number(cache_time, 2)}s, Source: Vector DB)"
+            timing_text = f"Cache-Hit:\u00A0{format_number(cache_time, 2)}s    Source:\u00A0Vector\u00A0DB"
+            timing_suffix = f"\n\n{format_metadata(timing_text)}"
 
             # Add to histories (parallel: chat_history + llm_history)
             # Dict-based chat_history format

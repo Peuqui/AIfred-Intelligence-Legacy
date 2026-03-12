@@ -1574,8 +1574,9 @@ def _parse_model_cmds(config_path: Path) -> dict[str, str]:
 
 
 def _remove_model_block(content: str, name: str) -> str:
-    """Remove a single model entry block from YAML content."""
-    pattern = rf'^  {re.escape(name)}:\n(?:    .+\n)*'
+    """Remove a single model entry block from YAML content, including leading comments."""
+    # Match optional comment lines (# ...) directly before the model entry
+    pattern = rf'(?:  #[^\n]*\n)*  {re.escape(name)}:\n(?:    .+\n)*'
     return re.sub(pattern, '', content, count=1, flags=re.MULTILINE)
 
 
@@ -1604,6 +1605,8 @@ def cleanup_stale_config(config_path: Path) -> list[str]:
         content = _remove_model_block(content, name)
         print(f"  ✗ {name} — GGUF missing: {missing_path}")
 
+    # Remove orphaned autoscan markers (consecutive markers with no model between them)
+    content = re.sub(r'(  # \[autoscan\]\n)+  # \[autoscan\]\n', '', content)
     content = re.sub(r'\n{3,}', '\n\n', content)
     config_path.write_text(content)
 

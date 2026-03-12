@@ -27,7 +27,7 @@ def build_messages_from_llm_history(
     - No regex parsing needed (llm_history is pre-cleaned)
     - No marker detection (speaker labels already applied)
     - Fast and reliable
-    - Summaries already as system messages
+    - Summaries as user messages with [CONVERSATION CONTEXT] prefix
     - All labels preserved for agent identification
 
     Args:
@@ -60,8 +60,9 @@ def build_messages_from_llm_history(
             content = msg.get("content", "")
 
             if role == "system":
-                # System messages (summaries) stay as system
-                messages.append({"role": "system", "content": content})
+                # Summaries as user message with context prefix
+                # (many models only allow one system message at the beginning)
+                messages.append({"role": "user", "content": f"[CONVERSATION CONTEXT]:\n{content}"})
                 continue
 
             # Detect speaker from content labels
@@ -216,9 +217,9 @@ def inject_rag_context(
     position: int = -1
 ) -> None:
     """
-    Inject RAG context as system message into messages list.
+    Inject RAG context as user message into messages list.
 
-    Modifies the list in-place by inserting a system message with
+    Modifies the list in-place by inserting a user message with
     previously researched context.
 
     Args:
@@ -230,19 +231,17 @@ def inject_rag_context(
         >>> messages = [{"role": "system", "content": "..."}, {"role": "user", "content": "Frage"}]
         >>> inject_rag_context(messages, "Recherche-Ergebnisse hier")
         >>> len(messages)
-        3  # System message was inserted
+        3  # Context message was inserted
     """
-    rag_system_message = {
-        'role': 'system',
-        'content': f"""
-ADDITIONAL CONTEXT FROM PREVIOUS RESEARCH:
+    rag_message = {
+        'role': 'user',
+        'content': f"""[ADDITIONAL CONTEXT FROM PREVIOUS RESEARCH]:
 
 {rag_context}
 
-Use this information IN ADDITION to your training knowledge when relevant to the current question.
-"""
+Use this information IN ADDITION to your training knowledge when relevant to the current question."""
     }
-    messages.insert(position, rag_system_message)
+    messages.insert(position, rag_message)
 
 
 def inject_vision_json_context(
@@ -251,9 +250,9 @@ def inject_vision_json_context(
     position: int = -1
 ) -> None:
     """
-    Inject Vision JSON context as system message into messages list.
+    Inject Vision JSON context as user message into messages list.
 
-    Modifies the list in-place by inserting a system message with
+    Modifies the list in-place by inserting a user message with
     extracted image data.
 
     Args:
@@ -265,13 +264,13 @@ def inject_vision_json_context(
         >>> messages = [{"role": "user", "content": "Was steht im Bild?"}]
         >>> inject_vision_json_context(messages, {"text": "Hello World"})
         >>> len(messages)
-        2  # Vision context was inserted
+        2  # Vision context message was inserted
     """
     import json
 
-    vision_system_message = {
-        'role': 'system',
-        'content': f"""PREVIOUS IMAGE EXTRACTION (STRUCTURED DATA):
+    vision_message = {
+        'role': 'user',
+        'content': f"""[PREVIOUS IMAGE EXTRACTION (STRUCTURED DATA)]:
 
 ```json
 {json.dumps(vision_json, ensure_ascii=False, indent=2)}
@@ -279,4 +278,4 @@ def inject_vision_json_context(
 
 This data was extracted from an image. Use it for your answer."""
     }
-    messages.insert(position, vision_system_message)
+    messages.insert(position, vision_message)

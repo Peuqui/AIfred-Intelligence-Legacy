@@ -216,26 +216,37 @@ details summary {
 }
 
 .thinking-compact {
-    color: #aaa !important;  /* GLEICHE Farbe wie Summary */
+    color: #ccc !important;  /* Heller als Summary, naeher am normalen Text */
     background-color: transparent !important;
     padding: 0.5em !important;
-    white-space: pre-wrap !important;  /* JSON/Code formatiert anzeigen */
-    font-family: monospace !important;  /* Monospace für bessere Lesbarkeit */
+    /* KEIN white-space: pre-wrap! rx.markdown() rendert HTML (p, ol, li) mit eigenen Margins.
+       pre-wrap wuerde Newlines ZUSAETZLICH als Zeilenumbrueche anzeigen → Doppel-Spacing.
+       Code-Bloecke nutzen eigenes <pre> und behalten Formatierung. */
     font-size: 0.95em !important;  /* Lesbar, aber dezent kleiner */
 }
 
 .thinking-compact p {
-    margin-top: 0.75em !important;
-    margin-bottom: 0.75em !important;
-    color: #aaa !important;  /* GLEICHE Farbe wie Summary */
+    margin-top: 0.4em !important;
+    margin-bottom: 0.4em !important;
+    color: #ccc !important;  /* Heller als Summary, naeher am normalen Text */
+}
+
+.thinking-compact ol, .thinking-compact ul {
+    margin-top: 0.3em !important;
+    margin-bottom: 0.3em !important;
+    padding-left: 1.5em !important;
+}
+
+.thinking-compact li {
+    margin-bottom: 0.2em !important;
 }
 
 .thinking-compact > :first-child {
-    margin-top: 0.5em !important;
+    margin-top: 0.2em !important;
 }
 
 .thinking-compact > :last-child {
-    margin-bottom: 0.3em !important;
+    margin-bottom: 0.2em !important;
 }
 
 /* Links - Cyan/Türkis (überall!) */
