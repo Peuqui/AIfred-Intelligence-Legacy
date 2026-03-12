@@ -403,7 +403,8 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             msg_dict = choice.message.model_dump() if hasattr(choice.message, 'model_dump') else {}
             reasoning = msg_dict.get("reasoning_content") or ""
 
-            return bool(reasoning) or "<think>" in text
+            # Check: reasoning_content (deepseek), <think> tags, or Harmony channels (GPT-OSS)
+            return bool(reasoning) or "<think>" in text or "<|channel|>analysis" in text
         except openai.OpenAIError as e:
             logger.warning(f"Thinking capability test failed for {model}: {e}")
             return False
