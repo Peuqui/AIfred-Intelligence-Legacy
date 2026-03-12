@@ -536,7 +536,7 @@ class ChatMixin(rx.State, mixin=True):
         # Minimal state for instant UI feedback (spinner + correct agent indicator)
         # Textarea is already cleared client-side by the call_script in on_click
         self.is_generating = True
-        self.current_agent = "aifred"
+        self.current_agent = ""
         self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         yield  # Spinner visible immediately
 
@@ -1118,6 +1118,8 @@ class ChatMixin(rx.State, mixin=True):
                     yield
 
                 elif item["type"] == "content":
+                    if not self.current_agent:
+                        self.current_agent = "aifred"
                     if self.stream_text_to_ui(item["text"]):  # type: ignore[attr-defined]
                         yield
 

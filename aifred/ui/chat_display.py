@@ -512,6 +512,22 @@ def chat_history_display() -> rx.Component:
         border=f"1px solid {COLORS['primary']}", width="100%",
     )
 
+    # Neutral streaming box: blinking cursor only (no agent name yet)
+    _neutral_stream = rx.box(
+        rx.hstack(
+            rx.box(
+                rx.hstack(
+                    rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
+                    spacing="1", margin_bottom="1",
+                ),
+                background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
+            ),
+            spacing="2", align="start", width="100%",
+        ),
+        background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
+        border=f"1px solid {COLORS['primary']}", width="100%",
+    )
+
     streaming_box = rx.cond(
         AIState.is_generating,
         rx.box(
@@ -555,8 +571,13 @@ def chat_history_display() -> rx.Component:
                         background_color="rgba(218, 165, 32, 0.03)", padding="2", border_radius="8px",
                         border="1px solid rgba(218, 165, 32, 0.3)", width="100%",
                     ),
-                    # Default: AIfred (covers current_agent == "aifred" AND "")
-                    _aifred_stream,
+                    rx.cond(
+                        # AIfred Streaming (explizit)
+                        AIState.current_agent == "aifred",
+                        _aifred_stream,
+                        # Neutral: nur blinkender Cursor (Agent noch nicht bestimmt)
+                        _neutral_stream,
+                    ),
                 ),
             ),
             id="streaming-box", width="100%",
