@@ -584,7 +584,7 @@ def crop_and_resize_image(
 # ============================================================
 
 # Images are stored in data/images/{session_id}/
-# Structure: {session_id}/{timestamp}_{filename}
+# Structure: {session_id}/{NNN}_{filename}
 # Served by Reflex via /_upload/images/...
 
 
@@ -592,29 +592,25 @@ def save_image_to_file(image_bytes: bytes, session_id: str, filename: str) -> Pa
     """
     Save image bytes as JPEG file in session-specific directory.
 
-    Files are stored in: data/images/{session_id}/{timestamp}_{filename}
-    Served via: /_upload/images/{session_id}/{filename}
+    Filename gets a session-wide sequential number prefix (e.g. 001_Image.jpg).
+    The counter is based on existing files in the session directory.
 
     Args:
         image_bytes: Raw JPEG image data
         session_id: Device identifier (32-char hex string)
-        filename: Original filename (e.g., "Image_001.jpg")
+        filename: Original filename (e.g., "photo.jpg")
 
     Returns:
         Absolute path to saved file
     """
-    from datetime import datetime
-
     # Ensure session images directory exists
-    # Structure: data/images/{session_id}/
     images_dir = IMAGES_BASE_DIR / session_id
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate unique filename with human-readable timestamp
-    now = datetime.now()
-    timestamp = now.strftime("%Y-%m-%d_%H-%M-%S-") + f"{now.microsecond // 1000:03d}"
-    safe_filename = f"{timestamp}_{filename}"
-    file_path = images_dir / safe_filename
+    # Session-wide sequential number prefix for uniqueness
+    existing = [f for f in images_dir.iterdir() if f.is_file()]
+    next_num = len(existing) + 1
+    file_path = images_dir / f"{next_num:03d}_{filename}"
 
     # Write image bytes
     with open(file_path, 'wb') as f:

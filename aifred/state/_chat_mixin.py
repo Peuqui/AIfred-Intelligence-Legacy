@@ -771,7 +771,7 @@ class ChatMixin(rx.State, mixin=True):
                         _vl_idx = await detect_vl_relevance(
                             user_query=user_msg,
                             image_context=_vl_ctx_str,
-                            automatik_model=self.vision_model_id,  # type: ignore[attr-defined]
+                            automatik_model=_eff_vl,
                             llm_client=llm_client,
                             recent_context=_vl_recent_ctx,
                         )

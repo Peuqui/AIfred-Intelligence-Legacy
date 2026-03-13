@@ -806,12 +806,6 @@ class CalibrationMixin(rx.State, mixin=True):
             thread.start()
 
             self.add_debug("✅ AIfred service restart initiated")  # type: ignore[attr-defined]
-            self.add_debug("🔄 Browser will reload in 0.5s...")  # type: ignore[attr-defined]
-
-            # Return the reload script IMMEDIATELY
-            # This executes in browser BEFORE systemd kills the service
-            # Browser will reload, wait for service to come back up, then reconnect
-            return rx.call_script("window.location.reload(true)")
 
         except Exception as e:
             self.add_debug(f"❌ AIfred service restart failed: {e}")  # type: ignore[attr-defined]

@@ -168,15 +168,11 @@ class ImageMixin(rx.State, mixin=True):
                 # Resize if needed (save bandwidth/VRAM)
                 resized_content = resize_image_if_needed(content)
 
-                # Camera photos: Shorten to "Image_001.jpg"
+                # Camera photos: Short generic name (sequential number added by save_image_to_file)
                 # File uploads: Keep original filename
                 if from_camera:
-                    name_parts = filename.rsplit(".", 1)
-                    if len(name_parts) == 2:
-                        _, ext = name_parts
-                        display_name = f"Image_{len(self.pending_images) + 1:03d}.{ext}"
-                    else:
-                        display_name = f"Image_{len(self.pending_images) + 1:03d}.jpg"
+                    ext = filename.rsplit(".", 1)[1] if "." in filename else "jpg"
+                    display_name = f"Image.{ext}"
                 else:
                     display_name = filename
 
@@ -185,15 +181,18 @@ class ImageMixin(rx.State, mixin=True):
                 image_path = save_image_to_file(resized_content, self.session_id, display_name)  # type: ignore[attr-defined]
                 image_url = get_image_url(image_path)
 
+                # Use actual filename (includes sequential number from save_image_to_file)
+                saved_name = image_path.name
+
                 # Store with file path (for LLM) and URL (for UI)
                 self.pending_images.append({
-                    "name": display_name,
+                    "name": saved_name,
                     "path": str(image_path),
                     "url": image_url,
                     "size_kb": str(len(resized_content) // 1024),
                 })
 
-                self.add_debug(f"\U0001f4f7 Image uploaded: {display_name} ({len(resized_content) // 1024} KB)")  # type: ignore[attr-defined]
+                self.add_debug(f"\U0001f4f7 Image uploaded: {saved_name} ({len(resized_content) // 1024} KB)")  # type: ignore[attr-defined]
                 yield  # Update UI after each image
 
         finally:
@@ -217,7 +216,7 @@ class ImageMixin(rx.State, mixin=True):
         self.pending_images = []
         self.image_upload_warning = ""
         if count > 0:
-            self.add_debug(f"\U0001f5d1\ufe0f {count} image(s) deleted")  # type: ignore[attr-defined]
+            self.add_debug(f"📷 {count} pending image(s) cleared")  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # Image Lightbox Handlers
