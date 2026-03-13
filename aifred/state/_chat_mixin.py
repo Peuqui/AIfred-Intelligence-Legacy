@@ -472,6 +472,12 @@ class ChatMixin(rx.State, mixin=True):
                     yield
                 result_data = item["data"]
 
+        # Separator after VL inference (consistent with all other inference paths)
+        from ..lib.logging_utils import console_separator, CONSOLE_SEPARATOR
+        console_separator()
+        self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
+        yield
+
         if result_data:
             # handle_own_knowledge() got llm_history[:-1] (N-1 entries) and appended
             # the AI response → returned slice has N entries when successful.
