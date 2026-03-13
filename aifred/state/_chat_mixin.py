@@ -674,8 +674,9 @@ class ChatMixin(rx.State, mixin=True):
                         async with httpx.AsyncClient(timeout=5.0) as _http:
                             resp = await _http.get(f"{swap_base}/running")
                             running = [m.get("model") for m in resp.json().get("running", [])]
-                            if self.vision_model_id not in running:  # type: ignore[attr-defined]
-                                self.add_debug(f"🔄 VL Model Cold Start ({self.vision_model_id}) — loading...")  # type: ignore[attr-defined]
+                            _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
+                            if _eff_vl not in running:
+                                self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
                                 yield
                     except Exception:
                         pass
@@ -753,7 +754,8 @@ class ChatMixin(rx.State, mixin=True):
                         async with httpx.AsyncClient(timeout=5.0) as _http:
                             _resp = await _http.get(f"{_swap_base}/running")
                             _running = [m.get("model") for m in _resp.json().get("running", [])]
-                            _vl_model_loaded = self.vision_model_id in _running  # type: ignore[attr-defined]
+                            _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
+                            _vl_model_loaded = _eff_vl in _running
                     except Exception:
                         pass
 
@@ -830,6 +832,33 @@ class ChatMixin(rx.State, mixin=True):
                 # Different model: use config constant
                 auto_num_ctx = AUTOMATIK_LLM_NUM_CTX
                 log_message(f"🔧 Automatik ≠ AIfred → Context: {auto_num_ctx}")
+
+            # ============================================================
+            # VL AUTOMATIK OVERRIDE: VL model loaded → use for Automatik
+            # Avoids unnecessary model switch: VL→Automatik→AIfred
+            # Instead: VL handles Automatik → then only 1 switch to AIfred
+            # (or 0 switches if VL = AIfred)
+            # Only for llamacpp (model swapping) and Automatik research mode.
+            # ============================================================
+            _eff_vl_id = self._effective_model_id("vision")  # type: ignore[attr-defined]
+            if (self.backend_type == "llamacpp"  # type: ignore[attr-defined]
+                    and _eff_vl_id
+                    and self.research_mode == "automatik"  # type: ignore[attr-defined]
+                    and effective_auto != _eff_vl_id):
+                try:
+                    import httpx
+                    _swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
+                    async with httpx.AsyncClient(timeout=5.0) as _http:
+                        _resp = await _http.get(f"{_swap_base}/running")
+                        _running = [m.get("model") for m in _resp.json().get("running", [])]
+                        if _eff_vl_id in _running:
+                            effective_auto = _eff_vl_id
+                            auto_num_ctx = None  # Let llama-swap use model's configured context
+                            self.add_debug(f"📷 VL Automatik: {effective_auto} already loaded → using for decision")
+                            log_message(f"📷 VL Automatik Override: {effective_auto} (saves model switch)")
+                            yield
+                except Exception:
+                    pass
 
             # ============================================================
             # COLD START DETECTION (llama.cpp only)
@@ -1005,8 +1034,9 @@ class ChatMixin(rx.State, mixin=True):
                                     async with httpx.AsyncClient(timeout=5.0) as _http:
                                         resp = await _http.get(f"{swap_base}/running")
                                         running = [m.get("model") for m in resp.json().get("running", [])]
-                                        if self.vision_model_id not in running:  # type: ignore[attr-defined]
-                                            self.add_debug(f"🔄 VL Model Cold Start ({self.vision_model_id}) — loading...")  # type: ignore[attr-defined]
+                                        _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
+                                        if _eff_vl not in running:
+                                            self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
                                             yield
                                 except Exception:
                                     pass
