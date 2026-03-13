@@ -603,15 +603,16 @@ def save_image_to_file(image_bytes: bytes, session_id: str, filename: str) -> Pa
     Returns:
         Absolute path to saved file
     """
-    import time
+    from datetime import datetime
 
     # Ensure session images directory exists
     # Structure: data/images/{session_id}/
     images_dir = IMAGES_BASE_DIR / session_id
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate unique filename with timestamp
-    timestamp = int(time.time() * 1000)  # Milliseconds for uniqueness
+    # Generate unique filename with human-readable timestamp
+    now = datetime.now()
+    timestamp = now.strftime("%Y-%m-%d_%H-%M-%S-") + f"{now.microsecond // 1000:03d}"
     safe_filename = f"{timestamp}_{filename}"
     file_path = images_dir / safe_filename
 
