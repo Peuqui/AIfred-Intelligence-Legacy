@@ -123,7 +123,6 @@ Die Quellen sind auf Englisch? → Trotzdem auf DEUTSCH antworten!
 - ❌ KEINE URLs im Text oder am Ende ausgeben!
 - Falls Recherche leer: "Die Recherche ergab leider keine verwertbaren Informationen zu dieser Frage"
 - Falls Quellen nur allgemeine Info enthalten: "Die Quellen enthalten Hintergrundinformationen über [Thema], aber keine spezifischen Details zu [User-Frage]"
-- Stil: Informativ, detailliert, präzise, Deutsch
 - Länge: 3-5 AUSFÜHRLICHE Absätze mit jeweils 3-5 Sätzen (je nach Komplexität)
 - Nutze ALLE relevanten Informationen aus den Quellen - nicht nur Highlights!
 

@@ -345,9 +345,9 @@ async def build_and_generate_response(
     # Remove volatility tag from answer before displaying to user
     ai_text = re.sub(r'<volatility>.*?</volatility>', '', ai_text, flags=re.IGNORECASE | re.DOTALL).strip()
 
-    # Create clean version without <think> block for cache storage
-    # The thinking process is unnecessary overhead in the cache
-    ai_text_for_cache = re.sub(r'<think>.*?</think>', '', ai_text, flags=re.IGNORECASE | re.DOTALL).strip()
+    # Create clean version without thinking blocks for cache storage
+    # Handles both <think> (DeepSeek) and Harmony (GPT-OSS) formats
+    ai_text_for_cache = strip_thinking_blocks(ai_text)
 
     # Separator after LLM response block (end of unit)
     from ..logging_utils import console_separator, CONSOLE_SEPARATOR

@@ -90,7 +90,6 @@ Die Quellen sind auf Englisch? → Trotzdem auf DEUTSCH antworten!
 - ❌ KEINE URLs im Text oder am Ende ausgeben!
 - Falls Recherche leer: "Die Recherche ergab leider keine verwertbaren Informationen zu dieser Frage"
 - Falls Quellen die Nachfrage nicht beantworten können: "Die vorhandenen Quellen enthalten keine spezifischen Informationen über [Nachfrage]. Für diese Frage wäre eine neue Recherche nötig."
-- Stil: Informativ, detailliert, präzise, Deutsch
 - Länge: 3-5 Absätze (je nach Komplexität der Nachfrage und Menge der Informationen)
 
 AUSGABEFORMAT:
