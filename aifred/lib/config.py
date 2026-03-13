@@ -824,6 +824,15 @@ THINKING_PROBE_TEMPERATURE = 0.6
 VISION_MODEL_TEMPERATURE = 0.1
 
 # ============================================================
+# VISION SAMPLING DEFAULTS (Qwen3-VL recommended values)
+# ============================================================
+VISION_DEFAULT_TEMPERATURE = 0.7
+VISION_DEFAULT_TOP_K = 20
+VISION_DEFAULT_TOP_P = 0.8
+VISION_DEFAULT_MIN_P = 0.0
+VISION_DEFAULT_REPEAT_PENALTY = 1.0
+
+# ============================================================
 # DEBUG LOG PERSISTENCE
 # ============================================================
 # Maximum number of debug log entries to persist in session

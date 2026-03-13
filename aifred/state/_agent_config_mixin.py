@@ -23,6 +23,11 @@ from ..lib.config import (
     LLAMASERVER_DEFAULT_TOP_P,
     SOKRATES_TEMPERATURE_OFFSET,
     SALOMO_TEMPERATURE_OFFSET,
+    VISION_DEFAULT_TEMPERATURE,
+    VISION_DEFAULT_TOP_K,
+    VISION_DEFAULT_TOP_P,
+    VISION_DEFAULT_MIN_P,
+    VISION_DEFAULT_REPEAT_PENALTY,
 )
 
 # Agent names used throughout this mixin
@@ -86,6 +91,10 @@ class AgentConfigMixin(rx.State, mixin=True):
     salomo_top_p: float = DEFAULT_TOP_P
     salomo_min_p: float = DEFAULT_MIN_P
     salomo_repeat_penalty: float = DEFAULT_REPEAT_PENALTY
+    vision_top_k: int = VISION_DEFAULT_TOP_K
+    vision_top_p: float = VISION_DEFAULT_TOP_P
+    vision_min_p: float = VISION_DEFAULT_MIN_P
+    vision_repeat_penalty: float = VISION_DEFAULT_REPEAT_PENALTY
     sampling_reset_key: int = 0  # UI key counter to force re-mount on reset
 
     # ── Per-Agent Speed Mode (llamacpp only) ──────────────────────
@@ -124,6 +133,7 @@ class AgentConfigMixin(rx.State, mixin=True):
     sokrates_temperature_offset: float = SOKRATES_TEMPERATURE_OFFSET
     salomo_temperature: float = 0.5
     salomo_temperature_offset: float = SALOMO_TEMPERATURE_OFFSET
+    vision_temperature: float = VISION_DEFAULT_TEMPERATURE
 
     # ── Multi-Agent Settings (PERSISTENT) ─────────────────────────
     multi_agent_mode: str = "standard"
@@ -277,6 +287,10 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Set Salomo sampling parameter from UI input."""
         self._set_agent_sampling("salomo", param, value)
 
+    def set_vision_sampling(self, param: str, value: str) -> None:
+        """Set Vision sampling parameter from UI input."""
+        self._set_agent_sampling("vision", param, value)
+
     def _set_agent_sampling(self, agent: str, param: str, value: str) -> None:
         """Set a sampling parameter for an agent and save to settings."""
         try:
@@ -310,21 +324,34 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Reset Salomo sampling to model defaults."""
         self._reset_agent_sampling("salomo")
 
+    def reset_vision_sampling(self) -> None:
+        """Reset Vision sampling to vision-specific defaults."""
+        self._reset_agent_sampling("vision")
+
     def _reset_agent_sampling(self, agent: str, include_temperature: bool = True) -> None:
         """Reset sampling parameters for an agent to model/backend defaults.
 
         Args:
-            agent: "aifred", "sokrates", or "salomo"
+            agent: "aifred", "sokrates", "salomo", or "vision"
             include_temperature: If True, reset temperature too (model change / reset button).
                 If False, keep current temperature (app restart -- temperature is persisted).
         """
-        defaults: dict[str, float] = {
-            "temperature": LLAMASERVER_DEFAULT_TEMPERATURE,
-            "top_k": DEFAULT_TOP_K,
-            "top_p": DEFAULT_TOP_P,
-            "min_p": DEFAULT_MIN_P,
-            "repeat_penalty": DEFAULT_REPEAT_PENALTY,
-        }
+        if agent == "vision":
+            defaults: dict[str, float] = {
+                "temperature": VISION_DEFAULT_TEMPERATURE,
+                "top_k": VISION_DEFAULT_TOP_K,
+                "top_p": VISION_DEFAULT_TOP_P,
+                "min_p": VISION_DEFAULT_MIN_P,
+                "repeat_penalty": VISION_DEFAULT_REPEAT_PENALTY,
+            }
+        else:
+            defaults = {
+                "temperature": LLAMASERVER_DEFAULT_TEMPERATURE,
+                "top_k": DEFAULT_TOP_K,
+                "top_p": DEFAULT_TOP_P,
+                "min_p": DEFAULT_MIN_P,
+                "repeat_penalty": DEFAULT_REPEAT_PENALTY,
+            }
 
         if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
             # Try to get model-specific values from llama-swap YAML
@@ -610,6 +637,15 @@ class AgentConfigMixin(rx.State, mixin=True):
         try:
             self.salomo_temperature = max(0.0, min(2.0, float(value)))
             self.add_debug(f"\U0001f321\ufe0f Salomo temperature={self.salomo_temperature}")  # type: ignore[attr-defined]
+            self._save_settings()  # type: ignore[attr-defined]
+        except (ValueError, TypeError):
+            pass
+
+    def set_vision_temperature_input(self, value: str) -> None:
+        """Set Vision temperature from text input field."""
+        try:
+            self.vision_temperature = max(0.0, min(2.0, float(value)))
+            self.add_debug(f"\U0001f321\ufe0f Vision temperature={self.vision_temperature}")  # type: ignore[attr-defined]
             self._save_settings()  # type: ignore[attr-defined]
         except (ValueError, TypeError):
             pass

@@ -38,8 +38,9 @@ def _sampling_input(agent: str, param: str, width: str = "55px") -> rx.Component
 
 
 def _temp_input(agent: str, width: str = "50px") -> rx.Component:
-    """Helper: Temperature input field for an agent (disabled in Auto mode)."""
-    is_auto = AIState.temperature_mode == "auto"
+    """Helper: Temperature input field for an agent (disabled in Auto mode, except Vision)."""
+    # Vision always uses manual temperature (no Auto mode)
+    is_auto = AIState.temperature_mode == "auto" if agent != "vision" else False
     # AIfred uses self.temperature, others use self.{agent}_temperature
     if agent == "aifred":
         attr = AIState.temperature
@@ -55,7 +56,7 @@ def _temp_input(agent: str, width: str = "50px") -> rx.Component:
         size="1",
         height="28px",
         disabled=is_auto,
-        opacity=rx.cond(is_auto, "0.5", "1.0"),
+        opacity=rx.cond(is_auto, "0.5", "1.0") if agent != "vision" else "1.0",
     )
 
 
@@ -328,6 +329,7 @@ def sampling_control_section() -> rx.Component:
         _sampling_agent_row("aifred", "\U0001f3a9", "AIfred", AIState.reset_aifred_sampling),
         _sampling_agent_row("sokrates", "\U0001f3db\ufe0f", "Sokrates", AIState.reset_sokrates_sampling),
         _sampling_agent_row("salomo", "\U0001f451", "Salomo", AIState.reset_salomo_sampling),
+        _sampling_agent_row("vision", "\U0001f4f7", "Vision", AIState.reset_vision_sampling),
         width="100%",
         spacing="1",
     )

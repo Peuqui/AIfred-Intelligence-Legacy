@@ -168,12 +168,7 @@ async def handle_own_knowledge(
         yield {"type": "debug", "message": f"📊 {agent_label}: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})"}
 
         # Build LLM options via central builder (all sampling params from state).
-        # VL ("vision" agent) uses AIfred's sampling params — no separate vision params in state.
-        llm_agent = "aifred" if agent == "vision" else agent
-        llm_options = build_llm_options(state, llm_agent, final_temperature, final_num_ctx)  # type: ignore[arg-type]
-        # Override thinking for vision: build_llm_options uses llm_agent="aifred"
-        # for sampling, but thinking must come from the actual agent's toggle.
-        llm_options.enable_thinking = enable_thinking
+        llm_options = build_llm_options(state, agent, final_temperature, final_num_ctx)  # type: ignore[arg-type]
 
         # Console: LLM starts (with MoE/Dense architecture + calibration info)
         from .gpu_utils import is_moe_model
