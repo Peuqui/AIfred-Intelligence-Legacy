@@ -428,6 +428,9 @@ class ChatMixin(rx.State, mixin=True):
             self.add_debug(f"⚡ VL Speed: {effective_vision_id}")  # type: ignore[attr-defined]
             yield
 
+        self.current_agent = "aifred"
+        yield
+
         result_data = None
         async for item in handle_own_knowledge(
             user_text=user_msg,
