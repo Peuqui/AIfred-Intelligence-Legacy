@@ -273,9 +273,13 @@ def text_input_section() -> rx.Component:
                 "max_height": "22.5em",
                 "overflow_y": "auto",
                 "border": f"1px solid {COLORS['border']}",
-                "&:focus": {
+                "&:focus-within": {
                     "border": f"1px solid {COLORS['accent_blue']}",
                     "outline": "none",
+                },
+                "& textarea": {
+                    "field_sizing": "content",
+                    "height": "100%",
                 },
             },
         ),
