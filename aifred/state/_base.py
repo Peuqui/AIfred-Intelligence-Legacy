@@ -303,8 +303,6 @@ class AIState(  # type: ignore[misc]
             user_text, stt_time = transcribe_audio(tmp_path, whisper_model, self.ui_language)
 
             if user_text:
-                # Set transcribed text as user input
-                self.current_user_input = user_text
                 # German number format: 0,2s instead of 0.2s
                 from ..lib.formatting import format_number
                 self.add_debug(f"✅ Transcription complete ({format_number(stt_time, 1)}s)")
@@ -312,17 +310,25 @@ class AIState(  # type: ignore[misc]
                 # Show Transcription Workflow
                 if self.show_transcription:
                     # Mode: Edit text → Send manually
-                    # Set text in uncontrolled textarea via JavaScript
+                    # Append to existing text (multiple recordings)
+                    if self.current_user_input:
+                        self.current_user_input += " " + user_text
+                    else:
+                        self.current_user_input = user_text
+                    # Append to uncontrolled textarea via JavaScript
                     import json
                     yield rx.call_script(
-                        f"document.getElementById('user-text-input').value = {json.dumps(user_text)}"
+                        f"var el = document.getElementById('user-text-input');"
+                        f" var t = {json.dumps(user_text)};"
+                        f" el.value = el.value.trim() ? el.value + ' ' + t : t"
                     )
                     self.add_debug("✏️ Text in input field → Ready for editing")
                     # Separator after STT complete (user will edit + send manually)
                     self.add_debug(CONSOLE_SEPARATOR)
                     console_separator()  # Log-File
                 else:
-                    # Mode: Direct to AI
+                    # Mode: Direct to AI (no append, send immediately)
+                    self.current_user_input = user_text
                     self.add_debug("🚀 Sending text directly to AI...")
                     # Separator after STT, before send_message starts
                     self.add_debug(CONSOLE_SEPARATOR)
