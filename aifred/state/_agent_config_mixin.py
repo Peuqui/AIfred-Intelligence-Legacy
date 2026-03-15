@@ -135,6 +135,9 @@ class AgentConfigMixin(rx.State, mixin=True):
     salomo_temperature_offset: float = SALOMO_TEMPERATURE_OFFSET
     vision_temperature: float = VISION_DEFAULT_TEMPERATURE
 
+    # ── Active Agent (direct chat) ─────────────────────────────────
+    active_agent: str = "aifred"  # Which agent responds (default: aifred)
+
     # ── Multi-Agent Settings (PERSISTENT) ─────────────────────────
     multi_agent_mode: str = "standard"
     max_debate_rounds: int = 3
@@ -741,6 +744,30 @@ class AgentConfigMixin(rx.State, mixin=True):
             ["tribunal", TranslationManager.get_text("multi_agent_tribunal", self.ui_language)],  # type: ignore[attr-defined]
         ]
 
+    @rx.var(deps=["agent_list"], auto_deps=False)
+    def selectable_agents(self) -> List[dict[str, str]]:
+        """Agent list for the active-agent toggle row (id, display_name, emoji)."""
+        from ..lib.agent_config import load_agents_raw
+        agents = load_agents_raw()
+        result: list[dict[str, str]] = []
+        for aid, adata in agents.items():
+            if aid == "vision":
+                continue  # Vision is not a chat agent
+            result.append({
+                "id": aid,
+                "display_name": adata.get("display_name", aid.capitalize()),
+                "emoji": adata.get("emoji", "\U0001f916"),
+            })
+        return result
+
+    def set_active_agent(self, agent_id: str) -> None:
+        """Set which agent responds to messages."""
+        self.active_agent = agent_id
+        from ..lib.agent_config import get_agent_config
+        cfg = get_agent_config(agent_id)
+        label = cfg.display_name if cfg else agent_id.capitalize()
+        self.add_debug(f"🎯 Active agent: {label}")  # type: ignore[attr-defined]
+
     @rx.var(deps=["ui_language", "multi_agent_mode"], auto_deps=False)
     def multi_agent_mode_info(self) -> str:
         """Get localized description for the currently selected multi-agent mode."""
@@ -938,6 +965,7 @@ class AgentConfigMixin(rx.State, mixin=True):
     # Prompt layer editor state
     editor_prompt_tab: str = "identity"
     editor_prompt_content: str = ""
+    editor_prompt_lang: str = "de"  # Language toggle for prompt editor
     # Available prompt keys for current agent (for tab rendering)
     editor_prompt_keys: List[str] = []
 
@@ -983,8 +1011,8 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     def edit_agent(self, agent_id: str) -> None:
         """Open edit view for a specific agent, populate DOM via JS."""
-        from ..lib.agent_config import get_agent_config
         import json as _json
+        from ..lib.agent_config import get_agent_config
         config = get_agent_config(agent_id)
         if config is None:
             return
@@ -995,15 +1023,15 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.editor_description = config.description
         self.editor_role = config.role
         self.editor_prompt_tab = "identity"
+        self.editor_prompt_lang = self.ui_language  # type: ignore[attr-defined]
         self.editor_prompt_keys = list(config.prompts.keys())
         self.editor_delete_confirm = ""
         self.editor_emoji_picker_open = False
         self.agent_editor_mode = "edit"
 
-        # Load the identity prompt content
         self._load_editor_prompt("identity")
 
-        # Populate DOM fields via JS (runs after React render)
+        # Populate DOM fields via JS (setTimeout for render cycle)
         name_js = _json.dumps(config.display_name)
         desc_js = _json.dumps(config.description)
         prompt_js = _json.dumps(self.editor_prompt_content)
@@ -1016,9 +1044,9 @@ class AgentConfigMixin(rx.State, mixin=True):
         )
 
     def _load_editor_prompt(self, prompt_key: str) -> None:
-        """Load a prompt file's content into the editor."""
+        """Load a prompt file's content into state (for JS population)."""
         from ..lib.agent_config import get_agent_config
-        from ..lib.prompt_loader import PROMPTS_DIR, get_language
+        from ..lib.prompt_loader import PROMPTS_DIR
 
         config = get_agent_config(self.editor_agent_id)
         if config is None:
@@ -1029,23 +1057,30 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.editor_prompt_content = ""
             return
 
-        lang = get_language()
-        full_path = PROMPTS_DIR / lang / prompt_path
+        full_path = PROMPTS_DIR / self.editor_prompt_lang / prompt_path
         if full_path.exists():
             self.editor_prompt_content = full_path.read_text(encoding="utf-8")
         else:
             self.editor_prompt_content = ""
 
     def set_editor_prompt_tab(self, tab: str) -> None:
-        """Switch prompt layer tab, populate textarea via JS."""
+        """Switch prompt layer tab — load from disk and push to DOM."""
         import json as _json
         self.editor_prompt_tab = tab
         self._load_editor_prompt(tab)
         prompt_js = _json.dumps(self.editor_prompt_content)
         return rx.call_script(  # type: ignore[return-value]
-            "setTimeout(() => {"
-            f" const p = document.getElementById('editor-prompt-textarea'); if (p) p.value = {prompt_js};"
-            "}, 50)",
+            f"setTimeout(() => {{ const p = document.getElementById('editor-prompt-textarea'); if (p) p.value = {prompt_js}; }}, 50)",
+        )
+
+    def set_editor_prompt_lang(self, lang: str) -> None:
+        """Switch prompt language — load from disk and push to DOM."""
+        import json as _json
+        self.editor_prompt_lang = lang
+        self._load_editor_prompt(self.editor_prompt_tab)
+        prompt_js = _json.dumps(self.editor_prompt_content)
+        return rx.call_script(  # type: ignore[return-value]
+            f"setTimeout(() => {{ const p = document.getElementById('editor-prompt-textarea'); if (p) p.value = {prompt_js}; }}, 50)",
         )
 
     def set_editor_emoji(self, value: str) -> None:
@@ -1061,25 +1096,31 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Toggle the emoji picker visibility."""
         self.editor_emoji_picker_open = not self.editor_emoji_picker_open
 
-    def save_agent_editor(self) -> None:
-        """Read DOM fields first, then trigger actual save via callback."""
-        # Import AIState at usage site to avoid circular import
-        from ._base import AIState
-        return rx.call_script(  # type: ignore[return-value]
-            "JSON.stringify({"
-            " name: (document.getElementById('editor-name')||{}).value||'',"
-            " description: (document.getElementById('editor-description')||{}).value||'',"
-            " prompt: (document.getElementById('editor-prompt-textarea')||{}).value||'',"
-            " agent_id: (document.getElementById('editor-agent-id')||{}).value||''"
-            "})",
-            callback=AIState._do_save_agent_editor,
-        )
+    def _save_editor_prompt_to_disk(self) -> None:
+        """Save current prompt content to disk (editor_prompt_lang)."""
+        from ..lib.agent_config import get_agent_config
+        from ..lib.prompt_loader import PROMPTS_DIR
 
-    def _do_save_agent_editor(self, dom_values: str = "{}") -> None:
-        """Actual save after reading DOM values."""
+        if not self.editor_agent_id:
+            return
+
+        config = get_agent_config(self.editor_agent_id)
+        if not config:
+            return
+
+        prompt_path = config.prompts.get(self.editor_prompt_tab, "")
+        if not prompt_path:
+            return
+
+        full_path = PROMPTS_DIR / self.editor_prompt_lang / prompt_path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(self.editor_prompt_content, encoding="utf-8")
+
+    def save_agent_editor(self, dom_values: str = "{}") -> None:
+        """Save agent editor — receives DOM values JSON from UI call_script callback."""
         import json
-        from ..lib.agent_config import update_agent, create_agent, get_agent_config
-        from ..lib.prompt_loader import PROMPTS_DIR, get_language, register_agent_toggles
+        from ..lib.agent_config import update_agent, create_agent
+        from ..lib.prompt_loader import register_agent_toggles
 
         try:
             vals = json.loads(dom_values)
@@ -1089,12 +1130,10 @@ class AgentConfigMixin(rx.State, mixin=True):
         # Sync DOM values into state
         if vals.get("name"):
             self.editor_display_name = vals["name"]
-        if vals.get("description"):
+        if vals.get("description") is not None:
             self.editor_description = vals["description"]
-        if vals.get("prompt"):
-            self.editor_prompt_content = vals["prompt"]
-        if vals.get("agent_id"):
-            self.editor_new_agent_id = vals["agent_id"]
+        # Always sync prompt (even if empty — user may have cleared it)
+        self.editor_prompt_content = vals.get("prompt", self.editor_prompt_content)
 
         if self.editor_agent_id:
             # Update existing agent metadata
@@ -1106,21 +1145,14 @@ class AgentConfigMixin(rx.State, mixin=True):
             })
 
             # Save current prompt tab content to file
-            config = get_agent_config(self.editor_agent_id)
-            if config:
-                prompt_path = config.prompts.get(self.editor_prompt_tab, "")
-                if prompt_path:
-                    lang = get_language()
-                    full_path = PROMPTS_DIR / lang / prompt_path
-                    full_path.parent.mkdir(parents=True, exist_ok=True)
-                    full_path.write_text(self.editor_prompt_content, encoding="utf-8")
+            self._save_editor_prompt_to_disk()
 
             self.add_debug(  # type: ignore[attr-defined]
                 f"\u2705 Agent '{self.editor_display_name}' saved"
             )
         else:
             # Create new agent
-            agent_id = self.editor_new_agent_id.strip().lower().replace(" ", "_")
+            agent_id = vals.get("agent_id", "").strip().lower().replace(" ", "_")
             if not agent_id:
                 self.add_debug("\u26a0\ufe0f Agent-ID is required")  # type: ignore[attr-defined]
                 return
@@ -1142,6 +1174,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             self._load_editor_prompt("identity")
 
         self._refresh_agent_list()
+        self.agent_editor_open = False
 
     def delete_agent_editor(self, agent_id: str) -> None:
         """Delete an agent (with confirmation)."""
@@ -1172,9 +1205,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         self._load_editor_prompt(self.editor_prompt_tab)
         prompt_js = _json.dumps(self.editor_prompt_content)
         return rx.call_script(  # type: ignore[return-value]
-            "setTimeout(() => {"
-            f" const p = document.getElementById('editor-prompt-textarea'); if (p) p.value = {prompt_js};"
-            "}, 50)",
+            f"setTimeout(() => {{ const p = document.getElementById('editor-prompt-textarea'); if (p) p.value = {prompt_js}; }}, 50)",
         )
 
     def start_new_agent(self) -> None:
@@ -1192,7 +1223,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         # Clear DOM fields
         return rx.call_script(  # type: ignore[return-value]
             "setTimeout(() => {"
-            " const ids = ['editor-agent-id','editor-name','editor-description'];"
-            " ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });"
+            " ['editor-name','editor-description','editor-agent-id','editor-prompt-textarea']"
+            "  .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });"
             "}, 50)",
         )

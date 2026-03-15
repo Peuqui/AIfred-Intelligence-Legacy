@@ -6,6 +6,9 @@ Fullscreen overlay for managing agent configurations:
 - Edit prompt layers (identity, personality, task, etc.) via text editor
 - Create new agents from role templates
 - Delete custom agents (default agents protected)
+
+All text inputs are pure DOM elements (no per-keystroke state updates).
+Values are read from DOM only on save/tab-switch/lang-switch via call_script.
 """
 # mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
 # Reflex UI code: Var indexing, rx.icon module callable, event handler binding
@@ -17,6 +20,17 @@ import reflex as rx
 
 from ..state import AIState
 from .helpers import t
+
+# Shared style for DOM-only input fields
+_INPUT_STYLE = {
+    "width": "100%",
+    "color": "white",
+    "background_color": "#333",
+    "border": "1px solid #555",
+    "border_radius": "6px",
+    "padding": "6px 10px",
+    "font_size": "14px",
+}
 
 
 def _agent_row(agent: rx.Var) -> rx.Component:
@@ -186,6 +200,17 @@ def _prompt_tab_button(key: rx.Var) -> rx.Component:
     )
 
 
+# JS to read all editor DOM fields as JSON
+_READ_DOM_JS = (
+    "JSON.stringify({"
+    " name: (document.getElementById('editor-name')||{}).value||'',"
+    " description: (document.getElementById('editor-description')||{}).value||'',"
+    " prompt: (document.getElementById('editor-prompt-textarea')||{}).value||'',"
+    " agent_id: (document.getElementById('editor-agent-id')||{}).value||''"
+    "})"
+)
+
+
 def _agent_edit_view() -> rx.Component:
     """The agent edit view (shown when editing or creating an agent)."""
     is_new = AIState.editor_agent_id == ""
@@ -217,7 +242,7 @@ def _agent_edit_view() -> rx.Component:
             align="center",
         ),
 
-        # Agent ID (only for new agents)
+        # Agent ID (only for new agents) — DOM-only
         rx.cond(
             is_new,
             rx.vstack(
@@ -225,13 +250,9 @@ def _agent_edit_view() -> rx.Component:
                 rx.el.input(
                     id="editor-agent-id",
                     placeholder="z.B. dr_house",
-                    width="100%",
-                    color="white",
-                    background_color="#333",
-                    border="1px solid #555",
-                    border_radius="6px",
-                    padding="6px 10px",
-                    font_size="14px",
+                    auto_complete="off",
+                    spell_check=False,
+                    **_INPUT_STYLE,
                 ),
                 rx.text(
                     t("agent_editor_id_hint"),
@@ -243,20 +264,16 @@ def _agent_edit_view() -> rx.Component:
             ),
         ),
 
-        # Metadata fields
+        # Metadata fields — DOM-only
         rx.hstack(
-            # Name (pure DOM, no state binding)
+            # Name
             rx.vstack(
                 rx.text(t("agent_editor_name"), color="#aaa", font_size="12px"),
                 rx.el.input(
                     id="editor-name",
-                    width="100%",
-                    color="white",
-                    background_color="#333",
-                    border="1px solid #555",
-                    border_radius="6px",
-                    padding="6px 10px",
-                    font_size="14px",
+                    auto_complete="off",
+                    spell_check=False,
+                    **_INPUT_STYLE,
                 ),
                 spacing="1",
                 flex="1",
@@ -331,7 +348,7 @@ def _agent_edit_view() -> rx.Component:
             spacing="3",
         ),
 
-        # Role selector
+        # Role selector (select is fine as controlled — no keystroke issue)
         rx.vstack(
             rx.text(t("agent_editor_role"), color="#aaa", font_size="12px"),
             rx.select(
@@ -344,18 +361,14 @@ def _agent_edit_view() -> rx.Component:
             width="100%",
         ),
 
-        # Description (pure DOM, no state binding)
+        # Description — DOM-only
         rx.vstack(
             rx.text(t("agent_editor_description"), color="#aaa", font_size="12px"),
             rx.el.input(
                 id="editor-description",
-                width="100%",
-                color="white",
-                background_color="#333",
-                border="1px solid #555",
-                border_radius="6px",
-                padding="6px 10px",
-                font_size="14px",
+                auto_complete="off",
+                spell_check=False,
+                **_INPUT_STYLE,
             ),
             spacing="1",
             width="100%",
@@ -365,11 +378,52 @@ def _agent_edit_view() -> rx.Component:
         rx.cond(
             ~is_new,
             rx.vstack(
-                rx.text(
-                    t("agent_editor_prompts"),
-                    color="#FFD700",
-                    font_weight="bold",
-                    font_size="14px",
+                rx.hstack(
+                    rx.text(
+                        t("agent_editor_prompts"),
+                        color="#FFD700",
+                        font_weight="bold",
+                        font_size="14px",
+                    ),
+                    rx.spacer(),
+                    # Language toggle
+                    rx.hstack(
+                        rx.button(
+                            "DE",
+                            on_click=AIState.set_editor_prompt_lang("de"),
+                            size="1",
+                            variant=rx.cond(
+                                AIState.editor_prompt_lang == "de",
+                                "solid",
+                                "soft",
+                            ),
+                            color_scheme=rx.cond(
+                                AIState.editor_prompt_lang == "de",
+                                "blue",
+                                "gray",
+                            ),
+                            cursor="pointer",
+                        ),
+                        rx.button(
+                            "EN",
+                            on_click=AIState.set_editor_prompt_lang("en"),
+                            size="1",
+                            variant=rx.cond(
+                                AIState.editor_prompt_lang == "en",
+                                "solid",
+                                "soft",
+                            ),
+                            color_scheme=rx.cond(
+                                AIState.editor_prompt_lang == "en",
+                                "blue",
+                                "gray",
+                            ),
+                            cursor="pointer",
+                        ),
+                        spacing="1",
+                    ),
+                    width="100%",
+                    align="center",
                 ),
                 # Tab buttons (dynamic from agent's prompt keys)
                 rx.hstack(
@@ -380,7 +434,7 @@ def _agent_edit_view() -> rx.Component:
                     spacing="2",
                     flex_wrap="wrap",
                 ),
-                # Prompt textarea — pure DOM, populated via JS
+                # Prompt textarea — DOM-only, no per-keystroke state updates
                 rx.el.textarea(
                     id="editor-prompt-textarea",
                     width="100%",
@@ -392,6 +446,8 @@ def _agent_edit_view() -> rx.Component:
                     font_size="13px",
                     padding="12px",
                     border_radius="6px",
+                    auto_complete="off",
+                    spell_check=False,
                     style={"resize": "vertical"},
                 ),
                 spacing="2",
@@ -403,7 +459,10 @@ def _agent_edit_view() -> rx.Component:
         rx.hstack(
             rx.button(
                 t("agent_editor_save"),
-                on_click=AIState.save_agent_editor,  # reads DOM via call_script
+                on_click=rx.call_script(
+                    _READ_DOM_JS,
+                    callback=AIState.save_agent_editor,
+                ),
                 color_scheme="green",
                 size="2",
                 cursor="pointer",
