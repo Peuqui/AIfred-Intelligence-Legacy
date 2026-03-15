@@ -544,7 +544,7 @@ def calibrate_model_fit_params(
         kv_label = kv or "f16"
 
         # Binary search for highest context that fits (between FALLBACK and native)
-        ctx_low = FALLBACK_CONTEXT
+        ctx_low = min(FALLBACK_CONTEXT, native_context)
         ctx_high = native_context
         best_ctx = 0
         best_ctx_ngl = 0
@@ -1030,6 +1030,8 @@ def scan_gguf_models() -> list[dict]:
         split_match = re.match(r'^(.+)-\d{5}-of-\d{5}$', model_stem)
         if split_match:
             model_stem = split_match.group(1)
+            # Strip HuggingFace "-split" suffix: "Model-split" → "Model"
+            model_stem = re.sub(r'-split$', '', model_stem, flags=re.IGNORECASE)
         models.append({
             "name": model_stem,
             "path": gguf_file,
@@ -1669,11 +1671,12 @@ def cleanup_vram_cache(active_models: set[str]) -> int:
         return 0
 
     active_lower = {name.lower() for name in active_models}
-    # Only clean up llamacpp entries — Ollama/vLLM/TabbyAPI calibrations
-    # live in the same file but are unrelated to the llama-swap YAML config.
+    # All models in the VRAM cache are managed via llama-swap (including
+    # Ollama-sourced GGUFs that autoscan symlinks into ~/models/).
+    # Remove any entry not matching an active config model.
     to_remove = [
-        name for name, entry in cache.items()
-        if entry.get("backend") == "llamacpp" and name.lower() not in active_lower
+        name for name in cache
+        if name.lower() not in active_lower
     ]
 
     if not to_remove:

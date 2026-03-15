@@ -349,6 +349,7 @@ def update_llamaswap_tensor_split(
 ) -> bool:
     """Update --tensor-split / -ts in llama-swap YAML for a specific model.
 
+    Trims trailing zeros (inactive GPUs hidden by CUDA_VISIBLE_DEVICES).
     Uses regex on raw file content to preserve YAML formatting.
     """
     if not config_path.exists():
@@ -361,7 +362,12 @@ def update_llamaswap_tensor_split(
         logger.error(f"Model {model_id} not found in llama-swap config")
         return False
 
-    new_val = ",".join(f"{r:g}" for r in ratios)
+    # Trim trailing zeros (CUDA_VISIBLE_DEVICES limits visible GPUs)
+    trimmed = list(ratios)
+    while len(trimmed) > 1 and trimmed[-1] == 0:
+        trimmed.pop()
+
+    new_val = ",".join(f"{r:g}" for r in trimmed)
     content = config_path.read_text(encoding='utf-8')
     new_content = _replace_ts_in_model_block(content, model_id, new_val)
 
@@ -422,6 +428,92 @@ def _replace_ts_in_model_block(content: str, model_id: str, new_val: str) -> str
         )
 
     return '\n'.join(result_lines)
+
+
+def update_llamaswap_cuda_visible(
+    config_path: Path,
+    model_id: str,
+    num_active_gpus: int,
+    total_gpus: int,
+) -> bool:
+    """Set CUDA_VISIBLE_DEVICES env in llama-swap YAML for a model.
+
+    Also trims tensor-split trailing zeros to match visible GPU count.
+    If all GPUs are active, removes the env restriction entirely.
+    """
+    if not config_path.exists():
+        return False
+
+    content = config_path.read_text(encoding='utf-8')
+    lines = content.split('\n')
+
+    start, end = _get_model_block_bounds(content, model_id)
+    if start < 0:
+        logger.error(f"Model {model_id} not found in llama-swap config")
+        return False
+
+    # Determine indent from model line (e.g. "  model-name:" → indent=2)
+    model_indent = len(lines[start]) - len(lines[start].lstrip())
+    field_indent = ' ' * (model_indent + 2)
+    list_indent = ' ' * (model_indent + 4)
+
+    cuda_vis = ",".join(str(i) for i in range(num_active_gpus))
+
+    # Scan block for existing env section and ttl line
+    env_start_idx = -1
+    env_end_idx = -1
+    ttl_idx = -1
+
+    for i in range(start + 1, end):
+        stripped = lines[i].strip()
+        if stripped.startswith('env:'):
+            env_start_idx = i
+            # Find end of env list (consecutive "- " lines)
+            for j in range(i + 1, end):
+                if lines[j].strip().startswith('- '):
+                    env_end_idx = j + 1
+                else:
+                    break
+            if env_end_idx < 0:
+                env_end_idx = i + 1
+        elif stripped.startswith('ttl:'):
+            ttl_idx = i
+
+    # Trim trailing zeros from tensor-split in cmd
+    if num_active_gpus < total_gpus:
+        for i in range(start + 1, end):
+            line = lines[i]
+            ts_match = re.search(r'(--tensor-split|-ts)\s+([\d.,]+)', line)
+            if ts_match:
+                ts_vals = [v for v in ts_match.group(2).split(',') if v]
+                # Trim trailing zeros
+                while len(ts_vals) > 1 and ts_vals[-1] in ('0', '0.0'):
+                    ts_vals.pop()
+                trimmed = ','.join(ts_vals)
+                lines[i] = line[:ts_match.start(2)] + trimmed + line[ts_match.end(2):]
+                break
+
+    if num_active_gpus >= total_gpus:
+        # Remove env restriction if present
+        if env_start_idx >= 0:
+            lines = lines[:env_start_idx] + lines[env_end_idx:]
+            logger.info(f"Removed CUDA_VISIBLE_DEVICES for {model_id} (all GPUs active)")
+    else:
+        new_env_lines = [
+            f'{field_indent}env:',
+            f'{list_indent}- "CUDA_VISIBLE_DEVICES={cuda_vis}"',
+        ]
+        if env_start_idx >= 0:
+            # Replace existing env section
+            lines = lines[:env_start_idx] + new_env_lines + lines[env_end_idx:]
+        else:
+            # Insert before ttl (or at end of block)
+            insert_at = ttl_idx if ttl_idx >= 0 else end
+            lines = lines[:insert_at] + new_env_lines + lines[insert_at:]
+        logger.info(f"Set CUDA_VISIBLE_DEVICES={cuda_vis} for {model_id}")
+
+    config_path.write_text('\n'.join(lines), encoding='utf-8')
+    return True
 
 
 def _replace_flash_attn_in_model_block(content: str, model_id: str, enabled: bool) -> str:
@@ -1282,15 +1374,17 @@ async def _physical_context_search(
     Dict: {"gpu_list": [...], "balanced_cmd": str | None}
     """
     # 1. Fit-params projection (2 calls, ~1s total)
+    # ctx_low must be < native_context for valid rate calculation
+    ctx_low = min(CALIBRATION_MIN_CONTEXT, native_context // 2)
     try:
         per_gpu_low = _fit_params_per_gpu_projection(
-            full_cmd, gguf_path, CALIBRATION_MIN_CONTEXT, ngl=ngl,
+            full_cmd, gguf_path, ctx_low, ngl=ngl,
         )
         per_gpu_high = _fit_params_per_gpu_projection(
             full_cmd, gguf_path, native_context, ngl=ngl,
         )
         projected, rate = _calculate_max_context_per_gpu(
-            per_gpu_low, per_gpu_high, CALIBRATION_MIN_CONTEXT, native_context,
+            per_gpu_low, per_gpu_high, ctx_low, native_context,
             safety_margin=safety_margin,
         )
         projected = min(projected, native_context)
@@ -1742,10 +1836,13 @@ def add_llamaswap_speed_variant(
     if num_gpus > 0 and num_gpus < len(original_ratios):
         # Reduced GPU count: distribute among active GPUs, zero out the rest
         active_ratios = original_ratios[:num_gpus]
-        active_split = _build_layer_split(total_layers, speed_split_cuda0, active_ratios)
-        speed_ratios = active_split + [0.0] * (len(original_ratios) - num_gpus)
+        speed_ratios = _build_layer_split(total_layers, speed_split_cuda0, active_ratios)
     else:
         speed_ratios = _build_layer_split(total_layers, speed_split_cuda0, original_ratios)
+
+    # Trim trailing zeros (CUDA_VISIBLE_DEVICES limits visible GPUs)
+    while len(speed_ratios) > 1 and speed_ratios[-1] == 0:
+        speed_ratios.pop()
 
     speed_block_text = _ensure_tensor_split(speed_block_text, speed_ratios)
     speed_block_text = re.sub(r'-c\s+\d+', f'-c {speed_context}', speed_block_text)
@@ -2600,39 +2697,6 @@ async def calibrate_llamacpp_model(
         )
         yield f"__RESULT__:{ctx}:{ngl}:{mode}:{'thinks' if thinks else 'nothink'}"
 
-    # === Small model: native context ≤ calibration minimum ===
-    # These models always fit in GPU memory — startup failure is NOT an OOM issue.
-    # Most likely cause: --flash-attn incompatibility (Deepseek-OCR, Mamba, etc.)
-    if native_context <= CALIBRATION_MIN_CONTEXT:
-        yield (
-            f"Small model: native context {format_number(native_context)} ≤ "
-            f"calibration minimum {format_number(CALIBRATION_MIN_CONTEXT)} — testing directly"
-        )
-        process = await _start_and_verify(full_cmd, native_context, port)
-
-        if process is None and '--flash-attn on' in full_cmd:
-            yield "Startup failed — retrying without --flash-attn (not all architectures support it)"
-            cmd_no_fa = full_cmd.replace('--flash-attn on', '--flash-attn off')
-            process = await _start_and_verify(cmd_no_fa, native_context, port)
-            if process:
-                yield "✓ Architecture incompatible with --flash-attn — updating llama-swap config"
-                if config_path:
-                    update_llamaswap_flash_attn(config_path, model_id)
-                # Use flash-attn-free cmd for the thinking test (closure picks this up)
-                full_cmd = cmd_no_fa
-
-        if process:
-            yield f"✓ {format_number(native_context)} tokens confirmed"
-            async for msg in _finish_calibration(native_context, 99, "gpu", process=process):
-                yield msg
-        else:
-            yield (
-                "Model failed to start — see llama-server logs "
-                "(incompatible architecture, CUDA version, or corrupted GGUF?)"
-            )
-            yield "__RESULT__:0:0:error"
-        return
-
     # === Skip GPU-only for oversized models ===
     # Model weights alone exceed total VRAM → GPU-only is impossible,
     # jump straight to hybrid calibration (saves minutes of pointless OOM attempts)
@@ -2760,7 +2824,8 @@ async def calibrate_llamacpp_model(
             await wait_for_vram_stable(max_wait_seconds=10.0)
 
     # GPU-only success with useful context → finish
-    if best_result >= MIN_USEFUL_CONTEXT_TOKENS:
+    # For small-context models: native_context IS the useful threshold
+    if best_result >= min(MIN_USEFUL_CONTEXT_TOKENS, native_context):
         # Apply the winning KV level to the cmd for speed calibration and finish
         full_cmd = _inject_kv_quant(full_cmd, best_kv)
         if best_kv != "f16" and config_path:
@@ -2868,11 +2933,17 @@ async def calibrate_llamacpp_model(
                         else:
                             yield f"✗ {split_fmt} doesn't fit ({detail})"
 
-        # Write speed-optimized tensor-split to config (base variant)
+        # Write speed-optimized tensor-split + CUDA_VISIBLE_DEVICES to config
         if optimized_ratios and config_path:
             ts_str = ",".join(f"{r:g}" for r in optimized_ratios)
             if update_llamaswap_tensor_split(config_path, model_id, optimized_ratios):
                 yield f"Tensor-split {ts_str} written to llama-swap config"
+            # Set CUDA_VISIBLE_DEVICES to only active GPUs (saves ~155 MB/GPU + P8)
+            num_active = sum(1 for r in optimized_ratios if r > 0)
+            total_gpus_env = gpu_info["gpu_count"] if gpu_info else len(optimized_ratios)
+            if update_llamaswap_cuda_visible(config_path, model_id, num_active, total_gpus_env):
+                cuda_vis = ",".join(str(i) for i in range(num_active))
+                yield f"CUDA_VISIBLE_DEVICES={cuda_vis} written to llama-swap config"
 
         # Multi-GPU without tensor-split: generate ratios for speed calibration
         if (
@@ -2904,8 +2975,9 @@ async def calibrate_llamacpp_model(
                     [g["total_mb"] for g in gpu_info["per_gpu"]],
                     reverse=True,
                 ) if gpu_info and gpu_info.get("per_gpu") else []
+                speed_target_ctx = min(MIN_USEFUL_CONTEXT_TOKENS, native_context)
                 async for msg in _calibrate_speed_split(
-                    full_cmd, port, MIN_USEFUL_CONTEXT_TOKENS,
+                    full_cmd, port, speed_target_ctx,
                     native_context, gguf_path, per_gpu_total_mb,
                     safety_margin=safety_margin,
                 ):
@@ -2915,9 +2987,10 @@ async def calibrate_llamacpp_model(
         return
 
     # === PHASE 3: Hybrid calibration (GPU-only context insufficient) ===
+    min_useful = min(MIN_USEFUL_CONTEXT_TOKENS, native_context)
     yield (
         f"GPU-only context ({format_number(best_result)}) < "
-        f"minimum useful ({format_number(MIN_USEFUL_CONTEXT_TOKENS)})"
+        f"minimum useful ({format_number(min_useful)})"
     )
 
     total_layers = get_gguf_layer_count(gguf_path)

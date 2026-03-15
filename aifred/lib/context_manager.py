@@ -161,11 +161,14 @@ def count_tokens_with_tokenizer(text: str) -> int:
         matches = glob.glob(cache_pattern)
 
         if not matches:
-            raise FileNotFoundError(
-                "Qwen3 tokenizer not found. Run: "
-                "python -c \"from transformers import AutoTokenizer; "
-                "AutoTokenizer.from_pretrained('Qwen/Qwen3-4B')\""
-            )
+            # Auto-download tokenizer (one-time, ~2 MB)
+            log_message("Qwen3 tokenizer not cached — downloading...")
+            from transformers import AutoTokenizer
+            AutoTokenizer.from_pretrained("Qwen/Qwen3-4B")
+            matches = glob.glob(cache_pattern)
+
+        if not matches:
+            raise FileNotFoundError("Qwen3 tokenizer download failed")
 
         tokenizer_path = matches[0]
         _tokenizer_cache[cache_key] = Tokenizer.from_file(tokenizer_path)

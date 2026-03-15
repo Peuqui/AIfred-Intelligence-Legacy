@@ -251,6 +251,7 @@ class CalibrationMixin(rx.State, mixin=True):
             update_llamaswap_context,
             update_llamaswap_ngl,
             add_llamaswap_speed_variant,
+            update_llamaswap_cuda_visible,
         )
         from ..lib.config import LLAMASWAP_CONFIG_PATH, MIN_USEFUL_CONTEXT_TOKENS
 
@@ -391,6 +392,16 @@ class CalibrationMixin(rx.State, mixin=True):
                         f"(split {speed_split_cuda0}:{speed_split_rest}, "
                         f"ctx {format_number(speed_split_context)}{gpu_info_str}{kv_info_str})"
                     )
+                    # Set CUDA_VISIBLE_DEVICES for speed variant
+                    if speed_num_gpus > 0:
+                        from ..lib.gpu_utils import get_all_gpus_memory_info
+                        gpu_info = get_all_gpus_memory_info()
+                        total_gpus_env = gpu_info["gpu_count"] if gpu_info else 4
+                        speed_model_id = f"{calibration_model_id}-speed"
+                        update_llamaswap_cuda_visible(
+                            LLAMASWAP_CONFIG_PATH, speed_model_id,
+                            speed_num_gpus, total_gpus_env,
+                        )
                     # Patch speed_split into the latest calibration entry (already saved)
                     from ..lib.model_vram_cache import update_llamacpp_speed_split
                     update_llamacpp_speed_split(
