@@ -257,8 +257,24 @@ class WebScraperTool(BaseTool):
                 finally:
                     browser.close()  # ALWAYS executed, even on exception
 
-        except (OSError, ValueError) as e:
+        except Exception as e:
             error_msg = str(e)
+
+            # Auto-install browsers if missing (e.g. after cache cleanup)
+            if "Executable doesn't exist" in error_msg:
+                logger.info("🔧 Playwright browsers missing — installing...")
+                log_message("🔧 Playwright browsers missing — installing...")
+                import subprocess
+                result = subprocess.run(
+                    ["playwright", "install", "chromium"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    logger.info("✅ Playwright browsers installed, retrying scrape")
+                    log_message("✅ Playwright browsers installed")
+                    return self._scrape_with_playwright(url)
+                logger.error(f"❌ Playwright install failed: {result.stderr}")
+
             logger.error(f"❌ Playwright error at {url}: {error_msg}")
             log_message(f"❌ Playwright error: {error_msg}")
             return {

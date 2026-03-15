@@ -1279,8 +1279,6 @@ async def _handle_forced_web_search(
     query_gen_time = query_result["generation_time"]
 
     yield {"type": "debug", "message": f"✅ {len(pre_generated_queries)} queries ({format_number(query_gen_time, 1)}s)"}
-    for i, q in enumerate(pre_generated_queries, 1):
-        yield {"type": "debug", "message": f"   {i}. {q}"}
 
     # Execute web research
     async for item in perform_agent_research(
