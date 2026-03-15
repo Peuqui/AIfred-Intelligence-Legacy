@@ -289,9 +289,15 @@ class UIConfigMixin(rx.State, mixin=True):
     # ================================================================
 
     def set_research_mode(self, mode: str) -> None:
-        """Set research mode."""
+        """Set research mode (from internal value, e.g. pill button click)."""
+        from ..lib import TranslationManager
+
         self.research_mode = mode
+        self.research_mode_display = TranslationManager.get_research_mode_display(
+            mode, self.ui_language  # type: ignore[attr-defined]
+        )
         self.add_debug(f"\U0001f50d Research mode: {mode}")  # type: ignore[attr-defined]
+        self._save_settings()  # type: ignore[attr-defined]
 
     def set_research_mode_display(self, display_value: str) -> None:
         """Set research mode from UI display value."""

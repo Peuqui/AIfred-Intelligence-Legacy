@@ -242,7 +242,7 @@ async def _stream_agent_to_history(
     metrics: dict[str, Any] = {}
 
     # Set current agent for UI styling
-    state.current_agent = agent
+    state._set_current_agent(agent)
     state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
 
     # vLLM: ensure correct model is loaded (triggers restart if model changed)
@@ -305,7 +305,7 @@ async def _stream_agent_to_history(
     # Clear streaming state (cleanup BEFORE yield)
     state._js_chunk_buffer = ""
     state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-    state.current_agent = ""
+    state._set_current_agent("")
 
     # Return result as final yield (dict = result, None = UI update)
     yield {
@@ -415,14 +415,20 @@ async def _run_agent_direct_response(
             base_url=state.backend_url
         )
 
-        # Determine agent model (fallback to AIfred's model)
-        agent_model_id = state._effective_model_id(agent) or state._effective_model_id("aifred")
-        agent_model_display = getattr(state, f"{agent}_model") or state.aifred_model  # type: ignore[has-type]
+        # Determine agent model — custom agents use AIfred's model
+        _default_agents = ("aifred", "sokrates", "salomo", "vision")
+        if agent in _default_agents:
+            agent_model_id = state._effective_model_id(agent) or state._effective_model_id("aifred")
+            agent_model_display = getattr(state, f"{agent}_model", None) or state.aifred_model  # type: ignore[has-type]
+        else:
+            agent_model_id = state._effective_model_id("aifred")
+            agent_model_display = state.aifred_model  # type: ignore[has-type]
         state.add_debug(f"{emoji} {agent_label}-LLM: {agent_model_display}")
 
-        # Context limit
+        # Context limit — custom agents use AIfred's context
         from .research.context_utils import get_agent_num_ctx
-        agent_num_ctx, ctx_source = get_agent_num_ctx(agent, state, agent_model_id)
+        ctx_agent = agent if agent in _default_agents else "aifred"
+        agent_num_ctx, ctx_source = get_agent_num_ctx(ctx_agent, state, agent_model_id)
         state.add_debug(f"   🎯 Context: {agent_num_ctx:,} ({ctx_source})")
 
         # System prompt
@@ -437,28 +443,29 @@ async def _run_agent_direct_response(
         )
         messages.insert(0, {"role": "system", "content": system_prompt})
 
-        # Temperature (manual or auto with offset)
-        agent_temp_attr = f"{agent}_temperature"
-        agent_offset_attr = f"{agent}_temperature_offset"
-        if state.temperature_mode == "manual":  # type: ignore[has-type]
-            agent_temp = getattr(state, agent_temp_attr)
+        # Temperature — Sokrates/Salomo have own settings, others use AIfred's global
+        if agent in ("sokrates", "salomo"):
+            if state.temperature_mode == "manual":  # type: ignore[has-type]
+                agent_temp = getattr(state, f"{agent}_temperature")
+            else:
+                agent_temp = min(1.0, state.temperature + getattr(state, f"{agent}_temperature_offset"))
         else:
-            agent_temp = min(1.0, state.temperature + getattr(state, agent_offset_attr))
+            agent_temp = state.temperature  # type: ignore[has-type]
 
         state.add_debug(f"📊 Context: {format_number(agent_num_ctx/1000, 3)}k")
         state.add_debug(f"🌡️ Temperature: {format_number(agent_temp, 1)}")
 
-        # Direct addressing: inherit AIfred's thinking toggle (user controls it there)
-        saved_thinking = getattr(state, f"{agent}_thinking", True)
-        setattr(state, f"{agent}_thinking", state.aifred_thinking)
+        # Build LLM options — custom agents use AIfred's settings
+        opts_agent = agent if agent in _default_agents else "aifred"
+        saved_thinking = getattr(state, f"{opts_agent}_thinking", True)
+        setattr(state, f"{opts_agent}_thinking", state.aifred_thinking)
 
-        agent_options = build_llm_options(state, agent, agent_temp, agent_num_ctx)
+        agent_options = build_llm_options(state, opts_agent, agent_temp, agent_num_ctx)
 
-        # Restore agent's own thinking setting
-        setattr(state, f"{agent}_thinking", saved_thinking)
+        setattr(state, f"{opts_agent}_thinking", saved_thinking)
 
         # Unified streaming UI
-        state.current_agent = agent
+        state._set_current_agent(agent)
         state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
 
         # vLLM: ensure correct model is loaded (triggers restart if model changed)
@@ -553,7 +560,7 @@ async def _run_agent_direct_response(
         # Cleanup
         state._js_chunk_buffer = ""
         state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-        state.current_agent = ""
+        state._set_current_agent("")
         state._save_current_session()
         console_separator()
         state.add_debug("────────────────────")
@@ -593,6 +600,30 @@ async def run_salomo_direct_response(
     async for _ in _run_agent_direct_response(
         state, "salomo", "Salomo", "👑",
         get_salomo_direct_prompt, user_query, detected_lang,
+    ):
+        yield
+
+
+async def run_generic_agent_direct_response(
+    state: 'AIState',
+    agent_id: str,
+    user_query: str,
+    detected_lang: Optional[str] = None
+) -> AsyncGenerator[None, None]:
+    """Any agent responds directly to user (generic routing)."""
+    from .agent_config import get_agent_config
+    from .prompt_loader import get_agent_direct_prompt
+
+    config = get_agent_config(agent_id)
+    if config is None:
+        state.add_debug(f"⚠️ Unknown agent: {agent_id}")
+        yield
+        return
+
+    async for _ in _run_agent_direct_response(
+        state, agent_id, config.display_name, config.emoji,
+        lambda lang=None: get_agent_direct_prompt(agent_id, lang=lang),
+        user_query, detected_lang,
     ):
         yield
 

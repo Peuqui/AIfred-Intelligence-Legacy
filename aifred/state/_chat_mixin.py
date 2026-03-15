@@ -26,7 +26,9 @@ class ChatMixin(rx.State, mixin=True):
     current_user_input: str = ""
     current_user_message: str = ""  # The message currently being processed
     # current_ai_response lives on StreamingState (separate React context)
-    current_agent: str = ""  # Current streaming agent: "aifred" | "sokrates" | "salomo" | ""
+    current_agent: str = ""  # Current streaming agent ID
+    current_agent_display_name: str = ""  # Display name for streaming UI
+    current_agent_emoji: str = ""  # Emoji for streaming UI
     is_generating: bool = False
     is_compressing: bool = False  # Shows if history compression is running
 
@@ -105,6 +107,18 @@ class ChatMixin(rx.State, mixin=True):
         }
 
         return mode_labels.get(mode, "")
+
+    def _set_current_agent(self, agent_id: str) -> None:
+        """Set current streaming agent with display info for UI."""
+        from ..lib.agent_config import get_agent_config
+        self.current_agent = agent_id
+        if agent_id:
+            cfg = get_agent_config(agent_id)
+            self.current_agent_display_name = cfg.display_name if cfg else agent_id.capitalize()
+            self.current_agent_emoji = cfg.emoji if cfg else "\U0001f916"
+        else:
+            self.current_agent_display_name = ""
+            self.current_agent_emoji = ""
 
     def _build_marker(self, agent: str, mode: str, round_num: int | None) -> str:
         """Build marker string for agent panels.
@@ -304,10 +318,18 @@ class ChatMixin(rx.State, mixin=True):
         audio_urls = msg_metadata.get("audio_urls", [])
         if audio_urls:
             msg_metadata["playback_rate"] = self.tts_agent_voices[agent]["speed"]  # type: ignore[attr-defined]
+        # Resolve agent display info for UI rendering
+        from ..lib.agent_config import get_agent_config
+        agent_cfg = get_agent_config(agent)
+        agent_display_name = agent_cfg.display_name if agent_cfg else agent.capitalize()
+        agent_emoji = agent_cfg.emoji if agent_cfg else "\U0001f916"
+
         new_message: Dict[str, Any] = {
             "role": "assistant",
             "content": final_content,
             "agent": agent,
+            "agent_display_name": agent_display_name,
+            "agent_emoji": agent_emoji,
             "mode": mode,
             "round_num": round_num,
             "metadata": msg_metadata,
@@ -428,7 +450,7 @@ class ChatMixin(rx.State, mixin=True):
             self.add_debug(f"⚡ VL Speed: {effective_vision_id}")  # type: ignore[attr-defined]
             yield
 
-        self.current_agent = "aifred"
+        self._set_current_agent("aifred")
         yield
 
         result_data = None
@@ -545,7 +567,7 @@ class ChatMixin(rx.State, mixin=True):
         # Minimal state for instant UI feedback (spinner + correct agent indicator)
         # Textarea is already cleared client-side by the call_script in on_click
         self.is_generating = True
-        self.current_agent = ""
+        self._set_current_agent("")
         self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         yield  # Spinner visible immediately
 
@@ -1076,14 +1098,22 @@ class ChatMixin(rx.State, mixin=True):
             # Track if Sokrates should be skipped (AIfred direct addressing)
             skip_sokrates_analysis = False
 
-            if addressed_to == "sokrates":
-                # User directly addresses Sokrates → Sokrates responds directly
-                from ..lib.multi_agent import run_sokrates_direct_response
-                self.add_debug("🏛️ Direct addressing: Sokrates")
-                yield  # Update UI immediately to show debug message
-                async for _ in run_sokrates_direct_response(self, user_msg, detected_language):  # type: ignore[arg-type]
+            # Active agent override: if user selected a non-AIfred agent via toggle,
+            # treat it as direct addressing (skip addressee detection)
+            if not addressed_to and self.active_agent != "aifred":  # type: ignore[attr-defined]
+                addressed_to = self.active_agent  # type: ignore[attr-defined]
+
+            if addressed_to and addressed_to != "aifred":
+                # User directly addresses a non-AIfred agent → that agent responds
+                from ..lib.multi_agent import run_generic_agent_direct_response
+                from ..lib.agent_config import get_agent_config
+                agent_config = get_agent_config(addressed_to)
+                agent_label = agent_config.display_name if agent_config else addressed_to.capitalize()
+                agent_emoji = agent_config.emoji if agent_config else "🤖"
+                self.add_debug(f"{agent_emoji} Direct addressing: {agent_label}")
+                yield
+                async for _ in run_generic_agent_direct_response(self, addressed_to, user_msg, detected_language):  # type: ignore[arg-type]
                     yield
-                # Clean up and return - Sokrates handled everything
                 self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
                 self.current_user_message = ""
                 self.is_generating = False
@@ -1094,23 +1124,8 @@ class ChatMixin(rx.State, mixin=True):
             elif addressed_to == "aifred":
                 # User directly addresses AIfred → Skip Sokrates analysis
                 self.add_debug("🎩 Direct addressing: AIfred")
-                yield  # Update UI immediately to show debug message
-                skip_sokrates_analysis = True
-
-            elif addressed_to == "salomo":
-                # User directly addresses Salomo → Salomo responds directly
-                from ..lib.multi_agent import run_salomo_direct_response
-                self.add_debug("👑 Direct addressing: Salomo")
-                yield  # Update UI immediately to show debug message
-                async for _ in run_salomo_direct_response(self, user_msg, detected_language):  # type: ignore[arg-type]
-                    yield
-                # Clean up and return - Salomo handled everything
-                self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-                self.current_user_message = ""
-                self.is_generating = False
-                self._save_current_session()  # type: ignore[attr-defined]
                 yield
-                return
+                skip_sokrates_analysis = True
 
             # ============================================================
             # UNIFIED CHAT HANDLER (Single Source of Truth)
@@ -1158,7 +1173,7 @@ class ChatMixin(rx.State, mixin=True):
 
                 elif item["type"] == "content":
                     if not self.current_agent:
-                        self.current_agent = "aifred"
+                        self._set_current_agent("aifred")
                     if self.stream_text_to_ui(item["text"]):  # type: ignore[attr-defined]
                         yield
 
@@ -1386,7 +1401,7 @@ class ChatMixin(rx.State, mixin=True):
             yield
 
             # Final cleanup: Clear streaming state
-            self.current_agent = ""
+            self._set_current_agent("")
             self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
 
     # ── Clear Chat ───────────────────────────────────────────────────

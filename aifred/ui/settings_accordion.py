@@ -340,26 +340,25 @@ def sampling_control_section() -> rx.Component:
 # ============================================================
 
 def llm_parameters_accordion() -> rx.Component:
-    """LLM Parameters in collapsible accordion - styled like select dropdown"""
-    return rx.accordion.root(
-        rx.accordion.item(
-            header=rx.hstack(
-                rx.text(
-                    rx.cond(
-                        AIState.ui_language == "de",
-                        "\u2699\ufe0f LLM-Parameter (Erweitert)",
-                        "\u2699\ufe0f LLM Parameters (Advanced)"
-                    ),
-                    font_weight="400",
-                    font_size="13px",
-                    color=COLORS["text_primary"]
+    """LLM Parameters as popover — floats over content, no layout shift."""
+    return rx.popover.root(
+        rx.popover.trigger(
+            rx.button(
+                rx.cond(
+                    AIState.ui_language == "de",
+                    "\u2699\ufe0f LLM-Parameter (Erweitert)",
+                    "\u2699\ufe0f LLM Parameters (Advanced)"
                 ),
-                align="center",
-                padding_x="6px",
-                padding_y="0",
-                height="28px",
+                variant="soft",
+                color_scheme="gray",
+                size="2",
+                height="32px",
+                font_size="11px",
+                cursor="pointer",
             ),
-            content=rx.vstack(
+        ),
+        rx.popover.content(
+            rx.vstack(
                 # Sampling Parameters (includes Temperature)
                 sampling_control_section(),
 
@@ -453,15 +452,14 @@ def llm_parameters_accordion() -> rx.Component:
                 spacing="4",
                 width="100%",
             ),
+            style={
+                "max_width": "600px",
+                "max_height": "80vh",
+                "overflow_y": "auto",
+            },
+            side="top",
+            align="end",
         ),
-        collapsible=True,
-        variant="ghost",  # Weniger visueller Overhead
-        style={
-            "border": "1px solid var(--gray-6)",
-            "border_radius": "6px",
-            "background": "var(--gray-3)",  # Gleiche Helligkeit wie Select-Dropdowns
-            "min_height": "32px",
-        },
     )
 
 

@@ -9,9 +9,7 @@ Analyze this user request:
 
 **2. Addressee (who is being spoken to):**
 Detect if user directly addresses one of these agents by name:
-- aifred (variations: Alfred, Eifred)
-- sokrates (variation: Socrates)
-- salomo (variation: Solomon)
+{agent_list}
 
 Understand the INTENT: Is the user speaking TO someone or ABOUT someone?
 - Speaking TO: The user wants THIS agent to respond (addressee)
@@ -34,7 +32,7 @@ Return EXACTLY this format: INTENT|ADDRESSEE|LANGUAGE
 
 Rules:
 - INTENT must be: FACTUAL, CREATIVE, or MIXED (uppercase)
-- ADDRESSEE must be: aifred, sokrates, salomo, or EMPTY (lowercase, no quotes)
+- ADDRESSEE must be: one of the agent IDs listed above, or EMPTY (lowercase, no quotes)
 - LANGUAGE must be: DE or EN (uppercase)
 - Use | as separator (pipe character)
 - If no addressee: leave empty between pipes (example: FACTUAL||DE)

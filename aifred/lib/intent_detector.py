@@ -75,14 +75,21 @@ def parse_intent_addressee_language(
     # Parse addressee
     addressee: Optional[str] = None
     if addressee_part:
-        # Normalize variations
+        # Normalize variations for default agents
         if addressee_part in ("aifred", "alfred", "eifred", "ai fred"):
             addressee = "aifred"
         elif addressee_part in ("sokrates", "socrates"):
             addressee = "sokrates"
         elif addressee_part in ("salomo", "solomon"):
             addressee = "salomo"
-        # else: leave as None (unknown or empty)
+        else:
+            # Check custom agents by ID and display_name
+            from .agent_config import load_agents_raw
+            agents = load_agents_raw()
+            for aid, adata in agents.items():
+                if addressee_part == aid or addressee_part == adata.get("display_name", "").lower():
+                    addressee = aid
+                    break
 
     # Parse language (fallback to UI language if LLM didn't specify)
     if language_part in ("DE", "DEUTSCH", "GERMAN"):

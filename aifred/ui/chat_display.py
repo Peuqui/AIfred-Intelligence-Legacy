@@ -572,10 +572,27 @@ def chat_history_display() -> rx.Component:
                         border="1px solid rgba(218, 165, 32, 0.3)", width="100%",
                     ),
                     rx.cond(
-                        # AIfred Streaming (explizit)
-                        AIState.current_agent == "aifred",
-                        _aifred_stream,
-                        # Neutral: nur blinkender Cursor (Agent noch nicht bestimmt)
+                        # Known agent or neutral
+                        AIState.current_agent != "",
+                        # Generic agent streaming — uses display name + emoji from state
+                        rx.box(
+                            rx.hstack(
+                                rx.text(AIState.current_agent_emoji, font_size="13px"),
+                                rx.box(
+                                    rx.hstack(
+                                        rx.text(AIState.current_agent_display_name, font_weight="bold", font_size="12px", color=COLORS["primary"]),
+                                        rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
+                                        spacing="1", margin_bottom="1",
+                                    ),
+                                    streaming_text(text=StreamingState.current_ai_response, id="st-generic", style=_stream_text_style),
+                                    background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
+                                ),
+                                spacing="2", align="start", width="100%",
+                            ),
+                            background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
+                            border=f"1px solid {COLORS['primary']}", width="100%",
+                        ),
+                        # Neutral: blinkender Cursor (Agent noch nicht bestimmt)
                         _neutral_stream,
                     ),
                 ),

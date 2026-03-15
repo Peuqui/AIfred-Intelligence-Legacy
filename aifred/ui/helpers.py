@@ -210,7 +210,7 @@ def native_select_generic(value_var, on_change_handler, options_pairs) -> rx.Com
         on_change_handler: Handler for value changes
         options_pairs: List of [key, display_label] pairs, e.g., [["standard", "Standard"], ["auto_consensus", "Auto-Konsens"]]
 
-    Same styling as backend/model selects for consistent mobile experience.
+    Compact styling to match pill buttons in the control row.
     """
     return rx.el.select(
         rx.foreach(
@@ -220,15 +220,14 @@ def native_select_generic(value_var, on_change_handler, options_pairs) -> rx.Com
         value=value_var,
         on_change=on_change_handler,
         style={
-            "width": "100%",
-            "flex": "1",
-            "padding": "8px 12px",
+            "width": "auto",
+            "padding": "4px 10px",
             "font_size": "12px",
             "color": COLORS["text_primary"],
             "background": COLORS["input_bg"],
             "border": f"1px solid {COLORS['border']}",
             "border_radius": "6px",
-            "min_height": "48px",
+            "height": "32px",
             "cursor": "pointer",
             "white_space": "nowrap",
             "overflow": "hidden",

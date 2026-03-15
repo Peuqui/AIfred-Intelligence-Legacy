@@ -116,7 +116,7 @@ class SessionMixin(rx.State, mixin=True):
         # Clear streaming state
         self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         self.current_user_message = ""  # type: ignore[attr-defined]
-        self.current_agent = ""  # type: ignore[attr-defined]
+        self._set_current_agent("")  # type: ignore[attr-defined]
 
         # Note: Don't refresh_session_list() here - it would re-sort by last_seen
         # and move the clicked session to a different position. The highlighting

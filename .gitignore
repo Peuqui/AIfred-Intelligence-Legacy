@@ -109,3 +109,22 @@ docs/drafts/
 # F5-TTS (experimental, buggy - not production ready)
 docker/f5-tts/
 scripts/tts_compare.py
+
+# Custom Agent Prompts (user-created, not tracked)
+# Default agents (aifred, sokrates, salomo, vision) + shared/utility/automatik are tracked
+prompts/de/*/
+prompts/en/*/
+!prompts/de/aifred/
+!prompts/de/sokrates/
+!prompts/de/salomo/
+!prompts/de/vision/
+!prompts/de/shared/
+!prompts/de/utility/
+!prompts/de/automatik/
+!prompts/en/aifred/
+!prompts/en/sokrates/
+!prompts/en/salomo/
+!prompts/en/vision/
+!prompts/en/shared/
+!prompts/en/utility/
+!prompts/en/automatik/

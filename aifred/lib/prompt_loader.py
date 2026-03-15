@@ -481,8 +481,21 @@ def unregister_agent_toggles(agent_id: str) -> None:
 # ============================================================
 
 def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> str:
-    """Load intent detection prompt"""
-    return load_prompt('automatik/intent_detection', lang=lang, user_query=user_query)
+    """Load intent detection prompt with dynamic agent list."""
+    from .agent_config import load_agents_raw
+    agents = load_agents_raw()
+    agent_lines: list[str] = []
+    for aid, adata in agents.items():
+        name = adata.get("display_name", aid)
+        if aid == name.lower():
+            agent_lines.append(f"- {aid}")
+        else:
+            agent_lines.append(f"- {aid} (variation: {name})")
+    agent_list = "\n".join(agent_lines)
+    return load_prompt(
+        'automatik/intent_detection', lang=lang,
+        user_query=user_query, agent_list=agent_list,
+    )
 
 
 def get_vl_relevance_check_prompt(
@@ -972,6 +985,16 @@ def get_salomo_direct_prompt(lang: Optional[str] = None) -> str:
     """
     task_prompt = load_prompt('salomo/direct', lang=lang)
     return _merge_prompt_layers("salomo", task_prompt, lang)
+
+
+def get_agent_direct_prompt(agent_id: str, lang: Optional[str] = None) -> str:
+    """Load direct response prompt for any agent via 4-layer merging.
+
+    Works for both default agents (aifred, sokrates, salomo) and custom agents.
+    Loads {agent_id}/direct.txt as task prompt, merges with identity + personality.
+    """
+    task_prompt = load_prompt(f'{agent_id}/direct', lang=lang)
+    return _merge_prompt_layers(agent_id, task_prompt, lang)
 
 
 def get_salomo_system_minimal(lang: Optional[str] = None, multi_agent: bool = False) -> str:

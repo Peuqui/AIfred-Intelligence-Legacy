@@ -224,7 +224,11 @@ def _agent_bubble(
 
 
 def render_assistant_message(msg: dict) -> rx.Component:
-    """Render assistant message (left-aligned, styled per agent)"""
+    """Render assistant message (left-aligned, styled per agent).
+
+    Uses agent_display_name and agent_emoji from chat_history dict.
+    Sokrates and Salomo get their signature colors, all others use primary.
+    """
     return rx.cond(
         msg["agent"] == "sokrates",
         _agent_bubble(
@@ -237,8 +241,12 @@ def render_assistant_message(msg: dict) -> rx.Component:
                 msg, "\U0001f451", "Salomo", "#daa520",
                 "rgba(218, 165, 32, 0.08)", "rgba(218, 165, 32, 0.03)", "rgba(218, 165, 32, 0.3)",
             ),
+            # Generic: use agent_display_name + agent_emoji from dict
             _agent_bubble(
-                msg, "\U0001f3a9", "AIfred", COLORS["primary"],
+                msg,
+                msg["agent_emoji"],
+                msg["agent_display_name"],
+                COLORS["primary"],
                 COLORS["ai_msg"], "rgba(255, 255, 255, 0.03)", "rgba(255, 255, 255, 0.1)",
             ),
         ),

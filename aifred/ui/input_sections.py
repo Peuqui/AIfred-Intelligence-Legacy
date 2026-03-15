@@ -13,6 +13,42 @@ from .settings_accordion import llm_parameters_accordion
 from .chat_display import processing_progress_banner
 
 
+def _agent_toggle_button(agent: rx.Var) -> rx.Component:
+    """Render a single agent toggle button for the active-agent row."""
+    is_active = AIState.active_agent == agent["id"]
+    return rx.button(
+        rx.hstack(
+            rx.text(agent["emoji"], font_size="13px"),
+            rx.text(agent["display_name"], font_size="12px"),
+            spacing="1",
+            align="center",
+        ),
+        on_click=AIState.set_active_agent(agent["id"]),
+        size="2",
+        variant=rx.cond(is_active, "solid", "soft"),
+        color_scheme=rx.cond(is_active, "blue", "gray"),
+        cursor="pointer",
+        padding_x="10px",
+        height="32px",
+    )
+
+
+def _research_pill(mode: str, label_de: str, label_en: str) -> rx.Component:
+    """Render a single research mode pill button."""
+    is_active = AIState.research_mode == mode
+    return rx.button(
+        rx.cond(AIState.ui_language == "de", label_de, label_en),
+        on_click=AIState.set_research_mode(mode),
+        size="2",
+        variant=rx.cond(is_active, "solid", "soft"),
+        color_scheme=rx.cond(is_active, "blue", "gray"),
+        cursor="pointer",
+        font_size="12px",
+        padding_x="12px",
+        height="32px",
+    )
+
+
 # ============================================================
 # IMAGE / AUDIO UPLOAD SECTION
 # ============================================================
@@ -255,11 +291,7 @@ def text_input_section() -> rx.Component:
         # Image Upload Section (NEW)
         image_upload_section(),
 
-        # Text Input
-        rx.heading(
-            t("text_input_heading"),
-            size="2"
-        ),
+        # Text Input (no heading — placeholder is self-explanatory)
         rx.text_area(
             placeholder=t("text_input_placeholder"),
             id="user-text-input",
@@ -284,204 +316,172 @@ def text_input_section() -> rx.Component:
             },
         ),
 
-        # Research Mode Radio Buttons
-        rx.vstack(
-            rx.hstack(
-                rx.text(t("research_mode"), font_weight="bold", font_size="12px"),
-                # Info-Icon mit Hover-Card (nur Desktop) - in Header-Zeile
-                rx.cond(
-                    AIState.is_mobile,
-                    rx.fragment(),
-                    rx.hover_card.root(
-                        rx.hover_card.trigger(
-                            rx.icon("info", size=14, color=COLORS["text_secondary"], cursor="help"),
+        # Row 1: Research Mode Pills + Info Icon
+        rx.hstack(
+            _research_pill("automatik", "✨ Automatik", "✨ Auto"),
+            _research_pill("none", "💡 Wissen", "💡 Knowledge"),
+            _research_pill("quick", "⚡ Web 3", "⚡ Web 3"),
+            _research_pill("deep", "🌍 Web 7", "🌍 Web 7"),
+            # Info-Icon (nur Desktop)
+            rx.cond(
+                AIState.is_mobile,
+                rx.fragment(),
+                rx.hover_card.root(
+                    rx.hover_card.trigger(
+                        rx.icon("info", size=14, color=COLORS["text_secondary"], cursor="help"),
+                    ),
+                    rx.hover_card.content(
+                        rx.text(t("choose_research_mode"), font_size="12px", color=COLORS["text_primary"]),
+                        side="top",
+                        style={
+                            "background": COLORS["card_bg"],
+                            "border": f"1px solid {COLORS['border']}",
+                            "border_radius": "8px",
+                            "padding": "8px 12px",
+                            "box_shadow": "0 4px 12px rgba(0,0,0,0.4)",
+                        },
+                    ),
+                ),
+            ),
+            spacing="2",
+            align="center",
+            flex_wrap="wrap",
+            width="100%",
+        ),
+
+        # Row 2: Discussion Mode + Agent Toggles + LLM Parameters
+        rx.hstack(
+            # Discussion Mode Dropdown
+            rx.cond(
+                AIState.is_mobile,
+                # MOBILE: Native HTML <select>
+                native_select_generic(
+                    AIState.multi_agent_mode,
+                    AIState.set_multi_agent_mode,
+                    AIState.multi_agent_mode_options,
+                ),
+                # DESKTOP: Radix UI Select
+                rx.select.root(
+                    rx.select.trigger(height="32px"),
+                    rx.select.content(
+                        rx.select.item(
+                            rx.cond(AIState.ui_language == "de", "Standard", "Standard"),
+                            value="standard"
                         ),
-                        rx.hover_card.content(
-                            rx.text(t("choose_research_mode"), font_size="12px", color=COLORS["text_primary"]),
-                            side="top",
-                            style={
-                                "background": COLORS["card_bg"],
-                                "border": f"1px solid {COLORS['border']}",
-                                "border_radius": "8px",
-                                "padding": "8px 12px",
-                                "box_shadow": "0 4px 12px rgba(0,0,0,0.4)",
-                            },
+                        rx.select.item(
+                            rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review"),
+                            value="critical_review"
+                        ),
+                        rx.select.item(
+                            rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto-Consensus"),
+                            value="auto_consensus"
+                        ),
+                        rx.select.item(
+                            rx.cond(AIState.ui_language == "de", "Tribunal", "Tribunal"),
+                            value="tribunal"
                         ),
                     ),
+                    value=AIState.multi_agent_mode,
+                    on_change=AIState.set_multi_agent_mode,
+                    size="1",
+                ),
+            ),
+            # Help icon
+            rx.tooltip(
+                rx.icon(
+                    "lightbulb",
+                    size=16,
+                    color="#FFD700",
+                    cursor="pointer",
+                    on_click=AIState.open_multi_agent_help,
+                    style={
+                        "transition": "transform 0.2s ease",
+                        "&:hover": {"transform": "scale(1.15)"},
+                    },
+                ),
+                content=t("discussion_mode_tooltip"),
+            ),
+            # Consensus Type Toggle (nur bei auto_consensus)
+            rx.cond(
+                AIState.multi_agent_mode == "auto_consensus",
+                rx.hstack(
+                    rx.text(
+                        rx.cond(AIState.is_unanimous_consensus, "3/3", "2/3"),
+                        font_size="11px",
+                        color=rx.cond(AIState.is_unanimous_consensus, COLORS["primary"], "var(--gray-10)"),
+                        font_weight="600",
+                        min_width="24px",
+                        text_align="right",
+                    ),
+                    rx.switch(
+                        checked=AIState.is_unanimous_consensus,
+                        on_change=AIState.toggle_consensus_type,
+                        size="1",
+                    ),
+                    spacing="1",
+                    align="center",
+                    title=AIState.consensus_toggle_tooltip,
+                ),
+            ),
+            # Agent toggle buttons (only in Standard mode)
+            rx.cond(
+                AIState.multi_agent_mode == "standard",
+                rx.hstack(
+                    rx.box(
+                        width="1px",
+                        height="20px",
+                        background=COLORS["border"],
+                    ),
+                    rx.foreach(
+                        AIState.selectable_agents,
+                        _agent_toggle_button,
+                    ),
+                    spacing="2",
+                    align="center",
+                ),
+            ),
+            # LLM Parameters Accordion (pushed right)
+            rx.box(flex="1"),
+            llm_parameters_accordion(),
+            spacing="3",
+            align="center",
+            flex_wrap="wrap",
+            width="100%",
+        ),
+
+        # Max Debate Rounds (only for auto_consensus/tribunal — compact sub-row)
+        rx.cond(
+            (AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal"),
+            rx.hstack(
+                rx.text(t("max_debate_rounds"), font_size="11px"),
+                rx.icon_button(
+                    rx.icon("circle-minus", size=16),
+                    on_click=AIState.decrease_debate_rounds,
+                    size="1",
+                    variant="soft",
+                    disabled=AIState.max_debate_rounds <= 1,
+                    style={"background-color": COLORS["warning_bg"], "color": "#cc8800"},
+                ),
+                rx.badge(
+                    AIState.max_debate_rounds,
+                    variant="soft",
+                    font_size="11px",
+                    font_weight="600",
+                    padding_x="8px",
+                    padding_y="2px",
+                    style={"background-color": "#5d4200", "color": "#cc8800", "min-width": "24px", "text-align": "center"},
+                ),
+                rx.icon_button(
+                    rx.icon("circle-plus", size=16),
+                    on_click=AIState.increase_debate_rounds,
+                    size="1",
+                    variant="soft",
+                    disabled=AIState.max_debate_rounds >= 10,
+                    style={"background-color": COLORS["warning_bg"], "color": "#cc8800"},
                 ),
                 spacing="2",
                 align="center",
             ),
-            rx.radio(
-                [
-                    rx.cond(AIState.ui_language == "de", "✨ Automatik (KI entscheidet)", "✨ Automatic (AI decides)"),
-                    rx.cond(AIState.ui_language == "de", "💡 Eigenes Wissen (schnell)", "💡 Own Knowledge (fast)"),
-                    rx.cond(AIState.ui_language == "de", "⚡ Web-Suche Schnell (3 beste)", "⚡ Web Search Quick (3 best)"),
-                    rx.cond(AIState.ui_language == "de", "🌍 Web-Suche Ausführlich (7 beste)", "🌍 Web Search Detailed (7 best)")
-                ],
-                value=AIState.research_mode_display,
-                on_change=AIState.set_research_mode_display,
-                spacing="2",
-            ),
-            width="100%",
-        ),
-
-        # Multi-Agent Mode + LLM Parameters Row
-        rx.hstack(
-            # Left: Multi-Agent Mode Dropdown
-            rx.vstack(
-                rx.text(t("multi_agent_mode"), font_weight="bold", font_size="12px"),
-                rx.hstack(
-                    rx.cond(
-                        AIState.is_mobile,
-                        # MOBILE: Native HTML <select>
-                        native_select_generic(
-                            AIState.multi_agent_mode,
-                            AIState.set_multi_agent_mode,
-                            AIState.multi_agent_mode_options,
-                        ),
-                        # DESKTOP: Radix UI Select
-                        rx.select.root(
-                            rx.select.trigger(),
-                            rx.select.content(
-                                rx.select.item(
-                                    rx.cond(AIState.ui_language == "de", "Standard", "Standard"),
-                                    value="standard"
-                                ),
-                                rx.select.item(
-                                    rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review"),
-                                    value="critical_review"
-                                ),
-                                rx.select.item(
-                                    rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto-Consensus"),
-                                    value="auto_consensus"
-                                ),
-                                # Advocatus Diaboli deaktiviert v2.15.28 - Pro/Contra jetzt in Critical Review integriert
-                                # rx.select.item(
-                                #     rx.cond(AIState.ui_language == "de", "Advocatus Diaboli", "Devil's Advocate"),
-                                #     value="devils_advocate"
-                                # ),
-                                rx.select.item(
-                                    rx.cond(AIState.ui_language == "de", "Tribunal", "Tribunal"),
-                                    value="tribunal"
-                                ),
-                            ),
-                            value=AIState.multi_agent_mode,
-                            on_change=AIState.set_multi_agent_mode,
-                        ),
-                    ),
-                    # Glühbirnen-Icon für Hilfe-Modal (Desktop + Mobile)
-                    rx.tooltip(
-                        rx.icon(
-                            "lightbulb",
-                            size=18,
-                            color="#FFD700",
-                            cursor="pointer",
-                            on_click=AIState.open_multi_agent_help,
-                            style={
-                                "transition": "transform 0.2s ease",
-                                "&:hover": {
-                                    "transform": "scale(1.15)",
-                                },
-                            },
-                        ),
-                        content=t("discussion_mode_tooltip"),
-                    ),
-                    # Consensus Type Toggle (nur bei auto_consensus sichtbar, neben Glühbirne)
-                    rx.cond(
-                        AIState.multi_agent_mode == "auto_consensus",
-                        rx.hstack(
-                            # Dynamisches Label: 2/3 (grau) oder 3/3 (aktiv)
-                            rx.text(
-                                rx.cond(
-                                    AIState.is_unanimous_consensus,
-                                    "3/3",
-                                    "2/3"
-                                ),
-                                font_size="11px",
-                                color=rx.cond(
-                                    AIState.is_unanimous_consensus,
-                                    COLORS["primary"],
-                                    "var(--gray-10)"
-                                ),
-                                font_weight="600",
-                                min_width="24px",
-                                text_align="right",
-                            ),
-                            rx.switch(
-                                checked=AIState.is_unanimous_consensus,
-                                on_change=AIState.toggle_consensus_type,
-                                size="1",
-                            ),
-                            spacing="1",
-                            align="center",
-                            title=AIState.consensus_toggle_tooltip,
-                            margin_left="8px",  # Mehr Abstand zur Glühbirne
-                        ),
-                    ),
-                    spacing="3",
-                    align="center",
-                ),
-                # Max Debate Rounds +/- Buttons (visible for "auto_consensus" and "tribunal" modes)
-                rx.cond(
-                    (AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal"),
-                    rx.hstack(
-                        rx.text(t("max_debate_rounds"), font_size="11px"),
-                        rx.hstack(
-                            rx.icon_button(
-                                rx.icon("circle-minus", size=18),
-                                on_click=AIState.decrease_debate_rounds,
-                                size="2",
-                                variant="soft",
-                                disabled=AIState.max_debate_rounds <= 1,
-                                style={
-                                    "background-color": COLORS["warning_bg"],
-                                    "color": "#cc8800",
-                                },
-                            ),
-                            rx.badge(
-                                AIState.max_debate_rounds,
-                                variant="soft",
-                                font_size="11px",
-                                font_weight="600",
-                                padding_x="8px",
-                                padding_y="2px",
-                                style={
-                                    "background-color": "#5d4200",
-                                    "color": "#cc8800",
-                                    "min-width": "24px",
-                                    "text-align": "center",
-                                },
-                            ),
-                            rx.icon_button(
-                                rx.icon("circle-plus", size=18),
-                                on_click=AIState.increase_debate_rounds,
-                                size="2",
-                                variant="soft",
-                                disabled=AIState.max_debate_rounds >= 10,
-                                style={
-                                    "background-color": COLORS["warning_bg"],
-                                    "color": "#cc8800",
-                                },
-                            ),
-                            spacing="2",
-                            align="center",
-                        ),
-                        spacing="2",
-                        align="center",
-                        padding_top="4px",
-                    ),
-                ),
-                spacing="1",
-            ),
-            # Right: LLM Parameters Accordion (mit margin-top für Alignment mit Dropdown)
-            rx.box(
-                llm_parameters_accordion(),
-                margin_top="18px",  # Aligned mit Auto-Konsens Dropdown
-            ),
-            spacing="4",
-            align="start",
-            width="100%",
         ),
 
         # Processing Progress Banner (above the send button - always visible)

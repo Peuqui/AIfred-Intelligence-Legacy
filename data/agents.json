@@ -77,6 +77,23 @@
         "reasoning": false,
         "thinking": true
       }
+    },
+    "pater": {
+      "display_name": "Pater Tuck",
+      "emoji": "🔥",
+      "description": "",
+      "role": "custom",
+      "prompts": {
+        "identity": "pater/identity.txt",
+        "personality": "pater/personality.txt",
+        "task": "pater/system_minimal.txt",
+        "direct": "pater/direct.txt"
+      },
+      "toggles": {
+        "personality": true,
+        "reasoning": false,
+        "thinking": true
+      }
     }
   }
 }
