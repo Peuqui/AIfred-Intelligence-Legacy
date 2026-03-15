@@ -222,13 +222,16 @@ def _agent_edit_view() -> rx.Component:
             is_new,
             rx.vstack(
                 rx.text(t("agent_editor_id"), color="#aaa", font_size="12px"),
-                rx.input(
-                    value=AIState.editor_new_agent_id,
-                    on_change=AIState.set_editor_new_agent_id,
+                rx.el.input(
+                    id="editor-agent-id",
                     placeholder="z.B. dr_house",
                     width="100%",
                     color="white",
                     background_color="#333",
+                    border="1px solid #555",
+                    border_radius="6px",
+                    padding="6px 10px",
+                    font_size="14px",
                 ),
                 rx.text(
                     t("agent_editor_id_hint"),
@@ -242,29 +245,85 @@ def _agent_edit_view() -> rx.Component:
 
         # Metadata fields
         rx.hstack(
-            # Name
+            # Name (pure DOM, no state binding)
             rx.vstack(
                 rx.text(t("agent_editor_name"), color="#aaa", font_size="12px"),
-                rx.input(
-                    value=AIState.editor_display_name,
-                    on_change=AIState.set_editor_display_name,
+                rx.el.input(
+                    id="editor-name",
                     width="100%",
                     color="white",
                     background_color="#333",
+                    border="1px solid #555",
+                    border_radius="6px",
+                    padding="6px 10px",
+                    font_size="14px",
                 ),
                 spacing="1",
                 flex="1",
             ),
-            # Emoji
+            # Emoji with picker
             rx.vstack(
                 rx.text(t("agent_editor_emoji"), color="#aaa", font_size="12px"),
-                rx.input(
-                    value=AIState.editor_emoji,
-                    on_change=AIState.set_editor_emoji,
-                    width="60px",
-                    color="white",
-                    background_color="#333",
-                    text_align="center",
+                rx.box(
+                    rx.button(
+                        AIState.editor_emoji,
+                        on_click=AIState.toggle_emoji_picker,
+                        width="60px",
+                        height="36px",
+                        font_size="20px",
+                        variant="outline",
+                        color_scheme="gray",
+                        cursor="pointer",
+                        background_color="#333",
+                    ),
+                    # Emoji picker dropdown
+                    rx.cond(
+                        AIState.editor_emoji_picker_open,
+                        rx.box(
+                            rx.flex(
+                                *[
+                                    rx.button(
+                                        e,
+                                        on_click=AIState.set_editor_emoji(e),
+                                        size="1",
+                                        variant="ghost",
+                                        cursor="pointer",
+                                        font_size="18px",
+                                        padding="4px",
+                                        min_width="36px",
+                                        height="36px",
+                                    )
+                                    for e in [
+                                        "\U0001f3a9", "\U0001f3db\ufe0f", "\U0001f451",
+                                        "\U0001f4f7", "\U0001f916", "\U0001f9e0",
+                                        "\U0001f4a1", "\U0001f52c", "\U0001f3ad",
+                                        "\U0001f98a", "\U0001f43a", "\U0001f989",
+                                        "\U0001f409", "\U0001f9d9", "\U0001f468\u200d\u2695\ufe0f",
+                                        "\U0001f468\u200d\U0001f52c", "\U0001f575\ufe0f",
+                                        "\U0001f468\u200d\U0001f4bb", "\U0001f9d1\u200d\U0001f3eb",
+                                        "\U0001f3af", "\u26a1", "\U0001f525",
+                                        "\u2744\ufe0f", "\U0001f31f", "\U0001f480",
+                                        "\U0001f47d", "\U0001f921", "\U0001f608",
+                                        "\U0001f9be", "\U0001f9ec", "\u2699\ufe0f",
+                                        "\U0001f3aa",
+                                    ]
+                                ],
+                                wrap="wrap",
+                                gap="2px",
+                                max_width="300px",
+                            ),
+                            position="absolute",
+                            top="100%",
+                            left="0",
+                            z_index="100",
+                            background_color="#2a2a2a",
+                            border="1px solid #555",
+                            border_radius="8px",
+                            padding="8px",
+                            margin_top="4px",
+                        ),
+                    ),
+                    position="relative",
                 ),
                 spacing="1",
             ),
@@ -285,15 +344,18 @@ def _agent_edit_view() -> rx.Component:
             width="100%",
         ),
 
-        # Description
+        # Description (pure DOM, no state binding)
         rx.vstack(
             rx.text(t("agent_editor_description"), color="#aaa", font_size="12px"),
-            rx.input(
-                value=AIState.editor_description,
-                on_change=AIState.set_editor_description,
+            rx.el.input(
+                id="editor-description",
                 width="100%",
                 color="white",
                 background_color="#333",
+                border="1px solid #555",
+                border_radius="6px",
+                padding="6px 10px",
+                font_size="14px",
             ),
             spacing="1",
             width="100%",
@@ -318,10 +380,9 @@ def _agent_edit_view() -> rx.Component:
                     spacing="2",
                     flex_wrap="wrap",
                 ),
-                # Text editor
+                # Prompt textarea — pure DOM, populated via JS
                 rx.el.textarea(
-                    value=AIState.editor_prompt_content,
-                    on_change=AIState.set_editor_prompt_content,
+                    id="editor-prompt-textarea",
                     width="100%",
                     min_height="200px",
                     color="white",
@@ -342,7 +403,7 @@ def _agent_edit_view() -> rx.Component:
         rx.hstack(
             rx.button(
                 t("agent_editor_save"),
-                on_click=AIState.save_agent_editor,
+                on_click=AIState.save_agent_editor,  # reads DOM via call_script
                 color_scheme="green",
                 size="2",
                 cursor="pointer",
