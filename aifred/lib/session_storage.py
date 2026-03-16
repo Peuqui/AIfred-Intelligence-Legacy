@@ -576,9 +576,16 @@ def delete_session(session_id: str) -> bool:
         True on success
     """
     try:
-        # Delete session JSON file
         session_path = get_session_path(session_id)
+
+        # Load session data before deleting to find referenced HTML files
         if session_path.exists():
+            try:
+                session_data = json.loads(session_path.read_text(encoding="utf-8"))
+                from .formatting import cleanup_session_html
+                cleanup_session_html(session_data)
+            except (json.JSONDecodeError, OSError):
+                pass
             session_path.unlink()
 
         # Also cleanup associated images

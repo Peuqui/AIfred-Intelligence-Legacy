@@ -388,6 +388,46 @@ def _cleanup_html_cache():
         _html_file_cache.clear()
 
 
+def cleanup_session_html(session_data: dict) -> int:
+    """Delete HTML preview files referenced by a session's chat history.
+
+    Scans all messages for html_preview/ URLs and deletes the corresponding files.
+
+    Args:
+        session_data: Full session dict (with 'data' → 'chat_history')
+
+    Returns:
+        Number of files deleted
+    """
+    chat_history = session_data.get("data", {}).get("chat_history", [])
+    if not chat_history:
+        return 0
+
+    # Collect all referenced HTML filenames from message content
+    html_pattern = re.compile(r'html_preview/([^"\'<>\s]+\.html)')
+    filenames: set[str] = set()
+    for msg in chat_history:
+        content = msg.get("content", "")
+        filenames.update(html_pattern.findall(content))
+
+    deleted = 0
+    for filename in filenames:
+        filepath = _HTML_PREVIEW_DIR / filename
+        if filepath.exists():
+            try:
+                filepath.unlink()
+                deleted += 1
+            except OSError:
+                pass
+            # Also remove from LRU cache
+            with _html_cache_lock:
+                _html_file_cache.pop(filename, None)
+
+    if deleted:
+        log_message(f"🗑️ HTML Preview: Deleted {deleted} file(s) for session cleanup")
+    return deleted
+
+
 # KaTeX inline embedding cache (loaded once, reused for all exports)
 _katex_inline_cache: dict[str, str] = {}
 
