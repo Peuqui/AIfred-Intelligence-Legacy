@@ -419,6 +419,8 @@ async def build_and_generate_response(
         "role": "assistant",
         "content": f"{history_content}\n\n{metadata_display}",
         "agent": "aifred",
+        "agent_display_name": "AIfred",
+        "agent_emoji": "\U0001f3a9",
         "mode": "web_research",
         "round_num": 0,
         "metadata": metadata_dict,

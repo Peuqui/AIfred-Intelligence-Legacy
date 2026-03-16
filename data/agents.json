@@ -94,6 +94,23 @@
         "reasoning": false,
         "thinking": true
       }
+    },
+    "codi": {
+      "display_name": "Codi",
+      "emoji": "🤖",
+      "description": "",
+      "role": "custom",
+      "prompts": {
+        "identity": "codi/identity.txt",
+        "personality": "codi/personality.txt",
+        "task": "codi/system_minimal.txt",
+        "direct": "codi/direct.txt"
+      },
+      "toggles": {
+        "personality": true,
+        "reasoning": false,
+        "thinking": true
+      }
     }
   }
 }

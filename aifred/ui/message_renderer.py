@@ -232,20 +232,17 @@ def render_assistant_message(msg: dict) -> rx.Component:
     return rx.cond(
         msg["agent"] == "sokrates",
         _agent_bubble(
-            msg, "\U0001f3db\ufe0f", "Sokrates", "#cd7f32",
+            msg, msg["agent_emoji"], msg["agent_display_name"], "#cd7f32",
             "rgba(205, 127, 50, 0.08)", "rgba(205, 127, 50, 0.03)", "rgba(205, 127, 50, 0.3)",
         ),
         rx.cond(
             msg["agent"] == "salomo",
             _agent_bubble(
-                msg, "\U0001f451", "Salomo", "#daa520",
+                msg, msg["agent_emoji"], msg["agent_display_name"], "#daa520",
                 "rgba(218, 165, 32, 0.08)", "rgba(218, 165, 32, 0.03)", "rgba(218, 165, 32, 0.3)",
             ),
-            # Generic: use agent_display_name + agent_emoji from dict
             _agent_bubble(
-                msg,
-                msg["agent_emoji"],
-                msg["agent_display_name"],
+                msg, msg["agent_emoji"], msg["agent_display_name"],
                 COLORS["primary"],
                 COLORS["ai_msg"], "rgba(255, 255, 255, 0.03)", "rgba(255, 255, 255, 0.1)",
             ),

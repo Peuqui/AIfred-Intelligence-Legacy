@@ -265,13 +265,14 @@ def create_agent(
 
 
 def delete_agent(agent_id: str) -> None:
-    """Delete an agent from config.
-
-    Does NOT delete prompt files (user might want to keep them).
+    """Delete an agent from config and remove prompt files from disk.
 
     Raises:
         ValueError: If agent is a default agent or doesn't exist
     """
+    import shutil
+    from .prompt_loader import PROMPTS_DIR
+
     if agent_id in ("aifred", "sokrates", "salomo", "vision"):
         raise ValueError(f"Cannot delete default agent '{agent_id}'")
 
@@ -279,8 +280,26 @@ def delete_agent(agent_id: str) -> None:
     if agent_id not in agents:
         raise ValueError(f"Agent '{agent_id}' not found")
 
+    # Get prompt directory name from config before deleting
+    config = agents[agent_id]
+    prompt_dirs: set[str] = set()
+    for prompt_path in config.get("prompts", {}).values():
+        # prompt_path is like "codi/identity.txt" → directory is "codi"
+        parts = prompt_path.split("/")
+        if len(parts) >= 2:
+            prompt_dirs.add(parts[0])
+
     del agents[agent_id]
     save_agents_raw(agents)
+
+    # Remove prompt files from disk (both languages)
+    for lang in ("de", "en"):
+        for prompt_dir in prompt_dirs:
+            full_path = PROMPTS_DIR / lang / prompt_dir
+            if full_path.exists() and full_path.is_dir():
+                shutil.rmtree(full_path)
+                from .logging_utils import log_message
+                log_message(f"🗑️ Deleted prompt directory: {full_path}")
 
 
 def update_agent(agent_id: str, updates: dict) -> AgentConfig:

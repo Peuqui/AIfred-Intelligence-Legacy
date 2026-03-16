@@ -287,6 +287,8 @@ async def handle_cache_hit(
         "role": "assistant",
         "content": f"{final_answer_formatted}\n\n{metadata_display}",
         "agent": "aifred",
+        "agent_display_name": "AIfred",
+        "agent_emoji": "\U0001f3a9",
         "mode": "session_cache",
         "round_num": 0,
         "metadata": metadata_dict,

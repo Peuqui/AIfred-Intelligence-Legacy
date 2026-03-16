@@ -259,6 +259,8 @@ async def handle_own_knowledge(
             "role": "assistant",
             "content": ai_with_source,
             "agent": "aifred",
+            "agent_display_name": "AIfred",
+            "agent_emoji": "\U0001f3a9",
             "mode": "own_knowledge",
             "round_num": 0,
             "metadata": metadata_dict,
