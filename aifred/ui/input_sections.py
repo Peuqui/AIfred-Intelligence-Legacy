@@ -432,6 +432,22 @@ def text_input_section() -> rx.Component:
                         height="20px",
                         background=COLORS["border"],
                     ),
+                    rx.tooltip(
+                        rx.box(
+                            rx.text(
+                                rx.cond(AIState.agent_memory_enabled, "🔓", "🔒"),
+                                font_size="16px",
+                                cursor="pointer",
+                                opacity=rx.cond(AIState.agent_memory_enabled, "1", "0.5"),
+                            ),
+                            on_click=AIState.setvar("agent_memory_enabled", ~AIState.agent_memory_enabled),  # type: ignore[arg-type]
+                        ),
+                        content=rx.cond(
+                            AIState.agent_memory_enabled,
+                            "Gedächtnis aktiv",
+                            "Inkognito-Modus (kein Gedächtnis)",
+                        ),
+                    ),
                     rx.foreach(
                         AIState.selectable_agents,
                         _agent_toggle_button,

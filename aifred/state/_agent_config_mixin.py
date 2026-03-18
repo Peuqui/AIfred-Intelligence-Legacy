@@ -137,6 +137,7 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     # ── Active Agent (direct chat) ─────────────────────────────────
     active_agent: str = "aifred"  # Which agent responds (default: aifred)
+    agent_memory_enabled: bool = True  # Global toggle: agents use long-term memory
 
     # ── Multi-Agent Settings (PERSISTENT) ─────────────────────────
     multi_agent_mode: str = "standard"

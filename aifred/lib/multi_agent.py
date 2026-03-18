@@ -436,18 +436,19 @@ async def _run_agent_direct_response(
 
         # Agent Memory: recall relevant memories and inject into system prompt
         toolkit = None
-        from .agent_memory import get_agent_memory, format_memory_context
-        memory = get_agent_memory()
-        if memory:
-            memories = await memory.recall(agent, user_query)
-            if memories:
-                memory_ctx = format_memory_context(memories)
-                system_prompt = f"{system_prompt}\n\n{memory_ctx}"
-                state.add_debug(f"🧠 {len(memories)} memories recalled for {agent}")
-            toolkit = memory.make_toolkit(agent)
-            state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent}")
+        if state.agent_memory_enabled:  # type: ignore[attr-defined]
+            from .agent_memory import get_agent_memory, format_memory_context
+            memory = get_agent_memory()
+            if memory:
+                memories = await memory.recall(agent, user_query)
+                if memories:
+                    memory_ctx = format_memory_context(memories)
+                    system_prompt = f"{system_prompt}\n\n{memory_ctx}"
+                    state.add_debug(f"🧠 {len(memories)} memories recalled for {agent}")
+                toolkit = memory.make_toolkit(agent)
+                state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent}")
         else:
-            state.add_debug("⚠️ AgentMemory unavailable")
+            state.add_debug("🔒 Inkognito-Modus (kein Gedächtnis)")
 
         # Build messages with agent's perspective
         messages: list[dict[str, Any]] = build_messages_from_llm_history(

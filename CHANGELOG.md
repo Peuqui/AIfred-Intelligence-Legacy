@@ -5,6 +5,32 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.58.0] - 2026-03-19 🧠 Function Calling + Agent Long-Term Memory
+
+### Added
+
+- **Function Calling Infrastructure** (`function_calling.py`) — OpenAI-compatible `Tool` and `ToolKit` classes. Transparent tool loop in `chat_stream` (max 5 rounds). Tools are passed to the LLM API and executed automatically when the model returns `tool_calls`. Works with streaming.
+- **Agent Long-Term Memory** (`agent_memory.py`) — Each agent gets a persistent ChromaDB collection (`agent_memory_{id}`). Agents can store insights via `store_memory` function call and recall relevant memories via semantic search. 1000 entries max per agent, oldest evicted on overflow.
+- **Memory Context Injection** — Before each agent direct-response, top 3 relevant memories are retrieved and injected into the system prompt as "own earlier texts" (not external knowledge).
+- **Incognito Mode** (🔒/🔓) — Global toggle in agent button row. When locked, agents have no memory access (no recall, no store, no toolkit). Debug log shows `🔒 Inkognito-Modus`.
+- **Agent Prompt Updates** — Pater Tuck, Sokrates, Codi prompts updated (DE+EN) with memory usage hints.
+- **Size-Based TTL** — llama-swap model TTL now depends on model size: <20 GB = 15 min, 20-50 GB = 20 min, >50 GB = 30 min.
+- **VRAM Safety Margin** — Increased from 64 MB to 128 MB to prevent OOM crashes during inference.
+- **Calibration Precision Config** — `LLAMACPP_CALIBRATION_PRECISION` (256 tokens) extracted to `config.py`.
+
+### Fixed
+
+- **Qwen3 Tool Call Fix** — Force `enable_thinking: false` when tools are present. Qwen3 puts tool_calls into `reasoning_content` when thinking is enabled, breaking structured function calling output.
+- **Retry on 502/503** — `chat_stream` retries up to 300s on transient errors during model loading.
+- **Chat Bubble Padding** — Explicit right padding (16px) on all bubbles + `overflow_x: auto` on markdown for scrollable tables.
+- **Button renamed** — "Vector-DB leeren" → "Web-Cache leeren" (clearer purpose).
+
+### Technical Details
+
+- New files: `aifred/lib/function_calling.py` (~85 lines), `aifred/lib/agent_memory.py` (~190 lines)
+- Modified: `base.py` (tool loop), `llm_client.py` (toolkit passthrough), `multi_agent.py` (memory recall + toolkit injection), `config.py` (constants), `input_sections.py` (incognito toggle), `settings_accordion.py` (button rename)
+- Config: `AGENT_MEMORY_COLLECTION_MAX=1000`, `AGENT_MEMORY_DISTANCE_THRESHOLD=1.0`, `AGENT_MEMORY_RESULTS=3`
+
 ## [2.57.0] - 2026-03-07 🎯 KV Refactor + Independent Speed KV
 
 ### Changed

@@ -1385,7 +1385,7 @@ def settings_accordion() -> rx.Component:
                     ),
                     # Row 2: Vector DB clear button (full width, same style as chat clear)
                     rx.button(
-                        "\U0001f5d1\ufe0f Vector-DB leeren",
+                        "\U0001f5d1\ufe0f Web-Cache leeren",
                         on_click=AIState.clear_vector_cache,
                         size="2",
                         variant="outline",

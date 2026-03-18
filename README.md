@@ -33,6 +33,8 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Automatic Context Calibration**: VRAM-aware context sizing per backend - Ollama (Binary Search + RoPE scaling 1.0x/1.5x/2.0x, hybrid CPU offload), llama.cpp (3-phase: GPU-only Binary Search → Speed variant with tensor-split optimization for multi-GPU → Hybrid NGL fallback)
 - **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (double-buffered HTML5 audio, seamless playback during LLM inference)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
+- **Agent Long-Term Memory**: Per-agent persistent memory via ChromaDB — agents autonomously store insights via function calling and recall relevant memories for context injection. Incognito mode (🔒) disables memory globally
+- **Function Calling**: OpenAI-compatible tool infrastructure for LLM-driven actions (store_memory as first tool, extensible)
 - **Sampling Parameters Table**: Per-agent control of Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual mode) — sampling params reset to llama-swap YAML defaults on restart, temperature persisted in settings.json
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **User Authentication**: Username + password login with whitelist-based registration, admin CLI for user management
