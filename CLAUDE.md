@@ -203,3 +203,12 @@ systemctl status aifred-intelligence.service
 # Logs ansehen
 journalctl --user -u aifred-intelligence -f
 ```
+
+---
+
+## HuggingFace Model Download
+
+**Model Discovery verwendet HuggingFace Cache:**
+- Siehe `aifred/lib/model_discovery.py` → `discover_huggingface_models()`
+- Scannt `~/.cache/huggingface/hub/models--*` für vLLM/TabbyAPI kompatible Modelle
+- Download-Anleitung siehe `~/.claude/CLAUDE.md` (global für alle Projekte)
