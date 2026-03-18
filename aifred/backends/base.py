@@ -602,15 +602,15 @@ class OpenAICompatibleBackend(LLMBackend):
                     kwargs["messages"].append(assistant_msg)
 
                     for tc in tool_calls:
+                        from ..lib.logging_utils import log_message
+                        log_message(f"🔧 Tool call: {tc['name']}({tc['arguments'][:80]})")
                         result = await toolkit.execute(tc["name"], tc["arguments"])
+                        log_message(f"🔧 Tool result: {result[:100]}")
                         kwargs["messages"].append({
                             "role": "tool",
                             "tool_call_id": tc["id"],
                             "content": result,
                         })
-                        logging.getLogger("aifred").info(
-                            f"Tool '{tc['name']}' executed: {result[:100]}"
-                        )
 
                     # Next round: LLM sees tool results and generates final response
 
