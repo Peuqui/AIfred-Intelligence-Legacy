@@ -523,10 +523,8 @@ def calibrate_model_fit_params(
     gguf_path = model["path"]
     native_context = get_native_context(gguf_path)
     gpu_flags = build_gpu_flags(gguf_path, per_gpu_vram)
-    total_vram_mb = sum(per_gpu_vram)
     model_mb = get_gguf_total_size(gguf_path) / (1024 * 1024)
     mmproj = model.get("mmproj_path")
-    needs_ngl_search = bool(gpu_flags) or model_mb > total_vram_mb * MULTI_GPU_VRAM_THRESHOLD
 
     print(f"  {model['name']} ({model_mb:,.0f} MB, native context: {native_context:,}):")
 
@@ -535,45 +533,58 @@ def calibrate_model_fit_params(
         model["calibrated_context"] = min(native_context, FALLBACK_CONTEXT)
         model["calibrated_kv_quant"] = "q4_0"
         model["calibrated_gpu_flags"] = gpu_flags
-        model["calibrated_ngl"] = DEFAULT_NGL if not needs_ngl_search else 1
+        model["calibrated_ngl"] = DEFAULT_NGL
         return True
 
-    # Try KV quant levels: f16 (best quality), q8_0, q4_0 (most VRAM-efficient)
-    # Strategy: prefer f16 with reduced context over quantized KV at full context
+    # Strategy: always try ngl=99 first (full GPU offload).
+    # If model doesn't fit at ngl=99 even with minimal context, reduce NGL (hybrid mode).
+    # AIfred calibration handles fine-tuning of context afterwards.
     for kv in [None, "q8_0", "q4_0"]:
         kv_label = kv or "f16"
 
-        # Binary search for highest context that fits (between FALLBACK and native)
+        # Binary search for highest context that fits at ngl=99
         ctx_low = min(FALLBACK_CONTEXT, native_context)
         ctx_high = native_context
         best_ctx = 0
-        best_ctx_ngl = 0
+        best_ctx_ngl = DEFAULT_NGL
         best_ctx_gpus: dict[str, dict[str, int]] = {}
 
         while ctx_low <= ctx_high:
             ctx_mid = ((ctx_low + ctx_high) // 2 + 1023) & ~1023  # round up to 1024
 
-            if needs_ngl_search:
-                ngl_result, gpus = _find_best_ngl(
-                    gguf_path, ctx_mid, gpu_flags, kv, mmproj,
-                )
+            gpus = _fit_params_per_gpu(
+                gguf_path, ctx_mid, DEFAULT_NGL, gpu_flags, kv, mmproj,
+            )
+            if gpus:
+                min_free = min(g["free"] for g in gpus.values())
+                fits = min_free >= VRAM_SAFETY_MARGIN_MB
             else:
-                gpus = _fit_params_per_gpu(
-                    gguf_path, ctx_mid, DEFAULT_NGL, gpu_flags, kv, mmproj,
-                )
-                if gpus:
-                    min_free = min(g["free"] for g in gpus.values())
-                    ngl_result = DEFAULT_NGL if min_free >= VRAM_SAFETY_MARGIN_MB else 0
-                else:
-                    ngl_result = 0
+                fits = False
 
-            if ngl_result > 0:
+            if fits:
                 best_ctx = ctx_mid
-                best_ctx_ngl = ngl_result
                 best_ctx_gpus = gpus
                 ctx_low = ctx_mid + 1024
             else:
                 ctx_high = ctx_mid - 1024
+
+        # ngl=99 doesn't fit at all — fall back to NGL search (hybrid CPU/GPU)
+        if best_ctx == 0:
+            print(f"    ⚠ KV={kv_label}, ngl=99 doesn't fit — searching for best NGL...")
+            ctx_low = min(FALLBACK_CONTEXT, native_context)
+            ctx_high = native_context
+            while ctx_low <= ctx_high:
+                ctx_mid = ((ctx_low + ctx_high) // 2 + 1023) & ~1023
+                ngl_result, gpus = _find_best_ngl(
+                    gguf_path, ctx_mid, gpu_flags, kv, mmproj,
+                )
+                if ngl_result > 0:
+                    best_ctx = ctx_mid
+                    best_ctx_ngl = ngl_result
+                    best_ctx_gpus = gpus
+                    ctx_low = ctx_mid + 1024
+                else:
+                    ctx_high = ctx_mid - 1024
 
         if best_ctx > 0:
             min_free = min(g["free"] for g in best_ctx_gpus.values())
