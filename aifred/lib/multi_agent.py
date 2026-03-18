@@ -434,6 +434,21 @@ async def _run_agent_direct_response(
         # System prompt
         system_prompt = get_prompt_func(lang=detected_lang)
 
+        # Agent Memory: recall relevant memories and inject into system prompt
+        toolkit = None
+        from .agent_memory import get_agent_memory, format_memory_context
+        memory = get_agent_memory()
+        if memory:
+            memories = await memory.recall(agent, user_query)
+            if memories:
+                memory_ctx = format_memory_context(memories)
+                system_prompt = f"{system_prompt}\n\n{memory_ctx}"
+                state.add_debug(f"🧠 {len(memories)} memories recalled for {agent}")
+            toolkit = memory.make_toolkit(agent)
+            state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent}")
+        else:
+            state.add_debug("⚠️ AgentMemory unavailable")
+
         # Build messages with agent's perspective
         messages: list[dict[str, Any]] = build_messages_from_llm_history(
             state._chat_sub().llm_history[:-1],
@@ -484,7 +499,7 @@ async def _run_agent_direct_response(
         agent_ttft = 0.0
         metrics: dict[str, Any] = {}
 
-        async for chunk in llm_client.chat_stream(agent_model_id, messages, agent_options):  # type: ignore[arg-type]
+        async for chunk in llm_client.chat_stream(agent_model_id, messages, agent_options, toolkit=toolkit):  # type: ignore[arg-type]
             chunk_type = chunk.get("type", "")
 
             if chunk_type == "content":

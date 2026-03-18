@@ -959,6 +959,13 @@ CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Very similar (semantic duplicate, alwa
 CACHE_DISTANCE_RAG = 1.2  # < 1.2 = Similar enough for RAG context (implemented later)
 
 # ============================================================
+# AGENT MEMORY CONFIGURATION
+# ============================================================
+AGENT_MEMORY_COLLECTION_MAX = 1000   # Max entries per agent collection
+AGENT_MEMORY_DISTANCE_THRESHOLD = 1.0  # Max distance for relevant memories (nomic-embed scale)
+AGENT_MEMORY_RESULTS = 3             # Number of memories to inject as context
+
+# ============================================================
 # XML TAG FORMATTING CONFIGURATION
 # ============================================================
 # Collapsible formatting for XML tags in AI responses

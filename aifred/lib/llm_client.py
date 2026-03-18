@@ -150,7 +150,8 @@ class LLMClient:
         self,
         model: str,
         messages: List[MessageType],
-        options: Optional[Union[Dict[str, Any], LLMOptions]] = None
+        options: Optional[Union[Dict[str, Any], LLMOptions]] = None,
+        toolkit: Any = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         Async streaming chat completion
@@ -159,6 +160,7 @@ class LLMClient:
             model: Model name
             messages: List of messages (dict or LLMMessage)
             options: Generation options (dict or LLMOptions)
+            toolkit: Optional ToolKit for function calling
 
         Yields:
             Dict with either:
@@ -170,7 +172,7 @@ class LLMClient:
         llm_options = self._prepare_options(options)
 
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
-        async for chunk in backend.chat_stream(model, converted_messages, llm_options):
+        async for chunk in backend.chat_stream(model, converted_messages, llm_options, toolkit=toolkit):
             yield chunk
 
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:

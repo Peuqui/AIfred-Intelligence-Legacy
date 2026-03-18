@@ -492,13 +492,16 @@ class OpenAICompatibleBackend(LLMBackend):
         model: str,
         messages: List[LLMMessage],
         options: Optional[LLMOptions] = None,
+        toolkit: Optional[Any] = None,
     ) -> AsyncIterator[Dict]:
         if options is None:
             options = LLMOptions()
 
         await self._pre_request_check(model)
 
-        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+        openai_messages: List[Dict[str, Any]] = [
+            {"role": msg.role, "content": msg.content} for msg in messages
+        ]
 
         kwargs: Dict[str, Any] = {
             "model": model,
@@ -510,8 +513,14 @@ class OpenAICompatibleBackend(LLMBackend):
         }
         if options.num_predict:
             kwargs["max_tokens"] = options.num_predict
+        if toolkit and toolkit.definitions:
+            kwargs["tools"] = toolkit.definitions
 
         extra_body = self._build_extra_body(options)
+        # Tool calls require enable_thinking=false (Qwen3 puts tool_calls in
+        # reasoning_content when thinking is enabled, breaking structured output)
+        if toolkit and toolkit.definitions:
+            extra_body.setdefault("chat_template_kwargs", {})["enable_thinking"] = False
         if extra_body:
             kwargs["extra_body"] = extra_body
 
@@ -521,6 +530,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
         retry_timeout = 300.0  # max seconds to keep retrying (model loading can take >120s)
         retry_delay = 5.0
+        max_tool_rounds = 5  # prevent infinite tool loops
         start_time = time.monotonic()
         last_error: Optional[Exception] = None
 
@@ -528,29 +538,81 @@ class OpenAICompatibleBackend(LLMBackend):
             try:
                 from ..lib.timer import Timer
                 timer = Timer()
-                stream = await self.client.chat.completions.create(**kwargs)
 
                 total_tokens = 0
                 prompt_tokens = 0
                 server_timings: Dict[str, Any] = {}
-                stream_state: Dict[str, Any] = {}
 
-                async for chunk in stream:
-                    if chunk.choices:
-                        delta = chunk.choices[0].delta
-                        delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
-                        for item in self._process_stream_delta(delta, delta_dict, stream_state):
-                            yield item
-                            if item.get("type") == "content":
-                                total_tokens += 1
+                for _tool_round in range(max_tool_rounds):
+                    stream = await self.client.chat.completions.create(**kwargs)
 
-                    if hasattr(chunk, "usage") and chunk.usage:
-                        prompt_tokens = chunk.usage.prompt_tokens
-                        total_tokens = chunk.usage.completion_tokens
-                        server_timings = self._extract_server_timings(chunk)
+                    stream_state: Dict[str, Any] = {}
+                    tool_calls: List[Dict[str, Any]] = []
 
-                for item in self._finalize_stream(stream_state):
-                    yield item
+                    async for chunk in stream:
+                        if chunk.choices:
+                            delta = chunk.choices[0].delta
+                            delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
+
+                            # Accumulate tool calls from streaming deltas
+                            if hasattr(delta, "tool_calls") and delta.tool_calls:
+                                for tc_delta in delta.tool_calls:
+                                    idx = tc_delta.index
+                                    while idx >= len(tool_calls):
+                                        tool_calls.append({"id": "", "name": "", "arguments": ""})
+                                    if tc_delta.id:
+                                        tool_calls[idx]["id"] = tc_delta.id
+                                    if tc_delta.function:
+                                        if tc_delta.function.name:
+                                            tool_calls[idx]["name"] = tc_delta.function.name
+                                        if tc_delta.function.arguments:
+                                            tool_calls[idx]["arguments"] += tc_delta.function.arguments
+
+                            # Normal content/thinking chunks
+                            for item in self._process_stream_delta(delta, delta_dict, stream_state):
+                                yield item
+                                if item.get("type") == "content":
+                                    total_tokens += 1
+
+                        if hasattr(chunk, "usage") and chunk.usage:
+                            prompt_tokens = chunk.usage.prompt_tokens
+                            total_tokens = chunk.usage.completion_tokens
+                            server_timings = self._extract_server_timings(chunk)
+
+                    for item in self._finalize_stream(stream_state):
+                        yield item
+
+                    # No tool calls → done
+                    if not tool_calls or not toolkit:
+                        break
+
+                    # Execute tool calls and append results to messages
+                    assistant_msg: Dict[str, Any] = {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": tc["id"],
+                                "type": "function",
+                                "function": {"name": tc["name"], "arguments": tc["arguments"]},
+                            }
+                            for tc in tool_calls
+                        ],
+                    }
+                    kwargs["messages"].append(assistant_msg)
+
+                    for tc in tool_calls:
+                        result = await toolkit.execute(tc["name"], tc["arguments"])
+                        kwargs["messages"].append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": result,
+                        })
+                        logging.getLogger("aifred").info(
+                            f"Tool '{tc['name']}' executed: {result[:100]}"
+                        )
+
+                    # Next round: LLM sees tool results and generates final response
 
                 inference_time = timer.elapsed()
 
