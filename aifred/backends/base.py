@@ -519,7 +519,7 @@ class OpenAICompatibleBackend(LLMBackend):
         import time
         import logging
 
-        retry_timeout = 120.0  # max seconds to keep retrying
+        retry_timeout = 300.0  # max seconds to keep retrying (model loading can take >120s)
         retry_delay = 5.0
         start_time = time.monotonic()
         last_error: Optional[Exception] = None
