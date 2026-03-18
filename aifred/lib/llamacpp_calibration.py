@@ -28,6 +28,7 @@ import yaml
 from .config import (
     CALIBRATION_MIN_CONTEXT,
     LLAMACPP_CALIBRATION_PORT,
+    LLAMACPP_CALIBRATION_PRECISION,
     LLAMACPP_HEALTH_TIMEOUT,
     LLAMACPP_VRAM_SAFETY_MARGIN,
     LLAMACPP_VISION_VRAM_RESERVE,
@@ -1311,7 +1312,7 @@ async def _binary_search_context(
     port: int,
     low: int,
     high: int,
-    precision: int = 512,
+    precision: int = LLAMACPP_CALIBRATION_PRECISION,
     cuda_gpu_names: list[str] | None = None,
     run_thinking_test: bool = False,
     safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
@@ -2339,8 +2340,8 @@ async def _calibrate_speed_split(
                         yield f"✗ {best_split} at ctx={format_number(probe)} ({probe_detail})"
                         break
 
-                # Binary fine-tuning (512 precision)
-                if first_fail - last_pass > 512:
+                # Binary fine-tuning
+                if first_fail - last_pass > LLAMACPP_CALIBRATION_PRECISION:
                     async for item in _binary_search_context(
                         kv_cmd, port, last_pass, first_fail,
                         safety_margin=safety_margin,
@@ -2373,10 +2374,10 @@ async def _calibrate_speed_split(
                         yield f"✗ {best_split} at ctx={format_number(probe)} ({probe_detail})"
                         probe -= step
 
-                # Binary fine-tuning (512 precision)
+                # Binary fine-tuning
                 if first_pass > 0:
                     last_fail = min(probe + step, projected_ctx)
-                    if last_fail - first_pass > 512:
+                    if last_fail - first_pass > LLAMACPP_CALIBRATION_PRECISION:
                         async for item in _binary_search_context(
                             kv_cmd, port, first_pass, last_fail,
                             safety_margin=safety_margin,

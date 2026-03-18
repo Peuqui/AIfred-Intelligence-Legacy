@@ -863,6 +863,7 @@ VRAM_SAFETY_MARGIN = 512  # MB
 # Measured on WSL2: 512 → 70 tok/s (VMM), 1024 → marginal, 1536 → 137 tok/s (full speed)
 _is_wddm = "microsoft" in platform.release().lower() or os.name == "nt"
 LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 64  # MB
+LLAMACPP_CALIBRATION_PRECISION = 256  # Token step size for context binary search
 
 # Extra VRAM reserve for vision-language models (MB)
 # VL models (--mmproj) need a CLIP compute buffer that scales with image token count.
