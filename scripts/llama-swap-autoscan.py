@@ -550,7 +550,7 @@ def calibrate_model_fit_params(
         best_ctx_gpus: dict[str, dict[str, int]] = {}
 
         while ctx_low <= ctx_high:
-            ctx_mid = ((ctx_low + ctx_high) // 2 + 1023) & ~1023  # round up to 1024
+            ctx_mid = ((ctx_low + ctx_high) // 2 + 255) & ~255  # round up to 256
 
             gpus = _fit_params_per_gpu(
                 gguf_path, ctx_mid, DEFAULT_NGL, gpu_flags, kv, mmproj,
@@ -564,9 +564,9 @@ def calibrate_model_fit_params(
             if fits:
                 best_ctx = ctx_mid
                 best_ctx_gpus = gpus
-                ctx_low = ctx_mid + 1024
+                ctx_low = ctx_mid + 256
             else:
-                ctx_high = ctx_mid - 1024
+                ctx_high = ctx_mid - 256
 
         # ngl=99 doesn't fit at all — fall back to NGL search (hybrid CPU/GPU)
         if best_ctx == 0:
@@ -574,7 +574,7 @@ def calibrate_model_fit_params(
             ctx_low = min(FALLBACK_CONTEXT, native_context)
             ctx_high = native_context
             while ctx_low <= ctx_high:
-                ctx_mid = ((ctx_low + ctx_high) // 2 + 1023) & ~1023
+                ctx_mid = ((ctx_low + ctx_high) // 2 + 255) & ~255
                 ngl_result, gpus = _find_best_ngl(
                     gguf_path, ctx_mid, gpu_flags, kv, mmproj,
                 )
@@ -582,9 +582,9 @@ def calibrate_model_fit_params(
                     best_ctx = ctx_mid
                     best_ctx_ngl = ngl_result
                     best_ctx_gpus = gpus
-                    ctx_low = ctx_mid + 1024
+                    ctx_low = ctx_mid + 256
                 else:
-                    ctx_high = ctx_mid - 1024
+                    ctx_high = ctx_mid - 256
 
         if best_ctx > 0:
             min_free = min(g["free"] for g in best_ctx_gpus.values())
