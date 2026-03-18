@@ -50,7 +50,9 @@ VRAM_CACHE_FILE = PROJECT_ROOT / "data" / "model_vram_cache.json"
 
 LLAMA_SERVER_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-server"
 LLAMA_FIT_PARAMS_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-fit-params"
-DEFAULT_TTL = 900
+DEFAULT_TTL_SMALL = 900   # < 20 GB models (15 min)
+DEFAULT_TTL_MEDIUM = 1200  # 20-50 GB models (20 min)
+DEFAULT_TTL_LARGE = 1800   # > 50 GB models (30 min)
 DEFAULT_NGL = 99
 DEFAULT_FLAGS_BASE = "--flash-attn on -np 1 -t 4 --mlock --direct-io --jinja --no-context-shift"
 DEFAULT_CONTEXT = 32768  # Fallback if GGUF metadata unreadable
@@ -1273,10 +1275,18 @@ def append_models_to_yaml(
             )
             print(f"  + Added: {name} (context: {context:,}{kv_label}{ngl_label}{sampling_label})")
 
+        model_size_gb = get_gguf_total_size(Path(path)) / (1024 ** 3)
+        if model_size_gb >= 50:
+            ttl = DEFAULT_TTL_LARGE
+        elif model_size_gb >= 20:
+            ttl = DEFAULT_TTL_MEDIUM
+        else:
+            ttl = DEFAULT_TTL_SMALL
+
         new_blocks += "  # [autoscan]\n"
         new_blocks += f"  {name}:\n"
         new_blocks += f"    cmd: {cmd_line}\n"
-        new_blocks += f"    ttl: {DEFAULT_TTL}\n"
+        new_blocks += f"    ttl: {ttl}\n"
 
         added += 1
 
