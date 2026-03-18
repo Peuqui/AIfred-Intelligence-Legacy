@@ -515,42 +515,64 @@ class OpenAICompatibleBackend(LLMBackend):
         if extra_body:
             kwargs["extra_body"] = extra_body
 
-        try:
-            from ..lib.timer import Timer
-            timer = Timer()
-            stream = await self.client.chat.completions.create(**kwargs)
+        import asyncio
+        import time
+        import logging
 
-            total_tokens = 0
-            prompt_tokens = 0
-            server_timings: Dict[str, Any] = {}
-            stream_state: Dict[str, Any] = {}
+        retry_timeout = 120.0  # max seconds to keep retrying
+        retry_delay = 5.0
+        start_time = time.monotonic()
+        last_error: Optional[Exception] = None
 
-            async for chunk in stream:
-                if chunk.choices:
-                    delta = chunk.choices[0].delta
-                    delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
-                    for item in self._process_stream_delta(delta, delta_dict, stream_state):
-                        yield item
-                        if item.get("type") == "content":
-                            total_tokens += 1
+        while time.monotonic() - start_time < retry_timeout:
+            try:
+                from ..lib.timer import Timer
+                timer = Timer()
+                stream = await self.client.chat.completions.create(**kwargs)
 
-                if hasattr(chunk, "usage") and chunk.usage:
-                    prompt_tokens = chunk.usage.prompt_tokens
-                    total_tokens = chunk.usage.completion_tokens
-                    server_timings = self._extract_server_timings(chunk)
+                total_tokens = 0
+                prompt_tokens = 0
+                server_timings: Dict[str, Any] = {}
+                stream_state: Dict[str, Any] = {}
 
-            for item in self._finalize_stream(stream_state):
-                yield item
+                async for chunk in stream:
+                    if chunk.choices:
+                        delta = chunk.choices[0].delta
+                        delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
+                        for item in self._process_stream_delta(delta, delta_dict, stream_state):
+                            yield item
+                            if item.get("type") == "content":
+                                total_tokens += 1
 
-            inference_time = timer.elapsed()
+                    if hasattr(chunk, "usage") and chunk.usage:
+                        prompt_tokens = chunk.usage.prompt_tokens
+                        total_tokens = chunk.usage.completion_tokens
+                        server_timings = self._extract_server_timings(chunk)
 
-            yield {
-                "type": "done",
-                "metrics": self._build_stream_metrics(
-                    prompt_tokens, total_tokens,
-                    inference_time, model, server_timings,
-                ),
-            }
+                for item in self._finalize_stream(stream_state):
+                    yield item
 
-        except Exception as e:
-            raise self._classify_error(e, model)
+                inference_time = timer.elapsed()
+
+                yield {
+                    "type": "done",
+                    "metrics": self._build_stream_metrics(
+                        prompt_tokens, total_tokens,
+                        inference_time, model, server_timings,
+                    ),
+                }
+                return  # success
+
+            except Exception as e:
+                last_error = e
+                elapsed = time.monotonic() - start_time
+                remaining = retry_timeout - elapsed
+                if remaining > retry_delay:
+                    logging.getLogger("aifred").warning(
+                        f"Request failed ({type(e).__name__}), retry in {retry_delay}s ({remaining:.0f}s remaining)..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    continue
+                raise self._classify_error(e, model)
+
+        raise self._classify_error(last_error, model)  # type: ignore[arg-type]
