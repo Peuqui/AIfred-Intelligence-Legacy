@@ -975,6 +975,8 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     # Delete confirmation
     editor_delete_confirm: str = ""
+    # Memory clear confirmation
+    editor_memory_confirm: str = ""
 
     # Emoji picker visibility
     editor_emoji_picker_open: bool = False
@@ -1207,6 +1209,33 @@ class AgentConfigMixin(rx.State, mixin=True):
         if self.editor_agent_id == agent_id:
             self.editor_agent_id = ""
         self._refresh_agent_list()
+
+    def clear_agent_memory(self, agent_id: str) -> None:
+        """Clear an agent's long-term memory (confirm on first click, delete on second)."""
+        import reflex as rx
+        from ..lib.agent_memory import get_agent_memory
+
+        if self.editor_memory_confirm != agent_id:
+            self.editor_memory_confirm = agent_id
+            return
+
+        self.editor_memory_confirm = ""
+
+        memory = get_agent_memory()
+        if not memory:
+            return rx.toast.error("AgentMemory unavailable", duration=3000, position="top-center")
+
+        try:
+            col = memory._collection(agent_id)
+            count = col.count()
+            if count == 0:
+                return rx.toast.info(f"{agent_id}: memory already empty", duration=3000, position="top-center")
+            all_ids = col.get(include=[])["ids"]
+            col.delete(ids=all_ids)
+            self.add_debug(f"🗑️ {agent_id}: {count} memories cleared")  # type: ignore[attr-defined]
+            return rx.toast.success(f"{agent_id}: {count} memories cleared", duration=3000, position="top-center")
+        except Exception as e:
+            return rx.toast.error(f"Error: {e}", duration=3000, position="top-center")
 
     def reset_editor_prompt(self) -> None:
         """Reset current prompt tab to the file on disk (discard unsaved changes)."""

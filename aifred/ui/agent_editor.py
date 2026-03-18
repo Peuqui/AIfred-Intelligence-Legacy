@@ -102,6 +102,26 @@ def _agent_row(agent: rx.Var) -> rx.Component:
             color_scheme="blue",
             cursor="pointer",
         ),
+        # Clear memory button (all agents except vision)
+        rx.cond(
+            agent["role"] != "vision",
+            rx.button(
+                rx.cond(
+                    AIState.editor_memory_confirm == agent["id"],
+                    t("agent_editor_forget_confirm"),
+                    t("agent_editor_forget"),
+                ),
+                on_click=AIState.clear_agent_memory(agent["id"]),
+                size="1",
+                variant="soft",
+                color_scheme=rx.cond(
+                    AIState.editor_memory_confirm == agent["id"],
+                    "red",
+                    "orange",
+                ),
+                cursor="pointer",
+            ),
+        ),
         # Delete button (only for custom agents)
         rx.cond(
             ~is_default,
