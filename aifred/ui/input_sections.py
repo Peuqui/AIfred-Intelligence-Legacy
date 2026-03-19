@@ -440,7 +440,7 @@ def text_input_section() -> rx.Component:
                                 cursor="pointer",
                                 opacity=rx.cond(AIState.agent_memory_enabled, "1", "0.5"),
                             ),
-                            on_click=AIState.setvar("agent_memory_enabled", ~AIState.agent_memory_enabled),  # type: ignore[arg-type]
+                            on_click=AIState.toggle_agent_memory,
                         ),
                         content=rx.cond(
                             AIState.agent_memory_enabled,
