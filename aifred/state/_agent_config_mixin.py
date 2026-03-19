@@ -7,7 +7,7 @@ temperature configuration, and model selection for Sokrates/Salomo.
 
 from __future__ import annotations
 
-from typing import List
+from typing import Dict, List
 
 import reflex as rx
 
@@ -964,8 +964,8 @@ class AgentConfigMixin(rx.State, mixin=True):
     # Memory browser state
     memory_browser_agent: str = ""  # Selected agent in memory browser ("" = overview)
     memory_browser_agent_display: str = ""  # Display name of selected agent
-    memory_browser_entries: List[dict] = []  # Entries for selected agent
-    memory_browser_collections: List[dict] = []  # Collection overview [{name, agent_id, count}]
+    memory_browser_entries: List[Dict[str, str]] = []  # Entries for selected agent
+    memory_browser_collections: List[Dict[str, str]] = []  # Collection overview
 
     # Agent list for UI rendering (serializable dicts)
     agent_list: List[dict] = []
@@ -1317,14 +1317,14 @@ class AgentConfigMixin(rx.State, mixin=True):
                         "name": col.name,
                         "agent_id": agent_id,
                         "display_name": display_name,
-                        "count": col.count(),
+                        "count": str(col.count()),
                     })
                 elif col.name == "research_cache":
                     collections.append({
                         "name": col.name,
                         "agent_id": "research_cache",
                         "display_name": "🔍 Research Cache",
-                        "count": col.count(),
+                        "count": str(col.count()),
                     })
         except Exception as e:
             self.add_debug(f"❌ Memory browser error: {e}")  # type: ignore[attr-defined]
@@ -1367,14 +1367,49 @@ class AgentConfigMixin(rx.State, mixin=True):
             for i, doc_id in enumerate(data["ids"]):
                 meta = data["metadatas"][i] if data["metadatas"] else {}  # type: ignore[index]
                 doc = data["documents"][i] if data["documents"] else ""  # type: ignore[index]
-                entries.append({
-                    "id": doc_id,
-                    "date": meta.get("date", meta.get("cached_at", ""))[:19] if meta else "",
-                    "type": meta.get("type", "cache"),
-                    "summary": meta.get("summary", doc[:120] if doc else ""),
-                    "content": meta.get("content", doc or "")[:1000],
-                    "session_id": meta.get("session_id", ""),
-                })
+
+                # Research cache stores query as document, answer in metadata
+                if agent_id == "research_cache":
+                    query_text = doc or ""
+                    answer_text = meta.get("answer", "") if meta else ""
+                    sources = meta.get("source_urls", "") if meta else ""
+                    volatility = meta.get("volatility", "") if meta else ""
+                    expires = meta.get("expires_at", "") if meta else ""
+                    date = meta.get("timestamp", "")[:19] if meta else ""
+                    summary_text = f"Query: {query_text}"
+                    content_parts = []
+                    if answer_text:
+                        content_parts.append(answer_text)
+                    # Sources as newline-separated string for UI rendering
+                    if sources:
+                        source_list = [s.strip() for s in sources.split(",") if s.strip()]
+                        sources_text = "\n".join(source_list)
+                    else:
+                        sources_text = ""
+                    if volatility:
+                        content_parts.append(f"\nVolatilität: {volatility}")
+                    if expires and expires != "None":
+                        content_parts.append(f"\nAblauf: {expires[:19]}")
+                    content_text = "".join(content_parts)
+                    entries.append({
+                        "id": doc_id,
+                        "date": date,
+                        "type": volatility or "cache",
+                        "summary": summary_text,
+                        "content": content_text,
+                        "sources": sources_text,
+                        "session_id": "",
+                    })
+                else:
+                    entries.append({
+                        "id": doc_id,
+                        "date": meta.get("date", "")[:19] if meta else "",
+                        "type": meta.get("type", "unknown"),
+                        "summary": meta.get("summary", doc[:120] if doc else ""),
+                        "content": meta.get("content", doc or ""),
+                        "sources": "",
+                        "session_id": meta.get("session_id", ""),
+                    })
         except Exception as e:
             self.add_debug(f"❌ Memory browse error: {e}")  # type: ignore[attr-defined]
 
