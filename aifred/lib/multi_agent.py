@@ -60,7 +60,8 @@ async def _chat_stream_with_retry(
     agent_name: str,
     state: 'AIState',
     retry_delay: float = 2.0,
-    max_retries: int = 1
+    max_retries: int = 1,
+    toolkit: Any = None,
 ) -> AsyncGenerator[dict, None]:
     """
     Wrapper around llm_client.chat_stream() with retry logic for 500 errors.
@@ -73,7 +74,7 @@ async def _chat_stream_with_retry(
 
     while attempt <= max_retries:
         try:
-            async for chunk in llm_client.chat_stream(model, messages, options):
+            async for chunk in llm_client.chat_stream(model, messages, options, toolkit=toolkit):
                 yield chunk
             return  # Success - exit the retry loop
         except Exception as e:
@@ -221,6 +222,7 @@ async def _stream_agent_to_history(
     model: str,
     messages: list,
     options: LLMOptions,
+    toolkit: Any = None,
 ) -> AsyncGenerator[dict[str, Any] | None, None]:
     """Stream an agent's response into current_ai_response (unified streaming).
 
@@ -253,7 +255,7 @@ async def _stream_agent_to_history(
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         state._init_streaming_tts(agent=agent)
 
-    async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, agent_label, state):
+    async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, agent_label, state, toolkit=toolkit):
         if chunk["type"] == "content":
             if not first_token:
                 ttft = timer.elapsed()
@@ -435,19 +437,17 @@ async def _run_agent_direct_response(
         system_prompt = get_prompt_func(lang=detected_lang)
 
         # Agent Memory: recall relevant memories and inject into system prompt
-        toolkit = None
-        if state.agent_memory_enabled:  # type: ignore[attr-defined]
-            from .agent_memory import get_agent_memory, format_memory_context
-            memory = get_agent_memory()
-            if memory:
-                memories = await memory.recall(agent, user_query)
-                if memories:
-                    memory_ctx = format_memory_context(memories)
-                    system_prompt = f"{system_prompt}\n\n{memory_ctx}"
-                    state.add_debug(f"🧠 {len(memories)} memories recalled for {agent}")
-                toolkit = memory.make_toolkit(agent)
-                state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent}")
-        else:
+        from .agent_memory import prepare_agent_memory
+        memory_enabled = state.agent_memory_enabled  # type: ignore[attr-defined]
+        memory_ctx, toolkit = await prepare_agent_memory(
+            agent, user_query, lang=detected_lang or "de", enabled=memory_enabled,
+        )
+        if memory_ctx:
+            system_prompt = f"{system_prompt}\n\n{memory_ctx}"
+            state.add_debug(f"🧠 Memory context injected for {agent}")
+        if toolkit:
+            state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent}")
+        if not memory_enabled:
             state.add_debug("🔒 Inkognito-Modus (kein Gedächtnis)")
 
         # Build messages with agent's perspective

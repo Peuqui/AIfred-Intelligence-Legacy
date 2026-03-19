@@ -237,6 +237,7 @@ def create_agent(
         "personality": f"{agent_id}/personality.txt",
         "task": f"{agent_id}/system_minimal.txt",
         "direct": f"{agent_id}/direct.txt",
+        "memory_context": f"{agent_id}/memory_context.txt",
     }
 
     # Add role-specific prompts

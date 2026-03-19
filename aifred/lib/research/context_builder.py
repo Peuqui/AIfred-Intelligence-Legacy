@@ -163,6 +163,19 @@ async def build_and_generate_response(
         detected_language=detected_user_language  # Pass language for personality reminder
     )
 
+    # Agent Memory: recall + toolkit
+    memory_toolkit = None
+    if state and getattr(state, 'agent_memory_enabled', False):
+        from ..agent_memory import prepare_agent_memory
+        memory_ctx, memory_toolkit = await prepare_agent_memory(
+            "aifred", user_text, lang=detected_user_language, enabled=True,
+        )
+        if memory_ctx:
+            system_prompt = f"{system_prompt}\n\n{memory_ctx}"
+            yield {"type": "debug", "message": "🧠 Memory context injected for aifred"}
+        if memory_toolkit:
+            yield {"type": "debug", "message": f"🔧 Toolkit: {[t.name for t in memory_toolkit.tools]}"}
+
     # Insert RAG system prompt as first message
     messages.insert(0, {"role": "system", "content": system_prompt})
 
@@ -291,7 +304,8 @@ async def build_and_generate_response(
 
     async for chunk in stream_llm_response(
         llm_client, model_choice, messages, research_llm_options,
-        ttft_label="TTFT"
+        ttft_label="TTFT",
+        toolkit=memory_toolkit,
     ):
         if chunk["type"] == "content":
             yield chunk

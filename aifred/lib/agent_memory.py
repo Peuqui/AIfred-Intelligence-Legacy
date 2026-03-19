@@ -165,27 +165,70 @@ class AgentMemory:
         ])
 
 
-def format_memory_context(memories: list[dict[str, Any]]) -> str:
-    """Format retrieved memories for injection into the system prompt."""
+def format_memory_context(
+    memories: list[dict[str, Any]],
+    agent_id: str = "",
+    lang: str = "de",
+) -> str:
+    """Format retrieved memories for injection into the system prompt.
+
+    Loads the memory_context prompt template from:
+    1. prompts/{lang}/{agent_id}/memory_context.txt (agent-specific)
+    2. prompts/{lang}/shared/memory_context.txt (shared fallback)
+    """
     if not memories:
         return ""
 
-    lines = [
-        "Du erinnerst dich an eigene fruehere Texte, die zum aktuellen Gespraech passen:",
-    ]
+    # Build memory list text
+    mem_lines = []
     for mem in memories:
         date_str = mem["date"][:10] if mem["date"] else "?"
-        lines.append(f"- [{date_str}, {mem['type']}] {mem['summary']}")
+        mem_lines.append(f"- [{date_str}, {mem['type']}] {mem['summary']}")
         if mem["content"] and mem["content"] != mem["summary"]:
-            # Truncate long content for context window
             content_preview = mem["content"][:500]
             if len(mem["content"]) > 500:
                 content_preview += "..."
-            lines.append(f"  {content_preview}")
+            mem_lines.append(f"  {content_preview}")
+    memories_text = "\n".join(mem_lines)
 
-    lines.append("")
-    lines.append("Das sind deine eigenen Worte. Du kannst darauf aufbauen oder sie weiterentwickeln.")
-    return "\n".join(lines)
+    # Load prompt template (agent-specific only, no fallback)
+    from pathlib import Path
+    prompts_dir = Path(__file__).parent.parent.parent / "prompts"
+    template_path = prompts_dir / lang / agent_id / "memory_context.txt"
+
+    if not template_path.exists():
+        return ""
+
+    template = template_path.read_text(encoding="utf-8").strip()
+    return template.replace("{memories}", memories_text)
+
+
+async def prepare_agent_memory(
+    agent_id: str,
+    user_query: str,
+    lang: str = "de",
+    enabled: bool = True,
+) -> tuple[str, Optional["ToolKit"]]:
+    """Prepare memory context and toolkit for an agent call.
+
+    Returns:
+        (memory_context_str, toolkit) — context to append to system prompt, toolkit for chat_stream.
+        Both empty/None if memory is disabled or unavailable.
+    """
+    if not enabled:
+        return "", None
+
+    memory = get_agent_memory()
+    if not memory:
+        return "", None
+
+    memories = await memory.recall(agent_id, user_query)
+    memory_ctx = ""
+    if memories:
+        memory_ctx = format_memory_context(memories, agent_id=agent_id, lang=lang)
+
+    toolkit = memory.make_toolkit(agent_id)
+    return memory_ctx, toolkit
 
 
 # Singleton

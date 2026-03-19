@@ -28,7 +28,8 @@ async def stream_llm_response(
     *,
     log_ttft: bool = True,
     ttft_label: str = "TTFT",
-    on_first_token: Optional[Callable[[], None]] = None
+    on_first_token: Optional[Callable[[], None]] = None,
+    toolkit: Any = None,
 ) -> AsyncIterator[Dict[str, Any]]:
     """
     Stream LLM response with automatic TTFT measurement and text accumulation.
@@ -75,7 +76,8 @@ async def stream_llm_response(
     async for chunk in llm_client.chat_stream(
         model=model,
         messages=messages,
-        options=options
+        options=options,
+        toolkit=toolkit,
     ):
         if chunk["type"] == "content":
             # Measure TTFT on first content chunk

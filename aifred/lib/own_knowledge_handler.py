@@ -118,6 +118,19 @@ async def handle_own_knowledge(
         system_prompt = get_aifred_direct_prompt(lang=detected_language)
     else:
         system_prompt = get_aifred_system_minimal(lang=detected_language)
+    # Agent Memory: recall + toolkit
+    memory_toolkit = None
+    if state and getattr(state, 'agent_memory_enabled', False) and agent != "vision":
+        from .agent_memory import prepare_agent_memory
+        memory_ctx, memory_toolkit = await prepare_agent_memory(
+            agent, user_text, lang=detected_language or "de", enabled=True,
+        )
+        if memory_ctx:
+            system_prompt = f"{system_prompt}\n\n{memory_ctx}"
+            yield {"type": "debug", "message": f"🧠 Memory context injected for {agent}"}
+        if memory_toolkit:
+            yield {"type": "debug", "message": f"🔧 Toolkit: {[t.name for t in memory_toolkit.tools]}"}
+
     messages.insert(0, {"role": "system", "content": system_prompt})
 
     # Inject RAG context if available
@@ -198,7 +211,8 @@ async def handle_own_knowledge(
         async for chunk in llm_client.chat_stream(
             model=model_choice,
             messages=cast(list[MessageType], messages),
-            options=llm_options
+            options=llm_options,
+            toolkit=memory_toolkit,
         ):
             if chunk["type"] == "content":
                 # Measure TTFT
