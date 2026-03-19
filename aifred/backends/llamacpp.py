@@ -79,6 +79,9 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
     # === Hook overrides ===
 
+    # Track current model for thinking override
+    _current_model: str = ""
+
     def _build_extra_body(self, options: LLMOptions) -> Dict[str, Any]:
         """llama.cpp: ALWAYS send all params to override server CLI defaults."""
         extra_body: Dict[str, Any] = {
@@ -87,7 +90,17 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             "min_p": options.min_p,
         }
         if options.enable_thinking is not None:
-            extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
+            # Instruct models cannot think — force disable regardless of toggle.
+            # They have <think> in their chat template but put ALL content into
+            # reasoning_content, producing empty visible responses.
+            if options.enable_thinking and "instruct" in self._current_model.lower():
+                extra_body["chat_template_kwargs"] = {"enable_thinking": False}
+                import logging
+                logging.getLogger(__name__).info(
+                    f"Thinking disabled for Instruct model: {self._current_model}"
+                )
+            else:
+                extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
         return extra_body
 
     def _process_response_text(self, choice: Any) -> str:

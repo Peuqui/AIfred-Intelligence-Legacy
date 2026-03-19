@@ -190,12 +190,20 @@ def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
                 kv_cache_quant = parts[i + 1]
                 break
 
+        # Extract --reasoning-format value (deepseek, none, or absent)
+        reasoning_format = ""
+        for i, part in enumerate(parts):
+            if part == "--reasoning-format" and i + 1 < len(parts):
+                reasoning_format = parts[i + 1]
+                break
+
         result[model_id] = {
             "gguf_path": gguf_path,
             "llama_server_bin": llama_server_bin,
             "current_context": current_context,
             "ngl": ngl,
             "kv_cache_quant": kv_cache_quant,
+            "reasoning_format": reasoning_format,
             "full_cmd": cmd,
         }
 

@@ -499,6 +499,9 @@ class OpenAICompatibleBackend(LLMBackend):
 
         await self._pre_request_check(model)
 
+        # Store current model for subclass overrides (e.g. thinking detection)
+        self._current_model = model  # type: ignore[attr-defined]
+
         openai_messages: List[Dict[str, Any]] = [
             {"role": msg.role, "content": msg.content} for msg in messages
         ]
