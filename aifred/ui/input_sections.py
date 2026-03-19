@@ -423,6 +423,23 @@ def text_input_section() -> rx.Component:
                     title=AIState.consensus_toggle_tooltip,
                 ),
             ),
+            # Incognito toggle (always visible)
+            rx.tooltip(
+                rx.box(
+                    rx.text(
+                        rx.cond(AIState.agent_memory_enabled, "🔓", "🔒"),
+                        font_size="16px",
+                        cursor="pointer",
+                        opacity=rx.cond(AIState.agent_memory_enabled, "1", "0.5"),
+                    ),
+                    on_click=AIState.toggle_agent_memory,
+                ),
+                content=rx.cond(
+                    AIState.agent_memory_enabled,
+                    "Gedächtnis aktiv",
+                    "Inkognito-Modus (kein Gedächtnis)",
+                ),
+            ),
             # Agent toggle buttons (only in Standard mode)
             rx.cond(
                 AIState.multi_agent_mode == "standard",
@@ -431,22 +448,6 @@ def text_input_section() -> rx.Component:
                         width="1px",
                         height="20px",
                         background=COLORS["border"],
-                    ),
-                    rx.tooltip(
-                        rx.box(
-                            rx.text(
-                                rx.cond(AIState.agent_memory_enabled, "🔓", "🔒"),
-                                font_size="16px",
-                                cursor="pointer",
-                                opacity=rx.cond(AIState.agent_memory_enabled, "1", "0.5"),
-                            ),
-                            on_click=AIState.toggle_agent_memory,
-                        ),
-                        content=rx.cond(
-                            AIState.agent_memory_enabled,
-                            "Gedächtnis aktiv",
-                            "Inkognito-Modus (kein Gedächtnis)",
-                        ),
                     ),
                     rx.foreach(
                         AIState.selectable_agents,
@@ -514,32 +515,6 @@ def text_input_section() -> rx.Component:
                     " const el = document.getElementById('user-text-input');"
                     " const v = el.value; if (!v.trim()) return '';"
                     " el.value = '';"
-                    " const btn = document.getElementById('send-button');"
-                    " if (btn) { btn.disabled = true; btn.style.opacity = '0.6';"
-                    "   btn.dataset.optimistic = '1';"
-                    "   btn.dataset.origHtml = btn.innerHTML;"
-                    "   if (!document.getElementById('_oss')){"
-                    "     const s = document.createElement('style'); s.id='_oss';"
-                    "     s.textContent='"
-                    "@keyframes _oss{to{transform:rotate(360deg)}}"
-                    ".opt-spinner{display:inline-block;width:16px;height:16px;"
-                    "position:relative;animation:_oss .8s steps(8) infinite}"
-                    ".opt-spinner i{position:absolute;left:7px;top:0;width:2px;"
-                    "height:5px;rx:1px;background:#ffb84d;border-radius:1px;"
-                    "transform-origin:center 8px}"
-                    ".opt-spinner i:nth-child(1){transform:rotate(0deg);opacity:.85}"
-                    ".opt-spinner i:nth-child(2){transform:rotate(45deg);opacity:.7}"
-                    ".opt-spinner i:nth-child(3){transform:rotate(90deg);opacity:.55}"
-                    ".opt-spinner i:nth-child(4){transform:rotate(135deg);opacity:.4}"
-                    ".opt-spinner i:nth-child(5){transform:rotate(180deg);opacity:.3}"
-                    ".opt-spinner i:nth-child(6){transform:rotate(225deg);opacity:.2}"
-                    ".opt-spinner i:nth-child(7){transform:rotate(270deg);opacity:.15}"
-                    ".opt-spinner i:nth-child(8){transform:rotate(315deg);opacity:.1}"
-                    "';"
-                    "     document.head.appendChild(s);}"
-                    "   btn.innerHTML = '<span class=opt-spinner>"
-                    "<i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>"
-                    "</span>'; }"
                     " return v;"
                     "})()",
                     callback=AIState.send_message,

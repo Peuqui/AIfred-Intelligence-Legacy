@@ -493,109 +493,43 @@ def chat_history_display() -> rx.Component:
 
     _stream_text_style: dict = {"white_space": "pre-wrap", "word_break": "break-word", "color": COLORS["ai_text"], "font_size": "13px"}
 
-    # Agent streaming boxes (AIfred = default for "" or unknown current_agent)
-    _aifred_stream = rx.box(
-        rx.hstack(
-            rx.text("\U0001f3a9", font_size="13px"),
-            rx.box(
-                rx.hstack(
-                    rx.text("AIfred", font_weight="bold", font_size="12px", color=COLORS["primary"]),
-                    rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
-                    spacing="1", margin_bottom="1",
-                ),
-                streaming_text(text=StreamingState.current_ai_response, id="st-aifred", style=_stream_text_style),
-                background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
-            ),
-            spacing="2", align="start", width="100%",
-        ),
-        background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
-        border=f"1px solid {COLORS['primary']}", width="100%",
-    )
-
-    # Neutral streaming box: blinking cursor only (no agent name yet)
-    _neutral_stream = rx.box(
-        rx.hstack(
-            rx.box(
-                rx.hstack(
-                    rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
-                    spacing="1", margin_bottom="1",
-                ),
-                background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
-            ),
-            spacing="2", align="start", width="100%",
-        ),
-        background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
-        border=f"1px solid {COLORS['primary']}", width="100%",
-    )
-
+    # Single streaming box — NO rx.cond switching between different streaming_text instances.
+    # This prevents React "removeChild" crashes when current_agent changes mid-stream.
+    # Agent name, emoji, and colors update via state vars without DOM node replacement.
     streaming_box = rx.cond(
         AIState.is_generating,
         rx.box(
-            rx.cond(
-                # Sokrates Streaming (Kupfer/Bronze)
-                AIState.current_agent == "sokrates",
-                rx.box(
-                    rx.hstack(
-                        rx.text("\U0001f3db\ufe0f", font_size="13px"),
-                        rx.box(
+            rx.box(
+                rx.hstack(
+                    rx.cond(
+                        AIState.current_agent != "",
+                        rx.text(AIState.current_agent_emoji, font_size="13px"),
+                    ),
+                    rx.box(
+                        rx.cond(
+                            AIState.current_agent != "",
                             rx.hstack(
-                                rx.text("Sokrates", font_weight="bold", font_size="12px", color="#cd7f32"),
-                                rx.text("\u258c", font_size="14px", color="#cd7f32", animation="blink 1s infinite"),
+                                rx.text(
+                                    AIState.current_agent_display_name,
+                                    font_weight="bold", font_size="12px",
+                                    color=COLORS["primary"],
+                                ),
+                                rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
                                 spacing="1", margin_bottom="1",
                             ),
-                            streaming_text(text=StreamingState.current_ai_response, id="st-sokrates", style=_stream_text_style),
-                            background_color="rgba(205, 127, 50, 0.08)", padding="3", border_radius="6px", width="100%",
-                        ),
-                        spacing="2", align="start", width="100%",
-                    ),
-                    background_color="rgba(205, 127, 50, 0.03)", padding="2", border_radius="8px",
-                    border="1px solid rgba(205, 127, 50, 0.3)", width="100%",
-                ),
-                rx.cond(
-                    # Salomo Streaming (Gold)
-                    AIState.current_agent == "salomo",
-                    rx.box(
-                        rx.hstack(
-                            rx.text("\U0001f451", font_size="13px"),
-                            rx.box(
-                                rx.hstack(
-                                    rx.text("Salomo", font_weight="bold", font_size="12px", color="#daa520"),
-                                    rx.text("\u258c", font_size="14px", color="#daa520", animation="blink 1s infinite"),
-                                    spacing="1", margin_bottom="1",
-                                ),
-                                streaming_text(text=StreamingState.current_ai_response, id="st-salomo", style=_stream_text_style),
-                                background_color="rgba(218, 165, 32, 0.08)", padding="3", border_radius="6px", width="100%",
-                            ),
-                            spacing="2", align="start", width="100%",
-                        ),
-                        background_color="rgba(218, 165, 32, 0.03)", padding="2", border_radius="8px",
-                        border="1px solid rgba(218, 165, 32, 0.3)", width="100%",
-                    ),
-                    rx.cond(
-                        # Known agent or neutral
-                        AIState.current_agent != "",
-                        # Generic agent streaming — uses display name + emoji from state
-                        rx.box(
+                            # Neutral: just blinking cursor
                             rx.hstack(
-                                rx.text(AIState.current_agent_emoji, font_size="13px"),
-                                rx.box(
-                                    rx.hstack(
-                                        rx.text(AIState.current_agent_display_name, font_weight="bold", font_size="12px", color=COLORS["primary"]),
-                                        rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
-                                        spacing="1", margin_bottom="1",
-                                    ),
-                                    streaming_text(text=StreamingState.current_ai_response, id="st-generic", style=_stream_text_style),
-                                    background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
-                                ),
-                                spacing="2", align="start", width="100%",
+                                rx.text("\u258c", font_size="14px", color=COLORS["primary"], animation="blink 1s infinite"),
+                                spacing="1", margin_bottom="1",
                             ),
-                            background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
-                            border=f"1px solid {COLORS['primary']}", width="100%",
                         ),
-                        # Neutral: blinkender Cursor (Agent noch nicht bestimmt)
-                        _neutral_stream,
+                        streaming_text(text=StreamingState.current_ai_response, id="st-main", style=_stream_text_style),
+                        background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
                     ),
+                    spacing="2", align="start", width="100%",
                 ),
+                background_color="rgba(255, 255, 255, 0.03)", padding="2", border_radius="8px",
+                border=f"1px solid {COLORS['primary']}", width="100%",
             ),
             id="streaming-box", width="100%",
         ),

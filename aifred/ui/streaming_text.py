@@ -1,15 +1,11 @@
-"""Streaming text span with O(1) DOM append via useEffect.
+"""Streaming text span via useEffect.
 
-Instead of React doing ``textContent = fullString`` on every state delta
-(O(n²) total DOM work over n updates), this component tracks the last
-rendered length and only appends the NEW characters via ``el.append()``.
+Uses textContent assignment (React-safe) instead of el.append() which
+creates native Text nodes that React doesn't know about — causing
+"removeChild" crashes when React unmounts the component.
 
-The ``text`` prop is bound to ``AIState.current_ai_response`` which grows
-during streaming.  Each React render only appends the delta — O(1).
-
-When the streaming box unmounts (``is_generating = False``), the span
-is destroyed.  On next mount, a fresh empty span with ``lastLen = 0``
-is created.
+The text prop is bound to AIState.current_ai_response which grows
+during streaming.
 """
 
 from __future__ import annotations
@@ -19,7 +15,7 @@ from reflex.vars.base import Var
 
 
 class StreamingText(Span):
-    """A span that appends only new text via useEffect (O(1) per update)."""
+    """A span that updates text content via useEffect."""
 
     text: Var[str]
 
@@ -46,12 +42,9 @@ useEffect(() => {{
     const text = {text_js};
     const el = {ref}.current;
     if (!el) return;
-    if (text.length > lastLen_{ref}.current) {{
-        el.append(text.substring(lastLen_{ref}.current));
+    if (text.length !== lastLen_{ref}.current) {{
+        el.textContent = text;
         lastLen_{ref}.current = text.length;
-    }} else if (text.length === 0 && lastLen_{ref}.current > 0) {{
-        el.textContent = '';
-        lastLen_{ref}.current = 0;
     }}
 }}, [{text_js}]);
 """,

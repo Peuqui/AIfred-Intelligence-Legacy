@@ -542,20 +542,13 @@ class ChatMixin(rx.State, mixin=True):
         # Text from call_script callback (UI click) or current_user_input (injection/transcription)
         user_text = (text or self.current_user_input).strip()
 
-        _reset_btn_js = ("const b = document.getElementById('send-button');"
-                         " if (b) { b.disabled = false; b.style.opacity = '';"
-                         " if (b.dataset.origHtml) { b.innerHTML = b.dataset.origHtml;"
-                         " delete b.dataset.origHtml; } }")
-
         if not user_text and not has_pending_images:
-            yield rx.call_script(_reset_btn_js)
             return  # Nothing to send
 
         # Leerer user_text ist erlaubt für reine OCR-Extraktion (ohne Interpretation)
 
         if self.is_generating:
             self.add_debug("⚠️ Already generating, please wait...")
-            yield rx.call_script(_reset_btn_js)
             return
 
         # Ensure backend is initialized (should already be done by on_load)
@@ -1331,11 +1324,7 @@ class ChatMixin(rx.State, mixin=True):
 
         finally:
             self.is_generating = False
-            # Reset optimistic UI styles (JS-set inline styles persist across React re-renders)
-            yield rx.call_script(
-                "const b = document.getElementById('send-button');"
-                " if (b) { b.style.opacity = ''; }"
-            )
+            yield  # Let React update is_generating=False (button re-enables via Reflex binding)
             # NOTE: TTS polling stops automatically via data-polling attribute (MutationObserver)
             # Clear pending images after sending
             if len(self.pending_images) > 0:  # type: ignore[attr-defined]

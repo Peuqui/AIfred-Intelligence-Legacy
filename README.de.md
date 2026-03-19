@@ -43,7 +43,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Chat teilen**: Export als portable HTML-Datei in neuem Browser-Tab (KaTeX-Fonts inline eingebettet, eingebettete TTS-Audioausgabe, funktioniert offline)
 - **HTML-Vorschau**: KI-generierter HTML-Code öffnet direkt im Browser (neuer Tab)
 - **LaTeX & Chemie**: KaTeX für Mathe-Formeln, mhchem-Erweiterung für Chemie (`\ce{H2O}`, Reaktionen)
-- **🚀 Massive Performance-Verbesserungen**: Direct-IO reduziert Modell-Ladezeiten von 60-90s auf **nur 2 Sekunden** (~45x schneller!) - Details in der [Modell-Parameter-Doku](docs/model-recommended-params.md) mit allen Optimierungen für 200B+ Modelle (KV-Quant, Batch-Größen, VRAM-Optimierung)
+- **🚀 Massive Performance-Verbesserungen**: Direct-IO beschleunigt das Laden erheblich — Modelldatei wird nahezu sofort memory-mapped, volle Initialisierung (KV-Cache etc.) dauert ~20-30s bei großen Modellen (vs 60-90s ohne Direct-IO). Details in der [Modell-Parameter-Doku](docs/model-recommended-params.md) mit allen Optimierungen für 200B+ Modelle (KV-Quant, Batch-Größen, VRAM-Optimierung)
 
 ### 🎩 Multi-Agent Diskussionsmodi
 
