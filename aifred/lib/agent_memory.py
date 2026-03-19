@@ -18,6 +18,7 @@ from chromadb.config import Settings
 from .config import (
     AGENT_MEMORY_COLLECTION_MAX,
     AGENT_MEMORY_DISTANCE_THRESHOLD,
+    AGENT_MEMORY_RECENT_COUNT,
     AGENT_MEMORY_RESULTS,
     DEFAULT_OLLAMA_URL,
 )
@@ -62,6 +63,7 @@ class AgentMemory:
 
     async def store(
         self, agent_id: str, content: str, memory_type: str, summary: str,
+        session_id: str = "",
     ) -> str:
         """Store a memory in the agent's collection.
 
@@ -94,10 +96,42 @@ class AgentMemory:
                 "type": memory_type,
                 "summary": summary,
                 "content": content,
+                "session_id": session_id,
             }],
         )
         logger.info(f"AgentMemory({agent_id}): stored [{memory_type}] {summary[:60]}")
         return f"Memory stored: [{memory_type}] {summary}"
+
+    def find_by_session(self, agent_id: str, session_id: str) -> list[str]:
+        """Find memory IDs for a given session_id."""
+        col = self._collection(agent_id)
+        if col.count() == 0:
+            return []
+        results = col.get(
+            where={"session_id": session_id},
+            include=[],
+        )
+        return results["ids"] if results["ids"] else []
+
+    def update_by_session(self, agent_id: str, session_id: str, new_content: str) -> None:
+        """Update existing session summary with new content."""
+        ids = self.find_by_session(agent_id, session_id)
+        if not ids:
+            return
+        col = self._collection(agent_id)
+        now = datetime.now(timezone.utc).isoformat()
+        col.update(
+            ids=ids,
+            documents=[new_content[:120]] * len(ids),
+            metadatas=[{
+                "agent_id": agent_id,
+                "date": now,
+                "type": "session_summary",
+                "summary": new_content[:120],
+                "content": new_content,
+                "session_id": session_id,
+            }] * len(ids),
+        )
 
     async def recall(
         self, agent_id: str, query: str, n_results: int = AGENT_MEMORY_RESULTS,
@@ -119,6 +153,7 @@ class AgentMemory:
                 continue
             meta = results["metadatas"][0][i]  # type: ignore[index]
             memories.append({
+                "id": results["ids"][0][i],  # type: ignore[index]
                 "summary": meta.get("summary", ""),
                 "content": meta.get("content", ""),
                 "type": meta.get("type", ""),
@@ -126,6 +161,62 @@ class AgentMemory:
                 "distance": dist,
             })
         return memories
+
+    async def recall_recent(
+        self, agent_id: str, n: int = AGENT_MEMORY_RECENT_COUNT,
+    ) -> list[dict[str, Any]]:
+        """Get the N most recent memories (chronological, no semantic filter)."""
+        col = self._collection(agent_id)
+        count = col.count()
+        if count == 0:
+            return []
+
+        all_data = col.get(include=["metadatas"])
+        entries = []
+        for i, meta in enumerate(all_data["metadatas"]):  # type: ignore[union-attr]
+            entries.append({
+                "id": all_data["ids"][i],
+                "summary": meta.get("summary", ""),
+                "content": meta.get("content", ""),
+                "type": meta.get("type", ""),
+                "date": meta.get("date", ""),
+                "distance": 0.0,
+            })
+
+        entries.sort(key=lambda e: e["date"], reverse=True)
+        return entries[:n]
+
+    async def recall_combined(
+        self, agent_id: str, query: str,
+        n_semantic: int = AGENT_MEMORY_RESULTS,
+        n_recent: int = AGENT_MEMORY_RECENT_COUNT,
+    ) -> list[dict[str, Any]]:
+        """Combined recall: recent memories + semantic search, deduplicated.
+
+        Always loads the N most recent memories (chronological context),
+        plus semantically relevant older memories. If the query contains
+        time references, boosts recent results.
+        """
+        recent = await self.recall_recent(agent_id, n=n_recent)
+        semantic = await self.recall(agent_id, query, n_results=n_semantic)
+
+        # Deduplicate: recent first, then add semantic hits not already present
+        seen_ids: set[str] = set()
+        combined: list[dict[str, Any]] = []
+
+        for mem in recent:
+            if mem["id"] not in seen_ids:
+                seen_ids.add(mem["id"])
+                mem["source"] = "recent"
+                combined.append(mem)
+
+        for mem in semantic:
+            if mem["id"] not in seen_ids:
+                seen_ids.add(mem["id"])
+                mem["source"] = "semantic"
+                combined.append(mem)
+
+        return combined
 
     @staticmethod
     def _load_tool_description() -> str:
@@ -183,17 +274,29 @@ def format_memory_context(
     if not memories:
         return ""
 
-    # Build memory list text
-    mem_lines = []
+    # Build memory list text — separate recent context from semantic matches
+    recent_lines = []
+    semantic_lines = []
     for mem in memories:
         date_str = mem["date"][:10] if mem["date"] else "?"
-        mem_lines.append(f"- [{date_str}, {mem['type']}] {mem['summary']}")
+        line = f"- [{date_str}, {mem['type']}] {mem['summary']}"
+        detail = ""
         if mem["content"] and mem["content"] != mem["summary"]:
             content_preview = mem["content"][:500]
             if len(mem["content"]) > 500:
                 content_preview += "..."
-            mem_lines.append(f"  {content_preview}")
-    memories_text = "\n".join(mem_lines)
+            detail = f"  {content_preview}"
+        target = recent_lines if mem.get("source") == "recent" else semantic_lines
+        target.append(line)
+        if detail:
+            target.append(detail)
+
+    parts = []
+    if recent_lines:
+        parts.append("Recent conversations:\n" + "\n".join(recent_lines))
+    if semantic_lines:
+        parts.append("Relevant past context:\n" + "\n".join(semantic_lines))
+    memories_text = "\n\n".join(parts)
 
     # Load prompt template (agent-specific only, no fallback)
     from pathlib import Path
@@ -226,7 +329,7 @@ async def prepare_agent_memory(
     if not memory:
         return "", None
 
-    memories = await memory.recall(agent_id, user_query)
+    memories = await memory.recall_combined(agent_id, user_query)
     memory_ctx = ""
     if memories:
         memory_ctx = format_memory_context(memories, agent_id=agent_id, lang=lang)

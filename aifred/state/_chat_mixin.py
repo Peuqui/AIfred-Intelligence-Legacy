@@ -1416,7 +1416,8 @@ class ChatMixin(rx.State, mixin=True):
     # ── Save Session Memory ──────────────────────────────────────────
 
     async def save_session_memory(self) -> None:
-        """Generate a session summary and store it in the active agent's memory."""
+        """Generate a session summary and store it for all participating agents."""
+        import re
         import reflex as rx
         from ..lib.agent_memory import get_agent_memory
 
@@ -1433,16 +1434,16 @@ class ChatMixin(rx.State, mixin=True):
             yield rx.toast.error("Agent memory unavailable", duration=3000, position="top-center")
             return
 
-        # Determine active agent
-        agent_id = (self.active_agent or "aifred").lower()  # type: ignore[attr-defined]
-        if agent_id == "vision":
-            yield rx.toast.info("Vision agent has no memory", duration=3000, position="top-center")
-            return
-
-        # Get display name for logs/toasts
-        from ..lib.multi_agent import get_agent_config
-        agent_cfg = get_agent_config(agent_id)  # type: ignore[arg-type]
-        agent_name = agent_cfg.display_name if agent_cfg else agent_id.capitalize()
+        # Collect all agents that participated in this conversation
+        participating_agents: set[str] = set()
+        for msg in history:
+            if msg.get("role") == "assistant":
+                agent = msg.get("agent", "")
+                if agent and agent != "vision":
+                    participating_agents.add(agent)
+        # Always include aifred as default
+        if not participating_agents:
+            participating_agents.add("aifred")
 
         # Build conversation text for summarization
         conv_lines = []
@@ -1450,8 +1451,6 @@ class ChatMixin(rx.State, mixin=True):
             role = msg.get("role", "user")
             agent = msg.get("agent_display_name", msg.get("agent", ""))
             content = msg.get("content", "")
-            # Strip HTML tags
-            import re
             clean = re.sub(r'<[^>]+>', '', content).strip()
             if role == "user":
                 conv_lines.append(f"User: {clean}")
@@ -1474,13 +1473,20 @@ class ChatMixin(rx.State, mixin=True):
         model = self._effective_model_id("aifred")  # type: ignore[attr-defined]
 
         summary_prompt = (
-            "Summarize this conversation in 2-3 sentences. "
-            "Focus on the key topics, decisions, and insights. "
+            "Summarize this conversation in 4-5 sentences. "
+            "Focus on the key topics, decisions, insights, and user preferences. "
             "Write in the same language as the conversation.\n\n"
             f"{conversation_text}"
         )
 
-        self.add_debug(f"📌 Generating session summary for {agent_name} ({len(history)} messages)...")  # type: ignore[attr-defined]
+        from ..lib.agent_config import get_agent_config
+        agent_names = []
+        for aid in participating_agents:
+            cfg = get_agent_config(aid)
+            agent_names.append(cfg.display_name if cfg else aid.capitalize())
+
+        self.add_debug(f"📌 Generating session summary ({len(history)} messages) for: {', '.join(agent_names)}")  # type: ignore[attr-defined]
+        yield
 
         try:
             summary = ""
@@ -1489,7 +1495,7 @@ class ChatMixin(rx.State, mixin=True):
                 messages=[{"role": "user", "content": summary_prompt}],
                 options={
                     "temperature": 0.3,
-                    "max_tokens": 200,
+                    "max_tokens": 300,
                     "top_k": 40, "top_p": 0.95, "min_p": 0.05,
                     "repeat_penalty": 1.0,
                     "enable_thinking": False,
@@ -1503,16 +1509,32 @@ class ChatMixin(rx.State, mixin=True):
                 yield rx.toast.error("Failed to generate summary", duration=3000, position="top-center")
                 return
 
-            # Store in agent memory
-            await memory.store(
-                agent_id=agent_id,
-                content=summary,
-                memory_type="session_summary",
-                summary=summary[:120],
-            )
+            # Store/update per agent — check duplicates individually
+            sid = self.session_id  # type: ignore[attr-defined]
+            stored_count = 0
+            updated_count = 0
+            for aid in participating_agents:
+                if sid and memory.find_by_session(aid, sid):
+                    memory.update_by_session(aid, sid, summary)
+                    updated_count += 1
+                else:
+                    await memory.store(
+                        agent_id=aid,
+                        content=summary,
+                        memory_type="session_summary",
+                        summary=summary[:120],
+                        session_id=sid,
+                    )
+                    stored_count += 1
 
-            self.add_debug(f"📌 Session pinned to {agent_name}'s memory: {summary[:100]}...")  # type: ignore[attr-defined]
-            yield rx.toast.success(f"Session pinned to {agent_name}'s memory", duration=3000, position="top-center")
+            parts = []
+            if stored_count:
+                parts.append(f"{stored_count} pinned")
+            if updated_count:
+                parts.append(f"{updated_count} updated")
+            status = ", ".join(parts)
+            self.add_debug(f"📌 Session memory: {status} — {summary[:100]}...")  # type: ignore[attr-defined]
+            yield rx.toast.success(f"Session memory: {status}", duration=3000, position="top-center")
 
         except Exception as e:
             self.add_debug(f"❌ Session pin failed: {e}")  # type: ignore[attr-defined]

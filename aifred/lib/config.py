@@ -963,7 +963,8 @@ CACHE_DISTANCE_RAG = 1.2  # < 1.2 = Similar enough for RAG context (implemented 
 # ============================================================
 AGENT_MEMORY_COLLECTION_MAX = 1000   # Max entries per agent collection
 AGENT_MEMORY_DISTANCE_THRESHOLD = 1.0  # Max distance for relevant memories (nomic-embed scale)
-AGENT_MEMORY_RESULTS = 3             # Number of memories to inject as context
+AGENT_MEMORY_RESULTS = 5             # Semantic search results
+AGENT_MEMORY_RECENT_COUNT = 10       # Always load N most recent memories
 
 # ============================================================
 # XML TAG FORMATTING CONFIGURATION
