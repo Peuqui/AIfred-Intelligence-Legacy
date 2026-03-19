@@ -765,9 +765,9 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Toggle agent memory on/off (incognito mode)."""
         self.agent_memory_enabled = not self.agent_memory_enabled
         if self.agent_memory_enabled:
-            self.add_debug("🔓 Gedächtnis aktiviert")  # type: ignore[attr-defined]
+            self.add_debug("🔓 Agent memory enabled")  # type: ignore[attr-defined]
         else:
-            self.add_debug("🔒 Inkognito-Modus aktiviert (kein Gedächtnis)")  # type: ignore[attr-defined]
+            self.add_debug("🔒 Incognito mode (no memory)")  # type: ignore[attr-defined]
 
     def set_active_agent(self, agent_id: str) -> None:
         """Set which agent responds to messages."""
