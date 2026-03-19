@@ -506,6 +506,7 @@ def text_input_section() -> rx.Component:
         # Action Buttons
         rx.hstack(
             rx.button(
+                rx.icon("send", size=18),
                 t("send_text"),
                 id="send-button",
                 on_click=rx.call_script(
@@ -544,16 +545,17 @@ def text_input_section() -> rx.Component:
                     callback=AIState.send_message,
                 ),
                 size="2",
-                variant="solid",  # Explizit solid, ohne color_scheme
+                variant="solid",
                 loading=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
                 disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.tts_regenerating,
-                flex="1",  # Nimmt mehr Platz
+                flex="2",
                 style={
-                    "background": "#3d2a00 !important",  # Dunkles Orange (wichtig!)
-                    "color": COLORS["accent_warning"] + " !important",  # Orange Text
+                    "background": "#3d2a00 !important",
+                    "color": COLORS["accent_warning"] + " !important",
                     "border": f"1px solid {COLORS['accent_warning']}",
                     "font_weight": "600",
                     "font_size": "14px",
+                    "white_space": "nowrap",
                     "&:hover": {
                         "background": "#4d3500 !important",
                         "color": "#ffb84d !important",
@@ -565,16 +567,18 @@ def text_input_section() -> rx.Component:
                     },
                 },
             ),
+            # Secondary buttons: icon-only on mobile, icon+text on desktop
             rx.button(
-                t("clear_chat"),
+                rx.icon("trash-2", size=16),
+                rx.cond(AIState.is_mobile, rx.fragment(), t("clear_chat")),
                 on_click=AIState.clear_chat,
                 disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
                 size="2",
                 variant="outline",
                 color_scheme="orange",
+                flex="1",
                 style={
-                    "min_width": "120px",
-                    "background": "rgba(100, 10, 0, 0.4)",  # Dezenter transparenter roter Hintergrund
+                    "background": "rgba(100, 10, 0, 0.4)",
                     "&:hover:not([disabled])": {
                         "background": "rgba(150, 15, 0, 0.6) !important",
                         "border_color": "#ff6600 !important",
@@ -587,14 +591,15 @@ def text_input_section() -> rx.Component:
                 },
             ),
             rx.button(
-                t("save_memory"),
+                rx.icon("pin", size=16),
+                rx.cond(AIState.is_mobile, rx.fragment(), t("save_memory")),
                 on_click=AIState.save_session_memory,
                 disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
                 size="2",
                 variant="outline",
                 color_scheme="green",
+                flex="1",
                 style={
-                    "min_width": "120px",
                     "background": "rgba(0, 80, 30, 0.4)",
                     "&:hover:not([disabled])": {
                         "background": "rgba(0, 120, 50, 0.6) !important",
@@ -608,15 +613,16 @@ def text_input_section() -> rx.Component:
                 },
             ),
             rx.button(
-                t("share_chat"),
+                rx.icon("share-2", size=16),
+                rx.cond(AIState.is_mobile, rx.fragment(), t("share_chat")),
                 on_click=AIState.share_chat,
                 disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
                 size="2",
                 variant="outline",
                 color_scheme="blue",
+                flex="1",
                 style={
-                    "min_width": "120px",
-                    "background": "rgba(0, 50, 100, 0.4)",  # Dezenter transparenter blauer Hintergrund
+                    "background": "rgba(0, 50, 100, 0.4)",
                     "&:hover:not([disabled])": {
                         "background": "rgba(0, 80, 150, 0.6) !important",
                         "border_color": "#4da6ff !important",
