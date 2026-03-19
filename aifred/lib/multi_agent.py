@@ -761,6 +761,20 @@ async def run_sokrates_analysis(
         sokrates_options = build_llm_options(state, "sokrates", sokrates_temp, sokrates_num_ctx)
         alfred_options = build_llm_options(state, "aifred", alfred_temp, main_llm_ctx)
 
+        # Agent Memory: recall once before debate starts
+        from .agent_memory import prepare_agent_memory
+        memory_enabled = state.agent_memory_enabled
+        sokrates_memory_ctx, sokrates_toolkit = await prepare_agent_memory(
+            "sokrates", user_query, lang=detected_lang, enabled=memory_enabled,
+        )
+        if sokrates_memory_ctx:
+            state.add_debug("🧠 Memory context recalled for Sokrates")
+        salomo_memory_ctx, salomo_toolkit = await prepare_agent_memory(
+            "salomo", user_query, lang=detected_lang, enabled=memory_enabled,
+        )
+        if salomo_memory_ctx:
+            state.add_debug("🧠 Memory context recalled for Salomo")
+
         # Track current answer (may be refined in auto_consensus)
         current_answer = alfred_answer
         consensus_reached = False
@@ -779,8 +793,10 @@ async def run_sokrates_analysis(
                 # round_num prevents hallucinating "progress" in round 1
                 mode_prompt = get_sokrates_critic_prompt(round_num=round_num, lang=detected_lang)
 
-            # Combine: minimal first, then mode-specific
+            # Combine: minimal first, then mode-specific, then memory
             system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
+            if sokrates_memory_ctx:
+                system_prompt = f"{system_prompt}\n\n{sokrates_memory_ctx}"
 
             # Build messages with Sokrates' perspective
             # - Sokrates sees his own earlier responses as 'assistant'
@@ -818,7 +834,8 @@ async def run_sokrates_analysis(
             # DEBUG: Log RAW messages sent to Sokrates (controlled by DEBUG_LOG_RAW_MESSAGES)
             log_raw_messages(f"Sokrates R{round_num}", sokrates_messages)
 
-            # Stream Sokrates response (unified streaming box shows content)
+            # Stream Sokrates response (toolkit only in last round)
+            is_last_round = (round_num == max_rounds)
             result = None
             async for item in _stream_agent_to_history(
                 state=state,
@@ -828,6 +845,7 @@ async def run_sokrates_analysis(
                 model=sokrates_model,
                 messages=sokrates_messages,
                 options=sokrates_options,
+                toolkit=sokrates_toolkit if is_last_round else None,
             ):
                 if isinstance(item, dict):
                     # Last yield is the result
@@ -904,6 +922,8 @@ async def run_sokrates_analysis(
                 salomo_minimal = get_salomo_system_minimal(lang=detected_lang, multi_agent=True)
                 mediator_prompt = get_salomo_mediator_prompt(round_num=round_num, lang=detected_lang)
                 salomo_system = f"{salomo_minimal}\n\n{mediator_prompt}"
+                if salomo_memory_ctx:
+                    salomo_system = f"{salomo_system}\n\n{salomo_memory_ctx}"
 
                 # Build messages with observer perspective (sees everything neutrally)
                 # Use llm_history (compressed) instead of chat_history (full UI)
@@ -931,7 +951,7 @@ async def run_sokrates_analysis(
                 # DEBUG: Log RAW messages sent to Salomo (controlled by DEBUG_LOG_RAW_MESSAGES)
                 log_raw_messages(f"Salomo R{round_num}", salomo_messages)
 
-                # Stream Salomo response (unified streaming box shows content)
+                # Stream Salomo response (always gets toolkit - final agent in consensus)
                 salomo_result = None
                 async for item in _stream_agent_to_history(
                     state=state,
@@ -941,6 +961,7 @@ async def run_sokrates_analysis(
                     model=salomo_model,
                     messages=salomo_messages,
                     options=salomo_options,
+                    toolkit=salomo_toolkit,
                 ):
                     if isinstance(item, dict):
                         salomo_result = item
@@ -1234,6 +1255,20 @@ async def run_tribunal(
             f"Salomo={format_number(salomo_temp, 1)}"
         )
 
+        # Agent Memory: recall once before tribunal starts
+        from .agent_memory import prepare_agent_memory
+        memory_enabled = state.agent_memory_enabled
+        t_sokrates_memory_ctx, _ = await prepare_agent_memory(
+            "sokrates", user_query, lang=detected_lang, enabled=memory_enabled,
+        )
+        if t_sokrates_memory_ctx:
+            state.add_debug("🧠 Memory context recalled for Sokrates")
+        t_salomo_memory_ctx, t_salomo_toolkit = await prepare_agent_memory(
+            "salomo", user_query, lang=detected_lang, enabled=memory_enabled,
+        )
+        if t_salomo_memory_ctx:
+            state.add_debug("🧠 Memory context recalled for Salomo")
+
         max_rounds = state.max_debate_rounds
         current_answer = alfred_answer
 
@@ -1245,6 +1280,8 @@ async def run_tribunal(
             sokrates_minimal = get_sokrates_system_minimal(lang=detected_lang, multi_agent=True)
             mode_prompt = get_sokrates_tribunal_prompt(round_num=round_num, lang=detected_lang)
             system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
+            if t_sokrates_memory_ctx:
+                system_prompt = f"{system_prompt}\n\n{t_sokrates_memory_ctx}"
 
             # PRE-SOKRATES: Check if compression needed before Sokrates call
             # Include Sokrates system prompt in token calculation (v2.14.0+)
@@ -1403,6 +1440,8 @@ async def run_tribunal(
         salomo_minimal = get_salomo_system_minimal(lang=detected_lang, multi_agent=True)
         judge_prompt = get_salomo_judge_prompt(lang=detected_lang)
         salomo_system = f"{salomo_minimal}\n\n{judge_prompt}"
+        if t_salomo_memory_ctx:
+            salomo_system = f"{salomo_system}\n\n{t_salomo_memory_ctx}"
 
         # PRE-SALOMO: Check if compression needed before Salomo verdict
         # Include Salomo system prompt in token calculation (v2.14.0+)
@@ -1435,6 +1474,7 @@ async def run_tribunal(
             model=salomo_model,
             messages=salomo_messages,
             options=salomo_options,
+            toolkit=t_salomo_toolkit,
         ):
             if isinstance(item, dict):
                 salomo_result = item
