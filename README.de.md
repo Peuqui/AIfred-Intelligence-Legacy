@@ -33,8 +33,9 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße pro Backend - Ollama (Binary Search + RoPE-Skalierung 1.0x/1.5x/2.0x, Hybrid CPU-Offload), llama.cpp (3-phasig: GPU-only Binary Search → Speed-Variante mit Tensor-Split-Optimierung für Multi-GPU → Hybrid NGL-Fallback)
 - **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud-Streaming mit Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **nahtlose Echtzeit-Audioausgabe** (Double-Buffered HTML5 Audio, lückenlose Wiedergabe während der LLM-Inferenz)
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
-- **Agenten-Langzeitgedächtnis**: Persistentes Gedächtnis pro Agent via ChromaDB — Agenten speichern eigenständig Erkenntnisse via Function Calling und rufen relevante Erinnerungen als Kontext ab. Inkognito-Modus (🔒) deaktiviert das Gedächtnis global
+- **Agenten-Langzeitgedächtnis**: Persistentes Gedächtnis pro Agent via ChromaDB — Agenten speichern eigenständig Erkenntnisse via Function Calling, kombinierter Recall (10 neueste + semantische Suche), Session-Pinning für alle beteiligten Agenten. Memory-Browser in der Agentenverwaltung zum Inspizieren und Aufräumen. Inkognito-Modus (🔒) deaktiviert das Gedächtnis global
 - **Function Calling**: OpenAI-kompatible Tool-Infrastruktur für LLM-gesteuerte Aktionen (store_memory als erstes Tool, erweiterbar)
+- **Benutzerdefinierte Agenten**: Unbegrenzt eigene Agenten erstellen mit Name, Emoji, Rolle und zweisprachigen Prompts (DE/EN). Eigene Agenten nehmen an Debatten teil, können direkt angesprochen werden und haben ihr eigenes Langzeitgedächtnis
 - **Sampling-Parameter-Tabelle**: Agentenspezifische Einstellung von Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual-Modus) — Sampling-Parameter werden bei Neustart auf llama-swap YAML-Defaults zurückgesetzt, Temperature wird in settings.json gespeichert
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)
 - **Session-Persistenz**: Mobile Chat-History überlebt Browser-Hintergrund/Neustart (Cookie-basiert)
@@ -50,7 +51,7 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 
 | Modus | Ablauf | Wer entscheidet? |
 |-------|--------|------------------|
-| **Standard** | AIfred antwortet | — |
+| **Standard** | Beliebiger Agent antwortet (per Toggle wählbar) | — |
 | **Kritische Prüfung** | AIfred → Sokrates (+ Pro/Contra) → STOP | User |
 | **Auto-Konsens** | AIfred → Sokrates → Salomo (X Runden) | Salomo |
 | **Tribunal** | AIfred ↔ Sokrates (X Runden) → Salomo | Salomo (Urteil) |
@@ -60,18 +61,22 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 - 🏛️ **Sokrates** - Kritischer Philosoph - hinterfragt & liefert Alternativen mit sokratischer Methode
 - 👑 **Salomo** - Weiser Richter - synthetisiert Argumente und fällt finale Entscheidungen
 - 📷 **Vision** - Bildanalyst - OCR und visuelle Q&A (erbt AIfred's Persönlichkeit)
+- 🤖 **Eigene Agenten** - Benutzerdefinierte Agenten mit vollständiger Prompt-Anpassung
 
 **Anpassbare Persönlichkeiten:**
 - Alle Agenten-Prompts sind Textdateien in `prompts/de/` und `prompts/en/`
 - Agenten-Konfiguration in `data/agents.json` — Prompt-Pfade, Toggles, Rollen
 - Persönlichkeit kann in den UI-Einstellungen ein-/ausgeschaltet werden (behält Identität, entfernt Stil)
-- 3-Schichten Prompt-System: Identität (wer) + Persönlichkeit (wie, optional) + Aufgabe (was)
-- Eigene Agenten erstellen oder bestehende Persönlichkeiten anpassen
+- 4-Schichten Prompt-System: Identität (wer) + Persönlichkeit (wie, optional) + Aufgabe (was) + Direkt (bei Ansprache)
+- **Agenten-Editor**: Agenten erstellen, bearbeiten und löschen über die UI — DOM-basierte Eingaben, DE/EN Prompt-Bearbeitung, Emoji-Auswahl
+- **Memory-Browser**: ChromaDB-Gedächtnis pro Agent inspizieren und verwalten (Session-Zusammenfassungen, Erkenntnisse, etc.)
 - **Mehrsprachig**: Agenten antworten in der Sprache des Users (deutsche Prompts für Deutsch, englische Prompts für alle anderen Sprachen)
 
-**Direkte Agenten-Ansprache** (NEU in v2.10):
-- Sokrates direkt ansprechen: "Sokrates, was denkst du über...?" → Sokrates antwortet mit sokratischer Methode
+**Direkte Agenten-Ansprache**:
+- Jeden Agenten direkt ansprechen: "Sokrates, was denkst du über...?" → Sokrates antwortet mit sokratischer Methode
 - AIfred direkt ansprechen: "AIfred, erkläre..." → AIfred antwortet ohne Sokrates-Analyse
+- Eigene Agenten über ID oder Anzeigename ansprechbar (automatisch per Intent-Erkennung)
+- **Aktiver-Agent-Toggle**: Pill-Buttons zur Auswahl welcher Agent im Standard-Modus antwortet
 - Unterstützt STT-Transkriptionsvarianten: "Alfred", "Eifred", "AI Fred"
 - Funktioniert auch am Satzende: "Gut erklärt. Sokrates." / "Prima gemacht. Alfred!"
 

@@ -33,8 +33,9 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Automatic Context Calibration**: VRAM-aware context sizing per backend - Ollama (Binary Search + RoPE scaling 1.0x/1.5x/2.0x, hybrid CPU offload), llama.cpp (3-phase: GPU-only Binary Search → Speed variant with tensor-split optimization for multi-GPU → Hybrid NGL fallback)
 - **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (double-buffered HTML5 audio, seamless playback during LLM inference)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
-- **Agent Long-Term Memory**: Per-agent persistent memory via ChromaDB — agents autonomously store insights via function calling and recall relevant memories for context injection. Incognito mode (🔒) disables memory globally
+- **Agent Long-Term Memory**: Per-agent persistent memory via ChromaDB — agents autonomously store insights via function calling, combined recall (10 recent + semantic search), session pinning for all participating agents. Memory Browser in Agent Editor for inspection and cleanup. Incognito mode (🔒) disables memory globally
 - **Function Calling**: OpenAI-compatible tool infrastructure for LLM-driven actions (store_memory as first tool, extensible)
+- **Custom Agents**: Create unlimited custom agents with name, emoji, role, and multilingual prompts (DE/EN). Custom agents participate in debates, can be directly addressed, and have their own long-term memory
 - **Sampling Parameters Table**: Per-agent control of Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual mode) — sampling params reset to llama-swap YAML defaults on restart, temperature persisted in settings.json
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
 - **User Authentication**: Username + password login with whitelist-based registration, admin CLI for user management
@@ -51,7 +52,7 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 
 | Mode | Flow | Who decides? |
 |------|------|--------------|
-| **Standard** | AIfred answers | — |
+| **Standard** | Any agent answers (selectable via toggle) | — |
 | **Critical Review** | AIfred → Sokrates (+ Pro/Contra) → STOP | User |
 | **Auto-Consensus** | AIfred → Sokrates → Salomo (X rounds) | Salomo |
 | **Tribunal** | AIfred ↔ Sokrates (X rounds) → Salomo | Salomo (Verdict) |
@@ -61,18 +62,22 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 - 🏛️ **Sokrates** - Critical Philosopher - questions & challenges using the Socratic method
 - 👑 **Salomo** - Wise Judge - synthesizes arguments and makes final decisions
 - 📷 **Vision** - Image Analyst - OCR and visual Q&A (inherits AIfred's personality)
+- 🤖 **Custom Agents** - User-created agents with full prompt customization
 
 **Customizable Personalities:**
 - All agent prompts are plain text files in `prompts/de/` and `prompts/en/`
 - Agent configuration in `data/agents.json` — prompt paths, toggles, roles
 - Personality can be toggled on/off in UI settings (keeps identity, removes style)
-- 3-layer prompt system: Identity (who) + Personality (how, optional) + Task (what)
-- Easily create your own agents or modify existing personalities
+- 4-layer prompt system: Identity (who) + Personality (how, optional) + Task (what) + Direct (when addressed)
+- **Agent Editor**: Create, edit, delete agents via UI — DOM-only inputs, DE/EN prompt editing, emoji picker
+- **Memory Browser**: Inspect and manage per-agent ChromaDB memory collections (session summaries, insights, etc.)
 - **Multilingual**: Agents respond in the user's language (German prompts for German, English prompts for all other languages)
 
-**Direct Agent Addressing** (NEW in v2.10):
-- Address Sokrates directly: "Sokrates, what do you think about...?" → Sokrates answers with Socratic method
+**Direct Agent Addressing**:
+- Address any agent by name: "Sokrates, what do you think about...?" → Sokrates answers with Socratic method
 - Address AIfred directly: "AIfred, explain..." → AIfred answers without Sokrates analysis
+- Custom agents addressable by ID or display name (auto-detected via intent detection)
+- **Active Agent Toggle**: Pill buttons to select which agent responds in Standard mode
 - Supports STT transcription variants: "Alfred", "Eifred", "AI Fred"
 - Works at sentence end too: "Great explanation. Sokrates." / "Well done. Alfred!"
 

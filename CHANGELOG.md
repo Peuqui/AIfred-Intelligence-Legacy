@@ -5,6 +5,46 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.59.0] - 2026-03-19 🤖 Custom Agents + Memory Browser + UI Redesign
+
+### Added
+
+- **Custom Agent Support** — Create unlimited custom agents via the Agent Editor (name, emoji, role, prompts). Custom agents can be directly addressed in chat, participate in multi-agent debates, and have their own long-term memory.
+- **Active Agent Toggle** — Pill buttons in Standard mode to switch which agent responds. Custom agents appear alongside AIfred, Sokrates, Salomo.
+- **Generic Agent Routing** — Any agent (including custom) can be addressed by name or display name. Intent detection uses dynamic agent list from config instead of hardcoded names.
+- **Memory Browser** — New "Memory" tab in Agent Editor to browse all ChromaDB collections. Shows per-agent entries with date, type badge, summary, and full content. Individual entries can be deleted.
+- **Combined Memory Recall** — `recall_combined()` loads the 10 most recent memories (chronological) plus semantically relevant older memories, deduplicated. Agents always have context about recent conversations.
+- **Session Pinning for All Agents** — "Merken" button generates a 4-5 sentence summary and stores it for ALL participating agents (not just the active one). Duplicate detection via session_id prevents re-pinning.
+- **Session Pin Duplicate Detection** — Per-agent check using session_id metadata. Existing summaries get updated, new agents get pinned. Toast shows "2 pinned, 1 updated".
+- **Prompt File Cleanup** — Deleting an agent now removes its prompt directories from disk (both `prompts/de/` and `prompts/en/`).
+- **code-server Integration** — VS Code in the browser via nginx reverse proxy at `/code/`. WebSocket support with Host/Origin rewriting for code-server compatibility.
+
+### Changed
+
+- **UI Redesign** — Research mode as pill buttons (replacing radio group), LLM parameters as popover (replacing accordion), agent toggle row, compact layout.
+- **Action Buttons** — Consistent rx.icon style (send=papierflieger, trash, pin, share). Icon-only on mobile, icon+text on desktop. Send button proportionally larger (flex=2).
+- **Agent Editor** — DOM-only inputs (no per-keystroke state updates). DE/EN language toggle for prompt editing. Editor stays open after creating new agent. Larger modal (750px, 90vh).
+- **Streaming Display** — Generic agent streaming with display_name + emoji from state (not hardcoded per agent).
+- **Memory Recall Config** — `AGENT_MEMORY_RESULTS` increased to 5, new `AGENT_MEMORY_RECENT_COUNT = 10`.
+- **Session Summary** — Increased from 2-3 to 4-5 sentences (max_tokens 300) for richer context.
+- **Intent Detection Prompt** — Dynamic `{agent_list}` placeholder instead of hardcoded agent names.
+
+### Fixed
+
+- **super() TypeError** in agent editor — Removed `callback=AIState.method` pattern from mixin methods that caused MRO issues.
+- **Session Pin Button** — 4 broken references: `self.chat_history`, `self.active_agent_id`, `LLMClient.get_instance()`, `self.selected_model`.
+- **Agent Display Names** — Added `agent_display_name` + `agent_emoji` to ALL message creation paths (conversation_handler, own_knowledge_handler, context_builder, cache_handler).
+- **Playwright Auto-Install** — Detects missing browsers after cache cleanup, runs `playwright install chromium` automatically.
+- **Duplicate Query Output** — Removed plain-text query listing in web search mode (kept API-tagged version only).
+- **HTML Preview Cleanup** — Session deletion now removes associated HTML preview files from disk.
+
+### Technical Details
+
+- New state vars: `active_agent`, `current_agent_display_name`, `current_agent_emoji`, `memory_browser_*`
+- New functions: `run_generic_agent_direct_response()`, `get_agent_direct_prompt()`, `recall_combined()`, `recall_recent()`, `find_by_session()`, `update_by_session()`
+- Agent editor: 3 view modes (list, edit, memory)
+- .gitignore: Custom agent prompts excluded from tracking
+
 ## [2.58.0] - 2026-03-19 🧠 Function Calling + Agent Long-Term Memory
 
 ### Added

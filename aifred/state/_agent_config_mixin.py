@@ -958,8 +958,14 @@ class AgentConfigMixin(rx.State, mixin=True):
     # Editor modal visibility
     agent_editor_open: bool = False
 
-    # Editor view mode: "list" or "edit"
+    # Editor view mode: "list", "edit", or "memory"
     agent_editor_mode: str = "list"
+
+    # Memory browser state
+    memory_browser_agent: str = ""  # Selected agent in memory browser ("" = overview)
+    memory_browser_agent_display: str = ""  # Display name of selected agent
+    memory_browser_entries: List[dict] = []  # Entries for selected agent
+    memory_browser_collections: List[dict] = []  # Collection overview [{name, agent_id, count}]
 
     # Agent list for UI rendering (serializable dicts)
     agent_list: List[dict] = []
@@ -1278,3 +1284,124 @@ class AgentConfigMixin(rx.State, mixin=True):
             "  .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });"
             "}, 50)",
         )
+
+    # ================================================================
+    # MEMORY BROWSER
+    # ================================================================
+
+    def open_memory_browser(self) -> None:
+        """Switch to memory browser view and load collection overview."""
+        self.agent_editor_mode = "memory"
+        self.memory_browser_agent = ""
+        self.memory_browser_entries = []
+        self._load_memory_collections()
+
+    def _load_memory_collections(self) -> None:
+        """Load overview of all ChromaDB agent memory collections."""
+        from ..lib.agent_memory import get_agent_memory
+        memory = get_agent_memory()
+        if not memory:
+            self.memory_browser_collections = []
+            return
+
+        from ..lib.agent_config import get_agent_config
+
+        collections = []
+        try:
+            for col in memory._client.list_collections():
+                if col.name.startswith("agent_memory_"):
+                    agent_id = col.name.removeprefix("agent_memory_")
+                    cfg = get_agent_config(agent_id)
+                    display_name = f"{cfg.emoji} {cfg.display_name}" if cfg else agent_id.capitalize()
+                    collections.append({
+                        "name": col.name,
+                        "agent_id": agent_id,
+                        "display_name": display_name,
+                        "count": col.count(),
+                    })
+                elif col.name == "research_cache":
+                    collections.append({
+                        "name": col.name,
+                        "agent_id": "research_cache",
+                        "display_name": "🔍 Research Cache",
+                        "count": col.count(),
+                    })
+        except Exception as e:
+            self.add_debug(f"❌ Memory browser error: {e}")  # type: ignore[attr-defined]
+
+        collections.sort(key=lambda c: c["agent_id"])
+        self.memory_browser_collections = collections
+
+    def browse_memory_agent(self, agent_id: str) -> None:
+        """Load all entries for a specific agent's memory collection."""
+        from ..lib.agent_memory import get_agent_memory
+        memory = get_agent_memory()
+        if not memory:
+            self.memory_browser_entries = []
+            return
+
+        self.memory_browser_agent = agent_id
+        # Resolve display name
+        if agent_id == "research_cache":
+            self.memory_browser_agent_display = "🔍 Research Cache"
+        else:
+            from ..lib.agent_config import get_agent_config
+            cfg = get_agent_config(agent_id)
+            self.memory_browser_agent_display = f"{cfg.emoji} {cfg.display_name}" if cfg else agent_id.capitalize()
+        entries: list[dict] = []
+
+        try:
+            if agent_id == "research_cache":
+                col = memory._client.get_collection(
+                    name="research_cache",
+                    embedding_function=memory._embed_fn,  # type: ignore[arg-type]
+                )
+            else:
+                col = memory._collection(agent_id)
+
+            if col.count() == 0:
+                self.memory_browser_entries = []
+                return
+
+            data = col.get(include=["metadatas", "documents"])
+            for i, doc_id in enumerate(data["ids"]):
+                meta = data["metadatas"][i] if data["metadatas"] else {}  # type: ignore[index]
+                doc = data["documents"][i] if data["documents"] else ""  # type: ignore[index]
+                entries.append({
+                    "id": doc_id,
+                    "date": meta.get("date", meta.get("cached_at", ""))[:19] if meta else "",
+                    "type": meta.get("type", "cache"),
+                    "summary": meta.get("summary", doc[:120] if doc else ""),
+                    "content": meta.get("content", doc or "")[:1000],
+                    "session_id": meta.get("session_id", ""),
+                })
+        except Exception as e:
+            self.add_debug(f"❌ Memory browse error: {e}")  # type: ignore[attr-defined]
+
+        entries.sort(key=lambda e: e.get("date", ""), reverse=True)
+        self.memory_browser_entries = entries
+
+    def delete_memory_entry(self, entry_id: str) -> None:
+        """Delete a single memory entry from the current agent's collection."""
+        from ..lib.agent_memory import get_agent_memory
+        memory = get_agent_memory()
+        if not memory or not self.memory_browser_agent:
+            return
+
+        try:
+            if self.memory_browser_agent == "research_cache":
+                col = memory._client.get_collection(
+                    name="research_cache",
+                    embedding_function=memory._embed_fn,  # type: ignore[arg-type]
+                )
+            else:
+                col = memory._collection(self.memory_browser_agent)
+
+            col.delete(ids=[entry_id])
+            self.add_debug(f"🗑️ Memory entry deleted: {entry_id[:8]}...")  # type: ignore[attr-defined]
+        except Exception as e:
+            self.add_debug(f"❌ Delete failed: {e}")  # type: ignore[attr-defined]
+
+        # Refresh the view
+        self.browse_memory_agent(self.memory_browser_agent)
+        self._load_memory_collections()

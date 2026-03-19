@@ -151,12 +151,11 @@ def _agent_row(agent: rx.Var) -> rx.Component:
     )
 
 
-def _agent_list_view() -> rx.Component:
-    """The agent list view (main view of the editor)."""
+def _editor_header() -> rx.Component:
+    """Shared header with tab navigation for the agent editor modal."""
     return rx.vstack(
-        # Header
         rx.hstack(
-            rx.icon("users", size=24, color="#FFD700"),
+            rx.icon("settings", size=24, color="#FFD700"),
             rx.text(
                 t("agent_editor_title"),
                 color="white",
@@ -175,6 +174,50 @@ def _agent_list_view() -> rx.Component:
             width="100%",
             align="center",
         ),
+        # Tab bar
+        rx.hstack(
+            rx.button(
+                rx.icon("users", size=14),
+                rx.cond(AIState.ui_language == "de", "Agenten", "Agents"),
+                on_click=AIState.back_to_agent_list,
+                size="2",
+                variant=rx.cond(
+                    AIState.agent_editor_mode == "list",
+                    "solid", "soft",
+                ),
+                color_scheme=rx.cond(
+                    AIState.agent_editor_mode == "list",
+                    "orange", "gray",
+                ),
+                cursor="pointer",
+            ),
+            rx.button(
+                rx.icon("database", size=14),
+                "Memory",
+                on_click=AIState.open_memory_browser,
+                size="2",
+                variant=rx.cond(
+                    AIState.agent_editor_mode == "memory",
+                    "solid", "soft",
+                ),
+                color_scheme=rx.cond(
+                    AIState.agent_editor_mode == "memory",
+                    "orange", "gray",
+                ),
+                cursor="pointer",
+            ),
+            spacing="2",
+            width="100%",
+        ),
+        spacing="3",
+        width="100%",
+    )
+
+
+def _agent_list_view() -> rx.Component:
+    """The agent list view (main view of the editor)."""
+    return rx.vstack(
+        _editor_header(),
         # New agent button
         rx.button(
             rx.hstack(
@@ -515,6 +558,161 @@ def _agent_edit_view() -> rx.Component:
     )
 
 
+def _memory_collection_row(col: rx.Var) -> rx.Component:
+    """Render a single collection row in the memory browser overview."""
+    return rx.hstack(
+        rx.text(col["display_name"], font_weight="bold", font_size="13px", flex="1"),
+        rx.badge(col["count"], variant="soft", color_scheme="orange"),
+        rx.icon_button(
+            rx.icon("eye", size=14),
+            on_click=AIState.browse_memory_agent(col["agent_id"]),
+            size="1",
+            variant="soft",
+            color_scheme="blue",
+            cursor="pointer",
+        ),
+        width="100%",
+        padding="8px 12px",
+        background="rgba(255,255,255,0.03)",
+        border_radius="6px",
+        border="1px solid #333",
+        align="center",
+        cursor="pointer",
+        on_click=AIState.browse_memory_agent(col["agent_id"]),
+        style={"&:hover": {"background": "rgba(255,255,255,0.06)"}},
+    )
+
+
+def _memory_entry_row(entry: rx.Var) -> rx.Component:
+    """Render a single memory entry with expandable content."""
+    return rx.box(
+        rx.hstack(
+            # Type badge
+            rx.badge(
+                entry["type"],
+                variant="soft",
+                color_scheme=rx.cond(
+                    entry["type"] == "session_summary", "blue",
+                    rx.cond(entry["type"] == "sermon", "purple",
+                    rx.cond(entry["type"] == "insight", "green", "gray")),
+                ),
+                font_size="10px",
+            ),
+            # Date
+            rx.text(entry["date"], font_size="11px", color="#888"),
+            rx.spacer(),
+            # Delete button
+            rx.icon_button(
+                rx.icon("trash-2", size=12),
+                on_click=AIState.delete_memory_entry(entry["id"]),
+                size="1",
+                variant="ghost",
+                color_scheme="red",
+                cursor="pointer",
+            ),
+            width="100%",
+            align="center",
+        ),
+        # Summary
+        rx.text(
+            entry["summary"],
+            font_size="15px",
+            color="#ddd",
+            font_weight="500",
+            padding_top="4px",
+        ),
+        # Content preview
+        rx.cond(
+            entry["content"] != entry["summary"],
+            rx.text(
+                entry["content"],
+                font_size="14px",
+                color="#aaa",
+                padding_top="4px",
+                style={"white_space": "pre-wrap"},
+            ),
+        ),
+        padding="10px 12px",
+        background="rgba(255,255,255,0.03)",
+        border_radius="6px",
+        border="1px solid #333",
+        width="100%",
+    )
+
+
+def _memory_browser_view() -> rx.Component:
+    """Memory browser view — browse ChromaDB collections and entries."""
+    return rx.vstack(
+        _editor_header(),
+        # Content: overview or detail view
+        rx.cond(
+            AIState.memory_browser_agent == "",
+            # Overview: list all collections
+            rx.vstack(
+                rx.text(
+                    "ChromaDB Collections",
+                    font_weight="bold",
+                    font_size="14px",
+                    color="#FFD700",
+                ),
+                rx.cond(
+                    AIState.memory_browser_collections.length() > 0,  # type: ignore[union-attr]
+                    rx.foreach(
+                        AIState.memory_browser_collections,
+                        _memory_collection_row,
+                    ),
+                    rx.text("No collections found", color="#888", font_size="13px"),
+                ),
+                spacing="2",
+                width="100%",
+            ),
+            # Detail: entries for selected agent
+            rx.vstack(
+                rx.hstack(
+                    rx.button(
+                        rx.icon("arrow-left", size=14),
+                        on_click=AIState.open_memory_browser,
+                        size="1",
+                        variant="soft",
+                        color_scheme="gray",
+                        cursor="pointer",
+                    ),
+                    rx.text(
+                        AIState.memory_browser_agent_display,
+                        font_weight="bold",
+                        font_size="14px",
+                        color="#FFD700",
+                    ),
+                    rx.badge(
+                        AIState.memory_browser_entries.length(),  # type: ignore[union-attr]
+                        variant="soft",
+                        color_scheme="orange",
+                    ),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                ),
+                rx.cond(
+                    AIState.memory_browser_entries.length() > 0,  # type: ignore[union-attr]
+                    rx.vstack(
+                        rx.foreach(
+                            AIState.memory_browser_entries,
+                            _memory_entry_row,
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    rx.text("No entries", color="#888", font_size="13px"),
+                ),
+                spacing="3",
+                width="100%",
+            ),
+        ),
+        spacing="3",
+        width="100%",
+    )
+
+
 def agent_editor_modal() -> rx.Component:
     """Agent Editor fullscreen overlay modal."""
     return rx.cond(
@@ -530,19 +728,24 @@ def agent_editor_modal() -> rx.Component:
                 background_color="rgba(0, 0, 0, 0.85)",
                 on_click=AIState.close_agent_editor,
             ),
-            # Modal content - switches between list and edit view
+            # Modal content — switches between list, edit, and memory view
             rx.box(
                 rx.cond(
                     AIState.agent_editor_mode == "edit",
                     _agent_edit_view(),
-                    _agent_list_view(),
+                    rx.cond(
+                        AIState.agent_editor_mode == "memory",
+                        _memory_browser_view(),
+                        _agent_list_view(),
+                    ),
                 ),
                 padding="25px",
                 background_color="#1a1a1a",
                 border_radius="12px",
                 max_width="95vw",
-                width="700px",
-                max_height="90vh",
+                width="750px",
+                height="90vh",
+                max_height="95vh",
                 overflow_y="auto",
                 position="relative",
                 z_index="1001",
