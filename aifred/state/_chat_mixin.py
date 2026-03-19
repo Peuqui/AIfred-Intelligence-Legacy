@@ -1412,3 +1412,105 @@ class ChatMixin(rx.State, mixin=True):
             self.add_debug("⚠️ Bitte zuerst anmelden")
             return
         self._clear_chat_internal(silent=False)  # type: ignore[attr-defined]
+
+    # ── Save Session Memory ──────────────────────────────────────────
+
+    async def save_session_memory(self) -> None:
+        """Generate a session summary and store it in the active agent's memory."""
+        import reflex as rx
+        from ..lib.agent_memory import get_agent_memory
+
+        if not self.logged_in_user:  # type: ignore[attr-defined]
+            return
+
+        history = self.chat_history  # type: ignore[attr-defined]
+        if len(history) < 2:
+            yield rx.toast.info("Not enough messages to summarize", duration=3000, position="top-center")
+            return
+
+        memory = get_agent_memory()
+        if not memory:
+            yield rx.toast.error("Agent memory unavailable", duration=3000, position="top-center")
+            return
+
+        # Determine active agent
+        agent_id = (self.active_agent_id or "aifred").lower()  # type: ignore[attr-defined]
+        if agent_id == "vision":
+            yield rx.toast.info("Vision agent has no memory", duration=3000, position="top-center")
+            return
+
+        # Get display name for logs/toasts
+        from ..lib.multi_agent import get_agent_config
+        agent_cfg = get_agent_config(agent_id)  # type: ignore[arg-type]
+        agent_name = agent_cfg.display_name if agent_cfg else agent_id.capitalize()
+
+        # Build conversation text for summarization
+        conv_lines = []
+        for msg in history:
+            role = msg.get("role", "user")
+            agent = msg.get("agent_display_name", msg.get("agent", ""))
+            content = msg.get("content", "")
+            # Strip HTML tags
+            import re
+            clean = re.sub(r'<[^>]+>', '', content).strip()
+            if role == "user":
+                conv_lines.append(f"User: {clean}")
+            else:
+                speaker = agent or "Assistant"
+                conv_lines.append(f"{speaker}: {clean}")
+
+        conversation_text = "\n".join(conv_lines)
+
+        # Limit to ~4000 chars to keep LLM call fast
+        if len(conversation_text) > 4000:
+            conversation_text = conversation_text[-4000:]
+
+        # Generate summary via LLM
+        from ..lib.llm_client import LLMClient
+        llm_client = LLMClient.get_instance()  # type: ignore[attr-defined]
+        model = self.selected_model  # type: ignore[attr-defined]
+
+        summary_prompt = (
+            "Summarize this conversation in 2-3 sentences. "
+            "Focus on the key topics, decisions, and insights. "
+            "Write in the same language as the conversation.\n\n"
+            f"{conversation_text}"
+        )
+
+        self.add_debug(f"📌 Generating session summary for {agent_name} ({len(history)} messages)...")  # type: ignore[attr-defined]
+
+        try:
+            summary = ""
+            async for chunk in llm_client.chat_stream(
+                model=model,
+                messages=[{"role": "user", "content": summary_prompt}],
+                options=type('Options', (), {
+                    'temperature': 0.3,
+                    'max_tokens': 200,
+                    'top_k': 40, 'top_p': 0.95, 'min_p': 0.05,
+                    'repeat_penalty': 1.0,
+                    'enable_thinking': False,
+                })(),
+            ):
+                if chunk.get("type") == "content":
+                    summary += chunk.get("text", "")
+
+            summary = summary.strip()
+            if not summary:
+                yield rx.toast.error("Failed to generate summary", duration=3000, position="top-center")
+                return
+
+            # Store in agent memory
+            await memory.store(
+                agent_id=agent_id,
+                content=summary,
+                memory_type="session_summary",
+                summary=summary[:120],
+            )
+
+            self.add_debug(f"📌 Session pinned to {agent_name}'s memory: {summary[:100]}...")  # type: ignore[attr-defined]
+            yield rx.toast.success(f"Session pinned to {agent_name}'s memory", duration=3000, position="top-center")
+
+        except Exception as e:
+            self.add_debug(f"❌ Session pin failed: {e}")  # type: ignore[attr-defined]
+            yield rx.toast.error(f"Error: {e}", duration=3000, position="top-center")

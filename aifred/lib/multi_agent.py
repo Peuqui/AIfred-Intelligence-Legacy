@@ -444,9 +444,9 @@ async def _run_agent_direct_response(
         )
         if memory_ctx:
             system_prompt = f"{system_prompt}\n\n{memory_ctx}"
-            state.add_debug(f"🧠 Memory context injected for {agent}")
+            state.add_debug(f"🧠 Memory context injected for {agent_label}")
         if toolkit:
-            state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent}")
+            state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_label}")
         if not memory_enabled:
             state.add_debug("🔒 Inkognito-Modus (kein Gedächtnis)")
 

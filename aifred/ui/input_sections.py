@@ -587,6 +587,27 @@ def text_input_section() -> rx.Component:
                 },
             ),
             rx.button(
+                t("save_memory"),
+                on_click=AIState.save_session_memory,
+                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
+                size="2",
+                variant="outline",
+                color_scheme="green",
+                style={
+                    "min_width": "120px",
+                    "background": "rgba(0, 80, 30, 0.4)",
+                    "&:hover:not([disabled])": {
+                        "background": "rgba(0, 120, 50, 0.6) !important",
+                        "border_color": "#44cc66 !important",
+                        "transform": "scale(1.02)",
+                    },
+                    "&:active:not([disabled])": {
+                        "background": "rgba(0, 60, 20, 0.7) !important",
+                        "transform": "scale(0.98)",
+                    },
+                },
+            ),
+            rx.button(
                 t("share_chat"),
                 on_click=AIState.share_chat,
                 disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
