@@ -774,6 +774,11 @@ async def run_sokrates_analysis(
         )
         if salomo_memory_ctx:
             state.add_debug("🧠 Memory context recalled for Salomo")
+        aifred_memory_ctx, aifred_toolkit = await prepare_agent_memory(
+            "aifred", user_query, lang=detected_lang, enabled=memory_enabled,
+        )
+        if aifred_memory_ctx:
+            state.add_debug("🧠 Memory context recalled for AIfred")
 
         # Track current answer (may be refined in auto_consensus)
         current_answer = alfred_answer
@@ -834,8 +839,7 @@ async def run_sokrates_analysis(
             # DEBUG: Log RAW messages sent to Sokrates (controlled by DEBUG_LOG_RAW_MESSAGES)
             log_raw_messages(f"Sokrates R{round_num}", sokrates_messages)
 
-            # Stream Sokrates response (toolkit only in last round)
-            is_last_round = (round_num == max_rounds)
+            # Stream Sokrates response (toolkit always - model decides if storing)
             result = None
             async for item in _stream_agent_to_history(
                 state=state,
@@ -845,7 +849,7 @@ async def run_sokrates_analysis(
                 model=sokrates_model,
                 messages=sokrates_messages,
                 options=sokrates_options,
-                toolkit=sokrates_toolkit if is_last_round else None,
+                toolkit=sokrates_toolkit,
             ):
                 if isinstance(item, dict):
                     # Last yield is the result
@@ -1038,6 +1042,8 @@ async def run_sokrates_analysis(
                     # Include AIfred system prompt + refinement prompt in token calculation (v2.14.1+)
                     # IMPORTANT (v2.14.4+): Use AIFRED's context limit, not min_ctx!
                     aifred_system_prompt = get_aifred_system_minimal(lang=detected_lang, multi_agent=True)
+                    if aifred_memory_ctx:
+                        aifred_system_prompt = f"{aifred_system_prompt}\n\n{aifred_memory_ctx}"
                     aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
                     async for _ in _check_compression_if_needed(state, llm_client, main_llm_ctx, aifred_prompt_tokens):
                         yield
@@ -1070,7 +1076,7 @@ async def run_sokrates_analysis(
                     # DEBUG: Log RAW messages sent to AIfred (controlled by DEBUG_LOG_RAW_MESSAGES)
                     log_raw_messages(f"AIfred R{round_num + 1}", alfred_messages)
 
-                    # Stream AIfred refinement (unified streaming box shows content)
+                    # Stream AIfred refinement (with toolkit for memory store)
                     alfred_result = None
                     async for item in _stream_agent_to_history(
                         state=state,
@@ -1080,6 +1086,7 @@ async def run_sokrates_analysis(
                         model=alfred_model,
                         messages=alfred_messages,
                         options=alfred_options,
+                        toolkit=aifred_toolkit,
                     ):
                         if isinstance(item, dict):
                             alfred_result = item
@@ -1258,7 +1265,7 @@ async def run_tribunal(
         # Agent Memory: recall once before tribunal starts
         from .agent_memory import prepare_agent_memory
         memory_enabled = state.agent_memory_enabled
-        t_sokrates_memory_ctx, _ = await prepare_agent_memory(
+        t_sokrates_memory_ctx, t_sokrates_toolkit = await prepare_agent_memory(
             "sokrates", user_query, lang=detected_lang, enabled=memory_enabled,
         )
         if t_sokrates_memory_ctx:
@@ -1268,6 +1275,11 @@ async def run_tribunal(
         )
         if t_salomo_memory_ctx:
             state.add_debug("🧠 Memory context recalled for Salomo")
+        t_aifred_memory_ctx, t_aifred_toolkit = await prepare_agent_memory(
+            "aifred", user_query, lang=detected_lang, enabled=memory_enabled,
+        )
+        if t_aifred_memory_ctx:
+            state.add_debug("🧠 Memory context recalled for AIfred")
 
         max_rounds = state.max_debate_rounds
         current_answer = alfred_answer
@@ -1310,6 +1322,7 @@ async def run_tribunal(
                 model=sokrates_model,
                 messages=sokrates_messages,
                 options=sokrates_options,
+                toolkit=t_sokrates_toolkit,
             ):
                 if isinstance(item, dict):
                     result = item
@@ -1394,6 +1407,7 @@ async def run_tribunal(
                     model=alfred_model,
                     messages=alfred_messages,
                     options=alfred_options,
+                    toolkit=t_aifred_toolkit,
                 ):
                     if isinstance(item, dict):
                         alfred_result = item

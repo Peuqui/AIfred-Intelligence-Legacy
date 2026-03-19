@@ -127,6 +127,15 @@ class AgentMemory:
             })
         return memories
 
+    @staticmethod
+    def _load_tool_description() -> str:
+        """Load store_memory tool description from prompt file."""
+        from pathlib import Path
+        path = Path(__file__).parent.parent.parent / "prompts" / "shared" / "store_memory_tool.txt"
+        if path.exists():
+            return path.read_text(encoding="utf-8").strip()
+        return "Store a key insight to your long-term memory."
+
     def make_toolkit(self, agent_id: str) -> ToolKit:
         """Create a ToolKit with memory tools bound to a specific agent."""
 
@@ -136,12 +145,7 @@ class AgentMemory:
         return ToolKit(tools=[
             Tool(
                 name="store_memory",
-                description=(
-                    "Store important content to your long-term memory. "
-                    "Use this for noteworthy insights, analyses, sermons, prayers, "
-                    "or anything you want to remember across conversations. "
-                    "Use sparingly - only for truly memorable content."
-                ),
+                description=self._load_tool_description(),
                 parameters={
                     "type": "object",
                     "properties": {
