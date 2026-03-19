@@ -1423,7 +1423,7 @@ class ChatMixin(rx.State, mixin=True):
         if not self.logged_in_user:  # type: ignore[attr-defined]
             return
 
-        history = self.chat_history  # type: ignore[attr-defined]
+        history = self._chat_sub().chat_history  # type: ignore[attr-defined]
         if len(history) < 2:
             yield rx.toast.info("Not enough messages to summarize", duration=3000, position="top-center")
             return
@@ -1434,7 +1434,7 @@ class ChatMixin(rx.State, mixin=True):
             return
 
         # Determine active agent
-        agent_id = (self.active_agent_id or "aifred").lower()  # type: ignore[attr-defined]
+        agent_id = (self.active_agent or "aifred").lower()  # type: ignore[attr-defined]
         if agent_id == "vision":
             yield rx.toast.info("Vision agent has no memory", duration=3000, position="top-center")
             return
@@ -1467,8 +1467,11 @@ class ChatMixin(rx.State, mixin=True):
 
         # Generate summary via LLM
         from ..lib.llm_client import LLMClient
-        llm_client = LLMClient.get_instance()  # type: ignore[attr-defined]
-        model = self.selected_model  # type: ignore[attr-defined]
+        llm_client = LLMClient(
+            backend_type=self.backend_type,  # type: ignore[attr-defined]
+            base_url=self.backend_url,  # type: ignore[attr-defined]
+        )
+        model = self._effective_model_id("aifred")  # type: ignore[attr-defined]
 
         summary_prompt = (
             "Summarize this conversation in 2-3 sentences. "
@@ -1484,13 +1487,13 @@ class ChatMixin(rx.State, mixin=True):
             async for chunk in llm_client.chat_stream(
                 model=model,
                 messages=[{"role": "user", "content": summary_prompt}],
-                options=type('Options', (), {
-                    'temperature': 0.3,
-                    'max_tokens': 200,
-                    'top_k': 40, 'top_p': 0.95, 'min_p': 0.05,
-                    'repeat_penalty': 1.0,
-                    'enable_thinking': False,
-                })(),
+                options={
+                    "temperature": 0.3,
+                    "max_tokens": 200,
+                    "top_k": 40, "top_p": 0.95, "min_p": 0.05,
+                    "repeat_penalty": 1.0,
+                    "enable_thinking": False,
+                },
             ):
                 if chunk.get("type") == "content":
                     summary += chunk.get("text", "")
