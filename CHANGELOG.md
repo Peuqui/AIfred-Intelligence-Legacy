@@ -5,6 +5,34 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.60.0] - 2026-03-21 🔧 Unified Agent Path + Tool Use + Forced Research
+
+### Added
+
+- **Tool Use for All Agents** — Every agent (AIfred, Sokrates, Pater Tuck, custom) gets `web_search` and `read_webpage` tools in Automatik mode. Models can autonomously decide to search the web.
+- **Research Tools Module** (`research_tools.py`) — `web_search` wraps `search_web_multi()` (Tavily/Brave/SearXNG), `read_webpage` wraps `scrape_webpage()`. Same infrastructure, no code duplication.
+- **Combined Agent Toolkit** — `prepare_agent_toolkit()` in `agent_memory.py` merges memory tools (`store_memory`) with research tools into a single toolkit per agent call.
+- **Keyword Override** — Explicit keywords ("recherchiere", "google", "search for", "look up" etc.) and URLs in user text force web research regardless of model capability. Uses full pipeline with 7 URLs.
+- **Pater Tuck + Codi Prompts** — Complete prompt sets (identity, personality, direct, system_minimal, memory_context) in DE + EN.
+
+### Changed
+
+- **Unified Agent Path** — All agents use the same response path via `run_generic_agent_direct_response()`. Removed separate AIfred pipeline (`chat_interactive_mode()`) from main flow.
+- **Forced Research Pipeline** — Uses full pipeline: `generate_search_queries()` → 3 optimized queries → Multi-API search → URL deduplication → LLM-based URL ranking → parallel scraping → `build_context()` → sources collapsible.
+- **Addressee Priority** — Prompt detection > button selection > default (AIfred). If user says "AIfred" while Pater Tuck is selected, AIfred responds.
+- **Research Mode Behavior:**
+  - *Automatik:* Agent gets tools, decides autonomously (+ keyword override as safety net)
+  - *Web schnell/ausführlich:* Forced research, code-driven, full pipeline
+  - *Nur eigenes Wissen:* No tools, agent cannot search
+- **Intent Detection Prompt** (EN) — Updated to use `{agent_list}` placeholder instead of hardcoded agent names.
+
+### Removed
+
+- **Separate AIfred Pipeline** — `chat_interactive_mode()` no longer called from main flow. Old code preserved in `conversation_handler.py` for reference.
+- **Fallback in Forced Research** — Removed automatic retry with alternative search when scraping fails. User can trigger a new search manually.
+
+---
+
 ## [2.59.0] - 2026-03-19 🤖 Custom Agents + Memory Browser + UI Redesign
 
 ### Added

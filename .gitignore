@@ -121,6 +121,8 @@ prompts/en/*/
 !prompts/de/shared/
 !prompts/de/utility/
 !prompts/de/automatik/
+!prompts/de/pater/
+!prompts/de/codi/
 !prompts/en/aifred/
 !prompts/en/sokrates/
 !prompts/en/salomo/
@@ -128,3 +130,5 @@ prompts/en/*/
 !prompts/en/shared/
 !prompts/en/utility/
 !prompts/en/automatik/
+!prompts/en/pater/
+!prompts/en/codi/

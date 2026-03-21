@@ -43,6 +43,10 @@ class ChatMixin(rx.State, mixin=True):
     progress_total: int = 0
     progress_failed: int = 0  # Number of failed URLs
 
+    # Research context (set by forced research pipeline, read by agent response)
+    _research_context: str = ""
+    _research_sources_html: str = ""
+
     # ── Debug / Progress ─────────────────────────────────────────────
 
     def add_debug(self, message: str) -> None:
@@ -1112,6 +1116,40 @@ class ChatMixin(rx.State, mixin=True):
             yield
 
             # ============================================================
+            # KEYWORD/URL OVERRIDE: Force web research for explicit requests
+            # When user says "recherchiere" etc., always force web search
+            # regardless of model size or research_mode setting.
+            # ============================================================
+            effective_research_mode: str = self.research_mode  # type: ignore[attr-defined]
+
+            if effective_research_mode == "automatik":
+                from ..lib.research.query_processor import detect_urls_in_text
+                detected_urls = detect_urls_in_text(user_msg, max_urls=7)
+
+                explicit_keywords = [
+                    # German
+                    'recherchiere', 'recherchier',
+                    'suche im internet', 'such im internet',
+                    'schau nach', 'schau mal nach',
+                    'google', 'googel', 'google mal',
+                    'finde heraus', 'find heraus',
+                    'check das', 'prüfe das',
+                    # English
+                    'search for', 'search the web',
+                    'look up', 'look it up',
+                    'find out', 'research',
+                ]
+                user_lower = user_msg.lower()
+
+                if detected_urls or any(kw in user_lower for kw in explicit_keywords):
+                    if detected_urls:
+                        self.add_debug(f"⚡ {len(detected_urls)} URL(s) detected → Forced Research")
+                    else:
+                        self.add_debug("⚡ Explicit research request → Forced Research")
+                    effective_research_mode = "deep"
+                    yield
+
+            # ============================================================
             # UNIFIED AGENT RESPONSE (Single Source of Truth)
             # All agents (AIfred, Sokrates, custom) use the same path.
             # research_mode determines tool availability:
@@ -1127,7 +1165,7 @@ class ChatMixin(rx.State, mixin=True):
                 responding_agent,
                 user_msg,
                 detected_language,
-                research_mode=self.research_mode,  # type: ignore[attr-defined]
+                research_mode=effective_research_mode,
                 detected_intent=detected_intent,
             ):
                 yield

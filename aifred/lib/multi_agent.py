@@ -392,89 +392,186 @@ async def _execute_forced_research(
     mode: str,
     model_id: str,
     lang: str,
-) -> str:
-    """Execute forced web search and return results as context string.
+) -> AsyncGenerator[None, None]:
+    """Execute forced web search using the full research pipeline (Phases 1-3).
 
-    Uses the same search_web_multi() and scrape_webpage() as the tool-call path.
-    Returns formatted context ready for injection into the system prompt.
+    Async generator that yields after each state update so Reflex can push
+    progress to the browser (scraping progress bar etc.).
 
-    Args:
-        state: AIState for debug output
-        user_query: User's question (used as search query)
-        mode: "quick" (3 URLs) or "deep" (7 URLs)
-        model_id: Model ID for debug
-        lang: Language for debug messages
+    After completion, the research context is stored in state._research_context.
 
-    Returns:
-        Formatted research context string, or empty string if search failed.
+    1. generate_search_queries() via Automatik-LLM → 3 optimized queries
+    2. process_query_and_search() → Multi-API search (Tavily/Brave/SearXNG)
+    3. rank_urls_by_relevance() → LLM-based URL ranking
+    4. orchestrate_scraping() → Parallel scraping of top URLs
+    5. build_context() → Raw scraped content as context
     """
-    from .tools.registry import search_web_multi, scrape_webpage
+    from .conversation_handler import generate_search_queries
+    from .research.query_processor import process_query_and_search
+    from .research.url_ranker import rank_urls_by_relevance
+    from .research.scraper_orchestrator import orchestrate_scraping
+    from .tools import build_context
+    from .llm_client import LLMClient
 
-    # Generate search queries from user text (simple: use as-is, split if long)
-    queries = [user_query]
+    # Automatik-LLM for query generation
+    automatik_model_id = state.automatik_model_id or state._effective_model_id("aifred")
+    from .research.context_utils import get_agent_num_ctx
+    automatik_num_ctx, _ = get_agent_num_ctx("aifred", state, automatik_model_id)
 
-    state.add_debug(f"🔎 Web search: {queries[0][:80]}...")
+    llm_client = LLMClient(backend_type=state.backend_type, base_url=state.backend_url)
+    if state.backend_type == "ollama":
+        automatik_llm_client = LLMClient(backend_type=state.backend_type, base_url=state.backend_url)
+    else:
+        automatik_llm_client = llm_client
 
-    # Search
-    search_result = search_web_multi(queries)
-    if not search_result.get("success"):
-        state.add_debug("⚠️ Web search failed")
-        return ""
+    # Result stored here for the caller to read after iteration
+    state._research_context = ""  # type: ignore[attr-defined]
 
-    urls = search_result.get("related_urls", [])
-    titles = search_result.get("titles", [])
-    snippets = search_result.get("snippets", [])
+    try:
+        # ==============================================================
+        # PHASE 1: Generate 3 optimized search queries
+        # ==============================================================
+        state.add_debug("🔍 Generating search queries...")
+        yield
+        query_result = await generate_search_queries(
+            user_text=user_query,
+            automatik_llm_client=automatik_llm_client,
+            automatik_model=automatik_model_id,
+            detected_language=lang,
+            llm_history=state._chat_sub().llm_history[:-1] if len(state._chat_sub().llm_history) > 1 else None,
+            automatik_num_ctx=automatik_num_ctx,
+        )
+        pre_generated_queries = query_result["queries"]
+        query_gen_time = query_result["generation_time"]
+        state.add_debug(f"✅ {len(pre_generated_queries)} queries ({query_gen_time:.1f}s)")
+        for i, q in enumerate(pre_generated_queries, 1):
+            state.add_debug(f"   {i}. {q}")
+        yield
 
-    if not urls:
-        state.add_debug("⚠️ No URLs found")
-        return ""
+        # ==============================================================
+        # PHASE 2: Multi-API Web Search
+        # ==============================================================
+        related_urls: list[str] = []
+        titles: list[str] = []
+        snippets: list[str] = []
+        tool_results: list[dict[str, Any]] = []
 
-    # Limit URLs based on mode
-    max_urls = 7 if mode == "deep" else 3
-    urls = urls[:max_urls]
+        async for item in process_query_and_search(
+            user_text=user_query,
+            llm_history=state._chat_sub().llm_history,
+            automatik_model=automatik_model_id,
+            automatik_llm_client=automatik_llm_client,
+            llm_options={},
+            vision_json_context=None,
+            pre_generated_queries=pre_generated_queries,
+        ):
+            if item["type"] == "query_result":
+                _, _, _, related_urls, titles, snippets, tool_results = item["data"]
+            elif item["type"] == "debug":
+                state.add_debug(item["message"])
+                yield
 
-    state.add_debug(f"🔗 {len(urls)} URLs found, scraping...")
+        if not related_urls:
+            state.add_debug("⚠️ No URLs found")
+            yield
+            return
 
-    # Scrape URLs
-    scraped_contents: list[dict[str, str]] = []
-    for url in urls:
-        result = scrape_webpage(url)
-        if result.get("success") and result.get("content"):
-            content = result["content"]
-            # Truncate per source
-            if len(content) > 8000:
-                content = content[:8000] + "\n[... truncated]"
-            scraped_contents.append({
-                "url": url,
-                "title": result.get("title", ""),
-                "content": content,
-            })
+        # ==============================================================
+        # PHASE 2.5: LLM-based URL Ranking
+        # ==============================================================
+        if related_urls and titles and snippets:
+            top_n = 7 if mode == "deep" else 3
+            state.add_debug(f"🎯 Ranking {len(related_urls)} URLs by relevance...")
+            yield
 
-    if not scraped_contents:
-        # No scraping succeeded — return snippets as fallback context
-        if snippets:
-            snippet_ctx = "\n".join(
-                f"- {titles[i] if i < len(titles) else ''}: {s}"
-                for i, s in enumerate(snippets) if s
+            ranked_urls, _, debug_summary = await rank_urls_by_relevance(
+                user_question=user_query,
+                urls=related_urls,
+                titles=titles,
+                snippets=snippets,
+                automatik_llm_client=automatik_llm_client,
+                automatik_model=automatik_model_id,
+                top_n=top_n,
+                llm_options={},
+                automatik_num_ctx=automatik_num_ctx,
             )
-            return f"## Web Search Results (snippets only)\n\n{snippet_ctx}"
-        return ""
+            if debug_summary:
+                state.add_debug(f"📋 {debug_summary}")
+            related_urls = ranked_urls
+            yield
 
-    state.add_debug(f"✅ {len(scraped_contents)} sources scraped")
+        # ==============================================================
+        # PHASE 3: Parallel Web Scraping (with progress bar)
+        # ==============================================================
+        failed_sources: list[dict[str, Any]] = []
 
-    # Build context
-    parts = ["## Web Research Results\n"]
-    for i, src in enumerate(scraped_contents, 1):
-        parts.append(f"### Source {i}: {src['title']}")
-        parts.append(f"URL: {src['url']}")
-        parts.append(src["content"])
-        parts.append("")
+        async for item in orchestrate_scraping(
+            related_urls=related_urls,
+            mode=mode,
+            llm_client=llm_client,
+            model_choice=model_id,
+        ):
+            if item["type"] == "scraping_result":
+                _, scraping_tool_results = item["data"]
+                tool_results.extend(scraping_tool_results)
+            elif item["type"] == "debug":
+                state.add_debug(item["message"])
+                yield
+            elif item["type"] == "progress":
+                state.set_progress(
+                    phase=item.get("phase", ""),
+                    current=item.get("current", 0),
+                    total=item.get("total", 0),
+                    failed=item.get("failed", 0),
+                )
+                yield  # Push progress update to browser
+            elif item["type"] == "failed_sources":
+                failed_sources.extend(item["data"])
+                state.add_debug(f"⚠️ {len(item['data'])} source(s) failed")
+                yield
 
-    parts.append(
-        "Use the above research results to answer the user's question. "
-        "Cite sources where appropriate."
-    )
-    return "\n".join(parts)
+        state.clear_progress()
+        yield
+
+        # ==============================================================
+        # Build context + sources collapsible from scraped content
+        # ==============================================================
+        if not tool_results:
+            state.add_debug("⚠️ No sources available")
+            yield
+            return
+
+        context = build_context(user_query, tool_results)
+
+        # Extract used_sources for collapsible (same as old context_builder.py)
+        scraped_only = [r for r in tool_results if r.get("success") and r.get("content")]
+        used_sources = [
+            {
+                "url": src.get("url", ""),
+                "word_count": src.get("word_count", 0),
+                "rank_index": src.get("rank_index", idx),
+                "success": True,
+            }
+            for idx, src in enumerate(scraped_only)
+            if src.get("url")
+        ]
+
+        # Build sources collapsible HTML
+        from .formatting import build_sources_collapsible
+        sources_html = build_sources_collapsible(
+            used_sources=used_sources,
+            failed_sources=failed_sources,
+        )
+
+        state.add_debug(f"✅ Research context: {len(context)} chars, {len(used_sources)} sources")
+        state._research_context = context  # type: ignore[attr-defined]
+        state._research_sources_html = sources_html  # type: ignore[attr-defined]
+        yield
+
+    finally:
+        await llm_client.close()
+        if state.backend_type == "ollama":
+            await automatik_llm_client.close()
 
 
 # ============================================================
@@ -561,12 +658,13 @@ async def _run_agent_direct_response(
         research_context = ""
         if research_mode in ("quick", "deep"):
             state.add_debug(f"🔎 Forced web research ({research_mode})...")
-            research_context = await _execute_forced_research(
+            yield  # type: ignore[misc]
+            async for _ in _execute_forced_research(
                 state, user_query, research_mode, agent_model_id,
                 detected_lang or "de",
-            )
-            if research_context:
-                state.add_debug(f"📋 Research context: {len(research_context)} chars")
+            ):
+                yield  # type: ignore[misc]
+            research_context = getattr(state, "_research_context", "")
 
         # Build messages with agent's perspective
         messages: list[dict[str, Any]] = build_messages_from_llm_history(
@@ -686,12 +784,19 @@ async def _run_agent_direct_response(
             inference_time=inference_time
         )
 
+        # Prepend sources collapsible if research was performed
+        sources_html = getattr(state, "_research_sources_html", "")
+        if sources_html:
+            formatted_response = f"{sources_html}\n\n{formatted_response}"
+            state._research_sources_html = ""  # type: ignore[attr-defined]
+
         # Add to chat history
+        panel_mode = "web_research" if research_mode in ("quick", "deep") else "direct"
         panel_meta = {**metadata_dict, "audio_urls": audio_urls}
         state.add_agent_panel(
             agent=agent,
             content=formatted_response,
-            mode="direct",
+            mode=panel_mode,
             metadata=panel_meta,
             sync_llm_history=False
         )
