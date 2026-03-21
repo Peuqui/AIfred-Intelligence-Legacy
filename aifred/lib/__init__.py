@@ -33,7 +33,6 @@ from .tools import (
 )
 
 from .research import perform_agent_research
-from .conversation_handler import chat_interactive_mode
 
 # Vector Cache (replacement for old cache system)
 from .vector_cache import VectorCache
@@ -74,7 +73,6 @@ __all__ = [
     "build_context",
     # Agent Core
     "perform_agent_research",
-    "chat_interactive_mode",
     # Vector Cache (NEW - replaces old cache system)
     "VectorCache",
     # Intent Detector

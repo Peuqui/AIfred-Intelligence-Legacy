@@ -429,6 +429,29 @@ async def _execute_forced_research(
 
     try:
         # ==============================================================
+        # PHASE 0: Vector Cache Duplikat-Check
+        # ==============================================================
+        try:
+            from .vector_cache import get_cache
+            cache = get_cache()
+            cache_result = await cache.query(user_query, n_results=1)
+            distance = cache_result.get('distance', 1.0)
+
+            if cache_result['source'] == 'CACHE' and distance < 0.05:
+                # Exact duplicate — use cached result
+                import datetime as _dt
+                from .formatting import format_age
+                cache_time = _dt.datetime.fromisoformat(cache_result['metadata']['timestamp'])
+                age_seconds = (_dt.datetime.now() - cache_time).total_seconds()
+                age_formatted = format_age(age_seconds)
+                state.add_debug(f"✅ Cache hit ({age_formatted} ago, d={distance:.4f})")
+                state._research_context = cache_result['answer']  # type: ignore[attr-defined]
+                yield
+                return
+        except Exception as e:
+            log_message(f"⚠️ Vector cache check failed: {e}")
+
+        # ==============================================================
         # PHASE 1: Generate 3 optimized search queries
         # ==============================================================
         state.add_debug("🔍 Generating search queries...")
@@ -442,8 +465,9 @@ async def _execute_forced_research(
             automatik_num_ctx=automatik_num_ctx,
         )
         pre_generated_queries = query_result["queries"]
+        volatility = query_result.get("volatility", "WEEKLY")
         query_gen_time = query_result["generation_time"]
-        state.add_debug(f"✅ {len(pre_generated_queries)} queries ({query_gen_time:.1f}s)")
+        state.add_debug(f"✅ {len(pre_generated_queries)} queries ({query_gen_time:.1f}s, TTL={volatility})")
         for i, q in enumerate(pre_generated_queries, 1):
             state.add_debug(f"   {i}. {q}")
         yield
@@ -566,6 +590,25 @@ async def _execute_forced_research(
         state.add_debug(f"✅ Research context: {len(context)} chars, {len(used_sources)} sources")
         state._research_context = context  # type: ignore[attr-defined]
         state._research_sources_html = sources_html  # type: ignore[attr-defined]
+
+        # ==============================================================
+        # Vector Cache Auto-Write (save research for future duplicate check)
+        # ==============================================================
+        try:
+            from .vector_cache import get_cache
+            cache = get_cache()
+            scraped_only = [r for r in tool_results if r.get("success") and r.get("content")]
+            await cache.add(
+                query=user_query,
+                answer=context,
+                sources=scraped_only,
+                failed_sources=failed_sources,
+                metadata={"volatility": volatility},
+            )
+            state.add_debug(f"💾 Research cached ({len(scraped_only)} sources)")
+        except Exception as e:
+            log_message(f"⚠️ Vector cache write failed: {e}")
+
         yield
 
     finally:
