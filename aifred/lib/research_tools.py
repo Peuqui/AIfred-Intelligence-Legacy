@@ -93,9 +93,13 @@ async def _execute_read_webpage(url: str) -> str:
 WEB_SEARCH_TOOL = Tool(
     name="web_search",
     description=(
-        "Search the web for current information. Use this when the user asks about "
-        "recent events, facts you're unsure about, or anything that requires up-to-date "
-        "information. Provide 1-3 search queries optimized for web search engines."
+        "Search the web for current, verified information. You MUST use this tool when: "
+        "(1) the user asks about specific products, software, models, versions, or releases, "
+        "(2) the user asks about events, news, or anything time-sensitive, "
+        "(3) the user asks about specific people, companies, or organizations, "
+        "(4) you are not 100% certain your knowledge is accurate and up-to-date. "
+        "Do NOT answer from memory when web search would give a better, verified answer. "
+        "Provide 1-3 search queries optimized for web search engines."
     ),
     parameters={
         "type": "object",
