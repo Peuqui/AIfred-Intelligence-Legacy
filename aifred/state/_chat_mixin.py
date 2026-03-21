@@ -1091,213 +1091,61 @@ class ChatMixin(rx.State, mixin=True):
             # Track if Sokrates should be skipped (AIfred direct addressing)
             skip_sokrates_analysis = False
 
-            # Active agent override: if user selected a non-AIfred agent via toggle,
-            # treat it as direct addressing (skip addressee detection)
+            # Determine which agent responds:
+            # Priority: addressee from prompt > button selection > default (aifred)
             if not addressed_to and self.active_agent != "aifred":  # type: ignore[attr-defined]
                 addressed_to = self.active_agent  # type: ignore[attr-defined]
 
-            if addressed_to and addressed_to != "aifred":
-                # User directly addresses a non-AIfred agent → that agent responds
-                from ..lib.multi_agent import run_generic_agent_direct_response
+            responding_agent = addressed_to or "aifred"
+
+            if responding_agent == "aifred":
+                if addressed_to == "aifred":
+                    # User explicitly addressed AIfred → skip Sokrates
+                    self.add_debug("🎩 Direct addressing: AIfred")
+                    skip_sokrates_analysis = True
+            else:
                 from ..lib.agent_config import get_agent_config
-                agent_config = get_agent_config(addressed_to)
-                agent_label = agent_config.display_name if agent_config else addressed_to.capitalize()
+                agent_config = get_agent_config(responding_agent)
+                agent_label = agent_config.display_name if agent_config else responding_agent.capitalize()
                 agent_emoji = agent_config.emoji if agent_config else "🤖"
                 self.add_debug(f"{agent_emoji} Direct addressing: {agent_label}")
-                yield
-                async for _ in run_generic_agent_direct_response(self, addressed_to, user_msg, detected_language):  # type: ignore[arg-type]
-                    yield
-                self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-                self.current_user_message = ""
-                self.is_generating = False
-                self._save_current_session()  # type: ignore[attr-defined]
-                yield
-                return
-
-            elif addressed_to == "aifred":
-                # User directly addresses AIfred → Skip Sokrates analysis
-                self.add_debug("🎩 Direct addressing: AIfred")
-                yield
-                skip_sokrates_analysis = True
+            yield
 
             # ============================================================
-            # UNIFIED CHAT HANDLER (Single Source of Truth)
-            # All modes (automatik, quick, deep, none) use chat_interactive_mode()
+            # UNIFIED AGENT RESPONSE (Single Source of Truth)
+            # All agents (AIfred, Sokrates, custom) use the same path.
+            # research_mode determines tool availability:
+            #   "none"      → no research tools
+            #   "automatik" → agent gets web_search/read_webpage tools
+            #   "quick"/"deep" → forced research before response
             # ============================================================
 
-            from ..lib.conversation_handler import chat_interactive_mode
+            from ..lib.multi_agent import run_generic_agent_direct_response
 
-            llm_options = {
-                'enable_thinking': self.aifred_thinking,  # type: ignore[attr-defined]
-                'top_k': self.aifred_top_k,  # type: ignore[attr-defined]
-                'top_p': self.aifred_top_p,  # type: ignore[attr-defined]
-                'min_p': self.aifred_min_p,  # type: ignore[attr-defined]
-                'repeat_penalty': self.aifred_repeat_penalty,  # type: ignore[attr-defined]
-            }
-            result_data = None
-
-            # Single unified call - research_mode determines the path internally
-            async for item in chat_interactive_mode(
-                user_text=user_msg,
-                stt_time=0.0,
-                model_choice=self._effective_model_id("aifred"),  # type: ignore[attr-defined]
-                automatik_model=effective_auto,
-                history=self._chat_sub().chat_history,
-                llm_history=self._chat_sub().llm_history,
-                session_id=self.session_id,  # type: ignore[attr-defined]
-                temperature_mode=self.temperature_mode,  # type: ignore[attr-defined]
-                temperature=self.temperature,  # type: ignore[attr-defined]
-                llm_options=llm_options,
-                backend_type=self.backend_type,  # type: ignore[attr-defined]
-                backend_url=self.backend_url,  # type: ignore[attr-defined]
-                state=self,
-                pending_images=None,  # images handled by VL fast path above
-                user_name=self.user_name,  # type: ignore[attr-defined]
-                detected_intent=detected_intent,
-                detected_language=detected_language,
-                cloud_provider_label=self.cloud_api_provider_label if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
+            async for _ in run_generic_agent_direct_response(
+                self,
+                responding_agent,
+                user_msg,
+                detected_language,
                 research_mode=self.research_mode,  # type: ignore[attr-defined]
-                automatik_num_ctx=auto_num_ctx,
+                detected_intent=detected_intent,
             ):
-                # Route messages based on type
-                if item["type"] == "debug":
-                    self.add_debug(item["message"])
-                    yield
-
-                elif item["type"] == "content":
-                    if not self.current_agent:
-                        self._set_current_agent("aifred")
-                    if self.stream_text_to_ui(item["text"]):  # type: ignore[attr-defined]
-                        yield
-
-                elif item["type"] == "result":
-                    # Flush remaining buffer to state
-                    if self.flush_stream_to_ui():  # type: ignore[attr-defined]
-                        yield
-                    result_data = item["data"]
-                    ai_text = result_data["response_clean"]
-                    updated_history = result_data["history"]
-
-                    # Extract sources
-                    failed_sources = result_data.get("failed_sources", [])
-                    used_sources = result_data.get("used_sources", [])
-
-                    # Embed sources in last message for persistence
-                    if updated_history:
-                        import json as json_module
-                        last_msg = updated_history[-1]
-                        if last_msg.get("role") == "assistant":
-                            if "metadata" not in last_msg:
-                                last_msg["metadata"] = {}
-
-                            all_failed: list[dict[str, Any]] = []
-                            if failed_sources or self._pending_failed_sources:  # type: ignore[attr-defined, has-type]
-                                all_failed = (self._pending_failed_sources or []) + (failed_sources or [])  # type: ignore[attr-defined, has-type]
-                                if all_failed:
-                                    failed_markup = f"<!--FAILED_SOURCES:{json_module.dumps(all_failed)}-->\n"
-                                    last_msg["content"] = failed_markup + last_msg.get("content", "")
-                                    last_msg["metadata"]["failed_sources"] = all_failed
-
-                            if used_sources:
-                                used_markup = f"<!--USED_SOURCES:{json_module.dumps(used_sources)}-->\n"
-                                last_msg["content"] = used_markup + last_msg.get("content", "")
-                                last_msg["metadata"]["used_sources"] = used_sources
-
-                            last_msg["used_sources"] = used_sources or []
-                            last_msg["failed_sources"] = all_failed or []
-
-                    # Update State for UI
-                    self.used_sources = used_sources or []  # type: ignore[attr-defined]
-                    self.failed_sources = all_failed  # type: ignore[attr-defined]
-                    self._pending_failed_sources: list[dict[str, str]] = []  # type: ignore[attr-defined, var-annotated]
-                    self._pending_used_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
-
-                    # Combine sources for UI display
-                    combined: list[dict[str, Any]] = []
-                    for src in (used_sources or []):
-                        combined.append({
-                            "url": src.get("url", ""),
-                            "word_count": src.get("word_count", 0),
-                            "rank_index": src.get("rank_index", 999),
-                            "success": True,
-                        })
-                    for src in all_failed:
-                        combined.append({
-                            "url": src.get("url", ""),
-                            "error": src.get("error", "Unknown"),
-                            "rank_index": src.get("rank_index", 999),
-                            "success": False,
-                        })
-                    self.all_sources = sorted(combined, key=lambda x: x.get("rank_index", 999))  # type: ignore[attr-defined]
-
-                    # Update history
-                    self._chat_sub().chat_history = updated_history
-                    if "llm_history" in result_data:
-                        self._chat_sub().llm_history = result_data["llm_history"]
-
-                    self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-                    self.current_user_message = ""
-                    yield
-
-                    # Finalize streaming TTS
-                    if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled:  # type: ignore[attr-defined]
-                        audio_urls = await self._finalize_streaming_tts()  # type: ignore[attr-defined]
-                        _ch = self._chat_sub()
-                        if audio_urls and _ch.chat_history:
-                            for i in range(len(_ch.chat_history) - 1, -1, -1):
-                                if _ch.chat_history[i].get("role") == "assistant":
-                                    if "metadata" not in _ch.chat_history[i]:
-                                        _ch.chat_history[i]["metadata"] = {}
-                                    _ch.chat_history[i]["metadata"]["audio_urls"] = audio_urls
-                                    _ch.chat_history[i]["has_audio"] = True
-                                    _ch.chat_history[i]["audio_urls_json"] = json.dumps(audio_urls)
-                                    log_message(f"🔊 TTS: Added {len(audio_urls)} audio URLs to message metadata")
-                                    break
-                            _ch.chat_history = list(_ch.chat_history)
-                            yield
-
-                    # Multi-Agent analysis
-                    async for _ in self._maybe_run_multi_agent(
-                        user_msg, ai_text, detected_language, skip_sokrates_analysis,
-                    ):
-                        yield
-
-                    self.is_generating = False
-                    yield
-
-                elif item["type"] == "progress":
-                    if item.get("clear", False):
-                        self.clear_progress()
-                    else:
-                        self.set_progress(
-                            phase=item.get("phase", ""),
-                            current=item.get("current", 0),
-                            total=item.get("total", 0),
-                            failed=item.get("failed", 0),
-                        )
-
-                elif item["type"] == "history_update":
-                    self._chat_sub().chat_history = item["data"]
-                    self.add_debug(f"📊 History updated: {len(item['data'])} messages")
-
-                elif item["type"] == "failed_sources":
-                    self.failed_sources = item["data"]  # type: ignore[attr-defined]
-                    self._pending_failed_sources = item["data"]  # type: ignore[attr-defined]
-                    from ..lib.i18n import t
-                    self.add_debug(f"⚠️ {t('sources_unavailable', count=len(item['data']))}")
-
-                elif item["type"] == "error":
-                    self.add_debug(f"❌ Error: {item.get('message', 'Unknown error')}")
-                    self.is_generating = False
-                    self.clear_progress()
-                    self.current_user_message = ""
-                    self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-
                 yield
 
-            # Final cleanup — flush remaining stream buffer and clear state
-            self._js_chunk_buffer = ""  # type: ignore[attr-defined]
+            # Multi-Agent analysis (Sokrates critique etc.)
+            # Get the AI response from the last chat history entry
+            _last = self._chat_sub().chat_history[-1] if self._chat_sub().chat_history else {}
+            ai_text = _last.get("content", "") if _last.get("role") == "assistant" else ""
+
+            async for _ in self._maybe_run_multi_agent(
+                user_msg, ai_text, detected_language, skip_sokrates_analysis,
+            ):
+                yield
+
             self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
+            self.current_user_message = ""
+            self.is_generating = False
+            self._save_current_session()  # type: ignore[attr-defined]
             yield
 
         except Exception as e:

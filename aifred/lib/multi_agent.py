@@ -383,7 +383,102 @@ async def _check_compression_if_needed(
 
 
 # ============================================================
-# SOKRATES DIRECT RESPONSE (when user addresses Sokrates directly)
+# FORCED RESEARCH HELPER (for quick/deep modes)
+# ============================================================
+
+async def _execute_forced_research(
+    state: 'AIState',
+    user_query: str,
+    mode: str,
+    model_id: str,
+    lang: str,
+) -> str:
+    """Execute forced web search and return results as context string.
+
+    Uses the same search_web_multi() and scrape_webpage() as the tool-call path.
+    Returns formatted context ready for injection into the system prompt.
+
+    Args:
+        state: AIState for debug output
+        user_query: User's question (used as search query)
+        mode: "quick" (3 URLs) or "deep" (7 URLs)
+        model_id: Model ID for debug
+        lang: Language for debug messages
+
+    Returns:
+        Formatted research context string, or empty string if search failed.
+    """
+    from .tools.registry import search_web_multi, scrape_webpage
+
+    # Generate search queries from user text (simple: use as-is, split if long)
+    queries = [user_query]
+
+    state.add_debug(f"🔎 Web search: {queries[0][:80]}...")
+
+    # Search
+    search_result = search_web_multi(queries)
+    if not search_result.get("success"):
+        state.add_debug("⚠️ Web search failed")
+        return ""
+
+    urls = search_result.get("related_urls", [])
+    titles = search_result.get("titles", [])
+    snippets = search_result.get("snippets", [])
+
+    if not urls:
+        state.add_debug("⚠️ No URLs found")
+        return ""
+
+    # Limit URLs based on mode
+    max_urls = 7 if mode == "deep" else 3
+    urls = urls[:max_urls]
+
+    state.add_debug(f"🔗 {len(urls)} URLs found, scraping...")
+
+    # Scrape URLs
+    scraped_contents: list[dict[str, str]] = []
+    for url in urls:
+        result = scrape_webpage(url)
+        if result.get("success") and result.get("content"):
+            content = result["content"]
+            # Truncate per source
+            if len(content) > 8000:
+                content = content[:8000] + "\n[... truncated]"
+            scraped_contents.append({
+                "url": url,
+                "title": result.get("title", ""),
+                "content": content,
+            })
+
+    if not scraped_contents:
+        # No scraping succeeded — return snippets as fallback context
+        if snippets:
+            snippet_ctx = "\n".join(
+                f"- {titles[i] if i < len(titles) else ''}: {s}"
+                for i, s in enumerate(snippets) if s
+            )
+            return f"## Web Search Results (snippets only)\n\n{snippet_ctx}"
+        return ""
+
+    state.add_debug(f"✅ {len(scraped_contents)} sources scraped")
+
+    # Build context
+    parts = ["## Web Research Results\n"]
+    for i, src in enumerate(scraped_contents, 1):
+        parts.append(f"### Source {i}: {src['title']}")
+        parts.append(f"URL: {src['url']}")
+        parts.append(src["content"])
+        parts.append("")
+
+    parts.append(
+        "Use the above research results to answer the user's question. "
+        "Cite sources where appropriate."
+    )
+    return "\n".join(parts)
+
+
+# ============================================================
+# UNIFIED AGENT RESPONSE (all agents, all research modes)
 # ============================================================
 
 async def _run_agent_direct_response(
@@ -394,18 +489,25 @@ async def _run_agent_direct_response(
     get_prompt_func: Any,
     user_query: str,
     detected_lang: Optional[str] = None,
+    research_mode: str = "none",
+    detected_intent: Optional[str] = None,
 ) -> AsyncGenerator[None, None]:
-    """Generic direct response handler for secondary agents (Sokrates/Salomo).
+    """Unified response handler for all agents (AIfred, Sokrates, Salomo, custom).
 
-    Agent responds directly to user without AIfred answering first.
+    Handles all research modes:
+    - "none": No research tools, agent answers from own knowledge
+    - "automatik": Agent gets web_search/read_webpage tools, decides autonomously
+    - "quick"/"deep": Forced web search executed before agent response, results injected as context
 
     Args:
-        agent: Agent key ("sokrates" or "salomo")
-        agent_label: Display label ("Sokrates" or "Salomo")
-        emoji: Agent emoji for debug ("🏛️" or "👑")
-        get_prompt_func: Prompt loader function (get_sokrates_direct_prompt or get_salomo_direct_prompt)
+        agent: Agent key ("aifred", "sokrates", "salomo", or custom agent id)
+        agent_label: Display label for debug output
+        emoji: Agent emoji for debug
+        get_prompt_func: Prompt loader function returning system prompt
         user_query: The user's question
         detected_lang: Language from intent detection, defaults to UI language
+        research_mode: "none", "automatik", "quick", or "deep"
+        detected_intent: Intent from intent detection (FAKTISCH/KREATIV/GEMISCHT)
     """
     if detected_lang is None:
         from .prompt_loader import get_language
@@ -436,11 +538,16 @@ async def _run_agent_direct_response(
         # System prompt
         system_prompt = get_prompt_func(lang=detected_lang)
 
-        # Agent Memory: recall relevant memories and inject into system prompt
-        from .agent_memory import prepare_agent_memory
+        # Combined toolkit: memory + research tools (based on research_mode)
+        from .agent_memory import prepare_agent_toolkit
         memory_enabled = state.agent_memory_enabled  # type: ignore[attr-defined]
-        memory_ctx, toolkit = await prepare_agent_memory(
-            agent, user_query, lang=detected_lang or "de", enabled=memory_enabled,
+        research_tools_enabled = research_mode == "automatik"
+
+        memory_ctx, toolkit = await prepare_agent_toolkit(
+            agent, user_query,
+            lang=detected_lang or "de",
+            memory_enabled=memory_enabled,
+            research_tools_enabled=research_tools_enabled,
         )
         if memory_ctx:
             system_prompt = f"{system_prompt}\n\n{memory_ctx}"
@@ -450,6 +557,17 @@ async def _run_agent_direct_response(
         if not memory_enabled:
             state.add_debug("🔒 Inkognito-Modus (kein Gedächtnis)")
 
+        # Forced web search (quick/deep): execute research pipeline BEFORE agent response
+        research_context = ""
+        if research_mode in ("quick", "deep"):
+            state.add_debug(f"🔎 Forced web research ({research_mode})...")
+            research_context = await _execute_forced_research(
+                state, user_query, research_mode, agent_model_id,
+                detected_lang or "de",
+            )
+            if research_context:
+                state.add_debug(f"📋 Research context: {len(research_context)} chars")
+
         # Build messages with agent's perspective
         messages: list[dict[str, Any]] = build_messages_from_llm_history(
             state._chat_sub().llm_history[:-1],
@@ -457,6 +575,11 @@ async def _run_agent_direct_response(
             perspective=agent,
             detected_language=detected_lang
         )
+
+        # Inject research context into system prompt (forced web search results)
+        if research_context:
+            system_prompt = f"{system_prompt}\n\n{research_context}"
+
         messages.insert(0, {"role": "system", "content": system_prompt})
 
         # Temperature — Sokrates/Salomo have own settings, others use AIfred's global
@@ -624,9 +747,18 @@ async def run_generic_agent_direct_response(
     state: 'AIState',
     agent_id: str,
     user_query: str,
-    detected_lang: Optional[str] = None
+    detected_lang: Optional[str] = None,
+    research_mode: str = "none",
+    detected_intent: Optional[str] = None,
 ) -> AsyncGenerator[None, None]:
-    """Any agent responds directly to user (generic routing)."""
+    """Any agent responds directly to user (generic routing).
+
+    This is the single entry point for all agent responses. Research mode
+    determines tool availability:
+    - "none": No research tools
+    - "automatik": Agent gets web_search/read_webpage tools
+    - "quick"/"deep": Forced research before response
+    """
     from .agent_config import get_agent_config
     from .prompt_loader import get_agent_direct_prompt
 
@@ -640,6 +772,8 @@ async def run_generic_agent_direct_response(
         state, agent_id, config.display_name, config.emoji,
         lambda lang=None: get_agent_direct_prompt(agent_id, lang=lang),
         user_query, detected_lang,
+        research_mode=research_mode,
+        detected_intent=detected_intent,
     ):
         yield
 

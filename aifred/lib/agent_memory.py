@@ -338,6 +338,46 @@ async def prepare_agent_memory(
     return memory_ctx, toolkit
 
 
+async def prepare_agent_toolkit(
+    agent_id: str,
+    user_query: str,
+    lang: str = "de",
+    memory_enabled: bool = True,
+    research_tools_enabled: bool = True,
+) -> tuple[str, Optional["ToolKit"]]:
+    """Prepare combined toolkit (memory + research tools) for an agent.
+
+    Args:
+        agent_id: Agent identifier
+        user_query: User's question (for memory recall)
+        lang: Language for memory context
+        memory_enabled: Include memory tools (store_memory)
+        research_tools_enabled: Include research tools (web_search, read_webpage)
+
+    Returns:
+        (memory_context_str, toolkit) — context for system prompt, combined toolkit.
+    """
+    all_tools: list[Tool] = []
+    memory_ctx = ""
+
+    # Memory tools + context
+    if memory_enabled:
+        memory = get_agent_memory()
+        if memory:
+            memories = await memory.recall_combined(agent_id, user_query)
+            if memories:
+                memory_ctx = format_memory_context(memories, agent_id=agent_id, lang=lang)
+            all_tools.extend(memory.make_toolkit(agent_id).tools)
+
+    # Research tools (web_search, read_webpage)
+    if research_tools_enabled:
+        from .research_tools import get_research_tools
+        all_tools.extend(get_research_tools())
+
+    toolkit = ToolKit(tools=all_tools) if all_tools else None
+    return memory_ctx, toolkit
+
+
 # Singleton
 _instance: Optional[AgentMemory] = None
 
