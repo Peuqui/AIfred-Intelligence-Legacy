@@ -2,13 +2,16 @@
 
 ## Models Under Test
 
-| Model | Total | Active | Type | Quant | Experts (total/used) | GGUF Size |
-|-------|-------|--------|------|-------|---------------------|-----------|
-| Qwen3-8B | 8B | 8B | Dense | Q8 | — | ~9 GB |
-| GPT-OSS-120B-A5B | 120B | 5.1B | MoE | Q8_K | 128/4 | 60 GB |
-| Qwen3.5-122B-A10B | 122B | 10B | MoE | Q5_K | 256/8 | 86 GB |
-| MiniMax-M2.5 | 228B | 10.2B | MoE | IQ3_M | 256/8 | 93 GB |
-| Qwen3-235B-A22B | 235B | 22B | MoE | Q3_K | 128/8 | 97 GB |
+| Model | Total | Active | Type | Quant | Experts | GGUF Size | Context (calibrated) | Context (native) |
+|-------|-------|--------|------|-------|---------|-----------|---------------------|------------------|
+| Qwen3-8B | 8B | 8B | Dense | Q8 | — | ~9 GB | 262K | 262K |
+| GPT-OSS-120B-A5B | 120B | 5.1B | MoE | Q8_K | 128/4 | 60 GB | 131K | 131K |
+| Qwen3.5-122B-A10B | 122B | 10B | MoE | Q5_K | 256/8 | 86 GB | 262K | 262K |
+| MiniMax-M2.5 | 228B | 10.2B | MoE | IQ3_M | 256/8 | 93 GB | 101K | 197K |
+| Qwen3-235B-A22B | 235B | 22B | MoE | Q3_K | 128/8 | 97 GB | 112K | 262K |
+
+All models run **GPU-only** (no CPU offload) on 117 GB VRAM.
+MiniMax and Qwen3-235B have reduced context windows because the large GGUF files (93-97 GB) leave less VRAM for KV cache.
 
 ## Test Setup
 
