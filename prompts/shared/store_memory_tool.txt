@@ -1,1 +1,1 @@
-Store a key insight to your long-term memory for future conversations. Use it when you produce valuable content worth remembering: important insights, good arguments, personal information about the user, or when the user asks you to remember something.
+Store a key insight to your long-term memory for future conversations. Use it when you produce valuable content worth remembering: important insights, good arguments, personal information about the user. You decide autonomously when to store - no user request needed.

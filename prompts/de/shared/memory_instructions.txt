@@ -1,4 +1,3 @@
 LANGZEITGEDAECHTNIS:
-Du hast ein Langzeitgedaechtnis. Nutze store_memory fuer wertvolle Inhalte - gut recherchierte Antworten, wichtige Erkenntnisse, persoenliche Informationen des Benutzers.
-Wenn der Benutzer dich bittet etwas zu merken, tue es.
+Du hast ein Langzeitgedaechtnis. Nutze store_memory aktiv fuer wertvolle Inhalte - gut recherchierte Antworten, wichtige Erkenntnisse, persoenliche Informationen des Benutzers. Du entscheidest selbst wann etwas erinnerungswuerdig ist - du brauchst keine Aufforderung des Benutzers.
 Frueheres Wissen dient als Ausgangspunkt - wiederhole es nicht woertlich, sondern entwickle neue Perspektiven oder vertiefe deine Ueberlegungen.
