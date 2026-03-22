@@ -344,6 +344,7 @@ async def prepare_agent_toolkit(
     lang: str = "de",
     memory_enabled: bool = True,
     research_tools_enabled: bool = True,
+    state: Optional[Any] = None,
 ) -> tuple[str, Optional["ToolKit"]]:
     """Prepare combined toolkit (memory + research tools) for an agent.
 
@@ -353,6 +354,7 @@ async def prepare_agent_toolkit(
         lang: Language for memory context
         memory_enabled: Include memory tools (store_memory)
         research_tools_enabled: Include research tools (web_search, read_webpage)
+        state: AIState for research tools (needed for forced research pipeline)
 
     Returns:
         (memory_context_str, toolkit) — context for system prompt, combined toolkit.
@@ -372,7 +374,7 @@ async def prepare_agent_toolkit(
     # Research tools (web_search, read_webpage)
     if research_tools_enabled:
         from .research_tools import get_research_tools
-        all_tools.extend(get_research_tools())
+        all_tools.extend(get_research_tools(state=state, lang=lang))
 
     toolkit = ToolKit(tools=all_tools) if all_tools else None
     return memory_ctx, toolkit

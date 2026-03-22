@@ -523,7 +523,9 @@ class OpenAICompatibleBackend(LLMBackend):
         # Tool calls require enable_thinking=false (Qwen3 puts tool_calls in
         # reasoning_content when thinking is enabled, breaking structured output)
         if toolkit and toolkit.definitions:
-            extra_body.setdefault("chat_template_kwargs", {})["enable_thinking"] = False
+            if "chat_template_kwargs" not in extra_body:
+                extra_body["chat_template_kwargs"] = {}
+            extra_body["chat_template_kwargs"]["enable_thinking"] = False
         if extra_body:
             kwargs["extra_body"] = extra_body
 
@@ -607,8 +609,10 @@ class OpenAICompatibleBackend(LLMBackend):
                     for tc in tool_calls:
                         from ..lib.logging_utils import log_message
                         log_message(f"🔧 Tool call: {tc['name']}({tc['arguments'][:80]})")
+                        yield {"type": "tool_call", "name": tc["name"], "arguments": tc["arguments"][:200]}
                         result = await toolkit.execute(tc["name"], tc["arguments"])
                         log_message(f"🔧 Tool result: {result[:100]}")
+                        yield {"type": "tool_result", "name": tc["name"], "result": result[:200]}
                         kwargs["messages"].append({
                             "role": "tool",
                             "tool_call_id": tc["id"],

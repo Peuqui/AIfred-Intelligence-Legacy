@@ -383,7 +383,7 @@ async def _check_compression_if_needed(
 
 
 # ============================================================
-# FORCED RESEARCH HELPER (for quick/deep modes)
+# FORCED RESEARCH (keyword override → full pipeline)
 # ============================================================
 
 async def _execute_forced_research(
@@ -393,228 +393,22 @@ async def _execute_forced_research(
     model_id: str,
     lang: str,
 ) -> AsyncGenerator[None, None]:
-    """Execute forced web search using the full research pipeline (Phases 1-3).
+    """Execute forced web research via the unified pipeline.
 
-    Async generator that yields after each state update so Reflex can push
-    progress to the browser (scraping progress bar etc.).
+    Delegates to execute_research() which handles the full pipeline:
+    Query generation → Multi-API search → URL ranking → Scraping → Cache.
 
-    After completion, the research context is stored in state._research_context.
-
-    1. generate_search_queries() via Automatik-LLM → 3 optimized queries
-    2. process_query_and_search() → Multi-API search (Tavily/Brave/SearXNG)
-    3. rank_urls_by_relevance() → LLM-based URL ranking
-    4. orchestrate_scraping() → Parallel scraping of top URLs
-    5. build_context() → Raw scraped content as context
+    Results stored in state._research_context and state._research_sources_html.
     """
-    from .conversation_handler import generate_search_queries
-    from .research.query_processor import process_query_and_search
-    from .research.url_ranker import rank_urls_by_relevance
-    from .research.scraper_orchestrator import orchestrate_scraping
-    from .tools import build_context
-    from .llm_client import LLMClient
+    from .research_tools import execute_research
 
-    # Automatik-LLM for query generation
-    automatik_model_id = state.automatik_model_id or state._effective_model_id("aifred")
-    from .research.context_utils import get_agent_num_ctx
-    automatik_num_ctx, _ = get_agent_num_ctx("aifred", state, automatik_model_id)
-
-    llm_client = LLMClient(backend_type=state.backend_type, base_url=state.backend_url)
-    if state.backend_type == "ollama":
-        automatik_llm_client = LLMClient(backend_type=state.backend_type, base_url=state.backend_url)
-    else:
-        automatik_llm_client = llm_client
-
-    # Result stored here for the caller to read after iteration
-    state._research_context = ""  # type: ignore[attr-defined]
-
-    try:
-        # ==============================================================
-        # PHASE 0: Vector Cache Duplikat-Check
-        # ==============================================================
-        try:
-            from .vector_cache import get_cache
-            cache = get_cache()
-            cache_result = await cache.query(user_query, n_results=1)
-            distance = cache_result.get('distance', 1.0)
-
-            if cache_result['source'] == 'CACHE' and distance < 0.05:
-                # Exact duplicate — use cached result
-                import datetime as _dt
-                from .formatting import format_age
-                cache_time = _dt.datetime.fromisoformat(cache_result['metadata']['timestamp'])
-                age_seconds = (_dt.datetime.now() - cache_time).total_seconds()
-                age_formatted = format_age(age_seconds)
-                state.add_debug(f"✅ Cache hit ({age_formatted} ago, d={distance:.4f})")
-                state._research_context = cache_result['answer']  # type: ignore[attr-defined]
-                yield
-                return
-        except Exception as e:
-            log_message(f"⚠️ Vector cache check failed: {e}")
-
-        # ==============================================================
-        # PHASE 1: Generate 3 optimized search queries
-        # ==============================================================
-        state.add_debug("🔍 Generating search queries...")
-        yield
-        query_result = await generate_search_queries(
-            user_text=user_query,
-            automatik_llm_client=automatik_llm_client,
-            automatik_model=automatik_model_id,
-            detected_language=lang,
-            llm_history=state._chat_sub().llm_history[:-1] if len(state._chat_sub().llm_history) > 1 else None,
-            automatik_num_ctx=automatik_num_ctx,
-        )
-        pre_generated_queries = query_result["queries"]
-        volatility = query_result.get("volatility", "WEEKLY")
-        query_gen_time = query_result["generation_time"]
-        state.add_debug(f"✅ {len(pre_generated_queries)} queries ({query_gen_time:.1f}s, TTL={volatility})")
-        for i, q in enumerate(pre_generated_queries, 1):
-            state.add_debug(f"   {i}. {q}")
-        yield
-
-        # ==============================================================
-        # PHASE 2: Multi-API Web Search
-        # ==============================================================
-        related_urls: list[str] = []
-        titles: list[str] = []
-        snippets: list[str] = []
-        tool_results: list[dict[str, Any]] = []
-
-        async for item in process_query_and_search(
-            user_text=user_query,
-            llm_history=state._chat_sub().llm_history,
-            automatik_model=automatik_model_id,
-            automatik_llm_client=automatik_llm_client,
-            llm_options={},
-            vision_json_context=None,
-            pre_generated_queries=pre_generated_queries,
-        ):
-            if item["type"] == "query_result":
-                _, _, _, related_urls, titles, snippets, tool_results = item["data"]
-            elif item["type"] == "debug":
-                state.add_debug(item["message"])
-                yield
-
-        if not related_urls:
-            state.add_debug("⚠️ No URLs found")
-            yield
-            return
-
-        # ==============================================================
-        # PHASE 2.5: LLM-based URL Ranking
-        # ==============================================================
-        if related_urls and titles and snippets:
-            top_n = 7 if mode == "deep" else 3
-            state.add_debug(f"🎯 Ranking {len(related_urls)} URLs by relevance...")
-            yield
-
-            ranked_urls, _, debug_summary = await rank_urls_by_relevance(
-                user_question=user_query,
-                urls=related_urls,
-                titles=titles,
-                snippets=snippets,
-                automatik_llm_client=automatik_llm_client,
-                automatik_model=automatik_model_id,
-                top_n=top_n,
-                llm_options={},
-                automatik_num_ctx=automatik_num_ctx,
-            )
-            if debug_summary:
-                state.add_debug(f"📋 {debug_summary}")
-            related_urls = ranked_urls
-            yield
-
-        # ==============================================================
-        # PHASE 3: Parallel Web Scraping (with progress bar)
-        # ==============================================================
-        failed_sources: list[dict[str, Any]] = []
-
-        async for item in orchestrate_scraping(
-            related_urls=related_urls,
-            mode=mode,
-            llm_client=llm_client,
-            model_choice=model_id,
-        ):
-            if item["type"] == "scraping_result":
-                _, scraping_tool_results = item["data"]
-                tool_results.extend(scraping_tool_results)
-            elif item["type"] == "debug":
-                state.add_debug(item["message"])
-                yield
-            elif item["type"] == "progress":
-                state.set_progress(
-                    phase=item.get("phase", ""),
-                    current=item.get("current", 0),
-                    total=item.get("total", 0),
-                    failed=item.get("failed", 0),
-                )
-                yield  # Push progress update to browser
-            elif item["type"] == "failed_sources":
-                failed_sources.extend(item["data"])
-                state.add_debug(f"⚠️ {len(item['data'])} source(s) failed")
-                yield
-
-        state.clear_progress()
-        yield
-
-        # ==============================================================
-        # Build context + sources collapsible from scraped content
-        # ==============================================================
-        if not tool_results:
-            state.add_debug("⚠️ No sources available")
-            yield
-            return
-
-        context = build_context(user_query, tool_results)
-
-        # Extract used_sources for collapsible (same as old context_builder.py)
-        scraped_only = [r for r in tool_results if r.get("success") and r.get("content")]
-        used_sources = [
-            {
-                "url": src.get("url", ""),
-                "word_count": src.get("word_count", 0),
-                "rank_index": src.get("rank_index", idx),
-                "success": True,
-            }
-            for idx, src in enumerate(scraped_only)
-            if src.get("url")
-        ]
-
-        # Build sources collapsible HTML
-        from .formatting import build_sources_collapsible
-        sources_html = build_sources_collapsible(
-            used_sources=used_sources,
-            failed_sources=failed_sources,
-        )
-
-        state.add_debug(f"✅ Research context: {len(context)} chars, {len(used_sources)} sources")
-        state._research_context = context  # type: ignore[attr-defined]
-        state._research_sources_html = sources_html  # type: ignore[attr-defined]
-
-        # ==============================================================
-        # Vector Cache Auto-Write (save research for future duplicate check)
-        # ==============================================================
-        try:
-            from .vector_cache import get_cache
-            cache = get_cache()
-            scraped_only = [r for r in tool_results if r.get("success") and r.get("content")]
-            await cache.add(
-                query=user_query,
-                answer=context,
-                sources=scraped_only,
-                failed_sources=failed_sources,
-                metadata={"volatility": volatility},
-            )
-            state.add_debug(f"💾 Research cached ({len(scraped_only)} sources)")
-        except Exception as e:
-            log_message(f"⚠️ Vector cache write failed: {e}")
-
-        yield
-
-    finally:
-        await llm_client.close()
-        if state.backend_type == "ollama":
-            await automatik_llm_client.close()
+    async for _ in execute_research(
+        state=state,
+        user_query=user_query,
+        lang=lang,
+        # No pre_generated_queries → Automatik-LLM generates them
+    ):
+        yield  # Forward yields for progress bar updates
 
 
 # ============================================================
@@ -688,6 +482,7 @@ async def _run_agent_direct_response(
             lang=detected_lang or "de",
             memory_enabled=memory_enabled,
             research_tools_enabled=research_tools_enabled,
+            state=state if research_tools_enabled else None,
         )
         if memory_ctx:
             system_prompt = f"{system_prompt}\n\n{memory_ctx}"
@@ -784,6 +579,18 @@ async def _run_agent_direct_response(
                 thinking_content = chunk.get("text", "")
                 if thinking_content:
                     full_response += f"<think>{thinking_content}</think>"
+
+            elif chunk_type == "tool_call":
+                tc_name = chunk.get("name", "")
+                state.add_debug(f"🔧 Tool call: {tc_name}")
+                yield  # type: ignore[misc]
+
+            elif chunk_type == "tool_result":
+                tr_name = chunk.get("name", "")
+                tr_result = chunk.get("result", "")
+                tr_len = len(tr_result) if tr_result else 0
+                state.add_debug(f"🔧 Tool result: {tr_name} ({tr_len} chars)")
+                yield  # type: ignore[misc]
 
             elif chunk_type == "done":
                 metrics = chunk.get("metrics", {})
