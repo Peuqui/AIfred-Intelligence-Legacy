@@ -674,73 +674,87 @@ def _source_link(url: rx.Var) -> rx.Component:
 def _memory_browser_view() -> rx.Component:
     """Memory browser view — browse ChromaDB collections and entries."""
     return rx.vstack(
+        # Fixed header
         _editor_header(),
-        # Content: overview or detail view
-        rx.cond(
-            AIState.memory_browser_agent == "",
-            # Overview: list all collections
-            rx.vstack(
-                rx.text(
-                    "ChromaDB Collections",
-                    font_weight="bold",
-                    font_size="14px",
-                    color="#FFD700",
-                ),
-                rx.cond(
-                    AIState.memory_browser_collections.length() > 0,  # type: ignore[union-attr]
-                    rx.foreach(
-                        AIState.memory_browser_collections,
-                        _memory_collection_row,
-                    ),
-                    rx.text("No collections found", color="#888", font_size="13px"),
-                ),
-                spacing="2",
-                width="100%",
-            ),
-            # Detail: entries for selected agent
-            rx.vstack(
-                rx.hstack(
-                    rx.button(
-                        rx.icon("arrow-left", size=14),
-                        on_click=AIState.open_memory_browser,
-                        size="1",
-                        variant="soft",
-                        color_scheme="gray",
-                        cursor="pointer",
-                    ),
+        # Scrollable content area
+        rx.box(
+            rx.cond(
+                AIState.memory_browser_agent == "",
+                # Overview: list all collections
+                rx.vstack(
                     rx.text(
-                        AIState.memory_browser_agent_display,
+                        "ChromaDB Collections",
                         font_weight="bold",
                         font_size="14px",
                         color="#FFD700",
                     ),
-                    rx.badge(
-                        AIState.memory_browser_entries.length(),  # type: ignore[union-attr]
-                        variant="soft",
-                        color_scheme="orange",
+                    rx.cond(
+                        AIState.memory_browser_collections.length() > 0,  # type: ignore[union-attr]
+                        rx.foreach(
+                            AIState.memory_browser_collections,
+                            _memory_collection_row,
+                        ),
+                        rx.text("No collections found", color="#888", font_size="13px"),
                     ),
                     spacing="2",
-                    align="center",
                     width="100%",
                 ),
-                rx.cond(
-                    AIState.memory_browser_entries.length() > 0,  # type: ignore[union-attr]
-                    rx.vstack(
-                        rx.foreach(
-                            AIState.memory_browser_entries,
-                            _memory_entry_row,
+                # Detail: entries for selected agent
+                rx.vstack(
+                    # Breadcrumb (fixed within scroll area)
+                    rx.hstack(
+                        rx.button(
+                            rx.icon("arrow-left", size=14),
+                            on_click=AIState.open_memory_browser,
+                            size="1",
+                            variant="soft",
+                            color_scheme="gray",
+                            cursor="pointer",
+                        ),
+                        rx.text(
+                            AIState.memory_browser_agent_display,
+                            font_weight="bold",
+                            font_size="14px",
+                            color="#FFD700",
+                        ),
+                        rx.badge(
+                            AIState.memory_browser_entries.length(),  # type: ignore[union-attr]
+                            variant="soft",
+                            color_scheme="orange",
                         ),
                         spacing="2",
+                        align="center",
                         width="100%",
+                        position="sticky",
+                        top="0",
+                        background_color="#1a1a1a",
+                        z_index="1",
+                        padding_bottom="8px",
                     ),
-                    rx.text("No entries", color="#888", font_size="13px"),
+                    rx.cond(
+                        AIState.memory_browser_entries.length() > 0,  # type: ignore[union-attr]
+                        rx.vstack(
+                            rx.foreach(
+                                AIState.memory_browser_entries,
+                                _memory_entry_row,
+                            ),
+                            spacing="2",
+                            width="100%",
+                        ),
+                        rx.text("No entries", color="#888", font_size="13px"),
+                    ),
+                    spacing="3",
+                    width="100%",
                 ),
-                spacing="3",
-                width="100%",
             ),
+            flex="1",
+            overflow_y="auto",
+            width="100%",
         ),
         spacing="3",
         width="100%",
+        flex="1",
+        min_height="0",
     )
 
 
@@ -777,7 +791,9 @@ def agent_editor_modal() -> rx.Component:
                 width="750px",
                 height="90vh",
                 max_height="95vh",
-                overflow_y="auto",
+                overflow_y="hidden",
+                display="flex",
+                flex_direction="column",
                 position="relative",
                 z_index="1001",
                 color="white",
