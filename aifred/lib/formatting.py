@@ -755,6 +755,20 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None, t
             clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
     clean_response = clean_response.strip()
 
+    # Escape Markdown reference-link definitions: [LABEL]: text
+    # rx.markdown (react-markdown) interprets these as invisible reference
+    # definitions, swallowing the content entirely.
+    # Pattern: line starts with [word]: followed by non-URL text
+    # Real reference links like [1]: https://... are preserved.
+    # Real inline links [text](url) are not affected (different syntax).
+    # To restore reference-link support, remove the next line:
+    clean_response = re.sub(
+        r'^\[([^\]]+)\]:\s+(?!https?://)',
+        r'\\[\1]: ',
+        clean_response,
+        flags=re.MULTILINE,
+    )
+
     # Extract HTML previews from clean response → collapsibles at top
     html_previews, clean_response = extract_html_previews(clean_response, lang=lang)
     collapsibles.extend(html_previews)
