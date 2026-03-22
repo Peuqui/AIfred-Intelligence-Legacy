@@ -269,6 +269,14 @@ async def _stream_agent_to_history(
             if state.stream_text_to_ui(chunk["text"]):
                 yield  # type: ignore[misc]
 
+        elif chunk["type"] == "tool_call":
+            state.add_debug(f"🔧 Tool call: {chunk['name']}({chunk.get('arguments', '')[:80]})")
+            yield  # type: ignore[misc]
+
+        elif chunk["type"] == "tool_result":
+            state.add_debug(f"🔧 Tool result: {chunk.get('result', '')[:100]}")
+            yield  # type: ignore[misc]
+
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
             token_count = metrics.get("tokens_generated", token_count)
@@ -581,15 +589,11 @@ async def _run_agent_direct_response(
                     full_response += f"<think>{thinking_content}</think>"
 
             elif chunk_type == "tool_call":
-                tc_name = chunk.get("name", "")
-                state.add_debug(f"🔧 Tool call: {tc_name}")
+                state.add_debug(f"🔧 Tool call: {chunk.get('name', '')}({chunk.get('arguments', '')[:80]})")
                 yield  # type: ignore[misc]
 
             elif chunk_type == "tool_result":
-                tr_name = chunk.get("name", "")
-                tr_result = chunk.get("result", "")
-                tr_len = len(tr_result) if tr_result else 0
-                state.add_debug(f"🔧 Tool result: {tr_name} ({tr_len} chars)")
+                state.add_debug(f"🔧 Tool result: {chunk.get('result', '')[:100]}")
                 yield  # type: ignore[misc]
 
             elif chunk_type == "done":

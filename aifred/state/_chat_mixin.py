@@ -106,6 +106,7 @@ class ChatMixin(rx.State, mixin=True):
             "verdict": t("salomo_verdict_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
             "critical_review": t("critical_review_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
             "advocatus_diaboli": t("advocatus_diaboli_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
+            "symposion": "Symposion",  # Same in both languages
             "error": "Error",  # Same in both languages
             "standard": "",  # No label for standard mode
         }
@@ -145,7 +146,7 @@ class ChatMixin(rx.State, mixin=True):
         # Skip for "standard" mode, when mode already includes the prefix,
         # or when mode equals multi_agent_mode (prevents "[Critical Review: Critical Review R1]")
         mode_prefix = ""
-        if self.multi_agent_mode != "standard" and mode not in ["auto_consensus", "tribunal", "devils_advocate"] and mode != self.multi_agent_mode:  # type: ignore[attr-defined]
+        if self.multi_agent_mode != "standard" and mode not in ["auto_consensus", "tribunal", "devils_advocate", "symposion"] and mode != self.multi_agent_mode:  # type: ignore[attr-defined]
             # Get localized multi-agent mode label
             multi_mode_label = self._get_mode_label(self.multi_agent_mode, None)  # type: ignore[attr-defined]
             if multi_mode_label:
