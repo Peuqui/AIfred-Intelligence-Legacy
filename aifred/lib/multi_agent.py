@@ -1711,18 +1711,14 @@ async def run_symposion(
                 )
                 system_prompt = f"{agent_system}\n\n{symposion_prompt}"
 
-                # Memory recall (round 1 only) + toolkit (last round only)
+                # Memory recall (round 1) + toolkit (every round)
                 memory_ctx = ""
-                toolkit = None
-                if round_num == 1 or round_num == max_rounds:
-                    mem_ctx, mem_toolkit = await prepare_agent_memory(
-                        agent_id, user_query, lang=detected_lang or "de",
-                        enabled=memory_enabled,
-                    )
-                    if round_num == 1 and mem_ctx:
-                        memory_ctx = mem_ctx
-                    if round_num == max_rounds:
-                        toolkit = mem_toolkit
+                mem_ctx, toolkit = await prepare_agent_memory(
+                    agent_id, user_query, lang=detected_lang or "de",
+                    enabled=memory_enabled,
+                )
+                if round_num == 1 and mem_ctx:
+                    memory_ctx = mem_ctx
 
                 if memory_ctx:
                     system_prompt = f"{system_prompt}\n\n{memory_ctx}"
