@@ -1684,7 +1684,7 @@ async def run_symposion(
             {"role": "user", "content": user_query}
         ]
 
-        llm_client = LLMClient(state)
+        llm_client = LLMClient(backend_type=state.backend_type)
 
         for round_num in range(1, max_rounds + 1):
             state.debate_round = round_num
