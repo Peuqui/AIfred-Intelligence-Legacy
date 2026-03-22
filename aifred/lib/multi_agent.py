@@ -1717,7 +1717,7 @@ async def run_symposion(
                 if round_num == 1 or round_num == max_rounds:
                     mem_ctx, mem_toolkit = await prepare_agent_memory(
                         agent_id, user_query, lang=detected_lang or "de",
-                        memory_enabled=memory_enabled,
+                        enabled=memory_enabled,
                     )
                     if round_num == 1 and mem_ctx:
                         memory_ctx = mem_ctx
