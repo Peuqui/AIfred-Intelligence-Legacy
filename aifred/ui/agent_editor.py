@@ -211,6 +211,11 @@ def _editor_header() -> rx.Component:
         ),
         spacing="3",
         width="100%",
+        flex_shrink="0",
+        background_color="#1a1a1a",
+        z_index="10",
+        padding_bottom="8px",
+        border_bottom="1px solid #333",
     )
 
 
@@ -218,28 +223,40 @@ def _agent_list_view() -> rx.Component:
     """The agent list view (main view of the editor)."""
     return rx.vstack(
         _editor_header(),
-        # New agent button
-        rx.button(
-            rx.hstack(
-                rx.icon("plus", size=16),
-                rx.text(t("agent_editor_new")),
-                spacing="2",
-                align="center",
+        # Scrollable content
+        rx.box(
+            rx.vstack(
+                # New agent button
+                rx.button(
+                    rx.hstack(
+                        rx.icon("plus", size=16),
+                        rx.text(t("agent_editor_new")),
+                        spacing="2",
+                        align="center",
+                    ),
+                    on_click=AIState.start_new_agent,
+                    width="100%",
+                    variant="soft",
+                    color_scheme="green",
+                    size="2",
+                    cursor="pointer",
+                ),
+                # Agent list
+                rx.foreach(
+                    AIState.agent_list,
+                    _agent_row,
+                ),
+                spacing="3",
+                width="100%",
             ),
-            on_click=AIState.start_new_agent,
+            flex="1",
+            overflow_y="auto",
             width="100%",
-            variant="soft",
-            color_scheme="green",
-            size="2",
-            cursor="pointer",
-        ),
-        # Agent list
-        rx.foreach(
-            AIState.agent_list,
-            _agent_row,
         ),
         spacing="3",
         width="100%",
+        flex="1",
+        min_height="0",
     )
 
 
@@ -555,6 +572,9 @@ def _agent_edit_view() -> rx.Component:
 
         spacing="4",
         width="100%",
+        flex="1",
+        min_height="0",
+        overflow_y="auto",
     )
 
 
@@ -674,9 +694,40 @@ def _source_link(url: rx.Var) -> rx.Component:
 def _memory_browser_view() -> rx.Component:
     """Memory browser view — browse ChromaDB collections and entries."""
     return rx.vstack(
-        # Fixed header
+        # Fixed header (tabs)
         _editor_header(),
-        # Scrollable content area
+        # Fixed breadcrumb (only when agent selected)
+        rx.cond(
+            AIState.memory_browser_agent != "",
+            rx.hstack(
+                rx.button(
+                    rx.icon("arrow-left", size=14),
+                    on_click=AIState.open_memory_browser,
+                    size="1",
+                    variant="soft",
+                    color_scheme="gray",
+                    cursor="pointer",
+                ),
+                rx.text(
+                    AIState.memory_browser_agent_display,
+                    font_weight="bold",
+                    font_size="14px",
+                    color="#FFD700",
+                ),
+                rx.badge(
+                    AIState.memory_browser_entries.length(),  # type: ignore[union-attr]
+                    variant="soft",
+                    color_scheme="orange",
+                ),
+                spacing="2",
+                align="center",
+                width="100%",
+                flex_shrink="0",
+                padding_bottom="8px",
+                border_bottom="1px solid #333",
+            ),
+        ),
+        # Scrollable content (only this part scrolls)
         rx.box(
             rx.cond(
                 AIState.memory_browser_agent == "",
@@ -699,52 +750,18 @@ def _memory_browser_view() -> rx.Component:
                     spacing="2",
                     width="100%",
                 ),
-                # Detail: entries for selected agent
-                rx.vstack(
-                    # Breadcrumb (fixed within scroll area)
-                    rx.hstack(
-                        rx.button(
-                            rx.icon("arrow-left", size=14),
-                            on_click=AIState.open_memory_browser,
-                            size="1",
-                            variant="soft",
-                            color_scheme="gray",
-                            cursor="pointer",
-                        ),
-                        rx.text(
-                            AIState.memory_browser_agent_display,
-                            font_weight="bold",
-                            font_size="14px",
-                            color="#FFD700",
-                        ),
-                        rx.badge(
-                            AIState.memory_browser_entries.length(),  # type: ignore[union-attr]
-                            variant="soft",
-                            color_scheme="orange",
+                # Detail: entries only
+                rx.cond(
+                    AIState.memory_browser_entries.length() > 0,  # type: ignore[union-attr]
+                    rx.vstack(
+                        rx.foreach(
+                            AIState.memory_browser_entries,
+                            _memory_entry_row,
                         ),
                         spacing="2",
-                        align="center",
                         width="100%",
-                        position="sticky",
-                        top="0",
-                        background_color="#1a1a1a",
-                        z_index="1",
-                        padding_bottom="8px",
                     ),
-                    rx.cond(
-                        AIState.memory_browser_entries.length() > 0,  # type: ignore[union-attr]
-                        rx.vstack(
-                            rx.foreach(
-                                AIState.memory_browser_entries,
-                                _memory_entry_row,
-                            ),
-                            spacing="2",
-                            width="100%",
-                        ),
-                        rx.text("No entries", color="#888", font_size="13px"),
-                    ),
-                    spacing="3",
-                    width="100%",
+                    rx.text("No entries", color="#888", font_size="13px"),
                 ),
             ),
             flex="1",
