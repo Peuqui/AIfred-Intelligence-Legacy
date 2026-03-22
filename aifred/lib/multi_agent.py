@@ -1733,11 +1733,10 @@ async def run_symposion(
                     else:
                         messages.append({"role": "user", "content": msg["content"]})
 
-                # Build options
-                agent_options = build_llm_options(
-                    state, agent_id if agent_id in default_agents else "aifred",
-                    num_ctx=agent_num_ctx, enable_thinking=False,
-                )
+                # Build options (use agent's temperature from state)
+                opts_agent = agent_id if agent_id in default_agents else "aifred"
+                agent_temp = getattr(state, f"{opts_agent}_temperature", 0.7)
+                agent_options = build_llm_options(state, opts_agent, agent_temp, agent_num_ctx)
 
                 # Stream response
                 result = None
