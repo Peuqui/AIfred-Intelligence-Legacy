@@ -142,6 +142,7 @@ class AgentConfigMixin(rx.State, mixin=True):
     # ── Multi-Agent Settings (PERSISTENT) ─────────────────────────
     multi_agent_mode: str = "standard"
     max_debate_rounds: int = 3
+    symposion_agents: list[str] = []  # Selected agents for Symposion mode
     consensus_type: str = "majority"
     sokrates_model: str = ""
     sokrates_model_id: str = ""
@@ -743,6 +744,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             ["critical_review", TranslationManager.get_text("multi_agent_critical_review", self.ui_language)],  # type: ignore[attr-defined]
             ["auto_consensus", TranslationManager.get_text("multi_agent_auto_consensus", self.ui_language)],  # type: ignore[attr-defined]
             ["tribunal", TranslationManager.get_text("multi_agent_tribunal", self.ui_language)],  # type: ignore[attr-defined]
+            ["symposion", TranslationManager.get_text("multi_agent_symposion", self.ui_language)],  # type: ignore[attr-defined]
         ]
 
     @rx.var(deps=["agent_list"], auto_deps=False)
@@ -770,12 +772,27 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.add_debug("🔒 Incognito mode (no memory)")  # type: ignore[attr-defined]
 
     def set_active_agent(self, agent_id: str) -> None:
-        """Set which agent responds to messages."""
+        """Set which agent responds to messages. In Symposion mode, toggles multi-select."""
+        if self.multi_agent_mode == "symposion":
+            self.toggle_symposion_agent(agent_id)
+            return
         self.active_agent = agent_id
         from ..lib.agent_config import get_agent_config
         cfg = get_agent_config(agent_id)
         label = cfg.display_name if cfg else agent_id.capitalize()
         self.add_debug(f"🎯 Active agent: {label}")  # type: ignore[attr-defined]
+
+    def toggle_symposion_agent(self, agent_id: str) -> None:
+        """Toggle an agent's participation in Symposion mode."""
+        from ..lib.agent_config import get_agent_config
+        cfg = get_agent_config(agent_id)
+        label = cfg.display_name if cfg else agent_id.capitalize()
+        if agent_id in self.symposion_agents:
+            self.symposion_agents = [a for a in self.symposion_agents if a != agent_id]
+            self.add_debug(f"🏛️ Symposion: {label} removed")  # type: ignore[attr-defined]
+        else:
+            self.symposion_agents = self.symposion_agents + [agent_id]
+            self.add_debug(f"🏛️ Symposion: {label} added")  # type: ignore[attr-defined]
 
     @rx.var(deps=["ui_language", "multi_agent_mode"], auto_deps=False)
     def multi_agent_mode_info(self) -> str:

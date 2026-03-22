@@ -168,6 +168,7 @@ class TranslationManager:
             "multi_agent_auto_consensus": "Auto-Konsens",
             "multi_agent_devils_advocate": "Advocatus Diaboli",
             "multi_agent_tribunal": "Tribunal",
+            "multi_agent_symposion": "Symposion",
             # Multi-Agent Mode Descriptions
             "multi_agent_mode": "💬 Diskussionsmodus",
             "multi_agent_info_standard": "💡 Nur AIfred antwortet (klassisches Verhalten)",
@@ -175,6 +176,7 @@ class TranslationManager:
             "multi_agent_info_auto_consensus": "💡 AIfred, Sokrates & Salomo diskutieren bis Konsens",
             "multi_agent_info_devils_advocate": "💡 Pro & Contra Argumente für ausgewogene Analyse (Reasoning empfohlen)",
             "multi_agent_info_tribunal": "💡 AIfred vs Sokrates debattieren, Salomo urteilt am Ende",
+            "multi_agent_info_symposion": "💡 Wähle Agenten für ein Gelehrten-Symposion (Multiperspektiven)",
             "multi_agent_help_title": "Diskussionsmodi - Übersicht",
             "multi_agent_help_close": "Schließen",
             "multi_agent_help_mode": "Modus",
@@ -453,6 +455,7 @@ class TranslationManager:
             "multi_agent_auto_consensus": "Auto-Consensus",
             "multi_agent_devils_advocate": "Devil's Advocate",
             "multi_agent_tribunal": "Tribunal",
+            "multi_agent_symposion": "Symposion",
             # Multi-Agent Mode Descriptions
             "multi_agent_mode": "💬 Discussion Mode",
             "multi_agent_info_standard": "💡 Only AIfred answers (classic behavior)",
@@ -460,6 +463,7 @@ class TranslationManager:
             "multi_agent_info_auto_consensus": "💡 AIfred, Sokrates & Salomo discuss until consensus",
             "multi_agent_info_devils_advocate": "💡 Pro & Contra arguments for balanced analysis (Reasoning recommended)",
             "multi_agent_info_tribunal": "💡 AIfred vs Sokrates debate, Salomo judges at the end",
+            "multi_agent_info_symposion": "💡 Select agents for a scholars' Symposion (multiperspective)",
             "multi_agent_help_title": "Discussion Modes - Overview",
             "multi_agent_help_close": "Close",
             "multi_agent_help_mode": "Mode",

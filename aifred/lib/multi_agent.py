@@ -1632,3 +1632,174 @@ async def run_tribunal(
         state.debate_in_progress = False
 
     yield
+
+
+# ============================================================
+# SYMPOSION - Multi-Agent Round Table Discussion
+# ============================================================
+
+async def run_symposion(
+    state: 'AIState',
+    user_query: str,
+    detected_lang: Optional[str] = None,
+) -> AsyncGenerator[None, None]:
+    """Run a Symposion: selected agents discuss a topic in rounds.
+
+    Each agent responds in sequence, seeing all prior responses.
+    No winner, no LGTM - multiperspective discussion.
+    """
+    from .agent_config import get_agent_config
+    from .prompt_loader import get_agent_system_prompt, load_prompt
+    from .agent_memory import prepare_agent_memory
+    from .research.context_utils import get_agent_num_ctx
+
+    agents = state.symposion_agents
+    max_rounds = state.max_debate_rounds
+    memory_enabled = state.agent_memory_enabled
+
+    default_agents = ("aifred", "sokrates", "salomo", "vision")
+
+    agent_configs = []
+    for agent_id in agents:
+        cfg = get_agent_config(agent_id)
+        if cfg:
+            agent_configs.append((agent_id, cfg))
+
+    if len(agent_configs) < 2:
+        state.add_debug("⚠️ Symposion requires at least 2 agents")
+        yield
+        return
+
+    agent_names = ", ".join(cfg.display_name for _, cfg in agent_configs)
+    state.add_debug(f"🏛️ Symposion: {agent_names} ({max_rounds} rounds)")
+    state.debate_in_progress = True
+    yield
+
+    try:
+        # Load symposion discussion rules
+        symposion_prompt = load_prompt("shared/symposion", lang=detected_lang)
+
+        # Shared conversation (all agents see prior responses)
+        conversation: list[dict[str, str]] = [
+            {"role": "user", "content": user_query}
+        ]
+
+        llm_client = LLMClient(state)
+
+        for round_num in range(1, max_rounds + 1):
+            state.debate_round = round_num
+
+            for agent_id, cfg in agent_configs:
+                agent_label = cfg.display_name
+                emoji = cfg.emoji
+
+                # Model: custom agents use AIfred's model
+                if agent_id in default_agents:
+                    model_id = state._effective_model_id(agent_id) or state._effective_model_id("aifred")
+                else:
+                    model_id = state._effective_model_id("aifred")
+
+                state.add_debug(f"{emoji} {agent_label} (R{round_num})")
+
+                # Context limit
+                ctx_agent = agent_id if agent_id in default_agents else "aifred"
+                agent_num_ctx, _ = get_agent_num_ctx(ctx_agent, state, model_id)
+
+                # System prompt: agent identity + symposion rules + memory
+                agent_system = get_agent_system_prompt(
+                    agent_id, prompt_key="direct", lang=detected_lang, memory=memory_enabled
+                )
+                system_prompt = f"{agent_system}\n\n{symposion_prompt}"
+
+                # Memory recall (round 1 only) + toolkit (last round only)
+                memory_ctx = ""
+                toolkit = None
+                if round_num == 1 or round_num == max_rounds:
+                    mem_ctx, mem_toolkit = await prepare_agent_memory(
+                        agent_id, user_query, lang=detected_lang or "de",
+                        memory_enabled=memory_enabled,
+                    )
+                    if round_num == 1 and mem_ctx:
+                        memory_ctx = mem_ctx
+                    if round_num == max_rounds:
+                        toolkit = mem_toolkit
+
+                if memory_ctx:
+                    system_prompt = f"{system_prompt}\n\n{memory_ctx}"
+
+                # Build messages: system + conversation history
+                messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+                for msg in conversation:
+                    if msg["role"] == "user":
+                        messages.append(msg)
+                    elif msg.get("agent") == agent_id:
+                        messages.append({"role": "assistant", "content": msg["content"]})
+                    else:
+                        messages.append({"role": "user", "content": msg["content"]})
+
+                # Build options
+                agent_options = build_llm_options(
+                    state, agent_id if agent_id in default_agents else "aifred",
+                    num_ctx=agent_num_ctx, enable_thinking=False,
+                )
+
+                # Stream response
+                result = None
+                async for item in _stream_agent_to_history(
+                    state, agent_id, agent_label, llm_client,
+                    model=model_id, messages=messages,
+                    options=agent_options, toolkit=toolkit,
+                ):
+                    if isinstance(item, dict):
+                        result = item
+                    else:
+                        yield
+
+                if result is None:
+                    state.add_debug(f"❌ {agent_label} returned no result")
+                    continue
+
+                response_text = result["text"]
+                metadata_dict = result["metadata_dict"]
+                audio_urls = result.get("audio_urls", [])
+
+                formatted = format_thinking_process(
+                    response_text,
+                    model_name=f"{agent_label} ({model_id})",
+                    inference_time=metadata_dict.get("inference_time", 0)
+                )
+
+                state.add_agent_panel(
+                    agent=agent_id,
+                    content=formatted,
+                    mode="symposion",
+                    round_num=round_num,
+                    metadata={**metadata_dict, "audio_urls": audio_urls},
+                    sync_llm_history=False,
+                )
+
+                # Add to conversation for next agents
+                conversation.append({
+                    "role": "assistant",
+                    "agent": agent_id,
+                    "content": f"[{agent_label}]: {strip_thinking_blocks(response_text)}",
+                })
+
+                state._streaming_sub().current_ai_response = ""
+                state._set_current_agent("")
+                yield
+
+        await llm_client.close()
+
+        state.add_debug(f"🏛️ Symposion done ({max_rounds} rounds, {len(agent_configs)} agents)")
+        console_separator()
+        state.add_debug("────────────────────")
+
+    except Exception as e:
+        state.add_debug(f"❌ Symposion Error: {e}")
+
+    finally:
+        state.debate_in_progress = False
+        state._save_current_session()
+
+    yield

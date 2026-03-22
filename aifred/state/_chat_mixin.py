@@ -1160,25 +1160,31 @@ class ChatMixin(rx.State, mixin=True):
 
             from ..lib.multi_agent import run_generic_agent_direct_response
 
-            async for _ in run_generic_agent_direct_response(
-                self,
-                responding_agent,
-                user_msg,
-                detected_language,
-                research_mode=effective_research_mode,
-                detected_intent=detected_intent,
-            ):
-                yield
+            # Symposion mode: all selected agents respond in sequence
+            if self.multi_agent_mode == "symposion" and len(self.symposion_agents) >= 2:  # type: ignore[attr-defined]
+                from ..lib.multi_agent import run_symposion
+                async for _ in run_symposion(self, user_msg, detected_language):  # type: ignore[arg-type]
+                    yield
+            else:
+                async for _ in run_generic_agent_direct_response(
+                    self,
+                    responding_agent,
+                    user_msg,
+                    detected_language,
+                    research_mode=effective_research_mode,
+                    detected_intent=detected_intent,
+                ):
+                    yield
 
-            # Multi-Agent analysis (Sokrates critique etc.)
-            # Get the AI response from the last chat history entry
-            _last = self._chat_sub().chat_history[-1] if self._chat_sub().chat_history else {}
-            ai_text = _last.get("content", "") if _last.get("role") == "assistant" else ""
+                # Multi-Agent analysis (Sokrates critique etc.)
+                # Get the AI response from the last chat history entry
+                _last = self._chat_sub().chat_history[-1] if self._chat_sub().chat_history else {}
+                ai_text = _last.get("content", "") if _last.get("role") == "assistant" else ""
 
-            async for _ in self._maybe_run_multi_agent(
-                user_msg, ai_text, detected_language, skip_sokrates_analysis,
-            ):
-                yield
+                async for _ in self._maybe_run_multi_agent(
+                    user_msg, ai_text, detected_language, skip_sokrates_analysis,
+                ):
+                    yield
 
             self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
             self.current_user_message = ""

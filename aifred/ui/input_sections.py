@@ -15,7 +15,11 @@ from .chat_display import processing_progress_banner
 
 def _agent_toggle_button(agent: rx.Var) -> rx.Component:
     """Render a single agent toggle button for the active-agent row."""
-    is_active = AIState.active_agent == agent["id"]
+    # In Symposion mode: multi-select (check if agent is in symposion_agents list)
+    is_symposion = AIState.multi_agent_mode == "symposion"
+    is_selected_symposion = AIState.symposion_agents.contains(agent["id"])
+    is_active_standard = AIState.active_agent == agent["id"]
+    is_active = rx.cond(is_symposion, is_selected_symposion, is_active_standard)
     return rx.button(
         rx.hstack(
             rx.text(agent["emoji"], font_size="13px"),
@@ -439,9 +443,9 @@ def text_input_section() -> rx.Component:
                     "Inkognito-Modus (kein Gedächtnis)",
                 ),
             ),
-            # Agent toggle buttons (only in Standard mode)
+            # Agent toggle buttons (Standard + Symposion modes)
             rx.cond(
-                AIState.multi_agent_mode == "standard",
+                (AIState.multi_agent_mode == "standard") | (AIState.multi_agent_mode == "symposion"),
                 rx.hstack(
                     rx.box(
                         width="1px",
@@ -475,7 +479,7 @@ def text_input_section() -> rx.Component:
 
         # Max Debate Rounds (only for auto_consensus/tribunal — compact sub-row)
         rx.cond(
-            (AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal"),
+            (AIState.multi_agent_mode == "auto_consensus") | (AIState.multi_agent_mode == "tribunal") | (AIState.multi_agent_mode == "symposion"),
             rx.hstack(
                 rx.text(t("max_debate_rounds"), font_size="11px"),
                 rx.icon_button(
