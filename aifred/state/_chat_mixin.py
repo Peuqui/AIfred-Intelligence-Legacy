@@ -1143,7 +1143,9 @@ class ChatMixin(rx.State, mixin=True):
 
                 if detected_urls or any(kw in user_lower for kw in explicit_keywords):
                     if detected_urls:
-                    self.add_debug(f"⚡ {len(detected_urls)} URL(s) detected → Forced Research")
+                        self.add_debug(f"⚡ {len(detected_urls)} URL(s) detected → Forced Research")
+                    else:
+                        self.add_debug("⚡ Explicit research request → Forced Research")
                     effective_research_mode = "deep"
                     yield
 

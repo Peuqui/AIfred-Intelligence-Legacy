@@ -426,11 +426,10 @@ def text_input_section() -> rx.Component:
             # Incognito toggle (always visible)
             rx.tooltip(
                 rx.box(
-                    rx.text(
-                        rx.cond(AIState.agent_memory_enabled, "🔓", "🔒"),
-                        font_size="16px",
-                        cursor="pointer",
-                        opacity=rx.cond(AIState.agent_memory_enabled, "1", "0.5"),
+                    rx.cond(
+                        AIState.agent_memory_enabled,
+                        rx.icon("lock-open", size=18, cursor="pointer", color="#4CAF50"),
+                        rx.icon("lock", size=18, cursor="pointer", color="#888", opacity=0.7),
                     ),
                     on_click=AIState.toggle_agent_memory,
                 ),
