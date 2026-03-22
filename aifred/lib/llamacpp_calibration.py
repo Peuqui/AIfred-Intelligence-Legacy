@@ -621,6 +621,51 @@ def update_llamaswap_kv_cache_quant(
     return True
 
 
+def update_llamaswap_reasoning_format(
+    config_path: Path,
+    model_id: str,
+    fmt: str = "deepseek",
+) -> bool:
+    """Add or update --reasoning-format in llama-swap YAML for a model.
+
+    Models that produce reasoning_content (not <think> tags in content)
+    need --reasoning-format deepseek for llama-server to split the output.
+    If the flag already exists with the correct value, no change is made.
+    """
+    if not config_path.exists():
+        return False
+
+    content = config_path.read_text(encoding='utf-8')
+    lines = content.split('\n')
+    in_model_block = False
+    changed = False
+    result_lines = []
+
+    for line in lines:
+        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
+            in_model_block = True
+        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
+            in_model_block = False
+
+        if in_model_block and 'cmd:' in line:
+            if '--reasoning-format ' in line:
+                if f'--reasoning-format {fmt}' not in line:
+                    line = re.sub(r'--reasoning-format\s+\S+', f'--reasoning-format {fmt}', line)
+                    changed = True
+            else:
+                line = line.replace(' --jinja', f' --jinja --reasoning-format {fmt}')
+                changed = True
+
+        result_lines.append(line)
+
+    if not changed:
+        return False
+
+    config_path.write_text('\n'.join(result_lines), encoding='utf-8')
+    logger.info(f"Updated llama-swap config: {model_id} → --reasoning-format {fmt}")
+    return True
+
+
 def _remove_llamaswap_kv_cache_quant(config_path: Path, model_id: str) -> bool:
     """Remove -ctk/-ctv flags from llama-swap YAML for a specific model.
 
@@ -1646,14 +1691,14 @@ async def _physical_context_search(
     }
 
     # 4. Binary search with (possibly adjusted) full_cmd and projected
-    search_margin = max(projected // 7, 4096)  # ~15%, min 4K
     result = 0
 
     if fits:
         result = projected
 
-        # 4a. Narrow binary search upward
-        search_high = min(projected + search_margin, native_context)
+        # 4a. Binary search upward to native context
+        # Use full range (projected → native) — projections can be far off
+        search_high = native_context
         if result < search_high:
             async for item in _binary_search_context(
                 full_cmd, port, result, search_high,

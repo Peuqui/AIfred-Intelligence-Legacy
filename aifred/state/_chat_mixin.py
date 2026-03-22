@@ -100,7 +100,7 @@ class ChatMixin(rx.State, mixin=True):
         mode_labels = {
             "auto_consensus": t("auto_consensus_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
             "tribunal": "Tribunal",  # Same in both languages
-            "direct": t("direct_response_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
+            "direct": "",  # No label — direct is the default mode now
             "refinement": t("refinement_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
             "synthesis": t("salomo_synthesis_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
             "verdict": t("salomo_verdict_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]

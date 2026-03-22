@@ -520,12 +520,16 @@ class OpenAICompatibleBackend(LLMBackend):
             kwargs["tools"] = toolkit.definitions
 
         extra_body = self._build_extra_body(options)
-        # Tool calls require enable_thinking=false (Qwen3 puts tool_calls in
-        # reasoning_content when thinking is enabled, breaking structured output)
+        # Qwen3-Instruct models put tool_calls inside reasoning_content when
+        # thinking is enabled → must disable thinking for tool-call requests.
+        # Base models (Qwen3-14B, Qwen3.5-122B) and non-Qwen models
+        # (Nemotron, GPT-OSS) handle tools + thinking correctly.
         if toolkit and toolkit.definitions:
-            if "chat_template_kwargs" not in extra_body:
-                extra_body["chat_template_kwargs"] = {}
-            extra_body["chat_template_kwargs"]["enable_thinking"] = False
+            model_lower = self._current_model.lower() if hasattr(self, '_current_model') else ""
+            if "instruct" in model_lower:
+                if "chat_template_kwargs" not in extra_body:
+                    extra_body["chat_template_kwargs"] = {}
+                extra_body["chat_template_kwargs"]["enable_thinking"] = False
         if extra_body:
             kwargs["extra_body"] = extra_body
 
@@ -558,6 +562,11 @@ class OpenAICompatibleBackend(LLMBackend):
                         if chunk.choices:
                             delta = chunk.choices[0].delta
                             delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
+                            # OpenAI SDK doesn't define reasoning_content in ChoiceDelta —
+                            # it lands in model_extra instead of model_dump()
+                            if hasattr(delta, "model_extra") and delta.model_extra:
+                                if "reasoning_content" in delta.model_extra:
+                                    delta_dict["reasoning_content"] = delta.model_extra["reasoning_content"]
 
                             # Accumulate tool calls from streaming deltas
                             if hasattr(delta, "tool_calls") and delta.tool_calls:

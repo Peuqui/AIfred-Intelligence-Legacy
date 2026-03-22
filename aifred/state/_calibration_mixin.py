@@ -439,6 +439,25 @@ class CalibrationMixin(rx.State, mixin=True):
                     f"(tested during calibration)"
                 )
 
+                # Ensure --reasoning-format deepseek is in llama-swap config
+                # for models that use reasoning_content (not <think> tags).
+                # Qwen3 uses <think> tags natively, doesn't need this flag.
+                if supports_thinking:
+                    from ..lib.llamacpp_calibration import (
+                        parse_llamaswap_config,
+                        update_llamaswap_reasoning_format,
+                    )
+                    swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                    model_cfg = swap_cfg.get(calibration_model_id, {})
+                    existing_fmt = model_cfg.get("reasoning_format", "")
+                    if existing_fmt != "deepseek":
+                        if update_llamaswap_reasoning_format(
+                            LLAMASWAP_CONFIG_PATH, calibration_model_id
+                        ):
+                            self.add_debug(  # type: ignore[attr-defined]
+                                "   --reasoning-format deepseek written to config"
+                            )
+
             self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
 
         except (OSError, RuntimeError, ValueError) as e:

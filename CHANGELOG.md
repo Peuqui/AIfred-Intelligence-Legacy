@@ -5,6 +5,27 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.61.0] - 2026-03-22 🧠 Thinking + Tool Use Coexistence
+
+### Fixed
+
+- **Thinking + Tools now coexist** — Only Qwen3-Instruct models have thinking disabled during tool calls (they put tool_calls into reasoning_content). All other models (Nemotron, Qwen3 Base, Qwen3.5, GPT-OSS, MiniMax) can think AND use tools simultaneously.
+- **Nemotron reasoning_content streaming** — OpenAI SDK drops `reasoning_content` from `ChoiceDelta.model_dump()`. Fix: extract from `model_extra`. Nemotron now shows thinking collapsibles correctly.
+- **`--reasoning-format deepseek` auto-detection** — Calibration now writes `--reasoning-format deepseek` to llama-swap config when thinking capability is detected. Previously only added manually.
+- **[Direkte Antwort] tag removed** — Redundant now that every agent can respond directly. Other mode tags (Tribunal, Web-Quellen) remain.
+- **Streaming line-height** — `line-height: 1.5` on streaming text matches final rendered output. No more "jumping" when stream completes.
+
+### Added
+
+- **`update_llamaswap_reasoning_format()`** — New config helper writes `--reasoning-format deepseek` into llama-swap YAML.
+- **Binary search full range** — Calibration context search now uses full range (projection → native context) instead of 15% margin. Reduces iterations from 18+ to ~10.
+- **Benchmark analysis v2** — 18 Cat/Dog tribunal sessions analyzed across 9 models with quality + speed rankings.
+
+### Changed
+
+- **Instruct model thinking** — `enable_thinking` forced to `false` for models with "instruct" in name (Qwen3-30B-Instruct, Qwen3-235B-Instruct). They cannot properly separate reasoning from content.
+- **Nemotron-3-Super-120B** — Added to llama-swap with F16 KV-Cache (900K context), `--reasoning-format deepseek`, expert metadata in VRAM cache.
+
 ## [2.60.0] - 2026-03-21 🔧 Unified Agent Path + Tool Use + Forced Research
 
 ### Added
