@@ -84,6 +84,28 @@ class AgentMemory:
                 col.delete(ids=[all_data["ids"][oldest_idx]])
                 logger.info(f"AgentMemory({agent_id}): evicted oldest entry (limit {AGENT_MEMORY_COLLECTION_MAX})")
 
+        # Dedup: if a very similar entry exists, update instead of adding
+        existing = col.query(query_texts=[summary], n_results=1, include=["metadatas", "distances"])
+        if (existing["ids"] and existing["ids"][0]
+                and existing["distances"] and existing["distances"][0]
+                and existing["distances"][0][0] < 0.3):
+            old_id = existing["ids"][0][0]
+            now = datetime.now(timezone.utc).isoformat()
+            col.update(
+                ids=[old_id],
+                documents=[summary],
+                metadatas=[{
+                    "agent_id": agent_id,
+                    "date": now,
+                    "type": memory_type,
+                    "summary": summary,
+                    "content": content,
+                    "session_id": session_id,
+                }],
+            )
+            logger.info(f"AgentMemory({agent_id}): updated existing (dist {existing['distances'][0][0]:.2f}) [{memory_type}] {summary[:60]}")
+            return f"Memory updated: [{memory_type}] {summary}"
+
         doc_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
 
