@@ -117,6 +117,24 @@
         "reasoning": false,
         "thinking": true
       }
+    },
+    "rabbi": {
+      "display_name": "Rabbi Shmuel",
+      "emoji": "🕎",
+      "description": "Weiser Rabbi und Schriftgelehrter",
+      "role": "custom",
+      "prompts": {
+        "identity": "rabbi/identity.txt",
+        "personality": "rabbi/personality.txt",
+        "task": "rabbi/system_minimal.txt",
+        "direct": "rabbi/direct.txt",
+        "memory_context": "rabbi/memory_context.txt"
+      },
+      "toggles": {
+        "personality": true,
+        "reasoning": false,
+        "thinking": true
+      }
     }
   }
 }
