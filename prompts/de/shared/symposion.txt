@@ -13,5 +13,3 @@ DISKUSSIONSKULTUR:
 ANTWORTFORMAT:
 - Beginne DIREKT mit deiner Antwort
 - KEIN Header mit deinem Namen
-- Halte dich kurz und praegnant (max 3-4 Absaetze)
-- Lass Raum fuer die naechste Stimme

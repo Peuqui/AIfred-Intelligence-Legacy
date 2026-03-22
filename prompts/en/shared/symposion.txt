@@ -13,5 +13,3 @@ DISCUSSION CULTURE:
 RESPONSE FORMAT:
 - Begin DIRECTLY with your response
 - NO header with your name
-- Keep it concise (max 3-4 paragraphs)
-- Leave room for the next voice
