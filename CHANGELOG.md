@@ -5,6 +5,29 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.62.0] - 2026-03-23 🏛️ Symposion Mode + Agent Memory Hardening
+
+### Added
+
+- **Symposion Mode** — New multi-agent discussion mode: freely select 2+ agents for round-table discussions. Each agent responds in sequence, seeing all prior responses. No judge, no LGTM — pure multiperspective dialogue. Configurable rounds via the existing debate rounds slider.
+- **Rabbi Shmuel** — New custom agent: wise Rabbi and Torah scholar with Yiddish warmth, Talmud quotes, parables (Mashalim), and the Socratic tradition of answering questions with questions.
+- **6-Layer Prompt System** — Memory instructions now a dedicated prompt layer (Layer 5) between Task and Personality. Automatically included for all agents in all modes, disabled in incognito mode. Shared `memory_instructions.txt` (DE+EN) replaces per-agent memory hints.
+- **Session Pinning** (📌) — Button to save a conversation summary to all participating agents' long-term memory. LLM generates the summary, stored as `session_summary` type.
+- **Fallback Tool-Call Parsing** — When models output `store_memory` JSON as text instead of structured `tool_calls`, the system detects and executes it automatically. JSON is stripped from displayed response.
+- **Agent Display Names in Logs** — All debug logs and toasts use agent display names (e.g., "Pater Tuck") instead of internal IDs ("pater").
+- **Incognito Debug Logging** — Toggle changes logged in debug console (🔒/🔓).
+
+### Changed
+
+- **Agent Button Row Wrapping** — Agent toggle buttons wrap on mobile devices. LLM Parameter button stays right-aligned in the last row.
+- **Autonomous Memory Storage** — Agents decide independently when to store memories. No user request needed. Previous "VERY rarely" restriction removed.
+- **Symposion Prompts** — Discussion culture rules enforce: make statements (not just questions), never repeat verbatim, bring own tradition, find commonalities AND differences.
+
+### Fixed
+
+- **Duplicate Tool-Call Logging** — Tool calls were logged twice (once in base.py, once in multi_agent.py). Now logged only once via `state.add_debug`.
+- **GPT-OSS Tool-Call Text Leak** — GPT-OSS outputs tool-call JSON as text when thinking is enabled. Fallback parser catches this and strips JSON from response.
+
 ## [2.61.0] - 2026-03-22 🧠 Thinking + Tool Use Coexistence
 
 ### Fixed

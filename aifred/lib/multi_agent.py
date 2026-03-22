@@ -214,6 +214,14 @@ def parse_pro_contra(analysis: str) -> tuple[str, str]:
 # STREAMING HELPERS
 # ============================================================
 
+def _strip_tool_json(text: str) -> str:
+    """Remove store_memory JSON from response text (fallback tool-call artifact)."""
+    import re
+    return re.sub(
+        r'\{\s*"content"\s*:\s*"[^"]+"\s*,\s*"memory_type"\s*:\s*"[^"]+"\s*,\s*"summary"\s*:\s*"[^"]+"[^}]*\}',
+        "", text,
+    ).strip()
+
 async def _stream_agent_to_history(
     state: 'AIState',
     agent: str,
@@ -284,6 +292,9 @@ async def _stream_agent_to_history(
     # Flush remaining buffer to state
     if state.flush_stream_to_ui():
         yield  # type: ignore[misc]
+
+    # Strip fallback tool-call JSON from response text (if model output it as text)
+    full_response = _strip_tool_json(full_response)
 
     # Finalize streaming TTS: send any remaining text in buffer
     audio_urls: list[str] = []
@@ -603,6 +614,9 @@ async def _run_agent_direct_response(
         # Flush remaining buffer to state
         if state.flush_stream_to_ui():
             yield  # type: ignore[misc]
+
+        # Strip fallback tool-call JSON from response text
+        full_response = _strip_tool_json(full_response)
 
         # Finalize streaming TTS
         audio_urls: list[str] = []

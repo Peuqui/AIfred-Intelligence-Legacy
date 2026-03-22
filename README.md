@@ -56,6 +56,7 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 | **Critical Review** | AIfred → Sokrates (+ Pro/Contra) → STOP | User |
 | **Auto-Consensus** | AIfred → Sokrates → Salomo (X rounds) | Salomo |
 | **Tribunal** | AIfred ↔ Sokrates (X rounds) → Salomo | Salomo (Verdict) |
+| **Symposion** | 2+ freely selected agents discuss (X rounds) | No judge — multiperspective |
 
 **Agents:**
 - 🎩 **AIfred** - Butler & Scholar - answers questions (British butler style with subtle elegance)
@@ -68,7 +69,7 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 - All agent prompts are plain text files in `prompts/de/` and `prompts/en/`
 - Agent configuration in `data/agents.json` — prompt paths, toggles, roles
 - Personality can be toggled on/off in UI settings (keeps identity, removes style)
-- 4-layer prompt system: Identity (who) + Personality (how, optional) + Task (what) + Direct (when addressed)
+- 6-layer prompt system: Identity (who) + Reasoning (how to think) + Multi-Agent (who are others) + Task (what) + Memory (long-term, incognito-aware) + Personality (how to speak)
 - **Agent Editor**: Create, edit, delete agents via UI — DOM-only inputs, DE/EN prompt editing, emoji picker
 - **Memory Browser**: Inspect and manage per-agent ChromaDB memory collections (session summaries, insights, etc.)
 - **Multilingual**: Agents respond in the user's language (German prompts for German, English prompts for all other languages)

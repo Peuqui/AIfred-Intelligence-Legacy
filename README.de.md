@@ -55,6 +55,7 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 | **Kritische Prüfung** | AIfred → Sokrates (+ Pro/Contra) → STOP | User |
 | **Auto-Konsens** | AIfred → Sokrates → Salomo (X Runden) | Salomo |
 | **Tribunal** | AIfred ↔ Sokrates (X Runden) → Salomo | Salomo (Urteil) |
+| **Symposion** | 2+ frei wählbare Agenten diskutieren (X Runden) | Kein Richter — Multiperspektive |
 
 **Agenten:**
 - 🎩 **AIfred** - Butler & Gelehrter - beantwortet Fragen (britischer Butler-Stil mit dezenter Noblesse)
@@ -67,7 +68,7 @@ AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Sal
 - Alle Agenten-Prompts sind Textdateien in `prompts/de/` und `prompts/en/`
 - Agenten-Konfiguration in `data/agents.json` — Prompt-Pfade, Toggles, Rollen
 - Persönlichkeit kann in den UI-Einstellungen ein-/ausgeschaltet werden (behält Identität, entfernt Stil)
-- 4-Schichten Prompt-System: Identität (wer) + Persönlichkeit (wie, optional) + Aufgabe (was) + Direkt (bei Ansprache)
+- 6-Schichten Prompt-System: Identität (wer) + Reasoning (wie denken) + Multi-Agent (wer sind die anderen) + Aufgabe (was) + Gedächtnis (Langzeit, Inkognito-fähig) + Persönlichkeit (wie sprechen)
 - **Agenten-Editor**: Agenten erstellen, bearbeiten und löschen über die UI — DOM-basierte Eingaben, DE/EN Prompt-Bearbeitung, Emoji-Auswahl
 - **Memory-Browser**: ChromaDB-Gedächtnis pro Agent inspizieren und verwalten (Session-Zusammenfassungen, Erkenntnisse, etc.)
 - **Mehrsprachig**: Agenten antworten in der Sprache des Users (deutsche Prompts für Deutsch, englische Prompts für alle anderen Sprachen)

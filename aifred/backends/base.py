@@ -587,6 +587,8 @@ class OpenAICompatibleBackend(LLMBackend):
                                 yield item
                                 if item.get("type") == "content":
                                     total_tokens += 1
+                                    stream_state.setdefault("_content_acc", "")
+                                    stream_state["_content_acc"] += item.get("text", "")
 
                         if hasattr(chunk, "usage") and chunk.usage:
                             prompt_tokens = chunk.usage.prompt_tokens
@@ -595,6 +597,44 @@ class OpenAICompatibleBackend(LLMBackend):
 
                     for item in self._finalize_stream(stream_state):
                         yield item
+
+                    # Fallback: detect tool calls in text output
+                    # Some models (GPT-OSS) output tool calls as JSON text
+                    # instead of using the structured tool_calls API
+                    if not tool_calls and toolkit and toolkit.definitions:
+                        import re as _re
+                        content_text = stream_state.get("_content_acc", "")
+                        # Look for store_memory JSON pattern in content
+                        json_match = _re.search(
+                            r'\{\s*"content"\s*:\s*"[^"]+"\s*,\s*"memory_type"\s*:\s*"[^"]+"\s*,\s*"summary"\s*:\s*"[^"]+"',
+                            content_text,
+                        )
+                        if json_match:
+                            import json as _json
+                            try:
+                                # Find the complete JSON object
+                                start = json_match.start()
+                                brace_count = 0
+                                end = start
+                                for ci, c in enumerate(content_text[start:], start):
+                                    if c == '{':
+                                        brace_count += 1
+                                    elif c == '}':
+                                        brace_count -= 1
+                                        if brace_count == 0:
+                                            end = ci + 1
+                                            break
+                                json_str = content_text[start:end]
+                                _json.loads(json_str)  # Validate
+                                tool_calls = [{
+                                    "id": f"fallback-{id(json_str)}",
+                                    "name": "store_memory",
+                                    "arguments": json_str,
+                                }]
+                                from ..lib.logging_utils import log_message
+                                log_message("🔧 Tool call detected in text (fallback parsing)")
+                            except (ValueError, _json.JSONDecodeError):
+                                pass
 
                     # No tool calls → done
                     if not tool_calls or not toolkit:
@@ -616,11 +656,8 @@ class OpenAICompatibleBackend(LLMBackend):
                     kwargs["messages"].append(assistant_msg)
 
                     for tc in tool_calls:
-                        from ..lib.logging_utils import log_message
-                        log_message(f"🔧 Tool call: {tc['name']}({tc['arguments'][:80]})")
                         yield {"type": "tool_call", "name": tc["name"], "arguments": tc["arguments"][:200]}
                         result = await toolkit.execute(tc["name"], tc["arguments"])
-                        log_message(f"🔧 Tool result: {result[:100]}")
                         yield {"type": "tool_result", "name": tc["name"], "result": result[:200]}
                         kwargs["messages"].append({
                             "role": "tool",
