@@ -975,15 +975,10 @@ async def run_sokrates_analysis(
             metadata_dict = result["metadata_dict"]
             audio_urls = result.get("audio_urls", [])
 
-            # Format <think> tags as collapsible (if present)
-            formatted_sokrates = format_thinking_process(
-                sokrates_response_text,
-                model_name=f"Sokrates ({sokrates_model})",
-                inference_time=metadata_dict.get("inference_time", 0)
-            )
+            formatted_sokrates = _format_stream_result(result, "Sokrates", sokrates_model)
 
             # Add Sokrates critique panel (centralized)
-            # Note: _stream_agent_to_history already synced to llm_history (Line 259)
+            # Note: _stream_agent_to_history already synced to llm_history
             # Mode: Use specific mode for devils_advocate, else generic critical_review
             sokrates_mode = "advocatus_diaboli" if state.multi_agent_mode == "devils_advocate" else "critical_review"
             panel_meta = {**metadata_dict, "audio_urls": audio_urls}
@@ -1089,12 +1084,7 @@ async def run_sokrates_analysis(
                 salomo_metadata_dict = salomo_result["metadata_dict"]
                 salomo_audio_urls = salomo_result.get("audio_urls", [])
 
-                # Format <think> tags as collapsible
-                formatted_salomo = format_thinking_process(
-                    salomo_response_text,
-                    model_name=f"Salomo ({salomo_model})",
-                    inference_time=salomo_metadata_dict.get("inference_time", 0)
-                )
+                formatted_salomo = _format_stream_result(salomo_result, "Salomo", salomo_model)
 
                 # Add Salomo synthesis panel (centralized)
                 # Note: _stream_agent_to_history already synced to llm_history
@@ -1210,12 +1200,7 @@ async def run_sokrates_analysis(
                     alfred_metadata_dict = alfred_result.get("metadata_dict", {})
                     alfred_audio_urls = alfred_result.get("audio_urls", [])
 
-                    # Format <think> tags as collapsible
-                    formatted_alfred = format_thinking_process(
-                        current_answer,
-                        model_name=f"AIfred ({alfred_model})",
-                        inference_time=alfred_metadata_dict.get("inference_time", 0)
-                    )
+                    formatted_alfred = _format_stream_result(alfred_result, "AIfred", alfred_model)
 
                     # Add Alfred refinement panel (centralized)
                     # Note: _stream_agent_to_history already synced to llm_history
@@ -1394,7 +1379,6 @@ async def run_tribunal(
             state.add_debug("🧠 Memory context recalled for AIfred")
 
         max_rounds = state.max_debate_rounds
-        current_answer = alfred_answer
 
         # === DEBATE PHASE: AIfred vs Sokrates ===
         for round_num in range(1, max_rounds + 1):
@@ -1449,13 +1433,9 @@ async def run_tribunal(
             metadata_dict = result["metadata_dict"]
             audio_urls = result.get("audio_urls", [])
 
-            formatted_sokrates = format_thinking_process(
-                sokrates_response_text,
-                model_name=f"Sokrates ({sokrates_model})",
-                inference_time=metadata_dict.get("inference_time", 0)
-            )
-            # Add Sokrates tribunal panel (centralized)
-            # Note: _stream_agent_to_history already synced to llm_history
+            formatted_sokrates = _format_stream_result(result, "Sokrates", sokrates_model)
+
+            # Add Sokrates tribunal panel
             panel_meta = {**metadata_dict, "audio_urls": audio_urls}
             state.add_agent_panel(
                 agent="sokrates",
@@ -1530,18 +1510,12 @@ async def run_tribunal(
                 if alfred_result is None:
                     state.add_debug("❌ AIfred stream returned no result")
                     break
-                current_answer = alfred_result["text"]
                 alfred_metadata_dict = alfred_result.get("metadata_dict", {})
                 alfred_audio_urls = alfred_result.get("audio_urls", [])
 
-                formatted_alfred = format_thinking_process(
-                    current_answer,
-                    model_name=f"AIfred ({alfred_model})",
-                    inference_time=alfred_metadata_dict.get("inference_time", 0)
-                )
+                formatted_alfred = _format_stream_result(alfred_result, "AIfred", alfred_model)
 
-                # Add Alfred tribunal panel (centralized)
-                # Note: _stream_agent_to_history already synced to llm_history
+                # Add Alfred tribunal panel
                 # IMPORTANT: AIfred responds AFTER Sokrates R{n}, so it's part of R{n+1}
                 alfred_panel_meta = {**alfred_metadata_dict, "audio_urls": alfred_audio_urls}
                 state.add_agent_panel(
@@ -1619,13 +1593,9 @@ async def run_tribunal(
             f"{format_number(salomo_metadata_dict.get('tokens_per_sec', 0), 1)} tok/s"
         )
 
-        formatted_salomo = format_thinking_process(
-            salomo_response_text,
-            model_name=f"Salomo ({salomo_model})",
-            inference_time=salomo_metadata_dict.get("inference_time", 0)
-        )
-        # Add Salomo verdict panel (centralized)
-        # Note: _stream_agent_to_history already synced to llm_history
+        formatted_salomo = _format_stream_result(salomo_result, "Salomo", salomo_model)
+
+        # Add Salomo verdict panel
         salomo_panel_meta = {**salomo_metadata_dict, "audio_urls": salomo_audio_urls}
         state.add_agent_panel(
             agent="salomo",
