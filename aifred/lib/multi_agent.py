@@ -279,23 +279,41 @@ async def _stream_agent_to_history(
                 yield  # type: ignore[misc]
 
         elif chunk["type"] == "tool_call":
-            state.add_debug(f"🔧 Tool call: {chunk['name']}({chunk.get('arguments', '')[:80]})")
-            # Track web_fetch URLs
-            if chunk["name"] == "web_fetch":
-                import json as _json
-                try:
-                    args = _json.loads(chunk.get("arguments", "{}"))
-                    fetched_urls.append({"url": args.get("url", ""), "success": None})
-                except (ValueError, _json.JSONDecodeError):
-                    pass
+            tool_name = chunk.get("name", "")
+            state.add_debug(f"🔧 Tool call: {tool_name}({chunk.get('arguments', '')[:80]})")
+
+            import json as _json
+            tool_args = {}
+            try:
+                tool_args = _json.loads(chunk.get("arguments", "{}"))
+            except (ValueError, _json.JSONDecodeError):
+                pass
+
+            if tool_name == "web_fetch":
+                url = tool_args.get("url", "")
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                state.set_tool_status(f"🌐 {parsed.netloc}{parsed.path}")
+                fetched_urls.append({"url": url, "success": None})
+            elif tool_name == "web_search":
+                queries = tool_args.get("queries", [])
+                state.set_tool_status(f"🔍 {queries[0][:60]}..." if queries else "🔍 Recherche...")
+            elif tool_name == "calculate":
+                state.set_tool_status(f"🔢 {tool_args.get('expression', '')}")
+            elif tool_name == "store_memory":
+                state.set_tool_status("💾 Speichere Erkenntnis...")
+            elif tool_name == "read_document":
+                state.set_tool_status(f"📄 {tool_args.get('path', '')}")
+
+            yield  # type: ignore[misc]
             yield  # type: ignore[misc]
 
         elif chunk["type"] == "tool_result":
             state.add_debug(f"🔧 Tool result: {chunk.get('result', '')[:100]}")
-            # Update success status for last tracked URL
             if fetched_urls and fetched_urls[-1]["success"] is None:
                 result_text = chunk.get("result", "")
                 fetched_urls[-1]["success"] = "error" not in result_text.lower()[:50]
+            state.clear_tool_status()
             yield  # type: ignore[misc]
 
         elif chunk["type"] == "done":
@@ -939,21 +957,24 @@ async def run_sokrates_analysis(
         sokrates_options = build_llm_options(state, "sokrates", sokrates_temp, sokrates_num_ctx)
         alfred_options = build_llm_options(state, "aifred", alfred_temp, main_llm_ctx)
 
-        # Agent Memory: recall once before debate starts
-        from .agent_memory import prepare_agent_memory
+        # Agent Memory + Research Tools: recall once before debate starts
+        from .agent_memory import prepare_agent_toolkit
         memory_enabled = state.agent_memory_enabled
-        sokrates_memory_ctx, sokrates_toolkit = await prepare_agent_memory(
-            "sokrates", user_query, lang=detected_lang, enabled=memory_enabled,
+        sokrates_memory_ctx, sokrates_toolkit = await prepare_agent_toolkit(
+            "sokrates", user_query, lang=detected_lang or "de",
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
         )
         if sokrates_memory_ctx:
             state.add_debug("🧠 Memory context recalled for Sokrates")
-        salomo_memory_ctx, salomo_toolkit = await prepare_agent_memory(
-            "salomo", user_query, lang=detected_lang, enabled=memory_enabled,
+        salomo_memory_ctx, salomo_toolkit = await prepare_agent_toolkit(
+            "salomo", user_query, lang=detected_lang or "de",
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
         )
         if salomo_memory_ctx:
             state.add_debug("🧠 Memory context recalled for Salomo")
-        aifred_memory_ctx, aifred_toolkit = await prepare_agent_memory(
-            "aifred", user_query, lang=detected_lang, enabled=memory_enabled,
+        aifred_memory_ctx, aifred_toolkit = await prepare_agent_toolkit(
+            "aifred", user_query, lang=detected_lang or "de",
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
         )
         if aifred_memory_ctx:
             state.add_debug("🧠 Memory context recalled for AIfred")
@@ -1440,21 +1461,24 @@ async def run_tribunal(
             f"Salomo={format_number(salomo_temp, 1)}"
         )
 
-        # Agent Memory: recall once before tribunal starts
-        from .agent_memory import prepare_agent_memory
+        # Agent Memory + Research Tools: recall once before tribunal starts
+        from .agent_memory import prepare_agent_toolkit
         memory_enabled = state.agent_memory_enabled
-        t_sokrates_memory_ctx, t_sokrates_toolkit = await prepare_agent_memory(
-            "sokrates", user_query, lang=detected_lang, enabled=memory_enabled,
+        t_sokrates_memory_ctx, t_sokrates_toolkit = await prepare_agent_toolkit(
+            "sokrates", user_query, lang=detected_lang or "de",
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
         )
         if t_sokrates_memory_ctx:
             state.add_debug("🧠 Memory context recalled for Sokrates")
-        t_salomo_memory_ctx, t_salomo_toolkit = await prepare_agent_memory(
-            "salomo", user_query, lang=detected_lang, enabled=memory_enabled,
+        t_salomo_memory_ctx, t_salomo_toolkit = await prepare_agent_toolkit(
+            "salomo", user_query, lang=detected_lang or "de",
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
         )
         if t_salomo_memory_ctx:
             state.add_debug("🧠 Memory context recalled for Salomo")
-        t_aifred_memory_ctx, t_aifred_toolkit = await prepare_agent_memory(
-            "aifred", user_query, lang=detected_lang, enabled=memory_enabled,
+        t_aifred_memory_ctx, t_aifred_toolkit = await prepare_agent_toolkit(
+            "aifred", user_query, lang=detected_lang or "de",
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
         )
         if t_aifred_memory_ctx:
             state.add_debug("🧠 Memory context recalled for AIfred")
@@ -1737,7 +1761,7 @@ async def run_symposion(
     """
     from .agent_config import get_agent_config
     from .prompt_loader import get_agent_system_prompt, load_prompt
-    from .agent_memory import prepare_agent_memory
+    from .agent_memory import prepare_agent_toolkit
     from .research.context_utils import get_agent_num_ctx
 
     agents = state.symposion_agents
@@ -1798,11 +1822,13 @@ async def run_symposion(
                 )
                 system_prompt = f"{agent_system}\n\n{symposion_prompt}"
 
-                # Memory recall (round 1) + toolkit (every round)
+                # Memory recall (round 1) + toolkit with research tools (every round)
                 memory_ctx = ""
-                mem_ctx, toolkit = await prepare_agent_memory(
+                mem_ctx, toolkit = await prepare_agent_toolkit(
                     agent_id, user_query, lang=detected_lang or "de",
-                    enabled=memory_enabled,
+                    memory_enabled=memory_enabled,
+                    research_tools_enabled=True,
+                    state=state,
                 )
                 if round_num == 1 and mem_ctx:
                     memory_ctx = mem_ctx
