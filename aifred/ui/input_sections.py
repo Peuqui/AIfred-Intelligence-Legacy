@@ -364,25 +364,13 @@ def text_input_section() -> rx.Component:
                     AIState.set_multi_agent_mode,
                     AIState.multi_agent_mode_options,
                 ),
-                # DESKTOP: Radix UI Select
+                # DESKTOP: Radix UI Select (dynamic from same options as mobile)
                 rx.select.root(
                     rx.select.trigger(height="32px"),
                     rx.select.content(
-                        rx.select.item(
-                            rx.cond(AIState.ui_language == "de", "Standard", "Standard"),
-                            value="standard"
-                        ),
-                        rx.select.item(
-                            rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review"),
-                            value="critical_review"
-                        ),
-                        rx.select.item(
-                            rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto-Consensus"),
-                            value="auto_consensus"
-                        ),
-                        rx.select.item(
-                            rx.cond(AIState.ui_language == "de", "Tribunal", "Tribunal"),
-                            value="tribunal"
+                        rx.foreach(
+                            AIState.multi_agent_mode_options,
+                            lambda opt: rx.select.item(opt[1], value=opt[0]),
                         ),
                     ),
                     value=AIState.multi_agent_mode,
