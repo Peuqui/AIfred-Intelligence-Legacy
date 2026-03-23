@@ -573,6 +573,7 @@ async def _run_agent_direct_response(
             memory_enabled=memory_enabled,
             research_tools_enabled=research_tools_enabled,
             state=state if research_tools_enabled else None,
+            session_id=state.session_id,
         )
         if memory_ctx:
             system_prompt = f"{system_prompt}\n\n{memory_ctx}"
@@ -870,21 +871,22 @@ async def run_sokrates_analysis(
         # Agent Memory + Research Tools: recall once before debate starts
         from .agent_memory import prepare_agent_toolkit
         memory_enabled = state.agent_memory_enabled
+        sid = state.session_id
         sokrates_memory_ctx, sokrates_toolkit = await prepare_agent_toolkit(
             "sokrates", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
         )
         if sokrates_memory_ctx:
             state.add_debug("🧠 Memory context recalled for Sokrates")
         salomo_memory_ctx, salomo_toolkit = await prepare_agent_toolkit(
             "salomo", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
         )
         if salomo_memory_ctx:
             state.add_debug("🧠 Memory context recalled for Salomo")
         aifred_memory_ctx, aifred_toolkit = await prepare_agent_toolkit(
             "aifred", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
         )
         if aifred_memory_ctx:
             state.add_debug("🧠 Memory context recalled for AIfred")
@@ -1359,21 +1361,22 @@ async def run_tribunal(
         # Agent Memory + Research Tools: recall once before tribunal starts
         from .agent_memory import prepare_agent_toolkit
         memory_enabled = state.agent_memory_enabled
+        sid = state.session_id
         t_sokrates_memory_ctx, t_sokrates_toolkit = await prepare_agent_toolkit(
             "sokrates", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
         )
         if t_sokrates_memory_ctx:
             state.add_debug("🧠 Memory context recalled for Sokrates")
         t_salomo_memory_ctx, t_salomo_toolkit = await prepare_agent_toolkit(
             "salomo", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
         )
         if t_salomo_memory_ctx:
             state.add_debug("🧠 Memory context recalled for Salomo")
         t_aifred_memory_ctx, t_aifred_toolkit = await prepare_agent_toolkit(
             "aifred", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state,
+            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
         )
         if t_aifred_memory_ctx:
             state.add_debug("🧠 Memory context recalled for AIfred")
@@ -1709,6 +1712,7 @@ async def run_symposion(
                     memory_enabled=memory_enabled,
                     research_tools_enabled=True,
                     state=state,
+                    session_id=state.session_id,
                 )
                 if round_num == 1 and mem_ctx:
                     memory_ctx = mem_ctx

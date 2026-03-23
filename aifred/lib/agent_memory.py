@@ -212,28 +212,37 @@ class AgentMemory:
         self, agent_id: str, query: str,
         n_semantic: int = AGENT_MEMORY_RESULTS,
         n_recent: int = AGENT_MEMORY_RECENT_COUNT,
+        exclude_session_id: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         """Combined recall: recent memories + semantic search, deduplicated.
 
         Always loads the N most recent memories (chronological context),
-        plus semantically relevant older memories. If the query contains
-        time references, boosts recent results.
+        plus semantically relevant older memories.
+
+        Args:
+            exclude_session_id: If set, memories stored in this session are
+                excluded (they're already in the chat history).
         """
         recent = await self.recall_recent(agent_id, n=n_recent)
         semantic = await self.recall(agent_id, query, n_results=n_semantic)
+
+        # IDs to exclude (stored during current session)
+        excluded_ids: set[str] = set()
+        if exclude_session_id:
+            excluded_ids = set(self.find_by_session(agent_id, exclude_session_id))
 
         # Deduplicate: recent first, then add semantic hits not already present
         seen_ids: set[str] = set()
         combined: list[dict[str, Any]] = []
 
         for mem in recent:
-            if mem["id"] not in seen_ids:
+            if mem["id"] not in seen_ids and mem["id"] not in excluded_ids:
                 seen_ids.add(mem["id"])
                 mem["source"] = "recent"
                 combined.append(mem)
 
         for mem in semantic:
-            if mem["id"] not in seen_ids:
+            if mem["id"] not in seen_ids and mem["id"] not in excluded_ids:
                 seen_ids.add(mem["id"])
                 mem["source"] = "semantic"
                 combined.append(mem)
@@ -249,11 +258,11 @@ class AgentMemory:
             return path.read_text(encoding="utf-8").strip()
         return "Store a key insight to your long-term memory."
 
-    def make_toolkit(self, agent_id: str) -> ToolKit:
+    def make_toolkit(self, agent_id: str, session_id: str = "") -> ToolKit:
         """Create a ToolKit with memory tools bound to a specific agent."""
 
         async def store_memory(content: str, memory_type: str, summary: str) -> str:
-            return await self.store(agent_id, content, memory_type, summary)
+            return await self.store(agent_id, content, memory_type, summary, session_id=session_id)
 
         return ToolKit(tools=[
             Tool(
@@ -337,6 +346,7 @@ async def prepare_agent_memory(
     user_query: str,
     lang: str = "de",
     enabled: bool = True,
+    session_id: Optional[str] = None,
 ) -> tuple[str, Optional["ToolKit"]]:
     """Prepare memory context and toolkit for an agent call.
 
@@ -351,12 +361,12 @@ async def prepare_agent_memory(
     if not memory:
         return "", None
 
-    memories = await memory.recall_combined(agent_id, user_query)
+    memories = await memory.recall_combined(agent_id, user_query, exclude_session_id=session_id)
     memory_ctx = ""
     if memories:
         memory_ctx = format_memory_context(memories, agent_id=agent_id, lang=lang)
 
-    toolkit = memory.make_toolkit(agent_id)
+    toolkit = memory.make_toolkit(agent_id, session_id=session_id or "")
     return memory_ctx, toolkit
 
 
@@ -367,6 +377,7 @@ async def prepare_agent_toolkit(
     memory_enabled: bool = True,
     research_tools_enabled: bool = True,
     state: Optional[Any] = None,
+    session_id: Optional[str] = None,
 ) -> tuple[str, Optional["ToolKit"]]:
     """Prepare combined toolkit (memory + research tools) for an agent.
 
@@ -377,6 +388,7 @@ async def prepare_agent_toolkit(
         memory_enabled: Include memory tools (store_memory)
         research_tools_enabled: Include research tools (web_search, read_webpage)
         state: AIState for research tools (needed for forced research pipeline)
+        session_id: If set, memories from this session are excluded (already in chat history)
 
     Returns:
         (memory_context_str, toolkit) — context for system prompt, combined toolkit.
@@ -388,10 +400,10 @@ async def prepare_agent_toolkit(
     if memory_enabled:
         memory = get_agent_memory()
         if memory:
-            memories = await memory.recall_combined(agent_id, user_query)
+            memories = await memory.recall_combined(agent_id, user_query, exclude_session_id=session_id)
             if memories:
                 memory_ctx = format_memory_context(memories, agent_id=agent_id, lang=lang)
-            all_tools.extend(memory.make_toolkit(agent_id).tools)
+            all_tools.extend(memory.make_toolkit(agent_id, session_id=session_id or "").tools)
 
     # Research tools (web_search, read_webpage)
     if research_tools_enabled:
