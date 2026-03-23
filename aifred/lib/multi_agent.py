@@ -222,6 +222,30 @@ def _strip_tool_json(text: str) -> str:
         "", text,
     ).strip()
 
+def _format_stream_result(
+    result: dict[str, Any],
+    agent_label: str,
+    model: str,
+) -> str:
+    """Format a stream result (from _stream_agent_to_history) into UI-ready HTML.
+
+    Applies thinking-block formatting and prepends web sources collapsible.
+    Used by all callers to avoid duplicating formatting logic.
+    """
+    text = result["text"]
+    sources_html = result.get("sources_html", "")
+    inference_time = result.get("metadata_dict", {}).get("inference_time", 0)
+
+    formatted = format_thinking_process(
+        text,
+        model_name=f"{agent_label} ({model})",
+        inference_time=inference_time,
+    )
+    if sources_html:
+        formatted = f"{sources_html}\n\n{formatted}"
+    return formatted
+
+
 async def _stream_agent_to_history(
     state: 'AIState',
     agent: str,
@@ -316,6 +340,11 @@ async def _stream_agent_to_history(
             state.clear_tool_status()
             yield  # type: ignore[misc]
 
+        elif chunk["type"] == "thinking":
+            thinking_content = chunk.get("text", "")
+            if thinking_content:
+                full_response += f"<think>{thinking_content}</think>"
+
         elif chunk["type"] == "done":
             metrics = chunk.get("metrics", {})
             token_count = metrics.get("tokens_generated", token_count)
@@ -351,7 +380,8 @@ async def _stream_agent_to_history(
     if audio_urls:
         log_message(f"🔊 {agent_label}: {len(audio_urls)} audio URLs collected for message")
 
-    # Append web sources collapsible if web_fetch was used
+    # Build web sources collapsible if web_fetch was used
+    sources_html = ""
     if fetched_urls:
         from .formatting import build_sources_collapsible
         successful = [{"url": u["url"], "word_count": 0, "rank_index": i, "success": True}
@@ -359,10 +389,8 @@ async def _stream_agent_to_history(
         failed = [{"url": u["url"], "error": "fetch failed", "rank_index": i}
                   for i, u in enumerate(fetched_urls) if not u.get("success")]
         sources_html = build_sources_collapsible(successful, failed)
-        if sources_html:
-            full_response = f"{sources_html}\n\n{full_response}"
 
-    # Sync to llm_history BEFORE clearing state (SSoT)
+    # Sync to llm_history with CLEAN text (no HTML collapsibles)
     state._sync_to_llm_history(agent, full_response)
 
     # Clear streaming state (cleanup BEFORE yield)
@@ -373,6 +401,7 @@ async def _stream_agent_to_history(
     # Return result as final yield (dict = result, None = UI update)
     yield {
         "text": full_response,
+        "sources_html": sources_html,
         "metadata_display": metadata_display,
         "metadata_dict": metadata_dict,
         "audio_urls": audio_urls,
@@ -600,150 +629,34 @@ async def _run_agent_direct_response(
 
         setattr(state, f"{opts_agent}_thinking", saved_thinking)
 
-        # Unified streaming UI
-        state._set_current_agent(agent)
-        state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-
-        # vLLM: ensure correct model is loaded (triggers restart if model changed)
-        if state.backend_type == "vllm":
-            await state._ensure_vllm_model(agent_model_id)
-
-        # TTS init
-        if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-            state._init_streaming_tts(agent=agent)
-
-        # Streaming response
-        full_response = ""
-        token_count = 0
-        timer = Timer()
-        first_token = False
-        agent_ttft = 0.0
-        metrics: dict[str, Any] = {}
-        fetched_urls: list[dict[str, Any]] = []  # Track web_fetch URLs for sources collapsible
-
-        async for chunk in llm_client.chat_stream(agent_model_id, messages, agent_options, toolkit=toolkit):  # type: ignore[arg-type]
-            chunk_type = chunk.get("type", "")
-
-            if chunk_type == "content":
-                if not first_token:
-                    agent_ttft = timer.elapsed()
-                    log_message(f"⚡ {agent_label} TTFT: {format_number(agent_ttft, 2)}s")
-                    state.add_debug(f"⚡ TTFT: {format_number(agent_ttft, 2)}s")
-                    first_token = True
-
-                content = chunk.get("text", "")
-                full_response += content
-                token_count += 1
-                if state.stream_text_to_ui(content):
-                    yield  # type: ignore[misc]
-
-            elif chunk_type == "thinking":
-                thinking_content = chunk.get("text", "")
-                if thinking_content:
-                    full_response += f"<think>{thinking_content}</think>"
-
-            elif chunk_type == "tool_call":
-                tool_name = chunk.get("name", "")
-                state.add_debug(f"🔧 Tool call: {tool_name}({chunk.get('arguments', '')[:80]})")
-
-                # Show tool activity in UI (not added to full_response)
-                import json as _json
-                tool_args = {}
-                try:
-                    tool_args = _json.loads(chunk.get("arguments", "{}"))
-                except (ValueError, _json.JSONDecodeError):
-                    pass
-
-                if tool_name == "web_fetch":
-                    url = tool_args.get("url", "")
-                    from urllib.parse import urlparse
-                    parsed = urlparse(url)
-                    short_url = f"{parsed.netloc}{parsed.path}"
-                    state.set_tool_status(f"🌐 {short_url}")
-                    fetched_urls.append({"url": url, "success": None})
-                elif tool_name == "web_search":
-                    queries = tool_args.get("queries", [])
-                    state.set_tool_status(f"🔍 {queries[0][:60]}..." if queries else "🔍 Recherche...")
-                elif tool_name == "calculate":
-                    state.set_tool_status(f"🔢 {tool_args.get('expression', '')}")
-                elif tool_name == "store_memory":
-                    state.set_tool_status("💾 Speichere Erkenntnis...")
-                elif tool_name == "read_document":
-                    state.set_tool_status(f"📄 {tool_args.get('path', '')}")
-
-                yield  # type: ignore[misc]  # Push tool status to browser
-                yield  # type: ignore[misc]  # Extra yield to ensure Reflex pushes state
-
-            elif chunk_type == "tool_result":
-                state.add_debug(f"🔧 Tool result: {chunk.get('result', '')[:100]}")
-                if fetched_urls and fetched_urls[-1]["success"] is None:
-                    result_text = chunk.get("result", "")
-                    fetched_urls[-1]["success"] = "error" not in result_text.lower()[:50]
-                state.clear_tool_status()
+        # Stream response via shared helper (SSOT for all streaming logic)
+        result = None
+        async for item in _stream_agent_to_history(
+            state=state, agent=agent, agent_label=agent_label,
+            llm_client=llm_client, model=agent_model_id,
+            messages=messages, options=agent_options, toolkit=toolkit,
+        ):
+            if isinstance(item, dict):
+                result = item
+            else:
                 yield  # type: ignore[misc]
 
-            elif chunk_type == "done":
-                metrics = chunk.get("metrics", {})
-                token_count = metrics.get("tokens_generated", token_count)
+        if not result:
+            await llm_client.close()
+            yield
+            return
 
-        # Flush remaining buffer to state
-        if state.flush_stream_to_ui():
-            yield  # type: ignore[misc]
+        metadata_dict = result.get("metadata_dict", {})
+        audio_urls = result.get("audio_urls", [])
 
-        # Strip fallback tool-call JSON from response text
-        full_response = _strip_tool_json(full_response)
+        # Format thinking + sources (SSOT helper)
+        formatted_response = _format_stream_result(result, agent_label, agent_model_id)
 
-        # Finalize streaming TTS
-        audio_urls: list[str] = []
-        if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-            audio_urls = await state._finalize_streaming_tts()
-
-        # Metadata
-        inference_time = timer.elapsed()
-        tokens_per_sec = metrics.get("tokens_per_second", 0)
-
-        metadata_dict, metadata_display, debug_msg = build_inference_metadata(
-            ttft=agent_ttft,
-            inference_time=inference_time,
-            tokens_generated=token_count,
-            tokens_per_sec=tokens_per_sec,
-            source=f"{agent_label} ({agent_model_id})",
-            backend_metrics=metrics,
-            tokens_prompt=metrics.get("tokens_prompt", 0),
-            agent_label=agent_label,
-            response_chars=len(full_response),
-        )
-        state.add_debug(debug_msg)
-        if audio_urls:
-            log_message(f"🔊 {agent_label} Direct: {len(audio_urls)} audio URLs collected for message")
-
-        # Append web sources collapsible if web_fetch was used
-        sources_html = ""
-        if fetched_urls:
-            from .formatting import build_sources_collapsible
-            successful = [{"url": u["url"], "word_count": 0, "rank_index": i, "success": True}
-                          for i, u in enumerate(fetched_urls) if u.get("success")]
-            failed = [{"url": u["url"], "error": "fetch failed", "rank_index": i}
-                      for i, u in enumerate(fetched_urls) if not u.get("success")]
-            sources_html = build_sources_collapsible(successful, failed)
-
-        # Sync to llm_history with RAW content (SSoT)
-        state._sync_to_llm_history(agent, full_response)
-
-        # Format thinking blocks for UI
-        formatted_response = format_thinking_process(
-            full_response,
-            model_name=f"{agent_label} ({agent_model_id})",
-            inference_time=inference_time
-        )
-
-        # Prepend sources collapsible (from forced research OR web_fetch tool calls)
+        # Merge forced research sources (if any)
         research_sources = getattr(state, "_research_sources_html", "")
         if research_sources:
-            sources_html = research_sources
+            formatted_response = f"{research_sources}\n\n{formatted_response}"
             state._research_sources_html = ""  # type: ignore[attr-defined]
-        if sources_html:
-            formatted_response = f"{sources_html}\n\n{formatted_response}"
 
         # Add to chat history
         panel_mode = "web_research" if research_mode in ("quick", "deep") else "direct"
@@ -757,9 +670,6 @@ async def _run_agent_direct_response(
         )
 
         # Cleanup
-        state._js_chunk_buffer = ""
-        state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-        state._set_current_agent("")
         state._save_current_session()
         console_separator()
         state.add_debug("────────────────────")
@@ -1867,15 +1777,10 @@ async def run_symposion(
                     state.add_debug(f"❌ {agent_label} returned no result")
                     continue
 
-                response_text = result["text"]
                 metadata_dict = result["metadata_dict"]
                 audio_urls = result.get("audio_urls", [])
 
-                formatted = format_thinking_process(
-                    response_text,
-                    model_name=f"{agent_label} ({model_id})",
-                    inference_time=metadata_dict.get("inference_time", 0)
-                )
+                formatted = _format_stream_result(result, agent_label, model_id)
 
                 state.add_agent_panel(
                     agent=agent_id,
@@ -1890,7 +1795,7 @@ async def run_symposion(
                 conversation.append({
                     "role": "assistant",
                     "agent": agent_id,
-                    "content": f"[{agent_label}]: {strip_thinking_blocks(response_text)}",
+                    "content": f"[{agent_label}]: {strip_thinking_blocks(result['text'])}",
                 })
 
                 state._streaming_sub().current_ai_response = ""
