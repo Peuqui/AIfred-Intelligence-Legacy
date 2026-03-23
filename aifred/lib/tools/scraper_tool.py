@@ -98,18 +98,19 @@ class WebScraperTool(BaseTool):
         # 1. Download failed (404, timeout, bot-protection) → NO Playwright (pointless!)
         # 2. Too little content (< threshold) → Playwright (JS-heavy site!)
 
-        if not result['success']:
-            # Download failed → Site blocked/down → Playwright won't help!
-            log_message("⚠️ trafilatura Download failed → SKIP Playwright (site blocked/down)")
-            return result
-
-        # Trafilatura successful but too little content? → JS-heavy Site!
-        if result.get('word_count', 0) < PLAYWRIGHT_FALLBACK_THRESHOLD:
-            log_message(f"⚠️ trafilatura only {result['word_count']} words → Retry with Playwright (JavaScript)")
+        if not result['success'] or result.get('word_count', 0) < PLAYWRIGHT_FALLBACK_THRESHOLD:
+            # trafilatura failed or too little content → try Playwright (JS-heavy site)
+            reason = "Download failed" if not result['success'] else f"only {result.get('word_count', 0)} words"
+            log_message(f"⚠️ trafilatura: {reason} → Retry with Playwright (JavaScript)")
             playwright_result = self._scrape_with_playwright(url)
-            if playwright_result['success']:
-                log_message(f"✅ Playwright: {playwright_result['word_count']} words (trafilatura: {result.get('word_count', 0)})")
+            if playwright_result['success'] and playwright_result.get('word_count', 0) > result.get('word_count', 0):
+                log_message(f"✅ Playwright: {playwright_result['word_count']} words")
                 return playwright_result
+            # Playwright also failed — return original result
+            if not result['success']:
+                return result
+
+        # Both cases (failed + low content) handled above
 
         return result
 
@@ -218,6 +219,21 @@ class WebScraperTool(BaseTool):
 
     def _scrape_with_playwright(self, url: str) -> Dict:
         """Scrape with Playwright (slower, but JavaScript-capable)"""
+        # Playwright sync API cannot run inside asyncio event loop.
+        # When called from LLM tool execution (async), run in a thread.
+        try:
+            import asyncio
+            asyncio.get_running_loop()
+            # We're inside asyncio — offload to thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(self._playwright_sync, url).result(timeout=30)
+        except RuntimeError:
+            # No running loop — safe to call sync directly
+            return self._playwright_sync(url)
+
+    def _playwright_sync(self, url: str) -> Dict:
+        """Actual Playwright scraping (must run outside asyncio loop)."""
         try:
             from playwright.sync_api import sync_playwright
 
@@ -238,8 +254,19 @@ class WebScraperTool(BaseTool):
                     # Title
                     title = page.title()
 
-                    # Extract text (only visible content)
-                    text = page.inner_text('body')
+                    # Extract text: prefer main content area over full body
+                    text = ""
+                    for selector in ['article', 'main', '[role="main"]', '.chapter', '.content', '#content']:
+                        try:
+                            el = page.locator(selector).first
+                            if el.is_visible(timeout=500):
+                                text = el.inner_text(timeout=3000)
+                                if len(text.split()) > 50:
+                                    break
+                        except Exception:
+                            continue
+                    if not text or len(text.split()) < 50:
+                        text = page.inner_text('body')
                     text = self._clean_text(text)
 
                     word_count = len(text.split())

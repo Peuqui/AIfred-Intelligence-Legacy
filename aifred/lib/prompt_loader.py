@@ -677,6 +677,7 @@ def _merge_prompt_layers(
     2. Reasoning (HOW do I think) - toggleable via settings
     3. Multi-Agent Roles (WHO are the others) - only in multi-agent modes
     4. Task prompt (WHAT should I do) - situational
+    4b. Anti-hallucination (STAY HONEST) - always loaded
     5. Memory instructions (REMEMBER) - when memory active (not incognito)
     6. Personality (HOW do I speak) - toggleable via settings, LAST for priority
 
@@ -710,6 +711,11 @@ def _merge_prompt_layers(
 
     # Layer 4: Task prompt (always)
     parts.append(task_prompt)
+
+    # Layer 4b: Anti-hallucination (always)
+    anti_halluc = load_prompt('shared/anti_hallucination', lang=lang)
+    if anti_halluc:
+        parts.append(anti_halluc)
 
     # Layer 5: Memory instructions (when memory active)
     if memory:

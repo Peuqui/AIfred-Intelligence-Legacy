@@ -865,6 +865,10 @@ _is_wddm = "microsoft" in platform.release().lower() or os.name == "nt"
 LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 128  # MB
 LLAMACPP_CALIBRATION_PRECISION = 256  # Token step size for context binary search
 
+# Maximum tool call rounds per LLM response (safety net against infinite loops)
+# After this limit, a final response without tools is forced.
+MAX_TOOL_ROUNDS = 10
+
 # Extra VRAM reserve for vision-language models (MB)
 # VL models (--mmproj) need a CLIP compute buffer that scales with image token count.
 # Measured: Qwen3-VL with 4096 max image tokens needs ~682 MiB compute buffer on the

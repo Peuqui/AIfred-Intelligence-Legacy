@@ -55,7 +55,11 @@ def processing_progress_banner() -> rx.Component:
                     )
                 )
             ),
-            "\U0001f4a4"  # Idle icon - sleeping/waiting
+            rx.cond(
+                AIState.tool_status != "",
+                "\U0001f527",  # 🔧 Tool icon
+                "\U0001f4a4"  # Idle icon - sleeping/waiting
+            )
         )
     )
 
@@ -98,20 +102,23 @@ def processing_progress_banner() -> rx.Component:
                     )
                 )
             ),
-            # Idle state text - aber zeige "Generiere Antwort" wenn is_generating=True
+            # Tool status or generating
             rx.cond(
-                AIState.is_generating,
-                # Während Generierung (ohne Research)
+                AIState.tool_status != "",
+                AIState.tool_status,
                 rx.cond(
-                    AIState.ui_language == "de",
-                    "Generiere Antwort ...",
-                    "Generating Answer ..."
-                ),
-                # Wirklich idle
-                rx.cond(
-                    AIState.ui_language == "de",
-                    "Warte auf Eingabe ...",
-                    "Waiting for input ..."
+                    AIState.is_generating,
+                    rx.cond(
+                        AIState.ui_language == "de",
+                        "Generiere Antwort ...",
+                        "Generating Answer ..."
+                    ),
+                    # Wirklich idle
+                    rx.cond(
+                        AIState.ui_language == "de",
+                        "Warte auf Eingabe ...",
+                        "Waiting for input ..."
+                    )
                 )
             )
         )

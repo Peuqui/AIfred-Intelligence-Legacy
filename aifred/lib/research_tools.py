@@ -294,6 +294,114 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
         result = getattr(state, "_research_context", "")
         return result if result else json.dumps({"error": "No results found"})
 
+    async def _execute_web_fetch(url: str) -> str:
+        """Tool executor: fetch and extract content from a specific URL."""
+        from .tools.registry import scrape_webpage
+        from .logging_utils import log_message
+
+        if not url or not url.startswith(("http://", "https://")):
+            return json.dumps({"error": f"Invalid URL: {url}"})
+
+        log_message(f"🌐 web_fetch: {url}")
+        result = scrape_webpage(url)
+
+        if result.get("success") and result.get("content"):
+            content = result["content"]
+            word_count = result.get("word_count", 0)
+            log_message(f"✅ web_fetch: {word_count} words from {url}")
+            return f"# Content from {url}\n\n{content}"
+        else:
+            error = result.get("error", "Failed to fetch URL")
+            log_message(f"❌ web_fetch failed: {error}")
+            return json.dumps({"error": f"Could not fetch {url}: {error}"})
+
+    async def _execute_calculate(expression: str) -> str:
+        """Tool executor: evaluate a math expression safely."""
+        import ast
+        import operator
+        from .logging_utils import log_message
+
+        # Safe math operators
+        allowed_ops = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.FloorDiv: operator.floordiv,
+            ast.Mod: operator.mod,
+            ast.Pow: operator.pow,
+            ast.USub: operator.neg,
+            ast.UAdd: operator.pos,
+        }
+
+        def _eval(node: ast.AST) -> float:
+            if isinstance(node, ast.Expression):
+                return _eval(node.body)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                return float(node.value)
+            elif isinstance(node, ast.BinOp):
+                op_type = type(node.op)
+                if op_type not in allowed_ops:
+                    raise ValueError(f"Unsupported operator: {op_type.__name__}")
+                return allowed_ops[op_type](_eval(node.left), _eval(node.right))
+            elif isinstance(node, ast.UnaryOp):
+                op_type = type(node.op)
+                if op_type not in allowed_ops:
+                    raise ValueError(f"Unsupported operator: {op_type.__name__}")
+                return allowed_ops[op_type](_eval(node.operand))
+            else:
+                raise ValueError(f"Unsupported expression: {ast.dump(node)}")
+
+        log_message(f"🔢 calculate: {expression}")
+        try:
+            tree = ast.parse(expression, mode='eval')
+            result = _eval(tree)
+            # Format: keep int if whole number
+            if result == int(result):
+                result_str = str(int(result))
+            else:
+                result_str = f"{result:.10g}"
+            log_message(f"✅ calculate: {expression} = {result_str}")
+            return f"{expression} = {result_str}"
+        except Exception as e:
+            log_message(f"❌ calculate failed: {e}")
+            return json.dumps({"error": f"Cannot evaluate '{expression}': {e}"})
+
+    async def _execute_read_document(path: str) -> str:
+        """Tool executor: read a local document (uploaded files, PDFs)."""
+        from pathlib import Path as P
+        from .logging_utils import log_message
+
+        # Security: only allow files under data/ directory
+        base_dir = P(__file__).parent.parent.parent / "data"
+        try:
+            file_path = (base_dir / path).resolve()
+            if not str(file_path).startswith(str(base_dir.resolve())):
+                return json.dumps({"error": "Access denied: path outside data directory"})
+        except Exception:
+            return json.dumps({"error": f"Invalid path: {path}"})
+
+        if not file_path.exists():
+            return json.dumps({"error": f"File not found: {path}"})
+
+        log_message(f"📄 read_document: {file_path.name}")
+
+        try:
+            if file_path.suffix.lower() == ".pdf":
+                import fitz  # PyMuPDF
+                doc = fitz.open(str(file_path))
+                text = "\n\n".join(page.get_text() for page in doc)
+                doc.close()
+                log_message(f"✅ read_document: PDF {file_path.name} ({len(text)} chars)")
+                return f"# {file_path.name}\n\n{text}"
+            else:
+                text = file_path.read_text(encoding="utf-8")
+                log_message(f"✅ read_document: {file_path.name} ({len(text)} chars)")
+                return f"# {file_path.name}\n\n{text}"
+        except Exception as e:
+            log_message(f"❌ read_document failed: {e}")
+            return json.dumps({"error": f"Cannot read {path}: {e}"})
+
     return [
         Tool(
             name="web_search",
@@ -304,7 +412,8 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
                 "(3) the user asks about specific people, companies, or organizations, "
                 "(4) you are not 100% certain your knowledge is accurate and up-to-date. "
                 "Do NOT answer from memory when web search would give a better, verified answer. "
-                "Provide 1-3 search queries optimized for web search engines."
+                "Provide 1-3 search queries optimized for web search engines. "
+                "IMPORTANT: Before calling this tool, briefly tell the user what you are about to search for."
             ),
             parameters={
                 "type": "object",
@@ -320,5 +429,67 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
                 "required": ["queries"],
             },
             executor=_execute_web_search,
+        ),
+        Tool(
+            name="web_fetch",
+            description=(
+                "Fetch and read the content of a specific URL. Use this when you know the exact URL "
+                "you need (e.g. a specific page on bibleserver.com, a documentation page, a Wikipedia article). "
+                "This is more precise than web_search when you already know WHERE the information is. "
+                "You can construct URLs from known patterns (e.g. bibleserver.com/HFA/Psalm139). "
+                "If a fetch fails, try simplifying the URL (remove verse ranges, query parameters, "
+                "special characters). Fetch the base page first to learn the site's URL pattern. "
+                "IMPORTANT: Before calling this tool, briefly tell the user what you are about to look up."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The full URL to fetch (must start with http:// or https://)",
+                    },
+                },
+                "required": ["url"],
+            },
+            executor=_execute_web_fetch,
+        ),
+        Tool(
+            name="calculate",
+            description=(
+                "Evaluate a mathematical expression and return the exact result. "
+                "Use this for any calculation instead of doing mental math. "
+                "Supports: +, -, *, /, //, %, ** (power). "
+                "Examples: '17.5 * 1.19', '2**10', '4832 * 0.17', '(100 - 15) / 3'."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "Mathematical expression (e.g. '4832 * 0.17')",
+                    },
+                },
+                "required": ["expression"],
+            },
+            executor=_execute_calculate,
+        ),
+        Tool(
+            name="read_document",
+            description=(
+                "Read a document from the local file system (uploaded files, PDFs, text files). "
+                "The path is relative to the data/ directory. "
+                "Use this when the user has uploaded a file or references a local document."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path relative to data/ directory (e.g. 'uploads/document.pdf')",
+                    },
+                },
+                "required": ["path"],
+            },
+            executor=_execute_read_document,
         ),
     ]

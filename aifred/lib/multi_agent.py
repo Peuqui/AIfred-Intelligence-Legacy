@@ -250,6 +250,7 @@ async def _stream_agent_to_history(
     ttft = 0.0
     first_token = False
     metrics: dict[str, Any] = {}
+    fetched_urls: list[dict[str, Any]] = []  # Track web_fetch URLs for sources collapsible
 
     # Set current agent for UI styling
     state._set_current_agent(agent)
@@ -279,10 +280,22 @@ async def _stream_agent_to_history(
 
         elif chunk["type"] == "tool_call":
             state.add_debug(f"🔧 Tool call: {chunk['name']}({chunk.get('arguments', '')[:80]})")
+            # Track web_fetch URLs
+            if chunk["name"] == "web_fetch":
+                import json as _json
+                try:
+                    args = _json.loads(chunk.get("arguments", "{}"))
+                    fetched_urls.append({"url": args.get("url", ""), "success": None})
+                except (ValueError, _json.JSONDecodeError):
+                    pass
             yield  # type: ignore[misc]
 
         elif chunk["type"] == "tool_result":
             state.add_debug(f"🔧 Tool result: {chunk.get('result', '')[:100]}")
+            # Update success status for last tracked URL
+            if fetched_urls and fetched_urls[-1]["success"] is None:
+                result_text = chunk.get("result", "")
+                fetched_urls[-1]["success"] = "error" not in result_text.lower()[:50]
             yield  # type: ignore[misc]
 
         elif chunk["type"] == "done":
@@ -319,6 +332,17 @@ async def _stream_agent_to_history(
     state.add_debug(debug_msg)
     if audio_urls:
         log_message(f"🔊 {agent_label}: {len(audio_urls)} audio URLs collected for message")
+
+    # Append web sources collapsible if web_fetch was used
+    if fetched_urls:
+        from .formatting import build_sources_collapsible
+        successful = [{"url": u["url"], "word_count": 0, "rank_index": i, "success": True}
+                      for i, u in enumerate(fetched_urls) if u.get("success")]
+        failed = [{"url": u["url"], "error": "fetch failed", "rank_index": i}
+                  for i, u in enumerate(fetched_urls) if not u.get("success")]
+        sources_html = build_sources_collapsible(successful, failed)
+        if sources_html:
+            full_response = f"{sources_html}\n\n{full_response}"
 
     # Sync to llm_history BEFORE clearing state (SSoT)
     state._sync_to_llm_history(agent, full_response)
@@ -577,6 +601,7 @@ async def _run_agent_direct_response(
         first_token = False
         agent_ttft = 0.0
         metrics: dict[str, Any] = {}
+        fetched_urls: list[dict[str, Any]] = []  # Track web_fetch URLs for sources collapsible
 
         async for chunk in llm_client.chat_stream(agent_model_id, messages, agent_options, toolkit=toolkit):  # type: ignore[arg-type]
             chunk_type = chunk.get("type", "")
@@ -600,11 +625,43 @@ async def _run_agent_direct_response(
                     full_response += f"<think>{thinking_content}</think>"
 
             elif chunk_type == "tool_call":
-                state.add_debug(f"🔧 Tool call: {chunk.get('name', '')}({chunk.get('arguments', '')[:80]})")
-                yield  # type: ignore[misc]
+                tool_name = chunk.get("name", "")
+                state.add_debug(f"🔧 Tool call: {tool_name}({chunk.get('arguments', '')[:80]})")
+
+                # Show tool activity in UI (not added to full_response)
+                import json as _json
+                tool_args = {}
+                try:
+                    tool_args = _json.loads(chunk.get("arguments", "{}"))
+                except (ValueError, _json.JSONDecodeError):
+                    pass
+
+                if tool_name == "web_fetch":
+                    url = tool_args.get("url", "")
+                    from urllib.parse import urlparse
+                    parsed = urlparse(url)
+                    short_url = f"{parsed.netloc}{parsed.path}"
+                    state.set_tool_status(f"🌐 {short_url}")
+                    fetched_urls.append({"url": url, "success": None})
+                elif tool_name == "web_search":
+                    queries = tool_args.get("queries", [])
+                    state.set_tool_status(f"🔍 {queries[0][:60]}..." if queries else "🔍 Recherche...")
+                elif tool_name == "calculate":
+                    state.set_tool_status(f"🔢 {tool_args.get('expression', '')}")
+                elif tool_name == "store_memory":
+                    state.set_tool_status("💾 Speichere Erkenntnis...")
+                elif tool_name == "read_document":
+                    state.set_tool_status(f"📄 {tool_args.get('path', '')}")
+
+                yield  # type: ignore[misc]  # Push tool status to browser
+                yield  # type: ignore[misc]  # Extra yield to ensure Reflex pushes state
 
             elif chunk_type == "tool_result":
                 state.add_debug(f"🔧 Tool result: {chunk.get('result', '')[:100]}")
+                if fetched_urls and fetched_urls[-1]["success"] is None:
+                    result_text = chunk.get("result", "")
+                    fetched_urls[-1]["success"] = "error" not in result_text.lower()[:50]
+                state.clear_tool_status()
                 yield  # type: ignore[misc]
 
             elif chunk_type == "done":
@@ -642,6 +699,16 @@ async def _run_agent_direct_response(
         if audio_urls:
             log_message(f"🔊 {agent_label} Direct: {len(audio_urls)} audio URLs collected for message")
 
+        # Append web sources collapsible if web_fetch was used
+        sources_html = ""
+        if fetched_urls:
+            from .formatting import build_sources_collapsible
+            successful = [{"url": u["url"], "word_count": 0, "rank_index": i, "success": True}
+                          for i, u in enumerate(fetched_urls) if u.get("success")]
+            failed = [{"url": u["url"], "error": "fetch failed", "rank_index": i}
+                      for i, u in enumerate(fetched_urls) if not u.get("success")]
+            sources_html = build_sources_collapsible(successful, failed)
+
         # Sync to llm_history with RAW content (SSoT)
         state._sync_to_llm_history(agent, full_response)
 
@@ -652,11 +719,13 @@ async def _run_agent_direct_response(
             inference_time=inference_time
         )
 
-        # Prepend sources collapsible if research was performed
-        sources_html = getattr(state, "_research_sources_html", "")
+        # Prepend sources collapsible (from forced research OR web_fetch tool calls)
+        research_sources = getattr(state, "_research_sources_html", "")
+        if research_sources:
+            sources_html = research_sources
+            state._research_sources_html = ""  # type: ignore[attr-defined]
         if sources_html:
             formatted_response = f"{sources_html}\n\n{formatted_response}"
-            state._research_sources_html = ""  # type: ignore[attr-defined]
 
         # Add to chat history
         panel_mode = "web_research" if research_mode in ("quick", "deep") else "direct"

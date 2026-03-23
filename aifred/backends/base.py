@@ -539,7 +539,8 @@ class OpenAICompatibleBackend(LLMBackend):
 
         retry_timeout = 300.0  # max seconds to keep retrying (model loading can take >120s)
         retry_delay = 5.0
-        max_tool_rounds = 5  # prevent infinite tool loops
+        from ..lib.config import MAX_TOOL_ROUNDS
+        max_tool_rounds = MAX_TOOL_ROUNDS
         start_time = time.monotonic()
         last_error: Optional[Exception] = None
 
@@ -666,6 +667,33 @@ class OpenAICompatibleBackend(LLMBackend):
                         })
 
                     # Next round: LLM sees tool results and generates final response
+
+                # If max_tool_rounds exhausted and model produced no content,
+                # force one final round WITHOUT tools so it must answer
+                content_so_far = stream_state.get("_content_acc", "").strip()
+                if not content_so_far and toolkit:
+                    from ..lib.logging_utils import log_message
+                    log_message("⚠️ Tool rounds exhausted, no content — forcing final response (no tools)")
+                    kwargs_final = {**kwargs, "tools": None, "tool_choice": None}
+                    stream = await self.client.chat.completions.create(**kwargs_final)
+                    stream_state = {}
+                    async for chunk in stream:
+                        if chunk.choices:
+                            delta = chunk.choices[0].delta
+                            delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
+                            if hasattr(delta, "model_extra") and delta.model_extra:
+                                if "reasoning_content" in delta.model_extra:
+                                    delta_dict["reasoning_content"] = delta.model_extra["reasoning_content"]
+                            for item in self._process_stream_delta(delta, delta_dict, stream_state):
+                                yield item
+                                if item.get("type") == "content":
+                                    total_tokens += 1
+                        if hasattr(chunk, "usage") and chunk.usage:
+                            prompt_tokens = chunk.usage.prompt_tokens
+                            total_tokens = chunk.usage.completion_tokens
+                            server_timings = self._extract_server_timings(chunk)
+                    for item in self._finalize_stream(stream_state):
+                        yield item
 
                 inference_time = timer.elapsed()
 

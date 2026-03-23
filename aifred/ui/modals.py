@@ -73,6 +73,12 @@ def multi_agent_help_modal() -> rx.Component:
                                 rx.table.cell(t("multi_agent_help_tribunal_flow")),
                                 rx.table.cell(t("multi_agent_help_tribunal_decision")),
                             ),
+                            # Symposion
+                            rx.table.row(
+                                rx.table.cell("Symposion"),
+                                rx.table.cell(t("multi_agent_help_symposion_flow")),
+                                rx.table.cell(t("multi_agent_help_symposion_decision")),
+                            ),
                         ),
                         style={
                             "width": "100%",

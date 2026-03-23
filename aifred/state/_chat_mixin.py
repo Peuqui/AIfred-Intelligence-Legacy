@@ -43,6 +43,9 @@ class ChatMixin(rx.State, mixin=True):
     progress_total: int = 0
     progress_failed: int = 0  # Number of failed URLs
 
+    # Tool Status (shown in UI while agent uses tools)
+    tool_status: str = ""  # e.g. "🌐 bibleserver.com/HFA/Psalm139"
+
     # Research context (set by forced research pipeline, read by agent response)
     _research_context: str = ""
     _research_sources_html: str = ""
@@ -78,6 +81,14 @@ class ChatMixin(rx.State, mixin=True):
         """Clear processing progress."""
         self.progress_active = False
         self.progress_phase = ""
+
+    def set_tool_status(self, status: str) -> None:
+        """Show tool activity in UI (e.g. '🌐 fetching bibleserver.com...')."""
+        self.tool_status = status
+
+    def clear_tool_status(self) -> None:
+        """Clear tool status."""
+        self.tool_status = ""
         self.progress_current = 0
         self.progress_total = 0
         self.progress_failed = 0
@@ -1142,13 +1153,18 @@ class ChatMixin(rx.State, mixin=True):
                 ]
                 user_lower = user_msg.lower()
 
-                if detected_urls or any(kw in user_lower for kw in explicit_keywords):
-                    if detected_urls:
-                        self.add_debug(f"⚡ {len(detected_urls)} URL(s) detected → Forced Research")
-                    else:
-                        self.add_debug("⚡ Explicit research request → Forced Research")
-                    effective_research_mode = "deep"
-                    yield
+                # Forced research disabled — model uses web_fetch/web_search tools autonomously
+                # if detected_urls or any(kw in user_lower for kw in explicit_keywords):
+                #     if detected_urls:
+                #         self.add_debug(f"⚡ {len(detected_urls)} URL(s) detected → Forced Research")
+                #     else:
+                #         self.add_debug("⚡ Explicit research request → Forced Research")
+                #     effective_research_mode = "deep"
+                #     yield
+                if detected_urls:
+                    self.add_debug(f"🔗 {len(detected_urls)} URL(s) detected (model decides via tools)")
+                if any(kw in user_lower for kw in explicit_keywords):
+                    self.add_debug("🔍 Research keywords detected (model decides via tools)")
 
             # ============================================================
             # UNIFIED AGENT RESPONSE (Single Source of Truth)

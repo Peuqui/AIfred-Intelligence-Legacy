@@ -1746,8 +1746,8 @@ async def _physical_context_search(
 
         yield "Searching downward..."
 
-        # 4b. Narrow binary search downward
-        search_low = max(projected - search_margin, CALIBRATION_MIN_CONTEXT)
+        # 4b. Binary search downward from projected to minimum
+        search_low = CALIBRATION_MIN_CONTEXT
         async for item in _binary_search_context(
             full_cmd, port, search_low, projected,
             cuda_gpu_names=cuda_gpu_names,
@@ -1761,26 +1761,6 @@ async def _physical_context_search(
                 yield f"Reasoning: {'yes' if thinking_result else 'no'}"
             else:
                 yield item
-
-        # Widen if narrow window found nothing
-        if not result and search_low > CALIBRATION_MIN_CONTEXT:
-            yield (
-                f"Narrow search failed — widening to "
-                f"[{format_number(CALIBRATION_MIN_CONTEXT)}, {format_number(search_low)}]"
-            )
-            async for item in _binary_search_context(
-                full_cmd, port, CALIBRATION_MIN_CONTEXT, search_low,
-                cuda_gpu_names=cuda_gpu_names,
-                run_thinking_test=run_thinking_test and thinking_result is None,
-                safety_margin=safety_margin,
-            ):
-                if isinstance(item, int):
-                    result = item
-                elif isinstance(item, dict) and item.get("thinking_result") is not None:
-                    thinking_result = item["thinking_result"]
-                    yield f"Reasoning: {'yes' if thinking_result else 'no'}"
-                else:
-                    yield item
 
         if result:
             yield (
