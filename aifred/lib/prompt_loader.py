@@ -85,13 +85,22 @@ def get_salutation() -> str:
     """
     Get proper salutation based on user name and gender.
 
+    If the name already contains a title (Lord, Sir, Dr., Prof., etc.),
+    no additional Herr/Frau prefix is added.
+
     Returns:
-        - "Herr {name}" / "Mr. {name}" for male
-        - "Frau {name}" / "Ms. {name}" for female
+        - "{name}" if name contains a title
+        - "Herr {name}" / "Mr. {name}" for male without title
+        - "Frau {name}" / "Ms. {name}" for female without title
         - Empty string if no name set
     """
     if not _current_user_name:
         return ""
+
+    # Skip prefix if name already contains a title
+    _titles = ("lord", "sir", "lady", "dr.", "prof.", "herr", "frau", "mr.", "ms.", "mrs.")
+    if _current_user_name.lower().split()[0].rstrip(".") in [t.rstrip(".") for t in _titles]:
+        return _current_user_name
 
     if _current_language == "de":
         title = "Herr" if _current_user_gender == "male" else "Frau"
