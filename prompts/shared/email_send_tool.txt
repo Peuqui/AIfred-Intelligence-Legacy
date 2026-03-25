@@ -1,1 +1,0 @@
-Draft an email to send on behalf of the user. IMPORTANT: This creates a draft only — the email is NOT sent immediately. Always show the draft to the user and ask for explicit confirmation before calling email_send_confirmed. Never send emails without the user's approval.

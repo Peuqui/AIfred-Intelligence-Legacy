@@ -1,1 +1,0 @@
-Search the user's emails by subject or sender. Use this when the user asks to find specific emails, e.g. "find emails from Amazon" or "search for invoice". Returns matching messages with ID, date, sender, and subject.

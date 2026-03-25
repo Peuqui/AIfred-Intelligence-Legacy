@@ -1,1 +1,0 @@
-Read the full content of a specific email by its message ID. Use this after email_check to read an email the user is interested in. Returns sender, recipient, date, subject, full body text, and attachment filenames.

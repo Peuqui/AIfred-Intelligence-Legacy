@@ -258,3 +258,17 @@ def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = No
 
     log_message(f"📧 Email: sent to {to} — {subject}")
     return f"Email sent to {to}: {subject}"
+
+
+def delete_email(msg_id: str, folder: str = "INBOX") -> str:
+    """Delete an email by message ID (moves to Trash)."""
+    ctx = ssl.create_default_context()
+
+    with imaplib.IMAP4_SSL(EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, ssl_context=ctx) as imap:
+        imap.login(EMAIL_USER, EMAIL_PASSWORD)
+        imap.select(folder)
+        imap.store(msg_id.encode(), '+FLAGS', '\\Deleted')
+        imap.expunge()
+
+    log_message(f"📧 Email: deleted msg {msg_id} from {folder}")
+    return f"Email {msg_id} deleted from {folder}"
