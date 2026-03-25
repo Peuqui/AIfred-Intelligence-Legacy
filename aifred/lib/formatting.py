@@ -883,9 +883,7 @@ def build_sandbox_iframe(url: str) -> str:
     """Build a collapsible with embedded iframe for sandbox HTML output."""
     from .config import SANDBOX_IFRAME_HEIGHT
     return (
-        f'<details open style="font-size: 0.9em; margin-bottom: 0.5em; '
-        f'max-height: none !important; overflow: visible !important; '
-        f'background: transparent !important; padding: 0 !important;">'
+        f'<details open data-sandbox style="font-size: 0.9em; margin-bottom: 0.5em;">'
         f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; '
         f'position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">'
         f'📊 Interaktive Visualisierung — '
@@ -906,9 +904,7 @@ def build_sandbox_iframe(url: str) -> str:
 def build_sandbox_image(url: str) -> str:
     """Build a collapsible with embedded image for sandbox plot output."""
     return (
-        f'<details open style="font-size: 0.9em; margin-bottom: 0.5em; '
-        f'max-height: none !important; overflow: visible !important; '
-        f'background: transparent !important; padding: 0 !important;">'
+        f'<details open data-sandbox style="font-size: 0.9em; margin-bottom: 0.5em;">'
         f'<summary style="cursor: pointer; font-weight: bold; color: #aaa;">'
         f'📊 Plot — '
         f'<a href="{url}" target="_blank" rel="noopener noreferrer" '

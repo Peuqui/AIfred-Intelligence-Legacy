@@ -700,7 +700,8 @@ AUTOMATIK_LLM_NUM_CTX = 12288  # 12K context for all Automatik tasks
 # Used when a model has no calibration data in the VRAM cache.
 # 32K is a safe default that works on most GPUs without triggering CPU offload.
 # For optimal performance, models should be calibrated via the Model Manager.
-MAIN_LLM_FALLBACK_CONTEXT = 32768  # 32K context for uncalibrated main models
+MAIN_LLM_FALLBACK_CONTEXT = 32768  # 32K context for uncalibrated local models
+CLOUD_API_FALLBACK_CONTEXT = 131072  # 128K context for cloud API models (most support 128k+)
 
 # Maximum manual num_ctx value (for UI input validation)
 # 2M tokens should cover even the largest context windows (Gemini 2M, future models)

@@ -209,6 +209,13 @@ details {
     overflow-y: auto !important;  /* Scrollbar wenn zu lang */
 }
 
+details[data-sandbox] {
+    max-height: none !important;
+    overflow: visible !important;
+    background: transparent !important;
+    padding: 0 !important;
+}
+
 details summary {
     cursor: pointer !important;
     font-weight: bold !important;
@@ -796,7 +803,7 @@ tr:hover {
         max-height: var(--chat-max-height-mobile) !important;
     }
 
-    details {
+    details:not([data-sandbox]) {
         max-height: var(--thinking-max-height-mobile) !important;
     }
 

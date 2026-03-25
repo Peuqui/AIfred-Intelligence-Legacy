@@ -145,6 +145,11 @@ def get_agent_num_ctx(
         else:
             num_ctx = fallback
             source = "fallback"
+    elif backend_type == "cloud_api":
+        # Cloud APIs: models typically support 128k+ context
+        from ..config import CLOUD_API_FALLBACK_CONTEXT
+        num_ctx = CLOUD_API_FALLBACK_CONTEXT
+        source = "cloud default"
     else:
         # Ollama: VRAM calibration cache
         rope_factor = get_rope_factor_for_model(model_id)
