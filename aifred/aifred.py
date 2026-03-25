@@ -864,6 +864,11 @@ html_preview_dir = DATA_DIR / "html_preview"
 html_preview_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/html_preview", StaticFiles(directory=str(html_preview_dir)), name="html_preview")
 
+# Mount sandbox_output directory for interactive code execution results
+sandbox_output_dir = DATA_DIR / "sandbox_output"
+sandbox_output_dir.mkdir(parents=True, exist_ok=True)
+app._api.mount("/_upload/sandbox_output", StaticFiles(directory=str(sandbox_output_dir)), name="sandbox_output")
+
 # Mount tts_audio directory for TTS playback (temporary chunks)
 tts_audio_dir = DATA_DIR / "tts_audio"
 tts_audio_dir.mkdir(parents=True, exist_ok=True)

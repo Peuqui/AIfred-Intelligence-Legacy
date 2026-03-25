@@ -236,13 +236,33 @@ def _format_stream_result(
     sources_html = result.get("sources_html", "")
     inference_time = result.get("metadata_dict", {}).get("inference_time", 0)
 
+    sandbox_html = result.get("sandbox_html", "")
+
     formatted = format_thinking_process(
         text,
         model_name=f"{agent_label} ({model})",
         inference_time=inference_time,
     )
+    # Order: [thinking] [sources] [sandbox] [text]
+    # format_thinking_process returns: [thinking collapsibles]\n\n[text]
+    # We insert sources and sandbox between thinking and text
+    inserts = ""
     if sources_html:
-        formatted = f"{sources_html}\n\n{formatted}"
+        inserts += f"\n\n{sources_html}"
+    if sandbox_html:
+        inserts += f"\n\n{sandbox_html}"
+    if inserts:
+        # Split at first double-newline after the last </details> (end of thinking block)
+        import re
+        # Find position after all leading <details>...</details> blocks
+        match = re.search(r'((?:<details[\s\S]*?</details>\s*)+)([\s\S]*)', formatted)
+        if match:
+            collapsibles_part = match.group(1).rstrip()
+            text_part = match.group(2).lstrip()
+            formatted = f"{collapsibles_part}{inserts}\n\n{text_part}"
+        else:
+            # No thinking block — just prepend
+            formatted = f"{inserts.lstrip()}\n\n{formatted}"
     return formatted
 
 
@@ -275,6 +295,8 @@ async def _stream_agent_to_history(
     first_token = False
     metrics: dict[str, Any] = {}
     fetched_urls: list[dict[str, Any]] = []  # Track web_fetch URLs for sources collapsible
+    sandbox_html_urls: list[str] = []  # Track sandbox HTML output URLs
+    sandbox_image_urls: list[str] = []  # Track sandbox image URLs
 
     # Set current agent for UI styling
     state._set_current_agent(agent)
@@ -301,6 +323,14 @@ async def _stream_agent_to_history(
 
             if state.stream_text_to_ui(chunk["text"]):
                 yield  # type: ignore[misc]
+
+        elif chunk["type"] == "tool_call_start":
+            # Early notification: tool name known, arguments still streaming
+            tool_name = chunk.get("name", "")
+            state.add_debug(f"🔧 Tool call: {tool_name}(...)")
+            if tool_name == "execute_code":
+                state.set_tool_status("⚙️ Code wird generiert...")
+            yield  # type: ignore[misc]
 
         elif chunk["type"] == "tool_call":
             tool_name = chunk.get("name", "")
@@ -333,10 +363,16 @@ async def _stream_agent_to_history(
             yield  # type: ignore[misc]
 
         elif chunk["type"] == "tool_result":
-            state.add_debug(f"🔧 Tool result: {chunk.get('result', '')[:100]}")
+            result_text = chunk.get("result", "")
+            state.add_debug(f"🔧 Tool result: {result_text[:100]}")
             if fetched_urls and fetched_urls[-1]["success"] is None:
-                result_text = chunk.get("result", "")
                 fetched_urls[-1]["success"] = "error" not in result_text.lower()[:50]
+            # Capture sandbox output URLs for embedding
+            for line in result_text.split("\n"):
+                if line.startswith("SANDBOX_HTML_URL: "):
+                    sandbox_html_urls.append(line.split("SANDBOX_HTML_URL: ", 1)[1].strip())
+                elif line.startswith("SANDBOX_IMAGE_URL: "):
+                    sandbox_image_urls.append(line.split("SANDBOX_IMAGE_URL: ", 1)[1].strip())
             state.clear_tool_status()
             yield  # type: ignore[misc]
 
@@ -390,6 +426,17 @@ async def _stream_agent_to_history(
                   for i, u in enumerate(fetched_urls) if not u.get("success")]
         sources_html = build_sources_collapsible(successful, failed)
 
+    # Build sandbox output (iframes for HTML, img tags for plots)
+    sandbox_html = ""
+    sandbox_parts: list[str] = []
+    if sandbox_html_urls:
+        from .formatting import build_sandbox_iframe
+        sandbox_parts.extend(build_sandbox_iframe(url) for url in sandbox_html_urls)
+    if sandbox_image_urls:
+        from .formatting import build_sandbox_image
+        sandbox_parts.extend(build_sandbox_image(url) for url in sandbox_image_urls)
+    sandbox_html = "\n".join(sandbox_parts)
+
     # Sync to llm_history with CLEAN text (no HTML collapsibles)
     state._sync_to_llm_history(agent, full_response)
 
@@ -402,6 +449,7 @@ async def _stream_agent_to_history(
     yield {
         "text": full_response,
         "sources_html": sources_html,
+        "sandbox_html": sandbox_html,
         "metadata_display": metadata_display,
         "metadata_dict": metadata_dict,
         "audio_urls": audio_urls,
@@ -557,7 +605,7 @@ async def _run_agent_direct_response(
         from .research.context_utils import get_agent_num_ctx
         ctx_agent = agent if agent in _default_agents else "aifred"
         agent_num_ctx, ctx_source = get_agent_num_ctx(ctx_agent, state, agent_model_id)
-        state.add_debug(f"   🎯 Context: {agent_num_ctx:,} ({ctx_source})")
+        state.add_debug(f"   🎯 Context: {format_number(agent_num_ctx)} ({ctx_source})")
 
         # Combined toolkit: memory + research tools (based on research_mode)
         from .agent_memory import prepare_agent_toolkit
@@ -618,7 +666,7 @@ async def _run_agent_direct_response(
         else:
             agent_temp = state.temperature  # type: ignore[has-type]
 
-        state.add_debug(f"📊 Context: {format_number(agent_num_ctx/1000, 3)}k")
+        state.add_debug(f"📊 Context: {format_number(agent_num_ctx)}")
         state.add_debug(f"🌡️ Temperature: {format_number(agent_temp, 1)}")
 
         # Build LLM options — custom agents use AIfred's settings

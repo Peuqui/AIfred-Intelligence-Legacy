@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 from collections import OrderedDict
 from .logging_utils import log_message
-from .config import get_xml_tag_config, BACKEND_URL, DATA_DIR, PROJECT_ROOT
+from .config import get_xml_tag_config, BACKEND_URL, DATA_DIR, PROJECT_ROOT, HTML_PREVIEW_MAX_FILES
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
 
@@ -21,10 +21,9 @@ from datetime import datetime
 # Served via /_upload/ endpoint
 _HTML_PREVIEW_DIR = DATA_DIR / "html_preview"
 
-# LRU Cache for HTML preview files (max 50 files)
+# LRU Cache for HTML preview files
 _html_file_cache: OrderedDict[str, Path] = OrderedDict()
 _html_cache_lock = threading.Lock()
-MAX_HTML_FILES = 50
 
 # Global UI locale for number formatting (set by AIState on language change)
 _ui_locale: str = "de"
@@ -357,15 +356,15 @@ def _save_html_to_assets(html_code: str, title: str = "") -> str:
         _html_file_cache[filename] = filepath
 
         # If cache is full, delete oldest file
-        if len(_html_file_cache) > MAX_HTML_FILES:
+        if len(_html_file_cache) > HTML_PREVIEW_MAX_FILES:
             oldest_filename, oldest_path = _html_file_cache.popitem(last=False)
             try:
                 oldest_path.unlink()
-                log_message(f"🗑️ HTML Preview: LRU evicted {oldest_filename} (Cache limit: {MAX_HTML_FILES})")
+                log_message(f"🗑️ HTML Preview: LRU evicted {oldest_filename} (Cache limit: {HTML_PREVIEW_MAX_FILES})")
             except OSError as e:
                 log_message(f"⚠️ HTML Preview: Could not delete {oldest_filename}: {e}")
 
-    log_message(f"🌐 HTML Preview: File saved → {filepath} (Cache: {len(_html_file_cache)}/{MAX_HTML_FILES})")
+    log_message(f"🌐 HTML Preview: File saved → {filepath} (Cache: {len(_html_file_cache)}/{HTML_PREVIEW_MAX_FILES})")
 
     # Return URL - absolute with BACKEND_URL if set, otherwise relative
     # With NGINX: BACKEND_URL="" → relative URL works (NGINX routes to backend)
@@ -878,6 +877,47 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
     result = convert_latex_delimiters(result)
 
     return result
+
+
+def build_sandbox_iframe(url: str) -> str:
+    """Build a collapsible with embedded iframe for sandbox HTML output.
+
+    Uses CSS flex layout so the iframe fills all available space
+    within the chat history container without hardcoded heights.
+    """
+    return (
+        f'<details open style="font-size: 0.9em; margin-bottom: 0.5em; '
+        f'display: flex; flex-direction: column; '
+        f'max-height: inherit; overflow: hidden;">'
+        f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; flex-shrink: 0;">'
+        f'📊 Interaktive Visualisierung — '
+        f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+        f'style="color: #58a6ff; text-decoration: none;" '
+        f'onclick="event.stopPropagation()">Im Browser öffnen</a></summary>'
+        f'<iframe src="{url}" '
+        f'style="width: 100%; flex: 1; min-height: 400px; '
+        f'border: 1px solid #444; border-radius: 8px; '
+        f'background: #fff; margin-top: 0.4em;" '
+        f'sandbox="allow-scripts allow-same-origin" '
+        f'loading="lazy"></iframe>'
+        f'</details>'
+    )
+
+
+def build_sandbox_image(url: str) -> str:
+    """Build a collapsible with embedded image for sandbox plot output."""
+    return (
+        f'<details open style="font-size: 0.9em; margin-bottom: 0.5em;">'
+        f'<summary style="cursor: pointer; font-weight: bold; color: #aaa;">'
+        f'📊 Plot — '
+        f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+        f'style="color: #58a6ff; text-decoration: none;" '
+        f'onclick="event.stopPropagation()">Vollbild</a></summary>'
+        f'<img src="{url}" style="max-width: 100%; max-height: 480px; '
+        f'border-radius: 8px; border: 1px solid #444; margin-top: 0.4em;" '
+        f'alt="Plot" />'
+        f'</details>'
+    )
 
 
 def build_sources_collapsible(used_sources: list, failed_sources: list, lang: str | None = None) -> str:

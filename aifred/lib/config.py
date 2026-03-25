@@ -985,8 +985,15 @@ SANDBOX_ALLOWED_IMPORTS: list[str] = [
     "pprint", "io", "os", "sys", "pathlib", "hashlib", "base64",
     # data science
     "numpy", "pandas", "matplotlib", "matplotlib.pyplot",
-    "scipy", "sklearn", "seaborn",
+    "scipy", "sklearn", "seaborn", "plotly",
 ]
+
+# ============================================================
+# HTML PREVIEW CONFIGURATION
+# ============================================================
+HTML_PREVIEW_MAX_FILES = 200         # LRU cache limit for data/html_preview/
+SANDBOX_OUTPUT_DIR = DATA_DIR / "sandbox_output"
+SANDBOX_OUTPUT_MAX_FILES = 200       # LRU cache limit for data/sandbox_output/
 
 # ============================================================
 # XML TAG FORMATTING CONFIGURATION
@@ -1045,8 +1052,9 @@ VISION_MAX_IMAGE_DIMENSION = 3840  # 4K UHD - beste OCR-Qualität bei akzeptable
 # and used in both Python (Reflex components) and CSS (media queries)
 
 # Chat History Box
-UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP = "70vh"    # Desktop: 60% of viewport height (dynamic scrolling)
+UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP = "70vh"    # Desktop: 70% of viewport height (dynamic scrolling)
 UI_CHAT_HISTORY_MAX_HEIGHT_MOBILE = "60vh"     # Mobile: 60% viewport, leaves 40% "grip space"
+
 
 # Thinking Process Collapsible (<details> tag)
 UI_THINKING_MAX_HEIGHT_DESKTOP = "450px"       # Desktop: ~15-20 lines of text

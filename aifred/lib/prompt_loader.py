@@ -83,12 +83,22 @@ def get_user_gender() -> str:
 
 def get_salutation() -> str:
     """
-    Get user salutation (name as configured by user).
+    Get proper salutation based on user name and gender.
 
-    Returns the name exactly as the user entered it.
-    User decides how they want to be addressed (e.g. "Lord Helmet", "Herr Müller").
+    Returns:
+        - "Herr {name}" / "Mr. {name}" for male
+        - "Frau {name}" / "Ms. {name}" for female
+        - Empty string if no name set
     """
-    return _current_user_name or ""
+    if not _current_user_name:
+        return ""
+
+    if _current_language == "de":
+        title = "Herr" if _current_user_gender == "male" else "Frau"
+    else:
+        title = "Mr." if _current_user_gender == "male" else "Ms."
+
+    return f"{title} {_current_user_name}"
 
 
 def set_personality_enabled(agent: str, enabled: bool):
@@ -371,7 +381,8 @@ def load_prompt(
         'current_weekday': weekday,
         'previous_years': f"{current_year_int - 2} oder {current_year_int - 1}",  # e.g., "2024 oder 2025"
         'user_name': _current_user_name if _current_user_name else "",
-        'user_salutation': get_salutation(),  # "Herr Name" / "Frau Name" / ""
+        'user_salutation': get_salutation(),
+        'user_gender': "männlich" if _current_user_gender == "male" else "weiblich",
     }
 
     # Merge standard placeholders with kwargs (kwargs override standard)

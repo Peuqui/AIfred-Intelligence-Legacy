@@ -82,7 +82,7 @@ def image_upload_section() -> rx.Component:
                 rx.text(t("recording"), font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
                 id="recording-button",
                 size="4",
-                variant="soft",
+                variant="outline",
                 color_scheme="green",
                 padding_y="24px",
                 min_width=["auto", "auto", "160px"],  # Fixed on desktop
@@ -90,6 +90,13 @@ def image_upload_section() -> rx.Component:
                 width=["100%", "100%", "auto"],
                 on_click=AIState.toggle_audio_recording,
                 disabled=AIState.is_generating | AIState.is_uploading_image,
+                style={
+                    "background": "rgba(0, 80, 30, 0.4)",
+                    "&:hover:not([disabled])": {
+                        "background": "rgba(0, 120, 50, 0.6) !important",
+                        "border_color": "#44cc66 !important",
+                    },
+                },
             ),
 
             # Camera button (only visible if browser supports camera) - with drag & drop tooltip
@@ -101,12 +108,19 @@ def image_upload_section() -> rx.Component:
                             rx.icon("camera", size=20),
                             rx.text(t("camera"), font_size="16px", display=["none", "none", "inline"]),
                             size="4",
-                            variant="soft",
+                            variant="outline",
                             color_scheme="red",
                             padding_y="24px",
                             width="100%",
                             disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
                             on_click=AIState.on_camera_click,
+                            style={
+                                "background": "rgba(100, 10, 0, 0.4)",
+                                "&:hover:not([disabled])": {
+                                    "background": "rgba(150, 15, 0, 0.6) !important",
+                                    "border_color": "#ff6600 !important",
+                                },
+                            },
                         ),
                         content=t("image_hint"),
                     ),
@@ -128,12 +142,19 @@ def image_upload_section() -> rx.Component:
                         rx.icon("image", size=20),
                         rx.text(t("upload_image"), font_size="16px", display=["none", "none", "inline"]),
                         size="4",
-                        variant="soft",
+                        variant="outline",
                         color_scheme="red",
                         padding_y="24px",
                         width="100%",
                         disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
                         on_click=AIState.on_file_picker_click,
+                        style={
+                            "background": "rgba(100, 10, 0, 0.4)",
+                            "&:hover:not([disabled])": {
+                                "background": "rgba(150, 15, 0, 0.6) !important",
+                                "border_color": "#ff6600 !important",
+                            },
+                        },
                     ),
                     content=t("image_hint"),
                 ),
@@ -153,11 +174,18 @@ def image_upload_section() -> rx.Component:
                     rx.icon("disc-3", size=20),
                     rx.text(t("audio"), font_size="16px", display=["none", "none", "inline"]),
                     size="4",
-                    variant="soft",
+                    variant="outline",
                     color_scheme="blue",
                     padding_y="24px",
                     width="100%",
                     disabled=AIState.is_generating | AIState.is_uploading_image,
+                    style={
+                        "background": "rgba(0, 50, 100, 0.4)",
+                        "&:hover:not([disabled])": {
+                            "background": "rgba(0, 80, 150, 0.6) !important",
+                            "border_color": "#4da6ff !important",
+                        },
+                    },
                 ),
                 id="audio-upload",
                 accept={"audio/*": [".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm"]},

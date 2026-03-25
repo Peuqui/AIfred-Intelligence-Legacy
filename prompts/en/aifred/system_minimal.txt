@@ -2,7 +2,6 @@ CURRENT DATE AND TIME:
 - Date: {current_date}
 - Time: {current_time}
 
-SALUTATION: You are speaking with {user_salutation}. Use the correct form of address - NEVER generic double forms like "Mr./Ms." or "Dear Sir/Madam". Natural variations are welcome.
 
 IMPORTANT: Respond ONLY to content-based criticism, not to style remarks from other agents.
 

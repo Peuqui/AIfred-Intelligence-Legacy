@@ -5,6 +5,29 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.63.0] - 2026-03-25 🧪 Sandboxed Code Execution + Interactive Visualizations
+
+### Added
+
+- **Sandboxed Code Execution** (`execute_code` tool) — LLM can write and run Python code in an isolated subprocess with resource limits (RLIMIT_AS 2GB, RLIMIT_CPU 30s, asyncio timeout). Supports numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn.
+- **Interactive HTML Output** — Code can generate standalone HTML/JS apps (Plotly 3D, Canvas games, simulations) saved as `output.html`. Automatically embedded as iframe in chat with collapsible wrapper.
+- **Static Plot Output** — Matplotlib plots auto-captured and displayed as images in chat (no base64 in LLM responses).
+- **Session-scoped Sandbox Output** — Files stored in `data/sandbox_output/{session_id}/`, cleaned up on chat clear (like images/audio).
+- **Tool Call Early Notification** — `tool_call_start` chunk yielded as soon as tool name is known during streaming. UI shows `⚙️ Code wird generiert...` immediately instead of waiting for full tool body.
+- **User Gender in Prompts** — `get_salutation()` restored to return gender-aware form ("Herr Name" / "Frau Name"). Models now correctly address users by gender.
+
+### Changed
+
+- **Button Styling** — Upper buttons (Aufnahme, Bild hochladen, Audio) now use `variant="outline"` with RGBA backgrounds matching lower buttons. Disabled state dims consistently instead of going full grey.
+- **Tool Result Streaming** — Full tool result text passed to stream handler (was truncated to 200 chars, breaking SANDBOX_HTML_URL detection).
+- **HTML Preview LRU** — `MAX_HTML_FILES` moved to config.py as `HTML_PREVIEW_MAX_FILES = 200` (was hardcoded 50 in formatting.py).
+- **Context Number Formatting** — Debug log uses `format_number()` for locale-aware display (131.072 DE vs 131,072 EN).
+- **Sandbox Output Collapsible Order** — Thinking → Sources → Sandbox → Answer text.
+
+### Fixed
+
+- **Same-Session Memory Duplication** — Memories stored during current session excluded from injection (already in chat history). Uses `find_by_session()` + `exclude_session_id` parameter.
+
 ## [2.62.0] - 2026-03-23 🏛️ Symposion Mode + Agent Memory Hardening
 
 ### Added

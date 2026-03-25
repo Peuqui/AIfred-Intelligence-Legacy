@@ -355,6 +355,16 @@ class SessionMixin(rx.State, mixin=True):
             except OSError as e:
                 self.add_debug(f"Audio cleanup failed: {e}")  # type: ignore[attr-defined]
 
+        # Sandbox-Output aufraeumen (data/sandbox_output/{session_id}/)
+        if self.session_id:
+            from ..lib.sandbox import cleanup_session_sandbox
+            try:
+                deleted = cleanup_session_sandbox(self.session_id)
+                if deleted > 0:
+                    self.add_debug(f"{deleted} sandbox output(s) deleted")  # type: ignore[attr-defined]
+            except OSError as e:
+                self.add_debug(f"Sandbox cleanup failed: {e}")  # type: ignore[attr-defined]
+
         # Clear Web-Quellen State (Sources Collapsible)
         self.used_sources = []  # type: ignore[attr-defined, var-annotated]
         self.failed_sources = []  # type: ignore[attr-defined, var-annotated]

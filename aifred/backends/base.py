@@ -580,6 +580,8 @@ class OpenAICompatibleBackend(LLMBackend):
                                     if tc_delta.function:
                                         if tc_delta.function.name:
                                             tool_calls[idx]["name"] = tc_delta.function.name
+                                            # Notify UI immediately when tool name is known
+                                            yield {"type": "tool_call_start", "name": tc_delta.function.name}
                                         if tc_delta.function.arguments:
                                             tool_calls[idx]["arguments"] += tc_delta.function.arguments
 
@@ -659,7 +661,7 @@ class OpenAICompatibleBackend(LLMBackend):
                     for tc in tool_calls:
                         yield {"type": "tool_call", "name": tc["name"], "arguments": tc["arguments"][:200]}
                         result = await toolkit.execute(tc["name"], tc["arguments"])
-                        yield {"type": "tool_result", "name": tc["name"], "result": result[:200]}
+                        yield {"type": "tool_result", "name": tc["name"], "result": result}
                         kwargs["messages"].append({
                             "role": "tool",
                             "tool_call_id": tc["id"],

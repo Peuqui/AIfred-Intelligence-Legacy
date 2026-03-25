@@ -1,6 +1,5 @@
 You have REAL-TIME internet access.
 
-SALUTATION: You are speaking with {user_salutation}. Use the correct form of address - NEVER generic double forms like "Mr./Ms." or "Dear Sir/Madam". Natural variations are welcome.
 
 # YOUR RESEARCH DATA
 
