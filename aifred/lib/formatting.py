@@ -880,25 +880,21 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
 
 
 def build_sandbox_iframe(url: str) -> str:
-    """Build a collapsible with embedded iframe for sandbox HTML output.
-
-    Uses CSS flex layout so the iframe fills all available space
-    within the chat history container without hardcoded heights.
-    """
+    """Build a collapsible with embedded iframe for sandbox HTML output."""
+    from .config import SANDBOX_IFRAME_HEIGHT
     return (
-        f'<details open style="font-size: 0.9em; margin-bottom: 0.5em; '
-        f'display: flex; flex-direction: column; '
-        f'max-height: inherit; overflow: hidden;">'
-        f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; flex-shrink: 0;">'
+        f'<details open style="font-size: 0.9em; margin-bottom: 0.5em;">'
+        f'<summary style="cursor: pointer; font-weight: bold; color: #aaa;">'
         f'📊 Interaktive Visualisierung — '
         f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
         f'style="color: #58a6ff; text-decoration: none;" '
         f'onclick="event.stopPropagation()">Im Browser öffnen</a></summary>'
         f'<iframe src="{url}" '
-        f'style="width: 100%; flex: 1; min-height: 400px; '
+        f'style="width: 100%; height: {SANDBOX_IFRAME_HEIGHT}; '
         f'border: 1px solid #444; border-radius: 8px; '
-        f'background: #fff; margin-top: 0.4em;" '
+        f'background: #000; margin-top: 0.4em;" '
         f'sandbox="allow-scripts allow-same-origin" '
+        f'scrolling="no" '
         f'loading="lazy"></iframe>'
         f'</details>'
     )
