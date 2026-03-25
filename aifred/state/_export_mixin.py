@@ -170,6 +170,12 @@ class ExportMixin(rx.State, mixin=True):
         # Add line break after marker spans
         ai_msg_html = re.sub(r'(</span>)(?!<br>)', r'\1<br><br>', ai_msg_html)
 
+        # Embed sandbox HTML inline for portable export (iframe src → srcdoc)
+        ai_msg_html = self._embed_sandbox_html(ai_msg_html)
+
+        # Embed sandbox images as Base64 for portable export
+        ai_msg_html = self._embed_sandbox_images(ai_msg_html)
+
         # Embed audio as Base64 for portable HTML export
         audio_html = ""
         audio_urls = metadata.get("audio_urls", [])
@@ -364,6 +370,57 @@ class ExportMixin(rx.State, mixin=True):
                 else ai_msg_stripped
             )
         return "aifred-message", f"🎩 AIfred{mode_text}", content
+
+    # ------------------------------------------------------------------
+    # Private helpers – sandbox embedding
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _embed_sandbox_html(html: str) -> str:
+        """Replace sandbox iframe src URLs with inline srcdoc for portable export."""
+        import html as html_mod
+        from ..lib.config import SANDBOX_OUTPUT_DIR
+
+        iframe_pattern = re.compile(
+            r'<iframe\s+src="(/_upload/sandbox_output/[^"]+)"([^>]*)>'
+        )
+
+        def replace_iframe(match: re.Match) -> str:
+            url_path = match.group(1)
+            attrs = match.group(2)
+            # URL: /_upload/sandbox_output/{session_id}/{file}.html
+            relative = url_path.replace("/_upload/sandbox_output/", "")
+            file_path = SANDBOX_OUTPUT_DIR / relative
+            if file_path.exists():
+                content = file_path.read_text(encoding="utf-8")
+                escaped = html_mod.escape(content)
+                # Remove sandbox attr (srcdoc doesn't need it) and src
+                attrs_clean = re.sub(r'sandbox="[^"]*"', '', attrs)
+                return f'<iframe srcdoc="{escaped}"{attrs_clean}>'
+            return match.group(0)  # Keep original if file not found
+
+        return iframe_pattern.sub(replace_iframe, html)
+
+    @staticmethod
+    def _embed_sandbox_images(html: str) -> str:
+        """Replace sandbox image URLs with inline Base64 for portable export."""
+        import base64
+        from ..lib.config import SANDBOX_OUTPUT_DIR
+
+        img_pattern = re.compile(
+            r'<img\s+src="(/_upload/sandbox_output/[^"]+\.png)"'
+        )
+
+        def replace_img(match: re.Match) -> str:
+            url_path = match.group(1)
+            relative = url_path.replace("/_upload/sandbox_output/", "")
+            file_path = SANDBOX_OUTPUT_DIR / relative
+            if file_path.exists():
+                b64 = base64.b64encode(file_path.read_bytes()).decode("ascii")
+                return f'<img src="data:image/png;base64,{b64}"'
+            return match.group(0)
+
+        return img_pattern.sub(replace_img, html)
 
     # ------------------------------------------------------------------
     # Private helpers – markdown / HTML conversion
