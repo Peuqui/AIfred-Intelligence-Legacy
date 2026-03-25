@@ -415,6 +415,13 @@ async def prepare_agent_toolkit(
         from .sandbox_tools import get_sandbox_tools
         all_tools.extend(get_sandbox_tools(session_id=session_id))
 
+    # Email tools — only when enabled via environment
+    if research_tools_enabled:
+        from .config import EMAIL_ENABLED
+        if EMAIL_ENABLED:
+            from .email_tools import get_email_tools
+            all_tools.extend(get_email_tools())
+
     toolkit = ToolKit(tools=all_tools) if all_tools else None
     return memory_ctx, toolkit
 

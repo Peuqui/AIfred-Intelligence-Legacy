@@ -1,0 +1,1 @@
+Check the user's email inbox and show recent messages. Use this when the user asks about new emails, unread messages, or wants to see their inbox. Returns a list with message ID, date, sender, subject, and a short preview. Use email_read with the message ID to read the full email.

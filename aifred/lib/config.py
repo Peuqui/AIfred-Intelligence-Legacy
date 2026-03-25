@@ -990,6 +990,21 @@ SANDBOX_ALLOWED_IMPORTS: list[str] = [
 ]
 
 # ============================================================
+# EMAIL CONFIGURATION
+# ============================================================
+# Credentials via environment variables (never in settings.json!)
+EMAIL_ENABLED = os.environ.get("EMAIL_ENABLED", "false").lower() == "true"
+EMAIL_IMAP_HOST = os.environ.get("EMAIL_IMAP_HOST", "")
+EMAIL_IMAP_PORT = int(os.environ.get("EMAIL_IMAP_PORT", "993"))
+EMAIL_SMTP_HOST = os.environ.get("EMAIL_SMTP_HOST", "")
+EMAIL_SMTP_PORT = int(os.environ.get("EMAIL_SMTP_PORT", "587"))
+EMAIL_USER = os.environ.get("EMAIL_USER", "")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "")
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "")  # Sender address (defaults to EMAIL_USER)
+EMAIL_MAX_FETCH = 20                 # Max emails per inbox check
+EMAIL_MAX_BODY_CHARS = 10_000        # Truncate email body for LLM context
+
+# ============================================================
 # HTML PREVIEW CONFIGURATION
 # ============================================================
 HTML_PREVIEW_MAX_FILES = 200         # LRU cache limit for data/html_preview/

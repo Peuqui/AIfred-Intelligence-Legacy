@@ -41,7 +41,12 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
   - `calculate` — Mathematical calculations and unit conversions
   - `read_document` — Read and analyze documents
   - `execute_code` — Run Python code in isolated sandbox (see below)
+  - `email_check` — Check inbox for recent emails (IMAP)
+  - `email_read` — Read full email content by message ID
+  - `email_search` — Search emails by subject or sender
+  - `email_send` — Draft and send emails (SMTP, with user confirmation)
 - **Sandboxed Code Execution**: LLM can write and run Python code in an isolated subprocess (resource-limited, auto-cleanup). Supports numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interactive HTML/JS visualizations (Plotly 3D, Canvas games, simulations) are embedded as iframes directly in the chat. Static matplotlib plots are displayed as images
+- **E-Mail Integration**: Read, search, and send emails via IMAP/SMTP. Sending requires explicit user confirmation (draft → review → confirm). Credentials via environment variables only (never stored in settings). Opt-in via `EMAIL_ENABLED=true`
 - **Custom Agents**: Create unlimited custom agents with name, emoji, role, and multilingual prompts (DE/EN). Custom agents participate in debates, can be directly addressed, and have their own long-term memory
 - **Sampling Parameters Table**: Per-agent control of Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual mode) — sampling params reset to llama-swap YAML defaults on restart, temperature persisted in settings.json
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
