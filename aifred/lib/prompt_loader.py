@@ -81,33 +81,6 @@ def get_user_gender() -> str:
     return _current_user_gender
 
 
-def get_salutation() -> str:
-    """
-    Get proper salutation based on user name and gender.
-
-    If the name already contains a title (Lord, Sir, Dr., Prof., etc.),
-    no additional Herr/Frau prefix is added.
-
-    Returns:
-        - "{name}" if name contains a title
-        - "Herr {name}" / "Mr. {name}" for male without title
-        - "Frau {name}" / "Ms. {name}" for female without title
-        - Empty string if no name set
-    """
-    if not _current_user_name:
-        return ""
-
-    # Skip prefix if name already contains a title
-    _titles = ("lord", "sir", "lady", "dr.", "prof.", "herr", "frau", "mr.", "ms.", "mrs.")
-    if _current_user_name.lower().split()[0].rstrip(".") in [t.rstrip(".") for t in _titles]:
-        return _current_user_name
-
-    if _current_language == "de":
-        title = "Herr" if _current_user_gender == "male" else "Frau"
-    else:
-        title = "Mr." if _current_user_gender == "male" else "Ms."
-
-    return f"{title} {_current_user_name}"
 
 
 def set_personality_enabled(agent: str, enabled: bool):
@@ -390,7 +363,6 @@ def load_prompt(
         'current_weekday': weekday,
         'previous_years': f"{current_year_int - 2} oder {current_year_int - 1}",  # e.g., "2024 oder 2025"
         'user_name': _current_user_name if _current_user_name else "",
-        'user_salutation': get_salutation(),
         'user_gender': "männlich" if _current_user_gender == "male" else "weiblich",
     }
 
@@ -401,12 +373,15 @@ def load_prompt(
     if user_text and 'user_text' not in all_placeholders:
         all_placeholders['user_text'] = user_text
 
-    # Inject user name at the top of every prompt (if set)
+    # Inject user name + gender at the top of every prompt (if set)
+    # The model decides how to address the user (Herr/Frau/Lord/Dr./etc.)
     if _current_user_name:
+        gender_label = "männlich" if _current_user_gender == "male" else "weiblich"
         if lang == "de":
-            user_prefix = f"BENUTZER-NAME: {get_salutation()}\n\n"
+            user_prefix = f"BENUTZER: {_current_user_name} ({gender_label})\n\n"
         else:
-            user_prefix = f"USER NAME: {get_salutation()}\n\n"
+            gender_en = "male" if _current_user_gender == "male" else "female"
+            user_prefix = f"USER: {_current_user_name} ({gender_en})\n\n"
         prompt_template = user_prefix + prompt_template
 
     # Format prompt with all placeholders
