@@ -1056,9 +1056,10 @@ VISION_MAX_IMAGE_DIMENSION = 3840  # 4K UHD - beste OCR-Qualität bei akzeptable
 UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP = "70vh"    # Desktop: 70% of viewport height (dynamic scrolling)
 UI_CHAT_HISTORY_MAX_HEIGHT_MOBILE = "60vh"     # Mobile: 60% viewport, leaves 40% "grip space"
 
-# Sandbox iframe height (= chat history box height for full-screen feel)
-SANDBOX_IFRAME_HEIGHT = UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP
-
+# Sandbox collapsible max-height (80% of chat box)
+UI_SANDBOX_MAX_HEIGHT = "60vh"
+# Sandbox iframe height (fills its collapsible container)
+SANDBOX_IFRAME_HEIGHT = "100%"
 
 # Thinking Process Collapsible (<details> tag)
 UI_THINKING_MAX_HEIGHT_DESKTOP = "450px"       # Desktop: ~15-20 lines of text
