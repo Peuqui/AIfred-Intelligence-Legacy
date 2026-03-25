@@ -199,22 +199,21 @@ textarea:focus {
     background-color: rgba(230, 119, 0, 0.15) !important;
 }
 
-/* All collapsibles (details) base styling */
+/* Thinking Process Collapsible - HÖCHSTE PRIORITÄT */
 details {
-    background-color: #252c35 !important;
+    background-color: #252c35 !important;  /* Deutlich helleres Grau */
     border-radius: 4px !important;
     padding: 0.5em !important;
     margin-bottom: 1em !important;
-    max-height: var(--thinking-max-height-desktop) !important;
-    overflow-y: auto !important;
+    max-height: var(--thinking-max-height-desktop) !important;  /* From config.py, responsive via media query */
+    overflow-y: auto !important;  /* Scrollbar wenn zu lang */
 }
 
-/* Sandbox collapsible: 80% of chat box, not the default 450px */
-details:has(iframe), details:has(> img) {
-    max-height: var(--sandbox-max-height) !important;
-    overflow: hidden !important;
-    padding: 0 !important;
+details[data-sandbox] {
+    max-height: none !important;
+    overflow: visible !important;
     background: transparent !important;
+    padding: 0 !important;
 }
 
 details summary {
@@ -804,7 +803,9 @@ tr:hover {
         max-height: var(--chat-max-height-mobile) !important;
     }
 
-    /* Thinking max-height handled by .thinking-compact div inside details */
+    details:not([data-sandbox]) {
+        max-height: var(--thinking-max-height-mobile) !important;
+    }
 
     /* Chat bubbles: Prevent text from bleeding out on the right side.
        Targets the inner content box of each message bubble. */

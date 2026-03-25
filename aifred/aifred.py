@@ -13,7 +13,6 @@ from .lib.config import (
     UI_THINKING_MAX_HEIGHT_DESKTOP,
     UI_THINKING_MAX_HEIGHT_MOBILE,
     UI_DEBUG_CONSOLE_MAX_HEIGHT,
-    UI_SANDBOX_MAX_HEIGHT,
     UI_MOBILE_BREAKPOINT,
 )
 
@@ -837,7 +836,6 @@ app = rx.App(
                 --thinking-max-height-desktop: {UI_THINKING_MAX_HEIGHT_DESKTOP};
                 --thinking-max-height-mobile: {UI_THINKING_MAX_HEIGHT_MOBILE};
                 --debug-max-height: {UI_DEBUG_CONSOLE_MAX_HEIGHT};
-                --sandbox-max-height: {UI_SANDBOX_MAX_HEIGHT};
                 --mobile-breakpoint: {UI_MOBILE_BREAKPOINT};
             }}
         """),
