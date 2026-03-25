@@ -34,8 +34,14 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud-Streaming mit Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **nahtlose Echtzeit-Audioausgabe** (Double-Buffered HTML5 Audio, lückenlose Wiedergabe während der LLM-Inferenz)
 - **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
 - **Agenten-Langzeitgedächtnis**: Persistentes Gedächtnis pro Agent via ChromaDB — Agenten speichern eigenständig Erkenntnisse via Function Calling, kombinierter Recall (10 neueste + semantische Suche), Session-Pinning für alle beteiligten Agenten. Memory-Browser in der Agentenverwaltung zum Inspizieren und Aufräumen. Inkognito-Modus (🔒) deaktiviert das Gedächtnis global
-- **Function Calling**: OpenAI-kompatible Tool-Infrastruktur für LLM-gesteuerte Aktionen (store_memory, web_search, web_fetch, calculate, read_document, execute_code)
-- **Sandboxed Code-Ausführung**: LLM kann Python-Code in einem isolierten Subprocess schreiben und ausführen (ressourcenlimitiert, automatisches Aufräumen). Unterstützt numpy, pandas, matplotlib, plotly, seaborn. Interaktive HTML/JS-Visualisierungen (Plotly 3D, Canvas-Spiele, Simulationen) werden als iframes direkt im Chat eingebettet. Statische matplotlib-Plots werden als Bilder angezeigt
+- **Function Calling / Tool Use**: OpenAI-kompatible Tool-Infrastruktur — das LLM entscheidet autonom welche Tools es braucht:
+  - `store_memory` — Erkenntnisse im Langzeitgedächtnis speichern
+  - `web_search` — Multi-API Web-Recherche (Brave, Tavily, SearXNG) mit automatischem Scraping und Ranking
+  - `web_fetch` — Gezielt einzelne URLs abrufen und Inhalte extrahieren
+  - `calculate` — Mathematische Berechnungen und Einheitenumrechnungen
+  - `read_document` — Dokumente lesen und analysieren
+  - `execute_code` — Python-Code in isolierter Sandbox ausführen (siehe unten)
+- **Sandboxed Code-Ausführung**: LLM kann Python-Code in einem isolierten Subprocess schreiben und ausführen (ressourcenlimitiert, automatisches Aufräumen). Unterstützt numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interaktive HTML/JS-Visualisierungen (Plotly 3D, Canvas-Spiele, Simulationen) werden als iframes direkt im Chat eingebettet. Statische matplotlib-Plots werden als Bilder angezeigt
 - **Benutzerdefinierte Agenten**: Unbegrenzt eigene Agenten erstellen mit Name, Emoji, Rolle und zweisprachigen Prompts (DE/EN). Eigene Agenten nehmen an Debatten teil, können direkt angesprochen werden und haben ihr eigenes Langzeitgedächtnis
 - **Sampling-Parameter-Tabelle**: Agentenspezifische Einstellung von Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual-Modus) — Sampling-Parameter werden bei Neustart auf llama-swap YAML-Defaults zurückgesetzt, Temperature wird in settings.json gespeichert
 - **Backend-spezifische Einstellungen**: Jedes Backend merkt sich seine bevorzugten Modelle (inkl. Vision-LLM)

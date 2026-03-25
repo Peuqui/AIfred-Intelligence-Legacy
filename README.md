@@ -34,8 +34,14 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (double-buffered HTML5 audio, seamless playback during LLM inference)
 - **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
 - **Agent Long-Term Memory**: Per-agent persistent memory via ChromaDB — agents autonomously store insights via function calling, combined recall (10 recent + semantic search), session pinning for all participating agents. Memory Browser in Agent Editor for inspection and cleanup. Incognito mode (🔒) disables memory globally
-- **Function Calling**: OpenAI-compatible tool infrastructure for LLM-driven actions (store_memory, web_search, web_fetch, calculate, read_document, execute_code)
-- **Sandboxed Code Execution**: LLM can write and run Python code in an isolated subprocess (resource-limited, auto-cleanup). Supports numpy, pandas, matplotlib, plotly, seaborn. Interactive HTML/JS visualizations (Plotly 3D, Canvas games, simulations) are embedded as iframes directly in the chat. Static matplotlib plots are displayed as images
+- **Function Calling / Tool Use**: OpenAI-compatible tool infrastructure — the LLM autonomously decides which tools to use:
+  - `store_memory` — Save insights to long-term memory
+  - `web_search` — Multi-API web research (Brave, Tavily, SearXNG) with automatic scraping and ranking
+  - `web_fetch` — Fetch and extract content from specific URLs
+  - `calculate` — Mathematical calculations and unit conversions
+  - `read_document` — Read and analyze documents
+  - `execute_code` — Run Python code in isolated sandbox (see below)
+- **Sandboxed Code Execution**: LLM can write and run Python code in an isolated subprocess (resource-limited, auto-cleanup). Supports numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interactive HTML/JS visualizations (Plotly 3D, Canvas games, simulations) are embedded as iframes directly in the chat. Static matplotlib plots are displayed as images
 - **Custom Agents**: Create unlimited custom agents with name, emoji, role, and multilingual prompts (DE/EN). Custom agents participate in debates, can be directly addressed, and have their own long-term memory
 - **Sampling Parameters Table**: Per-agent control of Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual mode) — sampling params reset to llama-swap YAML defaults on restart, temperature persisted in settings.json
 - **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
