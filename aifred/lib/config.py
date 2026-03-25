@@ -971,6 +971,24 @@ AGENT_MEMORY_RESULTS = 5             # Semantic search results
 AGENT_MEMORY_RECENT_COUNT = 10       # Always load N most recent memories
 
 # ============================================================
+# SANDBOX (CODE EXECUTION) CONFIGURATION
+# ============================================================
+SANDBOX_TIMEOUT_SECONDS = 30         # Max execution time per run
+SANDBOX_MAX_RAM_MB = 2048            # RLIMIT_AS for subprocess (numpy/pandas need ~1GB)
+SANDBOX_MAX_OUTPUT_BYTES = 1_000_000 # Truncate stdout/stderr beyond this
+SANDBOX_WORK_DIR = "/tmp/aifred_sandbox"
+SANDBOX_ALLOWED_IMPORTS: list[str] = [
+    # stdlib
+    "math", "statistics", "datetime", "json", "csv", "re",
+    "collections", "itertools", "functools", "operator",
+    "fractions", "decimal", "random", "string", "textwrap",
+    "pprint", "io", "os", "sys", "pathlib", "hashlib", "base64",
+    # data science
+    "numpy", "pandas", "matplotlib", "matplotlib.pyplot",
+    "scipy", "sklearn", "seaborn",
+]
+
+# ============================================================
 # XML TAG FORMATTING CONFIGURATION
 # ============================================================
 # Collapsible formatting for XML tags in AI responses

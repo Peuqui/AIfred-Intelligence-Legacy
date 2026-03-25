@@ -410,6 +410,11 @@ async def prepare_agent_toolkit(
         from .research_tools import get_research_tools
         all_tools.extend(get_research_tools(state=state, lang=lang))
 
+    # Sandbox tools (execute_code) — always available when research tools are enabled
+    if research_tools_enabled:
+        from .sandbox_tools import get_sandbox_tools
+        all_tools.extend(get_sandbox_tools())
+
     toolkit = ToolKit(tools=all_tools) if all_tools else None
     return memory_ctx, toolkit
 
