@@ -392,6 +392,14 @@ def load_prompt(
     if user_text and 'user_text' not in all_placeholders:
         all_placeholders['user_text'] = user_text
 
+    # Inject user name at the top of every prompt (if set)
+    if _current_user_name:
+        if lang == "de":
+            user_prefix = f"BENUTZER-NAME: {get_salutation()}\n\n"
+        else:
+            user_prefix = f"USER NAME: {get_salutation()}\n\n"
+        prompt_template = user_prefix + prompt_template
+
     # Format prompt with all placeholders
     try:
         return prompt_template.format(**all_placeholders)
