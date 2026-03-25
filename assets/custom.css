@@ -210,8 +210,8 @@ details {
 }
 
 details[data-sandbox] {
-    max-height: none !important;
-    overflow: visible !important;
+    max-height: var(--sandbox-max-height, none) !important;
+    overflow: hidden !important;
     background: transparent !important;
     padding: 0 !important;
 }
