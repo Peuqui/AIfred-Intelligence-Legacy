@@ -2842,6 +2842,15 @@ async def calibrate_llamacpp_model(
         if best_result >= native_context:
             break
 
+        # f16 reached ≥75% of native context — good enough, skip q8_0
+        if kv_level == "f16" and native_context > 0 and best_result >= native_context * 0.75:
+            yield (
+                f"KV=f16: {format_number(best_result)} tokens "
+                f"({best_result * 100 // native_context}% of native {format_number(native_context)}) "
+                f"— sufficient, skipping q8_0"
+            )
+            break
+
         if kv_level == "f16":
             ctx_info = (
                 format_number(best_result)

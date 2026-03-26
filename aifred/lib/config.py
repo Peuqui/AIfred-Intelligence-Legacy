@@ -863,7 +863,7 @@ VRAM_SAFETY_MARGIN = 512  # MB
 # and server startup don't account for.
 # Measured on WSL2: 512 → 70 tok/s (VMM), 1024 → marginal, 1536 → 137 tok/s (full speed)
 _is_wddm = "microsoft" in platform.release().lower() or os.name == "nt"
-LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 128  # MB
+LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 192  # MB
 LLAMACPP_CALIBRATION_PRECISION = 256  # Token step size for context binary search
 
 # Maximum tool call rounds per LLM response (safety net against infinite loops)
