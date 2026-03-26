@@ -18,7 +18,7 @@ from typing import AsyncIterator, Dict, List, Optional, Any, cast
 from .llm_client import LLMClient, build_llm_options, MessageType
 from .timer import Timer
 from .formatting import format_number, format_thinking_process, build_inference_metadata
-from .prompt_loader import get_aifred_direct_prompt, get_aifred_system_minimal
+from .prompt_loader import get_agent_direct_prompt, get_agent_system_prompt
 from .context_manager import estimate_tokens, strip_thinking_blocks
 from .intent_detector import get_temperature_for_intent, get_temperature_label
 from .logging_utils import log_message
@@ -112,12 +112,11 @@ async def handle_own_knowledge(
 
     # Inject system prompt (agent-aware: vision uses own prompt stack with toggles)
     if agent == "vision":
-        from .prompt_loader import get_agent_system_prompt
         system_prompt = get_agent_system_prompt("vision", vision_prompt_key, lang=detected_language)
     elif use_direct_prompt:
-        system_prompt = get_aifred_direct_prompt(lang=detected_language)
+        system_prompt = get_agent_direct_prompt(agent, lang=detected_language)
     else:
-        system_prompt = get_aifred_system_minimal(lang=detected_language)
+        system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language)
     # Agent Memory: recall + toolkit
     memory_toolkit = None
     if state and getattr(state, 'agent_memory_enabled', False) and agent != "vision":

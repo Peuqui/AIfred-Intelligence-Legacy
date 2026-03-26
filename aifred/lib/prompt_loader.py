@@ -363,7 +363,7 @@ def load_prompt(
         'current_weekday': weekday,
         'previous_years': f"{current_year_int - 2} oder {current_year_int - 1}",  # e.g., "2024 oder 2025"
         'user_name': _current_user_name if _current_user_name else "",
-        'user_gender': "männlich" if _current_user_gender == "male" else "weiblich",
+        'user_gender': ("männlich" if _current_user_gender == "male" else "weiblich") if lang == "de" else _current_user_gender,
     }
 
     # Merge standard placeholders with kwargs (kwargs override standard)
@@ -373,16 +373,8 @@ def load_prompt(
     if user_text and 'user_text' not in all_placeholders:
         all_placeholders['user_text'] = user_text
 
-    # Inject user name + gender at the top of every prompt (if set)
-    # The model decides how to address the user (Herr/Frau/Lord/Dr./etc.)
-    if _current_user_name:
-        gender_label = "männlich" if _current_user_gender == "male" else "weiblich"
-        if lang == "de":
-            user_prefix = f"BENUTZER: {_current_user_name} ({gender_label})\n\n"
-        else:
-            gender_en = "male" if _current_user_gender == "male" else "female"
-            user_prefix = f"USER: {_current_user_name} ({gender_en})\n\n"
-        prompt_template = user_prefix + prompt_template
+    # NOTE: User name/gender prefix is injected in _merge_prompt_layers() (Layer 0),
+    # NOT here. This prevents the prefix from appearing once per layer (5-6x).
 
     # Format prompt with all placeholders
     try:
@@ -462,7 +454,11 @@ def get_agent_system_prompt(
     prompt_name = prompt_path.removesuffix(".txt")
 
     task_prompt = load_prompt(prompt_name, lang=lang, **kwargs)
-    return _merge_prompt_layers(agent_id, task_prompt, lang, multi_agent=multi_agent, memory=memory)
+    return _merge_prompt_layers(
+        agent_id, task_prompt, lang,
+        multi_agent=multi_agent, memory=memory,
+        user_name=kwargs.get('user_name'), user_gender=kwargs.get('user_gender'),
+    )
 
 
 def register_agent_toggles(agent_id: str, toggles: dict[str, bool]) -> None:
@@ -670,12 +666,15 @@ def _merge_prompt_layers(
     task_prompt: str,
     lang: Optional[str] = None,
     multi_agent: bool = False,
-    memory: bool = True
+    memory: bool = True,
+    user_name: Optional[str] = None,
+    user_gender: Optional[str] = None,
 ) -> str:
     """
     Merge prompt layers in correct order.
 
     Layer system:
+    0. User prefix (WHO is the user) - if user_name is set
     1. Identity (WHO am I) - always loaded
     2. Reasoning (HOW do I think) - toggleable via settings
     3. Multi-Agent Roles (WHO are the others) - only in multi-agent modes
@@ -685,16 +684,33 @@ def _merge_prompt_layers(
     6. Personality (HOW do I speak) - toggleable via settings, LAST for priority
 
     Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
+        agent: Agent name ("aifred", "sokrates", "salomo", or custom agent ID)
         task_prompt: The task-specific prompt (already loaded with timestamp)
         lang: Language code (de/en), defaults to current language
         multi_agent: If True, include shared/multi_agent_roles.txt (for debate modes)
         memory: If True, include memory instructions (False in incognito mode)
+        user_name: User's display name (fallback: global _current_user_name)
+        user_gender: User's gender "male"/"female" (fallback: global _current_user_gender)
 
     Returns:
         Merged prompt string with all applicable layers
     """
+    if lang is None:
+        lang = get_language()
+
+    # Resolve user name/gender: explicit parameter > global cache
+    name = user_name if user_name is not None else _current_user_name
+    gender = user_gender if user_gender is not None else _current_user_gender
+
     parts = []
+
+    # Layer 0: User prefix (once, at the top — NOT per-layer)
+    if name:
+        if lang == "de":
+            gender_label = "männlich" if gender == "male" else "weiblich"
+            parts.append(f"BENUTZER: {name} ({gender_label})")
+        else:
+            parts.append(f"USER: {name} ({gender})")
 
     # Layer 1: Identity (always)
     identity = load_identity(agent, lang)
@@ -735,29 +751,31 @@ def _merge_prompt_layers(
     return "\n\n".join(parts)
 
 
-def get_aifred_system_minimal(lang: Optional[str] = None, multi_agent: bool = False, memory: bool = True) -> str:
+def get_system_rag_prompt(
+    context: str, user_text: str = "", agent_id: str = "aifred",
+    lang: Optional[str] = None,
+    user_name: Optional[str] = None, user_gender: Optional[str] = None,
+) -> str:
     """
-    Load AIfred minimal system prompt with layer merging.
+    Load system RAG prompt with 6-layer merging.
 
-    Layers: Identity + Reasoning + [MultiAgent] + Task + [Memory] + Personality
+    Uses the agent's "rag" prompt key if available, falls back to aifred/system_rag.
     """
-    task_prompt = load_prompt('aifred/system_minimal', lang=lang)
-    return _merge_prompt_layers("aifred", task_prompt, lang, multi_agent=multi_agent, memory=memory)
+    from .agent_config import get_agent_config
+    config = get_agent_config(agent_id)
+    rag_path = config.prompts.get("rag", "aifred/system_rag") if config else "aifred/system_rag"
+    prompt_name = rag_path.removesuffix(".txt")
 
-
-def get_system_rag_prompt(context: str, user_text: str = "", lang: Optional[str] = None) -> str:
-    """
-    Load system RAG prompt with 4-layer merging.
-
-    Layers: Identity + Personality (if enabled) + RAG task prompt
-    """
     task_prompt = load_prompt(
-        'aifred/system_rag',
+        prompt_name,
         lang=lang,
         user_text=user_text,
         context=context
     )
-    return _merge_prompt_layers("aifred", task_prompt, lang)
+    return _merge_prompt_layers(
+        agent_id, task_prompt, lang,
+        user_name=user_name, user_gender=user_gender,
+    )
 
 
 # Cache metadata prompt removed - will be replaced with Vector DB embeddings
@@ -828,16 +846,6 @@ def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) 
 # ============================================================
 # Sokrates Multi-Agent Prompts
 # ============================================================
-
-def get_sokrates_system_minimal(lang: Optional[str] = None, multi_agent: bool = False, memory: bool = True) -> str:
-    """
-    Load Sokrates minimal system prompt with layer merging.
-
-    Layers: Identity + Reasoning + [MultiAgent] + Task + [Memory] + Personality
-    """
-    task_prompt = load_prompt('sokrates/system_minimal', lang=lang)
-    return _merge_prompt_layers("sokrates", task_prompt, lang, multi_agent=multi_agent, memory=memory)
-
 
 def get_sokrates_critic_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
     """
@@ -946,46 +954,24 @@ def get_aifred_defense_prompt(
     )
 
 
-def get_sokrates_direct_prompt(lang: Optional[str] = None, memory: bool = True) -> str:
-    """Load Sokrates Direct Response prompt with 6-layer merging."""
-    task_prompt = load_prompt('sokrates/direct', lang=lang)
-    return _merge_prompt_layers("sokrates", task_prompt, lang, memory=memory)
-
-
-def get_aifred_direct_prompt(lang: Optional[str] = None, memory: bool = True) -> str:
-    """Load AIfred Direct Response prompt with 6-layer merging."""
-    task_prompt = load_prompt('aifred/direct', lang=lang)
-    return _merge_prompt_layers("aifred", task_prompt, lang, memory=memory)
-
-
 # ============================================================
-# Salomo Multi-Agent Prompts
+# Agent Direct & System Prompts (generic, works for all agents)
 # ============================================================
 
-def get_salomo_direct_prompt(lang: Optional[str] = None, memory: bool = True) -> str:
-    """Load Salomo Direct Response prompt with 6-layer merging."""
-    task_prompt = load_prompt('salomo/direct', lang=lang)
-    return _merge_prompt_layers("salomo", task_prompt, lang, memory=memory)
-
-
-def get_agent_direct_prompt(agent_id: str, lang: Optional[str] = None, memory: bool = True) -> str:
+def get_agent_direct_prompt(
+    agent_id: str, lang: Optional[str] = None, memory: bool = True,
+    user_name: Optional[str] = None, user_gender: Optional[str] = None,
+) -> str:
     """Load direct response prompt for any agent via 6-layer merging.
 
     Works for both default agents (aifred, sokrates, salomo) and custom agents.
     Loads {agent_id}/direct.txt as task prompt, merges with identity + personality + memory.
     """
     task_prompt = load_prompt(f'{agent_id}/direct', lang=lang)
-    return _merge_prompt_layers(agent_id, task_prompt, lang, memory=memory)
-
-
-def get_salomo_system_minimal(lang: Optional[str] = None, multi_agent: bool = False, memory: bool = True) -> str:
-    """
-    Load Salomo minimal system prompt with layer merging.
-
-    Layers: Identity + Reasoning + [MultiAgent] + Task + [Memory] + Personality
-    """
-    task_prompt = load_prompt('salomo/system_minimal', lang=lang)
-    return _merge_prompt_layers("salomo", task_prompt, lang, multi_agent=multi_agent, memory=memory)
+    return _merge_prompt_layers(
+        agent_id, task_prompt, lang, memory=memory,
+        user_name=user_name, user_gender=user_gender,
+    )
 
 
 def get_salomo_mediator_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
@@ -1044,32 +1030,18 @@ def init_system_prompt_cache() -> dict[str, dict[str, int]]:
 
     _system_prompt_token_cache = {}
 
+    from .agent_config import load_agents_raw
+
+    agents = load_agents_raw()
     for lang in ["de", "en"]:
-        try:
-            # AIfred system prompt (with multi_agent=True for worst-case token count)
-            aifred_prompt = get_aifred_system_minimal(lang=lang, multi_agent=True)
-            if "aifred" not in _system_prompt_token_cache:
-                _system_prompt_token_cache["aifred"] = {}
-            _system_prompt_token_cache["aifred"][lang] = _estimate_tokens(aifred_prompt)
-
-            # Sokrates system prompt (minimal + multi_agent + critic as worst case)
-            sokrates_minimal = get_sokrates_system_minimal(lang=lang, multi_agent=True)
-            sokrates_critic = load_prompt('sokrates/critic', lang=lang, round_num=1)
-            sokrates_combined = f"{sokrates_minimal}\n\n{sokrates_critic}"
-            if "sokrates" not in _system_prompt_token_cache:
-                _system_prompt_token_cache["sokrates"] = {}
-            _system_prompt_token_cache["sokrates"][lang] = _estimate_tokens(sokrates_combined)
-
-            # Salomo system prompt (minimal + multi_agent + mediator as worst case)
-            salomo_minimal = get_salomo_system_minimal(lang=lang, multi_agent=True)
-            salomo_mediator = load_prompt('salomo/mediator', lang=lang, round_num=1)
-            salomo_combined = f"{salomo_minimal}\n\n{salomo_mediator}"
-            if "salomo" not in _system_prompt_token_cache:
-                _system_prompt_token_cache["salomo"] = {}
-            _system_prompt_token_cache["salomo"][lang] = _estimate_tokens(salomo_combined)
-
-        except Exception as e:
-            log_message(f"⚠️ Failed to cache prompts for {lang}: {e}")
+        for agent_id in agents:
+            try:
+                prompt = get_agent_system_prompt(agent_id, "task", lang=lang, multi_agent=True)
+                if agent_id not in _system_prompt_token_cache:
+                    _system_prompt_token_cache[agent_id] = {}
+                _system_prompt_token_cache[agent_id][lang] = _estimate_tokens(prompt)
+            except Exception as e:
+                log_message(f"⚠️ Failed to cache prompts for {agent_id}/{lang}: {e}")
 
     # Log cache summary
     for agent, langs in _system_prompt_token_cache.items():

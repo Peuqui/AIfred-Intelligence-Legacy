@@ -28,16 +28,13 @@ from .context_manager import (
     _last_vram_limit_cache
 )
 from .prompt_loader import (
-    get_aifred_system_minimal,
-    get_sokrates_system_minimal,
-    get_sokrates_direct_prompt,
+    get_agent_system_prompt,
+    get_agent_direct_prompt,
     get_sokrates_critic_prompt,
     get_sokrates_devils_advocate_prompt,
     get_aifred_refinement_prompt,
     get_sokrates_tribunal_prompt,
     get_aifred_defense_prompt,
-    get_salomo_system_minimal,
-    get_salomo_direct_prompt,
     get_salomo_mediator_prompt,
     get_salomo_judge_prompt,
 )
@@ -775,7 +772,7 @@ async def run_sokrates_direct_response(
     """Sokrates responds directly to user."""
     async for _ in _run_agent_direct_response(
         state, "sokrates", "Sokrates", "🏛️",
-        lambda lang=None, memory=True: get_sokrates_direct_prompt(lang=lang, memory=memory),
+        lambda lang=None, memory=True: get_agent_direct_prompt("sokrates", lang=lang, memory=memory),
         user_query, detected_lang,
     ):
         yield
@@ -789,7 +786,7 @@ async def run_salomo_direct_response(
     """Salomo responds directly to user."""
     async for _ in _run_agent_direct_response(
         state, "salomo", "Salomo", "👑",
-        lambda lang=None, memory=True: get_salomo_direct_prompt(lang=lang, memory=memory),
+        lambda lang=None, memory=True: get_agent_direct_prompt("salomo", lang=lang, memory=memory),
         user_query, detected_lang,
     ):
         yield
@@ -980,7 +977,7 @@ async def run_sokrates_analysis(
 
             # === SOKRATES CRITIQUE ===
             # Get system prompts: minimal (base personality) + mode-specific
-            sokrates_minimal = get_sokrates_system_minimal(lang=detected_lang, multi_agent=True, memory=memory_enabled)
+            sokrates_minimal = get_agent_system_prompt("sokrates", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
             if state.multi_agent_mode == "devils_advocate":
                 mode_prompt = get_sokrates_devils_advocate_prompt(lang=detected_lang)
             else:
@@ -1108,7 +1105,7 @@ async def run_sokrates_analysis(
                 salomo_options = build_llm_options(state, "salomo", salomo_temp, salomo_num_ctx)
 
                 # Build Salomo's messages: system + history
-                salomo_minimal = get_salomo_system_minimal(lang=detected_lang, multi_agent=True, memory=memory_enabled)
+                salomo_minimal = get_agent_system_prompt("salomo", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
                 mediator_prompt = get_salomo_mediator_prompt(round_num=round_num, lang=detected_lang)
                 salomo_system = f"{salomo_minimal}\n\n{mediator_prompt}"
                 if salomo_memory_ctx:
@@ -1221,7 +1218,7 @@ async def run_sokrates_analysis(
                     # PRE-AIFRED: Check if compression needed before AIfred refinement
                     # Include AIfred system prompt + refinement prompt in token calculation (v2.14.1+)
                     # IMPORTANT (v2.14.4+): Use AIFRED's context limit, not min_ctx!
-                    aifred_system_prompt = get_aifred_system_minimal(lang=detected_lang, multi_agent=True, memory=memory_enabled)
+                    aifred_system_prompt = get_agent_system_prompt("aifred", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
                     if aifred_memory_ctx:
                         aifred_system_prompt = f"{aifred_system_prompt}\n\n{aifred_memory_ctx}"
                     aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
@@ -1467,7 +1464,7 @@ async def run_tribunal(
             state.debate_round = round_num
 
             # --- SOKRATES ATTACK (Tribunal: adversarial, not coaching) ---
-            sokrates_minimal = get_sokrates_system_minimal(lang=detected_lang, multi_agent=True, memory=memory_enabled)
+            sokrates_minimal = get_agent_system_prompt("sokrates", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
             mode_prompt = get_sokrates_tribunal_prompt(round_num=round_num, lang=detected_lang)
             system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
             if t_sokrates_memory_ctx:
@@ -1551,7 +1548,7 @@ async def run_tribunal(
                 # PRE-AIFRED: Check if compression needed before AIfred refinement
                 # Include AIfred system prompt + refinement prompt in token calculation (v2.14.1+)
                 # IMPORTANT (v2.14.4+): Use AIFRED's context limit, not min_ctx!
-                aifred_system_prompt = get_aifred_system_minimal(lang=detected_lang, multi_agent=True, memory=memory_enabled)
+                aifred_system_prompt = get_agent_system_prompt("aifred", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
                 aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
                 async for _ in _check_compression_if_needed(state, llm_client, main_llm_ctx, aifred_prompt_tokens):
                     yield
@@ -1619,7 +1616,7 @@ async def run_tribunal(
         # === JUDGMENT PHASE: Salomo delivers final verdict ===
         state.add_debug("👑 Salomo rendering verdict...")
 
-        salomo_minimal = get_salomo_system_minimal(lang=detected_lang, multi_agent=True, memory=memory_enabled)
+        salomo_minimal = get_agent_system_prompt("salomo", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
         judge_prompt = get_salomo_judge_prompt(lang=detected_lang)
         salomo_system = f"{salomo_minimal}\n\n{judge_prompt}"
         if t_salomo_memory_ctx:
