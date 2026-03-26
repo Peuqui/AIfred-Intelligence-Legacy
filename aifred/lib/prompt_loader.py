@@ -669,6 +669,8 @@ def _merge_prompt_layers(
     memory: bool = True,
     user_name: Optional[str] = None,
     user_gender: Optional[str] = None,
+    tools: bool = False,
+    rag_context: Optional[str] = None,
 ) -> str:
     """
     Merge prompt layers in correct order.
@@ -679,9 +681,11 @@ def _merge_prompt_layers(
     2. Reasoning (HOW do I think) - toggleable via settings
     3. Multi-Agent Roles (WHO are the others) - only in multi-agent modes
     4. Task prompt (WHAT should I do) - situational
-    4b. Anti-hallucination (STAY HONEST) - always loaded
-    5. Memory instructions (REMEMBER) - when memory active (not incognito)
-    6. Personality (HOW do I speak) - toggleable via settings, LAST for priority
+    5. Anti-hallucination (STAY HONEST) - always loaded
+    6. RAG context (RESEARCH RESULTS) - when research data available
+    7. Tool instructions (USE TOOLS) - when tools available
+    8. Memory instructions (REMEMBER) - when memory active (not incognito)
+    9. Personality (HOW do I speak) - toggleable via settings, LAST for priority
 
     Args:
         agent: Agent name ("aifred", "sokrates", "salomo", or custom agent ID)
@@ -691,6 +695,8 @@ def _merge_prompt_layers(
         memory: If True, include memory instructions (False in incognito mode)
         user_name: User's display name (fallback: global _current_user_name)
         user_gender: User's gender "male"/"female" (fallback: global _current_user_gender)
+        tools: If True, include tool usage instructions
+        rag_context: Research context string to inject (from web search)
 
     Returns:
         Merged prompt string with all applicable layers
@@ -731,18 +737,29 @@ def _merge_prompt_layers(
     # Layer 4: Task prompt (always)
     parts.append(task_prompt)
 
-    # Layer 4b: Anti-hallucination (always)
+    # Layer 5: Anti-hallucination (always)
     anti_halluc = load_prompt('shared/anti_hallucination', lang=lang)
     if anti_halluc:
         parts.append(anti_halluc)
 
-    # Layer 5: Memory instructions (when memory active)
+    # Layer 6: RAG context (when research results available)
+    if rag_context:
+        rag_instructions = load_prompt('shared/rag_context', lang=lang, context=rag_context)
+        parts.append(rag_instructions)
+
+    # Layer 7: Tool instructions (when tools available)
+    if tools:
+        tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
+        if tool_instructions:
+            parts.append(tool_instructions)
+
+    # Layer 8: Memory instructions (when memory active)
     if memory:
         mem_instructions = load_memory_instructions(lang)
         if mem_instructions:
             parts.append(mem_instructions)
 
-    # Layer 6: Personality (if enabled) - LAST so LLM prioritizes it!
+    # Layer 9: Personality (if enabled) - LAST so LLM prioritizes it!
     # LLMs tend to follow instructions at the end more strongly.
     personality = load_personality(agent, lang)
     if personality:
@@ -757,24 +774,16 @@ def get_system_rag_prompt(
     user_name: Optional[str] = None, user_gender: Optional[str] = None,
 ) -> str:
     """
-    Load system RAG prompt with 6-layer merging.
+    Load system prompt with RAG context via shared layer merging.
 
-    Uses the agent's "rag" prompt key if available, falls back to aifred/system_rag.
+    Uses the agent's normal task prompt (direct.txt) + shared/rag_context.txt layer.
+    RAG context is injected as Layer 6, shared across all agents.
     """
-    from .agent_config import get_agent_config
-    config = get_agent_config(agent_id)
-    rag_path = config.prompts.get("rag", "aifred/system_rag") if config else "aifred/system_rag"
-    prompt_name = rag_path.removesuffix(".txt")
-
-    task_prompt = load_prompt(
-        prompt_name,
-        lang=lang,
-        user_text=user_text,
-        context=context
-    )
+    task_prompt = load_prompt(f'{agent_id}/direct', lang=lang)
     return _merge_prompt_layers(
         agent_id, task_prompt, lang,
         user_name=user_name, user_gender=user_gender,
+        rag_context=context,
     )
 
 
@@ -961,16 +970,18 @@ def get_aifred_defense_prompt(
 def get_agent_direct_prompt(
     agent_id: str, lang: Optional[str] = None, memory: bool = True,
     user_name: Optional[str] = None, user_gender: Optional[str] = None,
+    tools: bool = False, rag_context: Optional[str] = None,
 ) -> str:
-    """Load direct response prompt for any agent via 6-layer merging.
+    """Load direct response prompt for any agent via layer merging.
 
     Works for both default agents (aifred, sokrates, salomo) and custom agents.
-    Loads {agent_id}/direct.txt as task prompt, merges with identity + personality + memory.
+    Loads {agent_id}/direct.txt as task prompt, merges with all applicable layers.
     """
     task_prompt = load_prompt(f'{agent_id}/direct', lang=lang)
     return _merge_prompt_layers(
         agent_id, task_prompt, lang, memory=memory,
         user_name=user_name, user_gender=user_gender,
+        tools=tools, rag_context=rag_context,
     )
 
 

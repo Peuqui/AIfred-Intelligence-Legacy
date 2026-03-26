@@ -19,6 +19,7 @@
 | Qwen3-4B-Instruct | 4B | 4B | Dense | Q8_0 | Ollama | — | 4 GB | 262K | f16 | 262K |
 | Qwen3-14B | 14B | 14B | Dense (Base) | Q4_K | Ollama | — | 9 GB | 41K | f16 | 41K |
 | Qwen3-30B-A3B-Instruct | 30B | 3B | MoE | Q8_0 | Ollama | 128/8 | 30 GB | 262K | f16 | 262K |
+| Qwen3-Next-80B-A3B-Instruct | 80B | 3B | MoE | UD-Q8_K_XL | Unsloth | 128/8 | 87 GB | needs cal. | f16 | 262K |
 | GPT-OSS-120B-A5B | 120B | 5.1B | MoE | UD-Q8_K_XL | Unsloth | 128/4 | 60 GB | 131K | f16 | 131K |
 | Qwen3.5-122B-A10B | 122B | 10B | MoE | UD-Q5_K_XL | Unsloth | 256/8 | 86 GB | 262K | f16 | 262K |
 | MiniMax-M2.5 | 228B | 10.2B | MoE | IQ3_M | imatrix | 256/8 | 93 GB | 101K | f16 | 197K |
@@ -43,6 +44,7 @@ Nemotron achieves 874K context (83% of native 1M) thanks to only 12B active para
 | Model | TTFT | PP tok/s | TG tok/s | Inference | Words | Docs found | Tool Use | Quality |
 |-------|------|----------|----------|-----------|-------|------------|----------|---------|
 | **GPT-OSS-120B Q8** | **40s** | **623** | **38,6** | **157s** | 1.200 | 8-9 | list_documents + search_documents | 9/10 |
+| **Qwen3-Next-80B Q8** | 81s | 418 | **30,9** | **180s** | **1.398** | ~8 | needs verification | **9.5/10** |
 | Qwen3.5-122B Q5_K | 117s | 260 | 18,9 | 240s | 1.160 | ~8 | needs verification | 8/10 |
 | Nemotron Q5_K_XL | 141s | 193 | 16,6 | 541s | 935 | 8-10 | list_documents + search_documents | 9.5/10 |
 | Qwen3-4B Q8 | 78s | 645 | 29,4 | 120s | 527 | 5 | none | 6/10 |
@@ -59,6 +61,15 @@ Nemotron achieves 874K context (83% of native 1M) thanks to only 12B active para
 - Good Butler style with dry humor
 - Consistent across multiple runs
 - Missing: Author names, some edge-case documents
+
+**Qwen3-Next-80B-A3B-Instruct** (9.5/10):
+- Best all-rounder — 30,9 tok/s, done in 180s (only 23s slower than GPT-OSS)
+- Richest output: 1.398 words with exceptional detail
+- Outstanding Butler style — "Die Bibel der transfusionsmedizinischen Sorgfalt", "Silberbesteckkiste inventarisiert"
+- Dry humor throughout, literary metaphors, vivid descriptions
+- Authors mentioned (Krakowitzky et al.), all 11 sections detailed
+- Only 3B active parameters but punches far above its weight
+- **Recommended as default model for quality + speed balance**
 
 **Nemotron-3-Super-120B** (9.5/10):
 - Highest detail depth — authors (Krakowitzky et al.), all 11 sections listed individually
@@ -96,12 +107,14 @@ Nemotron achieves 874K context (83% of native 1M) thanks to only 12B active para
 
 ### Key Findings
 
-1. **GPT-OSS-120B is the RAG champion** — fastest, uses tools, good quality
-2. **Model size != quality**: GPT-OSS (5.1B active) beats Qwen3-30B (3B active) and Qwen3-4B (4B)
-3. **Tool Use is critical**: Models that call list_documents find 8-10 docs, those without find only 5
-4. **Qwen3 Instruct models don't use tools with thinking enabled** — known bug, thinking disabled for Instruct + tools
-5. **Embedding on GPU causes OOM** for large models — CPU embedding (143ms vs 89ms) is the safe default
-6. **PP speed matters more than TG** for RAG — large prompts (30K tokens) dominate total time
+1. **Qwen3-Next-80B is the best all-rounder** — near GPT-OSS speed (180s vs 157s) with Nemotron-level quality (9.5/10)
+2. **GPT-OSS-120B is the speed champion** — fastest at 38,6 tok/s, good quality, reliable tool use
+3. **Model size != quality**: GPT-OSS (5.1B active) beats Qwen3-30B (3B active) and Qwen3-4B (4B)
+4. **Active parameters != speed**: Qwen3-Next-80B (3B active, 87GB) is faster than Qwen3.5-122B (10B active, 86GB)
+5. **Tool Use is critical**: Models that call list_documents find 8-10 docs, those without find only 5
+6. **Qwen3 Instruct models don't use tools with thinking enabled** — known bug, thinking disabled for Instruct + tools
+7. **Embedding on GPU causes OOM** for large models — CPU embedding (143ms vs 89ms) is the safe default
+8. **PP speed matters more than TG** for RAG — large prompts (30K tokens) dominate total time
 
 ---
 
@@ -125,6 +138,6 @@ See [benchmark-analysis-v2.md](benchmark-analysis-v2.md) for detailed tribunal a
 
 ### Key Difference: RAG vs Tribunal
 
-- **For RAG**: GPT-OSS wins (speed + tool use dominate)
-- **For creative debate**: Qwen3-80B/235B win (quality + persona depth dominate)
-- **Best all-rounder**: Qwen3.5-122B or Nemotron (good at both, moderate speed)
+- **For RAG**: GPT-OSS wins on speed, Qwen3-Next-80B wins on quality/speed balance
+- **For creative debate**: Qwen3-Next-80B/235B win (quality + persona depth dominate)
+- **Best all-rounder**: **Qwen3-Next-80B-A3B** — excels at both RAG and Tribunal, 30 tok/s, outstanding persona consistency
