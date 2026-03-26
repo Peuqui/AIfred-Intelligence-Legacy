@@ -57,6 +57,111 @@ def _read_csv(file_path: Path) -> str:
     return f"{header}\n{separator}\n{data}"
 
 
+def _read_docx(file_path: Path) -> str:
+    """Extract text from a .docx file."""
+    from docx import Document
+    doc = Document(str(file_path))
+    return "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
+
+
+def _read_xlsx(file_path: Path) -> str:
+    """Extract text from a .xlsx file as markdown tables (one per sheet)."""
+    from openpyxl import load_workbook
+    wb = load_workbook(str(file_path), read_only=True, data_only=True)
+    parts: list[str] = []
+    for sheet in wb.sheetnames:
+        ws = wb[sheet]
+        rows = [[str(cell) if cell is not None else "" for cell in row] for row in ws.iter_rows(values_only=True)]
+        if not rows:
+            continue
+        header = "| " + " | ".join(rows[0]) + " |"
+        separator = "| " + " | ".join("---" for _ in rows[0]) + " |"
+        data = "\n".join("| " + " | ".join(row) + " |" for row in rows[1:])
+        parts.append(f"## {sheet}\n\n{header}\n{separator}\n{data}")
+    wb.close()
+    return "\n\n".join(parts)
+
+
+def _read_pptx(file_path: Path) -> str:
+    """Extract text from a .pptx file."""
+    from pptx import Presentation
+    prs = Presentation(str(file_path))
+    parts: list[str] = []
+    for i, slide in enumerate(prs.slides, 1):
+        texts: list[str] = []
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for para in shape.text_frame.paragraphs:
+                    if para.text.strip():
+                        texts.append(para.text)
+        if texts:
+            parts.append(f"## Slide {i}\n\n" + "\n".join(texts))
+    return "\n\n".join(parts)
+
+
+def _read_odt(file_path: Path) -> str:
+    """Extract text from a .odt file."""
+    from odf.opendocument import load
+    from odf.text import P
+    doc = load(str(file_path))
+    paragraphs = doc.getElementsByType(P)
+    return "\n\n".join(
+        "".join(str(node) for node in p.childNodes)
+        for p in paragraphs
+        if p.childNodes
+    )
+
+
+def _read_ods(file_path: Path) -> str:
+    """Extract text from a .ods spreadsheet as markdown tables."""
+    from odf.opendocument import load
+    from odf.table import Table, TableRow, TableCell
+    from odf.text import P
+    doc = load(str(file_path))
+    parts: list[str] = []
+    for table in doc.getElementsByType(Table):
+        name = table.getAttribute("name") or "Sheet"
+        rows: list[list[str]] = []
+        for row in table.getElementsByType(TableRow):
+            cells: list[str] = []
+            for cell in row.getElementsByType(TableCell):
+                text = "".join(
+                    "".join(str(n) for n in p.childNodes)
+                    for p in cell.getElementsByType(P)
+                )
+                cells.append(text)
+            if any(c.strip() for c in cells):
+                rows.append(cells)
+        if not rows:
+            continue
+        # Normalize column count
+        max_cols = max(len(r) for r in rows)
+        rows = [r + [""] * (max_cols - len(r)) for r in rows]
+        header = "| " + " | ".join(rows[0]) + " |"
+        separator = "| " + " | ".join("---" for _ in rows[0]) + " |"
+        data = "\n".join("| " + " | ".join(r) + " |" for r in rows[1:])
+        parts.append(f"## {name}\n\n{header}\n{separator}\n{data}")
+    return "\n\n".join(parts)
+
+
+def _read_odp(file_path: Path) -> str:
+    """Extract text from a .odp presentation."""
+    from odf.opendocument import load
+    from odf.draw import Page
+    from odf.text import P
+    doc = load(str(file_path))
+    parts: list[str] = []
+    for i, page in enumerate(doc.getElementsByType(Page), 1):
+        texts: list[str] = []
+        for p in page.getElementsByType(P):
+            text = "".join(str(n) for n in p.childNodes)
+            if text.strip():
+                texts.append(text)
+        if texts:
+            parts.append(f"## Slide {i}\n\n" + "\n".join(texts))
+    return "\n\n".join(parts)
+
+
 def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     """Split text into chunks by approximate token count (1 token ≈ 4 chars)."""
     chars_per_token = 4
@@ -83,6 +188,12 @@ PARSERS = {
     ".txt": _read_text_file,
     ".md": _read_text_file,
     ".csv": _read_csv,
+    ".docx": _read_docx,
+    ".xlsx": _read_xlsx,
+    ".pptx": _read_pptx,
+    ".odt": _read_odt,
+    ".ods": _read_ods,
+    ".odp": _read_odp,
 }
 
 

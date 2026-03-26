@@ -1010,9 +1010,10 @@ EMAIL_MAX_BODY_CHARS = 10_000        # Truncate email body for LLM context
 DOCUMENTS_DIR = DATA_DIR / "documents"
 DOCUMENT_CHUNK_SIZE = 500           # Tokens per chunk (~375 words)
 DOCUMENT_CHUNK_OVERLAP = 50         # Overlap between chunks (tokens)
-DOCUMENT_MAX_FILE_SIZE_MB = 50      # Max upload size
+DOCUMENT_MAX_FILE_SIZE_MB = 0       # 0 = no limit
+EMBEDDING_USE_GPU = True            # True = GPU (~600MB VRAM, fast), False = CPU (slower, no VRAM)
 DOCUMENT_COLLECTION = "aifred_documents"  # ChromaDB collection name
-DOCUMENT_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv"}
+DOCUMENT_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
 
 # ============================================================
 # HTML PREVIEW CONFIGURATION

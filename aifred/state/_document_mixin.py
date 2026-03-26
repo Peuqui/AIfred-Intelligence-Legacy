@@ -62,9 +62,9 @@ class DocumentMixin(rx.State, mixin=True):
                 # Read content
                 content = await file.read()
 
-                # Validate size
+                # Validate size (0 = no limit)
                 size_mb = len(content) / (1024 * 1024)
-                if size_mb > DOCUMENT_MAX_FILE_SIZE_MB:
+                if DOCUMENT_MAX_FILE_SIZE_MB > 0 and size_mb > DOCUMENT_MAX_FILE_SIZE_MB:
                     self.document_upload_status = t(
                         "doc_upload_too_large", lang=self.ui_language,  # type: ignore[attr-defined]
                         filename=filename, max_mb=DOCUMENT_MAX_FILE_SIZE_MB,

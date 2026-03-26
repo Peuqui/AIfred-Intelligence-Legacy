@@ -348,7 +348,7 @@ class TranslationManager:
             "tool_doc_delete": "📄 Lösche {filename}...",
             # Document Upload UI
             "upload_document": "Dokument",
-            "doc_hint": "PDF, TXT, MD, CSV hochladen (max 50 MB)",
+            "doc_hint": "PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV",
             "doc_upload_no_store": "⚠️ Dokumenten-Speicher nicht verfügbar (ChromaDB läuft nicht?)",
             "doc_upload_invalid_type": "⚠️ {filename}: Typ nicht erlaubt. Erlaubt: {allowed}",
             "doc_upload_too_large": "⚠️ {filename}: Zu groß (max {max_mb} MB)",
@@ -665,7 +665,7 @@ class TranslationManager:
             "tool_doc_delete": "📄 Deleting {filename}...",
             # Document Upload UI
             "upload_document": "Document",
-            "doc_hint": "Upload PDF, TXT, MD, CSV (max 50 MB)",
+            "doc_hint": "Upload PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV",
             "doc_upload_no_store": "⚠️ Document store not available (ChromaDB not running?)",
             "doc_upload_invalid_type": "⚠️ {filename}: Type not allowed. Allowed: {allowed}",
             "doc_upload_too_large": "⚠️ {filename}: Too large (max {max_mb} MB)",

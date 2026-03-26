@@ -32,7 +32,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
 - **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung
 - **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße pro Backend - Ollama (Binary Search + RoPE-Skalierung 1.0x/1.5x/2.0x, Hybrid CPU-Offload), llama.cpp (3-phasig: GPU-only Binary Search → Speed-Variante mit Tensor-Split-Optimierung für Multi-GPU → Hybrid NGL-Fallback)
 - **Sprachschnittstelle**: Konfigurierbare STT (Whisper) und TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud-Streaming mit Voice Cloning**, Piper, espeak) mit verschiedenen Stimmen, Tonhöhen-Kontrolle, intelligente Filterung (Code-Blöcke, Tabellen, LaTeX-Formeln werden nicht vorgelesen), **agentenspezifische Stimmen**, **nahtlose Echtzeit-Audioausgabe** (Double-Buffered HTML5 Audio, lückenlose Wiedergabe während der LLM-Inferenz)
-- **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker)
+- **Vector-Cache**: ChromaDB-basierter semantischer Cache für Web-Recherchen (Docker), Embedding via Ollama (CPU/GPU konfigurierbar)
 - **Agenten-Langzeitgedächtnis**: Persistentes Gedächtnis pro Agent via ChromaDB — Agenten speichern eigenständig Erkenntnisse via Function Calling, kombinierter Recall (10 neueste + semantische Suche), Session-Pinning für alle beteiligten Agenten. Memory-Browser in der Agentenverwaltung zum Inspizieren und Aufräumen. Inkognito-Modus (🔒) deaktiviert das Gedächtnis global
 - **Function Calling / Tool Use**: OpenAI-kompatible Tool-Infrastruktur — das LLM entscheidet autonom welche Tools es braucht:
   - `store_memory` — Erkenntnisse im Langzeitgedächtnis speichern
@@ -42,6 +42,10 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
   - `read_document` — Dokumente lesen und analysieren
   - `execute_code` — Python-Code in isolierter Sandbox ausführen (siehe unten)
   - `email` — E-Mail-Integration (IMAP/SMTP) mit Aktionen: `check` (Posteingang), `read` (E-Mail lesen), `search` (Suche), `delete` (Löschen), `send` (Senden mit Bestätigung)
+  - `search_documents` — Semantische Suche in hochgeladenen Dokumenten
+  - `list_documents` — Alle hochgeladenen Dokumente auflisten
+  - `delete_document` — Dokument aus dem Speicher entfernen
+- **Dokument-Upload & RAG**: Dokumente hochladen (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatisches Chunking und Embedding in ChromaDB. Relevante Dokument-Abschnitte werden automatisch als RAG-Kontext in den System-Prompt injiziert. Dokument-Manager-Modal mit Preview, Download und Löschen. Embedding konfigurierbar auf CPU oder GPU (`EMBEDDING_USE_GPU`)
 - **Sandboxed Code-Ausführung**: LLM kann Python-Code in einem isolierten Subprocess schreiben und ausführen (ressourcenlimitiert, automatisches Aufräumen). Unterstützt numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interaktive HTML/JS-Visualisierungen (Plotly 3D, Canvas-Spiele, Simulationen) werden als iframes direkt im Chat eingebettet. Statische matplotlib-Plots werden als Bilder angezeigt
 - **E-Mail-Integration**: E-Mails lesen, suchen und senden via IMAP/SMTP. Senden erfordert explizite Bestätigung (Entwurf → Prüfung → Bestätigung). Credentials nur über Umgebungsvariablen (nie in settings.json). Opt-in via `EMAIL_ENABLED=true`
 - **Benutzerdefinierte Agenten**: Unbegrenzt eigene Agenten erstellen mit Name, Emoji, Rolle und zweisprachigen Prompts (DE/EN). Eigene Agenten nehmen an Debatten teil, können direkt angesprochen werden und haben ihr eigenes Langzeitgedächtnis

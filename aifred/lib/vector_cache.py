@@ -48,12 +48,13 @@ OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
 OLLAMA_HOST = DEFAULT_OLLAMA_URL
 
 
-class OllamaCPUEmbeddingFunction(EmbeddingFunction[Documents]):
+class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
     """
-    Custom Ollama Embedding Function that runs on CPU only.
+    Ollama Embedding Function with configurable CPU/GPU inference.
 
-    Uses num_gpu=0 to force CPU inference, keeping VRAM free for LLM.
     Based on nomic-embed-text-v2-moe (768 dimensions, multilingual).
+    GPU mode: ~600MB VRAM, significantly faster for bulk embeddings.
+    CPU mode: No VRAM usage, keeps GPU free for LLM inference.
     """
 
     def __init__(
@@ -75,16 +76,22 @@ class OllamaCPUEmbeddingFunction(EmbeddingFunction[Documents]):
         self._client = Client(host=host, timeout=timeout)
 
     def __call__(self, input: Documents) -> Embeddings:
-        """Generate embeddings using CPU only (num_gpu=0)."""
+        """Generate embeddings using CPU or GPU based on config."""
+        from .config import EMBEDDING_USE_GPU
+        options = {} if EMBEDDING_USE_GPU else {"num_gpu": 0}
         response = self._client.embed(
             model=self.model_name,
             input=input,
-            options={"num_gpu": 0}  # Force CPU inference
+            options=options,
         )
         return [
             np.array(embedding, dtype=np.float32)
             for embedding in response["embeddings"]
         ]
+
+
+# Backward compatibility alias
+OllamaCPUEmbeddingFunction = OllamaEmbeddingFunction
 
 
 class VectorCache:

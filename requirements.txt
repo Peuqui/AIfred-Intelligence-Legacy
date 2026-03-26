@@ -38,6 +38,10 @@ gguf>=0.10.0                    # GGUF metadata reading (native context detectio
 
 # Document Processing
 chardet>=5.0.0          # Automatic encoding detection for uploaded documents
+python-docx>=1.0.0      # Microsoft Word (.docx) text extraction
+openpyxl>=3.1.0         # Microsoft Excel (.xlsx) text extraction
+python-pptx>=1.0.0      # Microsoft PowerPoint (.pptx) text extraction
+odfpy>=1.4.0            # LibreOffice/OpenDocument (.odt, .ods, .odp) text extraction
 
 # Utilities
 python-multipart>=0.0.20

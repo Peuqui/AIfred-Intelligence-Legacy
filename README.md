@@ -32,7 +32,7 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
 - **History Compression**: Intelligent compression at 70% context utilization
 - **Automatic Context Calibration**: VRAM-aware context sizing per backend - Ollama (Binary Search + RoPE scaling 1.0x/1.5x/2.0x, hybrid CPU offload), llama.cpp (3-phase: GPU-only Binary Search → Speed variant with tensor-split optimization for multi-GPU → Hybrid NGL fallback)
 - **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (double-buffered HTML5 audio, seamless playback during LLM inference)
-- **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU-only)
+- **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU/GPU configurable)
 - **Agent Long-Term Memory**: Per-agent persistent memory via ChromaDB — agents autonomously store insights via function calling, combined recall (10 recent + semantic search), session pinning for all participating agents. Memory Browser in Agent Editor for inspection and cleanup. Incognito mode (🔒) disables memory globally
 - **Function Calling / Tool Use**: OpenAI-compatible tool infrastructure — the LLM autonomously decides which tools to use:
   - `store_memory` — Save insights to long-term memory
@@ -42,6 +42,10 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
   - `read_document` — Read and analyze documents
   - `execute_code` — Run Python code in isolated sandbox (see below)
   - `email` — Email integration (IMAP/SMTP) with actions: `check` (inbox), `read` (read email), `search` (search), `delete` (delete), `send` (send with confirmation)
+  - `search_documents` — Semantic search across uploaded documents
+  - `list_documents` — List all uploaded documents
+  - `delete_document` — Remove a document from the store
+- **Document Upload & RAG**: Upload documents (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatic chunking and embedding in ChromaDB. Relevant document chunks are automatically injected as RAG context into the system prompt. Document manager modal with preview, download and delete. Embedding configurable on CPU or GPU (`EMBEDDING_USE_GPU`)
 - **Sandboxed Code Execution**: LLM can write and run Python code in an isolated subprocess (resource-limited, auto-cleanup). Supports numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interactive HTML/JS visualizations (Plotly 3D, Canvas games, simulations) are embedded as iframes directly in the chat. Static matplotlib plots are displayed as images
 - **E-Mail Integration**: Read, search, and send emails via IMAP/SMTP. Sending requires explicit user confirmation (draft → review → confirm). Credentials via environment variables only (never stored in settings). Opt-in via `EMAIL_ENABLED=true`
 - **Custom Agents**: Create unlimited custom agents with name, emoji, role, and multilingual prompts (DE/EN). Custom agents participate in debates, can be directly addressed, and have their own long-term memory
