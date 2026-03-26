@@ -80,25 +80,12 @@ def get_email_tools() -> list[Tool]:
             return result
 
         elif action == "send":
+            from .email_client import send_email
             to = kwargs.get("to", "")
             subject = kwargs.get("subject", "")
             body = kwargs.get("body", "")
             if not to or not subject or not body:
                 return "Error: to, subject, body required"
-            return (
-                f"EMAIL DRAFT (not sent yet):\n"
-                f"To: {to}\n"
-                f"Subject: {subject}\n"
-                f"Body:\n{body}\n\n"
-                f"Show this draft to the user and ask for confirmation. "
-                f"If confirmed, call email with action=send_confirmed and the same parameters."
-            )
-
-        elif action == "send_confirmed":
-            from .email_client import send_email
-            to = kwargs.get("to", "")
-            subject = kwargs.get("subject", "")
-            body = kwargs.get("body", "")
             result = await asyncio.to_thread(send_email, to=to, subject=subject, body=body)
             return result
 
@@ -114,7 +101,7 @@ def get_email_tools() -> list[Tool]:
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["check", "read", "search", "delete", "send", "send_confirmed"],
+                        "enum": ["check", "read", "search", "delete", "send"],
                         "description": "Action to perform",
                     },
                     "msg_id": {
