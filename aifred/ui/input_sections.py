@@ -108,6 +108,7 @@ def image_upload_section() -> rx.Component:
                     "&:hover:not([disabled])": {
                         "background": "rgba(0, 120, 50, 0.6) !important",
                     },
+                    "&[disabled]": {"opacity": "0.45"},
                 },
             ),
 
@@ -127,10 +128,12 @@ def image_upload_section() -> rx.Component:
                             on_click=AIState.on_camera_click,
                             style={
                                 "background": "rgba(100, 10, 0, 0.4)",
+                                "color": "#d98030",
+                                "border_color": "#d98030",
                                 "&:hover:not([disabled])": {
                                     "background": "rgba(150, 15, 0, 0.6) !important",
-                                    "border_color": "#ff6600 !important",
                                 },
+                                "&[disabled]": {"opacity": "0.45"},
                             },
                         ),
                         content=t("image_hint"),
@@ -160,10 +163,12 @@ def image_upload_section() -> rx.Component:
                         on_click=AIState.on_file_picker_click,
                         style={
                             "background": "rgba(100, 10, 0, 0.4)",
+                            "color": "#d98030",
+                            "border_color": "#d98030",
                             "&:hover:not([disabled])": {
                                 "background": "rgba(150, 15, 0, 0.6) !important",
-                                "border_color": "#ff6600 !important",
                             },
+                            "&[disabled]": {"opacity": "0.45"},
                         },
                     ),
                     content=t("image_hint"),
@@ -196,6 +201,7 @@ def image_upload_section() -> rx.Component:
                             "&:hover:not([disabled])": {
                                 "background": "rgba(130, 90, 0, 0.6) !important",
                             },
+                            "&[disabled]": {"opacity": "0.45"},
                         },
                     ),
                     content=t("doc_hint"),
@@ -223,13 +229,16 @@ def image_upload_section() -> rx.Component:
                     variant="outline",
                     color_scheme="yellow",
                     on_click=AIState.open_document_manager,
+                    disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document,
                     style={
                         "background": "rgba(100, 70, 0, 0.4)",
                         "color": "#d29922",
                         "border_color": "#d29922",
-                        "&:hover": {
+                        "&:hover:not([disabled])": {
                             "background": "rgba(130, 90, 0, 0.6) !important",
                         },
+                        "&[disabled]": {"opacity": "0.45", "pointer_events": "none"},
+                        "&:disabled": {"opacity": "0.45", "pointer_events": "none"},
                     },
                 ),
                 content=t("doc_manager_title"),
@@ -252,6 +261,7 @@ def image_upload_section() -> rx.Component:
                         "&:hover:not([disabled])": {
                             "background": "rgba(0, 80, 150, 0.6) !important",
                         },
+                        "&[disabled]": {"opacity": "0.45"},
                     },
                 ),
                 id="audio-upload",
@@ -629,6 +639,7 @@ def text_input_section() -> rx.Component:
                         "background": "#4d3500 !important",
                         "color": "#ffb84d !important",
                     },
+                    "&[disabled]": {"opacity": "0.45"},
                     "&:active": {
                         "background": "#331a00 !important",
                         "color": COLORS["primary_hover"] + " !important",
@@ -648,15 +659,17 @@ def text_input_section() -> rx.Component:
                 flex="1",
                 style={
                     "background": "rgba(100, 10, 0, 0.4)",
+                    "color": "#d98030",
+                    "border_color": "#d98030",
                     "&:hover:not([disabled])": {
                         "background": "rgba(150, 15, 0, 0.6) !important",
-                        "border_color": "#ff6600 !important",
                         "transform": "scale(1.02)",
                     },
                     "&:active:not([disabled])": {
                         "background": "rgba(80, 5, 0, 0.7) !important",
                         "transform": "scale(0.98)",
                     },
+                    "&[disabled]": {"opacity": "0.45"},
                 },
             ),
             rx.button(
@@ -680,6 +693,7 @@ def text_input_section() -> rx.Component:
                         "background": "rgba(0, 60, 20, 0.7) !important",
                         "transform": "scale(0.98)",
                     },
+                    "&[disabled]": {"opacity": "0.45"},
                 },
             ),
             rx.button(
@@ -703,6 +717,7 @@ def text_input_section() -> rx.Component:
                         "background": "rgba(0, 40, 80, 0.7) !important",
                         "transform": "scale(0.98)",
                     },
+                    "&[disabled]": {"opacity": "0.45"},
                 },
             ),
             spacing="2",
