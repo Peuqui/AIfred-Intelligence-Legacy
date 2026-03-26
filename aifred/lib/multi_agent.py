@@ -330,8 +330,6 @@ async def _stream_agent_to_history(
             state.add_debug(f"🔧 Tool call: {tool_name}(...)")
             if tool_name == "execute_code":
                 state.set_tool_status("⚙️ Code wird generiert...")
-            elif tool_name == "email":
-                state.set_tool_status("📧 E-Mail...")
             yield  # type: ignore[misc]
 
         elif chunk["type"] == "tool_call":
@@ -360,21 +358,6 @@ async def _stream_agent_to_history(
                 state.set_tool_status("💾 Speichere Erkenntnis...")
             elif tool_name == "read_document":
                 state.set_tool_status(f"📄 {tool_args.get('path', '')}")
-            elif tool_name == "execute_code":
-                desc = tool_args.get("description", "")
-                state.set_tool_status(f"⚙️ {desc[:60]}..." if desc else "⚙️ Code ausführen...")
-            elif tool_name == "email":
-                action = tool_args.get("action", "")
-                if action == "check":
-                    state.set_tool_status("📧 Posteingang prüfen...")
-                elif action == "read":
-                    state.set_tool_status(f"📧 E-Mail {tool_args.get('msg_id', '')} lesen...")
-                elif action == "search":
-                    state.set_tool_status(f"📧 Suche: {tool_args.get('query', '')[:40]}")
-                elif action == "delete":
-                    state.set_tool_status(f"📧 E-Mail {tool_args.get('msg_id', '')} löschen...")
-                elif action == "send":
-                    state.set_tool_status(f"📧 Sende an {tool_args.get('to', '')[:30]}...")
 
             yield  # type: ignore[misc]
             yield  # type: ignore[misc]
