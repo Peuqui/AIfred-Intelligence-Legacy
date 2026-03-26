@@ -22,6 +22,7 @@ from .ui.helpers import t, left_column  # noqa: F401
 from .ui.modals import (  # noqa: F401
     multi_agent_help_modal, reasoning_thinking_help_modal,
     login_dialog, crop_modal, image_lightbox_modal,
+    document_manager_modal,
 )
 from .ui.chat_display import (  # noqa: F401
     session_list_display, chat_history_display,
@@ -558,6 +559,9 @@ console.log('✂️ Crop handler loaded');
         # Agent Editor Modal
         agent_editor_modal(),
 
+        # Document Manager Modal
+        document_manager_modal(),
+
         # Hidden element to trigger camera detection on mount
         rx.box(
             id="camera-detector",
@@ -880,3 +884,8 @@ app._api.mount("/_upload/tts_audio", StaticFiles(directory=str(tts_audio_dir)), 
 session_audio_dir = DATA_DIR / "audio"
 session_audio_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/audio", StaticFiles(directory=str(session_audio_dir)), name="session_audio")
+
+# Mount documents directory for document download
+documents_dir = DATA_DIR / "documents"
+documents_dir.mkdir(parents=True, exist_ok=True)
+app._api.mount("/_upload/documents", StaticFiles(directory=str(documents_dir)), name="uploaded_documents")

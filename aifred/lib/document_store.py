@@ -1,0 +1,225 @@
+"""
+Document Store - Chunking, Embedding & ChromaDB Storage for uploaded documents.
+
+Uses the same ChromaDB server and Ollama embedding function as vector_cache.py
+but with a separate collection for user documents.
+"""
+
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
+
+import chromadb
+from chromadb.config import Settings
+
+from .config import (
+    DEFAULT_OLLAMA_URL,
+    DOCUMENT_CHUNK_OVERLAP,
+    DOCUMENT_CHUNK_SIZE,
+    DOCUMENT_COLLECTION,
+    DOCUMENTS_DIR,
+)
+from .logging_utils import log_message
+from .vector_cache import OLLAMA_EMBEDDING_MODEL, OllamaCPUEmbeddingFunction
+
+
+def _read_text_file(file_path: Path) -> str:
+    """Read a text file with automatic encoding detection via chardet."""
+    raw = file_path.read_bytes()
+    import chardet
+    detected = chardet.detect(raw)
+    encoding = detected.get("encoding") or "utf-8"
+    return raw.decode(encoding)
+
+
+def _read_pdf(file_path: Path) -> str:
+    """Extract text from a PDF file using PyMuPDF."""
+    import fitz
+    doc = fitz.open(str(file_path))
+    text = "\n\n".join(page.get_text() for page in doc)
+    doc.close()
+    return text
+
+
+def _read_csv(file_path: Path) -> str:
+    """Read a CSV file and return as markdown table."""
+    import csv
+    import io
+    content = _read_text_file(file_path)
+    reader = csv.reader(io.StringIO(content))
+    rows = list(reader)
+    if not rows:
+        return ""
+    # Header + separator + data rows
+    header = "| " + " | ".join(rows[0]) + " |"
+    separator = "| " + " | ".join("---" for _ in rows[0]) + " |"
+    data = "\n".join("| " + " | ".join(row) + " |" for row in rows[1:])
+    return f"{header}\n{separator}\n{data}"
+
+
+def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
+    """Split text into chunks by approximate token count (1 token ≈ 4 chars)."""
+    chars_per_token = 4
+    chunk_chars = chunk_size * chars_per_token
+    overlap_chars = overlap * chars_per_token
+
+    if len(text) <= chunk_chars:
+        return [text]
+
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_chars
+        chunk = text[start:end]
+        if chunk.strip():
+            chunks.append(chunk.strip())
+        start = end - overlap_chars
+
+    return chunks
+
+
+PARSERS = {
+    ".pdf": _read_pdf,
+    ".txt": _read_text_file,
+    ".md": _read_text_file,
+    ".csv": _read_csv,
+}
+
+
+class DocumentStore:
+    """Manages document chunking, embedding and retrieval via ChromaDB."""
+
+    def __init__(self, host: str = "localhost", port: int = 8000):
+        self._client = chromadb.HttpClient(
+            host=host, port=port,
+            settings=Settings(anonymized_telemetry=False),
+        )
+        self._client.heartbeat()
+        self._embed_fn = OllamaCPUEmbeddingFunction(
+            model_name=OLLAMA_EMBEDDING_MODEL,
+            host=DEFAULT_OLLAMA_URL,
+        )
+        self._collection = self._client.get_or_create_collection(
+            name=DOCUMENT_COLLECTION,
+            metadata={
+                "description": "AIfred uploaded documents",
+                "embedding_model": OLLAMA_EMBEDDING_MODEL,
+            },
+            embedding_function=self._embed_fn,  # type: ignore[arg-type]
+        )
+        DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+        log_message(f"📄 DocumentStore connected: {self._collection.count()} chunks")
+
+    async def index_document(self, file_path: Path, filename: str) -> int:
+        """Parse, chunk and embed a document. Returns number of chunks created."""
+        suffix = file_path.suffix.lower()
+        parser = PARSERS.get(suffix)
+        if not parser:
+            raise ValueError(f"Unsupported file type: {suffix}")
+
+        text = parser(file_path)
+        if not text.strip():
+            raise ValueError(f"Document is empty: {filename}")
+
+        chunks = _chunk_text(text, DOCUMENT_CHUNK_SIZE, DOCUMENT_CHUNK_OVERLAP)
+        now = datetime.now().isoformat()
+
+        ids = [f"{filename}__chunk_{i}" for i in range(len(chunks))]
+        metadatas = [
+            {
+                "filename": filename,
+                "chunk_index": i,
+                "total_chunks": len(chunks),
+                "upload_date": now,
+            }
+            for i in range(len(chunks))
+        ]
+
+        # ChromaDB upsert (idempotent — re-uploading same file overwrites)
+        self._collection.upsert(
+            ids=ids,
+            documents=chunks,
+            metadatas=metadatas,  # type: ignore[arg-type]
+        )
+
+        log_message(f"📄 Indexed {filename}: {len(chunks)} chunks")
+        return len(chunks)
+
+    async def search(self, query: str, n_results: int = 5) -> list[dict[str, Any]]:
+        """Semantic search across all documents. Returns list of chunk results."""
+        if self._collection.count() == 0:
+            return []
+
+        results = self._collection.query(
+            query_texts=[query],
+            n_results=min(n_results, self._collection.count()),
+        )
+
+        hits: list[dict[str, Any]] = []
+        if results and results["documents"] and results["documents"][0]:
+            for i, doc in enumerate(results["documents"][0]):
+                meta = results["metadatas"][0][i] if results["metadatas"] else {}  # type: ignore[index]
+                distance = results["distances"][0][i] if results["distances"] else None  # type: ignore[index]
+                hits.append({
+                    "content": doc,
+                    "filename": meta.get("filename", ""),
+                    "chunk_index": meta.get("chunk_index", 0),
+                    "total_chunks": meta.get("total_chunks", 0),
+                    "distance": distance,
+                })
+
+        return hits
+
+    def list_documents(self) -> list[dict[str, Any]]:
+        """List all unique documents with metadata."""
+        if self._collection.count() == 0:
+            return []
+
+        all_data = self._collection.get()
+        docs: dict[str, dict[str, Any]] = {}
+        if all_data and all_data["metadatas"]:
+            for meta in all_data["metadatas"]:
+                fname = meta.get("filename", "")  # type: ignore[union-attr]
+                if fname and fname not in docs:
+                    docs[fname] = {
+                        "filename": fname,
+                        "total_chunks": meta.get("total_chunks", 0),  # type: ignore[union-attr]
+                        "upload_date": meta.get("upload_date", ""),  # type: ignore[union-attr]
+                    }
+
+        return list(docs.values())
+
+    async def delete_document(self, filename: str) -> int:
+        """Delete all chunks for a document. Returns number of deleted chunks."""
+        all_data = self._collection.get(
+            where={"filename": filename},
+        )
+        if not all_data or not all_data["ids"]:
+            return 0
+
+        count = len(all_data["ids"])
+        self._collection.delete(ids=all_data["ids"])
+
+        # Delete file from disk if it exists
+        file_path = DOCUMENTS_DIR / filename
+        if file_path.exists():
+            file_path.unlink()
+
+        log_message(f"🗑️ Deleted {filename}: {count} chunks")
+        return count
+
+
+# Singleton
+_store: Optional[DocumentStore] = None
+
+
+def get_document_store() -> Optional[DocumentStore]:
+    """Get or create the global DocumentStore singleton."""
+    global _store
+    if _store is None:
+        try:
+            _store = DocumentStore()
+        except Exception as e:
+            log_message(f"❌ DocumentStore init failed: {e}")
+            return None
+    return _store

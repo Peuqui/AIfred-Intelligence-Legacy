@@ -1005,6 +1005,16 @@ EMAIL_MAX_FETCH = 20                 # Max emails per inbox check
 EMAIL_MAX_BODY_CHARS = 10_000        # Truncate email body for LLM context
 
 # ============================================================
+# DOCUMENT UPLOAD & RAG CONFIGURATION
+# ============================================================
+DOCUMENTS_DIR = DATA_DIR / "documents"
+DOCUMENT_CHUNK_SIZE = 500           # Tokens per chunk (~375 words)
+DOCUMENT_CHUNK_OVERLAP = 50         # Overlap between chunks (tokens)
+DOCUMENT_MAX_FILE_SIZE_MB = 50      # Max upload size
+DOCUMENT_COLLECTION = "aifred_documents"  # ChromaDB collection name
+DOCUMENT_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv"}
+
+# ============================================================
 # HTML PREVIEW CONFIGURATION
 # ============================================================
 HTML_PREVIEW_MAX_FILES = 200         # LRU cache limit for data/html_preview/

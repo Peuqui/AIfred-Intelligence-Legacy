@@ -73,28 +73,40 @@ def image_upload_section() -> rx.Component:
                 margin_bottom="8px",
             )
         ),
+        # Document upload status
+        rx.cond(
+            AIState.document_upload_status != "",
+            rx.box(
+                rx.text(AIState.document_upload_status, font_size="12px"),
+                background_color="rgba(68, 204, 102, 0.15)",
+                border="1px solid rgba(68, 204, 102, 0.3)",
+                padding="4px 10px",
+                border_radius="4px",
+                margin_bottom="4px",
+            )
+        ),
 
         # Row 1: Buttons (Aufnahme, Camera, Upload, Audio, Clear) - responsive
         rx.hstack(
             # Live Audio Recording Button (LEFTMOST - MediaRecorder)
             rx.button(
-                rx.icon("mic", size=20),
-                rx.text(t("recording"), font_size="16px", display=["none", "none", "inline"]),  # Hide text on mobile
+                rx.icon("mic", size=16),
+                rx.text(t("recording"), font_size="14px", display=["none", "none", "inline"]),  # Hide text on mobile
                 id="recording-button",
-                size="4",
+                size="2",
                 variant="outline",
                 color_scheme="green",
-                padding_y="24px",
                 min_width=["auto", "auto", "160px"],  # Fixed on desktop
                 flex=["2 1 0%", "2 1 0%", "0 0 auto"],  # Mobile: 2x share, Desktop: auto
                 width=["100%", "100%", "auto"],
                 on_click=AIState.toggle_audio_recording,
-                disabled=AIState.is_generating | AIState.is_uploading_image,
+                disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document,
                 style={
                     "background": "rgba(0, 80, 30, 0.4)",
+                    "color": "#3fb950",
+                    "border_color": "#3fb950",
                     "&:hover:not([disabled])": {
                         "background": "rgba(0, 120, 50, 0.6) !important",
-                        "border_color": "#44cc66 !important",
                     },
                 },
             ),
@@ -105,14 +117,13 @@ def image_upload_section() -> rx.Component:
                 rx.upload(
                     rx.tooltip(
                         rx.button(
-                            rx.icon("camera", size=20),
-                            rx.text(t("camera"), font_size="16px", display=["none", "none", "inline"]),
-                            size="4",
+                            rx.icon("camera", size=16),
+                            rx.text(t("camera"), font_size="14px", display=["none", "none", "inline"]),
+                            size="2",
                             variant="outline",
-                            color_scheme="red",
-                            padding_y="24px",
+                            color_scheme="orange",
                             width="100%",
-                            disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                            disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document | (AIState.pending_images.length() >= AIState.max_images_per_message),
                             on_click=AIState.on_camera_click,
                             style={
                                 "background": "rgba(100, 10, 0, 0.4)",
@@ -139,14 +150,13 @@ def image_upload_section() -> rx.Component:
             rx.upload(
                 rx.tooltip(
                     rx.button(
-                        rx.icon("image", size=20),
-                        rx.text(t("upload_image"), font_size="16px", display=["none", "none", "inline"]),
-                        size="4",
+                        rx.icon("image", size=16),
+                        rx.text(t("upload_image"), font_size="14px", display=["none", "none", "inline"]),
+                        size="2",
                         variant="outline",
-                        color_scheme="red",
-                        padding_y="24px",
+                        color_scheme="orange",
                         width="100%",
-                        disabled=AIState.is_generating | AIState.is_uploading_image | (AIState.pending_images.length() >= AIState.max_images_per_message),
+                        disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document | (AIState.pending_images.length() >= AIState.max_images_per_message),
                         on_click=AIState.on_file_picker_click,
                         style={
                             "background": "rgba(100, 10, 0, 0.4)",
@@ -168,22 +178,79 @@ def image_upload_section() -> rx.Component:
                 flex=["1 1 0%", "1 1 0%", "0 0 auto"],  # Mobile: 1x share, Desktop: auto
             ),
 
+            # Document Upload Button
+            rx.upload(
+                rx.tooltip(
+                    rx.button(
+                        rx.icon("file-text", size=16),
+                        rx.text(t("upload_document"), font_size="14px", display=["none", "none", "inline"]),
+                        size="2",
+                        variant="outline",
+                        color_scheme="yellow",
+                        width="100%",
+                        disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document,
+                        style={
+                            "background": "rgba(100, 70, 0, 0.4)",
+                            "color": "#d29922",
+                            "border_color": "#d29922",
+                            "&:hover:not([disabled])": {
+                                "background": "rgba(130, 90, 0, 0.6) !important",
+                            },
+                        },
+                    ),
+                    content=t("doc_hint"),
+                ),
+                id="document-upload",
+                accept={
+                    "application/pdf": [".pdf"],
+                    "text/plain": [".txt", ".md"],
+                    "text/csv": [".csv"],
+                    "text/markdown": [".md"],
+                },
+                max_files=5,
+                on_drop=AIState.handle_document_upload,
+                multiple=True,
+                border="none",
+                padding="0",
+                flex=["1 1 0%", "1 1 0%", "0 0 auto"],
+            ),
+
+            # Document Manager Button (folder icon, opens modal)
+            rx.tooltip(
+                rx.icon_button(
+                    rx.icon("folder-open", size=16),
+                    size="2",
+                    variant="outline",
+                    color_scheme="yellow",
+                    on_click=AIState.open_document_manager,
+                    style={
+                        "background": "rgba(100, 70, 0, 0.4)",
+                        "color": "#d29922",
+                        "border_color": "#d29922",
+                        "&:hover": {
+                            "background": "rgba(130, 90, 0, 0.6) !important",
+                        },
+                    },
+                ),
+                content=t("doc_manager_title"),
+            ),
+
             # Audio File Upload Button
             rx.upload(
                 rx.button(
-                    rx.icon("disc-3", size=20),
-                    rx.text(t("audio"), font_size="16px", display=["none", "none", "inline"]),
-                    size="4",
+                    rx.icon("disc-3", size=16),
+                    rx.text(t("audio"), font_size="14px", display=["none", "none", "inline"]),
+                    size="2",
                     variant="outline",
                     color_scheme="blue",
-                    padding_y="24px",
                     width="100%",
-                    disabled=AIState.is_generating | AIState.is_uploading_image,
+                    disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document,
                     style={
                         "background": "rgba(0, 50, 100, 0.4)",
+                        "color": "#58a6ff",
+                        "border_color": "#58a6ff",
                         "&:hover:not([disabled])": {
                             "background": "rgba(0, 80, 150, 0.6) !important",
-                            "border_color": "#4da6ff !important",
                         },
                     },
                 ),
@@ -330,7 +397,7 @@ def text_input_section() -> rx.Component:
             width="100%",
             rows="3",
             spell_check=False,
-            disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
+            disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.is_uploading_document,
             style={
                 "field_sizing": "content",
                 "min_height": "4.5em",
@@ -549,7 +616,7 @@ def text_input_section() -> rx.Component:
                 size="2",
                 variant="solid",
                 loading=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.tts_regenerating,
+                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.is_uploading_document | AIState.tts_regenerating,
                 flex="2",
                 style={
                     "background": "#3d2a00 !important",
@@ -574,7 +641,7 @@ def text_input_section() -> rx.Component:
                 rx.icon("trash-2", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("clear_chat")),
                 on_click=AIState.clear_chat,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
+                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.is_uploading_document,
                 size="2",
                 variant="outline",
                 color_scheme="orange",
@@ -596,16 +663,17 @@ def text_input_section() -> rx.Component:
                 rx.icon("pin", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("save_memory")),
                 on_click=AIState.save_session_memory,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
+                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.is_uploading_document,
                 size="2",
                 variant="outline",
                 color_scheme="green",
                 flex="1",
                 style={
                     "background": "rgba(0, 80, 30, 0.4)",
+                    "color": "#3fb950",
+                    "border_color": "#3fb950",
                     "&:hover:not([disabled])": {
                         "background": "rgba(0, 120, 50, 0.6) !important",
-                        "border_color": "#44cc66 !important",
                         "transform": "scale(1.02)",
                     },
                     "&:active:not([disabled])": {
@@ -618,16 +686,17 @@ def text_input_section() -> rx.Component:
                 rx.icon("share-2", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("share_chat")),
                 on_click=AIState.share_chat,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
+                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.is_uploading_document,
                 size="2",
                 variant="outline",
                 color_scheme="blue",
                 flex="1",
                 style={
                     "background": "rgba(0, 50, 100, 0.4)",
+                    "color": "#58a6ff",
+                    "border_color": "#58a6ff",
                     "&:hover:not([disabled])": {
                         "background": "rgba(0, 80, 150, 0.6) !important",
-                        "border_color": "#4da6ff !important",
                         "transform": "scale(1.02)",
                     },
                     "&:active:not([disabled])": {

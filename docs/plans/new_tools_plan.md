@@ -10,12 +10,6 @@ Alle neuen Tools folgen dem gleichen Muster:
 
 Zentraler Integrationspunkt: `prepare_agent_toolkit()` → baut ToolKit für LLM zusammen.
 
-### Bereits implementiert
-- **Feature 1: Code-Ausführung (Sandbox)** — ✅ v2.63.0
-  - `execute_code` Tool, subprocess mit RLIMIT, matplotlib/plotly/pandas
-  - Interactive HTML/JS als iframe im Chat, statische Plots als Images
-  - Session-scoped Output, Cleanup bei Chat-Löschen, Chat-Export-Embedding
-
 ---
 
 ## Feature 2: Datei-Upload & Analyse
@@ -128,44 +122,6 @@ Zentraler Integrationspunkt: `prepare_agent_toolkit()` → baut ToolKit für LLM
 
 ---
 
-## Feature 4: E-Mail (IMAP/SMTP)
-
-### Funktionen
-- `email_check` — Neue E-Mails abrufen (IMAP), Betreff/Absender/Preview anzeigen
-- `email_read` — Volltext einer E-Mail lesen (inkl. Anhänge als Text/Zusammenfassung)
-- `email_send` — E-Mail senden (SMTP), mit Bestätigungsabfrage vor dem Senden
-- `email_reply` — Auf eine E-Mail antworten (Quote des Originals)
-- `email_search` — E-Mails durchsuchen (IMAP SEARCH)
-
-### Architektur
-- **`aifred/lib/email_client.py`** (~200 LOC)
-  - `class EmailClient:` mit IMAP + SMTP
-  - `async def check_inbox(n: int) -> list[EmailSummary]`
-  - `async def read_email(msg_id: str) -> EmailMessage`
-  - `async def send_email(to, subject, body, reply_to?) -> bool`
-  - `async def search_emails(query: str) -> list[EmailSummary]`
-  - Connection-Pooling, TLS/SSL
-
-- **`aifred/lib/email_tools.py`** (~120 LOC)
-  - Tools für LLM Function Calling
-  - Sicherheit: `email_send` erfordert Bestätigung (Tool gibt Preview zurück, User muss bestätigen)
-
-### Config
-- `EMAIL_IMAP_HOST`, `EMAIL_IMAP_PORT`, `EMAIL_IMAP_USER`, `EMAIL_IMAP_PASSWORD`
-- `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD`
-- `EMAIL_ENABLED = False` (opt-in)
-- Credentials via Environment-Variablen (nicht in settings.json!)
-
-### Sicherheit
-- **Senden nur mit Bestätigung** — LLM generiert Draft, User sieht Preview, bestätigt erst
-- Kein automatisches Senden ohne User-Interaktion
-- Credentials nur über Env-Vars, nie im UI exponiert
-
-### Dependencies
-- Keine neuen (stdlib: `imaplib`, `smtplib`, `email`)
-
----
-
 ## Feature 5: Messenger Integration (WhatsApp, Signal, Telegram, Discord)
 
 ### Optionen
@@ -230,9 +186,7 @@ Zentraler Integrationspunkt: `prepare_agent_toolkit()` → baut ToolKit für LLM
 ## Reihenfolge
 
 ```
-Feature 1 (Sandbox)        → ✅ ERLEDIGT
 Feature 2 (Dokumente)      → braucht UI-Arbeit, ChromaDB-Erweiterung
 Feature 3 (Kalender/ePIM)  → nach erfolgreichem Reverse-Engineering
-Feature 4 (E-Mail)         → stdlib, kein Setup nötig, schnell umsetzbar
 Feature 5 (Messenger)      → Telegram zuerst, dann Signal
 ```

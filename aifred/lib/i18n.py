@@ -343,6 +343,23 @@ class TranslationManager:
             "tool_email_search": "📧 Suche: {query}",
             "tool_email_delete": "📧 E-Mail {msg_id} löschen...",
             "tool_email_send": "📧 Sende an {to}...",
+            "tool_doc_search": "📄 Suche in Dokumenten...",
+            "tool_doc_list": "📄 Dokumente auflisten...",
+            "tool_doc_delete": "📄 Lösche {filename}...",
+            # Document Upload UI
+            "upload_document": "Dokument",
+            "doc_hint": "PDF, TXT, MD, CSV hochladen (max 50 MB)",
+            "doc_upload_no_store": "⚠️ Dokumenten-Speicher nicht verfügbar (ChromaDB läuft nicht?)",
+            "doc_upload_invalid_type": "⚠️ {filename}: Typ nicht erlaubt. Erlaubt: {allowed}",
+            "doc_upload_too_large": "⚠️ {filename}: Zu groß (max {max_mb} MB)",
+            "doc_upload_indexing": "📄 Analysiere {filename}...",
+            "doc_upload_success": "✅ {filename}: {chunks} Abschnitte indexiert",
+            "doc_delete_success": "🗑️ {filename}: {chunks} Abschnitte gelöscht",
+            # Document Manager Modal
+            "doc_manager_title": "📄 Dokumente",
+            "doc_manager_empty": "Noch keine Dokumente hochgeladen.",
+            "doc_manager_chunks": "{chunks} Abschnitte",
+            "doc_manager_close": "Schließen",
         },
         "en": {
             # UI Labels
@@ -643,6 +660,23 @@ class TranslationManager:
             "tool_email_search": "📧 Search: {query}",
             "tool_email_delete": "📧 Deleting email {msg_id}...",
             "tool_email_send": "📧 Sending to {to}...",
+            "tool_doc_search": "📄 Searching documents...",
+            "tool_doc_list": "📄 Listing documents...",
+            "tool_doc_delete": "📄 Deleting {filename}...",
+            # Document Upload UI
+            "upload_document": "Document",
+            "doc_hint": "Upload PDF, TXT, MD, CSV (max 50 MB)",
+            "doc_upload_no_store": "⚠️ Document store not available (ChromaDB not running?)",
+            "doc_upload_invalid_type": "⚠️ {filename}: Type not allowed. Allowed: {allowed}",
+            "doc_upload_too_large": "⚠️ {filename}: Too large (max {max_mb} MB)",
+            "doc_upload_indexing": "📄 Indexing {filename}...",
+            "doc_upload_success": "✅ {filename}: {chunks} chunks indexed",
+            "doc_delete_success": "🗑️ {filename}: {chunks} chunks deleted",
+            # Document Manager Modal
+            "doc_manager_title": "📄 Documents",
+            "doc_manager_empty": "No documents uploaded yet.",
+            "doc_manager_chunks": "{chunks} chunks",
+            "doc_manager_close": "Close",
         }
     }
 

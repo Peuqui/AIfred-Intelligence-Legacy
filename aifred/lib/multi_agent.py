@@ -377,6 +377,13 @@ async def _stream_agent_to_history(
                     state.set_tool_status(t("tool_email_delete", lang=lang, msg_id=tool_args.get("msg_id", "")))
                 elif action == "send":
                     state.set_tool_status(t("tool_email_send", lang=lang, to=tool_args.get("to", "")[:30]))
+            elif tool_name == "search_documents":
+                query = tool_args.get("query", "")
+                state.set_tool_status(f"📄 {query[:50]}" if query else t("tool_doc_search", lang=lang))
+            elif tool_name == "list_documents":
+                state.set_tool_status(t("tool_doc_list", lang=lang))
+            elif tool_name == "delete_document":
+                state.set_tool_status(t("tool_doc_delete", lang=lang, filename=tool_args.get("filename", "")))
 
             yield  # type: ignore[misc]
             yield  # type: ignore[misc]

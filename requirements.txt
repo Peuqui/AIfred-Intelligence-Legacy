@@ -36,6 +36,9 @@ huggingface_hub>=1.4.1          # HuggingFace model downloads (hf CLI + GGUF dis
 hf>=1.4.1                       # HuggingFace CLI tool (hf download, hf upload, etc.)
 gguf>=0.10.0                    # GGUF metadata reading (native context detection)
 
+# Document Processing
+chardet>=5.0.0          # Automatic encoding detection for uploaded documents
+
 # Utilities
 python-multipart>=0.0.20
 platformdirs>=4.5.0

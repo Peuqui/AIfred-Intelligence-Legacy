@@ -79,6 +79,7 @@ from ..lib.audio_processing import (  # noqa: E402
 # Mixins
 from ._auth_mixin import AuthMixin  # noqa: E402
 from ._image_mixin import ImageMixin  # noqa: E402
+from ._document_mixin import DocumentMixin  # noqa: E402
 from ._export_mixin import ExportMixin  # noqa: E402
 from ._session_mixin import SessionMixin  # noqa: E402
 from ._tts_config_mixin import TTSConfigMixin  # noqa: E402
@@ -93,6 +94,7 @@ from ._ui_config_mixin import UIConfigMixin  # noqa: E402
 class AIState(  # type: ignore[misc]
     AuthMixin,
     ImageMixin,
+    DocumentMixin,
     ExportMixin,
     SessionMixin,
     TTSConfigMixin,

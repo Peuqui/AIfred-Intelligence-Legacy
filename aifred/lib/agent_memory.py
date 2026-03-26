@@ -7,7 +7,6 @@ Memory is retrieved via semantic search and injected into the agent's context.
 Uses the same ChromaDB server and embedding function as the research cache.
 """
 
-import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -23,8 +22,7 @@ from .config import (
     DEFAULT_OLLAMA_URL,
 )
 from .function_calling import Tool, ToolKit
-
-logger = logging.getLogger(__name__)
+from .logging_utils import log_message
 
 # Reuse embedding config from vector_cache (same model, same Ollama instance)
 OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
@@ -49,7 +47,7 @@ class AgentMemory:
             host=DEFAULT_OLLAMA_URL,
         )
         self._collections: dict[str, Any] = {}
-        logger.info("AgentMemory connected to ChromaDB")
+        log_message("AgentMemory connected to ChromaDB")
 
     def _collection(self, agent_id: str) -> Any:
         """Get or create a collection for an agent (cached)."""
@@ -82,7 +80,7 @@ class AgentMemory:
                     key=lambda i: all_data["metadatas"][i].get("date", ""),  # type: ignore[index]
                 )
                 col.delete(ids=[all_data["ids"][oldest_idx]])
-                logger.info(f"AgentMemory({agent_id}): evicted oldest entry (limit {AGENT_MEMORY_COLLECTION_MAX})")
+                log_message(f"AgentMemory({agent_id}): evicted oldest entry (limit {AGENT_MEMORY_COLLECTION_MAX})")
 
         # Dedup: if a very similar entry exists, update instead of adding
         existing = col.query(query_texts=[summary], n_results=1, include=["metadatas", "distances"])
@@ -103,7 +101,7 @@ class AgentMemory:
                     "session_id": session_id,
                 }],
             )
-            logger.info(f"AgentMemory({agent_id}): updated existing (dist {existing['distances'][0][0]:.2f}) [{memory_type}] {summary[:60]}")
+            log_message(f"AgentMemory({agent_id}): updated existing (dist {existing['distances'][0][0]:.2f}) [{memory_type}] {summary[:60]}")
             return f"Memory updated: [{memory_type}] {summary}"
 
         doc_id = str(uuid.uuid4())
@@ -121,7 +119,7 @@ class AgentMemory:
                 "session_id": session_id,
             }],
         )
-        logger.info(f"AgentMemory({agent_id}): stored [{memory_type}] {summary[:60]}")
+        log_message(f"AgentMemory({agent_id}): stored [{memory_type}] {summary[:60]}")
         return f"Memory stored: [{memory_type}] {summary}"
 
     def find_by_session(self, agent_id: str, session_id: str) -> list[str]:
@@ -422,6 +420,29 @@ async def prepare_agent_toolkit(
             from .email_tools import get_email_tools
             all_tools.extend(get_email_tools())
 
+    # Document tools + RAG context — available when ChromaDB is running
+    if research_tools_enabled:
+        from .document_store import get_document_store
+        doc_store = get_document_store()
+        if doc_store is not None:
+            from .document_tools import get_document_tools
+            all_tools.extend(get_document_tools())
+
+            # Auto-inject relevant document chunks as RAG context
+            doc_hits = await doc_store.search(user_query, n_results=3)
+            if doc_hits:
+                doc_parts = []
+                for hit in doc_hits:
+                    if hit.get("distance", 999) < 1.2:  # Only reasonably similar
+                        doc_parts.append(
+                            f"[{hit['filename']} chunk {hit['chunk_index'] + 1}/{hit['total_chunks']}]\n"
+                            f"{hit['content']}"
+                        )
+                if doc_parts:
+                    doc_context = "\n\n---\n\n".join(doc_parts)
+                    memory_ctx += f"\n\n## Relevant Document Context\n\n{doc_context}"
+                    log_message(f"📄 Document RAG: {len(doc_parts)} chunks injected")
+
     toolkit = ToolKit(tools=all_tools) if all_tools else None
     return memory_ctx, toolkit
 
@@ -437,6 +458,6 @@ def get_agent_memory() -> Optional[AgentMemory]:
         try:
             _instance = AgentMemory()
         except Exception as e:
-            logger.warning(f"AgentMemory unavailable: {e}")
+            log_message(f"AgentMemory unavailable: {e}")
             return None
     return _instance

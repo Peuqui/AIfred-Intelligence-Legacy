@@ -642,3 +642,258 @@ def image_lightbox_modal() -> rx.Component:
             style={"touch_action": "none"},  # Prevent browser scroll
         ),
     )
+
+
+def _document_row(doc: dict) -> rx.Component:
+    """Single row in the document manager list."""
+    return rx.hstack(
+        rx.icon("file-text", size=16, color="#d29922"),
+        rx.vstack(
+            rx.text(
+                doc["filename"],
+                font_weight="bold",
+                font_size="12px",
+                color="white",
+                cursor="pointer",
+                on_click=AIState.preview_document(doc["filename"]),
+                _hover={"text_decoration": "underline"},
+            ),
+            rx.text(
+                doc["upload_date"],
+                font_size="10px",
+                color="#888",
+            ),
+            spacing="0",
+        ),
+        rx.spacer(),
+        # Fixed-width columns for chunks + action icons
+        rx.hstack(
+            rx.text(
+                doc["total_chunks"].to(str),
+                font_size="10px",
+                color="#aaa",
+                min_width="20px",
+                text_align="right",
+            ),
+            rx.icon_button(
+                rx.icon("eye", size=16),
+                size="1",
+                variant="ghost",
+                color_scheme="blue",
+                on_click=AIState.preview_document(doc["filename"]),
+                cursor="pointer",
+            ),
+            rx.link(
+                rx.icon_button(
+                    rx.icon("download", size=16),
+                    size="1",
+                    variant="ghost",
+                    color_scheme="green",
+                    cursor="pointer",
+                ),
+                href="/_upload/documents/" + doc["filename"].to(str),
+                download=doc["filename"],
+                is_external=True,
+            ),
+            rx.icon_button(
+                rx.icon("trash-2", size=16),
+                size="1",
+                variant="ghost",
+                color_scheme="red",
+                on_click=AIState.delete_uploaded_document(doc["filename"]),
+                cursor="pointer",
+            ),
+            spacing="1",
+            align="center",
+            flex_shrink="0",
+        ),
+        width="100%",
+        padding="6px 8px",
+        align="center",
+        border_bottom="1px solid #2a2a2a",
+        _hover={"background_color": "rgba(255, 255, 255, 0.05)"},
+    )
+
+
+def document_manager_modal() -> rx.Component:
+    """Modal for managing uploaded documents."""
+    return rx.cond(
+        AIState.document_manager_open,
+        rx.box(
+            # Backdrop
+            rx.box(
+                position="absolute",
+                top="0",
+                left="0",
+                width="100%",
+                height="100%",
+                background_color="#000000",
+                on_click=AIState.close_document_manager,
+            ),
+
+            # Modal Content — two-column layout
+            rx.vstack(
+                # Header
+                rx.hstack(
+                    rx.icon("file-text", size=24, color="#d29922"),
+                    rx.text(
+                        t("doc_manager_title"),
+                        color="white",
+                        font_weight="bold",
+                        font_size="18px",
+                    ),
+                    rx.spacer(),
+                    # Close button in header
+                    rx.icon_button(
+                        rx.icon("x", size=18),
+                        size="2",
+                        variant="ghost",
+                        color_scheme="gray",
+                        on_click=AIState.close_document_manager,
+                        cursor="pointer",
+                    ),
+                    width="100%",
+                    align="center",
+                ),
+
+                # Two-column (desktop) / stacked (mobile): list | preview
+                rx.flex(
+                    # Left: Document list
+                    rx.vstack(
+                        rx.cond(
+                            AIState.uploaded_documents.length() > 0,
+                            rx.vstack(
+                                rx.foreach(
+                                    AIState.uploaded_documents,
+                                    _document_row,
+                                ),
+                                spacing="2",
+                                width="100%",
+                            ),
+                            rx.text(
+                                t("doc_manager_empty"),
+                                color="#888",
+                                font_size="14px",
+                                padding="20px 0",
+                            ),
+                        ),
+                        # Status message
+                        rx.cond(
+                            AIState.document_upload_status != "",
+                            rx.text(
+                                AIState.document_upload_status,
+                                font_size="12px",
+                                color="#aaa",
+                            ),
+                        ),
+                        flex=["1 1 100%", "1 1 100%", "0 0 35%"],
+                        max_height=["40vh", "40vh", "70vh"],
+                        overflow_y="auto",
+                        padding_right=["0", "0", "15px"],
+                        padding_bottom=["10px", "10px", "0"],
+                        border_right=["none", "none", "1px solid #333"],
+                        border_bottom=["1px solid #333", "1px solid #333", "none"],
+                    ),
+
+                    # Right: Preview
+                    rx.vstack(
+                        rx.cond(
+                            AIState.document_preview_filename != "",
+                            rx.vstack(
+                                rx.hstack(
+                                    rx.icon("eye", size=16, color="#58a6ff"),
+                                    rx.text(
+                                        AIState.document_preview_filename,
+                                        color="#58a6ff",
+                                        font_weight="bold",
+                                        font_size="14px",
+                                    ),
+                                    rx.spacer(),
+                                    rx.icon_button(
+                                        rx.icon("x", size=14),
+                                        size="1",
+                                        variant="ghost",
+                                        color_scheme="gray",
+                                        on_click=AIState.close_document_preview,
+                                        cursor="pointer",
+                                    ),
+                                    width="100%",
+                                    align="center",
+                                ),
+                                rx.box(
+                                    rx.text(
+                                        AIState.document_preview_content,
+                                        white_space="pre-wrap",
+                                        font_size="12px",
+                                        color="#ccc",
+                                        font_family="monospace",
+                                    ),
+                                    max_height="65vh",
+                                    overflow_y="auto",
+                                    width="100%",
+                                    padding="10px",
+                                    background_color="rgba(0, 0, 0, 0.3)",
+                                    border_radius="6px",
+                                    border="1px solid #333",
+                                ),
+                                spacing="2",
+                                width="100%",
+                            ),
+                            # Empty preview state
+                            rx.vstack(
+                                rx.icon("eye-off", size=32, color="#444"),
+                                rx.text(
+                                    rx.cond(
+                                        AIState.ui_language == "de",
+                                        "Klicke auf ein Dokument um es anzuzeigen",
+                                        "Click a document to preview it",
+                                    ),
+                                    color="#666",
+                                    font_size="13px",
+                                ),
+                                align="center",
+                                justify="center",
+                                height="100%",
+                                spacing="3",
+                            ),
+                        ),
+                        flex=["1 1 100%", "1 1 100%", "0 0 65%"],
+                        max_height=["40vh", "40vh", "70vh"],
+                        overflow_y="auto",
+                        padding_left=["0", "0", "15px"],
+                        padding_top=["10px", "10px", "0"],
+                    ),
+
+                    width="100%",
+                    align="start",
+                    gap="0",
+                    direction=rx.breakpoints(initial="column", md="row"),
+                ),
+
+                spacing="4",
+                align="center",
+                padding="25px",
+                background_color="#1a1a1a",
+                border_radius="12px",
+                max_width="95vw",
+                width=["95vw", "95vw", "1024px"],
+                height=["90vh", "90vh", "1024px"],
+                max_height="90vh",
+                overflow_y="hidden",
+                position="relative",
+                z_index="1001",
+                color="white",
+            ),
+
+            # Fullscreen container
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index="1000",
+            display="flex",
+            justify_content="center",
+            align_items="center",
+        ),
+    )
