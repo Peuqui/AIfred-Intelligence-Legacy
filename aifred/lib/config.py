@@ -1011,7 +1011,7 @@ DOCUMENTS_DIR = DATA_DIR / "documents"
 DOCUMENT_CHUNK_SIZE = 500           # Tokens per chunk (~375 words)
 DOCUMENT_CHUNK_OVERLAP = 50         # Overlap between chunks (tokens)
 DOCUMENT_MAX_FILE_SIZE_MB = 0       # 0 = no limit
-EMBEDDING_USE_GPU = True            # True = GPU (~600MB VRAM, fast), False = CPU (slower, no VRAM)
+EMBEDDING_USE_GPU = False           # True = GPU (~900MB VRAM, fast), False = CPU (no VRAM conflict with large models)
 DOCUMENT_RAG_MAX_CHUNKS = 100       # Max chunks auto-injected as RAG context per query
 DOCUMENT_COLLECTION = "aifred_documents"  # ChromaDB collection name
 DOCUMENT_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
