@@ -429,19 +429,25 @@ async def prepare_agent_toolkit(
             all_tools.extend(get_document_tools())
 
             # Auto-inject relevant document chunks as RAG context
-            doc_hits = await doc_store.search(user_query, n_results=3)
+            from .config import DOCUMENT_RAG_MAX_CHUNKS
+            doc_hits = await doc_store.search(user_query, n_results=DOCUMENT_RAG_MAX_CHUNKS)
             if doc_hits:
                 doc_parts = []
+                doc_files: set[str] = set()
                 for hit in doc_hits:
                     if hit.get("distance", 999) < 1.2:  # Only reasonably similar
                         doc_parts.append(
                             f"[{hit['filename']} chunk {hit['chunk_index'] + 1}/{hit['total_chunks']}]\n"
                             f"{hit['content']}"
                         )
+                        doc_files.add(hit["filename"])
                 if doc_parts:
                     doc_context = "\n\n---\n\n".join(doc_parts)
                     memory_ctx += f"\n\n## Relevant Document Context\n\n{doc_context}"
-                    log_message(f"📄 Document RAG: {len(doc_parts)} chunks injected")
+                    files_str = ", ".join(sorted(doc_files))
+                    log_message(f"📄 Document RAG: {len(doc_parts)} chunks from {len(doc_files)} docs injected")
+                    if state is not None and hasattr(state, "add_debug"):
+                        state.add_debug(f"📄 Document RAG: {len(doc_parts)} chunks aus {files_str}")
 
     toolkit = ToolKit(tools=all_tools) if all_tools else None
     return memory_ctx, toolkit

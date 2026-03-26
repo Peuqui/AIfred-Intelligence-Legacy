@@ -21,14 +21,14 @@ def _load_tool_description() -> str:
 def get_document_tools() -> list[Tool]:
     """Create document tools for LLM function calling."""
 
-    async def _search_documents(query: str, n_results: int = 5) -> str:
+    async def _search_documents(query: str, n_results: int = 20) -> str:
         """Search uploaded documents semantically."""
         from .document_store import get_document_store
         store = get_document_store()
         if not store:
             return json.dumps({"error": "Document store not available (ChromaDB not running?)"})
 
-        hits = await store.search(query, n_results=min(n_results, 10))
+        hits = await store.search(query, n_results=min(n_results, 100))
         if not hits:
             return json.dumps({"results": [], "message": "No matching documents found."})
 
@@ -82,7 +82,7 @@ def get_document_tools() -> list[Tool]:
                     },
                     "n_results": {
                         "type": "integer",
-                        "description": "Number of results to return (default: 5, max: 10)",
+                        "description": "Number of results to return (default: 20, max: 100)",
                         "default": 5,
                     },
                 },
