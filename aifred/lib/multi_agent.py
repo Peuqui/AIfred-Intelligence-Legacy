@@ -656,6 +656,7 @@ async def _run_agent_direct_response(
             state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_label}")
         if not memory_enabled:
             state.add_debug("🔒 Inkognito-Modus (kein Gedächtnis)")
+        yield  # type: ignore[misc]  # Flush debug messages (RAG, memory, toolkit)
 
         # Forced web search (quick/deep): execute research pipeline BEFORE agent response
         research_context = ""
@@ -692,7 +693,11 @@ async def _run_agent_direct_response(
         else:
             agent_temp = state.temperature  # type: ignore[has-type]
 
-        state.add_debug(f"📊 Context: {format_number(agent_num_ctx)}")
+        # Token breakdown: System + History = Total / Limit
+        sys_tok = estimate_tokens([{"content": system_prompt}], model_name=agent_model_id)
+        hist_tok = estimate_tokens([m for m in messages if m["role"] != "system"], model_name=agent_model_id)
+        total_tok = sys_tok + hist_tok
+        state.add_debug(f"📊 Prompt: System {format_number(sys_tok)} + History {format_number(hist_tok)} = {format_number(total_tok)} / {format_number(agent_num_ctx)} tok ({int(total_tok / agent_num_ctx * 100)}%)")
         state.add_debug(f"🌡️ Temperature: {format_number(agent_temp, 1)}")
 
         # Build LLM options — custom agents use AIfred's settings

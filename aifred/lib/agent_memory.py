@@ -430,6 +430,9 @@ async def prepare_agent_toolkit(
 
             # Auto-inject relevant document chunks as RAG context
             from .config import DOCUMENT_RAG_MAX_CHUNKS
+            from .i18n import t
+            if state is not None and hasattr(state, "set_tool_status"):
+                state.set_tool_status(t("tool_doc_search", lang=state.ui_language if hasattr(state, "ui_language") else "de"))
             doc_hits = await doc_store.search(user_query, n_results=DOCUMENT_RAG_MAX_CHUNKS)
             if doc_hits:
                 doc_parts = []
@@ -443,9 +446,16 @@ async def prepare_agent_toolkit(
                         doc_files.add(hit["filename"])
                 if doc_parts:
                     doc_context = "\n\n---\n\n".join(doc_parts)
-                    memory_ctx += f"\n\n## Relevant Document Context\n\n{doc_context}"
+                    total_docs = len(doc_store.list_documents())
+                    memory_ctx += (
+                        f"\n\n## Relevant Document Context (auto-injected, INCOMPLETE)\n"
+                        f"**WARNING: This is only a semantic subset ({len(doc_parts)} chunks from {len(doc_files)}/{total_docs} documents). "
+                        f"For comprehensive answers about documents, you MUST call list_documents and search_documents with multiple queries.**\n\n"
+                        f"{doc_context}"
+                    )
                     files_str = ", ".join(sorted(doc_files))
-                    rag_tokens = int(len(doc_context) / 3.5)
+                    from .context_manager import estimate_tokens
+                    rag_tokens = estimate_tokens([{"content": doc_context}])
                     from .formatting import format_number
                     ui_lang = state.ui_language if state and hasattr(state, "ui_language") else "de"
                     rag_tok_str = format_number(rag_tokens, locale=ui_lang)
