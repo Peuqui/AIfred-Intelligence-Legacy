@@ -332,6 +332,17 @@ class TranslationManager:
             "agent_editor_role_custom": "Benutzerdefiniert",
             "agent_editor_default_badge": "Standard",
             "agent_editor_close": "Schliessen",
+            # Tool Status Messages
+            "tool_search": "🔍 Recherche...",
+            "tool_memory": "💾 Speichere Erkenntnis...",
+            "tool_code_generating": "⚙️ Code wird generiert...",
+            "tool_code_running": "⚙️ Code ausführen...",
+            "tool_email": "📧 E-Mail...",
+            "tool_email_check": "📧 Posteingang prüfen...",
+            "tool_email_read": "📧 E-Mail {msg_id} lesen...",
+            "tool_email_search": "📧 Suche: {query}",
+            "tool_email_delete": "📧 E-Mail {msg_id} löschen...",
+            "tool_email_send": "📧 Sende an {to}...",
         },
         "en": {
             # UI Labels
@@ -621,6 +632,17 @@ class TranslationManager:
             "agent_editor_role_custom": "Custom",
             "agent_editor_default_badge": "Default",
             "agent_editor_close": "Close",
+            # Tool Status Messages
+            "tool_search": "🔍 Searching...",
+            "tool_memory": "💾 Saving insight...",
+            "tool_code_generating": "⚙️ Generating code...",
+            "tool_code_running": "⚙️ Running code...",
+            "tool_email": "📧 Email...",
+            "tool_email_check": "📧 Checking inbox...",
+            "tool_email_read": "📧 Reading email {msg_id}...",
+            "tool_email_search": "📧 Search: {query}",
+            "tool_email_delete": "📧 Deleting email {msg_id}...",
+            "tool_email_send": "📧 Sending to {to}...",
         }
     }
 

@@ -41,10 +41,7 @@ Für Versionshistorie und aktuelle Änderungen siehe [CHANGELOG.md](CHANGELOG.md
   - `calculate` — Mathematische Berechnungen und Einheitenumrechnungen
   - `read_document` — Dokumente lesen und analysieren
   - `execute_code` — Python-Code in isolierter Sandbox ausführen (siehe unten)
-  - `email_check` — Posteingang auf neue E-Mails prüfen (IMAP)
-  - `email_read` — Vollständige E-Mail per Message-ID lesen
-  - `email_search` — E-Mails nach Betreff oder Absender durchsuchen
-  - `email_send` — E-Mails verfassen und senden (SMTP, mit Bestätigung)
+  - `email` — E-Mail-Integration (IMAP/SMTP) mit Aktionen: `check` (Posteingang), `read` (E-Mail lesen), `search` (Suche), `delete` (Löschen), `send` (Senden mit Bestätigung)
 - **Sandboxed Code-Ausführung**: LLM kann Python-Code in einem isolierten Subprocess schreiben und ausführen (ressourcenlimitiert, automatisches Aufräumen). Unterstützt numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interaktive HTML/JS-Visualisierungen (Plotly 3D, Canvas-Spiele, Simulationen) werden als iframes direkt im Chat eingebettet. Statische matplotlib-Plots werden als Bilder angezeigt
 - **E-Mail-Integration**: E-Mails lesen, suchen und senden via IMAP/SMTP. Senden erfordert explizite Bestätigung (Entwurf → Prüfung → Bestätigung). Credentials nur über Umgebungsvariablen (nie in settings.json). Opt-in via `EMAIL_ENABLED=true`
 - **Benutzerdefinierte Agenten**: Unbegrenzt eigene Agenten erstellen mit Name, Emoji, Rolle und zweisprachigen Prompts (DE/EN). Eigene Agenten nehmen an Debatten teil, können direkt angesprochen werden und haben ihr eigenes Langzeitgedächtnis
