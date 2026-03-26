@@ -445,9 +445,13 @@ async def prepare_agent_toolkit(
                     doc_context = "\n\n---\n\n".join(doc_parts)
                     memory_ctx += f"\n\n## Relevant Document Context\n\n{doc_context}"
                     files_str = ", ".join(sorted(doc_files))
-                    log_message(f"📄 Document RAG: {len(doc_parts)} chunks from {len(doc_files)} docs injected")
+                    rag_tokens = int(len(doc_context) / 3.5)
+                    from .formatting import format_number
+                    ui_lang = state.ui_language if state and hasattr(state, "ui_language") else "de"
+                    rag_tok_str = format_number(rag_tokens, locale=ui_lang)
+                    log_message(f"📄 Document RAG: {len(doc_parts)} chunks from {len(doc_files)} docs (~{rag_tokens} tok)")
                     if state is not None and hasattr(state, "add_debug"):
-                        state.add_debug(f"📄 Document RAG: {len(doc_parts)} chunks aus {files_str}")
+                        state.add_debug(f"📄 Document RAG: {len(doc_parts)} chunks (~{rag_tok_str} tok) aus {files_str}")
 
     toolkit = ToolKit(tools=all_tools) if all_tools else None
     return memory_ctx, toolkit
