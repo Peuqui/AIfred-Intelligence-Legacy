@@ -492,6 +492,7 @@ def get_agent_system_prompt(
     return _merge_prompt_layers(
         agent_id, task_prompt, lang,
         multi_agent=multi_agent, memory=memory,
+        tools=kwargs.get('tools', True),
         user_name=kwargs.get('user_name'), user_gender=kwargs.get('user_gender'),
     )
 
@@ -823,6 +824,7 @@ def get_system_rag_prompt(
     task_prompt = load_prompt(f'{agent_id}/direct', lang=lang)
     return _merge_prompt_layers(
         agent_id, task_prompt, lang,
+        tools=True,
         user_name=user_name, user_gender=user_gender,
         rag_context=context,
     )
