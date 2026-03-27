@@ -427,6 +427,21 @@ class EpimDatabase:
         """Update fields on an existing task."""
         if not fields:
             return False
+
+        # Resolve name-based fields to IDs
+        if "category" in fields or "category_name" in fields:
+            cat_name = fields.pop("category_name", None) or fields.pop("category", None)
+            if cat_name and isinstance(cat_name, str):
+                cat_id = self.resolve_category(str(cat_name))
+                if cat_id is not None:
+                    fields["CATEGORY"] = cat_id
+        if "calendar" in fields or "calendar_name" in fields:
+            cal_name = fields.pop("calendar_name", None) or fields.pop("calendar", None)
+            if cal_name and isinstance(cal_name, str):
+                cal_id = self.resolve_calendar(str(cal_name))
+                if cal_id is not None:
+                    fields["CALENDAR"] = cal_id
+
         con = self._connect()
         cur = con.cursor()
 
@@ -889,6 +904,15 @@ class EpimDatabase:
         """Update a todo item."""
         if not fields:
             return False
+
+        # Resolve name-based fields to IDs
+        if "list" in fields or "list_name" in fields:
+            list_name = fields.pop("list_name", None) or fields.pop("list", None)
+            if list_name and isinstance(list_name, str):
+                list_id = self.resolve_todolist(str(list_name))
+                if list_id is not None:
+                    fields["IDLIST"] = list_id
+
         con = self._connect()
         cur = con.cursor()
 

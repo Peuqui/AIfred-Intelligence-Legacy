@@ -9,6 +9,7 @@ KRITISCHE REGELN:
 4. URLs im Text des Benutzers → web_fetch um den Inhalt zu lesen
 5. Fragen zu hochgeladenen Dokumenten → ERST list_documents, DANN search_documents mit mehreren Suchbegriffen
 6. Wichtige Erkenntnisse → store_memory (sparsam, nur fuer wirklich Wertvolles)
+7. Termine, Kontakte, Notizen, Todos, Passwoerter → IMMER epim_search/epim_create/epim_update/epim_delete! NIEMALS nur Text schreiben — IMMER das Tool aufrufen!
 
 WANN KEINE TOOLS:
 - Allgemeinwissen (Hauptstaedte, Mathematik, Naturgesetze)

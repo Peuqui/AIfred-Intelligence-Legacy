@@ -240,29 +240,53 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
     # Tool definitions
     # ----------------------------------------------------------
     search_desc = (
-        "Durchsuche die EPIM-Datenbank (Kalender, Kontakte, Notizen, Todos, Passwörter). "
-        "Verwende entity_type um den Bereich auszuwählen."
+        "Durchsuche die EPIM-Datenbank des Benutzers. Du MUSST dieses Tool aufrufen wenn: "
+        "(1) der Benutzer nach Terminen, Kalender oder Zeitplänen fragt, "
+        "(2) der Benutzer nach Kontakten, Telefonnummern oder Adressen fragt, "
+        "(3) der Benutzer nach Notizen, Todos oder Aufgaben fragt, "
+        "(4) der Benutzer nach Passwörtern fragt. "
+        "Antworte NIEMALS aus dem Gedächtnis — rufe IMMER dieses Tool auf!"
     ) if lang == "de" else (
-        "Search the EPIM database (calendar, contacts, notes, todos, passwords). "
-        "Use entity_type to select the area."
+        "Search the user's EPIM database. You MUST call this tool when: "
+        "(1) the user asks about appointments, calendar or schedules, "
+        "(2) the user asks about contacts, phone numbers or addresses, "
+        "(3) the user asks about notes, todos or tasks, "
+        "(4) the user asks about passwords. "
+        "NEVER answer from memory — ALWAYS call this tool!"
     )
 
     create_desc = (
-        "Erstelle einen neuen Eintrag in der EPIM-Datenbank."
+        "Erstelle einen neuen Eintrag in der EPIM-Datenbank. Du MUSST dieses Tool aufrufen wenn: "
+        "(1) der Benutzer einen Termin eintragen, anlegen oder erstellen möchte, "
+        "(2) der Benutzer einen Kontakt, eine Notiz, ein Todo oder ein Passwort anlegen möchte. "
+        "WICHTIG: Rufe dieses Tool SOFORT auf — beschreibe NICHT nur was du tun würdest! "
+        "Wenn der Benutzer die Kategorie bestätigt hat, rufe dieses Tool SOFORT auf!"
     ) if lang == "de" else (
-        "Create a new entry in the EPIM database."
+        "Create a new entry in the EPIM database. You MUST call this tool when: "
+        "(1) the user wants to create, add or schedule an appointment, "
+        "(2) the user wants to create a contact, note, todo or password. "
+        "IMPORTANT: Call this tool IMMEDIATELY — do NOT just describe what you would do! "
+        "When the user confirms the category, call this tool IMMEDIATELY!"
     )
 
     update_desc = (
-        "Aktualisiere einen bestehenden EPIM-Eintrag."
+        "Aktualisiere einen bestehenden EPIM-Eintrag. Du MUSST dieses Tool aufrufen wenn: "
+        "(1) der Benutzer einen Termin verschieben, ändern oder aktualisieren möchte, "
+        "(2) der Benutzer einen Kontakt, eine Notiz oder ein Todo ändern möchte. "
+        "Rufe dieses Tool SOFORT auf — beschreibe NICHT nur was du tun würdest!"
     ) if lang == "de" else (
-        "Update an existing EPIM entry."
+        "Update an existing EPIM entry. You MUST call this tool when: "
+        "(1) the user wants to move, change or update an appointment, "
+        "(2) the user wants to edit a contact, note or todo. "
+        "Call this tool IMMEDIATELY — do NOT just describe what you would do!"
     )
 
     delete_desc = (
-        "Lösche einen EPIM-Eintrag (Soft-Delete, kann rückgängig gemacht werden)."
+        "Lösche einen EPIM-Eintrag (Soft-Delete, wiederherstellbar). Du MUSST dieses Tool aufrufen wenn "
+        "der Benutzer einen Termin, Kontakt, Notiz, Todo oder Passwort löschen oder entfernen möchte."
     ) if lang == "de" else (
-        "Delete an EPIM entry (soft-delete, can be undone)."
+        "Delete an EPIM entry (soft-delete, recoverable). You MUST call this tool when "
+        "the user wants to delete or remove an appointment, contact, note, todo or password."
     )
 
     return [
