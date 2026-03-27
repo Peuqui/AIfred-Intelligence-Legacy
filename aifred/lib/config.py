@@ -1017,6 +1017,14 @@ DOCUMENT_COLLECTION = "aifred_documents"  # ChromaDB collection name
 DOCUMENT_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
 
 # ============================================================
+# EPIM DATABASE CONFIGURATION
+# ============================================================
+EPIM_ENABLED = True
+EPIM_DB_PATH = DATA_DIR / "epim" / "Database" / "MP-AIfred.epim"
+EPIM_FB_LIB = PROJECT_ROOT / "lib" / "firebird25" / "libfbembed.so"
+EPIM_FB_DIR = PROJECT_ROOT / "lib" / "firebird25"
+
+# ============================================================
 # HTML PREVIEW CONFIGURATION
 # ============================================================
 HTML_PREVIEW_MAX_FILES = 200         # LRU cache limit for data/html_preview/

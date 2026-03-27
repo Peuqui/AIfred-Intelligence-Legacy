@@ -354,6 +354,36 @@ def load_prompt(
         weekday = now.strftime("%A")
         current_date = f"{weekday}, {now.strftime('%Y-%m-%d')}"
 
+    # Build upcoming days reference (helps LLMs with date arithmetic)
+    from datetime import timedelta
+    upcoming_days: list[str] = []
+    for offset in range(1, 8):
+        d = now + timedelta(days=offset)
+        if lang == "de":
+            wd = weekday_map.get(d.strftime("%A"), d.strftime("%A"))
+            upcoming_days.append(f"{wd} {d.strftime('%d.%m.%Y')}")
+        else:
+            upcoming_days.append(f"{d.strftime('%A')} {d.strftime('%Y-%m-%d')}")
+    upcoming_week = ", ".join(upcoming_days)
+
+    # EPIM lookup data (loaded once, cached in DB singleton)
+    epim_categories = ""
+    epim_todolists = ""
+    epim_notetrees = ""
+    epim_calendars = ""
+    try:
+        from .config import EPIM_ENABLED
+        if EPIM_ENABLED:
+            from .epim_db import get_epim_db
+            _epim = get_epim_db()
+            if _epim:
+                epim_categories = ", ".join(c["name"] for c in _epim.get_categories())
+                epim_todolists = ", ".join(t["name"] for t in _epim.get_todolists())
+                epim_notetrees = ", ".join(n["name"] for n in _epim.get_notetrees())
+                epim_calendars = ", ".join(c["name"] for c in _epim.get_calendars())
+    except Exception:
+        pass  # EPIM not available — placeholders stay empty
+
     # Standard placeholders - always available
     current_year_int = now.year
     standard_placeholders = {
@@ -361,6 +391,11 @@ def load_prompt(
         'current_date': current_date,
         'current_time': now.strftime('%H:%M:%S'),
         'current_weekday': weekday,
+        'upcoming_week': upcoming_week,
+        'epim_categories': epim_categories,
+        'epim_todolists': epim_todolists,
+        'epim_notetrees': epim_notetrees,
+        'epim_calendars': epim_calendars,
         'previous_years': f"{current_year_int - 2} oder {current_year_int - 1}",  # e.g., "2024 oder 2025"
         'user_name': _current_user_name if _current_user_name else "",
         'user_gender': ("männlich" if _current_user_gender == "male" else "weiblich") if lang == "de" else _current_user_gender,
@@ -712,11 +747,9 @@ def _merge_prompt_layers(
 
     # Layer 0: User prefix (once, at the top — NOT per-layer)
     if name:
-        if lang == "de":
-            gender_label = "männlich" if gender == "male" else "weiblich"
-            parts.append(f"BENUTZER: {name} ({gender_label})")
-        else:
-            parts.append(f"USER: {name} ({gender})")
+        user_prefix = load_prompt('shared/user_prefix', lang=lang, user_name=name, user_gender=gender)
+        if user_prefix:
+            parts.append(user_prefix)
 
     # Layer 1: Identity (always)
     identity = load_identity(agent, lang)
@@ -752,6 +785,14 @@ def _merge_prompt_layers(
         tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
         if tool_instructions:
             parts.append(tool_instructions)
+
+    # Layer 7b: EPIM database instructions (when EPIM available)
+    if tools:
+        from .config import EPIM_ENABLED
+        if EPIM_ENABLED:
+            epim_instructions = load_prompt('shared/epim_instructions', lang=lang)
+            if epim_instructions:
+                parts.append(epim_instructions)
 
     # Layer 8: Memory instructions (when memory active)
     if memory:

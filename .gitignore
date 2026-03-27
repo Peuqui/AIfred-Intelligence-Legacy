@@ -20,6 +20,12 @@ build/
 # Piper Models (zu groß für Git)
 piper_models/
 
+# Firebird 2.5 embedded libraries (binaries, ~67 MB)
+lib/firebird25/
+
+# EPIM database files (private data!)
+data/epim/
+
 # SSL Certificates (privat!)
 ssl/
 *.pem

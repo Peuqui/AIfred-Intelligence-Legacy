@@ -45,6 +45,11 @@ For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
   - `search_documents` — Semantic search across uploaded documents
   - `list_documents` — List all uploaded documents
   - `delete_document` — Remove a document from the store
+  - `epim_search` — Search the EPIM personal database (calendar events, contacts, notes, todos, passwords) with date range, keyword and category filters
+  - `epim_create` — Create new entries in EPIM (appointments, contacts, notes, todos, passwords) with automatic category/calendar name-to-ID resolution
+  - `epim_update` — Update existing EPIM entries (reschedule appointments, edit contacts, modify notes)
+  - `epim_delete` — Soft-delete EPIM entries (recoverable)
+- **EPIM Database Integration**: Full CRUD access to the [EssentialPIM](https://www.essentialpim.com/) Firebird 2.5 database — the LLM autonomously searches, creates, updates and deletes calendar events, contacts, notes, todos and password entries. Features: automatic name-to-ID resolution for categories/calendars/lists (LLM uses human-readable names, not IDs), FIELDSDATA hex codec for contact fields, dynamic prompt injection of available categories/calendars/lists, anti-hallucination guardrails, 7-day date reference for correct relative date resolution. Database path configurable in `config.py` (`EPIM_DB_PATH`)
 - **Document Upload & RAG**: Upload documents (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatic chunking and embedding in ChromaDB. Relevant document chunks are automatically injected as RAG context into the system prompt. Document manager modal with preview, download and delete. Embedding configurable on CPU or GPU (`EMBEDDING_USE_GPU`)
 - **Sandboxed Code Execution**: LLM can write and run Python code in an isolated subprocess (resource-limited, auto-cleanup). Supports numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interactive HTML/JS visualizations (Plotly 3D, Canvas games, simulations) are embedded as iframes directly in the chat. Static matplotlib plots are displayed as images
 - **E-Mail Integration**: Read, search, and send emails via IMAP/SMTP. Sending requires explicit user confirmation (draft → review → confirm). Credentials via environment variables only (never stored in settings). Opt-in via `EMAIL_ENABLED=true`

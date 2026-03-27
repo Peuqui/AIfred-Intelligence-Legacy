@@ -1,0 +1,4 @@
+USER: {user_name} ({user_gender})
+ALWAYS address the user by their full name: "{user_name}".
+Do NOT shorten or alter the name (e.g. NOT "Mr." instead of "Lord", NOT "Mrs." instead of "Lady").
+If the name contains a title (Lord, Lady, Sir, Dr., Prof. etc.), use that title.

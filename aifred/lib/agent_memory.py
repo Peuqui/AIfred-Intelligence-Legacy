@@ -463,6 +463,13 @@ async def prepare_agent_toolkit(
                     if state is not None and hasattr(state, "add_debug"):
                         state.add_debug(f"📄 Document RAG: {len(doc_parts)} chunks (~{rag_tok_str} tok) aus {files_str}")
 
+    # EPIM database tools
+    if research_tools_enabled:
+        from .epim_tools import get_epim_tools
+        epim_tools = get_epim_tools(lang=lang)
+        if epim_tools:
+            all_tools.extend(epim_tools)
+
     toolkit = ToolKit(tools=all_tools) if all_tools else None
     return memory_ctx, toolkit
 
