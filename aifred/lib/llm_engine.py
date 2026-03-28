@@ -1,5 +1,5 @@
 """
-Own Knowledge Handler - Zentrale Funktion für LLM-Antworten ohne Web-Recherche.
+LLM Engine - Zentrale Funktion für LLM-Aufrufe aller Agenten.
 
 Diese Funktion wird aufgerufen von:
 - state.py: research_mode == "none"
@@ -27,7 +27,7 @@ from .research.context_utils import get_agent_num_ctx
 
 
 
-async def handle_own_knowledge(
+async def call_llm(
     user_text: str,
     model_choice: str,
     history: List,  # chat_history - will be updated and returned in result

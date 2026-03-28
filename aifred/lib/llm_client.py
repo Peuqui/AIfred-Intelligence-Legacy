@@ -21,7 +21,7 @@ def build_llm_options(state: "AIState", agent: str, temperature: float, num_ctx:
     """Build LLMOptions for an agent — sampling params always from state.
 
     Central function to ensure ALL sampling parameters are passed consistently.
-    Called from multi_agent.py, own_knowledge_handler.py, etc.
+    Called from multi_agent.py, llm_engine.py, etc.
     """
     return LLMOptions(
         temperature=temperature,

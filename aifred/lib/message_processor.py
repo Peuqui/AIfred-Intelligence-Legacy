@@ -2,7 +2,7 @@
 
 Handles the complete flow for inbound messages:
 1. Find or create a session (via routing table)
-2. Call the AIfred engine (handle_own_knowledge)
+2. Call the AIfred engine (call_llm)
 3. Collect the response
 4. Optionally send a reply (auto-reply)
 5. Update the session with the conversation
@@ -99,11 +99,11 @@ async def _call_engine(
 ) -> str:
     """Call the AIfred engine and collect the response text.
 
-    Uses handle_own_knowledge() with settings from settings.json.
+    Uses call_llm() with settings from settings.json.
     """
-    from .own_knowledge_handler import handle_own_knowledge
+    from .llm_engine import call_llm
     from .settings import load_settings
-    from .config import DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS
+    from .config import DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS, MAIN_LLM_FALLBACK_CONTEXT
 
     # Load current settings
     settings = load_settings() or {}
@@ -112,10 +112,11 @@ async def _call_engine(
     temperature = settings.get("temperature", 0.7)
     enable_thinking = settings.get("enable_thinking", False)
 
-    # Get model for the agent
-    backend_models = BACKEND_DEFAULT_MODELS.get(backend_type, {})
+    # Get model for the agent — check per-backend saved models first
+    backend_models_saved = settings.get("backend_models", {}).get(backend_type, {})
+    backend_models_default = BACKEND_DEFAULT_MODELS.get(backend_type, {})
     model_key = f"{agent}_model" if agent != "aifred" else "aifred_model"
-    model = settings.get(model_key, backend_models.get(model_key, ""))
+    model = backend_models_saved.get(model_key, backend_models_default.get(model_key, ""))
 
     # Get backend URL
     from .config import BACKEND_URLS
@@ -128,9 +129,11 @@ async def _call_engine(
     log_message(f"Message Processor: calling {agent} ({model}) for: {user_text[:80]}...")
 
     # Collect response from the async generator
+    # Note: We use num_ctx_manual to bypass the state-dependent num_ctx lookup
+    # (Message Hub runs outside of Reflex state context)
     response_parts: list[str] = []
     try:
-        async for chunk in handle_own_knowledge(
+        async for chunk in call_llm(
             user_text=user_text,
             model_choice=model,
             history=[],
@@ -142,6 +145,8 @@ async def _call_engine(
             backend_type=backend_type,
             backend_url=backend_url,
             enable_thinking=enable_thinking,
+            num_ctx_manual_enabled=True,
+            num_ctx_manual_value=MAIN_LLM_FALLBACK_CONTEXT,
             agent=agent,
         ):
             if chunk.get("type") == "content":

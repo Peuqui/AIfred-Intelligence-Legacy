@@ -401,7 +401,7 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── Multi-Agent Dispatch ─────────────────────────────────────────
 
-    async def _maybe_run_multi_agent(
+    async def _dispatch_multi_agent(
         self,
         user_msg: str,
         ai_text: str,
@@ -449,7 +449,7 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── VL Inference Helper ──────────────────────────────────────────
 
-    async def _run_vl_inference(
+    async def _process_vision_request(
         self,
         user_msg: str,
         content_parts: list[dict],
@@ -457,7 +457,7 @@ class ChatMixin(rx.State, mixin=True):
         detected_language: str,
         vision_prompt_key: str = "task_qa",
     ) -> AsyncGenerator[None, None]:
-        """Run VL inference via handle_own_knowledge and process results.
+        """Run VL inference via call_llm and process results.
 
         Shared by VL Direct, VL Shortcut, and VL Follow-up paths.
         Handles streaming, history update, cleanup, title generation and session save.
@@ -465,7 +465,7 @@ class ChatMixin(rx.State, mixin=True):
         For llamacpp: prefers the -speed variant (single GPU, faster) unless
         the base variant is already running (avoid unnecessary model swap).
         """
-        from ..lib.own_knowledge_handler import handle_own_knowledge
+        from ..lib.llm_engine import call_llm
 
         # Determine effective vision model: use speed variant when toggle is on
         effective_vision_id = self.vision_model_id  # type: ignore[attr-defined]
@@ -483,7 +483,7 @@ class ChatMixin(rx.State, mixin=True):
         yield
 
         result_data = None
-        async for item in handle_own_knowledge(
+        async for item in call_llm(
             user_text=user_msg,
             model_choice=effective_vision_id,
             history=self._chat_sub().chat_history,
@@ -530,7 +530,7 @@ class ChatMixin(rx.State, mixin=True):
         yield
 
         if result_data:
-            # handle_own_knowledge() got llm_history[:-1] (N-1 entries) and appended
+            # call_llm() got llm_history[:-1] (N-1 entries) and appended
             # the AI response → returned slice has N entries when successful.
             # llm_history still has N entries (prior + user_msg from line 511).
             # Length equality means exactly one AI entry was added → append it.
@@ -812,7 +812,7 @@ class ChatMixin(rx.State, mixin=True):
                 self.add_debug(f"📷 VL Direct ({img_count} image(s)) → {self.vision_model}")  # type: ignore[attr-defined]
                 yield
 
-                # Build multimodal content (images + text) for handle_own_knowledge()
+                # Build multimodal content (images + text) for call_llm()
                 from ..lib.vision_utils import load_image_as_base64
                 from pathlib import Path
 
@@ -841,7 +841,7 @@ class ChatMixin(rx.State, mixin=True):
                 content_parts.append({"type": "text", "text": prompt_text})
                 vision_prompt_key = "task_qa" if has_user_text else "task"
 
-                async for _ in self._run_vl_inference(
+                async for _ in self._process_vision_request(
                     user_msg, content_parts, "GEMISCHT", detected_language, vision_prompt_key,
                 ):
                     yield
@@ -919,7 +919,7 @@ class ChatMixin(rx.State, mixin=True):
                                 })
                                 content_parts_sc.append({"type": "text", "text": user_msg})
 
-                                async for _ in self._run_vl_inference(
+                                async for _ in self._process_vision_request(
                                     user_msg, content_parts_sc, "FAKTISCH", detected_language,
                                 ):
                                     yield
@@ -1103,7 +1103,7 @@ class ChatMixin(rx.State, mixin=True):
                             })
                             content_parts.append({"type": "text", "text": user_msg})
 
-                            async for _ in self._run_vl_inference(
+                            async for _ in self._process_vision_request(
                                 user_msg, content_parts, detected_intent, detected_language,
                             ):
                                 yield
@@ -1207,7 +1207,7 @@ class ChatMixin(rx.State, mixin=True):
                 _last = self._chat_sub().chat_history[-1] if self._chat_sub().chat_history else {}
                 ai_text = _last.get("content", "") if _last.get("role") == "assistant" else ""
 
-                async for _ in self._maybe_run_multi_agent(
+                async for _ in self._dispatch_multi_agent(
                     user_msg, ai_text, detected_language, skip_sokrates_analysis,
                 ):
                     yield

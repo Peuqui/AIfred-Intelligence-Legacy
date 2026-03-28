@@ -45,7 +45,7 @@ async def execute_research(
 
     Results stored in state._research_context and state._research_sources_html.
     """
-    from .conversation_handler import generate_search_queries
+    from .conversation_handler import generate_web_search_queries
     from .research.query_processor import process_query_and_search
     from .research.url_ranker import rank_urls_by_relevance
     from .research.scraper_orchestrator import orchestrate_scraping
@@ -100,7 +100,7 @@ async def execute_research(
         if not pre_generated_queries:
             state.add_debug("🔍 Generating search queries...")
             yield
-            query_result = await generate_search_queries(
+            query_result = await generate_web_search_queries(
                 user_text=user_query,
                 automatik_llm_client=automatik_llm_client,
                 automatik_model=automatik_model_id,

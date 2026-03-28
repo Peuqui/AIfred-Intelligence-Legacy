@@ -186,7 +186,7 @@ aber fuer den Message Hub ist erstmal nur der Hauptnutzer relevant.
 ### Paket 4: Processing Pipeline + Auto-Reply ✅
 - [x] `aifred/lib/message_processor.py` — Bridge zwischen Hub und Engine
 - [x] Eingehende Nachricht → Routing Table → Session erstellen/finden
-- [x] AIfred Engine direkt aufrufen (handle_own_knowledge)
+- [x] AIfred Engine direkt aufrufen (call_llm)
 - [x] Antwort per SMTP zuruecksenden (bei Auto-Reply AN)
 - [x] Session mit Konversation aktualisieren (update_chat_data)
 - [x] Agent-Routing (Sokrates/Salomo wenn im Text angesprochen)
@@ -278,7 +278,7 @@ Routing Table (SQLite): Thread bekannt?
   └── NEIN → Neue Session erstellen (owner = MESSAGE_HUB_OWNER)
   │
   ▼
-AIfred Engine: handle_own_knowledge()
+AIfred Engine: call_llm()
   ├── Model + Backend aus settings.json
   ├── Temperature, Thinking Mode etc. aus Settings
   └── Agent je nach target_agent

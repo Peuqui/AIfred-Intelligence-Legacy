@@ -132,7 +132,7 @@ async def _process_single_image_vision(
     Process a single image with Vision-LLM.
 
     This helper function handles the actual Vision-LLM call for one image.
-    Used by chat_with_vision_pipeline() for sequential multi-image processing.
+    Used by extract_structured_data_from_images() for sequential multi-image processing.
 
     Args:
         image: Dict with "name" and "path" keys (path to JPEG file)
@@ -575,7 +575,7 @@ def _json_to_readable(parsed_json: dict, lang: str = "de") -> tuple[str, dict]:
         return (json.dumps(corrected_json, indent=2, ensure_ascii=False), corrected_json)
 
 
-async def generate_search_queries(
+async def generate_web_search_queries(
     user_text: str,
     automatik_llm_client,
     automatik_model: str,
@@ -658,7 +658,7 @@ async def generate_search_queries(
 
     generation_timer = Timer()
 
-    log_raw_messages("AUTOMATIK-LLM (generate_search_queries)", messages, estimate_tokens)
+    log_raw_messages("AUTOMATIK-LLM (generate_web_search_queries)", messages, estimate_tokens)
 
     try:
         response = await automatik_llm_client.chat(
@@ -705,7 +705,7 @@ async def generate_search_queries(
         raise
 
 
-async def chat_with_vision_pipeline(
+async def extract_structured_data_from_images(
     user_text: str,
     images: List[Dict[str, str]],
     vision_model: str,
