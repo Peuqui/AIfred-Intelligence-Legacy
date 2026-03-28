@@ -268,6 +268,60 @@ class BackendMixin(rx.State, mixin=True):
             return display_label
         return display_label
 
+    def _load_agent_model_params(self, agent: str, model_id: str) -> None:
+        """Load model parameters (rope_factor, max_context, etc.) for one agent from cache.
+
+        Works for both ollama and llamacpp backends.
+        """
+        if not model_id:
+            return
+
+        backend = getattr(self, "backend_type", None) or getattr(self, "backend_id", None)
+
+        if backend == "ollama":
+            from ..lib.model_vram_cache import get_model_parameters
+            params = get_model_parameters(model_id)
+            setattr(self, f"{agent}_rope_factor", params["rope_factor"])
+            setattr(self, f"{agent}_max_context", params["max_context"])
+            setattr(self, f"{agent}_is_hybrid", params["is_hybrid"])
+            setattr(self, f"{agent}_supports_thinking", params["supports_thinking"])
+        elif backend == "llamacpp":
+            from ..lib.model_vram_cache import (
+                get_llamacpp_calibration,
+                get_thinking_support_for_model,
+                get_llamacpp_speed_split,
+            )
+            setattr(self, f"{agent}_rope_factor", 1.0)
+            setattr(self, f"{agent}_max_context", get_llamacpp_calibration(model_id) or 0)
+            setattr(self, f"{agent}_is_hybrid", False)
+            setattr(self, f"{agent}_supports_thinking", get_thinking_support_for_model(model_id))
+            setattr(self, f"{agent}_has_speed_variant", get_llamacpp_speed_split(model_id)[0] > 0)
+
+    def _load_all_agent_model_params(self) -> None:
+        """Load model parameters for all agents from cache."""
+        backend = getattr(self, "backend_type", None) or getattr(self, "backend_id", None)
+        if backend not in ("ollama", "llamacpp"):
+            return
+
+        agents_models = [
+            ("aifred", self.aifred_model_id),
+            ("sokrates", self.sokrates_model_id),  # type: ignore[attr-defined, has-type]
+            ("salomo", self.salomo_model_id),  # type: ignore[attr-defined, has-type]
+        ]
+        if backend == "llamacpp":
+            agents_models.append(("vision", self.vision_model_id))
+
+        for agent, model_id in agents_models:
+            self._load_agent_model_params(agent, model_id)
+
+    def _clear_models_state(self, include_vision: bool = False) -> None:
+        """Reset available models to empty (used on backend/provider switch errors)."""
+        self.available_models_dict = {}
+        self.available_models = []
+        if include_vision:
+            self.vision_models_cache = []
+            self.available_vision_models_list = []
+
     # ================================================================
     # ON_LOAD
     # ================================================================
@@ -541,49 +595,7 @@ class BackendMixin(rx.State, mixin=True):
                     self.salomo_model_id = salomo_raw  # type: ignore[attr-defined, has-type]
 
                     # Load all model parameters from cache on startup
-                    if self.backend_id == "ollama":
-                        from ..lib.model_vram_cache import get_model_parameters
-
-                        if self.aifred_model_id:
-                            params = get_model_parameters(self.aifred_model_id)
-                            self.aifred_rope_factor = params["rope_factor"]  # type: ignore[attr-defined, has-type]
-                            self.aifred_max_context = params["max_context"]  # type: ignore[attr-defined, has-type]
-                            self.aifred_is_hybrid = params["is_hybrid"]  # type: ignore[attr-defined, has-type]
-                            self.aifred_supports_thinking = params["supports_thinking"]  # type: ignore[attr-defined, has-type]
-
-                        if self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                            params = get_model_parameters(self.sokrates_model_id)  # type: ignore[attr-defined, has-type]
-                            self.sokrates_rope_factor = params["rope_factor"]  # type: ignore[attr-defined, has-type]
-                            self.sokrates_max_context = params["max_context"]  # type: ignore[attr-defined, has-type]
-                            self.sokrates_is_hybrid = params["is_hybrid"]  # type: ignore[attr-defined, has-type]
-                            self.sokrates_supports_thinking = params["supports_thinking"]  # type: ignore[attr-defined, has-type]
-
-                        if self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                            params = get_model_parameters(self.salomo_model_id)  # type: ignore[attr-defined, has-type]
-                            self.salomo_rope_factor = params["rope_factor"]  # type: ignore[attr-defined, has-type]
-                            self.salomo_max_context = params["max_context"]  # type: ignore[attr-defined, has-type]
-                            self.salomo_is_hybrid = params["is_hybrid"]  # type: ignore[attr-defined, has-type]
-                            self.salomo_supports_thinking = params["supports_thinking"]  # type: ignore[attr-defined, has-type]
-
-                    elif self.backend_id == "llamacpp":
-                        from ..lib.model_vram_cache import (
-                            get_llamacpp_calibration,
-                            get_thinking_support_for_model,
-                            get_llamacpp_speed_split,
-                        )
-
-                        for agent, model_id in [
-                            ("aifred", self.aifred_model_id),
-                            ("sokrates", self.sokrates_model_id),  # type: ignore[attr-defined, has-type]
-                            ("salomo", self.salomo_model_id),  # type: ignore[attr-defined, has-type]
-                            ("vision", self.vision_model_id),
-                        ]:
-                            if model_id:
-                                setattr(self, f"{agent}_rope_factor", 1.0)
-                                setattr(self, f"{agent}_max_context", get_llamacpp_calibration(model_id) or 0)
-                                setattr(self, f"{agent}_is_hybrid", False)
-                                setattr(self, f"{agent}_supports_thinking", get_thinking_support_for_model(model_id))
-                                setattr(self, f"{agent}_has_speed_variant", get_llamacpp_speed_split(model_id)[0] > 0)
+                    self._load_all_agent_model_params()
 
                     self.aifred_model = selected_raw
                     self.automatik_model = automatik_raw
@@ -881,8 +893,7 @@ class BackendMixin(rx.State, mixin=True):
                         self.available_models = list(self.available_models_dict.values())
                         self.add_debug(f"📂 Found {len(self.available_models)} llama.cpp models")  # type: ignore[attr-defined, has-type]
                     else:
-                        self.available_models_dict = {}
-                        self.available_models = []
+                        self._clear_models_state()
                         self.add_debug(f"⚠️ llama-swap not reachable at {self.backend_url}")  # type: ignore[attr-defined, has-type]
                         self.add_debug("💡 Install llama-swap service or start manually")  # type: ignore[attr-defined, has-type]
 
@@ -908,20 +919,16 @@ class BackendMixin(rx.State, mixin=True):
                                     self.available_models = list(self.available_models_dict.values())
                                     self.add_debug(f"☁️ {provider_config['name']}: {len(models)} models loaded")  # type: ignore[attr-defined, has-type]
                                 else:
-                                    self.available_models_dict = {}
-                                    self.available_models = []
+                                    self._clear_models_state()
                                     self.add_debug(f"⚠️ No models returned from {provider_config['name']} API")  # type: ignore[attr-defined, has-type]
                             except (RuntimeError, ValueError, KeyError) as e:
-                                self.available_models_dict = {}
-                                self.available_models = []
+                                self._clear_models_state()
                                 self.add_debug(f"⚠️ Failed to fetch models: {e}")  # type: ignore[attr-defined, has-type]
                         else:
-                            self.available_models_dict = {}
-                            self.available_models = []
+                            self._clear_models_state()
                             self.add_debug(f"⚠️ API key missing: Set {provider_config['env_key']} in .env")  # type: ignore[attr-defined, has-type]
                     else:
-                        self.available_models_dict = {}
-                        self.available_models = []
+                        self._clear_models_state()
                         self.add_debug(f"⚠️ Unknown cloud provider: {self.cloud_api_provider}")  # type: ignore[attr-defined, has-type]
 
                 else:
@@ -1052,31 +1059,7 @@ class BackendMixin(rx.State, mixin=True):
             _global_backend_state["current_backend_label"] = self.current_backend_label
 
             # Load model parameters from cache
-            if self.backend_type == "ollama":
-                from ..lib.model_vram_cache import get_model_parameters
-                for agent, model_id in [
-                    ("aifred", self.aifred_model_id),
-                    ("sokrates", self.sokrates_model_id),  # type: ignore[attr-defined, has-type]
-                    ("salomo", self.salomo_model_id),  # type: ignore[attr-defined, has-type]
-                ]:
-                    if model_id:
-                        params = get_model_parameters(model_id)
-                        setattr(self, f"{agent}_rope_factor", params["rope_factor"])
-                        setattr(self, f"{agent}_max_context", params["max_context"])
-                        setattr(self, f"{agent}_is_hybrid", params["is_hybrid"])
-                        setattr(self, f"{agent}_supports_thinking", params["supports_thinking"])
-            elif self.backend_type == "llamacpp":
-                from ..lib.model_vram_cache import get_llamacpp_calibration, get_thinking_support_for_model
-                for agent, model_id in [
-                    ("aifred", self.aifred_model_id),
-                    ("sokrates", self.sokrates_model_id),  # type: ignore[attr-defined, has-type]
-                    ("salomo", self.salomo_model_id),  # type: ignore[attr-defined, has-type]
-                ]:
-                    if model_id:
-                        setattr(self, f"{agent}_rope_factor", 1.0)
-                        setattr(self, f"{agent}_max_context", get_llamacpp_calibration(model_id) or 0)
-                        setattr(self, f"{agent}_is_hybrid", False)
-                        setattr(self, f"{agent}_supports_thinking", get_thinking_support_for_model(model_id))
+            self._load_all_agent_model_params()
 
             # Reset sampling parameters
             for agent in ["aifred", "sokrates", "salomo"]:
@@ -1508,22 +1491,13 @@ class BackendMixin(rx.State, mixin=True):
                         self.vision_model = ""
                         self.vision_model_id = ""
                 else:
-                    self.available_models_dict = {}
-                    self.available_models = []
-                    self.vision_models_cache = []
-                    self.available_vision_models_list = []
+                    self._clear_models_state(include_vision=True)
                     self.add_debug("⚠️ No models returned from API")  # type: ignore[attr-defined, has-type]
             except Exception as e:
-                self.available_models_dict = {}
-                self.available_models = []
-                self.vision_models_cache = []
-                self.available_vision_models_list = []
+                self._clear_models_state(include_vision=True)
                 self.add_debug(f"⚠️ Failed to fetch models: {e}")  # type: ignore[attr-defined, has-type]
         else:
-            self.available_models_dict = {}
-            self.available_models = []
-            self.vision_models_cache = []
-            self.available_vision_models_list = []
+            self._clear_models_state(include_vision=True)
             self.add_debug(f"⚠️ Set {provider_config['env_key']} in .env")  # type: ignore[attr-defined, has-type]
 
         self._save_settings()  # type: ignore[attr-defined, has-type]
@@ -1542,27 +1516,10 @@ class BackendMixin(rx.State, mixin=True):
         self.aifred_model_id = self._resolve_model_id(model)
         self.add_debug(f"📝 AIfred-LLM: {model}")  # type: ignore[attr-defined, has-type]
 
-        # Load all model parameters from cache
-        if self.backend_type == "ollama":
-            from ..lib.model_vram_cache import get_model_parameters
-            params = get_model_parameters(self.aifred_model_id)
-            self.aifred_rope_factor = params["rope_factor"]  # type: ignore[attr-defined, has-type]
-            self.aifred_max_context = params["max_context"]  # type: ignore[attr-defined, has-type]
-            self.aifred_is_hybrid = params["is_hybrid"]  # type: ignore[attr-defined, has-type]
-            self.aifred_supports_thinking = params["supports_thinking"]  # type: ignore[attr-defined, has-type]
-        elif self.backend_type == "llamacpp":
-            from ..lib.model_vram_cache import (
-                get_llamacpp_calibration,
-                get_thinking_support_for_model,
-                get_llamacpp_speed_split,
-            )
-            self.aifred_rope_factor = 1.0  # type: ignore[attr-defined, has-type]
-            self.aifred_max_context = get_llamacpp_calibration(self.aifred_model_id) or 0  # type: ignore[attr-defined, has-type]
-            self.aifred_is_hybrid = False  # type: ignore[attr-defined, has-type]
-            self.aifred_supports_thinking = get_thinking_support_for_model(self.aifred_model_id)  # type: ignore[attr-defined, has-type]
-            self.aifred_has_speed_variant = get_llamacpp_speed_split(self.aifred_model_id)[0] > 0  # type: ignore[attr-defined, has-type]
-            if not self.aifred_has_speed_variant:  # type: ignore[attr-defined, has-type]
-                self.aifred_speed_mode = False  # type: ignore[attr-defined, has-type]
+        # Load model parameters from cache
+        self._load_agent_model_params("aifred", self.aifred_model_id)
+        if self.backend_type == "llamacpp" and not getattr(self, "aifred_has_speed_variant", False):
+            self.aifred_speed_mode = False  # type: ignore[attr-defined, has-type]
 
         self._show_model_calibration_info(self.aifred_model_id)  # type: ignore[attr-defined]
 
