@@ -20,7 +20,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Callable, Dict, Optional
 
 import httpx
 import yaml
@@ -262,7 +262,7 @@ def update_llamaswap_context(
         return True
 
     content = config_path.read_text(encoding='utf-8')
-    new_content = _replace_context_in_model_block(content, model_id, new_context)
+    new_content = _transform_model_block(content, model_id, lambda ln: re.sub(r'-c\s+\d+', f'-c {new_context}', ln))
 
     if new_content == content:
         logger.error(f"Could not replace -c value for {model_id} in config")
@@ -273,22 +273,28 @@ def update_llamaswap_context(
     return True
 
 
-def _replace_context_in_model_block(content: str, model_id: str, new_context: int) -> str:
-    """Replace -c value in a specific model's cmd block, preserving formatting."""
+def _transform_model_block(
+    content: str,
+    model_id: str,
+    line_transform: Callable[[str], str],
+) -> str:
+    """Apply a line transformation to a specific model's block in llama-swap YAML.
+
+    Handles model block detection (start/end) and applies line_transform
+    to each line within the target model's block.
+    """
     lines = content.split('\n')
     in_model_block = False
     result_lines = []
 
     for line in lines:
-        # Detect start of target model block (e.g., "  qwen3-30b-a3b:")
         if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
             in_model_block = True
-        # Detect start of next model block (any other model key at same indent)
         elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
             in_model_block = False
 
         if in_model_block:
-            line = re.sub(r'-c\s+\d+', f'-c {new_context}', line)
+            line = line_transform(line)
 
         result_lines.append(line)
 
@@ -320,7 +326,7 @@ def update_llamaswap_ngl(
         return True
 
     content = config_path.read_text(encoding='utf-8')
-    new_content = _replace_ngl_in_model_block(content, model_id, new_ngl)
+    new_content = _transform_model_block(content, model_id, lambda ln: re.sub(r'-ngl\s+\d+', f'-ngl {new_ngl}', ln))
 
     if new_content == content:
         logger.error(f"Could not replace -ngl value for {model_id} in config")
@@ -329,26 +335,6 @@ def update_llamaswap_ngl(
     config_path.write_text(new_content, encoding='utf-8')
     logger.info(f"Updated llama-swap config: {model_id} → -ngl {new_ngl}")
     return True
-
-
-def _replace_ngl_in_model_block(content: str, model_id: str, new_ngl: int) -> str:
-    """Replace -ngl value in a specific model's cmd block, preserving formatting."""
-    lines = content.split('\n')
-    in_model_block = False
-    result_lines = []
-
-    for line in lines:
-        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
-            in_model_block = True
-        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
-            in_model_block = False
-
-        if in_model_block:
-            line = re.sub(r'-ngl\s+\d+', f'-ngl {new_ngl}', line)
-
-        result_lines.append(line)
-
-    return '\n'.join(result_lines)
 
 
 def update_llamaswap_tensor_split(
@@ -627,30 +613,17 @@ def _remove_llamaswap_kv_cache_quant(config_path: Path, model_id: str) -> bool:
         return False
 
     content = config_path.read_text(encoding='utf-8')
-    lines = content.split('\n')
-    in_model_block = False
-    changed = False
-    result_lines = []
 
-    for line in lines:
-        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
-            in_model_block = True
-        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
-            in_model_block = False
+    def _strip_kv_flags(line: str) -> str:
+        line = re.sub(r'\s*-ctk\s+\S+', '', line)
+        return re.sub(r'\s*-ctv\s+\S+', '', line)
 
-        if in_model_block:
-            new_line = re.sub(r'\s*-ctk\s+\S+', '', line)
-            new_line = re.sub(r'\s*-ctv\s+\S+', '', new_line)
-            if new_line != line:
-                changed = True
-            line = new_line
+    new_content = _transform_model_block(content, model_id, _strip_kv_flags)
 
-        result_lines.append(line)
-
-    if not changed:
+    if new_content == content:
         return False
 
-    config_path.write_text('\n'.join(result_lines), encoding='utf-8')
+    config_path.write_text(new_content, encoding='utf-8')
     logger.info(f"Removed KV cache quant from llama-swap config: {model_id}")
     return True
 
