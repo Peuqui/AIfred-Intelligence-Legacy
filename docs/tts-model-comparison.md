@@ -1,6 +1,6 @@
 # TTS Model Comparison for AIfred Intelligence
 
-> Stand: 2026-02-12 | Quellen: Community-Reviews, GitHub, HuggingFace
+> Stand: 2026-03-28 | Quellen: Community-Reviews, GitHub, HuggingFace
 
 ## AIfred-Anforderungen
 
@@ -82,6 +82,7 @@ Latenz akzeptabel, da der LLM ohnehin satzweise streamt.
 | **MOSS-VoiceGenerator** | 8B | CN + EN | Nein | Nein (Stimme aus Textbeschreibung!) | Sehr hoch | Nein | Unklar | 22.05 kHz | ~16 GB (BF16) | MossTTSDelay | Apache 2.0 |
 | **MOSS-SoundEffect** | ? | Multilingual | - | - (Soundeffekte) | - | Nein | Unklar | 22.05 kHz | ? | MossTTSDelay | Apache 2.0 |
 | **Chatterbox** | Unklar | EN | Nein | Ja | Hoch | Ja (Sub-200ms) | Unklar | Unklar | Unklar | Unklar | Unklar |
+| **Voxtral TTS** | 4B | 9 (EN,FR,DE,ES,NL,PT,IT,HI,AR) | Ja (nativ) | Ja (2-3s Audio) | Sehr hoch | Ja | ~10x (H200) | 24 kHz | ~16 GB | Transformer + Flow-Matching + Neural Codec | CC BY-NC 4.0 |
 
 ## Community-Bewertungen (Audiobook Use-Case)
 
@@ -213,10 +214,24 @@ Modelle uebernommen werden. Jedes Modell hat sein eigenes Cloning-Format:
 - **Qwen3-TTS**: 3 Sekunden Referenz-Audio
 - **Higgs-Audio V2**: 3-10 Sekunden Referenz-Audio
 - **MOSS-TTS**: Referenz-Audio (keine Transkription noetig)
+- **Voxtral TTS**: 2-3 Sekunden Referenz-Audio (Zero-Shot, Cross-Lingual)
 
 Die **originalen Audioaufnahmen** der Stimmen koennen aber fuer jedes Modell
 als Referenz verwendet werden. Solange die Originalaufnahmen vorhanden sind,
 ist ein Wechsel problemlos.
+
+### 6. Voxtral TTS (4B) — Mistral AI
+- **Pro:** Frontier-Qualitaet (schlaegt ElevenLabs Flash v2.5), 9 Sprachen inkl. Deutsch nativ,
+  Voice Cloning ab 2-3s Referenz, Cross-Lingual Cloning (DE-Stimme spricht EN mit Akzent),
+  Streaming, 20 Preset-Stimmen, vLLM als Runtime (bereits vorhanden), OpenAI-kompatible API
+  (`/v1/audio/speech`), 70ms Latenz auf H200, ~10x Echtzeit
+- **Contra:** ~16 GB VRAM Minimum (belegt eine komplette GPU neben dem LLM),
+  CC BY-NC 4.0 Lizenz (nicht-kommerziell), BF16-Weights (P40/RTX 8000 kein natives BF16,
+  muesste FP16 getestet werden), 4B Parameter sind viel fuer TTS
+- **Status:** Zurueckgestellt wegen VRAM-Bedarf. Erst relevant wenn dedizierte TTS-GPU verfuegbar.
+- **Links:** [HuggingFace](https://huggingface.co/mistralai/Voxtral-4B-TTS-2603) |
+  [Mistral Blog](https://mistral.ai/news/voxtral-tts) |
+  [Paper](https://mistral.ai/static/research/voxtral-tts.pdf)
 
 ## Empfohlene Evaluierungsreihenfolge
 
@@ -226,7 +241,8 @@ ist ein Wechsel problemlos.
 4. **F5-TTS** mit deutschem Fine-Tune testen (kleinstes Modell, schnellstes)
 5. **Qwen3-TTS** testen (nativer DE-Support, Streaming via Fork)
 6. **Higgs-Audio V2** testen (wenn mehr Expressivitaet gewuenscht)
-7. Falls keines ueberzeugt: XTTS v2 mit Carry-Mechanismus weiter optimieren
+7. **Voxtral TTS** testen (wenn dedizierte TTS-GPU verfuegbar, ~16 GB VRAM, Frontier-Qualitaet)
+8. Falls keines ueberzeugt: XTTS v2 mit Carry-Mechanismus weiter optimieren
 
 ## Tipps aus der Community
 
