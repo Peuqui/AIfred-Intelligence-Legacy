@@ -112,15 +112,24 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
 
     phase1_debug = [
         f"{_ts()} | 📨 {message.channel.upper()}: message from {message.sender}",
-        f"{_ts()} | 📧 Subject: {subject}",
-        f"{_ts()} | 🤖 Agent: {agent_display_name}",
     ]
+    if subject and subject != "?":
+        phase1_debug.append(f"{_ts()} | 📧 Subject: {subject}")
+    phase1_debug.append(f"{_ts()} | 🤖 Agent: {agent_display_name}")
     _save_to_session(session_id, message, "", phase1_debug)
 
     # Toast: incoming message
     from .session_storage import get_session_title
     title = get_session_title(session_id) or subject
     write_hub_notification(session_id, title, message.channel.upper(), message.sender)
+    log_message(f"Message Processor: notification written for {message.sender}")
+
+    # Give the browser time for one full poll cycle (1s interval)
+    # to pick up the toast BEFORE the heavy engine call blocks the event loop.
+    # The toolkit setup (ChromaDB, plugin discovery) is synchronous and blocks
+    # the asyncio event loop — without this pause, poll requests stall.
+    import asyncio
+    await asyncio.sleep(2)
 
     # ── Phase 2: Call AIfred engine ────────────────────────────
     # Use the channel plugin to build LLM context (if registered)
@@ -264,6 +273,8 @@ async def _call_engine(
         _dbg(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_display}")
 
     # Collect response — forward ALL debug chunks to session console
+    from .research_tools import _hub_search_debug
+
     response_parts: list[str] = []
     try:
         async for chunk in call_llm(
@@ -289,7 +300,17 @@ async def _call_engine(
                 response_parts.append(chunk.get("text", ""))
             elif chunk.get("type") == "debug":
                 _dbg(chunk.get("message", ""))
+                # Flush any hub search debug messages (from tool calls)
+                if _hub_search_debug:
+                    for hub_msg in _hub_search_debug:
+                        _dbg(hub_msg)
+                    _hub_search_debug.clear()
             elif chunk.get("type") == "result":
+                # Flush remaining hub search debug messages
+                if _hub_search_debug:
+                    for hub_msg in _hub_search_debug:
+                        _dbg(hub_msg)
+                    _hub_search_debug.clear()
                 data = chunk.get("data", {})
                 if "response_clean" in data:
                     return data["response_clean"]

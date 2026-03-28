@@ -228,6 +228,20 @@ class AIState(  # type: ignore[misc]
                 # Trigger send_message as next event in chain
                 return AIState.send_message
 
+        # Check for global Message Hub notifications FIRST (toast should appear immediately)
+        from ..lib.message_processor import read_and_clear_hub_notification
+        notification = read_and_clear_hub_notification()
+        toast_event = None
+        if notification:
+            channel = notification.get("channel", "?")
+            title = notification.get("session_title", "")
+            sender = notification.get("sender", "")
+            toast_msg = f"📨 {channel}: {sender}"
+            if title:
+                toast_msg += f"\n📋 Session: {title}"
+            self.refresh_session_list()
+            toast_event = rx.toast.info(toast_msg, duration=6000, position="top-center", style={"width": "420px"})
+
         # Check for API update flag (only if session_id is set)
         if self.session_id:
             from ..lib.session_storage import check_and_clear_update_flag, load_session
@@ -243,23 +257,15 @@ class AIState(  # type: ignore[misc]
                     self._restore_session(session)
                     msg_count = len(self._chat_sub().chat_history)
                     self.add_debug(f"🔄 API update: Session reloaded ({msg_count} messages)")
-                # Force scroll after Hub/API updates (new messages from background)
+                # Force scroll + toast (if any) in one yield
+                if toast_event:
+                    yield toast_event
                 yield rx.call_script("forceScrollToBottom()")
                 return
 
-        # Check for global Message Hub notifications (any session, not just active)
-        from ..lib.message_processor import read_and_clear_hub_notification
-        notification = read_and_clear_hub_notification()
-        if notification:
-            channel = notification.get("channel", "?")
-            title = notification.get("session_title", "")
-            sender = notification.get("sender", "")
-            toast_msg = f"📨 {channel}: {sender}"
-            if title:
-                toast_msg += f"\n📋 Session: {title}"
-            # Refresh session list (new session or updated message count)
-            self.refresh_session_list()
-            yield rx.toast.info(toast_msg, duration=6000, position="top-center", style={"width": "420px"})
+        # Toast without update flag (notification for a different session)
+        if toast_event:
+            yield toast_event
             return
 
         # Just yield to propagate any state changes to UI

@@ -119,11 +119,26 @@ class DiscordChannel(BaseChannel):
         intents.dm_messages = True
 
         client = discord.Client(intents=intents)
+        tree = discord.app_commands.CommandTree(client)
         _discord_client = client
+
+        @tree.command(name="clear", description="Delete all messages in this channel")
+        async def slash_clear(interaction: discord.Interaction) -> None:
+            if not interaction.channel or not interaction.guild:
+                await interaction.response.send_message("Only works in server channels.", ephemeral=True)
+                return
+            perms = interaction.channel.permissions_for(interaction.user)  # type: ignore[union-attr]
+            if not perms.manage_messages:
+                await interaction.response.send_message("No permission.", ephemeral=True)
+                return
+            await interaction.response.send_message("Deleting messages...", ephemeral=True)
+            deleted = await interaction.channel.purge()  # type: ignore[union-attr]
+            log_message(f"Discord Plugin: /clear — purged {len(deleted)} messages in #{getattr(interaction.channel, 'name', '?')}")
 
         @client.event
         async def on_ready() -> None:
-            log_message(f"Discord Plugin: connected as {client.user}")
+            await tree.sync()
+            log_message(f"Discord Plugin: connected as {client.user}, slash commands synced")
 
         @client.event
         async def on_message(message: discord.Message) -> None:

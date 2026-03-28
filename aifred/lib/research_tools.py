@@ -21,54 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# Stateless adapter (for Message Hub — no Reflex State needed)
-# ============================================================
-
-class _ResearchStateAdapter:
-    """Minimal adapter providing the State interface for execute_research.
-
-    Used by the Message Hub (Discord, Email) where no Reflex browser
-    session exists. Reads config from settings, logs debug to file.
-    """
-
-    def __init__(self) -> None:
-        from .settings import load_settings
-        from .config import (
-            DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS, BACKEND_URLS,
-        )
-        settings = load_settings() or {}
-        self.backend_type: str = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
-        self.backend_url: str = BACKEND_URLS.get(self.backend_type, "")
-
-        # Model resolution
-        backend_models = settings.get("backend_models", {}).get(self.backend_type, {})
-        defaults = BACKEND_DEFAULT_MODELS.get(self.backend_type, {})
-        self.automatik_model_id: str = backend_models.get("aifred_model", defaults.get("aifred_model", ""))
-
-        # Result storage
-        self._research_context: str = ""
-        self._research_sources_html: str = ""
-
-    def _effective_model_id(self, agent: str = "aifred") -> str:
-        return self.automatik_model_id
-
-    def add_debug(self, msg: str) -> None:
-        _log(f"Research (Hub): {msg}")
-
-    def set_progress(self, **kwargs: Any) -> None:
-        pass  # No browser to update
-
-    def clear_progress(self) -> None:
-        pass
-
-    class _HistorySub:
-        llm_history: list = []  # type: ignore[assignment]
-
-    def _chat_sub(self) -> '_ResearchStateAdapter._HistorySub':
-        return self._HistorySub()
-
-
-# ============================================================
 # Unified Research Pipeline (async generator for progress updates)
 # ============================================================
 
@@ -312,6 +264,166 @@ async def execute_research(
 
 
 # ============================================================
+# Hub search (Message Hub — no Reflex State, no async generators)
+# ============================================================
+
+# Module-level list to collect debug messages for Hub sessions.
+# Written by _hub_web_search, consumed by the tool executor after the call.
+_hub_search_debug: list[str] = []
+
+
+async def _hub_web_search(queries: list[str]) -> str:
+    """Web search for Message Hub (Discord, Email).
+
+    Uses the same building blocks as the full pipeline:
+    - Vector cache check/write
+    - Multi-API search (Brave, Tavily, SearXNG)
+    - URL ranking (LLM-based)
+    - Parallel scraping with Playwright fallback
+    - Context building
+
+    No Reflex State needed — reads config from settings.
+    Debug messages are collected in _hub_search_debug for the session.
+    """
+    from .research.query_processor import process_query_and_search
+    from .research.url_ranker import rank_urls_by_relevance
+    from .research.scraper_orchestrator import orchestrate_scraping
+    from .tools import build_context
+    from .llm_client import LLMClient
+    from .settings import load_settings
+    from .config import DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS, BACKEND_URLS
+    from datetime import datetime as _dt
+
+    def _dbg(msg: str) -> None:
+        ts = _dt.now().strftime("%H:%M:%S")
+        entry = f"{ts} | {msg}"
+        _hub_search_debug.append(entry)
+        _log(msg)
+
+    _hub_search_debug.clear()
+    _dbg(f"🔍 Web search: {', '.join(queries)}")
+
+    # Resolve backend config from settings
+    settings = load_settings() or {}
+    backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
+    backend_url = BACKEND_URLS.get(backend_type, "")
+    backend_models = settings.get("backend_models", {}).get(backend_type, {})
+    defaults = BACKEND_DEFAULT_MODELS.get(backend_type, {})
+    model_id = backend_models.get("aifred_model", defaults.get("aifred_model", ""))
+
+    llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
+
+    try:
+        # ── Phase 0: Vector Cache check ───────────────────────
+        try:
+            from .vector_cache import get_cache
+            from .formatting import format_age
+            import datetime as _dtc
+            cache = get_cache()
+            cache_result = await cache.query(queries[0], n_results=1)
+            distance = cache_result.get('distance', 1.0)
+
+            if cache_result['source'] == 'CACHE' and distance < 0.05:
+                cache_time = _dtc.datetime.fromisoformat(cache_result['metadata']['timestamp'])
+                age_seconds = (_dtc.datetime.now() - cache_time).total_seconds()
+                _dbg(f"✅ Cache hit ({format_age(age_seconds)} ago, d={distance:.4f})")
+                return cache_result['answer']
+        except (ConnectionError, OSError, TimeoutError) as e:
+            _dbg(f"⚠️ Cache check failed: {e}")
+
+        # ── Phase 1: Multi-API search ─────────────────────────
+        related_urls: list[str] = []
+        titles: list[str] = []
+        snippets: list[str] = []
+        tool_results: list[dict[str, Any]] = []
+
+        async for item in process_query_and_search(
+            user_text=queries[0],
+            llm_history=None,
+            automatik_model=model_id,
+            automatik_llm_client=llm_client,
+            llm_options={},
+            vision_json_context=None,
+            pre_generated_queries=queries,
+        ):
+            if item["type"] == "query_result":
+                _, _, _, related_urls, titles, snippets, tool_results = item["data"]
+            elif item["type"] == "debug":
+                _dbg(item["message"])
+
+        if not related_urls:
+            _dbg("⚠️ No URLs found")
+            return json.dumps({"error": "No results found"})
+
+        # ── Phase 2: URL ranking ──────────────────────────────
+        from .research.context_utils import get_model_native_context
+        num_ctx = get_model_native_context(model_id, backend_type)
+
+        if related_urls and titles and snippets:
+            _dbg(f"🎯 Ranking {len(related_urls)} URLs by relevance...")
+            ranked_urls, _, debug_summary = await rank_urls_by_relevance(
+                user_question=queries[0],
+                urls=related_urls,
+                titles=titles,
+                snippets=snippets,
+                automatik_llm_client=llm_client,
+                automatik_model=model_id,
+                top_n=7,
+                llm_options={},
+                automatik_num_ctx=num_ctx if num_ctx > 0 else 32768,
+            )
+            if debug_summary:
+                _dbg(f"📋 {debug_summary}")
+            related_urls = ranked_urls
+        else:
+            _dbg(f"⏭️ URL ranking skipped, using top {min(7, len(related_urls))} URLs")
+            related_urls = related_urls[:7]
+
+        # ── Phase 3: Parallel scraping ────────────────────────
+        _dbg("🌐 Web scraping starting (parallel)")
+
+        async for item in orchestrate_scraping(
+            related_urls=related_urls,
+            mode="deep",
+            llm_client=llm_client,
+            model_choice=model_id,
+        ):
+            if item["type"] == "scraping_result":
+                _, scraping_tool_results = item["data"]
+                tool_results.extend(scraping_tool_results)
+            elif item["type"] == "debug":
+                _dbg(item["message"])
+
+        if not tool_results:
+            _dbg("⚠️ No sources available")
+            return json.dumps({"error": "No results found"})
+
+        # ── Phase 4: Build context ────────────────────────────
+        context = build_context(queries[0], tool_results)
+        scraped_only = [r for r in tool_results if r.get("success") and r.get("content")]
+        _dbg(f"✅ Research: {len(context)} chars, {len(scraped_only)} sources")
+
+        # ── Phase 5: Vector Cache write ───────────────────────
+        try:
+            cache = get_cache()
+            await cache.add(
+                query=queries[0],
+                answer=context,
+                sources=scraped_only,
+                failed_sources=[],
+                metadata={"volatility": "WEEKLY"},
+            )
+            _dbg(f"💾 Cached ({len(scraped_only)} sources, TTL=WEEKLY)")
+        except Exception as e:
+            _dbg(f"⚠️ Cache write failed: {e}")
+
+        return context
+
+    finally:
+        await llm_client.close()
+
+
+# ============================================================
 # Tool Definitions (for LLM function calling)
 # ============================================================
 
@@ -322,26 +434,27 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
     """
 
     async def _execute_web_search(queries: list[str]) -> str:
-        """Tool executor: runs full research pipeline with model-provided queries."""
+        """Tool executor: runs research pipeline with model-provided queries."""
         if not queries:
             return json.dumps({"error": "No search queries provided"})
 
         queries = queries[:3]
 
-        # Use adapter if no browser State (Message Hub: Discord, Email)
-        effective_state = state if state else _ResearchStateAdapter()
+        if state:
+            # Full pipeline with browser State (cache, progress bar, sources HTML)
+            async for _ in execute_research(
+                state=state,
+                user_query=queries[0],
+                lang=lang,
+                pre_generated_queries=queries,
+                skip_url_ranking=True,
+            ):
+                pass
+            result = getattr(state, "_research_context", "")
+            return result if result else json.dumps({"error": "No results found"})
 
-        async for _ in execute_research(
-            state=effective_state,
-            user_query=queries[0],
-            lang=lang,
-            pre_generated_queries=queries,
-            skip_url_ranking=True,
-        ):
-            pass
-
-        result = getattr(effective_state, "_research_context", "")
-        return result if result else json.dumps({"error": "No results found"})
+        # Hub path (Discord, Email) — direct search + scrape, no State needed
+        return await _hub_web_search(queries)
 
     async def _execute_web_fetch(url: str) -> str:
         """Tool executor: fetch and extract content from a specific URL."""
