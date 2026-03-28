@@ -2,7 +2,7 @@
 
 ## Hardware Setup
 
-- **System**: AOOSTAR GEM 12 Pro Max MiniPC (AMD Ryzen 9 7945HX, 32GB RAM)
+- **System**: AOOSTAR GEM 10 MiniPC (AMD Ryzen 9 7945HX, 32GB RAM)
 - **GPUs**:
   - 2x Tesla P40 (24GB each) via M.2 OCuLink
   - 1x Quadro RTX 8000 (48GB) via OCuLink (formerly USB4)

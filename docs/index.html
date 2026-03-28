@@ -150,10 +150,93 @@
         <h1>AIfred Intelligence</h1>
         <p class="subtitle">Example Conversations & Showcases</p>
 
-        <div class="section-title">Multi-Agent Debates</div>
+        <div class="section-title">Hardware &mdash; <span style="font-size: 0.8em; color: #888;">March 2026</span></div>
 
         <div class="example-card">
-            <h2>🏆 Showcase: Hund oder Katze – Philosophische Debatte</h2>
+            <h2>🔧 The Frankenstein MiniPC — 4 GPUs, 120 GB VRAM, 60W Idle</h2>
+            <p>
+                How a tiny AOOSTAR GEM 10 MiniPC ended up with 3x Tesla P40 + RTX 8000 across 4 eGPU adapters.
+                The full story: from the first OCuLink test to sawing fan grilles, fighting ReBAR, and running
+                235B models fully GPU-resident — with photos, cost breakdown, model configurations, and lessons learned.
+            </p>
+            <div class="tags">
+                <span class="tag tag-orange">Hardware</span>
+                <span class="tag">4 GPUs</span>
+                <span class="tag">120 GB VRAM</span>
+                <span class="tag tag-green">24/7 Server</span>
+            </div>
+            <a class="btn" href="examples/Hardware_Setup_Frankenstein_MiniPC.html">View Full Setup</a>
+        </div>
+
+        <div class="section-title">Performance & Benchmarks &mdash; <span style="font-size: 0.8em; color: #888;">Feb&ndash;Mar 2026</span></div>
+
+        <div class="example-card">
+            <h2>🏆 Model Benchmark: "Dog vs Cat" Tribunal — 9 Models Compared</h2>
+            <p>
+                <strong>Same question, 9 different models, 18 sessions.</strong> "What is better, dog or cat?"
+                in Tribunal mode (AIfred argues &rarr; Sokrates attacks &rarr; 2 rounds &rarr; Salomo verdict).
+                Models range from Qwen3-Next-80B (3B active, ~31 tok/s) to Qwen3-235B (22B active, ~11 tok/s).
+                Hardware: 3x Tesla P40 + RTX 8000 = ~115 GB VRAM, all models fully GPU-resident.
+            </p>
+            <p>
+                <strong>Key finding:</strong> Qwen3-Next-80B with only 3B active parameters matches the 235B
+                model in debate quality (9.5/10) — at 3x the speed. GPT-OSS-120B is the speed champion (~50 tok/s)
+                but scores only 6/10 on quality. And GLM-4.7-REAP at IQ3_XXS quantization... invented its own language.
+            </p>
+            <p><strong>Compare the debates yourself — click any model to read the full tribunal:</strong></p>
+            <div class="tags">
+                <span class="tag tag-orange">Benchmark</span>
+                <span class="tag">9 Models</span>
+                <span class="tag">18 Sessions</span>
+                <span class="tag tag-purple">Tribunal Mode</span>
+            </div>
+            <p style="margin-top: 1rem; color: #4ecdc4; font-weight: 600;">⭐ Quality Champions (9.5/10):</p>
+            <a class="btn" href="examples/Benchmark_Qwen3-Next-80B_Tribunal_DE.html">Qwen3-Next-80B (DE) 🔊</a>
+            <a class="btn" href="examples/Benchmark_Qwen3-Next-80B_Tribunal_EN.html">Qwen3-Next-80B (EN)</a>
+            <a class="btn" href="examples/Benchmark_Qwen3-Next-80B-Thinking_Tribunal_DE.html">Qwen3-Next-80B Thinking (DE)</a>
+            <a class="btn" href="examples/Benchmark_Qwen3-235B-Q3_Tribunal_DE.html">Qwen3-235B Q3 (DE)</a>
+            <a class="btn" href="examples/Benchmark_Qwen3-235B-Q2_Tribunal_EN.html">Qwen3-235B Q2 (EN)</a>
+            <p style="margin-top: 0.5rem; color: #ffa500; font-weight: 600;">🏃 Speed Champion (~50 tok/s, 6/10 quality):</p>
+            <a class="btn btn-secondary" href="examples/Benchmark_GPT-OSS-120B_Tribunal_DE.html">GPT-OSS-120B (DE)</a>
+            <a class="btn btn-secondary" href="examples/Benchmark_GPT-OSS-120B_Tribunal_EN.html">GPT-OSS-120B (EN)</a>
+            <p style="margin-top: 0.5rem; color: #aaa; font-weight: 600;">📊 Other Models:</p>
+            <a class="btn btn-secondary" href="examples/Benchmark_Qwen3.5-122B_Tribunal_DE.html">Qwen3.5-122B (DE)</a>
+            <a class="btn btn-secondary" href="examples/Benchmark_MiniMax-M2.5-IQ3_Tribunal_EN.html">MiniMax-M2.5 IQ3 (EN)</a>
+            <a class="btn btn-secondary" href="examples/Benchmark_MiniMax-M2.5-Q2_Tribunal_EN.html">MiniMax-M2.5 Q2 (EN)</a>
+            <a class="btn btn-secondary" href="examples/Benchmark_Qwen3-235B-Q2_Tribunal_DE.html">Qwen3-235B Q2 (DE)</a>
+            <p style="margin-top: 0.5rem; color: #ff4444; font-weight: 600;">💀 The "Don't Do This" Award (2/10 — invented its own language):</p>
+            <a class="btn btn-secondary" href="examples/Benchmark_GLM-4.7-REAP-218B_Tribunal_DE.html">GLM-4.7-REAP IQ3_XXS (DE) — "geschten Fe Herrenhelmhen"</a>
+            <a class="btn btn-secondary" href="https://github.com/Peuqui/AIfred-Intelligence/blob/main/docs/benchmark-analysis-v2.md">Full Analysis (Markdown)</a>
+        </div>
+
+        <div class="example-card">
+            <h2>Tensor Split Benchmark: Speed vs. Full Context</h2>
+            <p>
+                <strong>Does aggressive GPU placement matter?</strong> When running a 46.6 GB model across two
+                unequal GPUs (RTX 8000 + Tesla P40), the tensor split ratio determines how much computation
+                happens on the fast vs. slow GPU. This benchmark compares a balanced 2:1 split (full 262K context)
+                against an aggressive 11:1 split (32K context, 92% on the fast GPU).
+            </p>
+            <p>
+                Measured through a real 6-turn AIfred tribunal debate ("Is water wet?") with 3 agents across
+                2 rounds. Results: <strong>10&ndash;15% faster generation in Round 1</strong>, shrinking to ~4% in
+                Round 2. Prompt processing is ~2% <em>slower</em> with aggressive split. Total wall-clock
+                time: 10 seconds saved (113s vs 124s). Zero quality difference.
+            </p>
+            <div class="tags">
+                <span class="tag tag-orange">Benchmark</span>
+                <span class="tag">Multi-GPU</span>
+                <span class="tag">Tensor Split</span>
+                <span class="tag tag-green">Qwen3-Next:80B Local</span>
+            </div>
+            <a class="btn" href="examples/Benchmark_Tensor_Split_EN.html">View Full Benchmark</a>
+            <a class="btn btn-secondary" href="https://github.com/Peuqui/AIfred-Intelligence/blob/main/docs/tensor-split-benchmark.md">Raw Data (Markdown)</a>
+        </div>
+
+        <div class="section-title">Multi-Agent Debates &mdash; <span style="font-size: 0.8em; color: #888;">Jan 2026</span></div>
+
+        <div class="example-card">
+            <h2>🏆 Dog or Cat — Philosophical Multi-Agent Debate</h2>
             <p>
                 <strong>Why this matters:</strong> Research shows multi-agent debate systems struggle with
                 "rubber-stamping" (critics just agreeing), echo chambers, and information loss during synthesis.
@@ -181,7 +264,7 @@
         </div>
 
         <div class="example-card">
-            <h2>⚖️ Showcase: Tribunal Mode – Error Handling Debate</h2>
+            <h2>⚖️ Tribunal Mode — Error Handling Debate</h2>
             <p>
                 <strong>Tribunal vs Auto-Consensus:</strong> In Tribunal mode, Sokrates acts as prosecutor (not coach).
                 AIfred must DEFEND or REVISE – there's no [LGTM] voting. This A/B comparison shows how personality
@@ -230,7 +313,7 @@
             <a class="btn btn-secondary" href="examples/AIfred_Code_Review_WITHOUT_Personalities_EN.html">WITHOUT Personality (EN)</a>
         </div>
 
-        <div class="section-title">Science & Math</div>
+        <div class="section-title">Science & Math &mdash; <span style="font-size: 0.8em; color: #888;">Jan 2026</span></div>
 
         <div class="example-card">
             <h2>Chemistry: Balancing Combustion Equations</h2>
@@ -264,7 +347,7 @@
             <a class="btn" href="examples/Math.html">View Full Chat</a>
         </div>
 
-        <div class="section-title">Coding</div>
+        <div class="section-title">Coding &mdash; <span style="font-size: 0.8em; color: #888;">Jan 2026</span></div>
 
         <div class="example-card">
             <h2>Python: Prime Number Calculator</h2>
@@ -282,33 +365,7 @@
             <a class="btn" href="examples/Coding.html">View Full Chat</a>
         </div>
 
-        <div class="section-title">Performance & Benchmarks</div>
-
-        <div class="example-card">
-            <h2>Tensor Split Benchmark: Speed vs. Full Context</h2>
-            <p>
-                <strong>Does aggressive GPU placement matter?</strong> When running a 46.6 GB model across two
-                unequal GPUs (RTX 8000 + Tesla P40), the tensor split ratio determines how much computation
-                happens on the fast vs. slow GPU. This benchmark compares a balanced 2:1 split (full 262K context)
-                against an aggressive 11:1 split (32K context, 92% on the fast GPU).
-            </p>
-            <p>
-                Measured through a real 6-turn AIfred tribunal debate ("Is water wet?") with 3 agents across
-                2 rounds. Results: <strong>10&ndash;15% faster generation in Round 1</strong>, shrinking to ~4% in
-                Round 2. Prompt processing is ~2% <em>slower</em> with aggressive split. Total wall-clock
-                time: 10 seconds saved (113s vs 124s). Zero quality difference.
-            </p>
-            <div class="tags">
-                <span class="tag tag-orange">Benchmark</span>
-                <span class="tag">Multi-GPU</span>
-                <span class="tag">Tensor Split</span>
-                <span class="tag tag-green">Qwen3-Next:80B Local</span>
-            </div>
-            <a class="btn" href="examples/Benchmark_Tensor_Split_EN.html">View Full Benchmark</a>
-            <a class="btn btn-secondary" href="https://github.com/Peuqui/AIfred-Intelligence/blob/main/docs/tensor-split-benchmark.md">Raw Data (Markdown)</a>
-        </div>
-
-        <div class="section-title">Web Research</div>
+        <div class="section-title">Web Research &mdash; <span style="font-size: 0.8em; color: #888;">Jan 2026</span></div>
 
         <div class="example-card">
             <h2>Medical Research: Spinal Anesthesia Guidelines</h2>

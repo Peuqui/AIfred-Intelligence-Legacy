@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIfred Intelligence — Frankenstein MiniPC Hardware Setup</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    line-height: 1.7;
+    padding: 2rem;
+}
+.container { max-width: 860px; margin: 0 auto; }
+h1 { font-size: 2rem; color: #4ecdc4; margin-bottom: 0.5rem; }
+h2 { font-size: 1.4rem; color: #4ecdc4; margin: 2.5rem 0 1rem 0; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
+h3 { font-size: 1.1rem; color: #ffa500; margin: 1.5rem 0 0.5rem 0; }
+.subtitle { color: #888; margin-bottom: 2rem; }
+p { margin-bottom: 1rem; }
+.highlight { color: #4ecdc4; font-weight: 600; }
+.warning { color: #ffa500; }
+.tldr {
+    background: rgba(78,205,196,0.1);
+    border-left: 4px solid #4ecdc4;
+    padding: 1rem 1.5rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0 1.5rem 0;
+    font-size: 0.9rem;
+}
+th, td {
+    padding: 0.6rem 0.8rem;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+th { color: #4ecdc4; font-weight: 600; background: rgba(78,205,196,0.05); }
+tr:hover { background: rgba(255,255,255,0.03); }
+td:last-child { font-weight: 500; }
+.step {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+}
+.step-title { color: #4ecdc4; font-size: 1.15rem; font-weight: 600; margin-bottom: 0.5rem; }
+.step-subtitle { color: #888; font-size: 0.9rem; margin-bottom: 0.8rem; }
+ul { margin: 0.5rem 0 1rem 1.5rem; }
+li { margin-bottom: 0.3rem; }
+img.photo {
+    width: 100%;
+    max-width: 700px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.15);
+    margin: 1rem 0;
+    display: block;
+}
+.caption { color: #888; font-size: 0.85rem; font-style: italic; margin-bottom: 1.5rem; }
+.tag {
+    display: inline-block;
+    background: rgba(78,205,196,0.15);
+    color: #4ecdc4;
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    margin-right: 0.4rem;
+    margin-bottom: 0.4rem;
+}
+.tag-orange { background: rgba(255,165,0,0.15); color: #ffa500; }
+.tag-green { background: rgba(50,205,50,0.15); color: #32cd32; }
+.footer {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    color: #666;
+    font-size: 0.85rem;
+    text-align: center;
+}
+a { color: #4ecdc4; text-decoration: none; }
+a:hover { text-decoration: underline; }
+strong { color: #fff; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>The Frankenstein MiniPC</h1>
+<p class="subtitle">4 GPUs, 120 GB VRAM, 60W idle — how a tiny MiniPC became a 235B inference server</p>
+
+<div class="tldr">
+<strong>Setup:</strong> AOOSTAR GEM 10 MiniPC &bull; 3x Tesla P40 (24 GB each) + 1x Quadro RTX 8000 (48 GB) = <span class="highlight">120 GB VRAM (~115 GB usable)</span> &bull; Runs 235B models fully GPU-resident &bull; 24/7 at ~60W idle &bull; Cost: ~&euro;3,200 total
+</div>
+
+<h2>The Base: AOOSTAR GEM 10</h2>
+<ul>
+    <li>AMD Ryzen 9 7945HX, 32 GB RAM</li>
+    <li>3x M.2 2280 NVMe slots (1 TB SSD installed, 2 free)</li>
+    <li>1x OCuLink port (external)</li>
+    <li>1x USB4 port (external)</li>
+    <li>Compact, silent, runs 24/7</li>
+</ul>
+<p>Originally bought as a simple home server. Then the GPU addiction started.</p>
+
+<h2>The Build — Step by Step</h2>
+
+<div class="step">
+    <div class="step-title">Step 1: First GPU — P40 via OCuLink</div>
+    <div class="step-subtitle">24 GB VRAM &bull; "This is great, I'm done."</div>
+    <p>AOOSTAR AG01 eGPU adapter, Tesla P40, connected via OCuLink. Worked immediately. Running 30B models.</p>
+    <p>I was not done.</p>
+</div>
+
+<div class="step">
+    <div class="step-title">Step 2: Second GPU — P40 via USB4</div>
+    <div class="step-subtitle">48 GB VRAM total &bull; 80B MoE models</div>
+    <p>AOOSTAR AG02 eGPU adapter with another P40 via USB4. Also worked immediately. The MiniPC handles both OCuLink and USB4 simultaneously — they don't share lanes. Before buying, AOOSTAR support confirmed this would work.</p>
+</div>
+
+<div class="step">
+    <div class="step-title">Step 3: Third GPU — P40 via internal M.2 (the one with the saw)</div>
+    <div class="step-subtitle">72 GB VRAM total &bull; Creative cable management required</div>
+    <p>M.2-to-OCuLink adapter (K49SQBK, PCIe 5.0, active chip) plugged into a free internal M.2 slot. To get the cable out: <strong>sawed a slot into the fan grille</strong> on the side panel. Not pretty, but it works. Connected another AG01 + P40.</p>
+    <p>AOOSTAR support said M.2-to-OCuLink should work in principle. It did.</p>
+</div>
+
+<div class="step">
+    <div class="step-title">Step 4: The RTX 8000 — Where Things Got Frustrating</div>
+    <div class="step-subtitle">The dream: replace P40s with RTX 8000s &bull; 4x 48 GB = 192 GB</div>
+    <p>Bought a Quadro RTX 8000 (48 GB). It would <strong>NOT work over OCuLink</strong> — wouldn't even complete POST. Hung at the handshake. P40s worked fine in the same slot.</p>
+    <p>Tried different BIOS settings, tried the Smokeless BIOS tool to access hidden UEFI variables — nothing helped. Moved it to the AG02 (USB4) where it worked, but that meant losing a P40 slot. Days of frustration.</p>
+</div>
+
+<div class="step">
+    <div class="step-title">Step 5: ReBarUEFI — The Breakthrough</div>
+    <div class="step-subtitle"><a href="https://github.com/xCuri0/ReBarUEFI">github.com/xCuri0/ReBarUEFI</a></div>
+    <p>The problem: GEM 10's BIOS doesn't expose Resizable BAR settings, and the RTX 8000 needs a BAR larger than 256 MB to work over OCuLink. P40s are older and don't care.</p>
+    <p><strong>ReBarState</strong> writes the BAR size directly into UEFI NVRAM. Set it to 4 GB, rebooted — RTX 8000 worked everywhere. OCuLink, M.2 adapter, AG01. Nearly fell off my chair.</p>
+    <p class="warning">Don't bother with the Smokeless BIOS tool if you need ReBAR — go straight to ReBarUEFI.</p>
+</div>
+
+<div class="step">
+    <div class="step-title">Step 6: Final Setup — 4 GPUs</div>
+    <div class="step-subtitle">120 GB VRAM &bull; The Frankenstein lives</div>
+    <p>One more AG01 adapter + M.2-to-OCuLink adapter (second sawed slot in the fan grille). Each connection: PCIe x4, not shared, measured and verified.</p>
+</div>
+
+<table>
+<tr><th>GPU</th><th>VRAM</th><th>Connection</th><th>Adapter</th></tr>
+<tr><td>Tesla P40 #1</td><td>24 GB</td><td>OCuLink (external port)</td><td>AG01</td></tr>
+<tr><td>Tesla P40 #2</td><td>24 GB</td><td>M.2 &rarr; OCuLink (sawed grille)</td><td>AG01</td></tr>
+<tr><td>Tesla P40 #3</td><td>24 GB</td><td>M.2 &rarr; OCuLink (sawed grille)</td><td>AG01</td></tr>
+<tr><td>RTX 8000</td><td>48 GB</td><td>USB4 (external port)</td><td>AG02</td></tr>
+<tr><td><strong>Total</strong></td><td><strong>120 GB (~115 usable)</strong></td><td></td><td></td></tr>
+</table>
+
+<h2>Photos</h2>
+
+<img class="photo" src="../Mini-Frankenstein1.jpeg" alt="MiniPC close-up with OCuLink and USB4 cables">
+<p class="caption">The MiniPC with OCuLink cables running to AG01 adapters and USB4 to the AG02. The two yellow cables are Ethernet — one for LAN, one for direct point-to-point RPC to the development machine.</p>
+
+<img class="photo" src="../Mini-Frankenstein2.jpeg" alt="Full setup — the eGPU shelf">
+<p class="caption">The complete "server rack" — a wooden shelf with 3x AG01 + 1x AG02 eGPU adapters, each holding a GPU. The desk fan is for the operator, not the GPUs.</p>
+
+<h2>Cooling</h2>
+<p>The P40s and RTX 8000 are server/workstation cards — passive or blower-style coolers designed for chassis airflow that doesn't exist in an open shelf. Solution: <strong>3D-printed fan adapters</strong> with <strong>BFB1012HH fans</strong> and temperature-controlled PWM fan controllers with probes.</p>
+<p>Initially tried higher-CFM fans (BFB1012VH) — unbearably loud and didn't cool any better. The BFB1012HH are the sweet spot: quiet enough to live with, even at full speed. Even at 100% GPU load, nvidia-smi rarely shows temperatures above 50&deg;C.</p>
+<p>The eGPU adapters have small built-in fans, but they rarely spin up.</p>
+
+<h2>Cost Breakdown</h2>
+<table>
+<tr><th>Component</th><th>Price</th><th>Source</th></tr>
+<tr><td>AOOSTAR GEM 10 MiniPC</td><td>~&euro;450</td><td>New</td></tr>
+<tr><td>Tesla P40 #1 + #2</td><td>~&euro;190 each</td><td>AliExpress (+ customs)</td></tr>
+<tr><td>Tesla P40 #3</td><td>~&euro;200</td><td>AliExpress (+ customs)</td></tr>
+<tr><td>RTX 8000</td><td>~&euro;1,200</td><td>Used, Germany</td></tr>
+<tr><td>AG01 eGPU adapter (x3)</td><td>~&euro;155 each</td><td>AOOSTAR</td></tr>
+<tr><td>AG02 eGPU adapter (x1)</td><td>~&euro;210</td><td>AOOSTAR</td></tr>
+<tr><td>M.2-to-OCuLink (x2, K49SQBK, PCIe 5.0)</td><td>~&euro;45-50 each + customs</td><td>AliExpress</td></tr>
+<tr><td>BFB1012HH fans (x4)</td><td>~&euro;10 each</td><td>AliExpress</td></tr>
+<tr><td>PWM fan controllers (x4)</td><td>~&euro;10 each</td><td>AliExpress</td></tr>
+<tr><td>3D-printed fan adapters</td><td>Free</td><td>Self-printed</td></tr>
+<tr><td><strong>Total</strong></td><td><strong>~&euro;3,200</strong></td><td></td></tr>
+</table>
+
+<h2>Power Consumption (Idle)</h2>
+<table>
+<tr><th>Component</th><th>Idle Power</th></tr>
+<tr><td>Tesla P40 (x3)</td><td>~9-10W each = ~30W</td></tr>
+<tr><td>RTX 8000</td><td>~20W</td></tr>
+<tr><td>MiniPC</td><td>~7-10W</td></tr>
+<tr><td><strong>Total</strong></td><td><strong>~60W</strong></td></tr>
+</table>
+<p>A 120 GB VRAM inference server at 60W idle. Try that with a proper server rack.</p>
+
+<h2>What It Runs</h2>
+
+<table>
+<tr><th>Model</th><th>Size</th><th>Quant</th><th>GPUs</th><th>Tensor Split</th><th>Context</th><th>KV Cache</th><th>TG tok/s</th></tr>
+<tr><td>Qwen3-4B Instruct</td><td>4B</td><td>Q8_0</td><td>1 (RTX 8000)</td><td>&mdash;</td><td>262K</td><td>f16</td><td>~30</td></tr>
+<tr><td>Qwen3-14B Base</td><td>14B</td><td>Q4_K_M</td><td>1 (RTX 8000)</td><td>&mdash;</td><td>41K</td><td>f16</td><td>~25</td></tr>
+<tr><td>Qwen3-30B-A3B Instruct</td><td>30B MoE</td><td>Q8_0</td><td>2</td><td>&mdash;</td><td>262K</td><td>f16</td><td>~35</td></tr>
+<tr><td>Qwen3-VL-30B-A3B (Vision)</td><td>30B MoE</td><td>Q8_0</td><td>2</td><td>&mdash;</td><td>262K</td><td>f16</td><td>~30</td></tr>
+<tr><td>GPT-OSS-120B-A5B</td><td>120B MoE</td><td>Q8_K_XL</td><td>2</td><td>2:1:1:1</td><td>131K</td><td>f16</td><td><strong>~50</strong></td></tr>
+<tr><td>Qwen3-Next-80B-A3B</td><td>80B MoE</td><td>Q8_K_XL</td><td>4</td><td>22:9:9:8</td><td>262K</td><td>f16</td><td>~35</td></tr>
+<tr><td>Qwen3.5-122B-A10B</td><td>122B MoE</td><td>Q5_K_XL</td><td>4</td><td>2:1:1:1</td><td>262K</td><td>f16</td><td>~21</td></tr>
+<tr><td>Nemotron-3-Super-120B</td><td>120B NAS-MoE</td><td>Q5_K_XL</td><td>4</td><td>2:1:1:1</td><td><strong>874K</strong></td><td>f16</td><td>~17</td></tr>
+<tr><td>Qwen3-235B-A22B Instruct</td><td>235B MoE</td><td>Q3_K_XL</td><td>4</td><td>2:1:1:1</td><td>112K</td><td><strong>q8_0</strong></td><td>~11</td></tr>
+</table>
+<p>All models GPU-only (ngl=99), flash-attn, Direct-IO, mlock. Context sizes auto-calibrated by AIfred to maximize available VRAM. The 2:1:1:1 tensor split gives RTX 8000 twice as many layers as each P40 (proportional to VRAM: 48:24:24:24). Qwen3-Next-80B uses a custom 22:9:9:8 split optimized by AIfred's calibration algorithm.</p>
+<p>Model lifecycle managed by <a href="https://github.com/mostlygeek/llama-swap">llama-swap</a> — models auto-swap on request, Direct-IO makes loading near-instant.</p>
+
+<h2>Limitations</h2>
+<ul>
+    <li>No tensor parallelism (P40s: compute capability 6.1)</li>
+    <li>No vLLM (needs CC 7.0+)</li>
+    <li>RTX 8000 (CC 7.5) slightly bottlenecked alongside P40s</li>
+    <li>No native BF16 on either GPU (FP16 works fine)</li>
+</ul>
+
+<h2>Lessons Learned</h2>
+<h3>What I'd do differently</h3>
+<ul>
+    <li><strong>64 GB RAM from the start.</strong> 32 GB is tight with 200B+ models.</li>
+    <li><strong>RTX 8000 prices have risen significantly</strong> — most listed above &euro;2,000 now. Got lucky at &euro;1,200.</li>
+    <li><strong>Skip the Smokeless BIOS tool</strong> — go straight to ReBarUEFI.</li>
+</ul>
+<h3>What I wouldn't change</h3>
+<ul>
+    <li><strong>MiniPC form factor.</strong> Silent, tiny, sips power, runs 24/7.</li>
+    <li><strong>llama.cpp + llama-swap.</strong> Calibrate once per model, done.</li>
+    <li><strong>OCuLink.</strong> Reliable x4 bandwidth, no driver issues.</li>
+    <li><strong>Incremental approach.</strong> Start small, verify, expand.</li>
+</ul>
+
+<h3>Next upgrade</h3>
+<p>If another RTX 8000 shows up at a reasonable price, a P40 gets swapped. The dream of 4x RTX 8000 = 192 GB VRAM is alive — ReBAR is sorted, just need the cards.</p>
+
+<h3>The honest take</h3>
+<p>For &euro;3,200 you could probably get a 128 GB unified memory MiniPC and call it a day. But I didn't know where this was going when I started. One GPU became two, two became four, and suddenly I'm sawing fan grilles. That's how hobbies work. And honestly, the building was half the fun.</p>
+
+<div class="footer">
+    <p><a href="https://github.com/Peuqui/AIfred-Intelligence">AIfred Intelligence</a> &bull; <a href="../">Back to Showcases</a></p>
+    <p>Setup by Peuqui &bull; March 2026</p>
+</div>
+
+</div>
+</body>
+</html>
