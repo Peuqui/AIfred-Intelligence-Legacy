@@ -781,19 +781,7 @@ def _merge_prompt_layers(
         rag_instructions = load_prompt('shared/rag_context', lang=lang, context=rag_context)
         parts.append(rag_instructions)
 
-    # Layer 7: Tool instructions (when tools available)
-    if tools:
-        tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
-        if tool_instructions:
-            parts.append(tool_instructions)
-
-    # Layer 7b: EPIM database instructions (when EPIM available)
-    if tools:
-        from .config import EPIM_ENABLED
-        if EPIM_ENABLED:
-            epim_instructions = load_prompt('shared/epim_instructions', lang=lang)
-            if epim_instructions:
-                parts.append(epim_instructions)
+    # Layer 7+7b: Moved to Layer 10 (after Personality) — see below
 
     # Layer 8: Memory instructions (when memory active)
     if memory:
@@ -801,11 +789,24 @@ def _merge_prompt_layers(
         if mem_instructions:
             parts.append(mem_instructions)
 
-    # Layer 9: Personality (if enabled) - LAST so LLM prioritizes it!
-    # LLMs tend to follow instructions at the end more strongly.
+    # Layer 9: Personality (if enabled)
     personality = load_personality(agent, lang)
     if personality:
         parts.append(personality)
+
+    # Layer 10: Tool instructions — LAST so LLM prioritizes tool use over personality!
+    # LLMs tend to follow instructions at the end more strongly.
+    # Personality was causing models to generate text instead of calling tools.
+    if tools:
+        tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
+        if tool_instructions:
+            parts.append(tool_instructions)
+
+        from .config import EPIM_ENABLED
+        if EPIM_ENABLED:
+            epim_instructions = load_prompt('shared/epim_instructions', lang=lang)
+            if epim_instructions:
+                parts.append(epim_instructions)
 
     return "\n\n".join(parts)
 
