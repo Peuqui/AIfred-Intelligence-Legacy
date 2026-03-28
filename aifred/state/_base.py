@@ -238,20 +238,21 @@ class AIState(  # type: ignore[misc]
                     self._restore_session(session)
                     msg_count = len(self._chat_sub().chat_history)
                     self.add_debug(f"🔄 API update: Session reloaded ({msg_count} messages)")
-
-                    # Check if this update came from Message Hub (last message has [EMAIL] tag)
-                    if msg_count >= 2:
-                        last_user = self._chat_sub().chat_history[-2] if msg_count >= 2 else {}
-                        content = last_user.get("content", "")
-                        if content.startswith("[EMAIL]") or content.startswith("[DISCORD]") or content.startswith("[TELEGRAM]"):
-                            channel = content.split("]")[0][1:]  # Extract "EMAIL" etc.
-                            yield rx.toast.info(
-                                f"📨 {channel}: Neue Nachricht verarbeitet",
-                                duration=5000,
-                                position="top-center",
-                            )
                 yield
                 return
+
+        # Check for global Message Hub notifications (any session, not just active)
+        from ..lib.message_processor import read_and_clear_hub_notification
+        notification = read_and_clear_hub_notification()
+        if notification:
+            channel = notification.get("channel", "?")
+            title = notification.get("session_title", "")
+            sender = notification.get("sender", "")
+            toast_msg = f"📨 {channel}: {sender}"
+            if title:
+                toast_msg += f"\n📋 Session: {title}"
+            yield rx.toast.info(toast_msg, duration=6000, position="top-center")
+            return
 
         # Just yield to propagate any state changes to UI
         # No need to modify anything - self.debug_messages already has the data

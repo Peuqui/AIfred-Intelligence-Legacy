@@ -9,6 +9,7 @@ Handles the complete flow for inbound messages:
 """
 
 import secrets
+from pathlib import Path
 from typing import Optional
 
 from .config import (
@@ -20,6 +21,45 @@ from .envelope import InboundMessage, OutboundMessage
 from .logging_utils import log_message
 from .routing_table import routing_table
 from .session_storage import create_empty_session, update_chat_data, set_update_flag
+
+# Global notification file for Message Hub events (read by UI timer)
+_NOTIFICATION_FILE = None
+
+
+def _get_notification_path() -> "Path":
+    global _NOTIFICATION_FILE
+    if _NOTIFICATION_FILE is None:
+        from .config import DATA_DIR
+        _NOTIFICATION_FILE = DATA_DIR / "message_hub" / "notification.json"
+        _NOTIFICATION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    return _NOTIFICATION_FILE
+
+
+def write_hub_notification(session_id: str, session_title: str, channel: str, sender: str) -> None:
+    """Write a notification for the UI to pick up."""
+    import json
+    path = _get_notification_path()
+    notification = {
+        "session_id": session_id,
+        "session_title": session_title,
+        "channel": channel,
+        "sender": sender,
+    }
+    path.write_text(json.dumps(notification), encoding="utf-8")
+
+
+def read_and_clear_hub_notification() -> dict | None:
+    """Read and delete the notification file. Returns dict or None."""
+    import json
+    path = _get_notification_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        path.unlink()
+        return data
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 # Agent name detection for routing
@@ -104,6 +144,11 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
 
     # 6. Save conversation + debug to session
     _save_to_session(session_id, message, response_text, debug)
+
+    # 7. Write global notification for UI toast (any active session)
+    from .session_storage import get_session_title
+    title = get_session_title(session_id) or subject or f"Nachricht von {message.sender}"
+    write_hub_notification(session_id, title, message.channel.upper(), message.sender)
 
     return outbound
 
