@@ -51,6 +51,8 @@ async def call_llm(
     provider: Optional[str] = None,
     agent: str = "aifred",
     vision_prompt_key: str = "task",
+    external_toolkit: Optional[Any] = None,
+    num_ctx_source_label: str = "",
 ) -> AsyncIterator[Dict]:
     """
     Generiert eine LLM-Antwort basierend auf eigenem Wissen (ohne Web-Recherche).
@@ -84,7 +86,6 @@ async def call_llm(
         - {"type": "progress", "phase": str} oder {"type": "progress", "clear": True}
         - {"type": "result", "data": {...}} - Finale Ergebnisse
     """
-    yield {"type": "debug", "message": "🧠 Own knowledge (no web search)"}
     yield {"type": "progress", "phase": "llm"}
 
     # Build messages using centralized function (v2.16.0+)
@@ -118,8 +119,11 @@ async def call_llm(
     else:
         system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language)
     # Agent Memory: recall + toolkit
-    memory_toolkit = None
-    if state and getattr(state, 'agent_memory_enabled', False) and agent != "vision":
+    memory_toolkit = external_toolkit
+    if memory_toolkit:
+        # External toolkit provided (e.g. from Message Hub with full plugin tools)
+        yield {"type": "debug", "message": f"🔧 Toolkit: {[t.name for t in memory_toolkit.tools]}"}
+    elif state and getattr(state, 'agent_memory_enabled', False) and agent != "vision":
         from .agent_memory import prepare_agent_toolkit
         memory_ctx, memory_toolkit = await prepare_agent_toolkit(
             agent, user_text, lang=detected_language or "de",
@@ -133,11 +137,16 @@ async def call_llm(
 
     messages.insert(0, {"role": "system", "content": system_prompt})
 
-    # Inject RAG context if available
+    # Inject additional context (RAG documents or Memory) into system prompt
     if rag_context:
         inject_rag_context(messages, rag_context)
-        log_message(f"💡 RAG context injected into system prompt ({len(rag_context)} chars)")
-        yield {"type": "debug", "message": f"💡 RAG context injected ({len(rag_context)} chars)"}
+        # Distinguish Memory from RAG in debug output
+        if external_toolkit:
+            # Memory context (from prepare_agent_toolkit via Message Hub)
+            yield {"type": "debug", "message": f"🧠 Memory context injected ({len(rag_context)} chars)"}
+        else:
+            # RAG context (from document store)
+            yield {"type": "debug", "message": f"💡 RAG context injected ({len(rag_context)} chars)"}
 
     # Inject Vision JSON context if available
     if vision_json_context:
@@ -161,7 +170,8 @@ async def call_llm(
         # Calculate num_ctx
         if num_ctx_manual_enabled and num_ctx_manual_value:
             final_num_ctx = num_ctx_manual_value
-            yield {"type": "debug", "message": f"🔧 Context: {final_num_ctx:,} (manual)"}
+            if num_ctx_source_label:
+                yield {"type": "debug", "message": f"🎯 Context: {format_number(final_num_ctx)} ({num_ctx_source_label})"}
         else:
             # Use centralized SSOT: get_agent_num_ctx handles vision_num_ctx_enabled,
             # VRAM calibration cache, XTTS reservation and backend-specific logic.
@@ -302,3 +312,103 @@ async def call_llm(
 
     finally:
         await llm_client.close()
+
+
+async def generate_session_title(
+    user_text: str,
+    ai_response: str,
+    session_id: str,
+    lang: str = "",
+    model_override: str = "",
+    num_ctx_override: int = 0,
+) -> str:
+    """Generate a session title via LLM. Central function for all callers.
+
+    Uses the AIfred model from settings (no separate Automatik model needed).
+    Can be called with or without Reflex state.
+
+    Args:
+        user_text: First user message
+        ai_response: First AI response
+        session_id: Session to update
+        lang: Language for prompt (default: current language from settings)
+        model_override: Use this model instead of AIfred model (e.g. after Vision)
+        num_ctx_override: Use this num_ctx (e.g. to avoid Ollama reload)
+
+    Returns:
+        Generated title string (empty on failure)
+    """
+    import asyncio
+    import re
+    from .llm_client import LLMClient
+    from .prompt_loader import load_prompt, get_language
+    from .session_storage import update_session_title
+    from .settings import load_settings
+    from .config import DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS, BACKEND_URLS, AUTOMATIK_LLM_NUM_CTX
+    from .context_manager import strip_thinking_blocks
+    from .logging_utils import log_message
+
+    settings = load_settings() or {}
+    backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
+    backend_url = BACKEND_URLS.get(backend_type, "")
+
+    # Model: override > saved AIfred model > default
+    if model_override:
+        model = model_override
+    else:
+        saved = settings.get("backend_models", {}).get(backend_type, {})
+        defaults = BACKEND_DEFAULT_MODELS.get(backend_type, {})
+        model = saved.get("aifred_model", defaults.get("aifred_model", ""))
+
+    if not model:
+        return ""
+
+    # Truncate and clean inputs
+    user_short = re.sub(r'<[^>]+>', '', user_text).strip()[:500]
+    ai_short = strip_thinking_blocks(ai_response)[:500] if ai_response else ""
+    if not user_short or not ai_short:
+        return ""
+
+    prompt = load_prompt(
+        "utility/chat_title",
+        lang=lang or get_language(),
+        user_message=user_short,
+        ai_response=ai_short,
+    )
+
+    num_ctx = num_ctx_override or AUTOMATIK_LLM_NUM_CTX
+
+    try:
+        provider = settings.get("cloud_api_provider") if backend_type == "cloud_api" else None
+        client = LLMClient(backend_type=backend_type, base_url=backend_url, provider=provider)
+        response = await asyncio.wait_for(
+            client.chat(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                options={
+                    "temperature": 0.3,
+                    "num_predict": 300,
+                    "enable_thinking": False,
+                    "num_ctx": num_ctx,
+                },
+            ),
+            timeout=30.0,
+        )
+
+        title = strip_thinking_blocks(response.text.strip()).strip().strip('"\'').rstrip('.!?:')
+
+        if title and len(title) > 80:
+            title = title[:77] + "..."
+
+        if title:
+            update_session_title(session_id, title)
+            log_message(f"Title generated: {title}")
+
+        return title
+
+    except asyncio.TimeoutError:
+        log_message("Title generation timed out (>30s)")
+        return ""
+    except Exception as exc:
+        log_message(f"Title generation failed: {exc}", "warning")
+        return ""

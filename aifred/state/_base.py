@@ -235,6 +235,11 @@ class AIState(  # type: ignore[misc]
                 # Load session directly from file (no browser reload needed!)
                 session = load_session(self.session_id)
                 if session and session.get("data"):
+                    # For update-flag reloads: set debug messages from file directly
+                    # (skip _restore_session's prepend logic which would duplicate)
+                    file_debug = session["data"].pop("debug_messages", None)
+                    if file_debug:
+                        self.debug_messages = file_debug
                     self._restore_session(session)
                     msg_count = len(self._chat_sub().chat_history)
                     self.add_debug(f"🔄 API update: Session reloaded ({msg_count} messages)")
@@ -251,7 +256,7 @@ class AIState(  # type: ignore[misc]
             toast_msg = f"📨 {channel}: {sender}"
             if title:
                 toast_msg += f"\n📋 Session: {title}"
-            yield rx.toast.info(toast_msg, duration=6000, position="top-center")
+            yield rx.toast.info(toast_msg, duration=6000, position="top-center", style={"width": "420px"})
             return
 
         # Just yield to propagate any state changes to UI
@@ -345,7 +350,7 @@ class AIState(  # type: ignore[misc]
                 # (email addresses, URLs) that STT likely got wrong
                 force_edit = _transcription_needs_review(user_text)
                 if force_edit and not self.show_transcription:
-                    self.add_debug("✏️ E-Mail/URL erkannt → Edit-Modus aktiviert")
+                    self.add_debug("✏️ Email/URL detected → edit mode enabled")
 
                 # Show Transcription Workflow
                 if self.show_transcription or force_edit:

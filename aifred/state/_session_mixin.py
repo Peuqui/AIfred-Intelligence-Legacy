@@ -409,26 +409,22 @@ class SessionMixin(rx.State, mixin=True):
     # ── Title Generation ─────────────────────────────────────────────
 
     async def _generate_session_title(self, title_model_override: str = ""):
-        """Generate a chat title using LLM based on first Q&A pair.
+        """Generate a chat title using the central LLM title function.
 
-        This is an async generator that yields for UI updates during title generation.
-        Called at the END of send_message() flow (in finally block).
-        Uses the Automatik model (same as Intent Detection and other Automatik tasks).
+        Thin wrapper around llm_engine.generate_session_title() that adds
+        UI updates (debug messages, yield) and extracts the first Q&A pair
+        from llm_history.
 
         Args:
-            title_model_override: If set, use this model instead of _effective_automatik_id.
+            title_model_override: If set, use this model instead of AIfred model.
                 Useful after Vision-Only inference where the vision model is still loaded.
-
-        Only executes on first Q&A pair - skipped if title already exists.
 
         Yields:
             None - yields are for UI updates only
         """
-        from ..lib.session_storage import get_session_title, update_session_title
-        from ..lib.prompt_loader import load_prompt, get_language
-        from ..lib.llm_client import LLMClient
-        from ..lib.logging_utils import log_message, console_separator
-        from ..lib.context_manager import strip_thinking_blocks
+        from ..lib.session_storage import get_session_title
+        from ..lib.llm_engine import generate_session_title
+        from ..lib.logging_utils import console_separator
 
         # Skip if already has title
         if self.current_session_title:
@@ -439,149 +435,56 @@ class SessionMixin(rx.State, mixin=True):
             self.current_session_title = existing_title
             return
 
-        # Need at least 2 messages (user + assistant)
-        # Use llm_history - it's already cleaned (no think tags, no HTML)
+        # Extract first Q&A pair from llm_history
         _llm_hist = self._chat_sub().llm_history
         if len(_llm_hist) < 2:
             return
 
-        # Find first user message and first assistant response from llm_history
         first_user_msg = None
         first_ai_response = None
-
         for msg in _llm_hist:
             content = msg.get("content", "")
             if msg.get("role") == "user" and first_user_msg is None:
                 first_user_msg = content
             elif msg.get("role") == "assistant" and first_ai_response is None:
-                # llm_history has "[AIFRED]: " prefix - remove it
                 if content.startswith("[AIFRED]: "):
                     content = content[10:]
                 first_ai_response = content
-
             if first_user_msg and first_ai_response:
                 break
 
-        # Vision-Only: If no user text but AI response exists, use placeholder
-        # This allows title generation for image-only uploads
+        # Vision-Only: placeholder for image-only uploads
         if not first_user_msg and first_ai_response:
-            first_user_msg = "[Bildanalyse]"  # Placeholder for title generation
+            first_user_msg = "[Bildanalyse]"
 
         if not first_user_msg or not first_ai_response:
             return
 
-        # Clean up any remaining HTML/tags (llm_history should be clean, but just in case)
-        import re
-        first_user_msg = re.sub(r'<[^>]+>', '', first_user_msg).strip()
-        first_ai_response = re.sub(r'<[^>]+>', '', first_ai_response).strip()
+        # Determine num_ctx override to avoid Ollama reload
+        num_ctx_override = 0
+        if title_model_override == self.vision_model_id and self.vision_model_id:  # type: ignore[attr-defined]
+            from ..lib.research.context_utils import get_agent_num_ctx
+            num_ctx_override, _ = get_agent_num_ctx("vision", self, self.vision_model_id)  # type: ignore[attr-defined, arg-type]
+        elif self.aifred_max_context:  # type: ignore[attr-defined]
+            num_ctx_override = self.aifred_max_context  # type: ignore[attr-defined]
 
-        # Truncate if too long (keep first ~500 chars each)
-        if len(first_user_msg) > 500:
-            first_user_msg = first_user_msg[:500] + "..."
-        if len(first_ai_response) > 500:
-            first_ai_response = first_ai_response[:500] + "..."
+        self.add_debug("Generating session title...")  # type: ignore[attr-defined]
+        yield
 
-        # Track whether title was successfully generated (for finally block)
-        _title_done = False
+        title = await generate_session_title(
+            user_text=first_user_msg,
+            ai_response=first_ai_response,
+            session_id=self.session_id,
+            lang=self._last_detected_language or "",  # type: ignore[attr-defined]
+            model_override=title_model_override,
+            num_ctx_override=num_ctx_override,
+        )
 
-        try:
-            # Show user that title is being generated (can take a few seconds)
-            self.add_debug("Generating session title...")  # type: ignore[attr-defined]
-            yield  # Update UI immediately to show "Generating..." message
-
-            # Load prompt in detected language (from Intent Detection, fallback to UI language)
-            prompt = load_prompt(
-                "utility/chat_title",
-                lang=self._last_detected_language or get_language(),  # type: ignore[attr-defined]
-                user_message=first_user_msg,
-                ai_response=first_ai_response
-            )
-
-            title_model = title_model_override or self._effective_automatik_id  # type: ignore[attr-defined]
-
-            llm_client = LLMClient(
-                backend_type=self.backend_type,  # type: ignore[attr-defined]
-                base_url=self._get_backend_url(),  # type: ignore[attr-defined]
-                provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None  # type: ignore[attr-defined]
-            )
-
-            messages: list[dict[str, Any] | Any] = [{"role": "user", "content": prompt}]
-
-            # num_ctx: Must match the currently loaded context to avoid Ollama reload.
-            # Ollama uses model DEFAULT (not currently loaded ctx) when num_ctx is omitted.
-            # -> omitting num_ctx after main inference would cause a full reload (5-28s penalty).
-            if title_model_override == self.vision_model_id and self.vision_model_id:  # type: ignore[attr-defined]
-                # Vision model override -> reuse vision context to avoid Ollama reload.
-                # Use get_agent_num_ctx("vision", ...) so VRAM calibration is used when
-                # manual mode is off (same context as VL inference).
-                from ..lib.research.context_utils import get_agent_num_ctx
-                title_num_ctx, _ = get_agent_num_ctx("vision", self, self.vision_model_id)  # type: ignore[attr-defined, arg-type]
-            elif title_model == self.aifred_model_id and self.aifred_max_context:  # type: ignore[attr-defined]
-                # Same model as main LLM -> reuse calibrated context, no reload
-                title_num_ctx = self.aifred_max_context  # type: ignore[attr-defined]
-            else:
-                from ..lib.config import AUTOMATIK_LLM_NUM_CTX
-                title_num_ctx = AUTOMATIK_LLM_NUM_CTX
-
-            options = {
-                "temperature": 0.3,  # Low temperature for consistent titles
-                "num_predict": 300,  # Room for reasoning (~100-150 tok) + title (~10 tok)
-                "enable_thinking": False,  # Respected by Qwen3; GPT-OSS ignores it but works via num_predict headroom
-                "num_ctx": title_num_ctx,
-            }
-
-            # Timeout: Title generation runs AFTER is_generating=False.
-            # Large models (120B+) need significant PP time even for short prompts.
-            import asyncio
-            response = await asyncio.wait_for(
-                llm_client.chat(
-                    model=title_model,
-                    messages=messages,
-                    options=options
-                ),
-                timeout=30.0
-            )
-
-            # Extract and clean title - strip thinking blocks first!
-            title = response.text.strip()
-            title = strip_thinking_blocks(title)  # Remove <think>...</think>
-            # Remove quotes if present
-            title = title.strip('"\'')
-            # Remove trailing punctuation
-            title = title.rstrip('.!?:')
-
-            if title:
-                update_session_title(self.session_id, title)
-                self.current_session_title = title
-                # Note: refresh_session_list() is called in send_message() finally block
-
-                # Debug output with closing separator
-                self.add_debug(f"Session title: {title}")  # type: ignore[attr-defined]
-                console_separator()
-                self.add_debug("────────────────────")  # type: ignore[attr-defined]
-                _title_done = True
-                yield  # Update UI to show generated title
-            else:
-                # LLM returned empty/thinking-only response
-                log_message("Title generation: LLM returned empty title")
-                self.add_debug("Session title: empty response")  # type: ignore[attr-defined]
-                self.add_debug("────────────────────")  # type: ignore[attr-defined]
-                _title_done = True
-
-        except asyncio.TimeoutError:
-            log_message("Title generation timed out (>30s) - skipping")
-            self.add_debug("Session title: Timeout (>30s)")  # type: ignore[attr-defined]
-            self.add_debug("────────────────────")  # type: ignore[attr-defined]
-            _title_done = True
-        except Exception as e:
-            log_message(f"Title generation failed: {e}")
-            self.add_debug(f"Session title failed: {e}")  # type: ignore[attr-defined]
-            self.add_debug("────────────────────")  # type: ignore[attr-defined]
-            _title_done = True
-        finally:
-            # Catch silent cancellations: GeneratorExit (aclose) and CancelledError
-            # bypass except Exception. Log so user sees what happened.
-            if not _title_done:
-                log_message("Title generation cancelled (generator closed)")
-                self.add_debug("Session title: cancelled")  # type: ignore[attr-defined]
-                self.add_debug("────────────────────")  # type: ignore[attr-defined]
+        if title:
+            self.current_session_title = title
+            self.add_debug(f"Session title: {title}")  # type: ignore[attr-defined]
+        else:
+            self.add_debug("Session title: empty response")  # type: ignore[attr-defined]
+        console_separator()
+        self.add_debug("────────────────────")  # type: ignore[attr-defined]
+        yield
