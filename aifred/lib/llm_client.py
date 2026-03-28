@@ -17,12 +17,24 @@ if TYPE_CHECKING:
 MessageType = Union[Dict[str, Any], LLMMessage]
 
 
-def build_llm_options(state: "AIState", agent: str, temperature: float, num_ctx: int) -> LLMOptions:
-    """Build LLMOptions for an agent — sampling params always from state.
+def build_llm_options(state: "AIState | None", agent: str, temperature: float, num_ctx: int) -> LLMOptions:
+    """Build LLMOptions for an agent — sampling params from state (or defaults).
 
     Central function to ensure ALL sampling parameters are passed consistently.
     Called from multi_agent.py, llm_engine.py, etc.
+    When state is None (e.g. Message Hub background worker), uses safe defaults.
     """
+    if state is None:
+        return LLMOptions(
+            temperature=temperature,
+            enable_thinking=False,
+            supports_thinking=None,
+            num_ctx=num_ctx,
+            top_k=40,
+            top_p=0.9,
+            min_p=0.0,
+            repeat_penalty=1.1,
+        )
     return LLMOptions(
         temperature=temperature,
         enable_thinking=getattr(state, f"{agent}_thinking", True),
