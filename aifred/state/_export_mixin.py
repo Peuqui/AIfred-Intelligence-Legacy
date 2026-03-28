@@ -385,7 +385,7 @@ class ExportMixin(rx.State, mixin=True):
             r'<iframe\s+src="(/_upload/sandbox_output/[^"]+)"([^>]*)>'
         )
 
-        def replace_iframe(match: re.Match) -> str:
+        def replace_iframe(match: re.Match[str]) -> str:
             url_path = match.group(1)
             attrs = match.group(2)
             # URL: /_upload/sandbox_output/{session_id}/{file}.html
@@ -411,7 +411,7 @@ class ExportMixin(rx.State, mixin=True):
             r'<img\s+src="(/_upload/sandbox_output/[^"]+\.png)"'
         )
 
-        def replace_img(match: re.Match) -> str:
+        def replace_img(match: re.Match[str]) -> str:
             url_path = match.group(1)
             relative = url_path.replace("/_upload/sandbox_output/", "")
             file_path = SANDBOX_OUTPUT_DIR / relative

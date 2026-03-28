@@ -296,8 +296,8 @@ def format_memory_context(
         return ""
 
     # Build memory list text — separate recent context from semantic matches
-    recent_lines = []
-    semantic_lines = []
+    recent_lines: list[str] = []
+    semantic_lines: list[str] = []
     for mem in memories:
         date_str = mem["date"][:10] if mem["date"] else "?"
         line = f"- [{date_str}, {mem['type']}] {mem['summary']}"

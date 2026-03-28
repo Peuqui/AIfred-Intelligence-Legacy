@@ -291,12 +291,14 @@ class DocumentStore:
         docs: dict[str, dict[str, Any]] = {}
         if all_data and all_data["metadatas"]:
             for meta in all_data["metadatas"]:
-                fname = meta.get("filename", "")  # type: ignore[union-attr]
+                if not isinstance(meta, dict):
+                    continue
+                fname = str(meta.get("filename", ""))
                 if fname and fname not in docs:
                     docs[fname] = {
                         "filename": fname,
-                        "total_chunks": meta.get("total_chunks", 0),  # type: ignore[union-attr]
-                        "upload_date": meta.get("upload_date", ""),  # type: ignore[union-attr]
+                        "total_chunks": meta.get("total_chunks", 0),
+                        "upload_date": meta.get("upload_date", ""),
                     }
 
         return list(docs.values())

@@ -1005,6 +1005,12 @@ EMAIL_MAX_FETCH = 20                 # Max emails per inbox check
 EMAIL_MAX_BODY_CHARS = 10_000        # Truncate email body for LLM context
 
 # ============================================================
+# MESSAGE HUB CONFIGURATION
+# ============================================================
+MESSAGE_HUB_OWNER = os.environ.get("MESSAGE_HUB_OWNER", "mp")  # Sessions created by hub belong to this user
+EMAIL_MONITOR_AUTO_REPLY = os.environ.get("EMAIL_MONITOR_AUTO_REPLY", "false").lower() == "true"
+
+# ============================================================
 # DOCUMENT UPLOAD & RAG CONFIGURATION
 # ============================================================
 DOCUMENTS_DIR = DATA_DIR / "documents"

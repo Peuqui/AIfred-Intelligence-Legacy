@@ -9,7 +9,7 @@ Both paths run the same pipeline: Search → Ranking → Scraping → Context �
 
 import json
 import logging
-from typing import Any, AsyncGenerator, Optional, TYPE_CHECKING
+from typing import Any, AsyncGenerator, Callable, Optional, TYPE_CHECKING
 
 from .function_calling import Tool
 
@@ -321,8 +321,8 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
         import operator
         from .logging_utils import log_message
 
-        # Safe math operators
-        allowed_ops = {
+        # Safe math operators — split into binary and unary for type safety
+        binary_ops: dict[type, Callable[[float, float], float]] = {
             ast.Add: operator.add,
             ast.Sub: operator.sub,
             ast.Mult: operator.mul,
@@ -330,6 +330,8 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
             ast.FloorDiv: operator.floordiv,
             ast.Mod: operator.mod,
             ast.Pow: operator.pow,
+        }
+        unary_ops: dict[type, Callable[[float], float]] = {
             ast.USub: operator.neg,
             ast.UAdd: operator.pos,
         }
@@ -341,14 +343,14 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
                 return float(node.value)
             elif isinstance(node, ast.BinOp):
                 op_type = type(node.op)
-                if op_type not in allowed_ops:
+                if op_type not in binary_ops:
                     raise ValueError(f"Unsupported operator: {op_type.__name__}")
-                return allowed_ops[op_type](_eval(node.left), _eval(node.right))
+                return binary_ops[op_type](_eval(node.left), _eval(node.right))
             elif isinstance(node, ast.UnaryOp):
-                op_type = type(node.op)
-                if op_type not in allowed_ops:
-                    raise ValueError(f"Unsupported operator: {op_type.__name__}")
-                return allowed_ops[op_type](_eval(node.operand))
+                uop_type = type(node.op)
+                if uop_type not in unary_ops:
+                    raise ValueError(f"Unsupported operator: {uop_type.__name__}")
+                return unary_ops[uop_type](_eval(node.operand))
             else:
                 raise ValueError(f"Unsupported expression: {ast.dump(node)}")
 

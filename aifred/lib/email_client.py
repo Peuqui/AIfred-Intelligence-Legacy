@@ -239,7 +239,13 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
 
 def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = None) -> str:
     """Send an email via SMTP. Returns confirmation string."""
-    sender = EMAIL_FROM or EMAIL_USER
+    from_addr = EMAIL_FROM or EMAIL_USER
+
+    # If EMAIL_FROM is a display name without address, combine with EMAIL_USER
+    if from_addr and "@" not in from_addr:
+        sender = f'"{from_addr}" <{EMAIL_USER}>'
+    else:
+        sender = from_addr
 
     msg = MIMEMultipart()
     msg["From"] = sender

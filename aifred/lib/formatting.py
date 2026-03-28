@@ -651,7 +651,7 @@ def format_debug_message(message: str) -> str:
     return f"{timestamp} | {message}"
 
 
-def format_thinking_process(ai_response, model_name=None, inference_time=None, tokens_per_sec=None, lang=None):
+def format_thinking_process(ai_response: str, model_name: str | None = None, inference_time: float | None = None, tokens_per_sec: float | None = None, lang: str | None = None) -> str:
     """
     Format XML tags as collapsible accordions (GENERIC).
 

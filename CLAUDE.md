@@ -42,6 +42,7 @@
 - **History Compression** - Automatische Kompression (siehe unten)
 - **Multi-Backend Support** - llama.cpp (via llama-swap), Ollama, vLLM, TabbyAPI
 - **Thinking Mode** - Chain-of-Thought für Qwen3 Modelle
+- **Message Hub** *(WIP)* - Background-Worker für externe Kanäle (E-Mail, Discord, Telegram, Signal). Architektur: [docs/plans/message-hub-architecture.md](docs/plans/message-hub-architecture.md)
 
 ---
 
@@ -52,6 +53,11 @@
   - `prompt_loader.py` - Prompt-Handling
   - `message_builder.py` - Message-Formatting
   - `multi_agent.py` - Multi-Agent Logik
+  - `message_hub.py` - Message Hub Worker-Management
+  - `envelope.py` - InboundMessage/OutboundMessage Dataclasses
+  - `routing_table.py` - SQLite Routing Table (Kanal → Session)
+  - `imap_listener.py` - IMAP IDLE Listener (Background Worker)
+  - `message_processor.py` - Processing Pipeline (Message → Engine → Reply)
   - `vector_cache.py` - ChromaDB Integration
   - `conversation_handler.py` - Automatik-Modus, RAG-Kontext
 - `prompts/de/` und `prompts/en/` - Alle Prompts (NICHT hardcodiert im Code!)

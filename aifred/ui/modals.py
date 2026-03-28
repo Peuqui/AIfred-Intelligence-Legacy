@@ -897,3 +897,195 @@ def document_manager_modal() -> rx.Component:
             align_items="center",
         ),
     )
+
+
+# ============================================================
+# EMAIL CREDENTIALS MODAL
+# ============================================================
+
+def _cred_input(label_key: str, value: rx.Var, on_change: rx.EventHandler) -> rx.Component:
+    """Reusable labeled input row for credentials modal."""
+    return rx.vstack(
+        rx.text(t(label_key), font_size="11px", color="#999"),
+        rx.input(
+            value=value,
+            on_change=on_change,
+            size="2",
+            width="100%",
+        ),
+        spacing="1",
+        width="100%",
+    )
+
+
+def email_credentials_modal() -> rx.Component:
+    """Modal dialog for entering IMAP/SMTP credentials."""
+    return rx.cond(
+        AIState.email_credentials_modal_open,
+        rx.box(
+            # Backdrop (opaque)
+            rx.box(
+                on_click=AIState.close_email_credentials,
+                position="fixed",
+                top="0",
+                left="0",
+                width="100%",
+                height="100%",
+                background_color="rgba(0, 0, 0, 0.92)",
+            ),
+            # Modal content
+            rx.vstack(
+                rx.text(t("email_credentials_title"), font_weight="bold", font_size="16px", color="white"),
+
+                # IMAP row (host + port side by side)
+                rx.hstack(
+                    rx.vstack(
+                        rx.text(t("email_cred_imap_host"), font_size="11px", color="#999"),
+                        rx.input(
+                            value=AIState.email_cred_imap_host,
+                            on_change=AIState.set_email_cred_imap_host,
+                            placeholder="imap.example.com",
+                            size="2",
+                            width="100%",
+                        ),
+                        spacing="1",
+                        flex="3",
+                    ),
+                    rx.vstack(
+                        rx.text(t("email_cred_imap_port"), font_size="11px", color="#999"),
+                        rx.input(
+                            value=AIState.email_cred_imap_port,
+                            on_change=AIState.set_email_cred_imap_port,
+                            size="2",
+                            width="100%",
+                        ),
+                        spacing="1",
+                        flex="1",
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+
+                # SMTP row (host + port side by side)
+                rx.hstack(
+                    rx.vstack(
+                        rx.text(t("email_cred_smtp_host"), font_size="11px", color="#999"),
+                        rx.input(
+                            value=AIState.email_cred_smtp_host,
+                            on_change=AIState.set_email_cred_smtp_host,
+                            placeholder="smtp.example.com",
+                            size="2",
+                            width="100%",
+                        ),
+                        spacing="1",
+                        flex="3",
+                    ),
+                    rx.vstack(
+                        rx.text(t("email_cred_smtp_port"), font_size="11px", color="#999"),
+                        rx.input(
+                            value=AIState.email_cred_smtp_port,
+                            on_change=AIState.set_email_cred_smtp_port,
+                            size="2",
+                            width="100%",
+                        ),
+                        spacing="1",
+                        flex="1",
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+
+                # Username
+                _cred_input("email_cred_user", AIState.email_cred_user, AIState.set_email_cred_user),
+
+                # Password with eye toggle — two inputs, conditionally rendered
+                rx.vstack(
+                    rx.text(t("email_cred_password"), font_size="11px", color="#999"),
+                    rx.box(
+                        rx.cond(
+                            AIState.email_cred_show_password,
+                            rx.input(
+                                value=AIState.email_cred_password,
+                                on_change=AIState.set_email_cred_password,
+                                placeholder="••••••••",
+                                size="2",
+                                width="100%",
+                            ),
+                            rx.input(
+                                value=AIState.email_cred_password,
+                                on_change=AIState.set_email_cred_password,
+                                type="password",
+                                placeholder="••••••••",
+                                size="2",
+                                width="100%",
+                            ),
+                        ),
+                        rx.icon_button(
+                            rx.cond(
+                                AIState.email_cred_show_password,
+                                rx.icon("eye-off", size=14),
+                                rx.icon("eye", size=14),
+                            ),
+                            on_click=AIState.toggle_email_cred_show_password,
+                            size="1",
+                            variant="ghost",
+                            color_scheme="gray",
+                            position="absolute",
+                            right="6px",
+                            top="50%",
+                            transform="translateY(-50%)",
+                            cursor="pointer",
+                        ),
+                        position="relative",
+                        width="100%",
+                    ),
+                    spacing="1",
+                    width="100%",
+                ),
+
+                # From address (optional)
+                _cred_input("email_cred_from", AIState.email_cred_from, AIState.set_email_cred_from),
+
+                # Buttons
+                rx.hstack(
+                    rx.button(
+                        t("email_cred_cancel"),
+                        on_click=AIState.close_email_credentials,
+                        variant="soft",
+                        color_scheme="gray",
+                        size="1",
+                        flex="1",
+                    ),
+                    rx.button(
+                        t("email_cred_save"),
+                        on_click=AIState.save_email_credentials,
+                        variant="solid",
+                        color_scheme="blue",
+                        size="1",
+                        flex="1",
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+
+                spacing="3",
+                padding="24px",
+                background="#1a1a2e",
+                border_radius="12px",
+                border="1px solid var(--gray-a6)",
+                width="400px",
+                max_width="90vw",
+                position="relative",
+                z_index="1001",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index="1000",
+            display="flex",
+            justify_content="center",
+            align_items="center",
+        ),
+    )

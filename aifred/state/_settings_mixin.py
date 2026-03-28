@@ -24,6 +24,19 @@ class SettingsMixin(rx.State, mixin=True):
     user_name: str = ""  # User's name for personalized responses (optional)
     user_gender: str = "male"  # "male" or "female" - for proper salutation (Herr/Frau)
 
+    # ── Message Hub Settings ─────────────────────────────────────
+    email_monitor_enabled: bool = False  # IMAP IDLE listener active?
+    email_auto_reply: bool = False  # Auto-reply to incoming emails?
+    email_credentials_modal_open: bool = False  # Credentials input dialog
+    email_cred_imap_host: str = ""
+    email_cred_imap_port: str = "993"
+    email_cred_smtp_host: str = ""
+    email_cred_smtp_port: str = "587"
+    email_cred_user: str = ""
+    email_cred_password: str = ""
+    email_cred_from: str = ""
+    email_cred_show_password: bool = False  # Eye toggle
+
     # ── Settings File Tracking ────────────────────────────────────
     _last_settings_mtime: float = 0.0  # Last seen settings.json mtime (for multi-browser sync)
 
@@ -143,6 +156,9 @@ class SettingsMixin(rx.State, mixin=True):
             "tts_toggles_per_engine": existing.get("tts_toggles_per_engine", {}),
             # UI Settings
             "auto_scroll": self.auto_refresh_enabled,  # type: ignore[attr-defined, has-type]
+            # Message Hub Settings
+            "email_monitor_enabled": self.email_monitor_enabled,
+            "email_auto_reply": self.email_auto_reply,
         }
         # Update tts_voices_per_language with current voice selection
         engine_key = self._get_engine_key()  # type: ignore[attr-defined, has-type]
@@ -314,6 +330,10 @@ class SettingsMixin(rx.State, mixin=True):
         from ..lib.prompt_loader import set_user_name
         set_user_name(self.user_name)
 
+        # Message Hub settings
+        self.email_monitor_enabled = settings.get("email_monitor_enabled", self.email_monitor_enabled)
+        self.email_auto_reply = settings.get("email_auto_reply", self.email_auto_reply)
+
     # ================================================================
     # UI LANGUAGE
     # ================================================================
@@ -426,6 +446,143 @@ class SettingsMixin(rx.State, mixin=True):
         else:
             self.add_debug("\u274c Failed to load default settings")  # type: ignore[attr-defined, has-type]
             yield  # Update UI even on error
+
+    # ================================================================
+    # MESSAGE HUB TOGGLES
+    # ================================================================
+
+    def toggle_email_monitor(self, value: bool) -> None:
+        """Toggle IMAP IDLE email monitoring.
+
+        Receives the desired state from the switch (not a blind toggle).
+        If credentials are missing when enabling, opens the credentials modal.
+        """
+        from ..lib import config
+
+        if value and not config.EMAIL_ENABLED:
+            # Want to enable, but no credentials → open modal
+            self._open_email_credentials_modal()
+            return
+
+        self.email_monitor_enabled = value
+        status = "enabled" if value else "disabled"
+        self.add_debug(f"📨 Email Monitor {status}")  # type: ignore[attr-defined, has-type]
+        self._save_settings()
+
+        # Start/stop the worker at runtime
+        from ..lib.message_hub import message_hub
+        if value:
+            if not message_hub.is_running("email_imap"):
+                from ..lib.imap_listener import imap_idle_loop
+                message_hub.register("email_imap", imap_idle_loop)
+                import asyncio
+                asyncio.create_task(message_hub.start_all())
+        else:
+            message_hub.unregister("email_imap")
+
+    def toggle_email_auto_reply(self, value: bool) -> None:
+        """Toggle auto-reply for incoming emails."""
+        self.email_auto_reply = value
+        status = "enabled" if self.email_auto_reply else "disabled"
+        self.add_debug(f"📨 Email Auto-Reply {status}")  # type: ignore[attr-defined, has-type]
+        self._save_settings()
+
+        # Update the runtime config
+        from ..lib import config
+        config.EMAIL_MONITOR_AUTO_REPLY = self.email_auto_reply
+
+    # ================================================================
+    # EMAIL CREDENTIALS MODAL
+    # ================================================================
+
+    def _open_email_credentials_modal(self) -> None:
+        """Open credentials modal, pre-filled with current values."""
+        from ..lib.config import (
+            EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, EMAIL_SMTP_HOST,
+            EMAIL_SMTP_PORT, EMAIL_USER, EMAIL_FROM,
+        )
+        self.email_cred_imap_host = EMAIL_IMAP_HOST
+        self.email_cred_imap_port = str(EMAIL_IMAP_PORT)
+        self.email_cred_smtp_host = EMAIL_SMTP_HOST
+        self.email_cred_smtp_port = str(EMAIL_SMTP_PORT)
+        self.email_cred_user = EMAIL_USER
+        from ..lib.config import EMAIL_PASSWORD
+        self.email_cred_password = EMAIL_PASSWORD  # Show current password (masked by input type)
+        self.email_cred_from = EMAIL_FROM
+        self.email_cred_show_password = False
+        self.email_credentials_modal_open = True
+
+    def open_email_credentials(self) -> None:
+        """Public handler — edit button in UI."""
+        self._open_email_credentials_modal()
+
+    def close_email_credentials(self) -> None:
+        """Close credentials modal without saving."""
+        self.email_credentials_modal_open = False
+        self.email_cred_password = ""  # Clear password from state
+
+    def toggle_email_cred_show_password(self) -> None:
+        """Toggle password visibility in credentials modal."""
+        self.email_cred_show_password = not self.email_cred_show_password
+
+    def save_email_credentials(self) -> None:
+        """Write email credentials to .env and update runtime config."""
+        from dotenv import set_key
+        from ..lib.config import PROJECT_ROOT
+
+        env_path = str(PROJECT_ROOT / ".env")
+
+        # Write to .env
+        set_key(env_path, "EMAIL_ENABLED", "true")
+        set_key(env_path, "EMAIL_IMAP_HOST", self.email_cred_imap_host)
+        set_key(env_path, "EMAIL_IMAP_PORT", self.email_cred_imap_port)
+        set_key(env_path, "EMAIL_SMTP_HOST", self.email_cred_smtp_host)
+        set_key(env_path, "EMAIL_SMTP_PORT", self.email_cred_smtp_port)
+        set_key(env_path, "EMAIL_USER", self.email_cred_user)
+        if self.email_cred_password:
+            set_key(env_path, "EMAIL_PASSWORD", self.email_cred_password)
+        set_key(env_path, "EMAIL_FROM", self.email_cred_from or self.email_cred_user)
+
+        # Update os.environ so config reads new values
+        os.environ["EMAIL_ENABLED"] = "true"
+        os.environ["EMAIL_IMAP_HOST"] = self.email_cred_imap_host
+        os.environ["EMAIL_IMAP_PORT"] = self.email_cred_imap_port
+        os.environ["EMAIL_SMTP_HOST"] = self.email_cred_smtp_host
+        os.environ["EMAIL_SMTP_PORT"] = self.email_cred_smtp_port
+        os.environ["EMAIL_USER"] = self.email_cred_user
+        if self.email_cred_password:
+            os.environ["EMAIL_PASSWORD"] = self.email_cred_password
+        os.environ["EMAIL_FROM"] = self.email_cred_from or self.email_cred_user
+
+        # Update config module variables at runtime
+        from ..lib import config
+        config.EMAIL_ENABLED = True
+        config.EMAIL_IMAP_HOST = self.email_cred_imap_host
+        config.EMAIL_IMAP_PORT = int(self.email_cred_imap_port)
+        config.EMAIL_SMTP_HOST = self.email_cred_smtp_host
+        config.EMAIL_SMTP_PORT = int(self.email_cred_smtp_port)
+        config.EMAIL_USER = self.email_cred_user
+        if self.email_cred_password:
+            config.EMAIL_PASSWORD = self.email_cred_password
+        config.EMAIL_FROM = self.email_cred_from or self.email_cred_user
+
+        self.add_debug("📨 E-Mail Credentials gespeichert")  # type: ignore[attr-defined, has-type]
+
+        # Close modal and clear password from state
+        self.email_credentials_modal_open = False
+        self.email_cred_password = ""
+
+        # Auto-enable monitor after saving credentials
+        self.email_monitor_enabled = True
+        self._save_settings()
+
+        # Start the worker
+        from ..lib.message_hub import message_hub
+        from ..lib.imap_listener import imap_idle_loop
+        if not message_hub.is_running("email_imap"):
+            message_hub.register("email_imap", imap_idle_loop)
+            import asyncio
+            asyncio.create_task(message_hub.start_all())
 
     # ================================================================
     # TRANSLATION HELPER

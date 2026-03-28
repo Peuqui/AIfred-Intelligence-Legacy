@@ -34,7 +34,7 @@ from .formatting import format_number
 from .logging_utils import log_message
 from .config import DEFAULT_OLLAMA_URL
 
-API_VERSION = "2.15.0"
+API_VERSION = "3.0.0"
 
 
 # ============================================================

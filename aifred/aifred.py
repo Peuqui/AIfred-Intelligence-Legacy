@@ -22,7 +22,7 @@ from .ui.helpers import t, left_column  # noqa: F401
 from .ui.modals import (  # noqa: F401
     multi_agent_help_modal, reasoning_thinking_help_modal,
     login_dialog, crop_modal, image_lightbox_modal,
-    document_manager_modal,
+    document_manager_modal, email_credentials_modal,
 )
 from .ui.chat_display import (  # noqa: F401
     session_list_display, chat_history_display,
@@ -562,6 +562,9 @@ console.log('✂️ Crop handler loaded');
         # Document Manager Modal
         document_manager_modal(),
 
+        # Email Credentials Modal (Message Hub)
+        email_credentials_modal(),
+
         # Hidden element to trigger camera detection on mount
         rx.box(
             id="camera-detector",
@@ -889,3 +892,48 @@ app._api.mount("/_upload/audio", StaticFiles(directory=str(session_audio_dir)), 
 documents_dir = DATA_DIR / "documents"
 documents_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/documents", StaticFiles(directory=str(documents_dir)), name="uploaded_documents")
+
+# ---------------------------------------------------------------------------
+# Message Hub — background workers for channel listeners (email, discord, …)
+# ---------------------------------------------------------------------------
+import contextlib  # noqa: E402
+
+
+@contextlib.asynccontextmanager
+async def _message_hub_lifespan():
+    """Start Message Hub workers on app startup, stop on shutdown."""
+    from .lib.message_hub import message_hub  # noqa: E402
+    from .lib.logging_utils import log_message as _log  # noqa: E402
+
+    # Register channel workers
+    _register_message_hub_workers(message_hub)
+
+    _log("Message Hub: initializing...")
+    await message_hub.start_all()
+    try:
+        yield
+    finally:
+        await message_hub.stop_all()
+
+
+def _register_message_hub_workers(hub: object) -> None:
+    """Register all channel listener workers with the Message Hub."""
+    from .lib.message_hub import MessageHub  # noqa: E402
+    from .lib.config import EMAIL_ENABLED  # noqa: E402
+    from .lib.settings import load_settings  # noqa: E402
+
+    assert isinstance(hub, MessageHub)
+
+    settings = load_settings() or {}
+
+    # E-Mail IMAP IDLE Listener — needs EMAIL_ENABLED (credentials) + settings toggle
+    if EMAIL_ENABLED and settings.get("email_monitor_enabled", False):
+        from .lib.imap_listener import imap_idle_loop  # noqa: E402
+        hub.register("email_imap", imap_idle_loop)
+
+    # Sync auto-reply config from settings
+    from .lib import config  # noqa: E402
+    config.EMAIL_MONITOR_AUTO_REPLY = settings.get("email_auto_reply", False)
+
+
+app.register_lifespan_task(_message_hub_lifespan)

@@ -265,29 +265,29 @@ class EpimDatabase:
     def resolve_category(self, name: str) -> Optional[int]:
         """Resolve a category name to its ID (case-insensitive)."""
         for cat in self.get_categories():
-            if cat["name"].lower() == name.lower():
-                return cat["id"]
+            if str(cat["name"]).lower() == name.lower():
+                return int(cat["id"])
         return None
 
     def resolve_calendar(self, name: str) -> Optional[int]:
         """Resolve a calendar name to its ID (case-insensitive)."""
         for cal in self.get_calendars():
-            if cal["name"].lower() == name.lower():
-                return cal["id"]
+            if str(cal["name"]).lower() == name.lower():
+                return int(cal["id"])
         return None
 
     def resolve_todolist(self, name: str) -> Optional[int]:
         """Resolve a todo list name to its ID (case-insensitive)."""
         for tl in self.get_todolists():
-            if tl["name"].lower() == name.lower():
-                return tl["id"]
+            if str(tl["name"]).lower() == name.lower():
+                return int(tl["id"])
         return None
 
     def resolve_notetree(self, name: str) -> Optional[int]:
         """Resolve a note tree name to its ID (case-insensitive)."""
         for nt in self.get_notetrees():
-            if nt["name"].lower() == name.lower():
-                return nt["id"]
+            if str(nt["name"]).lower() == name.lower():
+                return int(nt["id"])
         return None
 
     # ============================================================
@@ -1093,28 +1093,28 @@ class EpimDatabase:
     # LOOKUP TABLES
     # ============================================================
 
-    def get_categories(self) -> list[dict]:
+    def get_categories(self) -> list[dict[str, int | str]]:
         """Get all categories."""
         con = self._connect()
         cur = con.cursor()
         cur.execute("SELECT IDCATEGORY, NAME FROM CATEGORIES WHERE NAME IS NOT NULL ORDER BY CATEGORYINDEX")
         return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
 
-    def get_calendars(self) -> list[dict]:
+    def get_calendars(self) -> list[dict[str, int | str]]:
         """Get all calendars."""
         con = self._connect()
         cur = con.cursor()
         cur.execute("SELECT IDCALENDAR, NAME FROM CALENDARS WHERE NAME IS NOT NULL")
         return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
 
-    def get_todolists(self) -> list[dict]:
+    def get_todolists(self) -> list[dict[str, int | str]]:
         """Get all todo lists."""
         con = self._connect()
         cur = con.cursor()
         cur.execute("SELECT IDTODOLIST, NAME FROM TODOLISTS")
         return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
 
-    def get_notetrees(self) -> list[dict]:
+    def get_notetrees(self) -> list[dict[str, int | str]]:
         """Get all note trees."""
         con = self._connect()
         cur = con.cursor()

@@ -2,67 +2,63 @@
 
 ---
 
-# 🎩 AIfred Intelligence - Advanced AI Assistant
+# 🎩 AIfred Intelligence v3.0
 
-**AI Assistant with Multi-LLM Support, Web Research & Voice Interface**
+**Autonomous AI Assistant with Tool Use, Message Hub, Multi-Agent Debates & Local LLM Inference**
 
-AIfred Intelligence is an advanced AI assistant with automatic web research, multi-model support, and history compression for unlimited conversations.
+AIfred Intelligence is a fully-featured AI assistant running locally on your own hardware. It autonomously manages emails, appointments, documents and databases — with function calling, persistent memory and multi-agent debates. No cloud dependency, full data sovereignty.
 
-For version history and recent changes, see [CHANGELOG.md](CHANGELOG.md).
-
-> **Upgrading from v2.49 or earlier?** Run `rm -f data/agents.json data/blocked_domains.txt` before `git pull` — these files are now git-tracked with a new format. See [CHANGELOG v2.50.0](CHANGELOG.md) for details.
-
-**📺 [View Example Showcases](https://peuqui.github.io/AIfred-Intelligence/)** - Exported chats (via Share Chat button) showcasing Multi-Agent debates, Chemistry, Math, Coding, and Web Research.
+**📺 [View Example Showcases](https://peuqui.github.io/AIfred-Intelligence/)** - Exported chats: Multi-Agent debates, Chemistry, Math, Coding, and Web Research.
 
 ---
 
 ## ✨ Features
 
-### 🎯 Core Features
-- **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision — configurable agents with personality toggles
-- **Multi-Backend Support**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), **Cloud APIs** (Qwen, DeepSeek, Claude)
-- **🌐 Distributed Inference (RPC)**: Run models across multiple machines over LAN — llama.cpp RPC connects local GPUs (RTX 8000 + P40) with remote GPUs (RTX 3090 Ti) for **96 GB combined VRAM**, enabling 235B-parameter models fully GPU-resident at **14-16 tok/s** via direct Ethernet link (4x faster than local CPU offload)
-- **Automatic Model Lifecycle**: Zero-config model management — new models auto-discovered from Ollama/HuggingFace on service start, removed models auto-cleaned from config
-- **Vision/OCR Support**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), **VL Follow-Up** for image-related follow-up questions
-- **Image Crop Tool**: Interactive crop before OCR/analysis (8-point handles, 4K auto-resize)
-- **2-Model Architecture**: Specialized Vision-LLM for OCR/analysis, Main-LLM for text tasks
-- **Thinking Mode**: Chain-of-Thought reasoning for complex tasks (Qwen3, NemoTron, QwQ - llama.cpp, Ollama, vLLM)
-- **Harmony-Template Support**: GPT-OSS-120B with official Harmony format (`<|channel|>analysis<|message|>`)
-- **Automatic Web Research**: AI decides autonomously when research is needed
-- **History Compression**: Intelligent compression at 70% context utilization
-- **Automatic Context Calibration**: VRAM-aware context sizing per backend - Ollama (Binary Search + RoPE scaling 1.0x/1.5x/2.0x, hybrid CPU offload), llama.cpp (3-phase: GPU-only Binary Search → Speed variant with tensor-split optimization for multi-GPU → Hybrid NGL fallback)
-- **Voice Interface**: Configurable STT (Whisper) and TTS (Edge TTS, **XTTS v2 Voice Cloning**, **MOSS-TTS 1.7B Voice Cloning**, **DashScope Qwen3-TTS Cloud Streaming with Voice Cloning**, Piper, espeak) with multiple voices, pitch control, smart filtering (code blocks, tables, LaTeX formulas excluded from speech), **per-agent voice settings**, **gapless realtime audio playback** (double-buffered HTML5 audio, seamless playback during LLM inference)
-- **Vector Cache**: ChromaDB with multilingual Ollama embeddings (nomic-embed-text-v2-moe, CPU/GPU configurable)
-- **Agent Long-Term Memory**: Per-agent persistent memory via ChromaDB — agents autonomously store insights via function calling, combined recall (10 recent + semantic search), session pinning for all participating agents. Memory Browser in Agent Editor for inspection and cleanup. Incognito mode (🔒) disables memory globally
-- **Function Calling / Tool Use**: OpenAI-compatible tool infrastructure — the LLM autonomously decides which tools to use:
-  - `store_memory` — Save insights to long-term memory
-  - `web_search` — Multi-API web research (Brave, Tavily, SearXNG) with automatic scraping and ranking
-  - `web_fetch` — Fetch and extract content from specific URLs
-  - `calculate` — Mathematical calculations and unit conversions
-  - `read_document` — Read and analyze documents
-  - `execute_code` — Run Python code in isolated sandbox (see below)
-  - `email` — Email integration (IMAP/SMTP) with actions: `check` (inbox), `read` (read email), `search` (search), `delete` (delete), `send` (send with confirmation)
-  - `search_documents` — Semantic search across uploaded documents
-  - `list_documents` — List all uploaded documents
-  - `delete_document` — Remove a document from the store
-  - `epim_search` — Search the EPIM personal database (calendar events, contacts, notes, todos, passwords) with date range, keyword and category filters
-  - `epim_create` — Create new entries in EPIM (appointments, contacts, notes, todos, passwords) with automatic category/calendar name-to-ID resolution
-  - `epim_update` — Update existing EPIM entries (reschedule appointments, edit contacts, modify notes)
-  - `epim_delete` — Soft-delete EPIM entries (recoverable)
-- **EPIM Database Integration**: Full CRUD access to the [EssentialPIM](https://www.essentialpim.com/) Firebird 2.5 database — the LLM autonomously searches, creates, updates and deletes calendar events, contacts, notes, todos and password entries. Features: automatic name-to-ID resolution for categories/calendars/lists (LLM uses human-readable names, not IDs), FIELDSDATA hex codec for contact fields, dynamic prompt injection of available categories/calendars/lists, anti-hallucination guardrails, 7-day date reference for correct relative date resolution. Database path configurable in `config.py` (`EPIM_DB_PATH`)
-- **Document Upload & RAG**: Upload documents (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatic chunking and embedding in ChromaDB. Relevant document chunks are automatically injected as RAG context into the system prompt. Document manager modal with preview, download and delete. Embedding configurable on CPU or GPU (`EMBEDDING_USE_GPU`)
-- **Sandboxed Code Execution**: LLM can write and run Python code in an isolated subprocess (resource-limited, auto-cleanup). Supports numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interactive HTML/JS visualizations (Plotly 3D, Canvas games, simulations) are embedded as iframes directly in the chat. Static matplotlib plots are displayed as images
-- **E-Mail Integration**: Read, search, and send emails via IMAP/SMTP. Sending requires explicit user confirmation (draft → review → confirm). Credentials via environment variables only (never stored in settings). Opt-in via `EMAIL_ENABLED=true`
-- **Custom Agents**: Create unlimited custom agents with name, emoji, role, and multilingual prompts (DE/EN). Custom agents participate in debates, can be directly addressed, and have their own long-term memory
-- **Sampling Parameters Table**: Per-agent control of Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual mode) — sampling params reset to llama-swap YAML defaults on restart, temperature persisted in settings.json
-- **Per-Backend Settings**: Each backend remembers its preferred models (including Vision-LLM)
-- **User Authentication**: Username + password login with whitelist-based registration, admin CLI for user management
-- **Session Persistence**: Chat history tied to user accounts, accessible from any device after login
-- **Session Management**: Chat list sidebar with LLM-generated titles, switch between sessions, delete old chats
-- **Share Chat**: Export conversation as portable HTML file in new browser tab (KaTeX fonts embedded inline, embedded TTS audio output, works offline)
-- **HTML Preview**: AI-generated HTML code opens directly in browser (new tab)
-- **LaTeX & Chemistry**: KaTeX for math formulas, mhchem extension for chemistry (`\ce{H2O}`, reactions)
-- **🚀 Massive Performance Improvements**: Direct-IO speeds up model loading significantly — file is memory-mapped near-instantly, full initialization (KV cache etc.) takes ~20-30s for large models (vs 60-90s without Direct-IO). See [Model Parameter Docs](docs/model-recommended-params.md) for all 200B+ optimizations (KV-Quant, Batch-Sizes, VRAM optimization)
+### 🧠 Autonomous Capabilities (Function Calling / Tool Use)
+
+The LLM autonomously decides which tools to use — OpenAI-compatible tool infrastructure with plugin system:
+
+- **Message Hub — AIfred as Communication Central**: AIfred monitors external channels and processes incoming messages autonomously. Each channel has its own identity (own email address, own bot). Pipeline: **IMAP IDLE listener** (push-based) → **Envelope normalization** → **SQLite routing table** → **AIfred engine call** → **Auto-reply via SMTP** (optional, per-channel toggle). Agent routing: address Sokrates or Salomo by name in emails. Credentials modal in Settings UI with password visibility toggle. Background workers start/stop at runtime — no restart needed. See [Architecture & Setup](docs/plans/message-hub-architecture.md)
+- **Email Integration**: Read, search, and send emails via IMAP/SMTP. Sending requires explicit user confirmation (draft → review → confirm). Credentials via `.env` or UI modal
+- **EPIM Database Integration**: Full CRUD access to the [EssentialPIM](https://www.essentialpim.com/) Firebird 2.5 database — the LLM autonomously searches, creates, updates and deletes calendar events, contacts, notes, todos and password entries. Automatic name-to-ID resolution, anti-hallucination guardrails, 7-day date reference
+- **Document Upload & RAG**: Upload documents (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatic chunking and embedding in ChromaDB. Relevant chunks automatically injected as RAG context. Document manager with preview, download and delete
+- **Sandboxed Code Execution**: LLM writes and runs Python code in isolated subprocess. Supports numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interactive HTML/JS visualizations (Plotly 3D, Canvas games, simulations) directly in chat
+- **Agent Long-Term Memory**: Per-agent persistent memory via ChromaDB — agents autonomously store insights, combined recall (10 recent + semantic search), session pinning. Memory Browser for inspection and cleanup. Incognito mode (🔒)
+- **Automatic Web Research**: AI decides autonomously when research is needed. Multi-API (Brave, Tavily, SearXNG) with automatic scraping and ranking. Semantic vector cache via ChromaDB
+- Additional tools: `calculate` (math), `web_fetch` (URL extraction), `store_memory` (memory)
+
+### 🎩 Multi-Agent System
+
+- **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision + unlimited custom agents
+- **Custom Agents**: Name, emoji, role, bilingual prompts (DE/EN), own long-term memory. Agent Editor in UI
+- **5 Discussion Modes**: Standard, Critical Review, Auto-Consensus, Tribunal, Symposion
+- **Direct Addressing**: Address any agent by name — also in emails via Message Hub
+- **6-Layer Prompt System**: Identity + Reasoning + Multi-Agent + Task + Memory + Personality
+
+### ⚙️ LLM Infrastructure
+
+- **Multi-Backend Support**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), Cloud APIs (Qwen, DeepSeek, Claude)
+- **Distributed Inference (RPC)**: Run models across multiple machines over LAN via llama.cpp RPC
+- **Automatic Context Calibration**: VRAM-aware context sizing per backend with Binary Search, RoPE scaling, tensor-split optimization
+- **Thinking Mode**: Chain-of-Thought reasoning (Qwen3, NemoTron, QwQ)
+- **History Compression**: Intelligent compression at 70% context utilization for unlimited conversations
+- **Automatic Model Lifecycle**: Zero-config — new models auto-discovered on start, removed models auto-cleaned
+- **Sampling Parameters**: Per-agent Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual)
+- **Performance**: Direct-IO for fast model loading, details in [Model Parameter Docs](docs/model-recommended-params.md)
+
+### 🎤 Voice & Vision Interface
+
+- **Voice Interface**: STT (Whisper) and TTS (Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud Streaming, Piper, espeak). Per-agent voices, pitch control, gapless realtime audio playback
+- **Vision/OCR**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), VL Follow-Up, interactive image crop, 2-model architecture (Vision-LLM + Main-LLM)
+
+### 🖥️ UI & Session Management
+
+- **User Authentication**: Username + password login with whitelist-based registration
+- **Session Management**: Chat list with LLM-generated titles, session switching, persistent history
+- **Share Chat**: Export as portable HTML file (KaTeX fonts inline, TTS audio embedded, works offline)
+- **LaTeX & Chemistry**: KaTeX for math formulas, mhchem for chemistry
+- **HTML Preview**: AI-generated HTML code opens directly in browser
+- **Harmony-Template Support**: GPT-OSS-120B with official Harmony format
 
 ### 🎩 Multi-Agent Discussion Modes
 
@@ -2089,6 +2085,7 @@ systemctl status ollama
 More documentation in the `docs/` directory:
 - [Architecture Overview](docs/architecture/)
 - [API Documentation](docs/api/)
+- [Message Hub Architecture](docs/plans/message-hub-architecture.md)
 - [Migration Guide](docs/infrastructure/MIGRATION.md)
 - [llama.cpp + llama-swap Setup Guide](docs/llamacpp-setup.md)
 - [Tensor Split Benchmark: Speed vs. Full Context](docs/tensor-split-benchmark.md)

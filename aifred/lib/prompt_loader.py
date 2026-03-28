@@ -392,10 +392,10 @@ def load_prompt(
             from .epim_db import get_epim_db
             _epim = get_epim_db()
             if _epim:
-                epim_categories = ", ".join(c["name"] for c in _epim.get_categories())
-                epim_todolists = ", ".join(t["name"] for t in _epim.get_todolists())
-                epim_notetrees = ", ".join(n["name"] for n in _epim.get_notetrees())
-                epim_calendars = ", ".join(c["name"] for c in _epim.get_calendars())
+                epim_categories = ", ".join(str(c["name"]) for c in _epim.get_categories())
+                epim_todolists = ", ".join(str(t["name"]) for t in _epim.get_todolists())
+                epim_notetrees = ", ".join(str(n["name"]) for n in _epim.get_notetrees())
+                epim_calendars = ", ".join(str(c["name"]) for c in _epim.get_calendars())
     except Exception:
         pass  # EPIM not available — placeholders stay empty
 
