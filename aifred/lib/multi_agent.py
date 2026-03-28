@@ -564,6 +564,197 @@ async def _execute_forced_research(
 
 
 # ============================================================
+# SHARED DEBATE HELPERS (deduplicated from debate functions)
+# ============================================================
+
+
+async def _execute_agent_stream(
+    state: 'AIState',
+    agent: str,
+    agent_label: str,
+    llm_client: LLMClient,
+    model: str,
+    messages: list,
+    options: LLMOptions,
+    toolkit: Any = None,
+) -> AsyncGenerator[Optional[dict[str, Any]], None]:
+    """Execute streaming for one agent turn.
+
+    Yields None for UI updates, then yields the result dict as final item.
+    Caller uses: `async for item in _execute_agent_stream(...): ...`
+
+    Returns None result on stream failure (caller decides how to handle).
+    """
+    result = None
+    async for item in _stream_agent_to_history(
+        state=state, agent=agent, agent_label=agent_label,
+        llm_client=llm_client, model=model,
+        messages=messages, options=options, toolkit=toolkit,
+    ):
+        if isinstance(item, dict):
+            result = item
+        else:
+            yield None  # Forward UI update
+
+    if result is None:
+        state.add_debug(f"❌ {agent_label} stream returned no result")
+
+    yield result  # Final item = result dict (or None on failure)
+
+
+def _setup_debate_contexts(
+    state: 'AIState',
+    alfred_model: str,
+    sokrates_model: str,
+    salomo_model: str,
+) -> dict[str, Any]:
+    """Set up context limits, temperatures, and VRAM cache for a 3-agent debate.
+
+    Returns dict with all computed values for use by debate functions.
+    """
+    from .research.context_utils import get_agent_num_ctx
+
+    # Context limits
+    main_llm_ctx, aifred_source = get_agent_num_ctx("aifred", state, alfred_model, fallback=32768)
+    sokrates_num_ctx, sokrates_source = get_agent_num_ctx("sokrates", state, sokrates_model, fallback=32768)
+    salomo_num_ctx, salomo_source = get_agent_num_ctx("salomo", state, salomo_model, fallback=32768)
+
+    state.add_debug(f"🎯 AIfred: {format_number(main_llm_ctx)} tok ({aifred_source})")
+    state.add_debug(f"🎯 Sokrates: {format_number(sokrates_num_ctx)} tok ({sokrates_source})")
+    state.add_debug(f"🎯 Salomo: {format_number(salomo_num_ctx)} tok ({salomo_source})")
+
+    # VRAM cache for history compression
+    _last_vram_limit_cache["aifred_limit"] = main_llm_ctx
+    _last_vram_limit_cache["sokrates_limit"] = sokrates_num_ctx
+    _last_vram_limit_cache["salomo_limit"] = salomo_num_ctx
+    min_ctx = min(sokrates_num_ctx, main_llm_ctx, salomo_num_ctx)
+    _last_vram_limit_cache["limit"] = min_ctx
+
+    state.add_debug(
+        f"📊 Context limits: AIfred={format_number(main_llm_ctx)} tok, "
+        f"Sokrates={format_number(sokrates_num_ctx)} tok, "
+        f"Salomo={format_number(salomo_num_ctx)} tok, "
+        f"Compression={format_number(min_ctx)} tok"
+    )
+
+    # Temperatures
+    if state.temperature_mode == "manual":  # type: ignore[has-type]
+        alfred_temp = state.temperature
+        sokrates_temp = state.sokrates_temperature
+        salomo_temp = state.salomo_temperature
+    else:
+        alfred_temp = state.temperature
+        sokrates_temp = min(1.0, alfred_temp + state.sokrates_temperature_offset)
+        salomo_temp = min(1.0, alfred_temp + state.salomo_temperature_offset)
+
+    state.add_debug(
+        f"🌡️ Temps: AIfred={format_number(alfred_temp, 1)}, "
+        f"Sokrates={format_number(sokrates_temp, 1)}, "
+        f"Salomo={format_number(salomo_temp, 1)}"
+    )
+
+    # LLM options
+    sokrates_options = build_llm_options(state, "sokrates", sokrates_temp, sokrates_num_ctx)
+    alfred_options = build_llm_options(state, "aifred", alfred_temp, main_llm_ctx)
+    salomo_options = build_llm_options(state, "salomo", salomo_temp, salomo_num_ctx)
+
+    return {
+        "aifred_ctx": main_llm_ctx, "sokrates_ctx": sokrates_num_ctx, "salomo_ctx": salomo_num_ctx,
+        "aifred_temp": alfred_temp, "sokrates_temp": sokrates_temp, "salomo_temp": salomo_temp,
+        "aifred_options": alfred_options, "sokrates_options": sokrates_options, "salomo_options": salomo_options,
+        "min_ctx": min_ctx,
+    }
+
+
+async def _recall_agent_memories(
+    state: 'AIState',
+    agent_ids: list[str],
+    user_query: str,
+    detected_lang: str,
+) -> dict[str, tuple[str, Any]]:
+    """Recall memory + toolkit for multiple agents.
+
+    Returns dict: {agent_id: (memory_ctx, toolkit)}
+    """
+    from .agent_memory import prepare_agent_toolkit
+
+    memory_enabled = state.agent_memory_enabled
+    sid = state.session_id
+    result = {}
+
+    for agent_id in agent_ids:
+        mem_ctx, toolkit = await prepare_agent_toolkit(
+            agent_id, user_query, lang=detected_lang or "de",
+            memory_enabled=memory_enabled, research_tools_enabled=True,
+            state=state, session_id=sid,
+        )
+        if mem_ctx:
+            state.add_debug(f"🧠 Memory context recalled for {agent_id.title()}")
+        result[agent_id] = (mem_ctx, toolkit)
+
+    return result
+
+
+def _build_debate_messages(
+    state: 'AIState',
+    system_prompt: str,
+    perspective: str,
+    detected_lang: Optional[str],
+    current_user_text: Optional[str] = None,
+) -> list[dict[str, str]]:
+    """Build message list for an agent in a debate.
+
+    Combines system prompt + LLM history (filtered: no raw system messages except compressions).
+    """
+    history_messages = build_messages_from_llm_history(
+        state._chat_sub().llm_history,
+        current_user_text=current_user_text,
+        perspective=perspective,
+        detected_language=detected_lang,
+    )
+
+    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+    for msg in history_messages:
+        if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
+            messages.append(msg)
+
+    return messages
+
+
+def _add_agent_result_panel(
+    state: 'AIState',
+    agent: str,
+    result: dict[str, Any],
+    agent_label: str,
+    model: str,
+    mode: str,
+    round_num: Optional[int] = None,
+) -> str:
+    """Format result and add agent panel to chat history. Returns response text."""
+    formatted = _format_stream_result(result, agent_label, model)
+    metadata_dict = result["metadata_dict"]
+    audio_urls = result.get("audio_urls", [])
+
+    state.add_agent_panel(
+        agent=agent,
+        content=formatted,
+        mode=mode,
+        round_num=round_num,
+        metadata={**metadata_dict, "audio_urls": audio_urls},
+        sync_llm_history=False,
+    )
+
+    return result["text"]
+
+
+def _finalize_debate(state: 'AIState') -> None:
+    """Save session and add debug separator after a debate."""
+    state._save_current_session()
+    console_separator()
+    state.add_debug("────────────────────")
+
+
+# ============================================================
 # UNIFIED AGENT RESPONSE (all agents, all research modes)
 # ============================================================
 
@@ -862,103 +1053,29 @@ async def run_sokrates_analysis(
     # detected_lang comes from LLM-based intent detection (passed from state.py)
 
     try:
-        # Create LLM client
-        llm_client = LLMClient(
-            backend_type=state.backend_type,
-            base_url=state.backend_url
-        )
+        llm_client = LLMClient(backend_type=state.backend_type, base_url=state.backend_url)
 
         # Determine models
         sokrates_model = state._effective_model_id("sokrates") or state._effective_model_id("aifred")
         sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model  # type: ignore[has-type]
         alfred_model = state._effective_model_id("aifred")
+        salomo_model = state._effective_model_id("salomo") or state._effective_model_id("aifred")
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
 
-        # Mode labels for display (i18n)
-        mode_labels = {
-            "critical_review": t("multi_agent_critical_review", lang=state.ui_language),
-            "auto_consensus": t("multi_agent_auto_consensus", lang=state.ui_language),
-            "devils_advocate": t("multi_agent_devils_advocate", lang=state.ui_language)
-        }
-        mode_label = mode_labels.get(state.multi_agent_mode, state.multi_agent_mode)
-
-        # Get context limits for both models (respect per-LLM manual toggles)
-        # Use centralized get_agent_num_ctx() for consistent context determination
-        from .research.context_utils import get_agent_num_ctx
-
-        # AIfred context
-        main_llm_ctx, aifred_source = get_agent_num_ctx("aifred", state, alfred_model, fallback=32768)
-        state.add_debug(f"🎯 AIfred: {format_number(main_llm_ctx)} tok ({aifred_source})")
-
-        # Sokrates context
-        sokrates_num_ctx, sokrates_source = get_agent_num_ctx("sokrates", state, sokrates_model, fallback=32768)
-        state.add_debug(f"🎯 Sokrates: {format_number(sokrates_num_ctx)} tok ({sokrates_source})")
-
-        # Salomo context
-        salomo_model = state._effective_model_id("salomo") or state._effective_model_id("aifred")
-        salomo_num_ctx, salomo_source = get_agent_num_ctx("salomo", state, salomo_model, fallback=32768)
-        state.add_debug(f"🎯 Salomo: {format_number(salomo_num_ctx)} tok ({salomo_source})")
-
-        # Store separate limits for each agent
-        _last_vram_limit_cache["aifred_limit"] = main_llm_ctx
-        _last_vram_limit_cache["sokrates_limit"] = sokrates_num_ctx
-        _last_vram_limit_cache["salomo_limit"] = salomo_num_ctx
-
-        # Update global limit with MINIMUM of all (for history compression)
-        min_ctx = min(sokrates_num_ctx, main_llm_ctx, salomo_num_ctx)
-        _last_vram_limit_cache["limit"] = min_ctx
-        state.add_debug(
-            f"📊 Context limits: AIfred={format_number(main_llm_ctx)} tok, "
-            f"Sokrates={format_number(sokrates_num_ctx)} tok, "
-            f"Salomo={format_number(salomo_num_ctx)} tok, "
-            f"Compression={format_number(min_ctx)} tok"
-        )
-
-        # Calculate temperatures based on mode
-        if state.temperature_mode == "manual":  # type: ignore[has-type]
-            alfred_temp = state.temperature
-            sokrates_temp = state.sokrates_temperature
-            salomo_temp = state.salomo_temperature
-        else:
-            # Auto mode: Use intent-based temperature from main flow
-            # For Multi-Agent, use moderate defaults since Intent Detection ran earlier
-            alfred_temp = state.temperature  # Already set by Intent Detection or manual
-            sokrates_temp = min(1.0, alfred_temp + state.sokrates_temperature_offset)
-            salomo_temp = min(1.0, alfred_temp + state.salomo_temperature_offset)
-
-        state.add_debug(
-            f"🌡️ Temps: AIfred={format_number(alfred_temp, 1)}, "
-            f"Sokrates={format_number(sokrates_temp, 1)}, "
-            f"Salomo={format_number(salomo_temp, 1)}"
-        )
-
-        # LLM options with calculated context and temperatures
-        # Use per-agent reasoning toggle for enable_thinking
-        sokrates_options = build_llm_options(state, "sokrates", sokrates_temp, sokrates_num_ctx)
-        alfred_options = build_llm_options(state, "aifred", alfred_temp, main_llm_ctx)
+        # Debate setup: context limits, temperatures, LLM options
+        ctx = _setup_debate_contexts(state, alfred_model, sokrates_model, salomo_model)
+        sokrates_options = ctx["sokrates_options"]
+        alfred_options = ctx["aifred_options"]
+        sokrates_num_ctx = ctx["sokrates_ctx"]
+        main_llm_ctx = ctx["aifred_ctx"]
+        salomo_num_ctx = ctx["salomo_ctx"]
+        memory_enabled = state.agent_memory_enabled
 
         # Agent Memory + Research Tools: recall once before debate starts
-        from .agent_memory import prepare_agent_toolkit
-        memory_enabled = state.agent_memory_enabled
-        sid = state.session_id
-        sokrates_memory_ctx, sokrates_toolkit = await prepare_agent_toolkit(
-            "sokrates", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
-        )
-        if sokrates_memory_ctx:
-            state.add_debug("🧠 Memory context recalled for Sokrates")
-        salomo_memory_ctx, salomo_toolkit = await prepare_agent_toolkit(
-            "salomo", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
-        )
-        if salomo_memory_ctx:
-            state.add_debug("🧠 Memory context recalled for Salomo")
-        aifred_memory_ctx, aifred_toolkit = await prepare_agent_toolkit(
-            "aifred", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
-        )
-        if aifred_memory_ctx:
-            state.add_debug("🧠 Memory context recalled for AIfred")
+        memories = await _recall_agent_memories(state, ["sokrates", "salomo", "aifred"], user_query, detected_lang or "de")
+        sokrates_memory_ctx, sokrates_toolkit = memories["sokrates"]
+        salomo_memory_ctx, salomo_toolkit = memories["salomo"]
+        aifred_memory_ctx, aifred_toolkit = memories["aifred"]
 
         # Track current answer (may be refined in auto_consensus)
         current_answer = alfred_answer
@@ -983,92 +1100,40 @@ async def run_sokrates_analysis(
             if sokrates_memory_ctx:
                 system_prompt = f"{system_prompt}\n\n{sokrates_memory_ctx}"
 
-            # Build messages with Sokrates' perspective
-            # - Sokrates sees his own earlier responses as 'assistant'
-            # - AIfred's responses and User messages become 'user' with labels
-            # - No "Sokrates?" activation needed - perspective handles role assignment
-            # Use llm_history (compressed) instead of chat_history (full UI)
-            history_messages: list[dict[str, str]] = build_messages_from_llm_history(
-                state._chat_sub().llm_history,
-                perspective="sokrates",
-                detected_language=detected_lang
-            )
+            # Build messages + compression check
+            sokrates_messages = _build_debate_messages(state, system_prompt, "sokrates", detected_lang)
 
-            # Build final message list: Sokrates system prompt + history
-            sokrates_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
-            for msg in history_messages:
-                # Keep all messages except non-summary system messages
-                if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
-                    sokrates_messages.append(msg)
-
-            # PRE-SOKRATES: Check if compression needed before Sokrates call
-            # Include Sokrates system prompt in token calculation (v2.14.0+)
-            # IMPORTANT (v2.14.4+): Use SOKRATES' context limit, not min_ctx!
             sokrates_prompt_tokens = _estimate_prompt_tokens(system_prompt)
             async for _ in _check_compression_if_needed(state, llm_client, sokrates_num_ctx, sokrates_prompt_tokens):
                 yield
 
-            # Estimate tokens in messages (using proper tokenizer estimation)
             sokrates_msg_tokens = estimate_tokens(sokrates_messages, model_name=sokrates_model)
             sokrates_ctx = sokrates_options.num_ctx if sokrates_options and sokrates_options.num_ctx else 8192
-            state.add_debug(
-                f"📊 Sokrates R{round_num}: {format_number(sokrates_msg_tokens)} / "
-                f"{format_number(sokrates_ctx)} tokens"
-            )
-
-            # DEBUG: Log RAW messages sent to Sokrates (controlled by DEBUG_LOG_RAW_MESSAGES)
+            state.add_debug(f"📊 Sokrates R{round_num}: {format_number(sokrates_msg_tokens)} / {format_number(sokrates_ctx)} tokens")
             log_raw_messages(f"Sokrates R{round_num}", sokrates_messages)
 
-            # Stream Sokrates response (toolkit always - model decides if storing)
+            # Stream Sokrates response
             result = None
-            async for item in _stream_agent_to_history(
-                state=state,
-                agent="sokrates",
-                agent_label="Sokrates",
-                llm_client=llm_client,
-                model=sokrates_model,
-                messages=sokrates_messages,
-                options=sokrates_options,
-                toolkit=sokrates_toolkit,
+            async for item in _execute_agent_stream(
+                state, "sokrates", "Sokrates", llm_client, sokrates_model,
+                sokrates_messages, sokrates_options, sokrates_toolkit,
             ):
                 if isinstance(item, dict):
-                    # Last yield is the result
                     result = item
                 else:
-                    yield  # Forward state delta to browser
+                    yield
 
-            # Extract Sokrates result from final yield
             if result is None:
-                state.add_debug("❌ Sokrates stream returned no result")
                 break
-            sokrates_response_text = result["text"]
-            metadata_display = result["metadata_display"]
-            metadata_dict = result["metadata_dict"]
-            audio_urls = result.get("audio_urls", [])
 
-            formatted_sokrates = _format_stream_result(result, "Sokrates", sokrates_model)
-
-            # Add Sokrates critique panel (centralized)
-            # Note: _stream_agent_to_history already synced to llm_history
-            # Mode: Use specific mode for devils_advocate, else generic critical_review
             sokrates_mode = "advocatus_diaboli" if state.multi_agent_mode == "devils_advocate" else "critical_review"
-            panel_meta = {**metadata_dict, "audio_urls": audio_urls}
-            state.add_agent_panel(
-                agent="sokrates",
-                content=formatted_sokrates,
-                mode=sokrates_mode,
-                round_num=round_num,  # Always show round number for consistency
-                metadata=panel_meta,
-                sync_llm_history=False  # Already done by _stream_agent_to_history
+            sokrates_response_text = _add_agent_result_panel(
+                state, "sokrates", result, "Sokrates", sokrates_model, sokrates_mode, round_num,
             )
-            state.sokrates_critique = sokrates_response_text  # Keep raw text for logic checks
+            state.sokrates_critique = sokrates_response_text
             yield
 
-            # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
             state._save_current_session()
-
-            # NOTE: PRE-CHECK before Sokrates already handles compression (line ~635)
-            # No POST-CHECK needed here
 
             # Parse Pro/Contra for devils_advocate
             if state.multi_agent_mode == "devils_advocate":
@@ -1081,114 +1146,56 @@ async def run_sokrates_analysis(
 
             # === AUTO-CONSENSUS (TRIALOG): Salomo synthesizes and decides ===
             if state.multi_agent_mode == "auto_consensus":
-                # Determine Salomo model
-                salomo_model = state._effective_model_id("salomo") or state._effective_model_id("aifred")
                 salomo_display = state.salomo_model if state.salomo_model else state.aifred_model  # type: ignore[has-type]
-
                 if round_num == 1:
                     state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
-                # Calculate Salomo context using centralized function
-                from .research.context_utils import get_agent_num_ctx
-                salomo_num_ctx, salomo_source = get_agent_num_ctx("salomo", state, salomo_model, fallback=32768)
-                if round_num == 1:
-                    state.add_debug(f"🎯 Salomo: {format_number(salomo_num_ctx)} tok ({salomo_source})")
+                salomo_options = ctx["salomo_options"]
 
-                # salomo_temp already calculated above (before the loop)
-                salomo_options = build_llm_options(state, "salomo", salomo_temp, salomo_num_ctx)
-
-                # Build Salomo's messages: system + history
-                salomo_minimal = get_agent_system_prompt("salomo", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
+                # Build Salomo system prompt
+                salomo_minimal = get_agent_system_prompt("salomo", "task", lang=detected_lang, multi_agent=True, memory=memory_enabled)
                 mediator_prompt = get_salomo_mediator_prompt(round_num=round_num, lang=detected_lang)
                 salomo_system = f"{salomo_minimal}\n\n{mediator_prompt}"
                 if salomo_memory_ctx:
                     salomo_system = f"{salomo_system}\n\n{salomo_memory_ctx}"
 
-                # Build messages with observer perspective (sees everything neutrally)
-                # Use llm_history (compressed) instead of chat_history (full UI)
-                salomo_messages: list[dict[str, str]] = build_messages_from_llm_history(
-                    state._chat_sub().llm_history,
-                    perspective="observer",  # Neutral perspective
-                    detected_language=detected_lang
-                )
-                salomo_messages.insert(0, {"role": "system", "content": salomo_system})
+                # Build messages + compression check
+                salomo_messages = _build_debate_messages(state, salomo_system, "observer", detected_lang)
 
-                # PRE-SALOMO: Check if compression needed before Salomo call
-                # Include Salomo system prompt in token calculation (v2.14.0+)
-                # IMPORTANT (v2.14.4+): Use SALOMO's context limit, not min_ctx!
                 salomo_prompt_tokens = _estimate_prompt_tokens(salomo_system)
                 async for _ in _check_compression_if_needed(state, llm_client, salomo_num_ctx, salomo_prompt_tokens):
                     yield
 
-                # Estimate tokens for Salomo (consistent with Sokrates debug output)
                 salomo_msg_tokens = estimate_tokens(salomo_messages, model_name=salomo_model)
-                state.add_debug(
-                    f"📊 Salomo R{round_num}: {format_number(salomo_msg_tokens)} / "
-                    f"{format_number(salomo_num_ctx)} tokens"
-                )
-
-                # DEBUG: Log RAW messages sent to Salomo (controlled by DEBUG_LOG_RAW_MESSAGES)
+                state.add_debug(f"📊 Salomo R{round_num}: {format_number(salomo_msg_tokens)} / {format_number(salomo_num_ctx)} tokens")
                 log_raw_messages(f"Salomo R{round_num}", salomo_messages)
 
-                # Stream Salomo response (always gets toolkit - final agent in consensus)
+                # Stream Salomo response
                 salomo_result = None
-                async for item in _stream_agent_to_history(
-                    state=state,
-                    agent="salomo",
-                    agent_label="Salomo",
-                    llm_client=llm_client,
-                    model=salomo_model,
-                    messages=salomo_messages,
-                    options=salomo_options,
-                    toolkit=salomo_toolkit,
+                async for item in _execute_agent_stream(
+                    state, "salomo", "Salomo", llm_client, salomo_model,
+                    salomo_messages, salomo_options, salomo_toolkit,
                 ):
                     if isinstance(item, dict):
                         salomo_result = item
                     else:
-                        yield  # Forward state delta
+                        yield
 
-                # Extract Salomo result from final yield
                 if salomo_result is None:
-                    state.add_debug("❌ Salomo stream returned no result")
                     break
-                salomo_response_text = salomo_result["text"]
-                salomo_metadata_dict = salomo_result["metadata_dict"]
-                salomo_audio_urls = salomo_result.get("audio_urls", [])
 
-                formatted_salomo = _format_stream_result(salomo_result, "Salomo", salomo_model)
-
-                # Add Salomo synthesis panel (centralized)
-                # Note: _stream_agent_to_history already synced to llm_history
-                salomo_panel_meta = {**salomo_metadata_dict, "audio_urls": salomo_audio_urls}
-                state.add_agent_panel(
-                    agent="salomo",
-                    content=formatted_salomo,
-                    mode="synthesis",  # Uses salomo_synthesis_label via _get_mode_label
-                    round_num=round_num,
-                    metadata=salomo_panel_meta,
-                    sync_llm_history=False  # Already done by _stream_agent_to_history
+                salomo_response_text = _add_agent_result_panel(
+                    state, "salomo", salomo_result, "Salomo", salomo_model, "synthesis", round_num,
                 )
                 state.salomo_synthesis = salomo_response_text
                 yield
 
-                # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
                 state._save_current_session()
 
-                # NOTE: PRE-CHECK before next agent handles compression
-                # No POST-CHECK needed here
-
-                # === NEW: 3-Agent Consensus Voting ===
-                # Count votes from all three agents (AIfred, Sokrates, Salomo)
-                votes = count_lgtm_votes(
-                    alfred_text=current_answer,
-                    sokrates_text=sokrates_response_text,
-                    salomo_text=salomo_response_text
-                )
-
-                # Debug: Show vote status
+                # 3-Agent Consensus Voting
+                votes = count_lgtm_votes(current_answer, sokrates_response_text, salomo_response_text)
                 state.add_debug(format_votes_debug(votes, round_num))
 
-                # Check consensus based on user's configured consensus_type
                 if check_consensus(votes, state.consensus_type):
                     lgtm_count = sum(votes.values())
                     type_label = "unanimous" if state.consensus_type == "unanimous" else "majority"
@@ -1196,102 +1203,48 @@ async def run_sokrates_analysis(
                     consensus_reached = True
                     break
 
-                # If no consensus and more rounds available: AIfred refines based on Salomo's feedback
+                # AIfred refines based on Salomo's feedback
                 if round_num < max_rounds:
-                    # Build refinement prompt FIRST (needed for accurate token estimation)
-                    # IMPORTANT: Clean <think> tags from Salomo's response before embedding in prompt!
                     cleaned_salomo_text = strip_thinking_blocks(salomo_response_text)
                     refinement_prompt = get_aifred_refinement_prompt(
-                        critique=cleaned_salomo_text,  # Use Salomo's synthesis as guidance (cleaned)
-                        user_interjection="",
-                        lang=detected_lang,
-                        round_num=round_num + 1  # AIfred refinement is R{n+1} after Salomo R{n}
+                        critique=cleaned_salomo_text, user_interjection="",
+                        lang=detected_lang, round_num=round_num + 1,
                     )
 
-                    # PRE-AIFRED: Check if compression needed before AIfred refinement
-                    # Include AIfred system prompt + refinement prompt in token calculation (v2.14.1+)
-                    # IMPORTANT (v2.14.4+): Use AIFRED's context limit, not min_ctx!
-                    aifred_system_prompt = get_agent_system_prompt("aifred", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
+                    aifred_system_prompt = get_agent_system_prompt("aifred", "task", lang=detected_lang, multi_agent=True, memory=memory_enabled)
                     if aifred_memory_ctx:
                         aifred_system_prompt = f"{aifred_system_prompt}\n\n{aifred_memory_ctx}"
                     aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
                     async for _ in _check_compression_if_needed(state, llm_client, main_llm_ctx, aifred_prompt_tokens):
                         yield
 
-                    # Build messages with AIfred's perspective
-                    # Use llm_history (compressed) instead of chat_history (full UI)
-                    aifred_history_messages: list[dict[str, str]] = build_messages_from_llm_history(
-                        state._chat_sub().llm_history,
-                        current_user_text=refinement_prompt,
-                        perspective="aifred",
-                        detected_language=detected_lang
-                    )
+                    alfred_messages = _build_debate_messages(state, aifred_system_prompt, "aifred", detected_lang, current_user_text=refinement_prompt)
 
-                    # Build final message list: AIfred system prompt + history
-                    # (Same pattern as Sokrates - agent needs system prompt for identity)
-                    alfred_messages: list[dict[str, str]] = [{"role": "system", "content": aifred_system_prompt}]
-                    for msg in aifred_history_messages:
-                        # Keep all messages except non-summary system messages
-                        if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
-                            alfred_messages.append(msg)
-
-                    # Estimate tokens
                     alfred_msg_tokens = estimate_tokens(alfred_messages, model_name=state._effective_model_id("aifred"))
                     alfred_ctx = alfred_options.num_ctx if alfred_options and alfred_options.num_ctx else 32768
-                    state.add_debug(
-                        f"📊 AIfred R{round_num + 1}: {format_number(alfred_msg_tokens)} / "
-                        f"{format_number(alfred_ctx)} tokens"
-                    )
-
-                    # DEBUG: Log RAW messages sent to AIfred (controlled by DEBUG_LOG_RAW_MESSAGES)
+                    state.add_debug(f"📊 AIfred R{round_num + 1}: {format_number(alfred_msg_tokens)} / {format_number(alfred_ctx)} tokens")
                     log_raw_messages(f"AIfred R{round_num + 1}", alfred_messages)
 
-                    # Stream AIfred refinement (with toolkit for memory store)
+                    # Stream AIfred refinement
                     alfred_result = None
-                    async for item in _stream_agent_to_history(
-                        state=state,
-                        agent="aifred",
-                        agent_label="AIfred Refinement",
-                        llm_client=llm_client,
-                        model=alfred_model,
-                        messages=alfred_messages,
-                        options=alfred_options,
-                        toolkit=aifred_toolkit,
+                    async for item in _execute_agent_stream(
+                        state, "aifred", "AIfred Refinement", llm_client, alfred_model,
+                        alfred_messages, alfred_options, aifred_toolkit,
                     ):
                         if isinstance(item, dict):
                             alfred_result = item
                         else:
-                            yield  # Forward state delta
+                            yield
 
-                    # Extract refined answer from final yield
                     if alfred_result is None:
-                        state.add_debug("❌ AIfred refinement stream returned no result")
                         break
-                    current_answer = alfred_result["text"]
-                    alfred_metadata_dict = alfred_result.get("metadata_dict", {})
-                    alfred_audio_urls = alfred_result.get("audio_urls", [])
 
-                    formatted_alfred = _format_stream_result(alfred_result, "AIfred", alfred_model)
-
-                    # Add Alfred refinement panel (centralized)
-                    # Note: _stream_agent_to_history already synced to llm_history
-                    # IMPORTANT: AIfred Refinement happens AFTER Salomo R{n}, so it's part of R{n+1}
-                    alfred_panel_meta = {**alfred_metadata_dict, "audio_urls": alfred_audio_urls}
-                    state.add_agent_panel(
-                        agent="aifred",
-                        content=formatted_alfred,
-                        mode="refinement",
-                        round_num=round_num + 1,
-                        metadata=alfred_panel_meta,
-                        sync_llm_history=False  # Already done by _stream_agent_to_history
+                    current_answer = _add_agent_result_panel(
+                        state, "aifred", alfred_result, "AIfred", alfred_model, "refinement", round_num + 1,
                     )
                     yield
 
-                    # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
                     state._save_current_session()
-
-                    # NOTE: PRE-CHECK before next iteration handles compression
-                    # No POST-CHECK needed here
 
         # End of debate
         if state.multi_agent_mode == "auto_consensus":
@@ -1299,18 +1252,11 @@ async def run_sokrates_analysis(
                 state.add_debug(f"🎯 Debate finished: consensus after {format_number(state.debate_round)} rounds")
             else:
                 state.add_debug(f"⚠️ No consensus after {format_number(max_rounds)} rounds")
-                # Show final votes for debugging
                 if 'votes' in locals():
                     state.add_debug(format_votes_debug(votes, state.debate_round))
 
         await llm_client.close()
-
-        # Persist to session storage
-        state._save_current_session()
-
-        # Separator nach Sokrates Analysis (Ende des Multi-Agent Dialogs)
-        console_separator()  # Log-File
-        state.add_debug("────────────────────")  # Debug-Console
+        _finalize_debate(state)
 
     except Exception as e:
         state.add_debug(f"❌ Sokrates Error: {e}")
@@ -1360,11 +1306,7 @@ async def run_tribunal(
     # detected_lang comes from LLM-based intent detection (passed from state.py)
 
     try:
-        # Create LLM client
-        llm_client = LLMClient(
-            backend_type=state.backend_type,
-            base_url=state.backend_url
-        )
+        llm_client = LLMClient(backend_type=state.backend_type, base_url=state.backend_url)
 
         # Determine models
         sokrates_model = state._effective_model_id("sokrates") or state._effective_model_id("aifred")
@@ -1377,78 +1319,21 @@ async def run_tribunal(
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
         state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
-        # Get context limits using centralized function (respect per-LLM manual toggles)
-        from .research.context_utils import get_agent_num_ctx
-
-        # AIfred context
-        main_llm_ctx, aifred_source = get_agent_num_ctx("aifred", state, alfred_model, fallback=32768)
-        state.add_debug(f"🎯 AIfred: {format_number(main_llm_ctx)} tok ({aifred_source})")
-
-        # Sokrates context
-        sokrates_num_ctx, sokrates_source = get_agent_num_ctx("sokrates", state, sokrates_model, fallback=32768)
-        state.add_debug(f"🎯 Sokrates: {format_number(sokrates_num_ctx)} tok ({sokrates_source})")
-
-        # Salomo context
-        salomo_num_ctx, salomo_source = get_agent_num_ctx("salomo", state, salomo_model, fallback=32768)
-        state.add_debug(f"🎯 Salomo: {format_number(salomo_num_ctx)} tok ({salomo_source})")
-
-        min_ctx = min(sokrates_num_ctx, main_llm_ctx, salomo_num_ctx)
-
-        # Update global cache for history compression (same as standard multi-agent)
-        _last_vram_limit_cache["aifred_limit"] = main_llm_ctx
-        _last_vram_limit_cache["sokrates_limit"] = sokrates_num_ctx
-        _last_vram_limit_cache["limit"] = min_ctx
-
-        # Calculate temperatures
-        if state.temperature_mode == "manual":  # type: ignore[has-type]
-            alfred_temp = state.temperature
-            sokrates_temp = state.sokrates_temperature
-            salomo_temp = state.salomo_temperature
-        else:
-            alfred_temp = state.temperature
-            sokrates_temp = min(1.0, alfred_temp + state.sokrates_temperature_offset)
-            salomo_temp = min(1.0, alfred_temp + state.salomo_temperature_offset)
-
-        # Use per-agent reasoning toggle for enable_thinking
-        sokrates_options = build_llm_options(state, "sokrates", sokrates_temp, sokrates_num_ctx)
-        alfred_options = build_llm_options(state, "aifred", alfred_temp, main_llm_ctx)
-        salomo_options = build_llm_options(state, "salomo", salomo_temp, salomo_num_ctx)
-
-        # Debug: Show context limits and temperatures
-        state.add_debug(
-            f"📊 Context limits: AIfred={format_number(main_llm_ctx)} tok, "
-            f"Sokrates={format_number(sokrates_num_ctx)} tok, "
-            f"Salomo={format_number(salomo_num_ctx)} tok, "
-            f"Compression={format_number(min_ctx)} tok"
-        )
-        state.add_debug(
-            f"🌡️ Temps: AIfred={format_number(alfred_temp, 1)}, "
-            f"Sokrates={format_number(sokrates_temp, 1)}, "
-            f"Salomo={format_number(salomo_temp, 1)}"
-        )
-
-        # Agent Memory + Research Tools: recall once before tribunal starts
-        from .agent_memory import prepare_agent_toolkit
+        # Debate setup: context limits, temperatures, LLM options
+        ctx = _setup_debate_contexts(state, alfred_model, sokrates_model, salomo_model)
+        sokrates_options = ctx["sokrates_options"]
+        alfred_options = ctx["aifred_options"]
+        salomo_options = ctx["salomo_options"]
+        sokrates_num_ctx = ctx["sokrates_ctx"]
+        main_llm_ctx = ctx["aifred_ctx"]
+        salomo_num_ctx = ctx["salomo_ctx"]
         memory_enabled = state.agent_memory_enabled
-        sid = state.session_id
-        t_sokrates_memory_ctx, t_sokrates_toolkit = await prepare_agent_toolkit(
-            "sokrates", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
-        )
-        if t_sokrates_memory_ctx:
-            state.add_debug("🧠 Memory context recalled for Sokrates")
-        t_salomo_memory_ctx, t_salomo_toolkit = await prepare_agent_toolkit(
-            "salomo", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
-        )
-        if t_salomo_memory_ctx:
-            state.add_debug("🧠 Memory context recalled for Salomo")
-        t_aifred_memory_ctx, t_aifred_toolkit = await prepare_agent_toolkit(
-            "aifred", user_query, lang=detected_lang or "de",
-            memory_enabled=memory_enabled, research_tools_enabled=True, state=state, session_id=sid,
-        )
-        if t_aifred_memory_ctx:
-            state.add_debug("🧠 Memory context recalled for AIfred")
+
+        # Agent Memory + Research Tools
+        memories = await _recall_agent_memories(state, ["sokrates", "salomo", "aifred"], user_query, detected_lang or "de")
+        t_sokrates_memory_ctx, t_sokrates_toolkit = memories["sokrates"]
+        t_salomo_memory_ctx, t_salomo_toolkit = memories["salomo"]
+        t_aifred_memory_ctx, t_aifred_toolkit = memories["aifred"]
 
         max_rounds = state.max_debate_rounds
 
@@ -1456,226 +1341,108 @@ async def run_tribunal(
         for round_num in range(1, max_rounds + 1):
             state.debate_round = round_num
 
-            # --- SOKRATES ATTACK (Tribunal: adversarial, not coaching) ---
-            sokrates_minimal = get_agent_system_prompt("sokrates", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
+            # --- SOKRATES ATTACK ---
+            sokrates_minimal = get_agent_system_prompt("sokrates", "task", lang=detected_lang, multi_agent=True, memory=memory_enabled)
             mode_prompt = get_sokrates_tribunal_prompt(round_num=round_num, lang=detected_lang)
             system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
             if t_sokrates_memory_ctx:
                 system_prompt = f"{system_prompt}\n\n{t_sokrates_memory_ctx}"
 
-            # PRE-SOKRATES: Check if compression needed before Sokrates call
-            # Include Sokrates system prompt in token calculation (v2.14.0+)
-            # IMPORTANT (v2.14.4+): Use SOKRATES' context limit, not min_ctx!
             sokrates_prompt_tokens = _estimate_prompt_tokens(system_prompt)
             async for _ in _check_compression_if_needed(state, llm_client, sokrates_num_ctx, sokrates_prompt_tokens):
                 yield
 
-            # Use llm_history (compressed) instead of chat_history (full UI)
-            history_messages = build_messages_from_llm_history(
-                state._chat_sub().llm_history,
-                perspective="sokrates",
-                detected_language=detected_lang
-            )
-            sokrates_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
-            for msg in history_messages:
-                if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
-                    sokrates_messages.append(msg)
+            sokrates_messages = _build_debate_messages(state, system_prompt, "sokrates", detected_lang)
 
             result = None
-            async for item in _stream_agent_to_history(
-                state=state,
-                agent="sokrates",
-                agent_label="Sokrates",
-                llm_client=llm_client,
-                model=sokrates_model,
-                messages=sokrates_messages,
-                options=sokrates_options,
-                toolkit=t_sokrates_toolkit,
+            async for item in _execute_agent_stream(
+                state, "sokrates", "Sokrates", llm_client, sokrates_model,
+                sokrates_messages, sokrates_options, t_sokrates_toolkit,
             ):
                 if isinstance(item, dict):
                     result = item
                 else:
-                    yield  # Forward state delta
+                    yield
 
-            # Extract Sokrates result from final yield
             if result is None:
-                state.add_debug("❌ Sokrates stream returned no result")
                 break
-            sokrates_response_text = result["text"]
-            metadata_dict = result["metadata_dict"]
-            audio_urls = result.get("audio_urls", [])
 
-            formatted_sokrates = _format_stream_result(result, "Sokrates", sokrates_model)
-
-            # Add Sokrates tribunal panel
-            panel_meta = {**metadata_dict, "audio_urls": audio_urls}
-            state.add_agent_panel(
-                agent="sokrates",
-                content=formatted_sokrates,
-                mode="tribunal",
-                round_num=round_num,
-                metadata=panel_meta,
-                sync_llm_history=False  # Already done by _stream_agent_to_history
+            sokrates_response_text = _add_agent_result_panel(
+                state, "sokrates", result, "Sokrates", sokrates_model, "tribunal", round_num,
             )
             state.sokrates_critique = sokrates_response_text
             yield
 
-            # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
             state._save_current_session()
 
-            # NOTE: PRE-CHECK before next agent handles compression
-            # No POST-CHECK needed here
-
-            # --- AIFRED DEFENSE (Tribunal: may defend or revise) ---
+            # --- AIFRED DEFENSE ---
             if round_num < max_rounds:
-                # Build defense prompt FIRST (needed for accurate token estimation)
-                # IMPORTANT: Clean <think> tags from Sokrates' response before embedding in prompt!
                 cleaned_sokrates_text = strip_thinking_blocks(sokrates_response_text)
                 refinement_prompt = get_aifred_defense_prompt(
-                    critique=cleaned_sokrates_text,
-                    user_interjection="",
-                    lang=detected_lang,
-                    round_num=round_num + 1  # AIfred response is R{n+1} after Sokrates R{n}
+                    critique=cleaned_sokrates_text, user_interjection="",
+                    lang=detected_lang, round_num=round_num + 1,
                 )
 
-                # PRE-AIFRED: Check if compression needed before AIfred refinement
-                # Include AIfred system prompt + refinement prompt in token calculation (v2.14.1+)
-                # IMPORTANT (v2.14.4+): Use AIFRED's context limit, not min_ctx!
-                aifred_system_prompt = get_agent_system_prompt("aifred", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
+                aifred_system_prompt = get_agent_system_prompt("aifred", "task", lang=detected_lang, multi_agent=True, memory=memory_enabled)
                 aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
                 async for _ in _check_compression_if_needed(state, llm_client, main_llm_ctx, aifred_prompt_tokens):
                     yield
 
-                # Use llm_history (compressed) instead of chat_history (full UI)
-                aifred_history_messages: list[dict[str, str]] = build_messages_from_llm_history(
-                    state._chat_sub().llm_history,
-                    current_user_text=refinement_prompt,
-                    perspective="aifred",
-                    detected_language=detected_lang
-                )
-
-                # Build final message list: AIfred system prompt + history
-                # (Same pattern as Sokrates - agent needs system prompt for identity)
-                alfred_messages: list[dict[str, str]] = [{"role": "system", "content": aifred_system_prompt}]
-                for msg in aifred_history_messages:
-                    # Keep all messages except non-summary system messages
-                    if msg["role"] != "system" or "Compressed:" in msg.get("content", ""):
-                        alfred_messages.append(msg)
+                alfred_messages = _build_debate_messages(state, aifred_system_prompt, "aifred", detected_lang, current_user_text=refinement_prompt)
 
                 alfred_result = None
-                async for item in _stream_agent_to_history(
-                    state=state,
-                    agent="aifred",
-                    agent_label="AIfred Refinement",
-                    llm_client=llm_client,
-                    model=alfred_model,
-                    messages=alfred_messages,
-                    options=alfred_options,
-                    toolkit=t_aifred_toolkit,
+                async for item in _execute_agent_stream(
+                    state, "aifred", "AIfred Refinement", llm_client, alfred_model,
+                    alfred_messages, alfred_options, t_aifred_toolkit,
                 ):
                     if isinstance(item, dict):
                         alfred_result = item
                     else:
-                        yield  # Forward state delta
+                        yield
 
-                # Extract Alfred result from final yield
                 if alfred_result is None:
-                    state.add_debug("❌ AIfred stream returned no result")
                     break
-                alfred_metadata_dict = alfred_result.get("metadata_dict", {})
-                alfred_audio_urls = alfred_result.get("audio_urls", [])
 
-                formatted_alfred = _format_stream_result(alfred_result, "AIfred", alfred_model)
-
-                # Add Alfred tribunal panel
-                # IMPORTANT: AIfred responds AFTER Sokrates R{n}, so it's part of R{n+1}
-                alfred_panel_meta = {**alfred_metadata_dict, "audio_urls": alfred_audio_urls}
-                state.add_agent_panel(
-                    agent="aifred",
-                    content=formatted_alfred,
-                    mode="tribunal",
-                    round_num=round_num + 1,
-                    metadata=alfred_panel_meta,
-                    sync_llm_history=False  # Already done by _stream_agent_to_history
+                _add_agent_result_panel(
+                    state, "aifred", alfred_result, "AIfred", alfred_model, "tribunal", round_num + 1,
                 )
                 yield
 
-                # INCREMENTAL SAVE: Persist after each agent response to survive browser refresh
                 state._save_current_session()
-
-                # NOTE: PRE-CHECK in next iteration handles compression
-                # No POST-CHECK needed here
 
         # === JUDGMENT PHASE: Salomo delivers final verdict ===
         state.add_debug("👑 Salomo rendering verdict...")
 
-        salomo_minimal = get_agent_system_prompt("salomo", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
+        salomo_minimal = get_agent_system_prompt("salomo", "task", lang=detected_lang, multi_agent=True, memory=memory_enabled)
         judge_prompt = get_salomo_judge_prompt(lang=detected_lang)
         salomo_system = f"{salomo_minimal}\n\n{judge_prompt}"
         if t_salomo_memory_ctx:
             salomo_system = f"{salomo_system}\n\n{t_salomo_memory_ctx}"
 
-        # PRE-SALOMO: Check if compression needed before Salomo verdict
-        # Include Salomo system prompt in token calculation (v2.14.0+)
-        # IMPORTANT (v2.14.4+): Use SALOMO's context limit, not min_ctx!
         salomo_prompt_tokens = _estimate_prompt_tokens(salomo_system)
         async for _ in _check_compression_if_needed(state, llm_client, salomo_num_ctx, salomo_prompt_tokens):
             yield
 
-        # Use llm_history (compressed) instead of chat_history (full UI)
-        salomo_messages: list[dict[str, str]] = build_messages_from_llm_history(
-            state._chat_sub().llm_history,
-            perspective="observer",
-            detected_language=detected_lang
-        )
-        salomo_messages.insert(0, {"role": "system", "content": salomo_system})
+        salomo_messages = _build_debate_messages(state, salomo_system, "observer", detected_lang)
 
-        # Estimate tokens for Salomo verdict (consistent with other agent debug output)
         salomo_msg_tokens = estimate_tokens(salomo_messages, model_name=salomo_model)
-        state.add_debug(
-            f"📊 Salomo Verdict: {format_number(salomo_msg_tokens)} / "
-            f"{format_number(salomo_num_ctx)} tokens"
-        )
+        state.add_debug(f"📊 Salomo Verdict: {format_number(salomo_msg_tokens)} / {format_number(salomo_num_ctx)} tokens")
 
         salomo_result = None
-        async for item in _stream_agent_to_history(
-            state=state,
-            agent="salomo",
-            agent_label="Salomo",
-            llm_client=llm_client,
-            model=salomo_model,
-            messages=salomo_messages,
-            options=salomo_options,
-            toolkit=t_salomo_toolkit,
+        async for item in _execute_agent_stream(
+            state, "salomo", "Salomo", llm_client, salomo_model,
+            salomo_messages, salomo_options, t_salomo_toolkit,
         ):
             if isinstance(item, dict):
                 salomo_result = item
             else:
-                yield  # Forward state delta
+                yield
 
-        # Extract Salomo result from final yield
         if salomo_result is None:
             raise RuntimeError("Salomo verdict stream returned no result")
-        salomo_response_text = salomo_result["text"]
-        salomo_metadata_dict = salomo_result["metadata_dict"]
-        salomo_audio_urls = salomo_result.get("audio_urls", [])
 
-        state.add_debug(
-            f"👑 Salomo Verdict: {len(salomo_response_text)} chars, "
-            f"{format_number(salomo_metadata_dict.get('tokens_per_sec', 0), 1)} tok/s"
-        )
-
-        formatted_salomo = _format_stream_result(salomo_result, "Salomo", salomo_model)
-
-        # Add Salomo verdict panel
-        salomo_panel_meta = {**salomo_metadata_dict, "audio_urls": salomo_audio_urls}
-        state.add_agent_panel(
-            agent="salomo",
-            content=formatted_salomo,
-            mode="verdict",  # Uses salomo_verdict_label via _get_mode_label
-            round_num=max_rounds,  # Verdict belongs to final debate round
-            metadata=salomo_panel_meta,
-            sync_llm_history=False  # Already done by _stream_agent_to_history
+        salomo_response_text = _add_agent_result_panel(
+            state, "salomo", salomo_result, "Salomo", salomo_model, "verdict", max_rounds,
         )
         state.salomo_synthesis = salomo_response_text
         yield
@@ -1683,10 +1450,7 @@ async def run_tribunal(
         state.add_debug(f"⚖️ Tribunal completed after {max_rounds} rounds + verdict")
 
         await llm_client.close()
-        state._save_current_session()
-
-        console_separator()
-        state.add_debug("────────────────────")
+        _finalize_debate(state)
 
     except Exception as e:
         state.add_debug(f"❌ Tribunal Error: {e}")
