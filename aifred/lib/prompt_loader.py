@@ -802,11 +802,13 @@ def _merge_prompt_layers(
         if tool_instructions:
             parts.append(tool_instructions)
 
-        from .config import EPIM_ENABLED
-        if EPIM_ENABLED:
-            epim_instructions = load_prompt('shared/epim_instructions', lang=lang)
-            if epim_instructions:
-                parts.append(epim_instructions)
+        # Plugin-specific instructions (dynamic)
+        from .plugin_registry import discover_plugins
+        for p in discover_plugins():
+            if p.is_available():
+                instr = p.get_prompt_instructions(lang)
+                if instr:
+                    parts.append(instr)
 
     return "\n\n".join(parts)
 

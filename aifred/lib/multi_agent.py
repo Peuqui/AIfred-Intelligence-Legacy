@@ -263,6 +263,16 @@ def _format_stream_result(
     return formatted
 
 
+def _get_plugin_ui_status(tool_name: str, tool_args: dict, lang: str) -> str:
+    """Ask plugins for UI status. First non-empty response wins."""
+    from .plugin_registry import discover_plugins
+    for p in discover_plugins():
+        status = p.get_ui_status(tool_name, tool_args, lang)
+        if status:
+            return status
+    return ""
+
+
 async def _stream_agent_to_history(
     state: 'AIState',
     agent: str,
@@ -329,10 +339,9 @@ async def _stream_agent_to_history(
             tool_name = chunk.get("name", "")
             state.add_debug(f"🔧 Tool call: {tool_name}(...)")
             lang = state.ui_language
-            if tool_name == "execute_code":
-                state.set_tool_status(t("tool_code_generating", lang=lang))
-            elif tool_name == "email":
-                state.set_tool_status(t("tool_email", lang=lang))
+            status = _get_plugin_ui_status(tool_name, {}, lang)
+            if status:
+                state.set_tool_status(status)
             yield  # type: ignore[misc]
 
         elif chunk["type"] == "tool_call":
@@ -347,43 +356,19 @@ async def _stream_agent_to_history(
                 pass
 
             lang = state.ui_language
+
+            # Track fetched URLs for sources collapsible
             if tool_name == "web_fetch":
                 url = tool_args.get("url", "")
-                from urllib.parse import urlparse
-                parsed = urlparse(url)
-                state.set_tool_status(f"🌐 {parsed.netloc}{parsed.path}")
                 fetched_urls.append({"url": url, "success": None})
-            elif tool_name == "web_search":
-                queries = tool_args.get("queries", [])
-                state.set_tool_status(f"🔍 {queries[0][:60]}..." if queries else t("tool_search", lang=lang))
-            elif tool_name == "calculate":
-                state.set_tool_status(f"🔢 {tool_args.get('expression', '')}")
-            elif tool_name == "store_memory":
+
+            # UI status via plugins (or memory tool)
+            if tool_name == "store_memory":
                 state.set_tool_status(t("tool_memory", lang=lang))
-            elif tool_name == "read_document":
-                state.set_tool_status(f"📄 {tool_args.get('path', '')}")
-            elif tool_name == "execute_code":
-                desc = tool_args.get("description", "")
-                state.set_tool_status(f"⚙️ {desc[:60]}" if desc else t("tool_code_running", lang=lang))
-            elif tool_name == "email":
-                action = tool_args.get("action", "")
-                if action == "check":
-                    state.set_tool_status(t("tool_email_check", lang=lang))
-                elif action == "read":
-                    state.set_tool_status(t("tool_email_read", lang=lang, msg_id=tool_args.get("msg_id", "")))
-                elif action == "search":
-                    state.set_tool_status(t("tool_email_search", lang=lang, query=tool_args.get("query", "")[:40]))
-                elif action == "delete":
-                    state.set_tool_status(t("tool_email_delete", lang=lang, msg_id=tool_args.get("msg_id", "")))
-                elif action == "send":
-                    state.set_tool_status(t("tool_email_send", lang=lang, to=tool_args.get("to", "")[:30]))
-            elif tool_name == "search_documents":
-                query = tool_args.get("query", "")
-                state.set_tool_status(f"📄 {query[:50]}" if query else t("tool_doc_search", lang=lang))
-            elif tool_name == "list_documents":
-                state.set_tool_status(t("tool_doc_list", lang=lang))
-            elif tool_name == "delete_document":
-                state.set_tool_status(t("tool_doc_delete", lang=lang, filename=tool_args.get("filename", "")))
+            else:
+                status = _get_plugin_ui_status(tool_name, tool_args, lang)
+                if status:
+                    state.set_tool_status(status)
 
             yield  # type: ignore[misc]
             yield  # type: ignore[misc]

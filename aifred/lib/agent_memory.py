@@ -403,32 +403,27 @@ async def prepare_agent_toolkit(
                 memory_ctx = format_memory_context(memories, agent_id=agent_id, lang=lang)
             all_tools.extend(memory.make_toolkit(agent_id, session_id=session_id or "").tools)
 
-    # Research tools (web_search, read_webpage)
+    # All other tools via plugin system
     if research_tools_enabled:
-        from .research_tools import get_research_tools
-        all_tools.extend(get_research_tools(state=state, lang=lang))
+        from .plugin import PluginContext
+        from .plugin_registry import discover_plugins
 
-    # Sandbox tools (execute_code) — always available when research tools are enabled
-    if research_tools_enabled:
-        from .sandbox_tools import get_sandbox_tools
-        all_tools.extend(get_sandbox_tools(session_id=session_id))
+        ctx = PluginContext(
+            agent_id=agent_id,
+            lang=lang,
+            session_id=session_id or "",
+            state=state,
+            user_query=user_query,
+        )
 
-    # Email tools — only when enabled via environment
-    if research_tools_enabled:
-        from .config import EMAIL_ENABLED
-        if EMAIL_ENABLED:
-            from .email_tools import get_email_tools
-            all_tools.extend(get_email_tools())
+        for p in discover_plugins():
+            if p.is_available():
+                all_tools.extend(p.get_tools(ctx))
 
-    # Document tools + RAG context — available when ChromaDB is running
-    if research_tools_enabled:
+        # Document RAG auto-injection (side-effect, separate from plugin tools)
         from .document_store import get_document_store
         doc_store = get_document_store()
         if doc_store is not None:
-            from .document_tools import get_document_tools
-            all_tools.extend(get_document_tools())
-
-            # Auto-inject relevant document chunks as RAG context
             from .config import DOCUMENT_RAG_MAX_CHUNKS
             from .i18n import t
             if state is not None and hasattr(state, "set_tool_status"):
@@ -462,13 +457,6 @@ async def prepare_agent_toolkit(
                     log_message(f"📄 Document RAG: {len(doc_parts)} chunks from {len(doc_files)} docs (~{rag_tokens} tok)")
                     if state is not None and hasattr(state, "add_debug"):
                         state.add_debug(f"📄 Document RAG: {len(doc_parts)} chunks (~{rag_tok_str} tok) aus {files_str}")
-
-    # EPIM database tools
-    if research_tools_enabled:
-        from .epim_tools import get_epim_tools
-        epim_tools = get_epim_tools(lang=lang)
-        if epim_tools:
-            all_tools.extend(epim_tools)
 
     toolkit = ToolKit(tools=all_tools) if all_tools else None
     return memory_ctx, toolkit
