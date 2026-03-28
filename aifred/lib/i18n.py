@@ -124,6 +124,11 @@ class TranslationManager:
             "plugin_tools": "Tool Plugins",
             "cred_save": "Speichern & Aktivieren",
             "cred_cancel": "Abbrechen",
+            # Hub toast messages
+            "hub_toast_received": "📨 {channel}: {sender}",
+            "hub_toast_processing": "🔄 {channel}: {sender} — Generiere Antwort...",
+            "hub_toast_done": "✅ {channel}: Antwort gesendet an {sender}",
+            "hub_toast_error": "❌ {channel}: Fehler bei {sender}",
             # Email credential labels (referenced by email plugin)
             "email_cred_imap_host": "IMAP Host",
             "email_cred_imap_port": "IMAP Port",
@@ -464,6 +469,11 @@ class TranslationManager:
             "plugin_tools": "Tool Plugins",
             "cred_save": "Save & Activate",
             "cred_cancel": "Cancel",
+            # Hub toast messages
+            "hub_toast_received": "📨 {channel}: {sender}",
+            "hub_toast_processing": "🔄 {channel}: {sender} — Generating response...",
+            "hub_toast_done": "✅ {channel}: Reply sent to {sender}",
+            "hub_toast_error": "❌ {channel}: Error for {sender}",
             # Email credential labels
             "email_cred_imap_host": "IMAP Host",
             "email_cred_imap_port": "IMAP Port",

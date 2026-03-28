@@ -380,8 +380,6 @@ async def _hub_web_search(queries: list[str]) -> str:
             related_urls = related_urls[:7]
 
         # ── Phase 3: Parallel scraping ────────────────────────
-        _dbg("🌐 Web scraping starting (parallel)")
-
         async for item in orchestrate_scraping(
             related_urls=related_urls,
             mode="deep",

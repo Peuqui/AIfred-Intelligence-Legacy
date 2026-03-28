@@ -230,17 +230,30 @@ class AIState(  # type: ignore[misc]
 
         # Check for global Message Hub notifications FIRST (toast should appear immediately)
         from ..lib.message_processor import read_and_clear_hub_notification
+        from ..lib.i18n import t as _t
         notification = read_and_clear_hub_notification()
         toast_event = None
         if notification:
             channel = notification.get("channel", "?")
-            title = notification.get("session_title", "")
             sender = notification.get("sender", "")
-            toast_msg = f"📨 {channel}: {sender}"
-            if title:
-                toast_msg += f"\n📋 Session: {title}"
+            status = notification.get("status", "received")
             self.refresh_session_list()
-            toast_event = rx.toast.info(toast_msg, duration=6000, position="top-center", style={"width": "420px"})
+
+            # Phase-dependent toast (same id="hub" → replaces previous)
+            toast_style = {"width": "420px"}
+            toast_kwargs = dict(id="hub", position="top-center", style=toast_style)
+            if status == "received":
+                toast_msg = _t("hub_toast_received", lang=self.ui_language, channel=channel, sender=sender)
+                toast_event = rx.toast.info(toast_msg, duration=120000, **toast_kwargs)
+            elif status == "processing":
+                toast_msg = _t("hub_toast_processing", lang=self.ui_language, channel=channel, sender=sender)
+                toast_event = rx.toast.loading(toast_msg, duration=120000, **toast_kwargs)
+            elif status == "done":
+                toast_msg = _t("hub_toast_done", lang=self.ui_language, channel=channel, sender=sender)
+                toast_event = rx.toast.success(toast_msg, duration=5000, **toast_kwargs)
+            elif status == "error":
+                toast_msg = _t("hub_toast_error", lang=self.ui_language, channel=channel, sender=sender)
+                toast_event = rx.toast.error(toast_msg, duration=8000, **toast_kwargs)
 
         # Check for API update flag (only if session_id is set)
         if self.session_id:

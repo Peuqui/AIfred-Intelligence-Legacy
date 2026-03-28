@@ -31,8 +31,14 @@ def _get_notification_path() -> "Path":
     return _NOTIFICATION_FILE
 
 
-def write_hub_notification(session_id: str, session_title: str, channel: str, sender: str) -> None:
-    """Write a notification for the UI to pick up."""
+def write_hub_notification(
+    session_id: str, session_title: str, channel: str, sender: str,
+    status: str = "received",
+) -> None:
+    """Write a notification for the UI to pick up.
+
+    status: "received" (message incoming) or "done" (reply sent)
+    """
     import json
     path = _get_notification_path()
     notification = {
@@ -40,6 +46,7 @@ def write_hub_notification(session_id: str, session_title: str, channel: str, se
         "session_title": session_title,
         "channel": channel,
         "sender": sender,
+        "status": status,
     }
     path.write_text(json.dumps(notification), encoding="utf-8")
 
@@ -118,27 +125,30 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     phase1_debug.append(f"{_ts()} | 🤖 Agent: {agent_display_name}")
     _save_to_session(session_id, message, "", phase1_debug)
 
-    # Toast: incoming message
+    # Toast: incoming message (stays visible until next phase)
     from .session_storage import get_session_title
-    title = get_session_title(session_id) or subject
-    write_hub_notification(session_id, title, message.channel.upper(), message.sender)
-    log_message(f"Message Processor: notification written for {message.sender}")
-
-    # Give the browser time for one full poll cycle (1s interval)
-    # to pick up the toast BEFORE the heavy engine call blocks the event loop.
-    # The toolkit setup (ChromaDB, plugin discovery) is synchronous and blocks
-    # the asyncio event loop — without this pause, poll requests stall.
+    from .plugin_registry import get_channel
     import asyncio
+
+    title = get_session_title(session_id) or subject
+    plugin = get_channel(message.channel)
+    channel_label = plugin.display_name if plugin else message.channel.capitalize()
+
+    def _notify(status: str) -> None:
+        write_hub_notification(session_id, title, channel_label, message.sender, status=status)
+
+    _notify("received")
+
+    # Give the browser time to pick up the toast before heavy work starts
     await asyncio.sleep(2)
 
     # ── Phase 2: Call AIfred engine ────────────────────────────
-    # Use the channel plugin to build LLM context (if registered)
-    from .plugin_registry import get_channel
-    plugin = get_channel(message.channel)
+    _notify("processing")
+
     if plugin:
         llm_context = plugin.build_context(message)
     else:
-        llm_context = f"[{message.channel.upper()} from {message.sender}]\n\n{message.text}"
+        llm_context = f"[{channel_label} from {message.sender}]\n\n{message.text}"
 
     engine_debug: list[str] = []
     response_text = await _call_engine(
@@ -152,6 +162,7 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         log_message("Message Processor: engine returned no response", "warning")
         engine_debug.append(f"{_ts()} | ❌ Engine: no response")
         _append_debug(session_id, engine_debug)
+        _notify("error")
         return None
 
     engine_debug.append(f"{_ts()} | ✅ Response generated ({len(response_text)} chars)")
@@ -188,6 +199,10 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     title = get_session_title(session_id)
     if not title:
         await generate_session_title(message.text, response_text, session_id)
+
+    # ── Phase 6: Notify UI that processing is complete ────────
+    title = get_session_title(session_id) or subject
+    write_hub_notification(session_id, title, message.channel.upper(), message.sender, status="done")
 
     return outbound
 
@@ -300,16 +315,13 @@ async def _call_engine(
                 response_parts.append(chunk.get("text", ""))
             elif chunk.get("type") == "debug":
                 _dbg(chunk.get("message", ""))
-                # Flush any hub search debug messages (from tool calls)
-                if _hub_search_debug:
-                    for hub_msg in _hub_search_debug:
-                        _dbg(hub_msg)
+                # Flush hub search debug messages (already have timestamps)
+                if _hub_search_debug and debug_sink is not None:
+                    debug_sink.extend(_hub_search_debug)
                     _hub_search_debug.clear()
             elif chunk.get("type") == "result":
-                # Flush remaining hub search debug messages
-                if _hub_search_debug:
-                    for hub_msg in _hub_search_debug:
-                        _dbg(hub_msg)
+                if _hub_search_debug and debug_sink is not None:
+                    debug_sink.extend(_hub_search_debug)
                     _hub_search_debug.clear()
                 data = chunk.get("data", {})
                 if "response_clean" in data:
