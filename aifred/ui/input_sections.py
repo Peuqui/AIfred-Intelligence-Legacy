@@ -105,8 +105,16 @@ def image_upload_section() -> rx.Component:
                     "background": "rgba(0, 80, 30, 0.4)",
                     "color": "#3fb950",
                     "border_color": "#3fb950",
-                    "&:hover:not([disabled])": {
+                    "&:hover:not([disabled]):not(.recording)": {
                         "background": "rgba(0, 120, 50, 0.6) !important",
+                    },
+                    "&.recording": {
+                        "background": "#dc2626 !important",
+                        "color": "white !important",
+                        "border_color": "#dc2626 !important",
+                    },
+                    "&.recording:hover": {
+                        "background": "#ef4444 !important",
                     },
                     "&[disabled]": {"opacity": "0.45"},
                 },
