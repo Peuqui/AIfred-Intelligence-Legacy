@@ -22,7 +22,7 @@ from .ui.helpers import t, left_column  # noqa: F401
 from .ui.modals import (  # noqa: F401
     multi_agent_help_modal, reasoning_thinking_help_modal,
     login_dialog, crop_modal, image_lightbox_modal,
-    document_manager_modal, email_credentials_modal,
+    document_manager_modal, channel_credentials_modal, plugin_manager_modal,
 )
 from .ui.chat_display import (  # noqa: F401
     session_list_display, chat_history_display,
@@ -51,6 +51,23 @@ function makeLinksOpenInNewTab() {
         if (!link.hasAttribute('target')) {
             link.setAttribute('target', '_blank');
             link.setAttribute('rel', 'noopener noreferrer');
+        }
+    });
+}
+
+// Force-scroll chat and debug to bottom (called after Hub updates)
+function forceScrollToBottom() {
+    if (!isAutoScrollEnabled()) return;
+    requestAnimationFrame(() => {
+        const chatBox = document.getElementById('chat-history-box');
+        if (chatBox) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+            trackScrollState(chatBox);
+        }
+        const debugBox = document.getElementById('debug-console-box');
+        if (debugBox) {
+            debugBox.scrollTop = debugBox.scrollHeight;
+            trackScrollState(debugBox);
         }
     });
 }
@@ -563,7 +580,8 @@ console.log('✂️ Crop handler loaded');
         document_manager_modal(),
 
         # Email Credentials Modal (Message Hub)
-        email_credentials_modal(),
+        channel_credentials_modal(),
+        plugin_manager_modal(),
 
         # Hidden element to trigger camera detection on mount
         rx.box(
@@ -917,23 +935,28 @@ async def _message_hub_lifespan():
 
 
 def _register_message_hub_workers(hub: object) -> None:
-    """Register all channel listener workers with the Message Hub."""
+    """Register all channel listener workers with the Message Hub.
+
+    Auto-discovers channel plugins and registers those that are
+    both configured (credentials present) and enabled in settings.
+    """
     from .lib.message_hub import MessageHub  # noqa: E402
-    from .lib.config import EMAIL_ENABLED  # noqa: E402
     from .lib.settings import load_settings  # noqa: E402
+    from .lib.plugin_registry import all_channels  # noqa: E402
 
     assert isinstance(hub, MessageHub)
 
     settings = load_settings() or {}
 
-    # E-Mail IMAP IDLE Listener — needs EMAIL_ENABLED (credentials) + settings toggle
-    if EMAIL_ENABLED and settings.get("email_monitor_enabled", False):
-        from .lib.imap_listener import imap_idle_loop  # noqa: E402
-        hub.register("email_imap", imap_idle_loop)
+    channel_toggles = settings.get("channel_toggles", {})
 
-    # Sync auto-reply config from settings
-    from .lib import config  # noqa: E402
-    config.EMAIL_MONITOR_AUTO_REPLY = settings.get("email_auto_reply", False)
+    for name, plugin in all_channels().items():
+        monitor_on = channel_toggles.get(name, {}).get("monitor", False)
+        if plugin.is_configured() and monitor_on:
+            hub.register(name, plugin.listener_loop)
+        else:
+            from .lib.logging_utils import log_message as _log  # noqa: E402
+            _log(f"Message Hub: channel '{name}' skipped (configured={plugin.is_configured()}, enabled={monitor_on})")
 
 
 app.register_lifespan_task(_message_hub_lifespan)

@@ -368,8 +368,8 @@ async def prepare_agent_toolkit(
 
     # All other tools via plugin system
     if research_tools_enabled:
-        from .plugin import PluginContext
-        from .plugin_registry import discover_plugins
+        from .plugin_base import PluginContext
+        from .plugin_registry import discover_tools
 
         ctx = PluginContext(
             agent_id=agent_id,
@@ -379,7 +379,7 @@ async def prepare_agent_toolkit(
             user_query=user_query,
         )
 
-        for p in discover_plugins():
+        for p in discover_tools():
             if p.is_available():
                 all_tools.extend(p.get_tools(ctx))
 

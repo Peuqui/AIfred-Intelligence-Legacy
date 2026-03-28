@@ -900,16 +900,69 @@ def document_manager_modal() -> rx.Component:
 
 
 # ============================================================
-# EMAIL CREDENTIALS MODAL
+# CHANNEL CREDENTIALS MODAL (generic for all channel plugins)
 # ============================================================
 
-def _cred_input(label_key: str, value: rx.Var, on_change: rx.EventHandler) -> rx.Component:
-    """Reusable labeled input row for credentials modal."""
-    return rx.vstack(
-        rx.text(t(label_key), font_size="11px", color="#999"),
+def _cred_field_input(field: rx.Var) -> rx.Component:
+    """Render a single credential field from a field descriptor dict.
+
+    The field var is a dict with keys: env_key, label_key, placeholder, is_password, group, width_ratio.
+    """
+    env_key = field["env_key"]
+    value = AIState.channel_credential_values[env_key].to(str)
+
+    # Password field with eye toggle
+    password_input = rx.vstack(
+        rx.text(t(field["label_key"].to(str)), font_size="11px", color="#999"),
+        rx.box(
+            rx.cond(
+                AIState.channel_cred_show_password,
+                rx.input(
+                    value=value,
+                    on_change=lambda val: AIState.update_channel_credential([env_key, val]),
+                    placeholder="••••••••",
+                    size="2",
+                    width="100%",
+                ),
+                rx.input(
+                    value=value,
+                    on_change=lambda val: AIState.update_channel_credential([env_key, val]),
+                    type="password",
+                    placeholder="••••••••",
+                    size="2",
+                    width="100%",
+                ),
+            ),
+            rx.icon_button(
+                rx.cond(
+                    AIState.channel_cred_show_password,
+                    rx.icon("eye-off", size=14),
+                    rx.icon("eye", size=14),
+                ),
+                on_click=AIState.toggle_channel_cred_show_password,
+                size="1",
+                variant="ghost",
+                color_scheme="gray",
+                position="absolute",
+                right="6px",
+                top="50%",
+                transform="translateY(-50%)",
+                cursor="pointer",
+            ),
+            position="relative",
+            width="100%",
+        ),
+        spacing="1",
+        width="100%",
+    )
+
+    # Normal text input
+    text_input = rx.vstack(
+        rx.text(t(field["label_key"].to(str)), font_size="11px", color="#999"),
         rx.input(
             value=value,
-            on_change=on_change,
+            on_change=lambda val: AIState.update_channel_credential([env_key, val]),
+            placeholder=field["placeholder"].to(str),
             size="2",
             width="100%",
         ),
@@ -917,15 +970,24 @@ def _cred_input(label_key: str, value: rx.Var, on_change: rx.EventHandler) -> rx
         width="100%",
     )
 
-
-def email_credentials_modal() -> rx.Component:
-    """Modal dialog for entering IMAP/SMTP credentials."""
     return rx.cond(
-        AIState.email_credentials_modal_open,
+        field["is_password"].to(str) == "1",
+        password_input,
+        text_input,
+    )
+
+
+def channel_credentials_modal() -> rx.Component:
+    """Generic modal dialog for entering channel credentials.
+
+    Renders fields dynamically from AIState.channel_credential_fields.
+    """
+    return rx.cond(
+        AIState.channel_credentials_modal_open,
         rx.box(
-            # Backdrop (opaque)
+            # Backdrop
             rx.box(
-                on_click=AIState.close_email_credentials,
+                on_click=AIState.close_channel_credentials,
                 position="fixed",
                 top="0",
                 left="0",
@@ -935,130 +997,33 @@ def email_credentials_modal() -> rx.Component:
             ),
             # Modal content
             rx.vstack(
-                rx.text(t("email_credentials_title"), font_weight="bold", font_size="16px", color="white"),
-
-                # IMAP row (host + port side by side)
-                rx.hstack(
-                    rx.vstack(
-                        rx.text(t("email_cred_imap_host"), font_size="11px", color="#999"),
-                        rx.input(
-                            value=AIState.email_cred_imap_host,
-                            on_change=AIState.set_email_cred_imap_host,
-                            placeholder="imap.example.com",
-                            size="2",
-                            width="100%",
-                        ),
-                        spacing="1",
-                        flex="3",
-                    ),
-                    rx.vstack(
-                        rx.text(t("email_cred_imap_port"), font_size="11px", color="#999"),
-                        rx.input(
-                            value=AIState.email_cred_imap_port,
-                            on_change=AIState.set_email_cred_imap_port,
-                            size="2",
-                            width="100%",
-                        ),
-                        spacing="1",
-                        flex="1",
-                    ),
-                    spacing="2",
-                    width="100%",
+                # Title: channel name + "Credentials"
+                rx.text(
+                    AIState.channel_credentials_editing.upper() + " Credentials",
+                    font_weight="bold",
+                    font_size="16px",
+                    color="white",
                 ),
 
-                # SMTP row (host + port side by side)
-                rx.hstack(
-                    rx.vstack(
-                        rx.text(t("email_cred_smtp_host"), font_size="11px", color="#999"),
-                        rx.input(
-                            value=AIState.email_cred_smtp_host,
-                            on_change=AIState.set_email_cred_smtp_host,
-                            placeholder="smtp.example.com",
-                            size="2",
-                            width="100%",
-                        ),
-                        spacing="1",
-                        flex="3",
-                    ),
-                    rx.vstack(
-                        rx.text(t("email_cred_smtp_port"), font_size="11px", color="#999"),
-                        rx.input(
-                            value=AIState.email_cred_smtp_port,
-                            on_change=AIState.set_email_cred_smtp_port,
-                            size="2",
-                            width="100%",
-                        ),
-                        spacing="1",
-                        flex="1",
-                    ),
-                    spacing="2",
-                    width="100%",
+                # Dynamic fields
+                rx.foreach(
+                    AIState.channel_credential_fields,
+                    _cred_field_input,
                 ),
-
-                # Username
-                _cred_input("email_cred_user", AIState.email_cred_user, AIState.set_email_cred_user),
-
-                # Password with eye toggle — two inputs, conditionally rendered
-                rx.vstack(
-                    rx.text(t("email_cred_password"), font_size="11px", color="#999"),
-                    rx.box(
-                        rx.cond(
-                            AIState.email_cred_show_password,
-                            rx.input(
-                                value=AIState.email_cred_password,
-                                on_change=AIState.set_email_cred_password,
-                                placeholder="••••••••",
-                                size="2",
-                                width="100%",
-                            ),
-                            rx.input(
-                                value=AIState.email_cred_password,
-                                on_change=AIState.set_email_cred_password,
-                                type="password",
-                                placeholder="••••••••",
-                                size="2",
-                                width="100%",
-                            ),
-                        ),
-                        rx.icon_button(
-                            rx.cond(
-                                AIState.email_cred_show_password,
-                                rx.icon("eye-off", size=14),
-                                rx.icon("eye", size=14),
-                            ),
-                            on_click=AIState.toggle_email_cred_show_password,
-                            size="1",
-                            variant="ghost",
-                            color_scheme="gray",
-                            position="absolute",
-                            right="6px",
-                            top="50%",
-                            transform="translateY(-50%)",
-                            cursor="pointer",
-                        ),
-                        position="relative",
-                        width="100%",
-                    ),
-                    spacing="1",
-                    width="100%",
-                ),
-
-                # From address (optional)
-                _cred_input("email_cred_from", AIState.email_cred_from, AIState.set_email_cred_from),
 
                 # Buttons
                 rx.hstack(
                     rx.button(
-                        t("email_cred_cancel"),
-                        on_click=AIState.close_email_credentials,
+                        t("cred_cancel"),
+                        on_click=AIState.close_channel_credentials,
                         variant="soft",
                         color_scheme="gray",
                         size="1",
                         flex="1",
                     ),
                     rx.button(
-                        t("email_cred_save"),
-                        on_click=AIState.save_email_credentials,
+                        t("cred_save"),
+                        on_click=AIState.save_channel_credentials,
                         variant="solid",
                         color_scheme="blue",
                         size="1",
@@ -1073,7 +1038,176 @@ def email_credentials_modal() -> rx.Component:
                 background="#1a1a2e",
                 border_radius="12px",
                 border="1px solid var(--gray-a6)",
-                width="400px",
+                width="500px",
+                max_width="90vw",
+                position="relative",
+                z_index="1101",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index="1100",
+            display="flex",
+            justify_content="center",
+            align_items="center",
+        ),
+    )
+
+
+# ============================================================
+# PLUGIN MANAGER MODAL
+# ============================================================
+
+def _tool_plugin_row(plugin: rx.Var) -> rx.Component:
+    """Render a single tool plugin row with toggle."""
+    name = plugin["name"].to(str)
+    enabled = plugin["enabled"].to(str) == "1"
+    return rx.hstack(
+        rx.icon("puzzle", size=14, color=rx.cond(enabled, "#4CAF50", "#666")),
+        rx.text(
+            plugin["display"].to(str),
+            font_size="12px",
+            color=rx.cond(enabled, "white", "#666"),
+        ),
+        rx.box(flex="1"),
+        rx.switch(
+            checked=enabled,
+            on_change=lambda _val: AIState.toggle_tool_plugin(name),
+            size="1",
+        ),
+        rx.text(
+            rx.cond(enabled, "ON", "OFF"),
+            font_size="11px",
+            color=rx.cond(enabled, "#4CAF50", "#999"),
+            min_width="24px",
+        ),
+        spacing="2",
+        align="center",
+        width="100%",
+    )
+
+
+def plugin_manager_modal() -> rx.Component:
+    """Modal for managing Message Hub channels and tool plugins."""
+    from ..lib.plugin_registry import all_channels
+
+    # Build channel rows at build time (static)
+    channel_rows: list[rx.Component] = []
+    for name, plugin in all_channels().items():
+        monitor_var = AIState.channel_toggles[name]["monitor"].to(bool)
+        auto_reply_var = AIState.channel_toggles[name]["auto_reply"].to(bool)
+
+        row = rx.vstack(
+            rx.hstack(
+                rx.icon(plugin.icon, size=14, color=rx.cond(monitor_var, "#4CAF50", "#666")),
+                rx.text(plugin.display_name, font_size="12px", color=rx.cond(monitor_var, "white", "#999")),
+                rx.box(flex="1"),
+                rx.icon_button(
+                    rx.icon("settings", size=14),
+                    on_click=AIState.open_channel_credentials(name),
+                    size="1",
+                    variant="ghost",
+                    color_scheme="gray",
+                    cursor="pointer",
+                ),
+                rx.switch(
+                    checked=monitor_var,
+                    on_change=lambda val, ch=name: AIState.toggle_channel_monitor([ch, val]),
+                    size="1",
+                ),
+                rx.text(
+                    rx.cond(monitor_var, "ON", "OFF"),
+                    font_size="11px",
+                    color=rx.cond(monitor_var, "#4CAF50", "#999"),
+                    min_width="24px",
+                ),
+                spacing="2",
+                align="center",
+                width="100%",
+            ),
+            rx.cond(
+                monitor_var,
+                rx.hstack(
+                    rx.box(width="14px"),
+                    rx.text(t("auto_reply"), font_size="11px", color="#999"),
+                    rx.box(flex="1"),
+                    rx.switch(
+                        checked=auto_reply_var,
+                        on_change=lambda val, ch=name: AIState.toggle_channel_auto_reply([ch, val]),
+                        size="1",
+                    ),
+                    rx.text(
+                        rx.cond(auto_reply_var, "ON", "OFF"),
+                        font_size="11px",
+                        color=rx.cond(auto_reply_var, "#4CAF50", "#999"),
+                        min_width="24px",
+                    ),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                ),
+            ),
+            spacing="1",
+            width="100%",
+        )
+        channel_rows.append(row)
+
+    return rx.cond(
+        AIState.plugin_manager_open,
+        rx.box(
+            # Backdrop
+            rx.box(
+                on_click=AIState.close_plugin_manager,
+                position="fixed",
+                top="0",
+                left="0",
+                width="100%",
+                height="100%",
+                background_color="rgba(0, 0, 0, 0.92)",
+            ),
+            # Modal content
+            rx.vstack(
+                rx.text("🔌 Message Hub", font_weight="bold", font_size="16px", color="white"),
+
+                # ── Channels ──
+                rx.text(t("plugin_channels"), font_size="12px", font_weight="bold", color="#999"),
+                rx.vstack(
+                    *channel_rows,
+                    spacing="2",
+                    width="100%",
+                ),
+
+                rx.divider(),
+
+                # ── Tool Plugins ──
+                rx.text(t("plugin_tools"), font_size="12px", font_weight="bold", color="#999"),
+                rx.vstack(
+                    rx.foreach(
+                        AIState.tool_plugins,
+                        _tool_plugin_row,
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+
+                # Close button
+                rx.button(
+                    "OK",
+                    on_click=AIState.close_plugin_manager,
+                    variant="solid",
+                    color_scheme="blue",
+                    size="1",
+                    width="100%",
+                ),
+
+                spacing="3",
+                padding="24px",
+                background="#1a1a2e",
+                border_radius="12px",
+                border="1px solid var(--gray-a6)",
+                width="380px",
                 max_width="90vw",
                 position="relative",
                 z_index="1001",

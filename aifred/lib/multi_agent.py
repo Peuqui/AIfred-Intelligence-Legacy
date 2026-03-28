@@ -205,8 +205,8 @@ def _format_stream_result(
 
 def _get_plugin_ui_status(tool_name: str, tool_args: dict, lang: str) -> str:
     """Ask plugins for UI status. First non-empty response wins."""
-    from .plugin_registry import discover_plugins
-    for p in discover_plugins():
+    from .plugin_registry import discover_tools
+    for p in discover_tools():
         status = p.get_ui_status(tool_name, tool_args, lang)
         if status:
             return status

@@ -243,7 +243,8 @@ class AIState(  # type: ignore[misc]
                     self._restore_session(session)
                     msg_count = len(self._chat_sub().chat_history)
                     self.add_debug(f"🔄 API update: Session reloaded ({msg_count} messages)")
-                yield
+                # Force scroll after Hub/API updates (new messages from background)
+                yield rx.call_script("forceScrollToBottom()")
                 return
 
         # Check for global Message Hub notifications (any session, not just active)
@@ -256,6 +257,8 @@ class AIState(  # type: ignore[misc]
             toast_msg = f"📨 {channel}: {sender}"
             if title:
                 toast_msg += f"\n📋 Session: {title}"
+            # Refresh session list (new session or updated message count)
+            self.refresh_session_list()
             yield rx.toast.info(toast_msg, duration=6000, position="top-center", style={"width": "420px"})
             return
 

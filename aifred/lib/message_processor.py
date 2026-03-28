@@ -12,11 +12,7 @@ import secrets
 from pathlib import Path
 from typing import Optional
 
-from .config import (
-    EMAIL_MONITOR_AUTO_REPLY,
-    MESSAGE_HUB_OWNER,
-)
-from .email_client import send_email
+from .config import MESSAGE_HUB_OWNER
 from .envelope import InboundMessage, OutboundMessage
 from .logging_utils import log_message
 from .routing_table import routing_table
@@ -127,20 +123,17 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     write_hub_notification(session_id, title, message.channel.upper(), message.sender)
 
     # ── Phase 2: Call AIfred engine ────────────────────────────
-    email_context = (
-        f"[INCOMING EMAIL from {message.sender}]\n"
-        f"Subject: {subject}\n\n"
-        f"INSTRUCTION: You are replying to an incoming email. "
-        f"Be helpful and concise. NEVER invent facts, email addresses, "
-        f"appointments, phone numbers or other details that are not in "
-        f"the email or conversation history. If you don't know something, "
-        f"say so.\n\n"
-        f"{message.text}"
-    )
+    # Use the channel plugin to build LLM context (if registered)
+    from .plugin_registry import get_channel
+    plugin = get_channel(message.channel)
+    if plugin:
+        llm_context = plugin.build_context(message)
+    else:
+        llm_context = f"[{message.channel.upper()} from {message.sender}]\n\n{message.text}"
 
     engine_debug: list[str] = []
     response_text = await _call_engine(
-        user_text=email_context,
+        user_text=llm_context,
         session_id=session_id,
         agent=message.target_agent,
         debug_sink=engine_debug,
@@ -159,16 +152,18 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     _append_debug(session_id, engine_debug)
 
     # ── Phase 4: Auto-reply if enabled ────────────────────────
+    reply_metadata = plugin.build_reply_metadata(message) if plugin else {}
     outbound = OutboundMessage(
         channel=message.channel,
         channel_id=message.channel_id,
         recipient=message.sender,
         text=response_text,
-        metadata=_build_reply_metadata(message),
+        metadata=reply_metadata,
     )
 
-    if message.channel == "email" and EMAIL_MONITOR_AUTO_REPLY:
-        _send_email_reply(outbound, message)
+    auto_reply_enabled = _is_auto_reply_enabled(message.channel)
+    if plugin and auto_reply_enabled:
+        await plugin.send_reply(outbound, message)
         _append_debug(session_id, [
             f"{_ts()} | 📤 Auto-reply sent to {message.sender}",
             f"{_ts()} | ────────────────────",
@@ -391,32 +386,9 @@ def _append_debug(session_id: str, messages: list[str]) -> None:
     set_update_flag(session_id)
 
 
-def _build_reply_metadata(message: InboundMessage) -> dict:
-    """Build channel-specific metadata for the reply."""
-    metadata: dict = {}
-    if message.channel == "email":
-        # Reply subject: add Re: if not already present
-        subject = message.metadata.get("subject", "")
-        if subject and not subject.lower().startswith("re:"):
-            subject = f"Re: {subject}"
-        metadata["subject"] = subject
-        metadata["in_reply_to"] = message.metadata.get("message_id", "")
-        metadata["references"] = message.metadata.get("message_id", "")
-    return metadata
-
-
-def _send_email_reply(outbound: OutboundMessage, original: InboundMessage) -> None:
-    """Send an email reply via SMTP."""
-    subject = outbound.metadata.get("subject", "Re: AIfred")
-    reply_to_id = outbound.metadata.get("in_reply_to")
-
-    try:
-        send_email(
-            to=outbound.recipient,
-            subject=subject,
-            body=outbound.text,
-            reply_to_id=reply_to_id,
-        )
-        log_message(f"Message Processor: auto-reply sent to {outbound.recipient}")
-    except Exception as exc:
-        log_message(f"Message Processor: failed to send reply — {exc}", "error")
+def _is_auto_reply_enabled(channel: str) -> bool:
+    """Check if auto-reply is enabled for a given channel."""
+    from .settings import load_settings
+    settings = load_settings() or {}
+    channel_toggles = settings.get("channel_toggles", {})
+    return channel_toggles.get(channel, {}).get("auto_reply", False)

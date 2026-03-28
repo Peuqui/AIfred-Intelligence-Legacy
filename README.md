@@ -18,7 +18,7 @@ AIfred Intelligence is a fully-featured AI assistant running locally on your own
 
 The LLM autonomously decides which tools to use — OpenAI-compatible tool infrastructure with plugin system:
 
-- **Message Hub — AIfred as Communication Central**: AIfred monitors external channels and processes incoming messages autonomously. Each channel has its own identity (own email address, own bot). Pipeline: **IMAP IDLE listener** (push-based) → **Envelope normalization** → **SQLite routing table** → **AIfred engine call** → **Auto-reply via SMTP** (optional, per-channel toggle). Agent routing: address Sokrates or Salomo by name in emails. Credentials modal in Settings UI with password visibility toggle. Background workers start/stop at runtime — no restart needed. See [Architecture & Setup](docs/plans/message-hub-architecture.md)
+- **Message Hub — AIfred as Communication Central**: AIfred monitors external channels and processes incoming messages autonomously. **Unified plugin system**: drop a `.py` file into `plugins/channels/` or `plugins/tools/` — auto-discovered, no code changes needed. **Built-in channels**: E-Mail Monitor (IMAP IDLE push-based + SMTP auto-reply), Discord (bot integration). **Plugin Manager** UI modal to enable/disable any plugin at runtime (moves files to `disabled/`). Pipeline: **Channel listener** → **Envelope normalization** → **SQLite routing table** → **AIfred engine call** (with full toolkit incl. calendar check) → **Auto-reply** (optional, per-channel toggle). Agent routing: address Sokrates or Salomo by name. Credentials modal with dynamic fields per channel. See [Architecture & Setup](docs/plans/message-hub-architecture.md)
 - **Email Integration**: Read, search, and send emails via IMAP/SMTP. Sending requires explicit user confirmation (draft → review → confirm). Credentials via `.env` or UI modal
 - **EPIM Database Integration**: Full CRUD access to the [EssentialPIM](https://www.essentialpim.com/) Firebird 2.5 database — the LLM autonomously searches, creates, updates and deletes calendar events, contacts, notes, todos and password entries. Automatic name-to-ID resolution, anti-hallucination guardrails, 7-day date reference
 - **Document Upload & RAG**: Upload documents (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatic chunking and embedding in ChromaDB. Relevant chunks automatically injected as RAG context. Document manager with preview, download and delete
@@ -1665,6 +1665,17 @@ systemctl status aifred-intelligence.service
 ```
 
 See [systemd/README.md](systemd/README.md) for details, troubleshooting, and monitoring.
+
+#### Discord Channel Setup
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications) → "New Application"
+2. **Bot** page: "Reset Token" → copy the token. Enable **Message Content Intent**
+3. Disable **Public Bot** (only you should add it to servers)
+4. **OAuth2** page → URL Generator: select scope `bot`, permissions: "Send Messages", "Read Message History", "View Channels"
+5. Open the generated URL → select your server → authorize
+6. Create a private channel on your server (e.g. `#aifred`), add the bot
+7. Right-click the channel → "Copy Channel ID" (requires Developer Mode: Discord Settings → Advanced → Developer Mode)
+8. In AIfred: Plugin Manager → Discord → gear icon → enter Bot Token + Channel ID → Save & Activate
 
 #### User Management (aifred-admin CLI)
 

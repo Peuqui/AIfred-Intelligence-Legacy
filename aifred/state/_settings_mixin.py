@@ -24,18 +24,20 @@ class SettingsMixin(rx.State, mixin=True):
     user_name: str = ""  # User's name for personalized responses (optional)
     user_gender: str = "male"  # "male" or "female" - for proper salutation (Herr/Frau)
 
-    # ── Message Hub Settings ─────────────────────────────────────
-    email_monitor_enabled: bool = False  # IMAP IDLE listener active?
-    email_auto_reply: bool = False  # Auto-reply to incoming emails?
-    email_credentials_modal_open: bool = False  # Credentials input dialog
-    email_cred_imap_host: str = ""
-    email_cred_imap_port: str = "993"
-    email_cred_smtp_host: str = ""
-    email_cred_smtp_port: str = "587"
-    email_cred_user: str = ""
-    email_cred_password: str = ""
-    email_cred_from: str = ""
-    email_cred_show_password: bool = False  # Eye toggle
+    # ── Message Hub Settings (generic, per-channel) ────────────
+    # Toggles per channel: {"email": {"monitor": True, "auto_reply": False}, ...}
+    channel_toggles: dict[str, dict[str, bool]] = {}
+
+    # Generic Credentials Modal (one modal, dynamic fields per channel)
+    channel_credentials_modal_open: bool = False
+    channel_credentials_editing: str = ""  # Which channel we're editing
+    channel_credential_values: dict[str, str] = {}  # env_key → value
+    channel_credential_fields: list[dict[str, str]] = []  # Rendered field descriptors
+    channel_cred_show_password: bool = False  # Eye toggle
+
+    # ── Plugin Manager Modal ─────────────────────────────────────
+    plugin_manager_open: bool = False
+    tool_plugins: list[dict[str, str]] = []  # [{"name": "epim", "file": "...", "enabled": "1"}, ...]
 
     # ── Settings File Tracking ────────────────────────────────────
     _last_settings_mtime: float = 0.0  # Last seen settings.json mtime (for multi-browser sync)
@@ -156,9 +158,8 @@ class SettingsMixin(rx.State, mixin=True):
             "tts_toggles_per_engine": existing.get("tts_toggles_per_engine", {}),
             # UI Settings
             "auto_scroll": self.auto_refresh_enabled,  # type: ignore[attr-defined, has-type]
-            # Message Hub Settings
-            "email_monitor_enabled": self.email_monitor_enabled,
-            "email_auto_reply": self.email_auto_reply,
+            # Message Hub Settings (per-channel toggles)
+            "channel_toggles": self.channel_toggles,
         }
         # Update tts_voices_per_language with current voice selection
         engine_key = self._get_engine_key()  # type: ignore[attr-defined, has-type]
@@ -330,9 +331,8 @@ class SettingsMixin(rx.State, mixin=True):
         from ..lib.prompt_loader import set_user_name
         set_user_name(self.user_name)
 
-        # Message Hub settings
-        self.email_monitor_enabled = settings.get("email_monitor_enabled", self.email_monitor_enabled)
-        self.email_auto_reply = settings.get("email_auto_reply", self.email_auto_reply)
+        # Message Hub settings (per-channel toggles)
+        self.channel_toggles = settings.get("channel_toggles", {})
 
     # ================================================================
     # UI LANGUAGE
@@ -448,141 +448,213 @@ class SettingsMixin(rx.State, mixin=True):
             yield  # Update UI even on error
 
     # ================================================================
-    # MESSAGE HUB TOGGLES
+    # MESSAGE HUB — GENERIC CHANNEL TOGGLES
     # ================================================================
 
-    def toggle_email_monitor(self, value: bool) -> None:
-        """Toggle IMAP IDLE email monitoring.
+    def _get_channel_toggle(self, channel: str, key: str) -> bool:
+        """Read a toggle value for a channel."""
+        return self.channel_toggles.get(channel, {}).get(key, False)
 
-        Receives the desired state from the switch (not a blind toggle).
-        If credentials are missing when enabling, opens the credentials modal.
-        """
-        from ..lib import config
+    def _set_channel_toggle(self, channel: str, key: str, value: bool) -> None:
+        """Set a toggle value for a channel and persist."""
+        toggles = dict(self.channel_toggles)
+        if channel not in toggles:
+            toggles[channel] = {}
+        ch = dict(toggles[channel])
+        ch[key] = value
+        toggles[channel] = ch
+        self.channel_toggles = toggles
 
-        if value and not config.EMAIL_ENABLED:
+    def toggle_channel_monitor(self, data: list) -> None:
+        """Toggle monitor on/off for a channel. Called from UI with [channel_name, value]."""
+        channel_name: str = data[0]
+        value: bool = data[1]
+
+        from ..lib.plugin_registry import get_channel
+        plugin = get_channel(channel_name)
+
+        if value and plugin and not plugin.is_configured():
             # Want to enable, but no credentials → open modal
-            self._open_email_credentials_modal()
+            self.open_channel_credentials(channel_name)
             return
 
-        self.email_monitor_enabled = value
+        self._set_channel_toggle(channel_name, "monitor", value)
+        display = plugin.display_name if plugin else channel_name
         status = "enabled" if value else "disabled"
-        self.add_debug(f"📨 Email Monitor {status}")  # type: ignore[attr-defined, has-type]
+        self.add_debug(f"📨 {display} Monitor {status}")  # type: ignore[attr-defined, has-type]
         self._save_settings()
 
         # Start/stop the worker at runtime
         from ..lib.message_hub import message_hub
-        if value:
-            if not message_hub.is_running("email_imap"):
-                from ..lib.imap_listener import imap_idle_loop
-                message_hub.register("email_imap", imap_idle_loop)
+        if value and plugin:
+            if not message_hub.is_running(channel_name):
+                message_hub.register(channel_name, plugin.listener_loop)
                 import asyncio
                 asyncio.create_task(message_hub.start_all())
         else:
-            message_hub.unregister("email_imap")
+            message_hub.unregister(channel_name)
 
-    def toggle_email_auto_reply(self, value: bool) -> None:
-        """Toggle auto-reply for incoming emails."""
-        self.email_auto_reply = value
-        status = "enabled" if self.email_auto_reply else "disabled"
-        self.add_debug(f"📨 Email Auto-Reply {status}")  # type: ignore[attr-defined, has-type]
+    def toggle_channel_auto_reply(self, data: list) -> None:
+        """Toggle auto-reply for a channel. Called from UI with [channel_name, value]."""
+        channel_name: str = data[0]
+        value: bool = data[1]
+
+        self._set_channel_toggle(channel_name, "auto_reply", value)
+        display = channel_name.capitalize()
+        status = "enabled" if value else "disabled"
+        self.add_debug(f"📨 {display} Auto-Reply {status}")  # type: ignore[attr-defined, has-type]
         self._save_settings()
 
-        # Update the runtime config
-        from ..lib import config
-        config.EMAIL_MONITOR_AUTO_REPLY = self.email_auto_reply
-
     # ================================================================
-    # EMAIL CREDENTIALS MODAL
+    # MESSAGE HUB — GENERIC CREDENTIALS MODAL
     # ================================================================
 
-    def _open_email_credentials_modal(self) -> None:
-        """Open credentials modal, pre-filled with current values."""
-        from ..lib.config import (
-            EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, EMAIL_SMTP_HOST,
-            EMAIL_SMTP_PORT, EMAIL_USER, EMAIL_FROM,
-        )
-        self.email_cred_imap_host = EMAIL_IMAP_HOST
-        self.email_cred_imap_port = str(EMAIL_IMAP_PORT)
-        self.email_cred_smtp_host = EMAIL_SMTP_HOST
-        self.email_cred_smtp_port = str(EMAIL_SMTP_PORT)
-        self.email_cred_user = EMAIL_USER
-        from ..lib.config import EMAIL_PASSWORD
-        self.email_cred_password = EMAIL_PASSWORD  # Show current password (masked by input type)
-        self.email_cred_from = EMAIL_FROM
-        self.email_cred_show_password = False
-        self.email_credentials_modal_open = True
+    def open_channel_credentials(self, channel_name: str) -> None:
+        """Open credentials modal for a channel, pre-filled with current .env values."""
+        from ..lib.plugin_registry import get_channel
 
-    def open_email_credentials(self) -> None:
-        """Public handler — edit button in UI."""
-        self._open_email_credentials_modal()
+        plugin = get_channel(channel_name)
+        if not plugin:
+            return
 
-    def close_email_credentials(self) -> None:
+        # Pre-fill current values from environment
+        values: dict[str, str] = {}
+        field_descriptors: list[dict[str, str]] = []
+        for field in plugin.credential_fields:
+            values[field.env_key] = os.environ.get(field.env_key, field.default)
+            field_descriptors.append({
+                "env_key": field.env_key,
+                "label_key": field.label_key,
+                "placeholder": field.placeholder,
+                "is_password": "1" if field.is_password else "",
+                "group": field.group,
+                "width_ratio": str(field.width_ratio),
+            })
+
+        self.channel_credentials_editing = channel_name
+        self.channel_credential_values = values
+        self.channel_credential_fields = field_descriptors
+        self.channel_cred_show_password = False
+        self.channel_credentials_modal_open = True
+
+    def close_channel_credentials(self) -> None:
         """Close credentials modal without saving."""
-        self.email_credentials_modal_open = False
-        self.email_cred_password = ""  # Clear password from state
+        self.channel_credentials_modal_open = False
+        # Clear password values from state
+        self.channel_credential_values = {}
+        self.channel_credentials_editing = ""
 
-    def toggle_email_cred_show_password(self) -> None:
+    def update_channel_credential(self, data: list) -> None:
+        """Update a single credential field. Called with [env_key, value]."""
+        env_key: str = data[0]
+        value: str = data[1]
+        values = dict(self.channel_credential_values)
+        values[env_key] = value
+        self.channel_credential_values = values
+
+    def toggle_channel_cred_show_password(self) -> None:
         """Toggle password visibility in credentials modal."""
-        self.email_cred_show_password = not self.email_cred_show_password
+        self.channel_cred_show_password = not self.channel_cred_show_password
 
-    def save_email_credentials(self) -> None:
-        """Write email credentials to .env and update runtime config."""
+    def save_channel_credentials(self) -> None:
+        """Write credentials to .env and update runtime config."""
         from dotenv import set_key
         from ..lib.config import PROJECT_ROOT
+        from ..lib.plugin_registry import get_channel
+
+        channel_name = self.channel_credentials_editing
+        plugin = get_channel(channel_name)
+        if not plugin:
+            return
 
         env_path = str(PROJECT_ROOT / ".env")
 
-        # Write to .env
-        set_key(env_path, "EMAIL_ENABLED", "true")
-        set_key(env_path, "EMAIL_IMAP_HOST", self.email_cred_imap_host)
-        set_key(env_path, "EMAIL_IMAP_PORT", self.email_cred_imap_port)
-        set_key(env_path, "EMAIL_SMTP_HOST", self.email_cred_smtp_host)
-        set_key(env_path, "EMAIL_SMTP_PORT", self.email_cred_smtp_port)
-        set_key(env_path, "EMAIL_USER", self.email_cred_user)
-        if self.email_cred_password:
-            set_key(env_path, "EMAIL_PASSWORD", self.email_cred_password)
-        set_key(env_path, "EMAIL_FROM", self.email_cred_from or self.email_cred_user)
+        # Write ENABLED flag
+        enabled_key = f"{channel_name.upper()}_ENABLED"
+        set_key(env_path, enabled_key, "true")
+        os.environ[enabled_key] = "true"
 
-        # Update os.environ so config reads new values
-        os.environ["EMAIL_ENABLED"] = "true"
-        os.environ["EMAIL_IMAP_HOST"] = self.email_cred_imap_host
-        os.environ["EMAIL_IMAP_PORT"] = self.email_cred_imap_port
-        os.environ["EMAIL_SMTP_HOST"] = self.email_cred_smtp_host
-        os.environ["EMAIL_SMTP_PORT"] = self.email_cred_smtp_port
-        os.environ["EMAIL_USER"] = self.email_cred_user
-        if self.email_cred_password:
-            os.environ["EMAIL_PASSWORD"] = self.email_cred_password
-        os.environ["EMAIL_FROM"] = self.email_cred_from or self.email_cred_user
+        # Write each credential to .env and os.environ
+        for field in plugin.credential_fields:
+            val = self.channel_credential_values.get(field.env_key, "")
+            if val or not field.is_password:  # Don't overwrite password with empty
+                set_key(env_path, field.env_key, val)
+                os.environ[field.env_key] = val
 
-        # Update config module variables at runtime
-        from ..lib import config
-        config.EMAIL_ENABLED = True
-        config.EMAIL_IMAP_HOST = self.email_cred_imap_host
-        config.EMAIL_IMAP_PORT = int(self.email_cred_imap_port)
-        config.EMAIL_SMTP_HOST = self.email_cred_smtp_host
-        config.EMAIL_SMTP_PORT = int(self.email_cred_smtp_port)
-        config.EMAIL_USER = self.email_cred_user
-        if self.email_cred_password:
-            config.EMAIL_PASSWORD = self.email_cred_password
-        config.EMAIL_FROM = self.email_cred_from or self.email_cred_user
+        # Let the plugin apply credentials to its runtime config
+        plugin.apply_credentials(self.channel_credential_values)
 
-        self.add_debug("📨 E-Mail Credentials gespeichert")  # type: ignore[attr-defined, has-type]
+        display = plugin.display_name
+        self.add_debug(f"📨 {display} Credentials gespeichert")  # type: ignore[attr-defined, has-type]
 
-        # Close modal and clear password from state
-        self.email_credentials_modal_open = False
-        self.email_cred_password = ""
+        # Close modal
+        self.channel_credentials_modal_open = False
+        self.channel_credential_values = {}
+        self.channel_credentials_editing = ""
 
         # Auto-enable monitor after saving credentials
-        self.email_monitor_enabled = True
+        self._set_channel_toggle(channel_name, "monitor", True)
         self._save_settings()
 
         # Start the worker
         from ..lib.message_hub import message_hub
-        from ..lib.imap_listener import imap_idle_loop
-        if not message_hub.is_running("email_imap"):
-            message_hub.register("email_imap", imap_idle_loop)
+        if not message_hub.is_running(channel_name):
+            message_hub.register(channel_name, plugin.listener_loop)
             import asyncio
             asyncio.create_task(message_hub.start_all())
+
+    # ================================================================
+    # PLUGIN MANAGER MODAL
+    # ================================================================
+
+    def open_plugin_manager(self) -> None:
+        """Open plugin manager modal and refresh plugin lists."""
+        from ..lib.plugin_registry import list_all_plugins
+        self.tool_plugins = [p for p in list_all_plugins() if p["type"] == "tool"]
+        self.plugin_manager_open = True
+
+    def close_plugin_manager(self) -> None:
+        """Apply pending toggle changes and close modal.
+
+        Compares current UI state (tool_plugins) with filesystem state
+        and moves files accordingly. This is the batch-apply on OK.
+        """
+        from ..lib.plugin_registry import list_all_plugins, enable_plugin, disable_plugin
+
+        # Get current filesystem state
+        fs_state = {p["name"]: p for p in list_all_plugins()}
+
+        # Compare with UI state and apply differences
+        for ui_plugin in self.tool_plugins:
+            name = ui_plugin["name"]
+            ptype = ui_plugin.get("type", "tool")
+            fs_plugin = fs_state.get(name)
+            if not fs_plugin:
+                continue
+
+            ui_enabled = bool(ui_plugin["enabled"])
+            fs_enabled = bool(fs_plugin["enabled"])
+
+            if ui_enabled and not fs_enabled:
+                enable_plugin(name, ptype)
+                self.add_debug(f"🔌 Plugin '{name}' aktiviert")  # type: ignore[attr-defined, has-type]
+            elif not ui_enabled and fs_enabled:
+                disable_plugin(name, ptype)
+                self.add_debug(f"🔌 Plugin '{name}' deaktiviert")  # type: ignore[attr-defined, has-type]
+
+        self.plugin_manager_open = False
+
+    def toggle_tool_plugin(self, plugin_name: str) -> None:
+        """Toggle a plugin in the UI state (not applied until OK)."""
+        updated = []
+        for p in self.tool_plugins:
+            if p["name"] == plugin_name:
+                new_p = dict(p)
+                new_p["enabled"] = "" if p["enabled"] else "1"
+                updated.append(new_p)
+            else:
+                updated.append(p)
+        self.tool_plugins = updated
 
     # ================================================================
     # TRANSLATION HELPER

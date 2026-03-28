@@ -818,8 +818,8 @@ def _merge_prompt_layers(
             parts.append(tool_instructions)
 
         # Plugin-specific instructions (dynamic)
-        from .plugin_registry import discover_plugins
-        for p in discover_plugins():
+        from .plugin_registry import discover_tools
+        for p in discover_tools():
             if p.is_available():
                 instr = p.get_prompt_instructions(lang)
                 if instr:

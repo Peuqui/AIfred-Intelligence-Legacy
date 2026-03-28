@@ -3,9 +3,9 @@
 from dataclasses import dataclass
 from typing import Any
 
-from ..function_calling import Tool
-from ..plugin import PluginContext
-from ..i18n import t
+from ...lib.function_calling import Tool
+from ...lib.plugin_base import PluginContext
+from ...lib.i18n import t
 
 
 @dataclass
@@ -16,7 +16,7 @@ class SandboxPlugin:
         return True
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
-        from ..sandbox_tools import get_sandbox_tools
+        from ...lib.sandbox_tools import get_sandbox_tools
         return get_sandbox_tools(session_id=ctx.session_id)
 
     def get_prompt_instructions(self, lang: str) -> str:

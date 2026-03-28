@@ -18,7 +18,7 @@ AIfred Intelligence ist ein vollwertiger KI-Assistent der lokal auf eigener Hard
 
 Das LLM entscheidet autonom welche Tools es braucht — OpenAI-kompatible Tool-Infrastruktur mit Plugin-System:
 
-- **Message Hub — AIfred als Kommunikationszentrale**: AIfred überwacht externe Kanäle und verarbeitet eingehende Nachrichten autonom. Jeder Kanal hat eine eigene Identität (eigene E-Mail-Adresse, eigener Bot). Pipeline: **IMAP IDLE Listener** (Push-basiert) → **Envelope-Normalisierung** → **SQLite Routing Table** → **AIfred Engine-Aufruf** → **Auto-Reply per SMTP** (optional, per Toggle). Agent-Routing: Sokrates oder Salomo per Name in E-Mails ansprechen. Credentials-Modal in der UI mit Passwort-Sichtbarkeits-Toggle. Background-Worker starten/stoppen zur Laufzeit — kein Neustart nötig. Siehe [Architektur & Setup](docs/plans/message-hub-architecture.md)
+- **Message Hub — AIfred als Kommunikationszentrale**: AIfred überwacht externe Kanäle und verarbeitet eingehende Nachrichten autonom. **Einheitliches Plugin-System**: `.py`-Datei in `plugins/channels/` oder `plugins/tools/` ablegen — wird automatisch erkannt, keine Code-Änderungen nötig. **Eingebaute Kanäle**: E-Mail Monitor (IMAP IDLE Push-basiert + SMTP Auto-Reply), Discord (Bot-Integration). **Plugin Manager** UI-Modal zum Ein-/Ausschalten aller Plugins zur Laufzeit (verschiebt Dateien nach `disabled/`). Pipeline: **Channel Listener** → **Envelope-Normalisierung** → **SQLite Routing Table** → **AIfred Engine-Aufruf** (mit vollem Toolkit inkl. Kalenderprüfung) → **Auto-Reply** (optional, per Toggle). Agent-Routing: Sokrates oder Salomo per Name ansprechen. Credentials-Modal mit dynamischen Feldern pro Kanal. Siehe [Architektur & Setup](docs/plans/message-hub-architecture.md)
 - **E-Mail-Integration**: E-Mails lesen, suchen und senden via IMAP/SMTP. Senden erfordert explizite Bestätigung (Entwurf → Prüfung → Bestätigung). Credentials über `.env` oder UI-Modal konfigurierbar
 - **EPIM-Datenbank-Integration**: Voller CRUD-Zugriff auf die [EssentialPIM](https://www.essentialpim.com/) Firebird 2.5 Datenbank — das LLM sucht, erstellt, ändert und löscht eigenständig Kalendertermine, Kontakte, Notizen, Todos und Passworteinträge. Automatische Name-zu-ID-Auflösung, Anti-Halluzinations-Schutz, 7-Tage-Datumsreferenz
 - **Dokument-Upload & RAG**: Dokumente hochladen (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatisches Chunking und Embedding in ChromaDB. Relevante Abschnitte werden automatisch als RAG-Kontext in den System-Prompt injiziert. Dokument-Manager mit Preview, Download und Löschen
@@ -1545,6 +1545,17 @@ systemctl status aifred-intelligence.service
 ```
 
 Siehe [systemd/README.md](systemd/README.md) für Details, Troubleshooting und Monitoring.
+
+#### Discord-Kanal einrichten
+
+1. [Discord Developer Portal](https://discord.com/developers/applications) → "New Application"
+2. **Bot**-Seite: "Reset Token" → Token kopieren. **Message Content Intent** einschalten
+3. **Public Bot** ausschalten (nur du solltest den Bot hinzufügen können)
+4. **OAuth2**-Seite → URL-Generator: Scope `bot` auswählen, Berechtigungen: "Nachrichten senden", "Nachrichtenverlauf anzeigen", "Kanäle ansehen"
+5. Generierte URL im Browser öffnen → Server auswählen → Autorisieren
+6. Privaten Kanal auf dem Server erstellen (z.B. `#aifred`), Bot hinzufügen
+7. Rechtsklick auf den Kanal → "Kanal-ID kopieren" (Entwicklermodus: Discord Einstellungen → Erweitert → Entwicklermodus)
+8. In AIfred: Plugin Manager → Discord → Zahnrad → Bot-Token + Channel-ID eintragen → Speichern & Aktivieren
 
 #### Service-Dateien (Referenz)
 

@@ -3,9 +3,9 @@
 from dataclasses import dataclass
 from typing import Any
 
-from ..function_calling import Tool
-from ..plugin import PluginContext
-from ..i18n import t
+from ...lib.function_calling import Tool
+from ...lib.plugin_base import PluginContext
+from ...lib.i18n import t
 
 
 @dataclass
@@ -13,11 +13,11 @@ class EmailPlugin:
     name: str = "email"
 
     def is_available(self) -> bool:
-        from ..config import EMAIL_ENABLED
+        from ...lib.config import EMAIL_ENABLED
         return EMAIL_ENABLED
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
-        from ..email_tools import get_email_tools
+        from ...lib.email_tools import get_email_tools
         return get_email_tools(session_id=ctx.session_id)
 
     def get_prompt_instructions(self, lang: str) -> str:

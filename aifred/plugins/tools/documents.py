@@ -3,9 +3,9 @@
 from dataclasses import dataclass
 from typing import Any
 
-from ..function_calling import Tool
-from ..plugin import PluginContext
-from ..i18n import t
+from ...lib.function_calling import Tool
+from ...lib.plugin_base import PluginContext
+from ...lib.i18n import t
 
 
 @dataclass
@@ -13,11 +13,11 @@ class DocumentPlugin:
     name: str = "document"
 
     def is_available(self) -> bool:
-        from ..document_store import get_document_store
+        from ...lib.document_store import get_document_store
         return get_document_store() is not None
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
-        from ..document_tools import get_document_tools
+        from ...lib.document_tools import get_document_tools
         return get_document_tools()
 
     def get_prompt_instructions(self, lang: str) -> str:

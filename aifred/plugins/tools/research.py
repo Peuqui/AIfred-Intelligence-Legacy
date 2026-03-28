@@ -3,9 +3,9 @@
 from dataclasses import dataclass
 from typing import Any
 
-from ..function_calling import Tool
-from ..plugin import PluginContext
-from ..i18n import t
+from ...lib.function_calling import Tool
+from ...lib.plugin_base import PluginContext
+from ...lib.i18n import t
 
 
 @dataclass
@@ -16,7 +16,7 @@ class ResearchPlugin:
         return True
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
-        from ..research_tools import get_research_tools
+        from ...lib.research_tools import get_research_tools
         return get_research_tools(state=ctx.state, lang=ctx.lang)
 
     def get_prompt_instructions(self, lang: str) -> str:

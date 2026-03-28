@@ -1005,6 +1005,14 @@ EMAIL_MAX_FETCH = 20                 # Max emails per inbox check
 EMAIL_MAX_BODY_CHARS = 10_000        # Truncate email body for LLM context
 
 # ============================================================
+# DISCORD CONFIGURATION
+# ============================================================
+# Credentials via environment variables (never in settings.json!)
+DISCORD_ENABLED = os.environ.get("DISCORD_ENABLED", "false").lower() == "true"
+DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_CHANNEL_IDS = os.environ.get("DISCORD_CHANNEL_IDS", "")  # Comma-separated channel IDs to listen on
+
+# ============================================================
 # MESSAGE HUB CONFIGURATION
 # ============================================================
 MESSAGE_HUB_OWNER = os.environ.get("MESSAGE_HUB_OWNER", "mp")  # Sessions created by hub belong to this user

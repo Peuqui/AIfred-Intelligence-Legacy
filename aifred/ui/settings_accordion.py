@@ -19,6 +19,7 @@ from .helpers import (
 )
 
 
+
 # ============================================================
 # SAMPLING PARAMETER HELPERS
 # ============================================================
@@ -1336,59 +1337,15 @@ def settings_accordion() -> rx.Component:
                         content=t("message_hub_info"),
                     ),
                     rx.box(flex="1"),
-                    # Edit credentials button (gear icon)
                     rx.icon_button(
                         rx.icon("settings", size=14),
-                        on_click=AIState.open_email_credentials,
+                        on_click=AIState.open_plugin_manager,
                         size="1",
                         variant="ghost",
                         color_scheme="gray",
                         cursor="pointer",
                     ),
                     align="center",
-                    width="100%",
-                ),
-                rx.vstack(
-                    # Email Monitor toggle
-                    rx.hstack(
-                        rx.text(t("email_monitor"), font_size="12px"),
-                        rx.box(flex="1"),
-                        rx.switch(
-                            checked=AIState.email_monitor_enabled,
-                            on_change=AIState.toggle_email_monitor,
-                            size="1",
-                        ),
-                        rx.text(
-                            rx.cond(AIState.email_monitor_enabled, "ON", "OFF"),
-                            font_size="11px",
-                            color=rx.cond(AIState.email_monitor_enabled, "#4CAF50", "#999"),
-                        ),
-                        spacing="2",
-                        align="center",
-                        width="100%",
-                    ),
-                    # Auto-Reply toggle (only shown when monitor is on)
-                    rx.cond(
-                        AIState.email_monitor_enabled,
-                        rx.hstack(
-                            rx.text(t("email_auto_reply"), font_size="12px"),
-                            rx.box(flex="1"),
-                            rx.switch(
-                                checked=AIState.email_auto_reply,
-                                on_change=AIState.toggle_email_auto_reply,
-                                size="1",
-                            ),
-                            rx.text(
-                                rx.cond(AIState.email_auto_reply, "ON", "OFF"),
-                                font_size="11px",
-                                color=rx.cond(AIState.email_auto_reply, "#4CAF50", "#999"),
-                            ),
-                            spacing="2",
-                            align="center",
-                            width="100%",
-                        ),
-                    ),
-                    spacing="2",
                     width="100%",
                 ),
 
