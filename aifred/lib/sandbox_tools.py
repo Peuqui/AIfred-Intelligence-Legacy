@@ -4,19 +4,11 @@ Provides a single `execute_code` tool that runs Python in a sandboxed subprocess
 """
 
 import json
-from pathlib import Path
 from typing import Optional
 
 from .function_calling import Tool
 from .logging_utils import log_message
-
-
-def _load_tool_description() -> str:
-    """Load tool description from prompt file."""
-    path = Path(__file__).parent.parent.parent / "prompts" / "shared" / "execute_code_tool.txt"
-    if path.exists():
-        return path.read_text(encoding="utf-8").strip()
-    return "Execute Python code in a sandboxed environment."
+from .prompt_loader import load_tool_description
 
 
 def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
@@ -69,7 +61,7 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
     return [
         Tool(
             name="execute_code",
-            description=_load_tool_description(),
+            description=load_tool_description("execute_code_tool.txt"),
             parameters={
                 "type": "object",
                 "properties": {

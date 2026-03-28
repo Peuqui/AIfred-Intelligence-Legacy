@@ -23,6 +23,7 @@ from .config import (
 )
 from .function_calling import Tool, ToolKit
 from .logging_utils import log_message
+from .prompt_loader import load_tool_description
 
 # Reuse embedding config from vector_cache (same model, same Ollama instance)
 OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
@@ -247,15 +248,6 @@ class AgentMemory:
 
         return combined
 
-    @staticmethod
-    def _load_tool_description() -> str:
-        """Load store_memory tool description from prompt file."""
-        from pathlib import Path
-        path = Path(__file__).parent.parent.parent / "prompts" / "shared" / "store_memory_tool.txt"
-        if path.exists():
-            return path.read_text(encoding="utf-8").strip()
-        return "Store a key insight to your long-term memory."
-
     def make_toolkit(self, agent_id: str, session_id: str = "") -> ToolKit:
         """Create a ToolKit with memory tools bound to a specific agent."""
 
@@ -265,7 +257,7 @@ class AgentMemory:
         return ToolKit(tools=[
             Tool(
                 name="store_memory",
-                description=self._load_tool_description(),
+                description=load_tool_description("store_memory_tool.txt"),
                 parameters={
                     "type": "object",
                     "properties": {
@@ -337,35 +329,6 @@ def format_memory_context(
 
     template = template_path.read_text(encoding="utf-8").strip()
     return template.replace("{memories}", memories_text)
-
-
-async def prepare_agent_memory(
-    agent_id: str,
-    user_query: str,
-    lang: str = "de",
-    enabled: bool = True,
-    session_id: Optional[str] = None,
-) -> tuple[str, Optional["ToolKit"]]:
-    """Prepare memory context and toolkit for an agent call.
-
-    Returns:
-        (memory_context_str, toolkit) — context to append to system prompt, toolkit for chat_stream.
-        Both empty/None if memory is disabled or unavailable.
-    """
-    if not enabled:
-        return "", None
-
-    memory = get_agent_memory()
-    if not memory:
-        return "", None
-
-    memories = await memory.recall_combined(agent_id, user_query, exclude_session_id=session_id)
-    memory_ctx = ""
-    if memories:
-        memory_ctx = format_memory_context(memories, agent_id=agent_id, lang=lang)
-
-    toolkit = memory.make_toolkit(agent_id, session_id=session_id or "")
-    return memory_ctx, toolkit
 
 
 async def prepare_agent_toolkit(

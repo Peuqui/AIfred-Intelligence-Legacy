@@ -346,6 +346,11 @@ class TranslationManager:
             "tool_doc_search": "📄 Suche in Dokumenten...",
             "tool_doc_list": "📄 Dokumente auflisten...",
             "tool_doc_delete": "📄 Lösche {filename}...",
+            "tool_epim_search": "📅 {entity}: {query}",
+            "tool_epim_search_bare": "📅 {entity}...",
+            "tool_epim_create": "📅 Erstelle {entity}...",
+            "tool_epim_update": "📅 Aktualisiere {entity}...",
+            "tool_epim_delete": "📅 Lösche {entity}...",
             # Document Upload UI
             "upload_document": "Dokument",
             "doc_hint": "PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV",
@@ -663,6 +668,11 @@ class TranslationManager:
             "tool_doc_search": "📄 Searching documents...",
             "tool_doc_list": "📄 Listing documents...",
             "tool_doc_delete": "📄 Deleting {filename}...",
+            "tool_epim_search": "📅 {entity}: {query}",
+            "tool_epim_search_bare": "📅 {entity}...",
+            "tool_epim_create": "📅 Creating {entity}...",
+            "tool_epim_update": "📅 Updating {entity}...",
+            "tool_epim_delete": "📅 Deleting {entity}...",
             # Document Upload UI
             "upload_document": "Document",
             "doc_hint": "Upload PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV",

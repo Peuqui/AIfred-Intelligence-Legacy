@@ -5,17 +5,9 @@ All IMAP/SMTP operations run in asyncio.to_thread() (blocking I/O).
 """
 
 import asyncio
-from pathlib import Path
 
 from .function_calling import Tool
-
-
-def _load_tool_description() -> str:
-    """Load tool description from prompt file."""
-    path = Path(__file__).parent.parent.parent / "prompts" / "shared" / "email_tool.txt"
-    if path.exists():
-        return path.read_text(encoding="utf-8").strip()
-    return "Manage emails: check inbox, read, search, send, delete."
+from .prompt_loader import load_tool_description
 
 
 def get_email_tools() -> list[Tool]:
@@ -95,7 +87,7 @@ def get_email_tools() -> list[Tool]:
     return [
         Tool(
             name="email",
-            description=_load_tool_description(),
+            description=load_tool_description("email_tool.txt"),
             parameters={
                 "type": "object",
                 "properties": {

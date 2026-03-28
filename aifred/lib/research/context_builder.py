@@ -166,9 +166,10 @@ async def build_and_generate_response(
     # Agent Memory: recall + toolkit
     memory_toolkit = None
     if state and getattr(state, 'agent_memory_enabled', False):
-        from ..agent_memory import prepare_agent_memory
-        memory_ctx, memory_toolkit = await prepare_agent_memory(
-            "aifred", user_text, lang=detected_user_language, enabled=True,
+        from ..agent_memory import prepare_agent_toolkit
+        memory_ctx, memory_toolkit = await prepare_agent_toolkit(
+            "aifred", user_text, lang=detected_user_language,
+            research_tools_enabled=False,
         )
         if memory_ctx:
             system_prompt = f"{system_prompt}\n\n{memory_ctx}"

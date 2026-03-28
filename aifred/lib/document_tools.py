@@ -5,17 +5,9 @@ that operate on the ChromaDB document store.
 """
 
 import json
-from pathlib import Path
 
 from .function_calling import Tool
-
-
-def _load_tool_description() -> str:
-    """Load tool description from prompt file."""
-    path = Path(__file__).parent.parent.parent / "prompts" / "shared" / "document_tools.txt"
-    if path.exists():
-        return path.read_text(encoding="utf-8").strip()
-    return "Search and manage uploaded documents."
+from .prompt_loader import load_tool_description
 
 
 def get_document_tools() -> list[Tool]:
@@ -67,7 +59,7 @@ def get_document_tools() -> list[Tool]:
 
         return json.dumps({"deleted": filename, "chunks_removed": count})
 
-    description = _load_tool_description()
+    description = load_tool_description("document_tools.txt")
 
     return [
         Tool(

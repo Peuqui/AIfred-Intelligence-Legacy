@@ -15,6 +15,28 @@ from .function_calling import Tool
 
 logger = logging.getLogger(__name__)
 
+# Canonical entity type mapping — all aliases resolve to one key
+ENTITY_ALIASES: dict[str, str] = {
+    "task": "task", "tasks": "task", "termin": "task", "termine": "task",
+    "kalender": "task", "calendar": "task",
+    "contact": "contact", "contacts": "contact", "kontakt": "contact", "kontakte": "contact",
+    "note": "note", "notes": "note", "notiz": "note", "notizen": "note",
+    "todo": "todo", "todos": "todo", "aufgabe": "todo", "aufgaben": "todo",
+    "password": "password", "passwords": "password", "passwort": "password", "passwoerter": "password",
+    "category": "category", "categories": "category", "kategorie": "category", "kategorien": "category",
+    "calendar_list": "calendar_list", "kalender_liste": "calendar_list",
+    "todolist": "todolist", "todolists": "todolist", "todoliste": "todolist", "todolisten": "todolist",
+    "notetree": "notetree", "notetrees": "notetree", "notizbaum": "notetree",
+    "note_tab": "note_tab", "notiz_tab": "note_tab",
+}
+
+VALID_ENTITY_TYPES = "tasks, contacts, notes, todos, passwords, categories, calendar_list, todolists, notetrees"
+
+
+def _resolve_entity(entity_type: str) -> str | None:
+    """Resolve entity type alias to canonical name. Returns None if unknown."""
+    return ENTITY_ALIASES.get(entity_type.lower())
+
 
 def _serialize(obj: Any) -> Any:
     """JSON-serialize EPIM results (handle datetime etc.)."""
@@ -57,33 +79,30 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         from .logging_utils import log_message
         log_message(f"🗓️ epim_search: {entity_type} query={query}")
 
-        entity = entity_type.lower()
+        entity = _resolve_entity(entity_type)
+        if not entity:
+            return json.dumps({"error": f"Unknown entity_type: {entity_type}. Use: {VALID_ENTITY_TYPES}"})
+
         results: list[dict] | dict | None = None
 
-        if entity in ("task", "tasks", "termin", "termine", "kalender", "calendar"):
-            results = db.search_tasks(
-                title=query, date_from=date_from, date_to=date_to, limit=limit,
-            )
-        elif entity in ("contact", "contacts", "kontakt", "kontakte"):
+        if entity == "task":
+            results = db.search_tasks(title=query, date_from=date_from, date_to=date_to, limit=limit)
+        elif entity == "contact":
             results = db.search_contacts(name=query, limit=limit)
-        elif entity in ("note", "notes", "notiz", "notizen"):
+        elif entity == "note":
             results = db.search_notes(title=query, text=query, limit=limit)
-        elif entity in ("todo", "todos", "aufgabe", "aufgaben"):
+        elif entity == "todo":
             results = db.search_todos(title=query, completed=completed, limit=limit)
-        elif entity in ("password", "passwords", "passwort", "passwoerter"):
+        elif entity == "password":
             results = db.search_passwords(subject=query, limit=limit)
-        elif entity in ("category", "categories", "kategorie", "kategorien"):
+        elif entity == "category":
             results = db.get_categories()
-        elif entity in ("calendar_list", "kalender_liste"):
+        elif entity == "calendar_list":
             results = db.get_calendars()
-        elif entity in ("todolist", "todolists", "todoliste", "todolisten"):
+        elif entity == "todolist":
             results = db.get_todolists()
-        elif entity in ("notetree", "notetrees", "notizbaum"):
+        elif entity == "notetree":
             results = db.get_notetrees()
-        else:
-            return json.dumps({"error": f"Unknown entity_type: {entity_type}. "
-                              "Use: tasks, contacts, notes, todos, passwords, "
-                              "categories, calendar_list, todolists, notetrees"})
 
         serialized = _serialize(results)
         count = len(serialized) if isinstance(serialized, list) else 1
@@ -98,9 +117,11 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         from .logging_utils import log_message
         log_message(f"🗓️ epim_create: {entity_type}")
 
-        entity = entity_type.lower()
+        entity = _resolve_entity(entity_type)
+        if entity not in ("task", "contact", "note", "todo", "password"):
+            return json.dumps({"error": f"Unknown entity_type for create: {entity_type}. Use: task, contact, note, todo, password"})
 
-        if entity in ("task", "termin", "kalender"):
+        if entity == "task":
             title = data.get("title", "Neuer Termin")
             new_id = db.create_task(
                 title=title,
@@ -119,7 +140,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
             log_message(f"✅ epim_create: Task {new_id} '{title}'")
             return json.dumps({"success": True, "id": new_id, "title": title})
 
-        elif entity in ("contact", "kontakt"):
+        elif entity == "contact":
             name = data.get("name", "Neuer Kontakt")
             new_id = db.create_contact(
                 name=name,
@@ -129,7 +150,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
             log_message(f"✅ epim_create: Contact {new_id} '{name}'")
             return json.dumps({"success": True, "id": new_id, "name": name})
 
-        elif entity in ("note", "notiz"):
+        elif entity == "note":
             title = data.get("title", "Neue Notiz")
             new_id = db.create_note(
                 title=title,
@@ -142,7 +163,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
             log_message(f"✅ epim_create: Note {new_id} '{title}'")
             return json.dumps({"success": True, "id": new_id, "title": title})
 
-        elif entity in ("todo", "aufgabe"):
+        elif entity == "todo":
             title = data.get("title", "Neue Aufgabe")
             new_id = db.create_todo(
                 title=title,
@@ -157,7 +178,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
             log_message(f"✅ epim_create: Todo {new_id} '{title}'")
             return json.dumps({"success": True, "id": new_id, "title": title})
 
-        elif entity in ("password", "passwort"):
+        else:  # password
             subject = data.get("subject", "Neuer Eintrag")
             new_id = db.create_password(
                 subject=subject,
@@ -168,8 +189,6 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
             log_message(f"✅ epim_create: Password {new_id} '{subject}'")
             return json.dumps({"success": True, "id": new_id, "subject": subject})
 
-        return json.dumps({"error": f"Unknown entity_type: {entity_type}"})
-
     # ----------------------------------------------------------
     # epim_update
     # ----------------------------------------------------------
@@ -178,32 +197,32 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         from .logging_utils import log_message
         log_message(f"🗓️ epim_update: {entity_type} id={entity_id}")
 
-        entity = entity_type.lower()
+        entity = _resolve_entity(entity_type)
+        if entity not in ("task", "contact", "note", "note_tab", "todo", "password"):
+            return json.dumps({"error": f"Unknown entity_type for update: {entity_type}. Use: task, contact, note, note_tab, todo, password"})
 
-        if entity in ("task", "termin"):
+        if entity == "task":
             ok = db.update_task(entity_id, **data)
-        elif entity in ("contact", "kontakt"):
+        elif entity == "contact":
             ok = db.update_contact(
                 entity_id,
                 name=data.get("name"),
                 fields=data.get("fields"),
                 tags=data.get("tags"),
             )
-        elif entity in ("note", "notiz"):
+        elif entity == "note":
             ok = db.update_note(entity_id, title=data.get("title"), tags=data.get("tags"))
-        elif entity in ("note_tab", "notiz_tab"):
+        elif entity == "note_tab":
             ok = db.update_note_tab(entity_id, name=data.get("name"), text=data.get("text"))
-        elif entity in ("todo", "aufgabe"):
+        elif entity == "todo":
             ok = db.update_todo(entity_id, **data)
-        elif entity in ("password", "passwort"):
+        else:  # password
             ok = db.update_password(
                 entity_id,
                 subject=data.get("subject"),
                 fields=data.get("fields"),
                 tags=data.get("tags"),
             )
-        else:
-            return json.dumps({"error": f"Unknown entity_type: {entity_type}"})
 
         status = "updated" if ok else "not found or unchanged"
         log_message(f"{'✅' if ok else '❌'} epim_update: {entity_type} {entity_id} → {status}")
@@ -217,20 +236,20 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         from .logging_utils import log_message
         log_message(f"🗓️ epim_delete: {entity_type} id={entity_id}")
 
-        entity = entity_type.lower()
+        entity = _resolve_entity(entity_type)
+        if entity not in ("task", "contact", "note", "todo", "password"):
+            return json.dumps({"error": f"Unknown entity_type for delete: {entity_type}. Use: task, contact, note, todo, password"})
 
-        if entity in ("task", "termin"):
+        if entity == "task":
             ok = db.delete_task(entity_id)
-        elif entity in ("contact", "kontakt"):
+        elif entity == "contact":
             ok = db.delete_contact(entity_id)
-        elif entity in ("note", "notiz"):
+        elif entity == "note":
             ok = db.delete_note(entity_id)
-        elif entity in ("todo", "aufgabe"):
+        elif entity == "todo":
             ok = db.delete_todo(entity_id)
-        elif entity in ("password", "passwort"):
+        else:  # password
             ok = db.delete_password(entity_id)
-        else:
-            return json.dumps({"error": f"Unknown entity_type: {entity_type}"})
 
         status = "deleted" if ok else "not found"
         log_message(f"{'✅' if ok else '❌'} epim_delete: {entity_type} {entity_id} → {status}")
@@ -239,55 +258,11 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
     # ----------------------------------------------------------
     # Tool definitions
     # ----------------------------------------------------------
-    search_desc = (
-        "Durchsuche die EPIM-Datenbank des Benutzers. Du MUSST dieses Tool aufrufen wenn: "
-        "(1) der Benutzer nach Terminen, Kalender oder Zeitplänen fragt, "
-        "(2) der Benutzer nach Kontakten, Telefonnummern oder Adressen fragt, "
-        "(3) der Benutzer nach Notizen, Todos oder Aufgaben fragt, "
-        "(4) der Benutzer nach Passwörtern fragt. "
-        "Antworte NIEMALS aus dem Gedächtnis — rufe IMMER dieses Tool auf!"
-    ) if lang == "de" else (
-        "Search the user's EPIM database. You MUST call this tool when: "
-        "(1) the user asks about appointments, calendar or schedules, "
-        "(2) the user asks about contacts, phone numbers or addresses, "
-        "(3) the user asks about notes, todos or tasks, "
-        "(4) the user asks about passwords. "
-        "NEVER answer from memory — ALWAYS call this tool!"
-    )
-
-    create_desc = (
-        "Erstelle einen neuen Eintrag in der EPIM-Datenbank. Du MUSST dieses Tool aufrufen wenn: "
-        "(1) der Benutzer einen Termin eintragen, anlegen oder erstellen möchte, "
-        "(2) der Benutzer einen Kontakt, eine Notiz, ein Todo oder ein Passwort anlegen möchte. "
-        "WICHTIG: Rufe dieses Tool SOFORT auf — beschreibe NICHT nur was du tun würdest! "
-        "Wenn der Benutzer die Kategorie bestätigt hat, rufe dieses Tool SOFORT auf!"
-    ) if lang == "de" else (
-        "Create a new entry in the EPIM database. You MUST call this tool when: "
-        "(1) the user wants to create, add or schedule an appointment, "
-        "(2) the user wants to create a contact, note, todo or password. "
-        "IMPORTANT: Call this tool IMMEDIATELY — do NOT just describe what you would do! "
-        "When the user confirms the category, call this tool IMMEDIATELY!"
-    )
-
-    update_desc = (
-        "Aktualisiere einen bestehenden EPIM-Eintrag. Du MUSST dieses Tool aufrufen wenn: "
-        "(1) der Benutzer einen Termin verschieben, ändern oder aktualisieren möchte, "
-        "(2) der Benutzer einen Kontakt, eine Notiz oder ein Todo ändern möchte. "
-        "Rufe dieses Tool SOFORT auf — beschreibe NICHT nur was du tun würdest!"
-    ) if lang == "de" else (
-        "Update an existing EPIM entry. You MUST call this tool when: "
-        "(1) the user wants to move, change or update an appointment, "
-        "(2) the user wants to edit a contact, note or todo. "
-        "Call this tool IMMEDIATELY — do NOT just describe what you would do!"
-    )
-
-    delete_desc = (
-        "Lösche einen EPIM-Eintrag (Soft-Delete, wiederherstellbar). Du MUSST dieses Tool aufrufen wenn "
-        "der Benutzer einen Termin, Kontakt, Notiz, Todo oder Passwort löschen oder entfernen möchte."
-    ) if lang == "de" else (
-        "Delete an EPIM entry (soft-delete, recoverable). You MUST call this tool when "
-        "the user wants to delete or remove an appointment, contact, note, todo or password."
-    )
+    from .prompt_loader import load_prompt
+    search_desc = load_prompt("shared/epim_tool_search", lang=lang)
+    create_desc = load_prompt("shared/epim_tool_create", lang=lang)
+    update_desc = load_prompt("shared/epim_tool_update", lang=lang)
+    delete_desc = load_prompt("shared/epim_tool_delete", lang=lang)
 
     return [
         Tool(

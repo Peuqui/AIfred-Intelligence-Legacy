@@ -286,6 +286,21 @@ def get_language() -> str:
     return _current_language
 
 
+def load_tool_description(filename: str) -> str:
+    """Load a tool description from prompts/shared/.
+
+    Args:
+        filename: File name (e.g. 'email_tool.txt')
+
+    Raises:
+        FileNotFoundError: If prompt file doesn't exist
+    """
+    path = PROMPTS_DIR / "shared" / filename
+    if not path.exists():
+        raise FileNotFoundError(f"Tool description not found: {path}")
+    return path.read_text(encoding="utf-8").strip()
+
+
 def load_prompt(
     prompt_name: str,
     lang: Optional[str] = None,

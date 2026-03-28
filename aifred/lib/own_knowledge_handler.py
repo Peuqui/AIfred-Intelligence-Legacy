@@ -120,9 +120,10 @@ async def handle_own_knowledge(
     # Agent Memory: recall + toolkit
     memory_toolkit = None
     if state and getattr(state, 'agent_memory_enabled', False) and agent != "vision":
-        from .agent_memory import prepare_agent_memory
-        memory_ctx, memory_toolkit = await prepare_agent_memory(
-            agent, user_text, lang=detected_language or "de", enabled=True,
+        from .agent_memory import prepare_agent_toolkit
+        memory_ctx, memory_toolkit = await prepare_agent_toolkit(
+            agent, user_text, lang=detected_language or "de",
+            research_tools_enabled=False,
         )
         if memory_ctx:
             system_prompt = f"{system_prompt}\n\n{memory_ctx}"

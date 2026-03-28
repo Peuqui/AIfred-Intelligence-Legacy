@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..function_calling import Tool
+from ..i18n import t
 from ..plugin import PluginContext
 
 
@@ -31,17 +32,14 @@ class EpimPlugin:
             entity = tool_args.get("entity_type", "")
             query = tool_args.get("query", "")
             if query:
-                return f"📅 {entity}: {query[:40]}"
-            return f"📅 {entity}..." if entity else "📅 EPIM..."
+                return t("tool_epim_search", lang=lang, entity=entity, query=query[:40])
+            return t("tool_epim_search_bare", lang=lang, entity=entity) if entity else "📅 EPIM..."
         elif tool_name == "epim_create":
-            entity = tool_args.get("entity_type", "")
-            return f"📅 Erstelle {entity}..." if lang == "de" else f"📅 Creating {entity}..."
+            return t("tool_epim_create", lang=lang, entity=tool_args.get("entity_type", ""))
         elif tool_name == "epim_update":
-            entity = tool_args.get("entity_type", "")
-            return f"📅 Aktualisiere {entity}..." if lang == "de" else f"📅 Updating {entity}..."
+            return t("tool_epim_update", lang=lang, entity=tool_args.get("entity_type", ""))
         elif tool_name == "epim_delete":
-            entity = tool_args.get("entity_type", "")
-            return f"📅 Lösche {entity}..." if lang == "de" else f"📅 Deleting {entity}..."
+            return t("tool_epim_delete", lang=lang, entity=tool_args.get("entity_type", ""))
         return ""
 
 
