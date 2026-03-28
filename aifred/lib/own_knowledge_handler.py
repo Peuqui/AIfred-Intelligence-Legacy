@@ -195,7 +195,7 @@ async def handle_own_knowledge(
 
         # Log RAW messages for debugging (v2.16.0+)
         from .logging_utils import log_raw_messages
-        log_raw_messages(f"{agent_label} (Own Knowledge)", messages, estimate_tokens)
+        log_raw_messages(f"{agent_label} (Own Knowledge)", messages, estimate_tokens, toolkit=memory_toolkit)
 
         # Stream response
         timer = Timer()

@@ -147,17 +147,19 @@ def debug_print_prompt(prompt_type: str, prompt: str, model_name: str) -> None:
     log_message("=" * 60)
 
 
-def log_raw_messages(agent_name: str, messages: list, token_counter=None) -> None:
+def log_raw_messages(agent_name: str, messages: list, token_counter=None,
+                     toolkit: object = None) -> None:
     """
-    Log RAW messages sent to an LLM (debug.log only).
+    Log RAW messages AND tool definitions sent to an LLM (debug.log only).
 
     Only logs when DEBUG_LOG_RAW_MESSAGES is True in config.py.
-    Logs full message content with token counts.
+    Logs full message content, token counts, and toolkit definitions.
 
     Args:
         agent_name: Name of the agent/LLM (e.g., "AUTOMATIK-LLM", "Sokrates")
         messages: List of message objects with 'role' and 'content' attributes/keys
         token_counter: Optional function to count tokens (receives [{"content": str}])
+        toolkit: Optional ToolKit with tool definitions sent to the LLM
     """
     from .config import DEBUG_LOG_RAW_MESSAGES
 
@@ -197,6 +199,17 @@ def log_raw_messages(agent_name: str, messages: list, token_counter=None) -> Non
         log_message(f"TOTAL: {len(messages)} messages, {total_tokens} tokens")
     else:
         log_message(f"TOTAL: {len(messages)} messages")
+
+    # Log toolkit definitions (what tools the LLM can call)
+    if toolkit and hasattr(toolkit, 'definitions'):
+        import json
+        log_message("-" * 40)
+        log_message(f"🔧 TOOLKIT: {len(toolkit.definitions)} tools")
+        log_message("-" * 40)
+        for tool_def in toolkit.definitions:
+            log_message(json.dumps(tool_def, ensure_ascii=False, indent=2))
+        log_message("-" * 40)
+
     log_message("=" * 80)
 
 

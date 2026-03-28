@@ -635,8 +635,9 @@ async def _run_agent_direct_response(
         memory_enabled = state.agent_memory_enabled  # type: ignore[attr-defined]
 
         # System prompt (memory layer depends on incognito toggle)
+        # tools=True always: EPIM/email tools are always available, not just in "automatik" mode
         research_tools_enabled = research_mode == "automatik"
-        system_prompt = get_prompt_func(lang=detected_lang, memory=memory_enabled, tools=research_tools_enabled)
+        system_prompt = get_prompt_func(lang=detected_lang, memory=memory_enabled, tools=True)
 
         memory_ctx, toolkit = await prepare_agent_toolkit(
             agent, user_query,
@@ -772,7 +773,7 @@ async def run_sokrates_direct_response(
     """Sokrates responds directly to user."""
     async for _ in _run_agent_direct_response(
         state, "sokrates", "Sokrates", "🏛️",
-        lambda lang=None, memory=True, tools=False: get_agent_direct_prompt("sokrates", lang=lang, memory=memory, tools=tools),
+        lambda lang=None, memory=True, tools=True: get_agent_direct_prompt("sokrates", lang=lang, memory=memory, tools=tools),
         user_query, detected_lang,
     ):
         yield
@@ -786,7 +787,7 @@ async def run_salomo_direct_response(
     """Salomo responds directly to user."""
     async for _ in _run_agent_direct_response(
         state, "salomo", "Salomo", "👑",
-        lambda lang=None, memory=True, tools=False: get_agent_direct_prompt("salomo", lang=lang, memory=memory, tools=tools),
+        lambda lang=None, memory=True, tools=True: get_agent_direct_prompt("salomo", lang=lang, memory=memory, tools=tools),
         user_query, detected_lang,
     ):
         yield
@@ -819,7 +820,7 @@ async def run_generic_agent_direct_response(
 
     async for _ in _run_agent_direct_response(
         state, agent_id, config.display_name, config.emoji,
-        lambda lang=None, memory=True, tools=False: get_agent_direct_prompt(agent_id, lang=lang, memory=memory, tools=tools),
+        lambda lang=None, memory=True, tools=True: get_agent_direct_prompt(agent_id, lang=lang, memory=memory, tools=tools),
         user_query, detected_lang,
         research_mode=research_mode,
         detected_intent=detected_intent,
