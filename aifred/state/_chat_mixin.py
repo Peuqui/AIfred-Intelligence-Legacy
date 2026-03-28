@@ -93,6 +93,19 @@ class ChatMixin(rx.State, mixin=True):
         self.progress_total = 0
         self.progress_failed = 0
 
+    # ── llama-swap Helpers ────────────────────────────────────────────
+
+    def _llamaswap_base_url(self) -> str:
+        """Get llama-swap base URL (without /v1 suffix)."""
+        return self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
+
+    async def _llamaswap_running_models(self) -> list[str]:
+        """Query llama-swap /running endpoint. Returns list of loaded model IDs, empty on error."""
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            resp = await http.get(f"{self._llamaswap_base_url()}/running")
+            return [m.get("model") for m in resp.json().get("running", [])]
+
     # ── Agent Panel Helpers ──────────────────────────────────────────
 
     def _get_mode_label(self, mode: str, round_num: int | None) -> str:
@@ -709,15 +722,11 @@ class ChatMixin(rx.State, mixin=True):
                 # Cold start warning for llama.cpp
                 if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
                     try:
-                        import httpx
-                        swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
-                        async with httpx.AsyncClient(timeout=5.0) as _http:
-                            resp = await _http.get(f"{swap_base}/running")
-                            running = [m.get("model") for m in resp.json().get("running", [])]
-                            _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
-                            if _eff_vl not in running:
-                                self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
-                                yield
+                        running = await self._llamaswap_running_models()
+                        _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
+                        if _eff_vl not in running:
+                            self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
+                            yield
                     except Exception:
                         pass
 
@@ -789,13 +798,9 @@ class ChatMixin(rx.State, mixin=True):
                     # Check if VL model is currently loaded
                     _vl_model_loaded = False
                     try:
-                        import httpx
-                        _swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
-                        async with httpx.AsyncClient(timeout=5.0) as _http:
-                            _resp = await _http.get(f"{_swap_base}/running")
-                            _running = [m.get("model") for m in _resp.json().get("running", [])]
-                            _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
-                            _vl_model_loaded = _eff_vl in _running
+                        _running = await self._llamaswap_running_models()
+                        _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
+                        _vl_model_loaded = _eff_vl in _running
                     except Exception:
                         pass
 
@@ -886,17 +891,13 @@ class ChatMixin(rx.State, mixin=True):
                     and self.research_mode == "automatik"  # type: ignore[attr-defined]
                     and effective_auto != _eff_vl_id):
                 try:
-                    import httpx
-                    _swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
-                    async with httpx.AsyncClient(timeout=5.0) as _http:
-                        _resp = await _http.get(f"{_swap_base}/running")
-                        _running = [m.get("model") for m in _resp.json().get("running", [])]
-                        if _eff_vl_id in _running:
-                            effective_auto = _eff_vl_id
-                            auto_num_ctx = None  # Let llama-swap use model's configured context
-                            self.add_debug(f"📷 VL Automatik: {effective_auto} already loaded → using for decision")
-                            log_message(f"📷 VL Automatik Override: {effective_auto} (saves model switch)")
-                            yield
+                    _running = await self._llamaswap_running_models()
+                    if _eff_vl_id in _running:
+                        effective_auto = _eff_vl_id
+                        auto_num_ctx = None  # Let llama-swap use model's configured context
+                        self.add_debug(f"📷 VL Automatik: {effective_auto} already loaded → using for decision")
+                        log_message(f"📷 VL Automatik Override: {effective_auto} (saves model switch)")
+                        yield
                 except Exception:
                     pass
 
@@ -907,30 +908,26 @@ class ChatMixin(rx.State, mixin=True):
             # ============================================================
             if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
                 try:
-                    import httpx
-                    swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
-                    async with httpx.AsyncClient(timeout=5.0) as http_client:
-                        resp = await http_client.get(f"{swap_base}/running")
-                        running_models = [m.get("model") for m in resp.json().get("running", [])]
-                        if effective_auto not in running_models:
-                            # Extract model details from llama-swap config
-                            details = ""
-                            try:
-                                from ..lib.llamacpp_calibration import parse_llamaswap_config
-                                from ..lib.config import LLAMASWAP_CONFIG_PATH
-                                model_info = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(effective_auto, {})
-                                parts: list[str] = []
-                                if model_info.get("current_context"):
-                                    parts.append(f"Context: {format_number(model_info['current_context'])}")
-                                if model_info.get("kv_cache_quant"):
-                                    parts.append(f"KV-Cache: {model_info['kv_cache_quant']}")
-                                if parts:
-                                    details = f" ({', '.join(parts)})"
-                            except Exception:
-                                pass
-                            self.add_debug(f"🔄 Model Cold Start ({effective_auto}){details} — loading into VRAM, this may take a while")
-                            log_message(f"🔄 Cold Start: {effective_auto}{details}")
-                            yield
+                    running_models = await self._llamaswap_running_models()
+                    if effective_auto not in running_models:
+                        # Extract model details from llama-swap config
+                        details = ""
+                        try:
+                            from ..lib.llamacpp_calibration import parse_llamaswap_config
+                            from ..lib.config import LLAMASWAP_CONFIG_PATH
+                            model_info = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(effective_auto, {})
+                            parts: list[str] = []
+                            if model_info.get("current_context"):
+                                parts.append(f"Context: {format_number(model_info['current_context'])}")
+                            if model_info.get("kv_cache_quant"):
+                                parts.append(f"KV-Cache: {model_info['kv_cache_quant']}")
+                            if parts:
+                                details = f" ({', '.join(parts)})"
+                        except Exception:
+                            pass
+                        self.add_debug(f"🔄 Model Cold Start ({effective_auto}){details} — loading into VRAM, this may take a while")
+                        log_message(f"🔄 Cold Start: {effective_auto}{details}")
+                        yield
                 except Exception:
                     pass  # Can't check — proceed normally, don't show false warnings
 
@@ -1069,15 +1066,11 @@ class ChatMixin(rx.State, mixin=True):
                             # Cold start check for VL model
                             if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
                                 try:
-                                    import httpx
-                                    swap_base = self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
-                                    async with httpx.AsyncClient(timeout=5.0) as _http:
-                                        resp = await _http.get(f"{swap_base}/running")
-                                        running = [m.get("model") for m in resp.json().get("running", [])]
-                                        _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
-                                        if _eff_vl not in running:
-                                            self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
-                                            yield
+                                    running = await self._llamaswap_running_models()
+                                    _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
+                                    if _eff_vl not in running:
+                                        self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
+                                        yield
                                 except Exception:
                                     pass
 
