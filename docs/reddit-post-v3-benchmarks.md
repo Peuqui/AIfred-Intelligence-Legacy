@@ -1,12 +1,8 @@
-# Reddit Post Draft — r/LocalLLaMA Benchmark Follow-Up
-
-**Title:** AIfred Intelligence benchmarks: 9 models debating "Dog vs Cat" in multi-agent tribunal — quality vs speed across 80B-235B (AIfred with upper "I" instead of lower "L" :-)
-
----
+AIfred Intelligence benchmarks: 9 models debating "Dog vs Cat" in multi-agent tribunal — quality vs speed across 80B-235B (AIfred with upper "I" instead of lower "L" :-) )
 
 Hey r/LocalLLaMA,
 
-Some of you might remember [my post from New Year's](https://www.reddit.com/r/LocalLLaMA/comments/...) about AIfred Intelligence — the self-hosted AI assistant with multi-agent debates, web research and voice interface. I promised model benchmarks back then. Here they are!
+Some of you might remember [my post from New Year's] https://www.reddit.com/r/LocalLLaMA/comments/1q0rrxr/i_built_aifredintelligence_a_selfhosted_ai/ about AIfred Intelligence — the self-hosted AI assistant with multi-agent debates, web research and voice interface. I promised model benchmarks back then. Here they are!
 
 **What I did:** I ran the same question — "What is better, dog or cat?" — through AIfred's Tribunal mode across 9 different models. In Tribunal mode, AIfred (the butler) argues his case, then Sokrates (the philosopher) tears it apart, they go 2 rounds, and finally Salomo (the judge) delivers a verdict. 18 sessions total, both in German and English. All benchmarked through AIfred's built-in performance metrics.
 
@@ -93,13 +89,11 @@ You can explore some of the exported debate sessions in browser:
 
 📊 **[Full Benchmark Analysis (English)](https://github.com/Peuqui/AIfred-Intelligence/blob/main/docs/benchmark-analysis-v2.en.md)** — detailed per-model quality analysis with quotes
 
-🔧 **[Hardware Setup](https://peuqui.github.io/AIfred-Intelligence/examples/Hardware_Setup_Frankenstein_MiniPC.html)** — the Frankenstein MiniPC with photos and cost breakdown
-
 **GitHub**: https://github.com/Peuqui/AIfred-Intelligence
 
 There's a lot of new features since my last post (sandboxed code execution, custom agents with long-term memory, EPIM database integration, voice cloning, and more). I'll do a separate feature update post soon. And I might also do a hardware post about my Frankenstein MiniPC setup — 4 GPUs hanging off a tiny box via OCuLink and USB4, with photos. It's not pretty, but it works 24/7 :-)
 
-Happy to answer questions about the benchmarks, the setup, or anything else!
+Happy to answer questions!
 
 Best,
 Peuqui

@@ -346,7 +346,9 @@ async def _stream_agent_to_history(
 
         elif chunk["type"] == "tool_call":
             tool_name = chunk.get("name", "")
-            state.add_debug(f"🔧 Tool call: {tool_name}({chunk.get('arguments', '')[:80]})")
+            full_args = chunk.get("arguments", "")
+            state.add_debug(f"🔧 Tool call: {tool_name}({full_args[:80]})")
+            log_message(f"🔧 Tool call: {tool_name}({full_args})")
 
             import json as _json
             tool_args = {}
@@ -376,6 +378,7 @@ async def _stream_agent_to_history(
         elif chunk["type"] == "tool_result":
             result_text = chunk.get("result", "")
             state.add_debug(f"🔧 Tool result: {result_text[:100]}")
+            log_message(f"🔧 Tool result: {result_text}")
             if fetched_urls and fetched_urls[-1]["success"] is None:
                 fetched_urls[-1]["success"] = "error" not in result_text.lower()[:50]
             # Capture sandbox output URLs for embedding

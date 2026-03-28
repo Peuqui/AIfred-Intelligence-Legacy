@@ -399,6 +399,11 @@ class EpimDatabase:
         if calendar_name:
             calendar_id = self.resolve_calendar(calendar_name)
 
+        # Sanitize priority (LLMs sometimes send "high"/"low" instead of int)
+        if isinstance(priority, str):
+            priority_map = {"low": 1, "medium": 5, "high": 9, "none": 0}
+            priority = priority_map.get(priority.lower(), 0)
+
         # Generate ID
         new_id = self._generate_id()
 
