@@ -145,10 +145,15 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     # 6. Save conversation + debug to session
     _save_to_session(session_id, message, response_text, debug)
 
-    # 7. Write global notification for UI toast (any active session)
+    # 7. Generate session title if missing
     from .session_storage import get_session_title
-    title = get_session_title(session_id) or subject or f"Nachricht von {message.sender}"
-    write_hub_notification(session_id, title, message.channel.upper(), message.sender)
+    title = get_session_title(session_id)
+    if not title:
+        title = await _generate_title(message.text, response_text, session_id)
+
+    # 8. Write global notification for UI toast (any active session)
+    display_title = title or subject or f"Nachricht von {message.sender}"
+    write_hub_notification(session_id, display_title, message.channel.upper(), message.sender)
 
     return outbound
 
@@ -221,6 +226,58 @@ async def _call_engine(
         return ""
 
     return "".join(response_parts)
+
+
+async def _generate_title(user_text: str, ai_response: str, session_id: str) -> str:
+    """Generate a session title via LLM (lightweight, no Reflex state needed)."""
+    from .llm_client import LLMClient
+    from .prompt_loader import load_prompt, get_language
+    from .session_storage import update_session_title
+    from .settings import load_settings
+    from .config import DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS, BACKEND_URLS, AUTOMATIK_LLM_NUM_CTX
+    from .context_manager import strip_thinking_blocks
+
+    settings = load_settings() or {}
+    backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
+    backend_models_saved = settings.get("backend_models", {}).get(backend_type, {})
+    backend_models_default = BACKEND_DEFAULT_MODELS.get(backend_type, {})
+    model = backend_models_saved.get("automatik_model", backend_models_default.get("automatik_model", ""))
+    backend_url = BACKEND_URLS.get(backend_type, "")
+
+    if not model:
+        return ""
+
+    # Truncate inputs
+    user_short = user_text[:500]
+    ai_short = strip_thinking_blocks(ai_response)[:500] if ai_response else ""
+
+    prompt = load_prompt(
+        "utility/chat_title",
+        lang=get_language(),
+        user_message=user_short,
+        ai_response=ai_short,
+    )
+
+    try:
+        client = LLMClient(backend_type=backend_type, base_url=backend_url)
+        response = await client.chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.3, "num_predict": 300, "num_ctx": AUTOMATIK_LLM_NUM_CTX},
+        )
+
+        title = strip_thinking_blocks(response.strip()).strip()
+        # Clean quotes and limit length
+        title = title.strip('"\'').strip()
+        if len(title) > 80:
+            title = title[:77] + "..."
+        if title:
+            update_session_title(session_id, title)
+            log_message(f"Message Processor: title generated: {title}")
+        return title
+    except Exception as exc:
+        log_message(f"Message Processor: title generation failed — {exc}", "warning")
+        return ""
 
 
 def _save_to_session(
