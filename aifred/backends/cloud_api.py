@@ -85,36 +85,6 @@ class CloudAPIBackend(OpenAICompatibleBackend):
             self._available_models = []
             return self._available_models
 
-    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
-        """
-        Preload a model - No-op for Cloud APIs.
-
-        Cloud APIs don't need preloading - models are always available.
-
-        Args:
-            model: Model name (ignored)
-            num_ctx: Context size (ignored)
-
-        Returns:
-            Tuple of (True, 0.0) - always succeeds instantly
-        """
-        logger.debug(f"☁️ Cloud API: Skipping preload for {model} (not needed)")
-        return (True, 0.0)
-
-    async def health_check(self) -> bool:
-        """
-        Check if Cloud API is reachable and API key is valid.
-
-        Uses models.list() as a lightweight check.
-        """
-        try:
-            # Try to list models - this validates the API key
-            await self.client.models.list()
-            return True
-        except openai.OpenAIError as e:
-            logger.warning(f"☁️ Cloud API health check failed: {e}")
-            return False
-
     def get_backend_name(self) -> str:
         """Return the provider display name."""
         return self.provider_config["name"]

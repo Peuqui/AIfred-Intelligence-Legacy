@@ -6,11 +6,10 @@ chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 """
 
 import logging
-from typing import List, Optional, Dict
+from typing import List, Dict
 import openai
 from .base import (
     OpenAICompatibleBackend,
-    BackendConnectionError,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,68 +28,8 @@ class vLLMBackend(OpenAICompatibleBackend):
     def __init__(self, base_url: str = "http://localhost:8000/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
 
-    async def list_models(self) -> List[str]:
-        """Get list of available models from vLLM"""
-        try:
-            models_response = await self.client.models.list()
-            self._available_models = [model.id for model in models_response.data]
-            return self._available_models
-        except openai.OpenAIError as e:
-            raise BackendConnectionError(f"Failed to list vLLM models: {e}")
-
-    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
-        """
-        Preload a model into VRAM by sending a minimal chat request.
-
-        For vLLM: Models are already loaded at startup and kept in VRAM.
-        Preloading is unnecessary and wastes time (~3-4s for queued test request).
-        We return immediately with success.
-
-        Args:
-            model: Model name to preload (e.g., 'qwen3:8b')
-            num_ctx: Ignored for vLLM (context is fixed at startup)
-
-        Returns:
-            Tuple of (success: bool, load_time: float in seconds)
-        """
-        # vLLM keeps models loaded in VRAM at all times
-        # No preloading needed - return immediately
-        logger.debug(f"vLLM: Skipping preload for {model} (already loaded)")
-        return (True, 0.0)
-
-    async def health_check(self) -> bool:
-        """Check if vLLM is reachable"""
-        try:
-            await self.client.models.list()
-            return True
-        except openai.OpenAIError:
-            return False
-
     def get_backend_name(self) -> str:
         return "vLLM"
-
-    async def get_backend_info(self) -> Dict:
-        """Get vLLM backend information"""
-        try:
-            models = await self.list_models()
-
-            return {
-                "backend": "vLLM",
-                "base_url": self.base_url,
-                "available_models": len(models),
-                "models": models,
-                "healthy": True,
-                "api_type": "OpenAI-compatible"
-            }
-        except openai.OpenAIError as e:
-            return {
-                "backend": "vLLM",
-                "base_url": self.base_url,
-                "available_models": 0,
-                "models": [],
-                "healthy": False,
-                "error": str(e)
-            }
 
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """

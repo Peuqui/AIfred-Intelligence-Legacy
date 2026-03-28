@@ -345,6 +345,54 @@ class OpenAICompatibleBackend(LLMBackend):
             timeout=self.DEFAULT_TIMEOUT,
         )
 
+    # === Common implementations (override in subclasses only if needed) ===
+
+    async def list_models(self) -> List[str]:
+        """Get list of available models via OpenAI-compatible API."""
+        import openai
+        try:
+            models_response = await self.client.models.list()
+            self._available_models = [model.id for model in models_response.data]
+            return self._available_models
+        except openai.OpenAIError as e:
+            raise BackendConnectionError(f"Failed to list {self.BACKEND_NAME} models: {e}")
+
+    async def health_check(self) -> bool:
+        """Check if backend is reachable via models.list()."""
+        import openai
+        try:
+            await self.client.models.list()
+            return True
+        except openai.OpenAIError:
+            return False
+
+    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
+        """No-op preload — models are already loaded. Override for Ollama/llamacpp."""
+        return (True, 0.0)
+
+    async def get_backend_info(self) -> Dict:
+        """Get backend information via models.list()."""
+        import openai
+        try:
+            models = await self.list_models()
+            return {
+                "backend": self.BACKEND_NAME,
+                "base_url": self.base_url,
+                "available_models": len(models),
+                "models": models,
+                "healthy": True,
+                "api_type": "OpenAI-compatible",
+            }
+        except openai.OpenAIError as e:
+            return {
+                "backend": self.BACKEND_NAME,
+                "base_url": self.base_url,
+                "available_models": 0,
+                "models": [],
+                "healthy": False,
+                "error": str(e),
+            }
+
     # === Hooks (override in subclasses as needed) ===
 
     def _build_extra_body(self, options: LLMOptions) -> Dict[str, Any]:

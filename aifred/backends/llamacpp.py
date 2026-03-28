@@ -184,15 +184,6 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
     # === Backend-specific methods ===
 
-    async def list_models(self) -> List[str]:
-        """Get list of available models from llama-swap"""
-        try:
-            models_response = await self.client.models.list()
-            self._available_models = [model.id for model in models_response.data]
-            return self._available_models
-        except openai.OpenAIError as e:
-            raise BackendConnectionError(f"Failed to list llama.cpp models: {e}")
-
     async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
         """
         Trigger llama-swap to load a model by sending a minimal completion request.
@@ -218,14 +209,6 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             load_time = time.time() - start
             logger.warning(f"llama.cpp: Preload failed for {model}: {e}")
             return (False, load_time)
-
-    async def health_check(self) -> bool:
-        """Check if llama-swap is reachable"""
-        try:
-            await self.client.models.list()
-            return True
-        except openai.OpenAIError:
-            return False
 
     def get_backend_name(self) -> str:
         return "llama.cpp"
