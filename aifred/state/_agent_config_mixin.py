@@ -210,71 +210,45 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Toggle Vision agent personality style on/off."""
         self._toggle_agent_feature("vision", "personality")
 
-    def _save_personality_settings(self) -> None:
-        """Save personality toggle states to settings.json."""
+    def _save_feature_settings(self, feature: str) -> None:
+        """Save toggle states for a feature (personality/reasoning/thinking) to settings."""
         from ..lib.settings import load_settings, save_settings
         settings = load_settings() or {}
-        settings["aifred_personality"] = self.aifred_personality
-        settings["sokrates_personality"] = self.sokrates_personality
-        settings["salomo_personality"] = self.salomo_personality
-        settings["vision_personality"] = self.vision_personality
+        for agent in ("aifred", "sokrates", "salomo", "vision"):
+            settings[f"{agent}_{feature}"] = getattr(self, f"{agent}_{feature}")
         save_settings(settings)
+
+    _save_personality_settings = lambda self: self._save_feature_settings("personality")  # noqa: E731
+    _save_reasoning_settings = lambda self: self._save_feature_settings("reasoning")  # noqa: E731
+    _save_thinking_settings = lambda self: self._save_feature_settings("thinking")  # noqa: E731
 
     # ── Reasoning Toggles ─────────────────────────────────────────
 
     def toggle_aifred_reasoning(self, _value: bool | None = None) -> None:
-        """Toggle AIfred chain-of-thought reasoning on/off."""
         self._toggle_agent_feature("aifred", "reasoning")
 
     def toggle_sokrates_reasoning(self, _value: bool | None = None) -> None:
-        """Toggle Sokrates chain-of-thought reasoning on/off."""
         self._toggle_agent_feature("sokrates", "reasoning")
 
     def toggle_salomo_reasoning(self, _value: bool | None = None) -> None:
-        """Toggle Salomo chain-of-thought reasoning on/off."""
         self._toggle_agent_feature("salomo", "reasoning")
 
     def toggle_vision_reasoning(self, _value: bool | None = None) -> None:
-        """Toggle Vision agent chain-of-thought reasoning on/off."""
         self._toggle_agent_feature("vision", "reasoning")
-
-    def _save_reasoning_settings(self) -> None:
-        """Save reasoning toggle states to settings.json."""
-        from ..lib.settings import load_settings, save_settings
-        settings = load_settings() or {}
-        settings["aifred_reasoning"] = self.aifred_reasoning
-        settings["sokrates_reasoning"] = self.sokrates_reasoning
-        settings["salomo_reasoning"] = self.salomo_reasoning
-        settings["vision_reasoning"] = self.vision_reasoning
-        save_settings(settings)
 
     # ── Thinking Toggles ──────────────────────────────────────────
 
     def toggle_aifred_thinking(self, _value: bool | None = None) -> None:
-        """Toggle AIfred model thinking (enable_thinking to backend) on/off."""
         self._toggle_agent_feature("aifred", "thinking")
 
     def toggle_sokrates_thinking(self, _value: bool | None = None) -> None:
-        """Toggle Sokrates model thinking on/off."""
         self._toggle_agent_feature("sokrates", "thinking")
 
     def toggle_salomo_thinking(self, _value: bool | None = None) -> None:
-        """Toggle Salomo model thinking on/off."""
         self._toggle_agent_feature("salomo", "thinking")
 
     def toggle_vision_thinking(self, _value: bool | None = None) -> None:
-        """Toggle Vision agent model thinking on/off."""
         self._toggle_agent_feature("vision", "thinking")
-
-    def _save_thinking_settings(self) -> None:
-        """Save thinking toggle states to settings.json."""
-        from ..lib.settings import load_settings, save_settings
-        settings = load_settings() or {}
-        settings["aifred_thinking"] = self.aifred_thinking
-        settings["sokrates_thinking"] = self.sokrates_thinking
-        settings["salomo_thinking"] = self.salomo_thinking
-        settings["vision_thinking"] = self.vision_thinking
-        save_settings(settings)
 
     # ================================================================
     # SAMPLING PARAMETERS
@@ -420,33 +394,26 @@ class AgentConfigMixin(rx.State, mixin=True):
     # SPEED MODE TOGGLES (llamacpp only)
     # ================================================================
 
-    def toggle_aifred_speed_mode(self, _value: bool | None = None) -> None:
-        """Toggle AIfred between speed variant (aggressive split, 32K ctx) and context variant."""
-        self.aifred_speed_mode = not self.aifred_speed_mode
-        self.add_debug(f"\U0001f500 AIfred mode: {self._speed_mode_debug_str(self.aifred_speed_mode, self.aifred_model_id, self.aifred_max_context)}")  # type: ignore[attr-defined]
+    def _toggle_speed_mode(self, agent: str) -> None:
+        """Toggle speed/context mode for any agent."""
+        attr = f"{agent}_speed_mode"
+        setattr(self, attr, not getattr(self, attr))
+        base_id = getattr(self, f"{agent}_model_id", "") or self.aifred_model_id  # type: ignore[attr-defined]
+        max_ctx = getattr(self, f"{agent}_max_context", 0)
+        self.add_debug(f"\U0001f500 {agent.capitalize()} mode: {self._speed_mode_debug_str(getattr(self, attr), base_id, max_ctx)}")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
+
+    def toggle_aifred_speed_mode(self, _value: bool | None = None) -> None:
+        self._toggle_speed_mode("aifred")
 
     def toggle_sokrates_speed_mode(self, _value: bool | None = None) -> None:
-        """Toggle Sokrates between speed variant and context variant."""
-        self.sokrates_speed_mode = not self.sokrates_speed_mode
-        base_id = self.sokrates_model_id or self.aifred_model_id  # type: ignore[attr-defined]
-        self.add_debug(f"\U0001f500 Sokrates mode: {self._speed_mode_debug_str(self.sokrates_speed_mode, base_id, self.sokrates_max_context)}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
+        self._toggle_speed_mode("sokrates")
 
     def toggle_salomo_speed_mode(self, _value: bool | None = None) -> None:
-        """Toggle Salomo between speed variant and context variant."""
-        self.salomo_speed_mode = not self.salomo_speed_mode
-        base_id = self.salomo_model_id or self.aifred_model_id  # type: ignore[attr-defined]
-        self.add_debug(f"\U0001f500 Salomo mode: {self._speed_mode_debug_str(self.salomo_speed_mode, base_id, self.salomo_max_context)}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
+        self._toggle_speed_mode("salomo")
 
     def toggle_vision_speed_mode(self, _value: bool | None = None) -> None:
-        """Toggle Vision between speed variant and context variant."""
-        self.vision_speed_mode = not self.vision_speed_mode
-        base_id = self.vision_model_id  # type: ignore[attr-defined]
-        # Vision has no max_context state var — pass 0 (debug str reads from cache)
-        self.add_debug(f"\U0001f500 Vision mode: {self._speed_mode_debug_str(self.vision_speed_mode, base_id, 0)}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
+        self._toggle_speed_mode("vision")
 
     def _speed_mode_debug_str(self, speed_on: bool, base_model_id: str, max_ctx: int) -> str:
         """Build debug string for speed mode toggle showing tensor-split and context."""
@@ -619,41 +586,27 @@ class AgentConfigMixin(rx.State, mixin=True):
         self._save_settings()  # type: ignore[attr-defined]
         self.add_debug(f"\U0001f321\ufe0f Salomo Offset: +{self.salomo_temperature_offset:.1f}")  # type: ignore[attr-defined]
 
-    def set_aifred_temperature_input(self, value: str) -> None:
-        """Set AIfred temperature from text input field."""
+    def _set_temperature_input(self, agent: str, value: str) -> None:
+        """Set temperature for any agent from text input field."""
         try:
-            self.temperature = max(0.0, min(2.0, float(value)))  # type: ignore[attr-defined]
-            self.add_debug(f"\U0001f321\ufe0f AIfred temperature={self.temperature}")  # type: ignore[attr-defined]
+            attr = "temperature" if agent == "aifred" else f"{agent}_temperature"
+            setattr(self, attr, max(0.0, min(2.0, float(value))))
+            self.add_debug(f"\U0001f321\ufe0f {agent.capitalize()} temperature={getattr(self, attr)}")  # type: ignore[attr-defined]
             self._save_settings()  # type: ignore[attr-defined]
         except (ValueError, TypeError):
             pass
+
+    def set_aifred_temperature_input(self, value: str) -> None:
+        self._set_temperature_input("aifred", value)
 
     def set_sokrates_temperature_input(self, value: str) -> None:
-        """Set Sokrates temperature from text input field."""
-        try:
-            self.sokrates_temperature = max(0.0, min(2.0, float(value)))
-            self.add_debug(f"\U0001f321\ufe0f Sokrates temperature={self.sokrates_temperature}")  # type: ignore[attr-defined]
-            self._save_settings()  # type: ignore[attr-defined]
-        except (ValueError, TypeError):
-            pass
+        self._set_temperature_input("sokrates", value)
 
     def set_salomo_temperature_input(self, value: str) -> None:
-        """Set Salomo temperature from text input field."""
-        try:
-            self.salomo_temperature = max(0.0, min(2.0, float(value)))
-            self.add_debug(f"\U0001f321\ufe0f Salomo temperature={self.salomo_temperature}")  # type: ignore[attr-defined]
-            self._save_settings()  # type: ignore[attr-defined]
-        except (ValueError, TypeError):
-            pass
+        self._set_temperature_input("salomo", value)
 
     def set_vision_temperature_input(self, value: str) -> None:
-        """Set Vision temperature from text input field."""
-        try:
-            self.vision_temperature = max(0.0, min(2.0, float(value)))
-            self.add_debug(f"\U0001f321\ufe0f Vision temperature={self.vision_temperature}")  # type: ignore[attr-defined]
-            self._save_settings()  # type: ignore[attr-defined]
-        except (ValueError, TypeError):
-            pass
+        self._set_temperature_input("vision", value)
 
     # ================================================================
     # MULTI-AGENT MODE SETTINGS
