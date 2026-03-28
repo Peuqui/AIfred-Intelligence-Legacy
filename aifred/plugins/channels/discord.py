@@ -116,6 +116,7 @@ class DiscordChannel(BaseChannel):
 
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.dm_messages = True
 
         client = discord.Client(intents=intents)
         _discord_client = client
@@ -131,7 +132,9 @@ class DiscordChannel(BaseChannel):
                 return
 
             # Filter by configured channels (empty = all)
-            if allowed_channels and message.channel.id not in allowed_channels:
+            # Always allow DMs (no guild = direct message)
+            is_dm = message.guild is None
+            if not is_dm and allowed_channels and message.channel.id not in allowed_channels:
                 return
 
             sender = f"{message.author.display_name} ({message.author.name})"
@@ -184,8 +187,12 @@ class DiscordChannel(BaseChannel):
         channel_id = int(outbound.channel_id)
         channel = _discord_client.get_channel(channel_id)
         if not channel:
-            log_message(f"Discord Plugin: channel {channel_id} not found", "error")
-            return
+            # DM channels may not be in cache — fetch from API
+            try:
+                channel = await _discord_client.fetch_channel(channel_id)
+            except Exception as exc:
+                log_message(f"Discord Plugin: channel {channel_id} not found — {exc}", "error")
+                return
 
         # Discord has a 2000 char limit per message
         text = outbound.text

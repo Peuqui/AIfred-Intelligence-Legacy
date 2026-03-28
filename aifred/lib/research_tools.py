@@ -12,11 +12,60 @@ import logging
 from typing import Any, AsyncGenerator, Callable, Optional, TYPE_CHECKING
 
 from .function_calling import Tool
+from .logging_utils import log_message as _log
 
 if TYPE_CHECKING:
     from ..state import AIState
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# Stateless adapter (for Message Hub — no Reflex State needed)
+# ============================================================
+
+class _ResearchStateAdapter:
+    """Minimal adapter providing the State interface for execute_research.
+
+    Used by the Message Hub (Discord, Email) where no Reflex browser
+    session exists. Reads config from settings, logs debug to file.
+    """
+
+    def __init__(self) -> None:
+        from .settings import load_settings
+        from .config import (
+            DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS, BACKEND_URLS,
+        )
+        settings = load_settings() or {}
+        self.backend_type: str = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
+        self.backend_url: str = BACKEND_URLS.get(self.backend_type, "")
+
+        # Model resolution
+        backend_models = settings.get("backend_models", {}).get(self.backend_type, {})
+        defaults = BACKEND_DEFAULT_MODELS.get(self.backend_type, {})
+        self.automatik_model_id: str = backend_models.get("aifred_model", defaults.get("aifred_model", ""))
+
+        # Result storage
+        self._research_context: str = ""
+        self._research_sources_html: str = ""
+
+    def _effective_model_id(self, agent: str = "aifred") -> str:
+        return self.automatik_model_id
+
+    def add_debug(self, msg: str) -> None:
+        _log(f"Research (Hub): {msg}")
+
+    def set_progress(self, **kwargs: Any) -> None:
+        pass  # No browser to update
+
+    def clear_progress(self) -> None:
+        pass
+
+    class _HistorySub:
+        llm_history: list = []  # type: ignore[assignment]
+
+    def _chat_sub(self) -> '_ResearchStateAdapter._HistorySub':
+        return self._HistorySub()
 
 
 # ============================================================
@@ -274,24 +323,24 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
 
     async def _execute_web_search(queries: list[str]) -> str:
         """Tool executor: runs full research pipeline with model-provided queries."""
-        if not state:
-            return json.dumps({"error": "No state available for research"})
         if not queries:
             return json.dumps({"error": "No search queries provided"})
 
         queries = queries[:3]
 
-        # Run pipeline as generator, consume all yields (no Reflex push needed here)
+        # Use adapter if no browser State (Message Hub: Discord, Email)
+        effective_state = state if state else _ResearchStateAdapter()
+
         async for _ in execute_research(
-            state=state,
-            user_query=queries[0],  # First query as cache key
+            state=effective_state,
+            user_query=queries[0],
             lang=lang,
             pre_generated_queries=queries,
-            skip_url_ranking=True,  # Avoid LLM recursion
+            skip_url_ranking=True,
         ):
-            pass  # Consume yields (progress updates set on state directly)
+            pass
 
-        result = getattr(state, "_research_context", "")
+        result = getattr(effective_state, "_research_context", "")
         return result if result else json.dumps({"error": "No results found"})
 
     async def _execute_web_fetch(url: str) -> str:
