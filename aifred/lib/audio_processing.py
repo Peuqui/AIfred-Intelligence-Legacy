@@ -122,6 +122,34 @@ def _generate_tts_filename(extension: str = "wav") -> str:
     return f"audio_{agent}_{engine}_{timestamp}.{extension}"
 
 
+def _resolve_tts_urls_to_paths(wav_urls: list[str]) -> list[str]:
+    """Convert TTS audio URLs to local file paths, filtering non-existent files."""
+    file_paths: list[str] = []
+    for url in wav_urls:
+        if "/_upload/tts_audio/" in url:
+            filename = url.split("/_upload/tts_audio/")[-1]
+            file_path = str(TTS_AUDIO_DIR / filename)
+            if os.path.exists(file_path):
+                file_paths.append(file_path)
+            else:
+                log_message(f"⚠️ Audio file not found: {file_path}")
+    return file_paths
+
+
+def _ffmpeg_concat(file_paths: list[str], output_path: str) -> bool:
+    """Concatenate audio files using ffmpeg. Returns True on success."""
+    input_args = []
+    for fp in file_paths:
+        input_args.extend(["-i", fp])
+
+    filter_inputs = "".join(f"[{i}:a]" for i in range(len(file_paths)))
+    filter_str = f"{filter_inputs}concat=n={len(file_paths)}:v=0:a=1"
+
+    cmd = ["ffmpeg", "-y", *input_args, "-filter_complex", filter_str, output_path]
+    result = subprocess.run(cmd, capture_output=True, timeout=30)
+    return result.returncode == 0 and os.path.exists(output_path)
+
+
 def concatenate_wav_files(wav_urls: list[str], delete_originals: bool = True) -> str | None:
     """
     Concatenate multiple WAV files into a single WAV file using ffmpeg.
@@ -138,75 +166,31 @@ def concatenate_wav_files(wav_urls: list[str], delete_originals: bool = True) ->
     """
     if not wav_urls:
         return None
-
     if len(wav_urls) == 1:
-        # Only one file, no concatenation needed
         return wav_urls[0]
 
-    # Convert URLs to file paths
-    file_paths: list[str] = []
-    for url in wav_urls:
-        # URL format: /_upload/tts_audio/filename.wav
-        # File path: TTS_AUDIO_DIR / filename.wav
-        if "/_upload/tts_audio/" in url:
-            filename = url.split("/_upload/tts_audio/")[-1]
-            file_path = str(TTS_AUDIO_DIR / filename)
-            if os.path.exists(file_path):
-                file_paths.append(file_path)
-            else:
-                log_message(f"⚠️ WAV concat: File not found: {file_path}")
-
+    file_paths = _resolve_tts_urls_to_paths(wav_urls)
     if len(file_paths) < 2:
-        # Not enough files to concatenate
         return wav_urls[0] if wav_urls else None
 
-    # Generate output filename
     output_filename = _generate_tts_filename("wav").replace(".wav", "_combined.wav")
     output_path = str(TTS_AUDIO_DIR / output_filename)
 
     try:
-        # Use ffmpeg concat filter to join WAV files
-        # This handles IEEE Float format that Python's wave module can't read
-        # Format: ffmpeg -i file1.wav -i file2.wav -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" out.wav
-
-        # Build input arguments
-        input_args = []
-        for fp in file_paths:
-            input_args.extend(["-i", fp])
-
-        # Build filter string: [0:a][1:a][2:a]...concat=n=N:v=0:a=1
-        filter_inputs = "".join(f"[{i}:a]" for i in range(len(file_paths)))
-        filter_str = f"{filter_inputs}concat=n={len(file_paths)}:v=0:a=1"
-
-        cmd = [
-            "ffmpeg", "-y",  # Overwrite output
-            *input_args,
-            "-filter_complex", filter_str,
-            output_path
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, timeout=30)
-
-        if result.returncode == 0 and os.path.exists(output_path):
+        if _ffmpeg_concat(file_paths, output_path):
             log_message(f"✅ WAV concat: {len(file_paths)} files → {output_filename}")
-
-            # Delete original chunk files if requested
             if delete_originals:
-                for file_path in file_paths:
+                for fp in file_paths:
                     try:
-                        os.remove(file_path)
+                        os.remove(fp)
                     except OSError:
-                        pass  # Ignore deletion errors
-
+                        pass
             return f"/_upload/tts_audio/{output_filename}"
         else:
-            error_msg = result.stderr.decode()[:200] if result.stderr else "Unknown error"
-            log_message(f"❌ WAV concat ffmpeg error: {error_msg}")
+            log_message("❌ WAV concat ffmpeg error")
             return wav_urls[0] if wav_urls else None
-
     except (subprocess.TimeoutExpired, OSError) as e:
         log_message(f"❌ WAV concat error: {e}")
-        # Return first URL as fallback
         return wav_urls[0] if wav_urls else None
 
 
@@ -259,18 +243,9 @@ def save_audio_to_session(wav_urls: list[str], session_id: str) -> str | None:
         return None
 
     # Multiple files: concatenate to session directory
-    file_paths: list[str] = []
-    for url in wav_urls:
-        if "/_upload/tts_audio/" in url:
-            filename = url.split("/_upload/tts_audio/")[-1]
-            file_path = str(TTS_AUDIO_DIR / filename)
-            if os.path.exists(file_path):
-                file_paths.append(file_path)
-            else:
-                log_message(f"⚠️ WAV concat: File not found: {file_path}")
+    file_paths = _resolve_tts_urls_to_paths(wav_urls)
 
     if len(file_paths) < 2:
-        # Not enough files, fall back to single file handling
         if file_paths:
             dest_path = session_audio_dir / output_filename
             shutil.copy2(file_paths[0], str(dest_path))
@@ -278,35 +253,15 @@ def save_audio_to_session(wav_urls: list[str], session_id: str) -> str | None:
             return f"/_upload/audio/{session_id}/{output_filename}"
         return wav_urls[0] if wav_urls else None
 
-    # Concatenate using ffmpeg
     output_path = str(session_audio_dir / output_filename)
 
     try:
-        # Build ffmpeg command
-        input_args = []
-        for fp in file_paths:
-            input_args.extend(["-i", fp])
-
-        filter_inputs = "".join(f"[{i}:a]" for i in range(len(file_paths)))
-        filter_str = f"{filter_inputs}concat=n={len(file_paths)}:v=0:a=1"
-
-        cmd = [
-            "ffmpeg", "-y",
-            *input_args,
-            "-filter_complex", filter_str,
-            output_path
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, timeout=30)
-
-        if result.returncode == 0 and os.path.exists(output_path):
+        if _ffmpeg_concat(file_paths, output_path):
             log_message(f"✅ Session audio: {len(file_paths)} chunks → {output_filename}")
             return f"/_upload/audio/{session_id}/{output_filename}"
         else:
-            error_msg = result.stderr.decode()[:200] if result.stderr else "Unknown error"
-            log_message(f"❌ Session audio ffmpeg error: {error_msg}")
+            log_message("❌ Session audio ffmpeg error")
             return wav_urls[0] if wav_urls else None
-
     except (subprocess.TimeoutExpired, OSError) as e:
         log_message(f"❌ Session audio error: {e}")
         return wav_urls[0] if wav_urls else None
