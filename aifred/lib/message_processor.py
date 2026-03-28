@@ -110,10 +110,14 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         log_message(f"Message Processor: new session {session_id[:8]} for {message.sender}")
 
     # ── Phase 1: Show incoming message immediately ─────────────
+    from .agent_config import get_agent_config as _get_agent_cfg
+    _cfg = _get_agent_cfg(message.target_agent)
+    agent_display_name = _cfg.display_name if _cfg else message.target_agent.capitalize()
+
     phase1_debug = [
         f"{_ts()} | 📨 {message.channel.upper()}: message from {message.sender}",
         f"{_ts()} | 📧 Subject: {subject}",
-        f"{_ts()} | 🤖 Agent: {message.target_agent}",
+        f"{_ts()} | 🤖 Agent: {agent_display_name}",
     ]
     _save_to_session(session_id, message, "", phase1_debug)
 
@@ -239,9 +243,13 @@ async def _call_engine(
         num_ctx = MAIN_LLM_FALLBACK_CONTEXT
         ctx_label = "fallback"
 
-    _dbg(f"🎩 {agent.upper()}-LLM: {model} ({backend_type})")
+    from .agent_config import get_agent_config
+    _agent_cfg = get_agent_config(agent)
+    agent_display = _agent_cfg.display_name if _agent_cfg else agent.capitalize()
+
+    _dbg(f"🎩 {agent_display}-LLM: {model} ({backend_type})")
     _dbg(f"📜 History: {len(llm_history)} messages")
-    log_message(f"Message Processor: calling {agent} ({model}), history={len(llm_history)} msgs, for: {user_text[:80]}...")
+    log_message(f"Message Processor: calling {agent_display} ({model}), history={len(llm_history)} msgs, for: {user_text[:80]}...")
 
     # Prepare full toolkit (memory + all plugin tools)
     # Language and memory toggle from settings (no State dependency)
@@ -258,7 +266,7 @@ async def _call_engine(
         session_id=session_id,
     )
     if toolkit:
-        _dbg(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent.upper()}")
+        _dbg(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_display}")
 
     # Collect response — forward ALL debug chunks to session console
     response_parts: list[str] = []
@@ -288,8 +296,8 @@ async def _call_engine(
                 _dbg(chunk.get("message", ""))
             elif chunk.get("type") == "result":
                 data = chunk.get("data", {})
-                if "ai_response" in data:
-                    return data["ai_response"]
+                if "response_clean" in data:
+                    return data["response_clean"]
     except Exception as exc:
         log_message(f"Message Processor: engine error — {exc}", "error")
         _dbg(f"❌ Engine error: {exc}")

@@ -2,7 +2,7 @@
 
 ---
 
-# 🎩 AIfred Intelligence v3.0
+# 🎩 AIfred Intelligence v3.1
 
 **Autonomer KI-Assistent mit Tool Use, Message Hub, Multi-Agent-Debatten & lokaler LLM-Inferenz**
 
@@ -1949,6 +1949,7 @@ Weitere Dokumentation im `docs/` Verzeichnis:
 - [Architecture Overview](docs/architecture/)
 - [API Documentation](docs/api/)
 - [Message Hub Architektur](docs/plans/message-hub-architecture.md)
+- [LLM-Aufruf-Architektur](docs/llm-call-architecture.md)
 - [Migration Guide](docs/infrastructure/MIGRATION.md)
 - [llama.cpp + llama-swap Setup Guide](docs/llamacpp-setup.md)
 - [Tensor Split Benchmark: Speed vs. Full Context](docs/tensor-split-benchmark.md)

@@ -15,11 +15,10 @@ Yields Dict-Messages die vom Aufrufer geroutet werden:
 
 from typing import AsyncIterator, Dict, List, Optional, Any, cast
 
-from .llm_client import LLMClient, build_llm_options, MessageType
-from .timer import Timer
-from .formatting import format_number, format_thinking_process, build_inference_metadata
+from .llm_client import LLMClient, build_llm_options
+from .formatting import format_number, build_inference_metadata
 from .prompt_loader import get_agent_direct_prompt, get_agent_system_prompt
-from .context_manager import estimate_tokens, strip_thinking_blocks
+from .context_manager import estimate_tokens
 from .intent_detector import get_temperature_for_intent, get_temperature_label
 from .logging_utils import log_message
 from .message_builder import inject_rag_context
@@ -88,6 +87,11 @@ async def call_llm(
     """
     yield {"type": "progress", "phase": "llm"}
 
+    # Compute proper display name early (used in all debug output)
+    from .agent_config import get_agent_config
+    _agent_cfg = get_agent_config(agent)
+    agent_label = _agent_cfg.display_name if _agent_cfg else agent.capitalize()
+
     # Build messages using centralized function (v2.16.0+)
     # Uses perspective="aifred" to correctly assign roles for all agents
     from .message_builder import build_messages_from_llm_history
@@ -121,8 +125,7 @@ async def call_llm(
     # Agent Memory: recall + toolkit
     memory_toolkit = external_toolkit
     if memory_toolkit:
-        # External toolkit provided (e.g. from Message Hub with full plugin tools)
-        yield {"type": "debug", "message": f"🔧 Toolkit: {[t.name for t in memory_toolkit.tools]}"}
+        pass  # External toolkit provided (e.g. from Message Hub) — already logged by caller
     elif state and getattr(state, 'agent_memory_enabled', False) and agent != "vision":
         from .agent_memory import prepare_agent_toolkit
         memory_ctx, memory_toolkit = await prepare_agent_toolkit(
@@ -131,7 +134,7 @@ async def call_llm(
         )
         if memory_ctx:
             system_prompt = f"{system_prompt}\n\n{memory_ctx}"
-            yield {"type": "debug", "message": f"🧠 Memory context injected for {agent}"}
+            yield {"type": "debug", "message": f"🧠 Memory context injected for {agent_label}"}
         if memory_toolkit:
             yield {"type": "debug", "message": f"🔧 Toolkit: {[t.name for t in memory_toolkit.tools]}"}
 
@@ -187,7 +190,6 @@ async def call_llm(
         model_limit = get_model_native_context(model_choice, backend_type)
 
         # Show context info
-        agent_label = agent.upper()
         yield {"type": "debug", "message": f"📊 {agent_label}: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})"}
 
         # Build LLM options via central builder (all sampling params from state).
@@ -204,74 +206,56 @@ async def call_llm(
                 arch_label += f", hybrid ngl={_cal['ngl']}"
         yield {"type": "debug", "message": f"🎩 {agent_label}-LLM starting: {model_choice} ({arch_label})"}
 
-        # Log RAW messages for debugging (v2.16.0+)
-        from .logging_utils import log_raw_messages
-        log_raw_messages(f"{agent_label} (Own Knowledge)", messages, estimate_tokens, toolkit=memory_toolkit)
-
-        # Stream response
-        timer = Timer()
+        # Stream response via unified pipeline (handles TTFT, tool tracking, metadata)
+        from .llm_pipeline import run_llm_stream, PipelineResult
         log_message("🔬 DEBUG: Starting inference")
-        full_response = ""
-        ttft = None
-        first_token_received = False
-        tokens_generated = 0
-        tokens_prompt = 0
-        metrics: dict = {}
 
-        async for chunk in llm_client.chat_stream(
-            model=model_choice,
-            messages=cast(list[MessageType], messages),
-            options=llm_options,
-            toolkit=memory_toolkit,
+        pipeline_result: PipelineResult | None = None
+
+        async for event in run_llm_stream(
+            llm_client, model_choice, cast(list, messages), llm_options, agent_label,
+            toolkit=memory_toolkit, retry=False,
         ):
-            if chunk["type"] == "content":
-                # Measure TTFT
-                if not first_token_received:
-                    ttft = timer.elapsed()
-                    first_token_received = True
-                    yield {"type": "debug", "message": f"⚡ TTFT: {format_number(ttft, 2)}s"}
+            event_type = event["type"]
+            if event_type == "content":
+                yield {"type": "content", "text": event["text"]}
+            elif event_type == "ttft":
+                yield {"type": "debug", "message": f"⚡ TTFT: {format_number(event['value'], 2)}s"}
+            elif event_type == "tool_call":
+                yield {"type": "debug", "message": f"🔧 Tool call: {event.get('name', '')}(...)"}
+            elif event_type == "tool_result":
+                yield {"type": "debug", "message": f"🔧 Tool result: {event.get('result', '')[:100]}"}
+            elif event_type == "pipeline_result":
+                pipeline_result = event["result"]
 
-                # Stream content
-                full_response += chunk["text"]
-                yield {"type": "content", "text": chunk["text"]}
+        if not pipeline_result:
+            yield {"type": "progress", "clear": True}
+            return
 
-            elif chunk["type"] == "done":
-                metrics = chunk.get("metrics", {})
-                tokens_generated = metrics.get("tokens_generated", 0)
-                tokens_prompt = metrics.get("tokens_prompt", 0)
-
-        inference_time = timer.elapsed()
-        tokens_per_sec = metrics.get("tokens_per_second", 0)
-
-        # Strip thinking blocks and format for display
-        response_clean = strip_thinking_blocks(full_response) if full_response else ""
-        thinking_html = format_thinking_process(
-            full_response,
-            model_name=model_choice,
-            inference_time=inference_time,
-            tokens_per_sec=tokens_per_sec
-        )
+        response_clean = pipeline_result.text_clean
+        thinking_html = pipeline_result.thinking_html
 
         # Update llm_history BEFORE calculating history_tokens
         # so "History: X tok" reflects the current conversation state (incl. AI response)
         if response_clean:
             llm_history.append({"role": "assistant", "content": f"[AIFRED]: {response_clean}"})
 
-        # Centralized metadata (PP speed, debug log, chat bubble)
+        # Rebuild metadata with hub-specific params (history_tokens, backend_type, source_label)
         from .context_manager import estimate_tokens_from_llm_history
         history_tokens = estimate_tokens_from_llm_history(llm_history)
         source_label = f"VL ({model_choice})" if agent == "vision" else f"Own Knowledge ({model_choice})"
 
         metadata_dict, metadata_display, debug_msg = build_inference_metadata(
-            ttft=ttft,
-            inference_time=inference_time,
-            tokens_generated=tokens_generated,
-            tokens_per_sec=tokens_per_sec,
+            ttft=pipeline_result.ttft,
+            inference_time=pipeline_result.inference_time,
+            tokens_generated=pipeline_result.metrics.get("tokens_generated", 0),
+            tokens_per_sec=pipeline_result.tokens_per_sec,
             source=source_label,
-            backend_metrics=metrics,
-            tokens_prompt=tokens_prompt,
+            backend_metrics=pipeline_result.metrics,
+            tokens_prompt=pipeline_result.metrics.get("tokens_prompt", 0),
             history_tokens=history_tokens,
             backend_type=backend_type,
+            agent_label=agent_label,
         )
         yield {"type": "debug", "message": debug_msg}
 
@@ -301,10 +285,10 @@ async def call_llm(
                 "response_clean": response_clean,
                 "response_html": thinking_html,
                 "history": history,
-                "llm_history": llm_history,  # Include updated llm_history
-                "inference_time": inference_time,
-                "tokens_per_sec": tokens_per_sec,
-                "ttft": ttft,
+                "llm_history": llm_history,
+                "inference_time": pipeline_result.inference_time,
+                "tokens_per_sec": pipeline_result.tokens_per_sec,
+                "ttft": pipeline_result.ttft,
                 "model_choice": model_choice,
                 "failed_sources": [],
             }

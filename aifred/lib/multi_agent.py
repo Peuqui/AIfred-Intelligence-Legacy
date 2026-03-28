@@ -11,13 +11,11 @@ This module contains the core Multi-Agent logic extracted from state.py.
 The functions work with async generators for streaming UI updates.
 """
 
-import asyncio
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 # Imports for the functions (same as original state.py methods)
 from .llm_client import LLMClient, build_llm_options
-from .timer import Timer
-from .formatting import format_number, format_thinking_process, build_inference_metadata
+from .formatting import format_number, format_thinking_process
 from .message_builder import build_messages_from_llm_history
 from .i18n import t
 from .context_manager import (
@@ -44,56 +42,6 @@ from ..backends.base import LLMOptions
 if TYPE_CHECKING:
     from ..state import AIState
 
-
-# ============================================================
-# RETRY HELPER FOR 500 ERRORS
-# ============================================================
-
-async def _chat_stream_with_retry(
-    llm_client: LLMClient,
-    model: str,
-    messages: list,
-    options: LLMOptions,
-    agent_name: str,
-    state: 'AIState',
-    retry_delay: float = 2.0,
-    max_retries: int = 1,
-    toolkit: Any = None,
-) -> AsyncGenerator[dict, None]:
-    """
-    Wrapper around llm_client.chat_stream() with retry logic for 500 errors.
-
-    On 500 error: Logs the error, waits retry_delay seconds, retries once.
-    If still fails, re-raises the error.
-    """
-    attempt = 0
-    last_error = None
-
-    while attempt <= max_retries:
-        try:
-            async for chunk in llm_client.chat_stream(model, messages, options, toolkit=toolkit):
-                yield chunk
-            return  # Success - exit the retry loop
-        except Exception as e:
-            error_str = str(e)
-            is_500_error = "500" in error_str and ("Internal Server Error" in error_str or "Server error" in error_str)
-
-            if is_500_error and attempt < max_retries:
-                # Log the error (visible in console and debug)
-                log_message(f"⚠️ {agent_name}: 500 Error - retrying in {retry_delay}s...")
-                state.add_debug(f"⚠️ {agent_name}: 500 Error (attempt {attempt + 1}/{max_retries + 1}) - {error_str}")
-
-                # Wait and retry
-                await asyncio.sleep(retry_delay)
-                attempt += 1
-                last_error = e
-            else:
-                # Not a 500 error or max retries reached - re-raise
-                raise
-
-    # Should not reach here, but if we do, raise the last error
-    if last_error:
-        raise last_error
 
 
 def _estimate_prompt_tokens(prompt: str) -> int:
@@ -211,14 +159,6 @@ def parse_pro_contra(analysis: str) -> tuple[str, str]:
 # STREAMING HELPERS
 # ============================================================
 
-def _strip_tool_json(text: str) -> str:
-    """Remove store_memory JSON from response text (fallback tool-call artifact)."""
-    import re
-    return re.sub(
-        r'\{\s*"content"\s*:\s*"[^"]+"\s*,\s*"memory_type"\s*:\s*"[^"]+"\s*,\s*"summary"\s*:\s*"[^"]+"[^}]*\}',
-        "", text,
-    ).strip()
-
 def _format_stream_result(
     result: dict[str, Any],
     agent_label: str,
@@ -286,6 +226,8 @@ async def _stream_agent_to_history(
     """Stream an agent's response into current_ai_response (unified streaming).
 
     Generic streaming function used by all agents (Sokrates, AIfred, Salomo).
+    Delegates chunk processing to run_llm_stream() pipeline and handles
+    UI-specific concerns (streaming, TTS, tool status).
 
     Performance-optimized: Does NOT update chat_history during streaming.
     Only updates state.current_ai_response which is shown in unified streaming_box.
@@ -295,164 +237,112 @@ async def _stream_agent_to_history(
         agent: Agent key for state/TTS ("sokrates", "aifred", "salomo")
         agent_label: Display label for logs ("Sokrates", "AIfred Refinement", "Salomo")
     """
-    full_response = ""
-    token_count = 0
-    timer = Timer()
-    ttft = 0.0
-    first_token = False
-    metrics: dict[str, Any] = {}
-    fetched_urls: list[dict[str, Any]] = []  # Track web_fetch URLs for sources collapsible
-    sandbox_html_urls: list[str] = []  # Track sandbox HTML output URLs
-    sandbox_image_urls: list[str] = []  # Track sandbox image URLs
+    from .llm_pipeline import run_llm_stream, PipelineResult
 
-    # Set current agent for UI styling
+    # State setup: UI styling, vLLM model loading, TTS init
     state._set_current_agent(agent)
     state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
 
-    # vLLM: ensure correct model is loaded (triggers restart if model changed)
     if state.backend_type == "vllm":
         await state._ensure_vllm_model(model)
 
-    # Initialize streaming TTS
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         state._init_streaming_tts(agent=agent)
 
-    # RAW debug logging: complete prompt + toolkit for every LLM call
-    log_raw_messages(f"{agent_label} (stream)", messages, estimate_tokens, toolkit=toolkit)
+    # Consume pipeline event stream
+    pipeline_result: PipelineResult | None = None
 
-    async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, agent_label, state, toolkit=toolkit):
-        if chunk["type"] == "content":
-            if not first_token:
-                ttft = timer.elapsed()
-                log_message(f"⚡ {agent_label} TTFT: {format_number(ttft, 2)}s")
-                state.add_debug(f"⚡ TTFT: {format_number(ttft, 2)}s")
-                first_token = True
+    async for event in run_llm_stream(
+        llm_client, model, messages, options, agent_label,
+        toolkit=toolkit, on_debug=state.add_debug,
+    ):
+        event_type = event["type"]
 
-            full_response += chunk["text"]
-            token_count += 1
-
-            if state.stream_text_to_ui(chunk["text"]):
+        if event_type == "content":
+            if state.stream_text_to_ui(event["text"]):
                 yield  # type: ignore[misc]
 
-        elif chunk["type"] == "tool_call_start":
-            # Early notification: tool name known, arguments still streaming
-            tool_name = chunk.get("name", "")
+        elif event_type == "ttft":
+            state.add_debug(f"⚡ TTFT: {format_number(event['value'], 2)}s")
+
+        elif event_type == "tool_call_start":
+            tool_name = event.get("name", "")
             state.add_debug(f"🔧 Tool call: {tool_name}(...)")
-            lang = state.ui_language
-            status = _get_plugin_ui_status(tool_name, {}, lang)
+            status = _get_plugin_ui_status(tool_name, {}, state.ui_language)
             if status:
                 state.set_tool_status(status)
             yield  # type: ignore[misc]
 
-        elif chunk["type"] == "tool_call":
-            tool_name = chunk.get("name", "")
-            full_args = chunk.get("arguments", "")
+        elif event_type == "tool_call":
+            tool_name = event.get("name", "")
+            full_args = event.get("arguments", "")
             state.add_debug(f"🔧 Tool call: {tool_name}({full_args[:80]})")
-            log_message(f"🔧 Tool call: {tool_name}({full_args})")
 
             import json as _json
             tool_args = {}
             try:
-                tool_args = _json.loads(chunk.get("arguments", "{}"))
+                tool_args = _json.loads(full_args) if full_args else {}
             except (ValueError, _json.JSONDecodeError):
                 pass
 
-            lang = state.ui_language
-
-            # Track fetched URLs for sources collapsible
-            if tool_name == "web_fetch":
-                url = tool_args.get("url", "")
-                fetched_urls.append({"url": url, "success": None})
-
-            # UI status via plugins (or memory tool)
             if tool_name == "store_memory":
-                state.set_tool_status(t("tool_memory", lang=lang))
+                state.set_tool_status(t("tool_memory", lang=state.ui_language))
             else:
-                status = _get_plugin_ui_status(tool_name, tool_args, lang)
+                status = _get_plugin_ui_status(tool_name, tool_args, state.ui_language)
                 if status:
                     state.set_tool_status(status)
 
             yield  # type: ignore[misc]
             yield  # type: ignore[misc]
 
-        elif chunk["type"] == "tool_result":
-            result_text = chunk.get("result", "")
-            state.add_debug(f"🔧 Tool result: {result_text[:100]}")
-            log_message(f"🔧 Tool result: {result_text}")
-            if fetched_urls and fetched_urls[-1]["success"] is None:
-                fetched_urls[-1]["success"] = "error" not in result_text.lower()[:50]
-            # Capture sandbox output URLs for embedding
-            for line in result_text.split("\n"):
-                if line.startswith("SANDBOX_HTML_URL: "):
-                    sandbox_html_urls.append(line.split("SANDBOX_HTML_URL: ", 1)[1].strip())
-                elif line.startswith("SANDBOX_IMAGE_URL: "):
-                    sandbox_image_urls.append(line.split("SANDBOX_IMAGE_URL: ", 1)[1].strip())
+        elif event_type == "tool_result":
+            state.add_debug(f"🔧 Tool result: {event.get('result', '')[:100]}")
             state.clear_tool_status()
             yield  # type: ignore[misc]
 
-        elif chunk["type"] == "thinking":
-            thinking_content = chunk.get("text", "")
-            if thinking_content:
-                full_response += f"<think>{thinking_content}</think>"
+        elif event_type == "pipeline_result":
+            pipeline_result = event["result"]
 
-        elif chunk["type"] == "done":
-            metrics = chunk.get("metrics", {})
-            token_count = metrics.get("tokens_generated", token_count)
+    if not pipeline_result:
+        state._set_current_agent("")
+        return
 
     # Flush remaining buffer to state
     if state.flush_stream_to_ui():
         yield  # type: ignore[misc]
 
-    # Strip fallback tool-call JSON from response text (if model output it as text)
-    full_response = _strip_tool_json(full_response)
+    state.add_debug(pipeline_result.debug_msg)
 
-    # Finalize streaming TTS: send any remaining text in buffer
+    # Finalize streaming TTS
     audio_urls: list[str] = []
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         audio_urls = await state._finalize_streaming_tts()
-
-    # Centralized metadata (PP speed, debug log, chat bubble)
-    inference_time = timer.elapsed()
-    tokens_per_sec = metrics.get("tokens_per_second", 0)
-
-    metadata_dict, metadata_display, debug_msg = build_inference_metadata(
-        ttft=ttft,
-        inference_time=inference_time,
-        tokens_generated=token_count,
-        tokens_per_sec=tokens_per_sec,
-        source=f"{agent_label} ({model})",
-        backend_metrics=metrics,
-        tokens_prompt=metrics.get("tokens_prompt", 0),
-        agent_label=agent_label,
-        response_chars=len(full_response),
-    )
-    state.add_debug(debug_msg)
     if audio_urls:
         log_message(f"🔊 {agent_label}: {len(audio_urls)} audio URLs collected for message")
 
-    # Build web sources collapsible if web_fetch was used
+    # Build web sources collapsible from tracked URLs
     sources_html = ""
-    if fetched_urls:
+    if pipeline_result.fetched_urls:
         from .formatting import build_sources_collapsible
         successful = [{"url": u["url"], "word_count": 0, "rank_index": i, "success": True}
-                      for i, u in enumerate(fetched_urls) if u.get("success")]
+                      for i, u in enumerate(pipeline_result.fetched_urls) if u.get("success")]
         failed = [{"url": u["url"], "error": "fetch failed", "rank_index": i}
-                  for i, u in enumerate(fetched_urls) if not u.get("success")]
+                  for i, u in enumerate(pipeline_result.fetched_urls) if not u.get("success")]
         sources_html = build_sources_collapsible(successful, failed)
 
     # Build sandbox output (iframes for HTML, img tags for plots)
     sandbox_html = ""
     sandbox_parts: list[str] = []
-    if sandbox_html_urls:
+    if pipeline_result.sandbox_html_urls:
         from .formatting import build_sandbox_iframe
-        sandbox_parts.extend(build_sandbox_iframe(url) for url in sandbox_html_urls)
-    if sandbox_image_urls:
+        sandbox_parts.extend(build_sandbox_iframe(url) for url in pipeline_result.sandbox_html_urls)
+    if pipeline_result.sandbox_image_urls:
         from .formatting import build_sandbox_image
-        sandbox_parts.extend(build_sandbox_image(url) for url in sandbox_image_urls)
+        sandbox_parts.extend(build_sandbox_image(url) for url in pipeline_result.sandbox_image_urls)
     sandbox_html = "\n".join(sandbox_parts)
 
     # Sync to llm_history with CLEAN text (no HTML collapsibles)
-    state._sync_to_llm_history(agent, full_response)
+    state._sync_to_llm_history(agent, pipeline_result.text)
 
     # Clear streaming state (cleanup BEFORE yield)
     state._js_chunk_buffer = ""
@@ -461,11 +351,11 @@ async def _stream_agent_to_history(
 
     # Return result as final yield (dict = result, None = UI update)
     yield {
-        "text": full_response,
+        "text": pipeline_result.text,
         "sources_html": sources_html,
         "sandbox_html": sandbox_html,
-        "metadata_display": metadata_display,
-        "metadata_dict": metadata_dict,
+        "metadata_display": pipeline_result.metadata_display,
+        "metadata_dict": pipeline_result.metadata_dict,
         "audio_urls": audio_urls,
     }
 
