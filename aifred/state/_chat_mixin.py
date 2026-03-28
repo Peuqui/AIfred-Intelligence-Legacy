@@ -554,6 +554,109 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── Main Send Message ────────────────────────────────────────────
 
+    async def _phase_tts_container_checks(self) -> AsyncGenerator[None, None]:
+        """Ensure TTS containers are running before LLM loads models (reserves VRAM)."""
+        if self.enable_tts and self.tts_engine == "xtts" and not self.xtts_force_cpu:  # type: ignore[attr-defined]
+            from ..lib.process_utils import ensure_xtts_ready
+            self.add_debug("🔊 XTTS: Checking container...")
+            yield
+            success, msg = ensure_xtts_ready(timeout=60)
+            self.add_debug(f"{'✅' if success else '⚠️'} {msg}")
+            yield
+        elif self.enable_tts and self.tts_engine == "moss":  # type: ignore[attr-defined]
+            from ..lib.process_utils import ensure_moss_ready
+            self.add_debug("🔊 MOSS-TTS: Checking container...")
+            yield
+            success, msg, device = ensure_moss_ready(timeout=120)
+            self.moss_tts_device = device if success else ""  # type: ignore[attr-defined]
+            self.add_debug(f"{'✅' if success else '⚠️'} {msg}")
+            yield
+
+    async def _phase_pre_message_compression(
+        self, llm_client: Any, detected_language: str,
+    ) -> AsyncGenerator[None, None]:
+        """Check if history compression is needed before adding new message."""
+        if not self._chat_sub().chat_history:
+            return
+
+        from ..lib.context_manager import summarize_history_if_needed, get_largest_compression_model
+        from ..lib.research.context_utils import get_agent_num_ctx
+        from ..lib.prompt_loader import get_max_system_prompt_tokens
+
+        # Determine effective context limit (minimum of all agents)
+        context_limits: list[int] = []
+        aifred_ctx, _ = get_agent_num_ctx("aifred", self, self._effective_model_id("aifred"))  # type: ignore[attr-defined, arg-type]
+        context_limits.append(aifred_ctx)
+
+        if self.multi_agent_mode != "standard":  # type: ignore[attr-defined]
+            if self.sokrates_model_id:  # type: ignore[attr-defined]
+                sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self._effective_model_id("sokrates"))  # type: ignore[attr-defined, arg-type]
+                context_limits.append(sokrates_ctx)
+            if self.salomo_model_id:  # type: ignore[attr-defined]
+                salomo_ctx, _ = get_agent_num_ctx("salomo", self, self._effective_model_id("salomo"))  # type: ignore[attr-defined, arg-type]
+                context_limits.append(salomo_ctx)
+
+        context_limit = min(context_limits) if context_limits else 4096
+        system_prompt_tokens = get_max_system_prompt_tokens(self.multi_agent_mode, detected_language)  # type: ignore[attr-defined]
+
+        compression_model = get_largest_compression_model(
+            aifred_model=self._effective_model_id("aifred"),  # type: ignore[attr-defined]
+            sokrates_model=self._effective_model_id("sokrates"),  # type: ignore[attr-defined]
+            salomo_model=self._effective_model_id("salomo"),  # type: ignore[attr-defined]
+        )
+
+        async for event in summarize_history_if_needed(
+            history=self._chat_sub().chat_history,
+            llm_client=llm_client,
+            model_name=compression_model,
+            context_limit=context_limit,
+            llm_history=self._chat_sub().llm_history,
+            system_prompt_tokens=system_prompt_tokens,
+            detected_language=detected_language,
+        ):
+            if event["type"] == "history_update":
+                self._chat_sub().chat_history = event["chat_history"]
+                if event.get("llm_history") is not None:
+                    self._chat_sub().llm_history = event["llm_history"]
+                _ch = self._chat_sub()
+                self.add_debug(f"✅ Pre-Message Compression: {len(_ch.chat_history)} UI / {len(_ch.llm_history)} LLM messages")
+                yield
+            elif event["type"] == "debug":
+                self.add_debug(event["message"])
+                yield
+
+    async def _phase_finally_tts(self, ai_text: str) -> AsyncGenerator[None, None]:
+        """Generate TTS audio in finally block (standard mode only, non-streaming)."""
+        import re
+        if not (self.enable_tts and self.multi_agent_mode == "standard" and not self.tts_streaming_enabled):  # type: ignore[attr-defined]
+            return
+
+        try:
+            self.add_debug("🔊 TTS: Starting TTS generation...")
+            _ch = self._chat_sub()
+            if len(_ch.llm_history) > 0:
+                last_msg = _ch.llm_history[-1]
+                if last_msg.get("role") == "assistant":
+                    ai_response = last_msg.get("content", "")
+                    tts_agent = "aifred"
+                    agent_match = re.match(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', ai_response)
+                    if agent_match:
+                        tts_agent = agent_match.group(1).lower()
+                        ai_response = ai_response[agent_match.end():]
+                    if ai_response and ai_response.strip():
+                        await self._generate_tts_for_response(ai_response, agent=tts_agent)  # type: ignore[attr-defined]
+                        yield
+                    else:
+                        self.add_debug("⚠️ TTS: Enabled but no AI response to convert")
+                else:
+                    self.add_debug("⚠️ TTS: Last message is not from assistant")
+            else:
+                self.add_debug("⚠️ TTS: Enabled but LLM history is empty")
+        except (RuntimeError, FileNotFoundError, ValueError) as tts_error:
+            self.add_debug(f"⚠️ TTS generation failed: {tts_error}")
+            from ..lib.logging_utils import log_message
+            log_message(f"❌ TTS error in finally block: {tts_error}")
+
     async def send_message(self, text: str = "") -> AsyncGenerator[None, None]:  # type: ignore[misc]
         """Send message to LLM with optional web research.
 
@@ -574,13 +677,10 @@ class ChatMixin(rx.State, mixin=True):
         if not user_text and not has_pending_images:
             return  # Nothing to send
 
-        # Leerer user_text ist erlaubt für reine OCR-Extraktion (ohne Interpretation)
-
         if self.is_generating:
             self.add_debug("⚠️ Already generating, please wait...")
             return
 
-        # Ensure backend is initialized (should already be done by on_load)
         await self._ensure_backend_initialized()  # type: ignore[attr-defined]
 
         # ============================================================
@@ -670,29 +770,7 @@ class ChatMixin(rx.State, mixin=True):
             await self._ensure_vllm_model()  # type: ignore[attr-defined]
 
         # TTS: Ensure Docker container is running BEFORE Ollama loads models (reserves VRAM)
-        # This runs on every message, not just at startup - handles container restart scenarios
-        if self.enable_tts and self.tts_engine == "xtts" and not self.xtts_force_cpu:  # type: ignore[attr-defined]
-            from ..lib.process_utils import ensure_xtts_ready
-
-            self.add_debug("🔊 XTTS: Checking container...")
-            yield  # Show debug message
-            success, msg = ensure_xtts_ready(timeout=60)
-            if success:
-                self.add_debug(f"✅ {msg}")
-            else:
-                self.add_debug(f"⚠️ {msg}")
-            yield  # Update UI
-        elif self.enable_tts and self.tts_engine == "moss":  # type: ignore[attr-defined]
-            from ..lib.process_utils import ensure_moss_ready
-
-            self.add_debug("🔊 MOSS-TTS: Checking container...")
-            yield
-            success, msg, device = ensure_moss_ready(timeout=120)
-            self.moss_tts_device = device if success else ""  # type: ignore[attr-defined]
-            if success:
-                self.add_debug(f"✅ {msg}")
-            else:
-                self.add_debug(f"⚠️ {msg}")
+        async for _ in self._phase_tts_container_checks():
             yield
 
         try:
@@ -961,71 +1039,9 @@ class ChatMixin(rx.State, mixin=True):
                 self.add_debug(f"🎯 Intent: {detected_intent}, Addressee: {addressee_display}, Lang: {detected_language.upper()}")
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
 
-            # ============================================================
             # PRE-MESSAGE: History Compression Check
-            # ============================================================
-            # Check BEFORE adding new message - handles session restore, model changes, etc.
-
-            if self._chat_sub().chat_history:
-                from ..lib.context_manager import summarize_history_if_needed, get_largest_compression_model
-                from ..lib.research.context_utils import get_agent_num_ctx
-
-                # Determine effective context limit using per-agent settings
-                # Uses get_agent_num_ctx() which is the SINGLE SOURCE OF TRUTH
-                context_limits: list[int] = []
-
-                # AIfred context
-                aifred_ctx, _ = get_agent_num_ctx("aifred", self, self._effective_model_id("aifred"))  # type: ignore[attr-defined, arg-type]
-                context_limits.append(aifred_ctx)
-
-                # Multi-agent contexts (if not standard mode)
-                if self.multi_agent_mode != "standard":  # type: ignore[attr-defined]
-                    if self.sokrates_model_id:  # type: ignore[attr-defined]
-                        sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self._effective_model_id("sokrates"))  # type: ignore[attr-defined, arg-type]
-                        context_limits.append(sokrates_ctx)
-                    if self.salomo_model_id:  # type: ignore[attr-defined]
-                        salomo_ctx, _ = get_agent_num_ctx("salomo", self, self._effective_model_id("salomo"))  # type: ignore[attr-defined, arg-type]
-                        context_limits.append(salomo_ctx)
-
-                # Use minimum of all agent limits
-                context_limit = min(context_limits) if context_limits else 4096
-
-                # Get system prompt tokens from cache (v2.14.0+)
-                # Cache is populated at startup in on_load()
-                from ..lib.prompt_loader import get_max_system_prompt_tokens
-                system_prompt_tokens = get_max_system_prompt_tokens(self.multi_agent_mode, detected_language)  # type: ignore[attr-defined]
-
-                # Select largest model for compression (AIfred/Sokrates/Salomo)
-                compression_model = get_largest_compression_model(
-                    aifred_model=self._effective_model_id("aifred"),  # type: ignore[attr-defined]
-                    sokrates_model=self._effective_model_id("sokrates"),  # type: ignore[attr-defined]
-                    salomo_model=self._effective_model_id("salomo"),  # type: ignore[attr-defined]
-                )
-
-                # Check and compress if needed (DUAL-HISTORY)
-                async for event in summarize_history_if_needed(
-                    history=self._chat_sub().chat_history,
-                    llm_client=llm_client,
-                    model_name=compression_model,  # Use largest available model for quality
-                    context_limit=context_limit,
-                    llm_history=self._chat_sub().llm_history,
-                    system_prompt_tokens=system_prompt_tokens,
-                    detected_language=detected_language,  # From Intent Detection
-                ):
-                    if event["type"] == "history_update":
-                        # DUAL-HISTORY: Update both histories
-                        self._chat_sub().chat_history = event["chat_history"]
-                        if event.get("llm_history") is not None:
-                            self._chat_sub().llm_history = event["llm_history"]
-                        _ch = self._chat_sub()
-                        self.add_debug(f"✅ Pre-Message Compression: {len(_ch.chat_history)} UI / {len(_ch.llm_history)} LLM messages")
-                        yield
-                    elif event["type"] == "debug":
-                        self.add_debug(event["message"])
-                        yield
-
-            # NOTE: User message was already added to chat_history at the start of send_message()
-            # (before XTTS check) so user sees their message immediately
+            async for _ in self._phase_pre_message_compression(llm_client, detected_language):
+                yield
 
             # ============================================================
             # VL FOLLOW-UP PATH: No new images, but images in history?
@@ -1232,49 +1248,9 @@ class ChatMixin(rx.State, mixin=True):
             if len(self.pending_images) > 0:  # type: ignore[attr-defined]
                 self.clear_pending_images()  # type: ignore[attr-defined]
 
-            # TTS: Generate audio for AI response if enabled (BEFORE title generation for faster feedback)
-            # IMPORTANT: Only for Standard mode! Multi-Agent modes generate TTS via add_agent_panel()
-            # which adds to tts_audio_queue. This prevents duplicate TTS generation.
-            # SKIP if streaming TTS is enabled - text was already sent sentence-by-sentence
-            if self.enable_tts and self.multi_agent_mode == "standard" and not self.tts_streaming_enabled:  # type: ignore[attr-defined]
-                try:
-                    self.add_debug("🔊 TTS: Starting TTS generation...")
-                    # Get AI response from llm_history (clean text without HTML formatting)
-                    # Format: {"role": "assistant", "content": "[AGENT]: text"}
-                    _ch = self._chat_sub()
-                    if len(_ch.llm_history) > 0:
-                        last_msg = _ch.llm_history[-1]
-                        if last_msg.get("role") == "assistant":
-                            ai_response = last_msg.get("content", "")
-                            # Extract agent from label prefix like "[AIFRED]: " or "[SOKRATES]: "
-                            tts_agent = "aifred"  # Default
-                            agent_match = re.match(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', ai_response)
-                            if agent_match:
-                                tts_agent = agent_match.group(1).lower()
-                                ai_response = ai_response[agent_match.end():]
-                            if ai_response and ai_response.strip():
-                                # Generate TTS and wait for completion
-                                # This allows audio URL to be added to message metadata
-                                await self._generate_tts_for_response(ai_response, agent=tts_agent)  # type: ignore[attr-defined]
-                                yield  # Update UI with audio button
-                            else:
-                                from ..lib.logging_utils import console_separator
-                                self.add_debug("⚠️ TTS: Enabled but no AI response to convert")
-                                console_separator()
-                                self.add_debug("────────────────────")
-                        else:
-                            from ..lib.logging_utils import console_separator
-                            self.add_debug("⚠️ TTS: Last message is not from assistant")
-                            console_separator()
-                            self.add_debug("────────────────────")
-                    else:
-                        from ..lib.logging_utils import console_separator
-                        self.add_debug("⚠️ TTS: Enabled but LLM history is empty")
-                        console_separator()
-                        self.add_debug("────────────────────")
-                except (RuntimeError, FileNotFoundError, ValueError) as tts_error:
-                    self.add_debug(f"⚠️ TTS generation failed: {tts_error}")
-                    log_message(f"❌ TTS error in finally block: {tts_error}")
+            # TTS: Generate audio for AI response (standard mode, non-streaming only)
+            async for _ in self._phase_finally_tts(ai_text):
+                yield
 
             # Generate session title at end of flow (uses small Automatik model)
             # Only runs on first Q&A pair, skipped if title already exists
