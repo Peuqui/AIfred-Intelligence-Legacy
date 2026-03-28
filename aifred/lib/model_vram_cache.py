@@ -1028,22 +1028,6 @@ def get_model_native_context_from_cache(model_id: str) -> Optional[int]:
     return int(native) if native else None
 
 
-def delete_cached_model(model_id: str) -> bool:
-    """Delete all cache data for a specific model"""
-    cache = load_cache()
-
-    if model_id in cache:
-        del cache[model_id]
-        return save_cache(cache)
-
-    return False
-
-
-def clear_cache() -> bool:
-    """Clear entire cache (delete all models)"""
-    return save_cache({})
-
-
 def get_cached_context(model_id: str) -> Optional[Dict[str, Any]]:
     """Get all cached data for a model"""
     cache = load_cache()

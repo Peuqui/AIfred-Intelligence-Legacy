@@ -525,54 +525,6 @@ def update_llamaswap_cuda_visible(
     return True
 
 
-def _replace_flash_attn_in_model_block(content: str, model_id: str, enabled: bool) -> str:
-    """Set --flash-attn on/off in a specific model's cmd block, preserving formatting."""
-    new_val = "on" if enabled else "off"
-    lines = content.split('\n')
-    in_model_block = False
-    result_lines = []
-
-    for line in lines:
-        if re.match(rf'^\s+{re.escape(model_id)}\s*:', line):
-            in_model_block = True
-        elif in_model_block and re.match(r'^\s+\w', line) and not line.strip().startswith(('cmd:', 'ttl:', '-')):
-            in_model_block = False
-
-        if in_model_block:
-            line = re.sub(r'--flash-attn\s+\w+', f'--flash-attn {new_val}', line)
-
-        result_lines.append(line)
-
-    return '\n'.join(result_lines)
-
-
-def update_llamaswap_flash_attn(
-    config_path: Path,
-    model_id: str,
-    enabled: bool = False,
-) -> bool:
-    """
-    Update --flash-attn flag in llama-swap YAML for a specific model.
-
-    Uses regex on raw file content to preserve YAML formatting.
-    Called with enabled=False when architecture incompatibility is detected during calibration.
-    """
-    if not config_path.exists():
-        logger.error(f"llama-swap config not found: {config_path}")
-        return False
-
-    content = config_path.read_text(encoding='utf-8')
-    new_content = _replace_flash_attn_in_model_block(content, model_id, enabled)
-
-    if new_content == content:
-        logger.warning(f"--flash-attn flag not found for {model_id} in llama-swap config")
-        return False
-
-    config_path.write_text(new_content, encoding='utf-8')
-    logger.info(f"Updated llama-swap config: {model_id} → --flash-attn {'on' if enabled else 'off'}")
-    return True
-
-
 def update_llamaswap_kv_cache_quant(
     config_path: Path,
     model_id: str,
@@ -767,36 +719,6 @@ def _measure_process_ram_mb(pid: int) -> Optional[int]:
     except (OSError, ValueError, IndexError):
         pass
     return None
-
-
-def _check_vram_physical_fit(log_path: str) -> Optional[tuple[bool, str]]:
-    """Check if enough physical VRAM remains free after allocation.
-
-    Parses llama_memory_breakdown_print (written at server exit).
-    Checks that free VRAM >= LLAMACPP_VRAM_SAFETY_MARGIN per GPU.
-
-    On Ampere+ GPUs, CUDA VMM can silently swap to system RAM when physical
-    VRAM is exhausted — self <= total passes but inference slows down 7x.
-    Checking 'free' catches this: if free < safety margin, unaccounted memory
-    (CUDA runtime, display, driver ~4 GB) is being displaced via VMM.
-
-    Returns:
-        (fits, detail_msg) — fits=True if all GPUs have free >= LLAMACPP_VRAM_SAFETY_MARGIN,
-        fits=False if free VRAM too low.
-        None if breakdown unavailable (old build, unclean exit).
-    """
-    breakdown = _parse_memory_breakdown(log_path)
-    if not breakdown:
-        return None
-
-    for gpu_id, info in breakdown.items():
-        if info["free"] < LLAMACPP_VRAM_SAFETY_MARGIN:
-            return (
-                False,
-                f"{gpu_id}: {info['free']} MB free < {LLAMACPP_VRAM_SAFETY_MARGIN} MB minimum "
-                f"(self={info['self']} MB, total={info['total']} MB)",
-            )
-    return (True, "")
 
 
 def _get_fit_params_binary(full_cmd: str) -> Path:

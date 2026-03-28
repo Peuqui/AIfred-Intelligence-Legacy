@@ -504,11 +504,6 @@ def apply_audio_adjustments(input_file: str, pitch: float = 1.0, speed: float = 
         return input_file
 
 
-def apply_pitch_adjustment(input_file: str, pitch: float) -> str | None:
-    """Legacy wrapper for pitch-only adjustment."""
-    return apply_audio_adjustments(input_file, pitch=pitch, speed=1.0)
-
-
 # ============================================================
 # STREAMING TTS - Sentence Detection
 # ============================================================
@@ -775,22 +770,6 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
     remaining = remaining[sentence_start:].lstrip()
 
     return sentences, remaining
-
-
-def is_inside_think_block(text: str) -> bool:
-    """
-    Check if text ends inside an unclosed <think> block.
-
-    Args:
-        text: Text to check
-
-    Returns:
-        True if inside <think>...</think> block
-    """
-    # Count open and close tags
-    open_count = text.lower().count("<think>")
-    close_count = text.lower().count("</think>")
-    return open_count > close_count
 
 
 def strip_think_content_streaming(text: str) -> str:
