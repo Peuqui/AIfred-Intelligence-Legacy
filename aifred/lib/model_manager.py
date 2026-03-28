@@ -10,10 +10,13 @@ Extracted from state.py (Phase 3.2 Refactoring):
 - backend_supports_dynamic_models(): Check if backend supports hot-swapping models
 """
 
+import logging
 import re
 import json
 from typing import Dict, Any
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def sort_models_grouped(models_dict: Dict[str, str]) -> Dict[str, str]:
@@ -149,9 +152,9 @@ def is_backend_compatible(model_dir: Path, backend: str) -> bool:
                 # TabbyAPI needs quantization - check model name for EXL format
                 return any(fmt in model_name.lower() for fmt in ["exl2", "exl3"])
 
-    except (KeyError, AttributeError):
-        # Failed to read config.json
-        pass
+    except (KeyError, AttributeError) as e:
+        logger.warning(f"Failed to parse config.json for model '{model_name}': {e}")
+        return False
 
     return False
 

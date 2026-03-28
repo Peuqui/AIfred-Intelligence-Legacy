@@ -91,8 +91,8 @@ async def execute_research(
                 state._research_context = cache_result['answer']  # type: ignore[attr-defined]
                 yield
                 return
-        except Exception as e:
-            log_message(f"⚠️ Vector cache check failed: {e}")
+        except (ConnectionError, OSError, TimeoutError) as e:
+            log_message(f"⚠️ Vector cache check failed (connection): {e}")
 
         # ==============================================================
         # PHASE 1: Query Generation (skipped if pre_generated_queries)

@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 import chromadb
 from chromadb.config import Settings
+from chromadb.errors import ChromaError
 
 from .config import (
     DEFAULT_OLLAMA_URL,
@@ -330,7 +331,7 @@ def get_document_store() -> Optional[DocumentStore]:
     if _store is None:
         try:
             _store = DocumentStore()
-        except Exception as e:
+        except (ChromaError, ConnectionError, OSError, ValueError) as e:
             log_message(f"❌ DocumentStore init failed: {e}")
             return None
     return _store

@@ -26,9 +26,10 @@ USAGE:
 """
 
 import chromadb
-from .timer import Timer
 from chromadb.config import Settings
 from chromadb.api.types import Documents, Embeddings, EmbeddingFunction
+from chromadb.errors import ChromaError
+from .timer import Timer
 import asyncio
 from typing import Dict, List, Optional
 import numpy as np
@@ -298,14 +299,16 @@ class VectorCache:
             if sources_json:
                 try:
                     cached_sources = json.loads(str(sources_json))
-                except (json.JSONDecodeError, TypeError):
+                except (json.JSONDecodeError, TypeError) as e:
+                    log_message(f"⚠️ Corrupt sources_json in cache: {e}")
                     cached_sources = []
             # Parse failed sources
             failed_json = metadata.get('failed_sources_json', '')
             if failed_json:
                 try:
                     failed_sources = json.loads(str(failed_json))
-                except (json.JSONDecodeError, TypeError):
+                except (json.JSONDecodeError, TypeError) as e:
+                    log_message(f"⚠️ Corrupt failed_sources_json in cache: {e}")
                     failed_sources = []
 
         return {
@@ -445,14 +448,16 @@ class VectorCache:
                 if sources_json:
                     try:
                         cached_sources = json.loads(str(sources_json))
-                    except (json.JSONDecodeError, TypeError):
+                    except (json.JSONDecodeError, TypeError) as e:
+                        log_message(f"⚠️ Corrupt sources_json in cache: {e}")
                         cached_sources = []
                 # Parse failed sources
                 failed_json = metadata.get('failed_sources_json', '')
                 if failed_json:
                     try:
                         failed_sources = json.loads(str(failed_json))
-                    except (json.JSONDecodeError, TypeError):
+                    except (json.JSONDecodeError, TypeError) as e:
+                        log_message(f"⚠️ Corrupt failed_sources_json in cache: {e}")
                         failed_sources = []
 
             return {
@@ -614,7 +619,7 @@ class VectorCache:
                 'total_entries': total
             }
 
-        except Exception as e:
+        except (ChromaError, ConnectionError, OSError) as e:
             log_message(f"⚠️  Vector Cache add failed: {e}")
             return {
                 'success': False,
@@ -641,7 +646,7 @@ class VectorCache:
             # Add new entry with updated data
             return self._add_sync(query, answer, sources, failed_sources, metadata)
 
-        except Exception as e:
+        except (ChromaError, ConnectionError, OSError) as e:
             log_message(f"⚠️ Vector Cache update failed: {e}")
             return {
                 'success': False,
@@ -692,7 +697,7 @@ class VectorCache:
             )
             log_message("🗑️  Vector Cache cleared")
             return {'success': True}
-        except Exception as e:
+        except (ChromaError, ConnectionError, OSError) as e:
             log_message(f"⚠️  Vector Cache clear failed: {e}")
             return {'success': False, 'error': str(e)}
 
@@ -833,7 +838,7 @@ class VectorCache:
 
             return len(expired_ids)
 
-        except Exception as e:
+        except (ChromaError, ConnectionError, OSError) as e:
             log_message(f"⚠️ Error deleting expired entries: {e}")
             return 0
 
@@ -959,7 +964,7 @@ def initialize_vector_cache():
         log_message(f"🗑️ Background cleanup task started (every {CACHE_CLEANUP_INTERVAL_HOURS}h)")
 
         return cache
-    except Exception as e:
+    except (ChromaError, ConnectionError, OSError, ValueError) as e:
         log_message(f"⚠️ Vector Cache connection failed: {e}")
         log_message("💡 Make sure ChromaDB is running: docker-compose up -d chromadb")
         return None
