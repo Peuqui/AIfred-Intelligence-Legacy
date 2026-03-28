@@ -251,6 +251,10 @@ def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = No
     msg["From"] = sender
     msg["To"] = to
     msg["Subject"] = subject
+    # Generate Message-ID so replies can be routed back
+    import email.utils as _eu
+    message_id = _eu.make_msgid(domain=EMAIL_USER.split("@")[-1] if "@" in EMAIL_USER else "local")
+    msg["Message-ID"] = message_id
     if reply_to_id:
         msg["In-Reply-To"] = reply_to_id
         msg["References"] = reply_to_id
@@ -262,8 +266,8 @@ def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = No
         smtp.login(EMAIL_USER, EMAIL_PASSWORD)
         smtp.send_message(msg)
 
-    log_message(f"📧 Email: sent to {to} — {subject}")
-    return f"Email sent to {to}: {subject}"
+    log_message(f"📧 Email: sent to {to} — {subject} (Message-ID: {message_id})")
+    return f"Email sent to {to}: {subject} [msg_id:{message_id}]"
 
 
 def delete_email(msg_id: str, folder: str = "INBOX") -> str:

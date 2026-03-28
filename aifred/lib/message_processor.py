@@ -19,7 +19,7 @@ from .email_client import send_email
 from .envelope import InboundMessage, OutboundMessage
 from .logging_utils import log_message
 from .routing_table import routing_table
-from .session_storage import create_empty_session, update_chat_data
+from .session_storage import create_empty_session, update_chat_data, set_update_flag
 
 
 # Agent name detection for routing
@@ -53,14 +53,23 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     # 2. Find or create session via routing table
     route = routing_table.get_route(message.channel, message.channel_id)
 
+    # Track debug messages for the session
+    debug: list[str] = []
+    subject = message.metadata.get("subject", "?")
+
     if route:
         session_id = route.session_id
         log_message(f"Message Processor: existing session {session_id[:8]}")
+        debug.append(f"📨 {message.channel.upper()}: Nachricht von {message.sender}")
     else:
         session_id = secrets.token_hex(16)
         create_empty_session(session_id, owner=MESSAGE_HUB_OWNER)
         routing_table.set_route(message.channel, message.channel_id, session_id)
         log_message(f"Message Processor: new session {session_id[:8]} for {message.sender}")
+        debug.append(f"📨 {message.channel.upper()}: Neue Konversation von {message.sender}")
+
+    debug.append(f"📧 Betreff: {subject}")
+    debug.append(f"🤖 Agent: {message.target_agent}")
 
     # 3. Call AIfred engine
     response_text = await _call_engine(
@@ -71,12 +80,13 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
 
     if not response_text:
         log_message("Message Processor: engine returned no response", "warning")
+        debug.append("❌ Engine: keine Antwort erhalten")
+        _save_to_session(session_id, message, "", debug)
         return None
 
-    # 4. Save conversation to session
-    _save_to_session(session_id, message, response_text)
+    debug.append(f"✅ Antwort generiert ({len(response_text)} Zeichen)")
 
-    # 5. Build outbound message
+    # 4. Build outbound message
     outbound = OutboundMessage(
         channel=message.channel,
         channel_id=message.channel_id,
@@ -85,9 +95,15 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         metadata=_build_reply_metadata(message),
     )
 
-    # 6. Auto-reply if enabled
+    # 5. Auto-reply if enabled
     if message.channel == "email" and EMAIL_MONITOR_AUTO_REPLY:
         _send_email_reply(outbound, message)
+        debug.append(f"📤 Auto-Reply gesendet an {message.sender}")
+    else:
+        debug.append("💬 Antwort bereit (Auto-Reply aus)")
+
+    # 6. Save conversation + debug to session
+    _save_to_session(session_id, message, response_text, debug)
 
     return outbound
 
@@ -166,8 +182,9 @@ def _save_to_session(
     session_id: str,
     message: InboundMessage,
     response_text: str,
+    debug_messages: list[str] | None = None,
 ) -> None:
-    """Save the inbound message and response to the session's chat history."""
+    """Save the inbound message, response and debug info to the session."""
     channel_label = message.channel.upper()
     subject = message.metadata.get("subject", "")
     header = f"[{channel_label}] {message.sender}"
@@ -176,20 +193,25 @@ def _save_to_session(
 
     chat_history = [
         {"role": "user", "content": header + "\n\n" + message.text},
-        {"role": "assistant", "content": response_text},
     ]
-
     llm_history = [
         {"role": "user", "content": message.text},
-        {"role": "assistant", "content": response_text},
     ]
+
+    if response_text:
+        chat_history.append({"role": "assistant", "content": response_text})
+        llm_history.append({"role": "assistant", "content": response_text})
 
     update_chat_data(
         session_id=session_id,
         chat_history=chat_history,
         llm_history=llm_history,
+        debug_messages=debug_messages,
         owner=MESSAGE_HUB_OWNER,
     )
+
+    # Signal the browser to reload the session (triggers toast in UI)
+    set_update_flag(session_id)
 
 
 def _build_reply_metadata(message: InboundMessage) -> dict:

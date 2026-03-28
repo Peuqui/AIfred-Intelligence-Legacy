@@ -10,7 +10,7 @@ from .function_calling import Tool
 from .prompt_loader import load_tool_description
 
 
-def get_email_tools() -> list[Tool]:
+def get_email_tools(session_id: str = "") -> list[Tool]:
     """Create email tool for LLM function calling."""
 
     async def _email(action: str, **kwargs: str) -> str:
@@ -79,6 +79,13 @@ def get_email_tools() -> list[Tool]:
             if not to or not subject or not body:
                 return "Error: to, subject, body required"
             result = await asyncio.to_thread(send_email, to=to, subject=subject, body=body)
+
+            # Register route so replies land in the same session
+            if session_id and "[msg_id:" in result:
+                msg_id = result.split("[msg_id:")[1].rstrip("]")
+                from .routing_table import routing_table
+                routing_table.set_route("email", msg_id, session_id)
+
             return result
 
         else:

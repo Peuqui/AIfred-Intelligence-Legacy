@@ -4,6 +4,7 @@ Reflex State Management for AIfred Intelligence
 Main state for chat, settings, and backend management
 """
 
+import re
 import reflex as rx
 from typing import List, Any, Dict, TypedDict
 import os
@@ -14,6 +15,24 @@ from ..lib import (
 )
 from ..lib.logging_utils import CONSOLE_SEPARATOR
 from ..lib import config
+
+
+# Pattern for structured data that STT likely transcribes incorrectly.
+# Whisper often transcribes "@" as "at" and "." as "punkt"/"dot".
+_STRUCTURED_DATA_RE = re.compile(
+    r"@"                                    # email: literal @
+    r"|\bat\b.*\b(?:punkt|dot)\b"           # email: "at ... punkt/dot" (STT transcription)
+    r"|www\s*\.\s*"                         # URL: www. (with possible spaces)
+    r"|www\s+punkt\s+"                      # URL: "www punkt" (STT)
+    r"|\.\s*(?:com|de|org|net|io|edu)\b"    # URL: .com, .de etc.
+    r"|\bpunkt\s*(?:com|de|org|net|io|edu)\b"  # URL: "punkt de" (STT)
+    r"|https?\s*:\s*/\s*/"                  # URL: http(s)://
+)
+
+
+def _transcription_needs_review(text: str) -> bool:
+    """Check if STT transcription contains structured data that needs manual review."""
+    return bool(_STRUCTURED_DATA_RE.search(text.lower()))
 
 # ============================================================
 # TTS Audio Broker - Bridge between create_task and Frontend
@@ -219,6 +238,18 @@ class AIState(  # type: ignore[misc]
                     self._restore_session(session)
                     msg_count = len(self._chat_sub().chat_history)
                     self.add_debug(f"🔄 API update: Session reloaded ({msg_count} messages)")
+
+                    # Check if this update came from Message Hub (last message has [EMAIL] tag)
+                    if msg_count >= 2:
+                        last_user = self._chat_sub().chat_history[-2] if msg_count >= 2 else {}
+                        content = last_user.get("content", "")
+                        if content.startswith("[EMAIL]") or content.startswith("[DISCORD]") or content.startswith("[TELEGRAM]"):
+                            channel = content.split("]")[0][1:]  # Extract "EMAIL" etc.
+                            yield rx.toast.info(
+                                f"📨 {channel}: Neue Nachricht verarbeitet",
+                                duration=5000,
+                                position="top-center",
+                            )
                 yield
                 return
 
@@ -309,8 +340,14 @@ class AIState(  # type: ignore[misc]
                 from ..lib.formatting import format_number
                 self.add_debug(f"✅ Transcription complete ({format_number(stt_time, 1)}s)")
 
+                # Auto-enable edit mode if transcription contains structured data
+                # (email addresses, URLs) that STT likely got wrong
+                force_edit = _transcription_needs_review(user_text)
+                if force_edit and not self.show_transcription:
+                    self.add_debug("✏️ E-Mail/URL erkannt → Edit-Modus aktiviert")
+
                 # Show Transcription Workflow
-                if self.show_transcription:
+                if self.show_transcription or force_edit:
                     # Mode: Edit text → Send manually
                     # Append to existing text (multiple recordings)
                     if self.current_user_input:
