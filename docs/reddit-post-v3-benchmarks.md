@@ -12,7 +12,7 @@ Some of you might remember [my post from New Year's](https://www.reddit.com/r/Lo
 
 **My setup has grown a bit since the last post :-)**
 
-I added a third Tesla P40 via M.2 OCuLink, so the little MiniPC now runs 3x P40 + RTX 8000 = **~115 GB VRAM** across 4 GPUs. All models run fully GPU-resident through llama.cpp (via llama-swap) with Direct-IO and flash-attn. Zero CPU offload.
+I added a third Tesla P40 via M.2 OCuLink, so the little MiniPC now runs 3x P40 + RTX 8000 = **120 GB VRAM (~115 usable)** across 4 GPUs. All models run fully GPU-resident through llama.cpp (via llama-swap) with Direct-IO and flash-attn. Zero CPU offload.
 
 ---
 
@@ -89,7 +89,11 @@ These are actual quotes from the debates, generated through AIfred's multi-agent
 ---
 
 You can explore some of the exported debate sessions in browser:
-🔗 **[Live Showcases](https://peuqui.github.io/AIfred-Intelligence/)** (being updated with the new model debates)
+🔗 **[Live Showcases](https://peuqui.github.io/AIfred-Intelligence/)** — all debate sessions exportable, click any model to read the full tribunal
+
+📊 **[Full Benchmark Analysis (English)](https://github.com/Peuqui/AIfred-Intelligence/blob/main/docs/benchmark-analysis-v2.en.md)** — detailed per-model quality analysis with quotes
+
+🔧 **[Hardware Setup](https://peuqui.github.io/AIfred-Intelligence/examples/Hardware_Setup_Frankenstein_MiniPC.html)** — the Frankenstein MiniPC with photos and cost breakdown
 
 **GitHub**: https://github.com/Peuqui/AIfred-Intelligence
 
