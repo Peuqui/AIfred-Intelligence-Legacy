@@ -307,6 +307,9 @@ async def _stream_agent_to_history(
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
         state._init_streaming_tts(agent=agent)
 
+    # RAW debug logging: complete prompt + toolkit for every LLM call
+    log_raw_messages(f"{agent_label} (stream)", messages, estimate_tokens, toolkit=toolkit)
+
     async for chunk in _chat_stream_with_retry(llm_client, model, messages, options, agent_label, state, toolkit=toolkit):
         if chunk["type"] == "content":
             if not first_token:
