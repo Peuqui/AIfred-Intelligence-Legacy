@@ -12,7 +12,6 @@ import logging
 from typing import Any, AsyncGenerator, Callable, Optional, TYPE_CHECKING
 
 from .function_calling import Tool
-from .logging_utils import log_message as _log
 
 if TYPE_CHECKING:
     from ..state import AIState
@@ -267,11 +266,6 @@ async def execute_research(
 # Hub search (Message Hub — no Reflex State, no async generators)
 # ============================================================
 
-# Module-level list to collect debug messages for Hub sessions.
-# Written by _hub_web_search, consumed by the tool executor after the call.
-_hub_search_debug: list[str] = []
-
-
 async def _hub_web_search(queries: list[str]) -> str:
     """Web search for Message Hub (Discord, Email).
 
@@ -283,8 +277,9 @@ async def _hub_web_search(queries: list[str]) -> str:
     - Context building
 
     No Reflex State needed — reads config from settings.
-    Debug messages are collected in _hub_search_debug for the session.
+    Debug messages go through the Debug Bus (session_scope must be active).
     """
+    from .debug_bus import debug
     from .research.query_processor import process_query_and_search
     from .research.url_ranker import rank_urls_by_relevance
     from .research.scraper_orchestrator import orchestrate_scraping
@@ -292,16 +287,8 @@ async def _hub_web_search(queries: list[str]) -> str:
     from .llm_client import LLMClient
     from .settings import load_settings
     from .config import DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS, BACKEND_URLS
-    from datetime import datetime as _dt
 
-    def _dbg(msg: str) -> None:
-        ts = _dt.now().strftime("%H:%M:%S")
-        entry = f"{ts} | {msg}"
-        _hub_search_debug.append(entry)
-        _log(msg)
-
-    _hub_search_debug.clear()
-    _dbg(f"🔍 Web search: {', '.join(queries)}")
+    debug(f"🔍 Web search: {', '.join(queries)}")
 
     # Resolve backend config from settings
     settings = load_settings() or {}
@@ -326,10 +313,10 @@ async def _hub_web_search(queries: list[str]) -> str:
             if cache_result['source'] == 'CACHE' and distance < 0.05:
                 cache_time = _dtc.datetime.fromisoformat(cache_result['metadata']['timestamp'])
                 age_seconds = (_dtc.datetime.now() - cache_time).total_seconds()
-                _dbg(f"✅ Cache hit ({format_age(age_seconds)} ago, d={distance:.4f})")
+                debug(f"✅ Cache hit ({format_age(age_seconds)} ago, d={distance:.4f})")
                 return cache_result['answer']
         except (ConnectionError, OSError, TimeoutError) as e:
-            _dbg(f"⚠️ Cache check failed: {e}")
+            debug(f"⚠️ Cache check failed: {e}")
 
         # ── Phase 1: Multi-API search ─────────────────────────
         related_urls: list[str] = []
@@ -349,10 +336,10 @@ async def _hub_web_search(queries: list[str]) -> str:
             if item["type"] == "query_result":
                 _, _, _, related_urls, titles, snippets, tool_results = item["data"]
             elif item["type"] == "debug":
-                _dbg(item["message"])
+                debug(item["message"])
 
         if not related_urls:
-            _dbg("⚠️ No URLs found")
+            debug("⚠️ No URLs found")
             return json.dumps({"error": "No results found"})
 
         # ── Phase 2: URL ranking ──────────────────────────────
@@ -360,7 +347,7 @@ async def _hub_web_search(queries: list[str]) -> str:
         num_ctx = get_model_native_context(model_id, backend_type)
 
         if related_urls and titles and snippets:
-            _dbg(f"🎯 Ranking {len(related_urls)} URLs by relevance...")
+            debug(f"🎯 Ranking {len(related_urls)} URLs by relevance...")
             ranked_urls, _, debug_summary = await rank_urls_by_relevance(
                 user_question=queries[0],
                 urls=related_urls,
@@ -373,10 +360,10 @@ async def _hub_web_search(queries: list[str]) -> str:
                 automatik_num_ctx=num_ctx if num_ctx > 0 else 32768,
             )
             if debug_summary:
-                _dbg(f"📋 {debug_summary}")
+                debug(f"📋 {debug_summary}")
             related_urls = ranked_urls
         else:
-            _dbg(f"⏭️ URL ranking skipped, using top {min(7, len(related_urls))} URLs")
+            debug(f"⏭️ URL ranking skipped, using top {min(7, len(related_urls))} URLs")
             related_urls = related_urls[:7]
 
         # ── Phase 3: Parallel scraping ────────────────────────
@@ -390,16 +377,16 @@ async def _hub_web_search(queries: list[str]) -> str:
                 _, scraping_tool_results = item["data"]
                 tool_results.extend(scraping_tool_results)
             elif item["type"] == "debug":
-                _dbg(item["message"])
+                debug(item["message"])
 
         if not tool_results:
-            _dbg("⚠️ No sources available")
+            debug("⚠️ No sources available")
             return json.dumps({"error": "No results found"})
 
         # ── Phase 4: Build context ────────────────────────────
         context = build_context(queries[0], tool_results)
         scraped_only = [r for r in tool_results if r.get("success") and r.get("content")]
-        _dbg(f"✅ Research: {len(context)} chars, {len(scraped_only)} sources")
+        debug(f"✅ Research: {len(context)} chars, {len(scraped_only)} sources")
 
         # ── Phase 5: Vector Cache write ───────────────────────
         try:
@@ -411,9 +398,9 @@ async def _hub_web_search(queries: list[str]) -> str:
                 failed_sources=[],
                 metadata={"volatility": "WEEKLY"},
             )
-            _dbg(f"💾 Cached ({len(scraped_only)} sources, TTL=WEEKLY)")
+            debug(f"💾 Cached ({len(scraped_only)} sources, TTL=WEEKLY)")
         except Exception as e:
-            _dbg(f"⚠️ Cache write failed: {e}")
+            debug(f"⚠️ Cache write failed: {e}")
 
         return context
 

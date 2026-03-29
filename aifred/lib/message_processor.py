@@ -88,10 +88,13 @@ def detect_target_agent(text: str) -> str:
 async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     """Process an inbound message through the full pipeline.
 
-    Each phase writes to the session file and sets the update flag
-    so the UI updates progressively (incoming mail → processing → reply).
+    Uses the Debug Bus (session_scope) so all debug() calls from any
+    depth (tools, research, plugins) automatically go to the session.
     """
-    from datetime import datetime as _dt
+    from .debug_bus import debug, session_scope, flush
+    from .session_storage import get_session_title
+    from .plugin_registry import get_channel
+    import asyncio
 
     # 1. Detect target agent from message text
     message.target_agent = detect_target_agent(message.text)
@@ -99,9 +102,6 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     # 2. Find or create session via routing table
     route = routing_table.get_route(message.channel, message.channel_id)
     subject = message.metadata.get("subject", "?")
-
-    def _ts() -> str:
-        return _dt.now().strftime("%H:%M:%S")
 
     if route:
         session_id = route.session_id
@@ -112,98 +112,90 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         routing_table.set_route(message.channel, message.channel_id, session_id)
         log_message(f"Message Processor: new session {session_id[:8]} for {message.sender}")
 
-    # ── Phase 1: Show incoming message immediately ─────────────
-    from .agent_config import get_agent_config as _get_agent_cfg
-    _cfg = _get_agent_cfg(message.target_agent)
-    agent_display_name = _cfg.display_name if _cfg else message.target_agent.capitalize()
-
-    phase1_debug = [
-        f"{_ts()} | 📨 {message.channel.upper()}: message from {message.sender}",
-    ]
-    if subject and subject != "?":
-        phase1_debug.append(f"{_ts()} | 📧 Subject: {subject}")
-    phase1_debug.append(f"{_ts()} | 🤖 Agent: {agent_display_name}")
-    _save_to_session(session_id, message, "", phase1_debug)
-
-    # Toast: incoming message (stays visible until next phase)
-    from .session_storage import get_session_title
-    from .plugin_registry import get_channel
-    import asyncio
-
-    title = get_session_title(session_id) or subject
+    # Resolve plugin and channel label
     plugin = get_channel(message.channel)
     channel_label = plugin.display_name if plugin else message.channel.capitalize()
 
     def _notify(status: str) -> None:
+        title = get_session_title(session_id) or subject
         write_hub_notification(session_id, title, channel_label, message.sender, status=status)
 
-    _notify("received")
+    # ── All phases run inside session_scope ────────────────────
+    with session_scope(session_id):
 
-    # Give the browser time to pick up the toast before heavy work starts
-    await asyncio.sleep(2)
+        # ── Phase 1: Show incoming message immediately ────────
+        from .agent_config import get_agent_config as _get_agent_cfg
+        _cfg = _get_agent_cfg(message.target_agent)
+        agent_display_name = _cfg.display_name if _cfg else message.target_agent.capitalize()
 
-    # ── Phase 2: Call AIfred engine ────────────────────────────
-    _notify("processing")
+        debug(f"📨 {message.channel.upper()}: message from {message.sender}")
+        if subject and subject != "?":
+            debug(f"📧 Subject: {subject}")
+        debug(f"🤖 Agent: {agent_display_name}")
 
-    if plugin:
-        llm_context = plugin.build_context(message)
-    else:
-        llm_context = f"[{channel_label} from {message.sender}]\n\n{message.text}"
+        # Save incoming message to session (chat + llm history)
+        _save_to_session(session_id, message, "")
+        flush()  # Write debug messages to session file immediately
 
-    engine_debug: list[str] = []
-    response_text = await _call_engine(
-        user_text=llm_context,
-        session_id=session_id,
-        agent=message.target_agent,
-        debug_sink=engine_debug,
-    )
+        _notify("received")
 
-    if not response_text:
-        log_message("Message Processor: engine returned no response", "warning")
-        engine_debug.append(f"{_ts()} | ❌ Engine: no response")
-        _append_debug(session_id, engine_debug)
-        _notify("error")
-        return None
+        # Give the browser time to pick up the toast before heavy work starts
+        await asyncio.sleep(2)
 
-    engine_debug.append(f"{_ts()} | ✅ Response generated ({len(response_text)} chars)")
+        # ── Phase 2: Call AIfred engine ───────────────────────
+        _notify("processing")
 
-    # ── Phase 3: Save response to session ─────────────────────
-    _append_response(session_id, response_text)
-    _append_debug(session_id, engine_debug)
+        if plugin:
+            llm_context = plugin.build_context(message)
+        else:
+            llm_context = f"[{channel_label} from {message.sender}]\n\n{message.text}"
 
-    # ── Phase 4: Auto-reply if enabled ────────────────────────
-    reply_metadata = plugin.build_reply_metadata(message) if plugin else {}
-    outbound = OutboundMessage(
-        channel=message.channel,
-        channel_id=message.channel_id,
-        recipient=message.sender,
-        text=response_text,
-        metadata=reply_metadata,
-    )
+        response_text = await _call_engine(
+            user_text=llm_context,
+            session_id=session_id,
+            agent=message.target_agent,
+        )
 
-    auto_reply_enabled = _is_auto_reply_enabled(message.channel)
-    if plugin and auto_reply_enabled:
-        await plugin.send_reply(outbound, message)
-        _append_debug(session_id, [
-            f"{_ts()} | 📤 Auto-reply sent to {message.sender}",
-            f"{_ts()} | ────────────────────",
-        ])
-    else:
-        _append_debug(session_id, [
-            f"{_ts()} | 💬 Response ready (auto-reply off)",
-            f"{_ts()} | ────────────────────",
-        ])
+        if not response_text:
+            log_message("Message Processor: engine returned no response", "warning")
+            debug("❌ Engine: no response")
+            _notify("error")
+            return None
 
-    # ── Phase 5: Generate title if missing ────────────────────
-    from .llm_engine import generate_session_title
-    title = get_session_title(session_id)
-    if not title:
-        await generate_session_title(message.text, response_text, session_id)
+        debug(f"✅ Response generated ({len(response_text)} chars)")
 
-    # ── Phase 6: Notify UI that processing is complete ────────
-    title = get_session_title(session_id) or subject
-    write_hub_notification(session_id, title, message.channel.upper(), message.sender, status="done")
+        # ── Phase 3: Save response to session ─────────────────
+        _append_response(session_id, response_text)
 
+        # ── Phase 4: Auto-reply if enabled ────────────────────
+        reply_metadata = plugin.build_reply_metadata(message) if plugin else {}
+        outbound = OutboundMessage(
+            channel=message.channel,
+            channel_id=message.channel_id,
+            recipient=message.sender,
+            text=response_text,
+            metadata=reply_metadata,
+        )
+
+        auto_reply_enabled = _is_auto_reply_enabled(message.channel)
+        if plugin and auto_reply_enabled:
+            await plugin.send_reply(outbound, message)
+            debug(f"📤 Auto-reply sent to {message.sender}")
+        else:
+            debug("💬 Response ready (auto-reply off)")
+
+        debug("────────────────────")
+
+        # ── Phase 5: Generate title if missing ────────────────
+        from .llm_engine import generate_session_title
+        title = get_session_title(session_id)
+        if not title:
+            await generate_session_title(message.text, response_text, session_id)
+
+        # ── Phase 6: Notify UI that processing is complete ────
+        _notify("done")
+
+    # session_scope exit: remaining buffered debug messages flushed to session file
     return outbound
 
 
@@ -211,14 +203,12 @@ async def _call_engine(
     user_text: str,
     session_id: str,
     agent: str = "aifred",
-    debug_sink: list[str] | None = None,
 ) -> str:
     """Call the AIfred engine with full toolkit (memory + plugins).
 
-    Same pipeline as the normal chat: loads history, prepares toolkit,
-    resolves calibrated context, and forwards all debug messages.
+    Debug messages go through the Debug Bus (session_scope must be active).
     """
-    from datetime import datetime as _dt
+    from .debug_bus import debug
     from .llm_engine import call_llm
     from .session_storage import load_session
     from .settings import load_settings
@@ -226,11 +216,6 @@ async def _call_engine(
         DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS, BACKEND_URLS,
         MAIN_LLM_FALLBACK_CONTEXT,
     )
-
-    def _dbg(msg: str) -> None:
-        if debug_sink is not None:
-            ts = _dt.now().strftime("%H:%M:%S")
-            debug_sink.append(f"{ts} | {msg}")
 
     # Load current settings
     settings = load_settings() or {}
@@ -266,12 +251,10 @@ async def _call_engine(
     _agent_cfg = get_agent_config(agent)
     agent_display = _agent_cfg.display_name if _agent_cfg else agent.capitalize()
 
-    _dbg(f"🎩 {agent_display}-LLM: {model} ({backend_type})")
-    _dbg(f"📜 History: {len(llm_history)} messages")
-    log_message(f"Message Processor: calling {agent_display} ({model}), history={len(llm_history)} msgs, for: {user_text[:80]}...")
+    debug(f"🎩 {agent_display}-LLM: {model} ({backend_type})")
+    debug(f"📜 History: {len(llm_history)} messages")
 
     # Prepare full toolkit (memory + all plugin tools)
-    # Language and memory toggle from settings (no State dependency)
     lang = settings.get("ui_language", "de")
     memory_enabled = settings.get("agent_memory_enabled", True)
 
@@ -285,11 +268,9 @@ async def _call_engine(
         session_id=session_id,
     )
     if toolkit:
-        _dbg(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_display}")
+        debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_display}")
 
-    # Collect response — forward ALL debug chunks to session console
-    from .research_tools import _hub_search_debug
-
+    # Collect response — debug chunks go through the Bus automatically
     response_parts: list[str] = []
     try:
         async for chunk in call_llm(
@@ -314,21 +295,14 @@ async def _call_engine(
             if chunk.get("type") == "content":
                 response_parts.append(chunk.get("text", ""))
             elif chunk.get("type") == "debug":
-                _dbg(chunk.get("message", ""))
-                # Flush hub search debug messages (already have timestamps)
-                if _hub_search_debug and debug_sink is not None:
-                    debug_sink.extend(_hub_search_debug)
-                    _hub_search_debug.clear()
+                debug(chunk.get("message", ""))
             elif chunk.get("type") == "result":
-                if _hub_search_debug and debug_sink is not None:
-                    debug_sink.extend(_hub_search_debug)
-                    _hub_search_debug.clear()
                 data = chunk.get("data", {})
                 if "response_clean" in data:
                     return data["response_clean"]
     except Exception as exc:
         log_message(f"Message Processor: engine error — {exc}", "error")
-        _dbg(f"❌ Engine error: {exc}")
+        debug(f"❌ Engine error: {exc}")
         return ""
 
     return "".join(response_parts)
@@ -338,9 +312,11 @@ def _save_to_session(
     session_id: str,
     message: InboundMessage,
     response_text: str,
-    debug_messages: list[str] | None = None,
 ) -> None:
-    """Append the inbound message (and optional response) to the session."""
+    """Append the inbound message (and optional response) to the session.
+
+    Debug messages are handled by the Debug Bus (not passed here).
+    """
     from .session_storage import load_session
 
     channel_label = message.channel.upper()
@@ -349,12 +325,10 @@ def _save_to_session(
     if subject:
         header += f" — {subject}"
 
-    # Load existing history and append
     session = load_session(session_id)
     data = session.get("data", {}) if session else {}
     existing_chat = data.get("chat_history", [])
     existing_llm = data.get("llm_history", [])
-    existing_debug = data.get("debug_messages", [])
 
     existing_chat.append({"role": "user", "content": header + "\n\n" + message.text})
     existing_llm.append({"role": "user", "content": message.text})
@@ -363,18 +337,13 @@ def _save_to_session(
         existing_chat.append({"role": "assistant", "content": response_text})
         existing_llm.append({"role": "assistant", "content": response_text})
 
-    if debug_messages:
-        existing_debug.extend(debug_messages)
-
     update_chat_data(
         session_id=session_id,
         chat_history=existing_chat,
         llm_history=existing_llm,
-        debug_messages=existing_debug,
+        debug_messages=data.get("debug_messages", []),
         owner=MESSAGE_HUB_OWNER,
     )
-
-    # Signal the browser to reload the session
     set_update_flag(session_id)
 
 
@@ -398,25 +367,6 @@ def _append_response(session_id: str, response_text: str) -> None:
     )
     set_update_flag(session_id)
 
-
-def _append_debug(session_id: str, messages: list[str]) -> None:
-    """Append debug messages to an existing session."""
-    if not messages:
-        return
-    from .session_storage import load_session
-
-    session = load_session(session_id)
-    data = session.get("data", {}) if session else {}
-    existing_debug = data.get("debug_messages", [])
-    existing_debug.extend(messages)
-
-    update_chat_data(
-        session_id=session_id,
-        chat_history=data.get("chat_history", []),
-        debug_messages=existing_debug,
-        owner=MESSAGE_HUB_OWNER,
-    )
-    set_update_flag(session_id)
 
 
 def _is_auto_reply_enabled(channel: str) -> bool:

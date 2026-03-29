@@ -53,21 +53,24 @@ class ChatMixin(rx.State, mixin=True):
     # ── Debug / Progress ─────────────────────────────────────────────
 
     def add_debug(self, message: str) -> None:
-        """Add message to debug console."""
+        """Add message to debug console.
+
+        Appends to Reflex State list (live browser UI) and forwards
+        to the Debug Bus (logfile + optional session file persistence).
+        """
         import datetime as _dt
+        from ..lib.debug_bus import debug as _debug
 
         timestamp = _dt.datetime.now().strftime("%H:%M:%S")
         formatted_msg = f"{timestamp} | {message}"
 
-        # Add to Reflex State
+        # Reflex State list (live browser UI via WebSocket)
         self.debug_messages.append(formatted_msg)
-
-        # Also add to lib console (for agent_core logging)
-        log_message(message)
-
-        # Keep only last N messages (configurable in config.py)
         if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
             self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
+
+        # Debug Bus (logfile + optional session persistence)
+        _debug(message)
 
     def set_progress(self, phase: str, current: int = 0, total: int = 0, failed: int = 0) -> None:
         """Update processing progress."""
