@@ -645,7 +645,13 @@ console.log('✂️ Crop handler loaded');
             rx.hstack(
                 # Left side: Title and subtitle
                 rx.vstack(
-                    rx.heading(t("aifred_intelligence"), size="6", margin_bottom="2"),
+                    rx.hstack(
+                        rx.image(src="/AIfred-Zylinder.png", width="32px", height="32px"),
+                        rx.heading("AIfred Intelligence", size="6"),
+                        align="center",
+                        spacing="2",
+                        margin_bottom="2",
+                    ),
                     rx.text(
                         t("subtitle"),
                         color=COLORS["text_secondary"],
