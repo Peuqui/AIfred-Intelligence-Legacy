@@ -61,6 +61,7 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
     return [
         Tool(
             name="execute_code",
+            tier=2,
             description=load_tool_description("execute_code_tool.txt"),
             parameters={
                 "type": "object",

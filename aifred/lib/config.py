@@ -1039,6 +1039,11 @@ EPIM_FB_LIB = PROJECT_ROOT / "lib" / "firebird25" / "libfbembed.so"
 EPIM_FB_DIR = PROJECT_ROOT / "lib" / "firebird25"
 
 # ============================================================
+# SECURITY CONFIGURATION
+# ============================================================
+SECURITY_AUDIT_DB = DATA_DIR / "security" / "audit.db"
+
+# ============================================================
 # HTML PREVIEW CONFIGURATION
 # ============================================================
 HTML_PREVIEW_MAX_FILES = 200         # LRU cache limit for data/html_preview/

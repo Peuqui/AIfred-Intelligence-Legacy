@@ -96,7 +96,15 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     from .plugin_registry import get_channel
     import asyncio
 
-    # 1. Detect target agent from message text
+    # 0. Determine security tier for this channel
+    from .security import DEFAULT_TIER_BY_SOURCE
+    max_tier = DEFAULT_TIER_BY_SOURCE.get(message.channel, 1)
+
+    # 1. Sanitize inbound text (strip HTML, zero-width chars, normalize)
+    from .security import sanitize_inbound
+    message.text = sanitize_inbound(message.text)
+
+    # 2. Detect target agent from message text
     message.target_agent = detect_target_agent(message.text)
 
     # 2. Find or create session via routing table
@@ -150,10 +158,19 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         else:
             llm_context = f"[{channel_label} from {message.sender}]\n\n{message.text}"
 
+        # Wrap external messages in security delimiters
+        from .security import wrap_external_message
+        trust = "owner" if message.sender == MESSAGE_HUB_OWNER else "external"
+        llm_context = wrap_external_message(
+            llm_context, message.sender, message.channel, trust,
+        )
+
         response_text, result_metadata = await _call_engine(
             user_text=llm_context,
             session_id=session_id,
             agent=message.target_agent,
+            max_tier=max_tier,
+            source=message.channel,
         )
 
         if not response_text:
@@ -167,13 +184,17 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         # ── Phase 3: Save response to session ─────────────────
         _append_response(session_id, response_text, metadata=result_metadata)
 
+        # ── Phase 3b: Sanitize output for external channels ───
+        from .security import sanitize_outbound
+        outbound_text = sanitize_outbound(response_text)
+
         # ── Phase 4: Auto-reply if enabled ────────────────────
         reply_metadata = plugin.build_reply_metadata(message) if plugin else {}
         outbound = OutboundMessage(
             channel=message.channel,
             channel_id=message.channel_id,
             recipient=message.sender,
-            text=response_text,
+            text=outbound_text,
             metadata=reply_metadata,
         )
 
@@ -202,6 +223,8 @@ async def _call_engine(
     user_text: str,
     session_id: str,
     agent: str = "aifred",
+    max_tier: int = 4,
+    source: str = "browser",
 ) -> tuple[str, dict]:
     """Call the AIfred engine with full toolkit (memory + plugins).
 
@@ -266,6 +289,8 @@ async def _call_engine(
         memory_enabled=memory_enabled,
         research_tools_enabled=True,
         session_id=session_id,
+        max_tier=max_tier,
+        source=source,
     )
     if toolkit:
         debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_display}")
@@ -291,6 +316,7 @@ async def _call_engine(
             agent=agent,
             external_toolkit=toolkit,
             rag_context=memory_ctx if memory_ctx else None,
+            source=source,
         ):
             if chunk.get("type") == "content":
                 response_parts.append(chunk.get("text", ""))

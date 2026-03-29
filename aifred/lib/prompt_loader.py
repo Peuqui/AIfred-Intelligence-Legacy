@@ -509,6 +509,7 @@ def get_agent_system_prompt(
         multi_agent=multi_agent, memory=memory,
         tools=kwargs.get('tools', True),
         user_name=kwargs.get('user_name'), user_gender=kwargs.get('user_gender'),
+        source=kwargs.get('source', 'browser'),
     )
 
 
@@ -722,6 +723,7 @@ def _merge_prompt_layers(
     user_gender: Optional[str] = None,
     tools: bool = False,
     rag_context: Optional[str] = None,
+    source: str = "browser",
 ) -> str:
     """
     Merge prompt layers in correct order.
@@ -790,6 +792,12 @@ def _merge_prompt_layers(
     anti_halluc = load_prompt('shared/anti_hallucination', lang=lang)
     if anti_halluc:
         parts.append(anti_halluc)
+
+    # Layer 5b: Security boundary (only for external channel contexts)
+    if source != "browser":
+        sec_boundary = load_prompt('shared/security_boundary', lang=lang)
+        if sec_boundary:
+            parts.append(sec_boundary)
 
     # Layer 6: RAG context (when research results available)
     if rag_context:

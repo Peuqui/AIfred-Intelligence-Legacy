@@ -52,6 +52,7 @@ async def call_llm(
     vision_prompt_key: str = "task",
     external_toolkit: Optional[Any] = None,
     num_ctx_source_label: str = "",
+    source: str = "browser",
 ) -> AsyncIterator[Dict]:
     """
     Generiert eine LLM-Antwort basierend auf eigenem Wissen (ohne Web-Recherche).
@@ -121,7 +122,7 @@ async def call_llm(
     elif use_direct_prompt:
         system_prompt = get_agent_direct_prompt(agent, lang=detected_language)
     else:
-        system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language)
+        system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language, source=source)
     # Agent Memory: recall + toolkit
     memory_toolkit = external_toolkit
     if memory_toolkit:

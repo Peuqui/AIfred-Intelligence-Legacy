@@ -64,6 +64,7 @@ def get_document_tools() -> list[Tool]:
     return [
         Tool(
             name="search_documents",
+            tier=0,
             description=f"{description} Search uploaded documents by semantic similarity.",
             parameters={
                 "type": "object",
@@ -84,6 +85,7 @@ def get_document_tools() -> list[Tool]:
         ),
         Tool(
             name="list_documents",
+            tier=0,
             description="List all uploaded documents with their metadata (filename, chunks, upload date).",
             parameters={
                 "type": "object",
@@ -93,6 +95,7 @@ def get_document_tools() -> list[Tool]:
         ),
         Tool(
             name="delete_document",
+            tier=3,
             description="Delete an uploaded document and all its indexed chunks from the store.",
             parameters={
                 "type": "object",

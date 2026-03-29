@@ -288,6 +288,7 @@ class DiscordChannel(BaseChannel):
         return [
             Tool(
                 name="discord_send",
+                tier=1,
                 description="Send a message to a Discord channel. Use this when the user asks to send a message via Discord.",
                 parameters={
                     "type": "object",

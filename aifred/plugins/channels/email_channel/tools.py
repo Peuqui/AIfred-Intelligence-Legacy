@@ -94,6 +94,7 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
     return [
         Tool(
             name="email",
+            tier=1,
             description=load_tool_description("email_tool.txt"),
             parameters={
                 "type": "object",

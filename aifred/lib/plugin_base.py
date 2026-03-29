@@ -32,6 +32,8 @@ class PluginContext:
     session_id: str
     state: Optional[Any] = None
     user_query: str = ""
+    max_tier: int = 4        # Max allowed tool tier in this context
+    source: str = "browser"  # Origin: browser/email/discord/cron/webhook
 
 
 @runtime_checkable

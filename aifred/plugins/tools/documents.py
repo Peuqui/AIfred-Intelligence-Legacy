@@ -58,6 +58,7 @@ class DocumentPlugin:
 
         tools.append(Tool(
             name="read_document",
+            tier=0,
             description=(
                 "Read a document from the local file system (uploaded files, PDFs, text files). "
                 "The path is relative to the data/ directory. "

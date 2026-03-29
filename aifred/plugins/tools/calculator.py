@@ -73,6 +73,7 @@ class CalculatorPlugin:
         return [
             Tool(
                 name="calculate",
+                tier=0,
                 description=(
                     "Evaluate a mathematical expression and return the exact result. "
                     "Use this for any calculation instead of doing mental math. "

@@ -15,6 +15,7 @@ Usage:
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -29,6 +30,7 @@ class Tool:
     description: str
     parameters: dict[str, Any]
     executor: Callable[..., Any]
+    tier: int = 0  # Security tier (0=readonly … 4=admin)
 
     @property
     def definition(self) -> dict[str, Any]:
@@ -52,6 +54,8 @@ class ToolKit:
     """
 
     tools: list[Tool] = field(default_factory=list)
+    _session_id: str = ""   # Audit context
+    _source: str = ""       # Audit context (browser/email/discord/…)
 
     def __post_init__(self) -> None:
         self._by_name: dict[str, Tool] = {t.name: t for t in self.tools}
@@ -76,11 +80,32 @@ class ToolKit:
         else:
             args = arguments
 
+        t0 = time.perf_counter()
+        result_str = ""
+        success = True
         try:
             result = tool.executor(**args)
             if asyncio.iscoroutine(result):
                 result = await result
-            return json.dumps(result) if not isinstance(result, str) else result
+            result_str = json.dumps(result) if not isinstance(result, str) else result
+            return result_str
         except Exception as e:
+            success = False
             logger.error(f"Tool '{name}' failed: {e}")
-            return json.dumps({"error": str(e)})
+            result_str = json.dumps({"error": str(e)})
+            return result_str
+        finally:
+            try:
+                from .security import audit_log
+                audit_log(
+                    session_id=self._session_id,
+                    source=self._source,
+                    tool_name=name,
+                    tool_tier=tool.tier,
+                    tool_args_preview=str(args)[:200],
+                    result_preview=result_str[:200],
+                    success=success,
+                    duration_ms=(time.perf_counter() - t0) * 1000,
+                )
+            except Exception:
+                pass  # Audit must never block tool execution

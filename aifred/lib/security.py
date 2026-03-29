@@ -1,0 +1,241 @@
+"""Security layer for AIfred — enforced by the pipeline, not by plugins.
+
+Provides:
+- Permission tiers: each Tool declares a tier, each context has a max tier
+- Inbound sanitization: strip HTML, zero-width chars, add delimiters
+- Outbound sanitization: block markdown image exfiltration, secret patterns
+- Audit logging: every tool execution is recorded in SQLite
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import sqlite3
+import unicodedata
+from html.parser import HTMLParser
+from io import StringIO
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .function_calling import Tool
+
+logger = logging.getLogger(__name__)
+
+# ============================================================
+# TIER CONSTANTS
+# ============================================================
+TIER_READONLY = 0       # calculator, web_search, epim_search, list/search_documents
+TIER_COMMUNICATE = 1    # email, discord_send, telegram_send
+TIER_WRITE_DATA = 2     # epim_create, epim_update, store_memory, execute_code
+TIER_WRITE_SYSTEM = 3   # delete_document, epim_delete
+TIER_ADMIN = 4          # Shell, unrestricted code execution (future)
+
+# Default max tier per source context
+DEFAULT_TIER_BY_SOURCE: dict[str, int] = {
+    "browser": TIER_ADMIN,          # User sits in front of the screen
+    "email": TIER_COMMUNICATE,      # External message
+    "discord": TIER_COMMUNICATE,    # External message
+    "telegram": TIER_COMMUNICATE,   # External message
+    "cron": TIER_COMMUNICATE,       # Unattended
+    "webhook": TIER_READONLY,       # Externally triggered
+}
+
+
+# ============================================================
+# TIER FILTERING
+# ============================================================
+
+def filter_tools_by_tier(tools: list[Tool], max_tier: int) -> list[Tool]:
+    """Return only tools whose tier is at or below *max_tier*."""
+    return [t for t in tools if t.tier <= max_tier]
+
+
+# ============================================================
+# INBOUND SANITIZATION
+# ============================================================
+
+# Zero-width and invisible Unicode characters to strip
+_INVISIBLE_CHARS = re.compile(
+    "[\u200b\u200c\u200d\u200e\u200f"   # zero-width joiners/marks
+    "\u2060\u2061\u2062\u2063\u2064"     # invisible operators
+    "\ufeff"                              # BOM / zero-width no-break space
+    "\u00ad"                              # soft hyphen
+    "\u034f"                              # combining grapheme joiner
+    "\u061c"                              # Arabic letter mark
+    "\u115f\u1160"                        # Hangul fillers
+    "\u17b4\u17b5"                        # Khmer vowel inherent
+    "\u180e"                              # Mongolian vowel separator
+    "\uffa0"                              # Halfwidth Hangul filler
+    "]"
+)
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Extract visible text from HTML, discarding all tags."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._buf = StringIO()
+
+    def handle_data(self, data: str) -> None:
+        self._buf.write(data)
+
+    def get_text(self) -> str:
+        return self._buf.getvalue()
+
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags, keep only visible text content."""
+    if "<" not in text:
+        return text
+    extractor = _HTMLTextExtractor()
+    extractor.feed(text)
+    return extractor.get_text()
+
+
+def sanitize_inbound(text: str) -> str:
+    """Clean external message text before it enters the pipeline.
+
+    - Strip HTML tags (keep visible text only)
+    - Remove zero-width / invisible Unicode characters
+    - NFC-normalize Unicode
+    """
+    text = _strip_html(text)
+    text = _INVISIBLE_CHARS.sub("", text)
+    text = unicodedata.normalize("NFC", text)
+    return text
+
+
+def wrap_external_message(
+    text: str, sender: str, channel: str, trust_level: str,
+) -> str:
+    """Wrap text in security delimiters for the LLM context."""
+    return (
+        f'<external_message sender="{sender}" channel="{channel}" trust="{trust_level}">\n'
+        f"{text}\n"
+        f"</external_message>"
+    )
+
+
+# ============================================================
+# OUTBOUND SANITIZATION
+# ============================================================
+
+# Markdown image syntax: ![alt](url) — blocks external URLs
+_MD_IMAGE_EXTERNAL = re.compile(
+    r"!\[([^\]]*)\]\(https?://[^)]+\)",
+    re.IGNORECASE,
+)
+
+# Common secret patterns (API keys, tokens, etc.)
+_SECRET_PATTERNS = re.compile(
+    r"(?:"
+    r"sk-[a-zA-Z0-9_-]{20,}"          # OpenAI API keys
+    r"|sk-proj-[a-zA-Z0-9_-]{20,}"    # OpenAI project keys
+    r"|ghp_[a-zA-Z0-9]{36,}"          # GitHub personal access tokens
+    r"|gho_[a-zA-Z0-9]{36,}"          # GitHub OAuth tokens
+    r"|github_pat_[a-zA-Z0-9_]{20,}"  # GitHub fine-grained PATs
+    r"|xoxb-[a-zA-Z0-9-]+"            # Slack bot tokens
+    r"|xoxp-[a-zA-Z0-9-]+"            # Slack user tokens
+    r"|AKIA[0-9A-Z]{16}"              # AWS access key IDs
+    r"|glpat-[a-zA-Z0-9_-]{20,}"      # GitLab PATs
+    r"|Bearer\s+[a-zA-Z0-9._~+/=-]{30,}"  # Bearer tokens
+    r")"
+)
+
+
+def sanitize_outbound(text: str) -> str:
+    """Sanitize LLM output before sending to external channels.
+
+    - Replace markdown images with external URLs (exfiltration vector)
+    - Redact detected secret patterns
+    """
+    text = _MD_IMAGE_EXTERNAL.sub(r"![image blocked by security policy]", text)
+    text = _SECRET_PATTERNS.sub("[REDACTED]", text)
+    return text
+
+
+# ============================================================
+# AUDIT LOG
+# ============================================================
+
+_audit_db_path: Path | None = None
+_audit_db_initialized = False
+
+
+def _get_audit_db_path() -> Path:
+    global _audit_db_path
+    if _audit_db_path is None:
+        from .config import SECURITY_AUDIT_DB
+        _audit_db_path = SECURITY_AUDIT_DB
+    return _audit_db_path
+
+
+def _ensure_audit_db(conn: sqlite3.Connection) -> None:
+    global _audit_db_initialized
+    if _audit_db_initialized:
+        return
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tool_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
+            session_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            tool_name TEXT NOT NULL,
+            tool_tier INTEGER NOT NULL,
+            tool_args_preview TEXT,
+            result_preview TEXT,
+            success INTEGER NOT NULL,
+            duration_ms REAL
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_audit_session
+        ON tool_audit(session_id)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_audit_timestamp
+        ON tool_audit(timestamp)
+    """)
+    conn.commit()
+    _audit_db_initialized = True
+
+
+def audit_log(
+    *,
+    session_id: str,
+    source: str,
+    tool_name: str,
+    tool_tier: int,
+    tool_args_preview: str = "",
+    result_preview: str = "",
+    success: bool = True,
+    duration_ms: float = 0.0,
+) -> None:
+    """Record a tool execution in the audit database. Fire-and-forget."""
+    try:
+        db_path = _get_audit_db_path()
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(str(db_path), timeout=5) as conn:
+            _ensure_audit_db(conn)
+            conn.execute(
+                """INSERT INTO tool_audit
+                   (session_id, source, tool_name, tool_tier,
+                    tool_args_preview, result_preview, success, duration_ms)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    session_id,
+                    source,
+                    tool_name,
+                    tool_tier,
+                    tool_args_preview[:500],
+                    result_preview[:500],
+                    1 if success else 0,
+                    round(duration_ms, 1),
+                ),
+            )
+            conn.commit()
+    except Exception as exc:
+        logger.warning("Audit log write failed: %s", exc)

@@ -267,6 +267,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
     return [
         Tool(
             name="epim_search",
+            tier=0,
             description=search_desc,
             parameters={
                 "type": "object",
@@ -302,6 +303,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="epim_create",
+            tier=2,
             description=create_desc,
             parameters={
                 "type": "object",
@@ -327,6 +329,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="epim_update",
+            tier=2,
             description=update_desc,
             parameters={
                 "type": "object",
@@ -350,6 +353,7 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="epim_delete",
+            tier=3,
             description=delete_desc,
             parameters={
                 "type": "object",

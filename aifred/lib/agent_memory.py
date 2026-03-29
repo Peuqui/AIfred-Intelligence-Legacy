@@ -257,6 +257,7 @@ class AgentMemory:
         return ToolKit(tools=[
             Tool(
                 name="store_memory",
+                tier=2,
                 description=load_tool_description("store_memory_tool.txt"),
                 parameters={
                     "type": "object",
@@ -339,6 +340,8 @@ async def prepare_agent_toolkit(
     research_tools_enabled: bool = True,
     state: Optional[Any] = None,
     session_id: Optional[str] = None,
+    max_tier: int = 4,
+    source: str = "browser",
 ) -> tuple[str, Optional["ToolKit"]]:
     """Prepare combined toolkit (memory + research tools) for an agent.
 
@@ -350,6 +353,8 @@ async def prepare_agent_toolkit(
         research_tools_enabled: Include research tools (web_search, read_webpage)
         state: AIState for research tools (needed for forced research pipeline)
         session_id: If set, memories from this session are excluded (already in chat history)
+        max_tier: Maximum security tier for tools in this context
+        source: Origin of the request (browser/email/discord/cron/webhook)
 
     Returns:
         (memory_context_str, toolkit) — context for system prompt, combined toolkit.
@@ -377,6 +382,8 @@ async def prepare_agent_toolkit(
             session_id=session_id or "",
             state=state,
             user_query=user_query,
+            max_tier=max_tier,
+            source=source,
         )
 
         for p in discover_tools():
@@ -429,7 +436,15 @@ async def prepare_agent_toolkit(
                     if state is not None and hasattr(state, "add_debug"):
                         state.add_debug(f"📄 Document RAG: {len(doc_parts)} chunks (~{rag_tok_str} tok) aus {files_str}")
 
-    toolkit = ToolKit(tools=all_tools) if all_tools else None
+    # Security: filter tools by tier before building toolkit
+    from .security import filter_tools_by_tier
+    all_tools = filter_tools_by_tier(all_tools, max_tier)
+
+    toolkit = ToolKit(
+        tools=all_tools,
+        _session_id=session_id or "",
+        _source=source,
+    ) if all_tools else None
     return memory_ctx, toolkit
 
 

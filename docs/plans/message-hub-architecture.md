@@ -206,20 +206,10 @@ aber fuer den Message Hub ist erstmal nur der Hauptnutzer relevant.
 
 ---
 
-## Abgrenzung zu OpenClaw
+## Design-Prinzipien
 
-| Aspekt | OpenClaw | AIfred Message Hub |
-|--------|----------|--------------------|
-| Sprache | TypeScript/Node.js | Python (Reflex/FastAPI) |
-| Scope | Generisches Framework, 24+ Kanaele | Persoenlicher Assistent, 4 Kanaele |
-| Architektur | Separater Gateway-Prozess (RPC) | Integriert in bestehende App |
-| Multi-Agent | Externe Agents pro Kanal zuweisbar | Interne Orchestrierung (AIfred/Sokrates/Salomo) |
-| Plugins | npm-Distribution, SDK | Einfache Python-Plugins (existieren schon) |
-| Security | DM-Pairing, komplexes Rollen-System | Allowlist pro Kanal |
-
-**Uebernommene Patterns von OpenClaw:**
 - Envelope-Normalisierung (InboundMessage/OutboundMessage)
-- Eigene Identitaet pro Kanal (kein Mitlesen)
+- Eigene Identitaet pro Kanal (kein Mitlesen von User-Accounts)
 - Allowlist/Security als First-Class-Feature
 - Mention-Gating in Gruppen (Discord: nur auf @AIfred reagieren)
 

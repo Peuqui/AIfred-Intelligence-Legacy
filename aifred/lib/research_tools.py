@@ -465,6 +465,7 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
     return [
         Tool(
             name="web_search",
+            tier=0,
             description=(
                 "Search the web for current, verified information. You MUST use this tool when: "
                 "(1) the user asks about specific products, software, models, versions, or releases, "
@@ -492,6 +493,7 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
         ),
         Tool(
             name="web_fetch",
+            tier=0,
             description=(
                 "Fetch and read the content of a specific URL. Use this when you know the exact URL "
                 "you need (e.g. a specific page on bibleserver.com, a documentation page, a Wikipedia article). "
