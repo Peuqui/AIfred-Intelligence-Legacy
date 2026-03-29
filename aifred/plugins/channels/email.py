@@ -219,7 +219,8 @@ class EmailChannel(BaseChannel):
             body=outbound.text,
             reply_to_id=reply_to_id,
         )
-        log_message(f"Email Plugin: reply sent to {outbound.recipient}")
+        from ...lib.debug_bus import debug
+        debug(f"📤 Auto-reply sent to {outbound.recipient}")
 
     # ── Context ───────────────────────────────────────────────
 

@@ -225,7 +225,9 @@ class DiscordChannel(BaseChannel):
         else:
             await channel.send(text)  # type: ignore[union-attr]
 
-        log_message(f"Discord Plugin: reply sent to #{getattr(channel, 'name', channel_id)}")
+        from ...lib.debug_bus import debug
+        channel_name = getattr(channel, 'name', channel_id)
+        debug(f"📤 Reply sent to {outbound.recipient} (#{channel_name})")
 
     # ── Context ───────────────────────────────────────────────
 

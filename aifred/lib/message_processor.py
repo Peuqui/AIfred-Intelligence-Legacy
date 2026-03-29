@@ -180,7 +180,6 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         auto_reply_enabled = _is_auto_reply_enabled(message.channel)
         if plugin and auto_reply_enabled:
             await plugin.send_reply(outbound, message)
-            debug(f"📤 Auto-reply sent to {message.sender}")
         else:
             debug("💬 Response ready (auto-reply off)")
 
