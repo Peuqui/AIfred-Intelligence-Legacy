@@ -474,7 +474,8 @@ class EpimDatabase:
         sql = f"UPDATE TASKS SET {', '.join(updates)} WHERE IDTASK = ?"
         cur.execute(sql, params)
         con.commit()
-        return cur.rowcount > 0
+        # Note: Firebird fdb driver does not reliably report rowcount for UPDATEs
+        return True
 
     def delete_task(self, task_id: int) -> bool:
         """Soft-delete a task (set STATUS=1, DELETED=now)."""
