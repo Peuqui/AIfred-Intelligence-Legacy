@@ -203,7 +203,15 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
             return json.dumps({"error": f"Unknown entity_type for update: {entity_type}. Use: task, contact, note, note_tab, todo, password"})
 
         if entity == "task":
-            ok = db.update_task(entity_id, **data)
+            # Map LLM-friendly field names to DB column names
+            field_map = {
+                "start": "STARTTIME", "end": "ENDTIME",
+                "title": "TITLE", "location": "LOCATION",
+                "text": "TEXT", "priority": "PRIORITY",
+                "allday": "ALLDAY", "tags": "TAGS",
+            }
+            mapped = {field_map.get(k, k): v for k, v in data.items()}
+            ok = db.update_task(entity_id, **mapped)
         elif entity == "contact":
             ok = db.update_contact(
                 entity_id,
