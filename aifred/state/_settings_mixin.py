@@ -466,7 +466,12 @@ class SettingsMixin(rx.State, mixin=True):
         self.channel_toggles = toggles
 
     def toggle_channel_monitor(self, data: list) -> None:
-        """Toggle monitor on/off for a channel. Called from UI with [channel_name, value]."""
+        """Toggle channel plugin on/off. Called from UI with [channel_name, value].
+
+        For always_reply channels (Discord): also starts/stops the listener.
+        For other channels (Email): only enables/disables the plugin.
+        The listener is controlled separately via toggle_channel_listener.
+        """
         channel_name: str = data[0]
         value: bool = data[1]
 
@@ -474,17 +479,40 @@ class SettingsMixin(rx.State, mixin=True):
         plugin = get_channel(channel_name)
 
         if value and plugin and not plugin.is_configured():
-            # Want to enable, but no credentials → open modal
             self.open_channel_credentials(channel_name)
             return
 
         self._set_channel_toggle(channel_name, "monitor", value)
         display = plugin.display_name if plugin else channel_name
         status = "enabled" if value else "disabled"
+        self.add_debug(f"📨 {display} {status}")  # type: ignore[attr-defined, has-type]
+        self._save_settings()
+
+        # For always_reply channels: toggle also controls the listener
+        if plugin and plugin.always_reply:
+            from ..lib.message_hub import message_hub
+            if value:
+                if not message_hub.is_running(channel_name):
+                    message_hub.register(channel_name, plugin.listener_loop)
+                    import asyncio
+                    asyncio.create_task(message_hub.start_all())
+            else:
+                message_hub.unregister(channel_name)
+
+    def toggle_channel_listener(self, data: list) -> None:
+        """Toggle background listener for a channel. Called from UI with [channel_name, value]."""
+        channel_name: str = data[0]
+        value: bool = data[1]
+
+        from ..lib.plugin_registry import get_channel
+        plugin = get_channel(channel_name)
+
+        self._set_channel_toggle(channel_name, "listener", value)
+        display = plugin.display_name if plugin else channel_name
+        status = "enabled" if value else "disabled"
         self.add_debug(f"📨 {display} Monitor {status}")  # type: ignore[attr-defined, has-type]
         self._save_settings()
 
-        # Start/stop the worker at runtime
         from ..lib.message_hub import message_hub
         if value and plugin:
             if not message_hub.is_running(channel_name):
@@ -614,17 +642,15 @@ class SettingsMixin(rx.State, mixin=True):
         self.plugin_manager_open = True
 
     def close_plugin_manager(self) -> None:
-        """Apply pending toggle changes and close modal.
+        """Apply pending tool plugin changes and close modal.
 
-        Compares current UI state (tool_plugins) with filesystem state
-        and moves files accordingly. This is the batch-apply on OK.
+        Channel toggles apply immediately (running workers).
+        Tool toggles apply on OK (file movement, batch).
         """
         from ..lib.plugin_registry import list_all_plugins, enable_plugin, disable_plugin
 
-        # Get current filesystem state
         fs_state = {p["name"]: p for p in list_all_plugins()}
 
-        # Compare with UI state and apply differences
         for ui_plugin in self.tool_plugins:
             name = ui_plugin["name"]
             ptype = ui_plugin.get("type", "tool")
@@ -637,15 +663,15 @@ class SettingsMixin(rx.State, mixin=True):
 
             if ui_enabled and not fs_enabled:
                 enable_plugin(name, ptype)
-                self.add_debug(f"🔌 Plugin '{name}' aktiviert")  # type: ignore[attr-defined, has-type]
+                self.add_debug(f"🔌 {ui_plugin.get('display', name)} aktiviert")  # type: ignore[attr-defined, has-type]
             elif not ui_enabled and fs_enabled:
                 disable_plugin(name, ptype)
-                self.add_debug(f"🔌 Plugin '{name}' deaktiviert")  # type: ignore[attr-defined, has-type]
+                self.add_debug(f"🔌 {ui_plugin.get('display', name)} deaktiviert")  # type: ignore[attr-defined, has-type]
 
         self.plugin_manager_open = False
 
     def toggle_tool_plugin(self, plugin_name: str) -> None:
-        """Toggle a plugin in the UI state (not applied until OK)."""
+        """Toggle a tool plugin in UI state (applied on OK)."""
         updated = []
         for p in self.tool_plugins:
             if p["name"] == plugin_name:

@@ -16,6 +16,7 @@ from ...lib.plugin_base import PluginContext
 @dataclass
 class HelloPlugin:
     name: str = "hello"
+    display_name: str = "Hello"
 
     def is_available(self) -> bool:
         """Check if this plugin can run. Return False to disable."""

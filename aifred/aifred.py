@@ -957,12 +957,16 @@ def _register_message_hub_workers(hub: object) -> None:
     channel_toggles = settings.get("channel_toggles", {})
 
     for name, plugin in all_channels().items():
-        monitor_on = channel_toggles.get(name, {}).get("monitor", False)
-        if plugin.is_configured() and monitor_on:
+        toggles = channel_toggles.get(name, {})
+        plugin_on = toggles.get("monitor", False)
+        # For always_reply channels: "monitor" toggle controls both plugin + listener
+        # For others: "listener" sub-toggle controls the listener separately
+        listener_on = plugin_on if plugin.always_reply else toggles.get("listener", False)
+        if plugin.is_configured() and plugin_on and listener_on:
             hub.register(name, plugin.listener_loop)
         else:
             from .lib.logging_utils import log_message as _log  # noqa: E402
-            _log(f"Message Hub: channel '{name}' skipped (configured={plugin.is_configured()}, enabled={monitor_on})")
+            _log(f"Message Hub: channel '{name}' skipped (configured={plugin.is_configured()}, enabled={plugin_on}, listener={listener_on})")
 
 
 app.register_lifespan_task(_message_hub_lifespan)

@@ -40,7 +40,7 @@ class EmailChannel(BaseChannel):
 
     @property
     def display_name(self) -> str:
-        return "E-Mail Monitor"
+        return "E-Mail"
 
     @property
     def icon(self) -> str:

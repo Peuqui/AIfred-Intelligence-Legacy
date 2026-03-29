@@ -1,4 +1,4 @@
-"""Research plugin (web_search, web_fetch, calculate, read_document)."""
+"""Web Research plugin (web_search, web_fetch)."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -11,7 +11,7 @@ from ...lib.i18n import t
 @dataclass
 class ResearchPlugin:
     name: str = "research"
-    display_name: str = "Research"
+    display_name: str = "Web Research"
 
     def is_available(self) -> bool:
         return True
@@ -36,10 +36,6 @@ class ResearchPlugin:
             if queries:
                 return f"🔍 {queries[0][:60]}..."
             return t("tool_search", lang=lang)
-        elif tool_name == "calculate":
-            return f"🔢 {tool_args.get('expression', '')}"
-        elif tool_name == "read_document":
-            return f"📄 {tool_args.get('path', '')}"
         return ""
 
 

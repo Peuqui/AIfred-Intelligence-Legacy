@@ -165,7 +165,31 @@ Prompt templates go in `prompts/de/` and `prompts/en/`.
 
 ## Enabling / Disabling
 
-Plugins can be toggled via the Plugin Manager UI (Settings → Message Hub → gear icon). Disabling moves the file to `aifred/plugins/disabled/`. Re-enabling moves it back.
+Plugins are managed via the **Plugin Manager** (Settings → Plugin Manager → gear icon).
+
+### Channel Plugins vs Tool Plugins — Different Toggle Behavior
+
+**Channel plugins** (Email, Discord) have toggles that apply **immediately**:
+- The main toggle enables/disables the entire channel (tools + listener)
+- Sub-toggles control the background listener (Monitor) and Auto-Reply
+- Changes take effect instantly because they start/stop running background workers
+- State is stored in `settings.json` (`channel_toggles`)
+
+**Tool plugins** (Calculator, Documents, EPIM, etc.) have toggles that apply **on OK**:
+- Toggling a tool plugin in the UI only changes the visual state
+- Clicking OK applies all changes at once by moving files to/from `plugins/disabled/`
+- This avoids slow file I/O on every toggle click (especially when toggling multiple plugins)
+- The plugin file is physically moved — what's in the folder is active, what's in `disabled/` is not
+
+This difference exists because channel plugins manage **live connections** (IMAP sessions, Discord WebSockets) that need immediate start/stop, while tool plugins are **stateless** and only loaded when the LLM makes a tool call.
+
+### Channel Sub-Toggles
+
+Channels with `always_reply = False` (e.g. Email) show additional sub-toggles:
+- **Monitor**: Start/stop the background listener (IMAP IDLE, etc.)
+- **Auto-Reply**: Automatically send LLM responses back via the channel
+
+Channels with `always_reply = True` (e.g. Discord) only show the main toggle — replies are always sent.
 
 ## File Structure
 
@@ -178,13 +202,13 @@ aifred/
 │   └── function_calling.py  # Tool, ToolKit classes
 └── plugins/
     ├── channels/
-    │   ├── email.py         # IMAP/SMTP channel
-    │   └── discord.py       # Discord bot channel
+    │   ├── email_channel/   # E-Mail (IMAP/SMTP + email tools)
+    │   └── discord.py       # Discord (bot + discord_send tool)
     ├── tools/
-    │   ├── research.py      # web_search, web_fetch, calculate
-    │   ├── email_tools.py   # email read/send/search
-    │   ├── documents.py     # document search/list/delete
-    │   ├── sandbox.py       # execute_code
-    │   └── epim.py          # EPIM database CRUD
-    └── disabled/            # Disabled plugins (moved here by UI toggle)
+    │   ├── calculator.py    # calculate
+    │   ├── documents.py     # search/list/delete/read documents
+    │   ├── epim/            # EPIM database CRUD
+    │   ├── research.py      # web_search, web_fetch
+    │   └── sandbox.py       # execute_code
+    └── disabled/            # Disabled tool plugins (moved here by UI)
 ```

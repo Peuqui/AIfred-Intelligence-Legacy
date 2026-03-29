@@ -9,7 +9,7 @@ Both paths run the same pipeline: Search → Ranking → Scraping → Context �
 
 import json
 import logging
-from typing import Any, AsyncGenerator, Callable, Optional, TYPE_CHECKING
+from typing import Any, AsyncGenerator, Optional, TYPE_CHECKING
 
 from .function_calling import Tool
 
@@ -462,95 +462,6 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
             log_message(f"❌ web_fetch failed: {error}")
             return json.dumps({"error": f"Could not fetch {url}: {error}"})
 
-    async def _execute_calculate(expression: str) -> str:
-        """Tool executor: evaluate a math expression safely."""
-        import ast
-        import operator
-        from .logging_utils import log_message
-
-        # Safe math operators — split into binary and unary for type safety
-        binary_ops: dict[type, Callable[[float, float], float]] = {
-            ast.Add: operator.add,
-            ast.Sub: operator.sub,
-            ast.Mult: operator.mul,
-            ast.Div: operator.truediv,
-            ast.FloorDiv: operator.floordiv,
-            ast.Mod: operator.mod,
-            ast.Pow: operator.pow,
-        }
-        unary_ops: dict[type, Callable[[float], float]] = {
-            ast.USub: operator.neg,
-            ast.UAdd: operator.pos,
-        }
-
-        def _eval(node: ast.AST) -> float:
-            if isinstance(node, ast.Expression):
-                return _eval(node.body)
-            elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-                return float(node.value)
-            elif isinstance(node, ast.BinOp):
-                op_type = type(node.op)
-                if op_type not in binary_ops:
-                    raise ValueError(f"Unsupported operator: {op_type.__name__}")
-                return binary_ops[op_type](_eval(node.left), _eval(node.right))
-            elif isinstance(node, ast.UnaryOp):
-                uop_type = type(node.op)
-                if uop_type not in unary_ops:
-                    raise ValueError(f"Unsupported operator: {uop_type.__name__}")
-                return unary_ops[uop_type](_eval(node.operand))
-            else:
-                raise ValueError(f"Unsupported expression: {ast.dump(node)}")
-
-        log_message(f"🔢 calculate: {expression}")
-        try:
-            tree = ast.parse(expression, mode='eval')
-            result = _eval(tree)
-            # Format: keep int if whole number
-            if result == int(result):
-                result_str = str(int(result))
-            else:
-                result_str = f"{result:.10g}"
-            log_message(f"✅ calculate: {expression} = {result_str}")
-            return f"{expression} = {result_str}"
-        except Exception as e:
-            log_message(f"❌ calculate failed: {e}")
-            return json.dumps({"error": f"Cannot evaluate '{expression}': {e}"})
-
-    async def _execute_read_document(path: str) -> str:
-        """Tool executor: read a local document (uploaded files, PDFs)."""
-        from pathlib import Path as P
-        from .logging_utils import log_message
-
-        # Security: only allow files under data/ directory
-        base_dir = P(__file__).parent.parent.parent / "data"
-        try:
-            file_path = (base_dir / path).resolve()
-            if not str(file_path).startswith(str(base_dir.resolve())):
-                return json.dumps({"error": "Access denied: path outside data directory"})
-        except Exception:
-            return json.dumps({"error": f"Invalid path: {path}"})
-
-        if not file_path.exists():
-            return json.dumps({"error": f"File not found: {path}"})
-
-        log_message(f"📄 read_document: {file_path.name}")
-
-        try:
-            if file_path.suffix.lower() == ".pdf":
-                import fitz  # PyMuPDF
-                doc = fitz.open(str(file_path))
-                text = "\n\n".join(page.get_text() for page in doc)
-                doc.close()
-                log_message(f"✅ read_document: PDF {file_path.name} ({len(text)} chars)")
-                return f"# {file_path.name}\n\n{text}"
-            else:
-                text = file_path.read_text(encoding="utf-8")
-                log_message(f"✅ read_document: {file_path.name} ({len(text)} chars)")
-                return f"# {file_path.name}\n\n{text}"
-        except Exception as e:
-            log_message(f"❌ read_document failed: {e}")
-            return json.dumps({"error": f"Cannot read {path}: {e}"})
-
     return [
         Tool(
             name="web_search",
@@ -601,44 +512,5 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
                 "required": ["url"],
             },
             executor=_execute_web_fetch,
-        ),
-        Tool(
-            name="calculate",
-            description=(
-                "Evaluate a mathematical expression and return the exact result. "
-                "Use this for any calculation instead of doing mental math. "
-                "Supports: +, -, *, /, //, %, ** (power). "
-                "Examples: '17.5 * 1.19', '2**10', '4832 * 0.17', '(100 - 15) / 3'."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "expression": {
-                        "type": "string",
-                        "description": "Mathematical expression (e.g. '4832 * 0.17')",
-                    },
-                },
-                "required": ["expression"],
-            },
-            executor=_execute_calculate,
-        ),
-        Tool(
-            name="read_document",
-            description=(
-                "Read a document from the local file system (uploaded files, PDFs, text files). "
-                "The path is relative to the data/ directory. "
-                "Use this when the user has uploaded a file or references a local document."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path relative to data/ directory (e.g. 'uploads/document.pdf')",
-                    },
-                },
-                "required": ["path"],
-            },
-            executor=_execute_read_document,
         ),
     ]

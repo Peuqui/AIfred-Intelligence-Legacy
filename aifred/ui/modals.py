@@ -1096,12 +1096,12 @@ def plugin_manager_modal() -> rx.Component:
     # Build channel rows at build time (static)
     channel_rows: list[rx.Component] = []
     for name, plugin in all_channels().items():
-        monitor_var = AIState.channel_toggles[name]["monitor"].to(bool)
+        enabled_var = AIState.channel_toggles[name]["monitor"].to(bool)
 
-        # Header row: icon + name + gear + monitor toggle
+        # Header row: icon + name + gear + enable toggle
         header = rx.hstack(
-            rx.icon(plugin.icon, size=14, color=rx.cond(monitor_var, "#4CAF50", "#666")),
-            rx.text(plugin.display_name, font_size="12px", color=rx.cond(monitor_var, "white", "#999")),
+            rx.icon(plugin.icon, size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
+            rx.text(plugin.display_name, font_size="12px", color=rx.cond(enabled_var, "white", "#999")),
             rx.box(flex="1"),
             rx.icon_button(
                 rx.icon("settings", size=14),
@@ -1112,14 +1112,14 @@ def plugin_manager_modal() -> rx.Component:
                 cursor="pointer",
             ),
             rx.switch(
-                checked=monitor_var,
+                checked=enabled_var,
                 on_change=lambda val, ch=name: AIState.toggle_channel_monitor([ch, val]),
                 size="1",
             ),
             rx.text(
-                rx.cond(monitor_var, "ON", "OFF"),
+                rx.cond(enabled_var, "ON", "OFF"),
                 font_size="11px",
-                color=rx.cond(monitor_var, "#4CAF50", "#999"),
+                color=rx.cond(enabled_var, "#4CAF50", "#999"),
                 min_width="24px",
             ),
             spacing="2",
@@ -1127,13 +1127,43 @@ def plugin_manager_modal() -> rx.Component:
             width="100%",
         )
 
-        # Auto-reply toggle only for channels that don't always reply
+        # Sub-toggles (only when plugin is enabled)
         children: list[rx.Component] = [header]
         if not plugin.always_reply:
+            # Channels with always_reply=False get Monitor + Auto-Reply sub-toggles
+            monitor_var = AIState.channel_toggles[name]["listener"].to(bool)
             auto_reply_var = AIState.channel_toggles[name]["auto_reply"].to(bool)
+
+            # Monitor sub-toggle
             children.append(
                 rx.cond(
-                    monitor_var,
+                    enabled_var,
+                    rx.hstack(
+                        rx.box(width="14px"),
+                        rx.text("Monitor", font_size="11px", color="#999"),
+                        rx.box(flex="1"),
+                        rx.switch(
+                            checked=monitor_var,
+                            on_change=lambda val, ch=name: AIState.toggle_channel_listener([ch, val]),
+                            size="1",
+                        ),
+                        rx.text(
+                            rx.cond(monitor_var, "ON", "OFF"),
+                            font_size="11px",
+                            color=rx.cond(monitor_var, "#4CAF50", "#999"),
+                            min_width="24px",
+                        ),
+                        spacing="2",
+                        align="center",
+                        width="100%",
+                    ),
+                )
+            )
+
+            # Auto-Reply sub-toggle (only when monitor is on)
+            children.append(
+                rx.cond(
+                    enabled_var & monitor_var,
                     rx.hstack(
                         rx.box(width="14px"),
                         rx.text(t("auto_reply"), font_size="11px", color="#999"),
