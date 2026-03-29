@@ -45,7 +45,7 @@ def get_document_tools() -> list[Tool]:
         if not docs:
             return json.dumps({"documents": [], "message": "No documents uploaded yet."})
 
-        return json.dumps({"documents": docs}, ensure_ascii=False)
+        return json.dumps({"total_count": len(docs), "documents": docs}, ensure_ascii=False)
 
     async def _delete_document(filename: str) -> str:
         """Delete a document and all its chunks."""
