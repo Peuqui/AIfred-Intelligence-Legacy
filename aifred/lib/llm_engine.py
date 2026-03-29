@@ -243,7 +243,7 @@ async def call_llm(
         # Rebuild metadata with hub-specific params (history_tokens, backend_type, source_label)
         from .context_manager import estimate_tokens_from_llm_history
         history_tokens = estimate_tokens_from_llm_history(llm_history)
-        source_label = f"VL ({model_choice})" if agent == "vision" else f"Own Knowledge ({model_choice})"
+        source_label = f"VL ({model_choice})" if agent == "vision" else f"{agent_label} ({model_choice})"
 
         metadata_dict, metadata_display, debug_msg = build_inference_metadata(
             ttft=pipeline_result.ttft,
@@ -291,6 +291,7 @@ async def call_llm(
                 "ttft": pipeline_result.ttft,
                 "model_choice": model_choice,
                 "failed_sources": [],
+                "metadata_dict": metadata_dict,
             }
         }
 

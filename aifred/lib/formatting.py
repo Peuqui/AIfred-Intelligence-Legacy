@@ -198,6 +198,55 @@ def format_metadata(metadata_text: str) -> str:
     return f'*( {text} )*'
 
 
+def format_performance_footer(metadata: dict) -> str:
+    """Build a performance metadata footer from a metrics dict.
+
+    Used by both browser-path (add_agent_panel) and hub-path (_append_response).
+
+    Args:
+        metadata: Dict with keys: ttft, prompt_per_sec, tokens_per_sec,
+                  inference_time, source, backend_type (all optional)
+
+    Returns:
+        Formatted string like *( TTFT: 0,41s    PP: 466,0 tok/s    ... )*
+        or empty string if no metrics.
+    """
+    if not metadata:
+        return ""
+
+    perf_parts: list[str] = []
+    info_parts: list[str] = []
+
+    if metadata.get("ttft"):
+        perf_parts.append(f"TTFT:\u00A0{format_number(metadata['ttft'], 2)}s")
+
+    if metadata.get("prompt_per_sec"):
+        perf_parts.append(f"PP:\u00A0{format_number(metadata['prompt_per_sec'], 1)}\u00A0tok/s")
+
+    if metadata.get("tokens_per_sec"):
+        perf_parts.append(f"{format_number(metadata['tokens_per_sec'], 1)}\u00A0tok/s")
+
+    if metadata.get("inference_time"):
+        perf_parts.append(f"Inference:\u00A0{format_number(metadata['inference_time'], 1)}s")
+
+    if metadata.get("source"):
+        source = metadata["source"]
+        backend = metadata.get("backend_type", "")
+        source_display = f"{source}\u00A0[{backend}]" if backend else source
+        info_parts.append(f"Source:\u00A0{source_display.replace(' ', chr(0xA0))}")
+
+    if not perf_parts and not info_parts:
+        return ""
+
+    groups: list[str] = []
+    if perf_parts:
+        groups.append("    ".join(perf_parts))
+    if info_parts:
+        groups.append("    ".join(info_parts))
+    metadata_text = "\u00A0\u00A0\u00A0 ".join(groups)
+    return format_metadata(metadata_text)
+
+
 def build_inference_metadata(
     ttft: float | None,
     inference_time: float,
