@@ -166,21 +166,29 @@ def list_all_plugins() -> list[dict[str, str]]:
     def _display(stem: str) -> str:
         return stem.replace("_", " ").title()
 
-    # Enabled channels
+    # Enabled channels (single files + packages)
     channels_dir = root / "channels"
     if channels_dir.exists():
         for f in sorted(channels_dir.glob("*.py")):
             if f.name.startswith("_"):
                 continue
             result.append({"name": f.stem, "display": _display(f.stem), "file": f.name, "type": "channel", "enabled": "1"})
+        for d in sorted(channels_dir.iterdir()):
+            if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_"):
+                name = d.name
+                result.append({"name": name, "display": _display(name), "file": d.name, "type": "channel", "enabled": "1"})
 
-    # Enabled tools
+    # Enabled tools (single files + packages)
     tools_dir = root / "tools"
     if tools_dir.exists():
         for f in sorted(tools_dir.glob("*.py")):
             if f.name.startswith("_"):
                 continue
             result.append({"name": f.stem, "display": _display(f.stem), "file": f.name, "type": "tool", "enabled": "1"})
+        for d in sorted(tools_dir.iterdir()):
+            if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_"):
+                name = d.name
+                result.append({"name": name, "display": _display(name), "file": d.name, "type": "tool", "enabled": "1"})
 
     # Disabled (both types — filename encodes origin via prefix)
     for f in sorted(disabled.glob("*.py")):
@@ -202,19 +210,30 @@ def list_all_plugins() -> list[dict[str, str]]:
     return result
 
 
-def disable_plugin(name: str, plugin_type: str) -> bool:
-    """Move a plugin to disabled/. Prefixes filename with type."""
-    if plugin_type == "channel":
-        src = _plugins_root() / "channels" / f"{name}.py"
-        dst_name = f"channel_{name}.py"
-    else:
-        src = _plugins_root() / "tools" / f"{name}.py"
-        dst_name = f"tool_{name}.py"
+def _find_plugin_path(name: str, plugin_type: str) -> Path | None:
+    """Find a plugin by name — single file or package."""
+    subdir = "channels" if plugin_type == "channel" else "tools"
+    base = _plugins_root() / subdir
+    # Single file
+    single = base / f"{name}.py"
+    if single.exists():
+        return single
+    # Package (name_pkg or name)
+    for pkg_name in [f"{name}_pkg", name]:
+        pkg = base / pkg_name
+        if pkg.is_dir() and (pkg / "__init__.py").exists():
+            return pkg
+    return None
 
-    if not src.exists():
+
+def disable_plugin(name: str, plugin_type: str) -> bool:
+    """Move a plugin to disabled/. Prefixes with type."""
+    src = _find_plugin_path(name, plugin_type)
+    if not src:
         return False
 
-    dst = _disabled_dir() / dst_name
+    prefix = "channel" if plugin_type == "channel" else "tool"
+    dst = _disabled_dir() / f"{prefix}_{src.name}"
     shutil.move(str(src), str(dst))
     reload_all()
     return True
@@ -222,12 +241,23 @@ def disable_plugin(name: str, plugin_type: str) -> bool:
 
 def enable_plugin(name: str, plugin_type: str) -> bool:
     """Move a plugin back from disabled/ to its subdirectory."""
-    if plugin_type == "channel":
-        src = _disabled_dir() / f"channel_{name}.py"
-        dst = _plugins_root() / "channels" / f"{name}.py"
-    else:
-        src = _disabled_dir() / f"tool_{name}.py"
-        dst = _plugins_root() / "tools" / f"{name}.py"
+    subdir = "channels" if plugin_type == "channel" else "tools"
+    prefix = "channel" if plugin_type == "channel" else "tool"
+
+    # Find in disabled (could be .py or directory)
+    src = None
+    for candidate in [f"{prefix}_{name}.py", f"{prefix}_{name}_pkg", f"{prefix}_{name}"]:
+        p = _disabled_dir() / candidate
+        if p.exists():
+            src = p
+            break
+
+    if not src:
+        return False
+
+    # Restore original name (remove type prefix)
+    original_name = src.name.removeprefix(f"{prefix}_")
+    dst = _plugins_root() / subdir / original_name
 
     if not src.exists():
         return False

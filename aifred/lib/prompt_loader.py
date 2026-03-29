@@ -389,7 +389,7 @@ def load_prompt(
     try:
         from .config import EPIM_ENABLED
         if EPIM_ENABLED:
-            from ..plugins.tools.epim_pkg.db import get_epim_db
+            from ..plugins.tools.epim.db import get_epim_db
             _epim = get_epim_db()
             if _epim:
                 epim_categories = ", ".join(str(c["name"]) for c in _epim.get_categories())
