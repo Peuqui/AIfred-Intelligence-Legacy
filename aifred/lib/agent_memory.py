@@ -383,6 +383,14 @@ async def prepare_agent_toolkit(
             if p.is_available():
                 all_tools.extend(p.get_tools(ctx))
 
+        # Channel plugin tools (e.g. discord_send)
+        from .plugin_registry import all_channels
+        for ch in all_channels().values():
+            if ch.is_configured():
+                ch_tools = ch.get_tools(ctx)
+                if ch_tools:
+                    all_tools.extend(ch_tools)
+
         # Document RAG auto-injection (side-effect, separate from plugin tools)
         from .document_store import get_document_store
         doc_store = get_document_store()

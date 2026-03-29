@@ -2096,6 +2096,7 @@ systemctl status ollama
 More documentation in the `docs/` directory:
 - [Architecture Overview](docs/architecture/)
 - [API Documentation](docs/api/)
+- [Plugin Development Guide](docs/plugin-development.md) (with templates)
 - [Message Hub Architecture](docs/plans/message-hub-architecture.md)
 - [LLM Call Architecture](docs/llm-call-architecture.md)
 - [Migration Guide](docs/infrastructure/MIGRATION.md)

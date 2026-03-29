@@ -119,3 +119,11 @@ class BaseChannel(ABC):
 
     def build_reply_metadata(self, message: "InboundMessage") -> dict:
         return {}
+
+    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+        """Optional: Return tools this channel provides for LLM function calling.
+
+        Override to expose channel-specific tools (e.g. discord_send).
+        Default: no tools.
+        """
+        return []

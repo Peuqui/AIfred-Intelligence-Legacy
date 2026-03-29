@@ -17,6 +17,8 @@ from ...lib.logging_utils import log_message
 
 if TYPE_CHECKING:
     from ...lib.envelope import InboundMessage, OutboundMessage
+    from ...lib.function_calling import Tool
+    from ...lib.plugin_base import PluginContext
 
 # After a connection error, wait before reconnecting
 _RECONNECT_DELAY_SECONDS = 30
@@ -234,6 +236,70 @@ class DiscordChannel(BaseChannel):
             channel_name=message.metadata.get("channel_name", "?"),
             text=message.text,
         )
+
+
+    # ── Tools ─────────────────────────────────────────────────
+
+    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+        """Provide discord_send tool for LLM function calling."""
+        from ...lib.function_calling import Tool
+        from ...lib.config import DISCORD_CHANNEL_IDS
+        import json
+
+        async def _execute_discord_send(message: str, channel_id: str = "") -> str:
+            """Send a message to a Discord channel."""
+            if not _discord_client:
+                return json.dumps({"error": "Discord not connected"})
+
+            # Default to first configured channel
+            target_id = channel_id
+            if not target_id:
+                ids = _parse_channel_ids(DISCORD_CHANNEL_IDS)
+                if ids:
+                    target_id = str(next(iter(ids)))
+                else:
+                    return json.dumps({"error": "No Discord channel configured"})
+
+            try:
+                ch = _discord_client.get_channel(int(target_id))
+                if not ch:
+                    ch = await _discord_client.fetch_channel(int(target_id))
+
+                # Discord 2000 char limit
+                if len(message) > 2000:
+                    chunks = [message[i:i + 2000] for i in range(0, len(message), 2000)]
+                    for chunk in chunks:
+                        await ch.send(chunk)  # type: ignore[union-attr]
+                else:
+                    await ch.send(message)  # type: ignore[union-attr]
+
+                channel_name = getattr(ch, 'name', target_id)
+                log_message(f"Discord Plugin: message sent to #{channel_name}")
+                return json.dumps({"success": True, "channel": channel_name})
+            except Exception as exc:
+                return json.dumps({"error": str(exc)})
+
+        return [
+            Tool(
+                name="discord_send",
+                description="Send a message to a Discord channel. Use this when the user asks to send a message via Discord.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "message": {
+                            "type": "string",
+                            "description": "The message text to send",
+                        },
+                        "channel_id": {
+                            "type": "string",
+                            "description": "Discord channel ID (optional, uses default channel if empty)",
+                        },
+                    },
+                    "required": ["message"],
+                },
+                executor=_execute_discord_send,
+            ),
+        ]
 
 
 async def _dispatch_inbound(message: "InboundMessage") -> None:
