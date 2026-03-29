@@ -111,7 +111,14 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         serialized = _serialize(results)
         count = len(serialized) if isinstance(serialized, list) else 1
         log_message(f"✅ epim_search: {count} {entity_type} gefunden")
-        return json.dumps(serialized, ensure_ascii=False, default=str)
+
+        # Add short index numbers so the LLM can reference entries easily
+        if isinstance(serialized, list):
+            for i, item in enumerate(serialized, 1):
+                if isinstance(item, dict):
+                    item["_index"] = i
+
+        return json.dumps({"total_count": count, "results": serialized}, ensure_ascii=False, default=str)
 
     # ----------------------------------------------------------
     # epim_create
@@ -353,12 +360,12 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
                         "description": "Entity type: task, contact, note, note_tab, todo, password",
                     },
                     "entity_id": {
-                        "type": "integer",
-                        "description": "ID of the entity to update",
+                        "type": "string",
+                        "description": "IDTASK/IDCONTACT etc. from epim_search results. IMPORTANT: Copy the FULL ID string exactly as returned — do not shorten or round it!",
                     },
                     "data": {
                         "type": "object",
-                        "description": "Fields to update (same structure as create)",
+                        "description": "Fields to update. Task: {start, end, title, location, text, priority, tags}. Use datetime format: YYYY-MM-DD HH:MM",
                     },
                 },
                 "required": ["entity_type", "entity_id", "data"],
@@ -377,8 +384,8 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
                         "description": "Entity type: task, contact, note, todo, password",
                     },
                     "entity_id": {
-                        "type": "integer",
-                        "description": "ID of the entity to delete",
+                        "type": "string",
+                        "description": "IDTASK/IDCONTACT etc. from epim_search results. IMPORTANT: Copy the FULL ID string exactly!",
                     },
                 },
                 "required": ["entity_type", "entity_id"],
