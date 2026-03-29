@@ -956,9 +956,19 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
         width="100%",
     )
 
+    # Label with optional tooltip (convention: label_key + "_tooltip")
+    tooltip_key = field["label_key"].to(str) + "_tooltip"
+    label_with_tooltip = rx.tooltip(
+        rx.text(
+            t(field["label_key"].to(str)),
+            font_size="11px", color="#999", cursor="help",
+        ),
+        content=t(tooltip_key),
+    )
     # Normal text input
     text_input = rx.vstack(
-        rx.text(t(field["label_key"].to(str)), font_size="11px", color="#999"),
+        # Show tooltip label if tooltip key exists, otherwise plain label
+        label_with_tooltip,
         rx.input(
             value=value,
             on_change=lambda val: AIState.update_channel_credential([env_key, val]),
