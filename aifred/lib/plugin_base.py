@@ -117,6 +117,15 @@ class BaseChannel(ABC):
     def build_context(self, message: "InboundMessage") -> str:
         ...
 
+    @property
+    def always_reply(self) -> bool:
+        """If True, auto-reply is always on (no toggle shown in UI).
+
+        Override to return True for channels where a reply is always
+        expected (e.g. Discord, Telegram). Default: False (toggle shown).
+        """
+        return False
+
     def build_reply_metadata(self, message: "InboundMessage") -> dict:
         return {}
 

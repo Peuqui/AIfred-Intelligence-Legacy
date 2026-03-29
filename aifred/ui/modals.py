@@ -1097,61 +1097,66 @@ def plugin_manager_modal() -> rx.Component:
     channel_rows: list[rx.Component] = []
     for name, plugin in all_channels().items():
         monitor_var = AIState.channel_toggles[name]["monitor"].to(bool)
-        auto_reply_var = AIState.channel_toggles[name]["auto_reply"].to(bool)
 
-        row = rx.vstack(
-            rx.hstack(
-                rx.icon(plugin.icon, size=14, color=rx.cond(monitor_var, "#4CAF50", "#666")),
-                rx.text(plugin.display_name, font_size="12px", color=rx.cond(monitor_var, "white", "#999")),
-                rx.box(flex="1"),
-                rx.icon_button(
-                    rx.icon("settings", size=14),
-                    on_click=AIState.open_channel_credentials(name),
-                    size="1",
-                    variant="ghost",
-                    color_scheme="gray",
-                    cursor="pointer",
-                ),
-                rx.switch(
-                    checked=monitor_var,
-                    on_change=lambda val, ch=name: AIState.toggle_channel_monitor([ch, val]),
-                    size="1",
-                ),
-                rx.text(
-                    rx.cond(monitor_var, "ON", "OFF"),
-                    font_size="11px",
-                    color=rx.cond(monitor_var, "#4CAF50", "#999"),
-                    min_width="24px",
-                ),
-                spacing="2",
-                align="center",
-                width="100%",
+        # Header row: icon + name + gear + monitor toggle
+        header = rx.hstack(
+            rx.icon(plugin.icon, size=14, color=rx.cond(monitor_var, "#4CAF50", "#666")),
+            rx.text(plugin.display_name, font_size="12px", color=rx.cond(monitor_var, "white", "#999")),
+            rx.box(flex="1"),
+            rx.icon_button(
+                rx.icon("settings", size=14),
+                on_click=AIState.open_channel_credentials(name),
+                size="1",
+                variant="ghost",
+                color_scheme="gray",
+                cursor="pointer",
             ),
-            rx.cond(
-                monitor_var,
-                rx.hstack(
-                    rx.box(width="14px"),
-                    rx.text(t("auto_reply"), font_size="11px", color="#999"),
-                    rx.box(flex="1"),
-                    rx.switch(
-                        checked=auto_reply_var,
-                        on_change=lambda val, ch=name: AIState.toggle_channel_auto_reply([ch, val]),
-                        size="1",
-                    ),
-                    rx.text(
-                        rx.cond(auto_reply_var, "ON", "OFF"),
-                        font_size="11px",
-                        color=rx.cond(auto_reply_var, "#4CAF50", "#999"),
-                        min_width="24px",
-                    ),
-                    spacing="2",
-                    align="center",
-                    width="100%",
-                ),
+            rx.switch(
+                checked=monitor_var,
+                on_change=lambda val, ch=name: AIState.toggle_channel_monitor([ch, val]),
+                size="1",
             ),
-            spacing="1",
+            rx.text(
+                rx.cond(monitor_var, "ON", "OFF"),
+                font_size="11px",
+                color=rx.cond(monitor_var, "#4CAF50", "#999"),
+                min_width="24px",
+            ),
+            spacing="2",
+            align="center",
             width="100%",
         )
+
+        # Auto-reply toggle only for channels that don't always reply
+        children: list[rx.Component] = [header]
+        if not plugin.always_reply:
+            auto_reply_var = AIState.channel_toggles[name]["auto_reply"].to(bool)
+            children.append(
+                rx.cond(
+                    monitor_var,
+                    rx.hstack(
+                        rx.box(width="14px"),
+                        rx.text(t("auto_reply"), font_size="11px", color="#999"),
+                        rx.box(flex="1"),
+                        rx.switch(
+                            checked=auto_reply_var,
+                            on_change=lambda val, ch=name: AIState.toggle_channel_auto_reply([ch, val]),
+                            size="1",
+                        ),
+                        rx.text(
+                            rx.cond(auto_reply_var, "ON", "OFF"),
+                            font_size="11px",
+                            color=rx.cond(auto_reply_var, "#4CAF50", "#999"),
+                            min_width="24px",
+                        ),
+                        spacing="2",
+                        align="center",
+                        width="100%",
+                    ),
+                )
+            )
+
+        row = rx.vstack(*children, spacing="1", width="100%")
         channel_rows.append(row)
 
     return rx.cond(

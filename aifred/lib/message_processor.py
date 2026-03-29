@@ -385,7 +385,15 @@ def _append_response(session_id: str, response_text: str, metadata: dict | None 
 
 
 def _is_auto_reply_enabled(channel: str) -> bool:
-    """Check if auto-reply is enabled for a given channel."""
+    """Check if auto-reply is enabled for a given channel.
+
+    If the channel plugin declares always_reply=True, auto-reply is
+    always on regardless of the toggle setting.
+    """
+    from .plugin_registry import get_channel
+    plugin = get_channel(channel)
+    if plugin and plugin.always_reply:
+        return True
     from .settings import load_settings
     settings = load_settings() or {}
     channel_toggles = settings.get("channel_toggles", {})

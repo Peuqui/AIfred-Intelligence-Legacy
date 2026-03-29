@@ -57,6 +57,10 @@ class DiscordChannel(BaseChannel):
     def icon(self) -> str:
         return "message-circle"
 
+    @property
+    def always_reply(self) -> bool:
+        return True
+
     # ── Credentials ───────────────────────────────────────────
 
     @property
