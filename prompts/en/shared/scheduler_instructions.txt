@@ -7,12 +7,34 @@ When the user plans something ("remind me", "every morning", "in 2 hours"):
    - "every 30 minutes" → interval "1800"
    - "tomorrow at 10" → once "YYYY-MM-DDT10:00:00" (calculate the actual date!)
    - "weekdays at 9" → cron "0 9 * * 1-5"
+   - "every Monday at 9" → cron "0 9 * * 1"
 2. Choose the right delivery mode:
    - User wants result via Telegram/Discord/Email → delivery="announce", channel="telegram"
    - User just wants a reminder → delivery="review" (shows in UI)
    - User says nothing specific → delivery="log" (log only)
 3. Formulate the message so AIfred knows what to do at execution time.
-   Example: "Summarize the last 5 unread emails and give me a brief overview."
+
+TYPICAL USE CASES (suggest these proactively when appropriate):
+
+Email summary:
+  scheduler_create(name="email_summary", schedule_type="cron", schedule_expr="0 7 * * *",
+    message="Check my recent unread emails using the email tool (action=check). Summarize the key points briefly.",
+    delivery="announce", channel="telegram")
+
+Calendar reminder:
+  scheduler_create(name="calendar_morning", schedule_type="cron", schedule_expr="0 8 * * 1-5",
+    message="Check my appointments for today using epim_search (entity_type=tasks, date_from=today, date_to=today). List them chronologically.",
+    delivery="announce", channel="telegram")
+
+One-time reminder:
+  scheduler_create(name="doctor_reminder", schedule_type="once", schedule_expr="2026-03-30T09:30:00",
+    message="Reminder: Doctor's appointment at 10:00!",
+    delivery="announce", channel="telegram")
+
+Periodic status check:
+  scheduler_create(name="server_health", schedule_type="interval", schedule_expr="3600",
+    message="Run a quick system status check. Report only problems.",
+    delivery="review")
 
 When the user asks "what did I schedule" or "show my jobs" → scheduler_list
 When the user says "delete job X" or "stop the reminder" → scheduler_delete

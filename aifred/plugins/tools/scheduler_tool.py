@@ -58,12 +58,16 @@ class SchedulerPlugin:
             if webhook_url:
                 payload["webhook_url"] = webhook_url
 
+            # Jobs run as cron — cap at cron default tier, not the creator's tier
+            from ...lib.security import DEFAULT_TIER_BY_SOURCE
+            job_tier = DEFAULT_TIER_BY_SOURCE.get("cron", 1)
+
             job = store.add(
                 name=name,
                 schedule_type=schedule_type,
                 schedule_expr=schedule_expr,
                 payload=payload,
-                max_tier=ctx.max_tier,
+                max_tier=job_tier,
             )
             log_message(f"Scheduler: job '{name}' created (id={job.job_id}, next={job.next_run})")
             return json.dumps({
