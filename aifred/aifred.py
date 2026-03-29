@@ -161,11 +161,32 @@ const callback = function(mutationsList, observer) {
 
     // Lazy-attach observer to chat-history-box when it appears
     // (it's conditionally rendered after backend_initializing=False)
-    if (!chatObserverAttached && chatBox) {
+    // Also re-attach after reconnect (container gets destroyed + recreated)
+    if (chatBox && (!chatObserverAttached || !chatBox._observerAttached)) {
         const chatObserver = new MutationObserver(callback);
         chatObserver.observe(chatBox, observerConfig);
         attachScrollTracker(chatBox);
+        chatBox._observerAttached = true;
         chatObserverAttached = true;
+        // Scroll to bottom on (re)attach — catches reconnect scenario.
+        // Poll until content stabilizes (same approach as page-load).
+        let _reattachLastH = 0;
+        let _reattachStable = 0;
+        const _reattachScroll = setInterval(() => {
+            const cb = document.getElementById('chat-history-box');
+            const db = document.getElementById('debug-console-box');
+            if (cb) cb.scrollTop = cb.scrollHeight;
+            if (db) db.scrollTop = db.scrollHeight;
+            const h = cb ? cb.scrollHeight : 0;
+            if (h === _reattachLastH) { _reattachStable++; } else { _reattachStable = 0; }
+            _reattachLastH = h;
+            if (_reattachStable >= 3) {
+                clearInterval(_reattachScroll);
+                if (cb) { cb.scrollTop = cb.scrollHeight; trackScrollState(cb); }
+                if (db) { db.scrollTop = db.scrollHeight; trackScrollState(db); }
+            }
+        }, 300);
+        setTimeout(() => clearInterval(_reattachScroll), 10000);
     }
 
     // Start/stop streaming scroll based on whether streaming box exists
@@ -287,20 +308,42 @@ function initialize() {
     setTimeout(() => {
         setupObservers();
         makeLinksOpenInNewTab();
-        // On page load/reload: scroll chat + debug to bottom
-        const chatBox = document.getElementById('chat-history-box');
-        const debugBox = document.getElementById('debug-console-box');
-        if (chatBox) { chatBox.scrollTop = chatBox.scrollHeight; trackScrollState(chatBox); }
-        if (debugBox) { debugBox.scrollTop = debugBox.scrollHeight; trackScrollState(debugBox); }
     }, 1500);
 
-    // Second retry for slow-loading sessions (large chat history)
-    setTimeout(() => {
+    // On page load/reload: scroll chat + debug to bottom once content stabilizes.
+    // Polls every 300ms until scrollHeight stops changing, then does one final scroll.
+    let _lastChatHeight = 0;
+    let _lastDebugHeight = 0;
+    let _stableCount = 0;
+    const _loadScrollInterval = setInterval(() => {
         const chatBox = document.getElementById('chat-history-box');
         const debugBox = document.getElementById('debug-console-box');
-        if (chatBox) { chatBox.scrollTop = chatBox.scrollHeight; trackScrollState(chatBox); }
-        if (debugBox) { debugBox.scrollTop = debugBox.scrollHeight; trackScrollState(debugBox); }
-    }, 3000);
+        const chatH = chatBox ? chatBox.scrollHeight : 0;
+        const debugH = debugBox ? debugBox.scrollHeight : 0;
+
+        // Scroll on every check (smooth catch-up)
+        if (chatBox) { chatBox.scrollTop = chatBox.scrollHeight; }
+        if (debugBox) { debugBox.scrollTop = debugBox.scrollHeight; }
+
+        // Check if heights stabilized
+        if (chatH === _lastChatHeight && debugH === _lastDebugHeight) {
+            _stableCount++;
+        } else {
+            _stableCount = 0;
+        }
+        _lastChatHeight = chatH;
+        _lastDebugHeight = debugH;
+
+        // Stop after 3 stable checks (~900ms of no change) or max 10s
+        if (_stableCount >= 3) {
+            clearInterval(_loadScrollInterval);
+            // Final scroll + track state
+            if (chatBox) { chatBox.scrollTop = chatBox.scrollHeight; trackScrollState(chatBox); }
+            if (debugBox) { debugBox.scrollTop = debugBox.scrollHeight; trackScrollState(debugBox); }
+        }
+    }, 300);
+    // Safety: stop after 10s regardless
+    setTimeout(() => clearInterval(_loadScrollInterval), 10000);
 }
 
 // Note: NO periodic setInterval for auto-scroll. The MutationObserver
