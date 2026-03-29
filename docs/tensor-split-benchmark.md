@@ -12,7 +12,7 @@ measured through AIfred's multi-agent tribunal system (AIfred + Sokrates + Salom
 | Parameter | Value |
 |-----------|-------|
 | **Model** | Qwen3-Next-80B-A3B-Instruct-Q4_K_M (46.6 GB) |
-| **Hardware** | RTX 8000 (CUDA0, 48 GB GDDR6) + Tesla P40 (CUDA1, 24 GB GDDR5X) |
+| **Hardware** | RTX 8000 (CUDA0, 48 GB GDDR6, USB4 eGPU) + Tesla P40 (CUDA1, 24 GB GDDR5X, OCuLink eGPU), both PCIe 3.0 x4 |
 | **CUDA order** | `CUDA_DEVICE_ORDER=FASTEST_FIRST` |
 | **Prompt** | "Ist Wasser nass?" (philosophical question, 6-turn multi-agent debate) |
 | **Mode** | Auto-Consensus (AIfred → Sokrates R1 → Salomo R1 → AIfred R2 → Sokrates R2 → Salomo R2) |

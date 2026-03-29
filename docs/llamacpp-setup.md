@@ -97,7 +97,7 @@ export GGML_CUDA_GRAPH_OPT=1           # 10-15% faster token generation
 
 ## Benchmark: Tesla P40 (2x 24 GB, llama.cpp v8076)
 
-Date: 2026-02-17. Hardware: 2x Tesla P40 (24 GB GDDR5X, PCIe x16).
+Date: 2026-02-17. Hardware: 2x Tesla P40 (24 GB GDDR5X, PCIe 3.0 x4 via OCuLink eGPU).
 llama.cpp version: 8076 (d61290111), compiled with `GGML_CUDA=ON`.
 
 **Test prompt:** `"Write a short poem about the sun in exactly 4 lines."` (21 tokens, max_tokens=100)
