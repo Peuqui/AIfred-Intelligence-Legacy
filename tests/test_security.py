@@ -1,6 +1,7 @@
 """Tests for aifred.lib.security — tier filtering, sanitization, audit, rate limiting."""
 
 import json
+import os
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -14,6 +15,7 @@ from aifred.lib.security import (
     TIER_READONLY,
     TIER_WRITE_DATA,
     TIER_WRITE_SYSTEM,
+    OWNER_TIER,
     DEFAULT_TIER_BY_SOURCE,
     RateLimitReached,
     _RateTracker,
@@ -21,6 +23,7 @@ from aifred.lib.security import (
     check_rate_limit,
     filter_tools_by_tier,
     needs_confirmation,
+    resolve_tier_for_sender,
     sanitize_inbound,
     sanitize_outbound,
     sanitize_tool_output,
@@ -186,7 +189,7 @@ class TestNeedsConfirmation:
         assert needs_confirmation("email", TIER_READONLY) is False
         assert needs_confirmation("discord", TIER_COMMUNICATE) is False
 
-    def test_external_write_blocked(self):
+    def test_external_write_blocked_without_override(self):
         assert needs_confirmation("email", TIER_WRITE_DATA) is True
         assert needs_confirmation("discord", TIER_WRITE_SYSTEM) is True
         assert needs_confirmation("telegram", TIER_ADMIN) is True
@@ -196,6 +199,54 @@ class TestNeedsConfirmation:
 
     def test_webhook_write_blocked(self):
         assert needs_confirmation("webhook", TIER_WRITE_DATA) is True
+
+    def test_owner_override_allows_write(self):
+        """When max_tier >= tool_tier, the tool was explicitly allowed."""
+        assert needs_confirmation("telegram", TIER_WRITE_DATA, max_tier=TIER_WRITE_DATA) is False
+        assert needs_confirmation("email", TIER_WRITE_DATA, max_tier=TIER_WRITE_DATA) is False
+
+    def test_owner_override_still_blocks_above_tier(self):
+        """Tools above the resolved max_tier are still blocked."""
+        assert needs_confirmation("telegram", TIER_WRITE_SYSTEM, max_tier=TIER_WRITE_DATA) is True
+
+
+# ── Sender Tier Override ──────────────────────────────────────
+
+class TestResolveTierForSender:
+    def test_browser_always_admin(self):
+        assert resolve_tier_for_sender("browser", "anyone") == TIER_ADMIN
+
+    def test_unknown_channel_gets_communicate(self):
+        assert resolve_tier_for_sender("unknown_channel", "user") == TIER_COMMUNICATE
+
+    def test_telegram_non_owner_gets_default(self):
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": "111, 222"}):
+            # User 333 is not the owner (first in list)
+            assert resolve_tier_for_sender("telegram", "SomeName", {"user_id": 333}) == TIER_COMMUNICATE
+
+    def test_telegram_owner_gets_elevated(self):
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": "111, 222"}):
+            # User 111 is the owner (first in list)
+            tier = resolve_tier_for_sender("telegram", "OwnerName", {"user_id": 111})
+            assert tier == OWNER_TIER
+
+    def test_email_owner_gets_elevated(self):
+        with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}):
+            tier = resolve_tier_for_sender("email", '"Owner" <owner@mail.de>')
+            assert tier == OWNER_TIER
+
+    def test_email_non_owner_gets_default(self):
+        with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}):
+            tier = resolve_tier_for_sender("email", '"Friend" <friend@mail.de>')
+            assert tier == TIER_COMMUNICATE
+
+    def test_empty_whitelist_no_owner(self):
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": ""}):
+            assert resolve_tier_for_sender("telegram", "Anyone", {"user_id": 111}) == TIER_COMMUNICATE
+
+    def test_star_whitelist_no_owner(self):
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": "*"}):
+            assert resolve_tier_for_sender("telegram", "Anyone", {"user_id": 111}) == TIER_COMMUNICATE
 
 
 # ── Rate Limiting ─────────────────────────────────────────────

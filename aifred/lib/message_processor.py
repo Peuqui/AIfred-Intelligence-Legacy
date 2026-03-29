@@ -97,8 +97,8 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
     import asyncio
 
     # 0. Determine security tier for this channel
-    from .security import DEFAULT_TIER_BY_SOURCE
-    max_tier = DEFAULT_TIER_BY_SOURCE.get(message.channel, 1)
+    from .security import resolve_tier_for_sender
+    max_tier = resolve_tier_for_sender(message.channel, message.sender, message.metadata)
 
     # 1. Sanitize inbound text (strip HTML, zero-width chars, normalize)
     from .security import sanitize_inbound

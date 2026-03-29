@@ -56,6 +56,7 @@ class ToolKit:
     tools: list[Tool] = field(default_factory=list)
     _session_id: str = ""   # Audit context
     _source: str = ""       # Audit context (browser/email/discord/…)
+    _max_tier: int = 4      # Resolved max tier for this context
     _call_count: int = 0    # Chain depth counter (resets per LLM request)
 
     def __post_init__(self) -> None:
@@ -100,7 +101,7 @@ class ToolKit:
 
         # Rule of Two: block write-tier tools from external sources
         from .security import needs_confirmation
-        if needs_confirmation(self._source, tool.tier):
+        if needs_confirmation(self._source, tool.tier, self._max_tier):
             msg = (
                 f"Action '{name}' (tier {tool.tier}) blocked — "
                 f"write operations from external channel '{self._source}' "

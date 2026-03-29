@@ -447,6 +447,7 @@ async def prepare_agent_toolkit(
         tools=all_tools,
         _session_id=session_id or "",
         _source=source,
+        _max_tier=max_tier,
     ) if all_tools else None
     return memory_ctx, toolkit
 

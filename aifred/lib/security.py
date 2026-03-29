@@ -43,6 +43,63 @@ DEFAULT_TIER_BY_SOURCE: dict[str, int] = {
 }
 
 
+# Owner tier: what the owner gets when messaging via external channels.
+# Higher than the channel default, but not full admin (no shell/code).
+OWNER_TIER = TIER_WRITE_DATA  # Owner can create/update data, but not delete system files
+
+
+def resolve_tier_for_sender(
+    channel: str, sender: str, metadata: dict | None = None,
+) -> int:
+    """Determine the max tier for a sender on a channel.
+
+    If the sender is the owner (matched via channel-specific allowlist),
+    they get OWNER_TIER. Otherwise, the channel default applies.
+    """
+    channel_default = DEFAULT_TIER_BY_SOURCE.get(channel, TIER_COMMUNICATE)
+
+    if _is_owner(channel, sender, metadata or {}):
+        return max(channel_default, OWNER_TIER)
+
+    return channel_default
+
+
+def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
+    """Check if a sender is the owner for a given channel.
+
+    Uses the channel's allowed_users/allowed_senders list from the broker.
+    The FIRST entry in the whitelist is considered the owner.
+    """
+    from .credential_broker import broker
+
+    if channel == "telegram":
+        allowed = broker.get("telegram", "allowed_users").strip()
+        if not allowed or allowed == "*":
+            return False
+        first_id = allowed.split(",")[0].strip()
+        # Use user_id from metadata (more reliable than display name)
+        user_id = str(metadata.get("user_id", ""))
+        return user_id == first_id
+
+    if channel == "email":
+        allowed = broker.get("email", "allowed_senders").strip()
+        if not allowed or allowed == "*":
+            return False
+        first_entry = allowed.split(",")[0].strip().lower()
+        # Extract email from sender like '"Name" <user@mail.de>'
+        import re
+        match = re.search(r'[\w.+-]+@[\w.-]+', sender.lower())
+        sender_email = match.group(0) if match else sender.lower()
+        return sender_email == first_entry or sender_email.endswith(first_entry)
+
+    if channel == "discord":
+        # Discord doesn't have a simple owner concept in the whitelist.
+        # For now, all whitelisted Discord users get channel default.
+        return False
+
+    return False
+
+
 # ============================================================
 # TIER FILTERING
 # ============================================================
@@ -185,13 +242,19 @@ class RateLimitReached(Exception):
 # This is the "Rule of Two": max 2 of 3 (untrusted input, sensitive access,
 # state change). When all 3 apply, the call is blocked.
 
-def needs_confirmation(source: str, tool_tier: int) -> bool:
+def needs_confirmation(source: str, tool_tier: int, max_tier: int = -1) -> bool:
     """Check if a tool call needs human confirmation.
 
-    Returns True when an external source tries to use a write-tier tool.
-    Browser context never needs confirmation (user is present).
+    Returns True when an external source tries to use a write-tier tool
+    that was NOT explicitly allowed by the tier resolution (owner override).
+
+    If max_tier is provided and tool_tier <= max_tier, the tool was
+    explicitly allowed (e.g. owner sending via Telegram) — no confirmation.
     """
     if source == "browser":
+        return False
+    # If the tool was explicitly allowed by resolve_tier_for_sender, trust it
+    if max_tier >= 0 and tool_tier <= max_tier:
         return False
     return tool_tier >= TIER_WRITE_DATA
 
