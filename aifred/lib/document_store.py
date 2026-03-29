@@ -243,6 +243,7 @@ class DocumentStore:
                 "chunk_index": i,
                 "total_chunks": len(chunks),
                 "upload_date": now,
+                "source_trust": "trusted",  # Documents uploaded via UI are trusted
             }
             for i in range(len(chunks))
         ]

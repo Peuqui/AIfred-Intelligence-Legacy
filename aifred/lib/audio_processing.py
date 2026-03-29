@@ -1094,9 +1094,10 @@ def generate_speech_dashscope(text: str, speed: float = 1.0, voice_choice: str =
     try:
         import dashscope
 
-        api_key = os.environ.get("DASHSCOPE_API_KEY")
+        from .credential_broker import broker
+        api_key = broker.get("cloud_qwen", "api_key")
         if not api_key:
-            log_message("❌ DashScope TTS: DASHSCOPE_API_KEY not set")
+            log_message("❌ DashScope TTS: API key not configured")
             return None
 
         dashscope.base_http_api_url = DASHSCOPE_TTS_BASE_URL
@@ -1217,9 +1218,10 @@ class DashScopeRealtimeTTS:
         """Open WebSocket connection and configure session."""
         import base64
 
-        api_key = os.environ.get("DASHSCOPE_API_KEY")
+        from .credential_broker import broker
+        api_key = broker.get("cloud_qwen", "api_key")
         if not api_key:
-            log_message("❌ DashScope RT: DASHSCOPE_API_KEY not set")
+            log_message("❌ DashScope RT: API key not configured")
             return
 
         from dashscope.audio.qwen_tts_realtime import (

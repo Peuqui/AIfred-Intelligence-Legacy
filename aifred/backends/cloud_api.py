@@ -6,7 +6,6 @@ All providers use OpenAI-compatible endpoints.
 chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 """
 
-import os
 import logging
 from typing import List, Optional, Dict, Any
 import openai
@@ -185,10 +184,10 @@ class CloudAPIBackend(OpenAICompatibleBackend):
 
 def get_cloud_api_key(provider: str) -> Optional[str]:
     """
-    Get API key for a cloud provider from environment variables.
+    Get API key for a cloud provider via credential broker.
 
     Args:
-        provider: Provider ID ("claude", "qwen", or "kimi")
+        provider: Provider ID ("claude", "qwen", "deepseek", or "kimi")
 
     Returns:
         API key string or None if not configured
@@ -196,8 +195,9 @@ def get_cloud_api_key(provider: str) -> Optional[str]:
     if provider not in CLOUD_API_PROVIDERS:
         return None
 
-    env_key = CLOUD_API_PROVIDERS[provider]["env_key"]
-    return os.environ.get(env_key)
+    from ..lib.credential_broker import broker
+    key = broker.get(f"cloud_{provider}", "api_key")
+    return key if key else None
 
 
 def is_cloud_api_configured(provider: str) -> bool:
