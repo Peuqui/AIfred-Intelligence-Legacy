@@ -929,8 +929,11 @@ async def _message_hub_lifespan():
     from .lib.message_hub import message_hub  # noqa: E402
     from .lib.logging_utils import log_message as _log  # noqa: E402
 
-    # Register channel workers
+    # Register channel workers + scheduler
     _register_message_hub_workers(message_hub)
+
+    from .lib.scheduler import scheduler_loop  # noqa: E402
+    message_hub.register("scheduler", scheduler_loop)
 
     _log("Message Hub: initializing...")
     await message_hub.start_all()
