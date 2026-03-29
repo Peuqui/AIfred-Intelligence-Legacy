@@ -94,6 +94,11 @@ class EmailChannel(BaseChannel):
                 label_key="email_cred_from",
                 placeholder="Display Name",
             ),
+            CredentialField(
+                env_key="EMAIL_ALLOWED_SENDERS",
+                label_key="email_cred_allowed_senders",
+                placeholder="user@example.com, @family.de",
+            ),
         ]
 
     def is_configured(self) -> bool:
@@ -180,6 +185,12 @@ class EmailChannel(BaseChannel):
                                 _fetch_email_as_inbound, imap, uid
                             )
                             if inbound:
+                                if not _is_sender_allowed(inbound.sender):
+                                    log_message(
+                                        f"Email Plugin: blocked mail from {inbound.sender} "
+                                        f"(not in whitelist)"
+                                    )
+                                    continue
                                 log_message(
                                     f"Email Plugin: new mail from {inbound.sender} "
                                     f"— {inbound.metadata.get('subject', '?')}"
@@ -255,6 +266,46 @@ class EmailChannel(BaseChannel):
             "in_reply_to": message.metadata.get("message_id", ""),
             "references": message.metadata.get("message_id", ""),
         }
+
+
+# ── Sender whitelist ──────────────────────────────────────────
+
+def _is_sender_allowed(sender: str) -> bool:
+    """Check if an email sender is in the whitelist.
+
+    Whitelist from EMAIL_ALLOWED_SENDERS env var:
+    - Empty = nobody allowed (safe default)
+    - "*" = everyone allowed
+    - Comma-separated addresses/domains: "user@mail.de, @family.de"
+      - "@domain.de" matches any address at that domain
+    """
+    import os
+    whitelist_raw = os.environ.get("EMAIL_ALLOWED_SENDERS", "").strip()
+
+    if not whitelist_raw:
+        return False
+
+    if whitelist_raw == "*":
+        return True
+
+    # Extract email address from sender string like '"Lord Helmchen" <user@mail.de>'
+    sender_lower = sender.lower()
+    import re
+    match = re.search(r'[\w.+-]+@[\w.-]+', sender_lower)
+    sender_email = match.group(0) if match else sender_lower
+
+    entries = [e.strip().lower() for e in whitelist_raw.split(",") if e.strip()]
+    for entry in entries:
+        if entry.startswith("@"):
+            # Domain match
+            if sender_email.endswith(entry):
+                return True
+        else:
+            # Exact address match
+            if sender_email == entry:
+                return True
+
+    return False
 
 
 # ── IMAP helpers (moved from imap_listener.py) ───────────────

@@ -138,6 +138,7 @@ class TranslationManager:
             "email_cred_user": "Benutzername / E-Mail",
             "email_cred_password": "Passwort",
             "email_cred_from": "Anzeigename (optional)",
+            "email_cred_allowed_senders": "Erlaubte Absender (* = alle, leer = keine)",
             # Discord credential labels
             "discord_cred_bot_token": "Bot Token",
             "discord_cred_channel_ids": "Channel IDs (kommagetrennt)",
@@ -484,6 +485,7 @@ class TranslationManager:
             "email_cred_user": "Username / Email",
             "email_cred_password": "Password",
             "email_cred_from": "Display Name (optional)",
+            "email_cred_allowed_senders": "Allowed senders (* = all, empty = none)",
             # Discord credential labels
             "discord_cred_bot_token": "Bot Token",
             "discord_cred_channel_ids": "Channel IDs (comma-separated)",
