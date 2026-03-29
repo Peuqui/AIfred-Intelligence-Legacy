@@ -839,6 +839,8 @@ console.log('✂️ Crop handler loaded');
 
             spacing="4",
             width="100%",
+            height="100%",
+            overflow="hidden",  # Inner container also locked — no page scroll
             padding="16",  # Padding rundherum (64px) - deutlich größer!
             max_width="1200px",  # Festgelegte maximale Breite
             margin="0 auto",  # Zentriert
@@ -846,7 +848,8 @@ console.log('✂️ Crop handler loaded');
         ),
 
         width="100%",
-        min_height="100vh",
+        height="100vh",
+        overflow="hidden",  # Page never scrolls — only inner canvases (chat, debug)
         background_color=COLORS["page_bg"],
         display="flex",
         justify_content="center",
