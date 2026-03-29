@@ -596,6 +596,10 @@ def delete_session(session_id: str) -> bool:
         from .audio_processing import cleanup_session_audio
         cleanup_session_audio(session_id)
 
+        # Remove routing table entries (Hub channels → this session)
+        from .routing_table import routing_table
+        routing_table.delete_routes_for_session(session_id)
+
         return True
     except (ValueError, IOError):
         return False
