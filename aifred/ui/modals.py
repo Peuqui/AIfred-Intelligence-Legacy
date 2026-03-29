@@ -1258,3 +1258,99 @@ def plugin_manager_modal() -> rx.Component:
             align_items="center",
         ),
     )
+
+
+# ============================================================
+# AUDIT LOG MODAL
+# ============================================================
+
+def audit_log_modal() -> rx.Component:
+    """Modal showing recent tool execution audit log."""
+
+    def _audit_row(entry: dict) -> rx.Component:
+        return rx.table.row(
+            rx.table.cell(rx.text(entry["timestamp"], font_size="11px"), white_space="nowrap"),
+            rx.table.cell(rx.text(entry["source"], font_size="11px")),
+            rx.table.cell(rx.text(entry["tool_name"], font_size="11px", font_weight="500")),
+            rx.table.cell(rx.text(entry["tool_tier"], font_size="11px")),
+            rx.table.cell(
+                rx.cond(
+                    entry["success"] == "OK",
+                    rx.text("OK", font_size="11px", color="green"),
+                    rx.text("FAIL", font_size="11px", color="red"),
+                )
+            ),
+            rx.table.cell(rx.text(entry["duration"], font_size="11px")),
+        )
+
+    return rx.cond(
+        AIState.audit_log_open,
+        rx.box(
+            # Backdrop
+            rx.box(
+                on_click=AIState.close_audit_log,
+                position="fixed",
+                top="0", left="0",
+                width="100vw", height="100vh",
+                bg="rgba(0,0,0,0.5)",
+                z_index="1000",
+            ),
+            # Modal content
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("shield-check", size=18),
+                        rx.text("Audit Log", font_weight="bold", font_size="14px"),
+                        rx.box(flex="1"),
+                        rx.icon_button(
+                            rx.icon("x", size=14),
+                            on_click=AIState.close_audit_log,
+                            size="1", variant="ghost",
+                        ),
+                        align="center",
+                        width="100%",
+                    ),
+                    rx.text("Last 50 tool executions", font_size="11px", color="gray"),
+                    rx.box(
+                        rx.table.root(
+                            rx.table.header(
+                                rx.table.row(
+                                    rx.table.column_header_cell(rx.text("Time", font_size="11px")),
+                                    rx.table.column_header_cell(rx.text("Source", font_size="11px")),
+                                    rx.table.column_header_cell(rx.text("Tool", font_size="11px")),
+                                    rx.table.column_header_cell(rx.text("Tier", font_size="11px")),
+                                    rx.table.column_header_cell(rx.text("Status", font_size="11px")),
+                                    rx.table.column_header_cell(rx.text("Duration", font_size="11px")),
+                                ),
+                            ),
+                            rx.table.body(
+                                rx.foreach(AIState.audit_log_entries, _audit_row),
+                            ),
+                            width="100%",
+                            size="1",
+                        ),
+                        max_height="400px",
+                        overflow_y="auto",
+                        width="100%",
+                    ),
+                    spacing="3",
+                    width="100%",
+                ),
+                background="#1a1a2e",
+                border_radius="12px",
+                border="1px solid var(--gray-a6)",
+                padding="16px",
+                width="700px",
+                max_width="95vw",
+                position="relative",
+                z_index="1001",
+            ),
+            position="fixed",
+            top="0", left="0",
+            width="100vw", height="100vh",
+            z_index="1000",
+            display="flex",
+            justify_content="center",
+            align_items="center",
+        ),
+    )

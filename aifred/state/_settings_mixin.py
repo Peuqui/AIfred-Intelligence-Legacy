@@ -39,6 +39,10 @@ class SettingsMixin(rx.State, mixin=True):
     plugin_manager_open: bool = False
     tool_plugins: list[dict[str, str]] = []  # [{"name": "epim", "file": "...", "enabled": "1"}, ...]
 
+    # ── Audit Log Modal ──────────────────────────────────────────
+    audit_log_open: bool = False
+    audit_log_entries: list[dict[str, str]] = []  # [{timestamp, source, tool_name, ...}]
+
     # ── Settings File Tracking ────────────────────────────────────
     _last_settings_mtime: float = 0.0  # Last seen settings.json mtime (for multi-browser sync)
 
@@ -681,6 +685,41 @@ class SettingsMixin(rx.State, mixin=True):
             else:
                 updated.append(p)
         self.tool_plugins = updated
+
+    # ================================================================
+    # AUDIT LOG MODAL
+    # ================================================================
+
+    def open_audit_log(self) -> None:
+        """Load recent audit log entries and open modal."""
+        import sqlite3
+        from ..lib.config import SECURITY_AUDIT_DB
+
+        entries: list[dict[str, str]] = []
+        db_path = SECURITY_AUDIT_DB
+        if db_path.exists():
+            conn = sqlite3.connect(str(db_path), timeout=5)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM tool_audit ORDER BY timestamp DESC LIMIT 50"
+            ).fetchall()
+            conn.close()
+            for r in rows:
+                entries.append({
+                    "timestamp": r["timestamp"] or "",
+                    "source": r["source"] or "",
+                    "tool_name": r["tool_name"] or "",
+                    "tool_tier": str(r["tool_tier"]),
+                    "success": "OK" if r["success"] else "FAIL",
+                    "duration": f"{r['duration_ms']:.0f}ms" if r["duration_ms"] else "",
+                    "args": (r["tool_args_preview"] or "")[:100],
+                })
+
+        self.audit_log_entries = entries
+        self.audit_log_open = True
+
+    def close_audit_log(self) -> None:
+        self.audit_log_open = False
 
     # ================================================================
     # TRANSLATION HELPER

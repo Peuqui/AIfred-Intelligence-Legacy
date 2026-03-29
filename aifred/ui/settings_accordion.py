@@ -1349,6 +1349,23 @@ def settings_accordion() -> rx.Component:
                     width="100%",
                 ),
 
+                # Audit Log Button
+                rx.divider(),
+                rx.hstack(
+                    rx.text("Audit Log", font_weight="bold", font_size="12px"),
+                    rx.box(flex="1"),
+                    rx.icon_button(
+                        rx.icon("shield-check", size=14),
+                        on_click=AIState.open_audit_log,
+                        size="1",
+                        variant="ghost",
+                        color_scheme="gray",
+                        cursor="pointer",
+                    ),
+                    align="center",
+                    width="100%",
+                ),
+
                 # Restart Buttons
                 rx.divider(),
                 rx.text(t("system_control"), font_weight="bold", font_size="12px"),
